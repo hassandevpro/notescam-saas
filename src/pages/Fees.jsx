@@ -8,6 +8,8 @@ import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
 
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const AVT_COLORS = [
@@ -32,6 +34,26 @@ function feeStatus(fee) {
   return 'unpaid';
 }
 
+function isOverdue(fee) {
+  if (!fee?.tranches?.length) return false;
+  const today = todayISO();
+  const amountDue = fee.tranches
+    .filter((t) => t.due_date && t.due_date <= today)
+    .reduce((s, t) => s + (t.amount || 0), 0);
+  return amountDue > 0 && amountDue > (fee.frais_payes || 0);
+}
+
+function trancheStatus(tranche, fee) {
+  const today = todayISO();
+  const idx = (fee?.tranches ?? []).findIndex((t) => t.id === tranche.id);
+  const amountDueHere = (fee?.tranches ?? [])
+    .slice(0, idx + 1)
+    .reduce((s, t) => s + (t.amount || 0), 0);
+  if ((fee?.frais_payes || 0) >= amountDueHere) return 'covered';
+  if (tranche.due_date && tranche.due_date < today) return 'overdue';
+  return 'upcoming';
+}
+
 function fmt(n) {
   if (n == null || n === 0) return '0';
   return Number(n).toLocaleString('fr-FR');
@@ -42,6 +64,12 @@ const STATUS_CONFIG = {
   partial: { label: 'Partiel',       color: 'bg-amber-100 text-amber-700' },
   unpaid:  { label: 'Non payé',      color: 'bg-red-100 text-red-600' },
   none:    { label: 'Non défini',    color: 'bg-gray-100 text-gray-500' },
+};
+
+const TRANCHE_STATUS_CFG = {
+  covered:  { label: 'Couverte',   dot: 'bg-emerald-500', text: 'text-emerald-700' },
+  upcoming: { label: 'À venir',    dot: 'bg-gray-300',    text: 'text-gray-500' },
+  overdue:  { label: 'En retard',  dot: 'bg-red-500',     text: 'text-red-600' },
 };
 
 const PAGE_SIZE = 25;
@@ -156,47 +184,105 @@ function BulkFeeModal({ classes, students, activeYear, saveFee, onClose }) {
   );
 }
 
-// ── Panneau de saisie rapide ──────────────────────────────────────────────────
+// ── Panneau de gestion étendu ─────────────────────────────────────────────────
 
-function PaymentPanel({ student, fee, activeYear, onSave, onClose, onPrintReceipt }) {
+function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDeletePayment, onSaveFee, onClose, onPrintReceipt }) {
   const t = useT();
-  const [fraisAnnuels, setFraisAnnuels] = useState(fee?.frais_annuels ?? '');
-  const [montant,      setMontant]      = useState('');
-  const [date,         setDate]         = useState(new Date().toISOString().slice(0, 10));
-  const [saving,       setSaving]       = useState(false);
+
+  const [tab,          setTab]          = useState('versements');
+  const [fraisAnnuels, setFraisAnnuels] = useState(String(fee?.frais_annuels ?? ''));
+  const [savingFrais,  setSavingFrais]  = useState(false);
   const [lastPayment,  setLastPayment]  = useState(null);
 
-  const parsedMontant    = parseInt(montant, 10) || 0;
-  const parsedFraisAnnuels = parseInt(fraisAnnuels, 10) || 0;
-  const newTotal = (fee?.frais_payes ?? 0) + parsedMontant;
+  // Versements
+  const [montant,  setMontant]  = useState('');
+  const [date,     setDate]     = useState(todayISO());
+  const [note,     setNote]     = useState('');
+  const [saving,   setSaving]   = useState(false);
+  const [deleting, setDeleting] = useState(null);
 
-  const handleSave = async () => {
+  // Tranches
+  const [tranches,      setTranches]      = useState(fee?.tranches ?? []);
+  const [tLabel,        setTLabel]        = useState('');
+  const [tAmount,       setTAmount]       = useState('');
+  const [tDate,         setTDate]         = useState('');
+  const [savingTranche, setSavingTranche] = useState(false);
+
+  const handleSaveFrais = async () => {
+    setSavingFrais(true);
+    await onSaveFee(student.id, { frais_annuels: parseInt(fraisAnnuels, 10) || 0, academic_year: activeYear });
+    setSavingFrais(false);
+  };
+
+  const handleAddPayment = async () => {
+    const parsed = parseInt(montant, 10) || 0;
+    if (!parsed) return;
     setSaving(true);
-    await onSave(student.id, {
-      frais_annuels:         parsedFraisAnnuels,
-      frais_payes:           montant ? newTotal : (fee?.frais_payes ?? 0),
-      date_dernier_paiement: montant ? date : (fee?.date_dernier_paiement ?? null),
-      academic_year: activeYear,
-    });
+    const rec = await onAddPayment(student.id, { amount: parsed, date, note });
     setSaving(false);
-    if (montant) {
-      setLastPayment({ versement: parsedMontant, newTotal, fraisAnnuels: parsedFraisAnnuels, date });
-      setMontant('');
-    } else {
-      onClose();
+    if (rec) {
+      setLastPayment({
+        versement: parsed,
+        newTotal: (fee?.frais_payes ?? 0) + parsed,
+        fraisAnnuels: parseInt(fraisAnnuels, 10) || (fee?.frais_annuels ?? 0),
+        date,
+      });
+      setMontant(''); setNote('');
     }
   };
 
+  const handleDeletePayment = async (paymentId) => {
+    setDeleting(paymentId);
+    await onDeletePayment(paymentId, student.id);
+    setDeleting(null);
+    setLastPayment(null);
+  };
+
+  const handleAddTranche = async () => {
+    const parsed = parseInt(tAmount, 10) || 0;
+    if (!parsed) return;
+    const newT = {
+      id:       crypto.randomUUID(),
+      label:    tLabel.trim() || `Tranche ${tranches.length + 1}`,
+      amount:   parsed,
+      due_date: tDate || null,
+    };
+    const updated = [...tranches, newT];
+    setTranches(updated);
+    setTLabel(''); setTAmount(''); setTDate('');
+    setSavingTranche(true);
+    await onSaveFee(student.id, { tranches: updated, academic_year: activeYear });
+    setSavingTranche(false);
+  };
+
+  const handleDeleteTranche = async (id) => {
+    const updated = tranches.filter((t) => t.id !== id);
+    setTranches(updated);
+    await onSaveFee(student.id, { tranches: updated, academic_year: activeYear });
+  };
+
+  const feeForTranches = { ...fee, tranches };
+  const totalTranches  = tranches.reduce((s, t) => s + (t.amount || 0), 0);
+
   return (
     <tr>
-      <td colSpan={8} className="px-5 py-4 bg-brand-50 border-b border-brand-100">
-        <div className="max-w-xl">
-          <p className="text-sm font-semibold text-gray-800 mb-3">
-            {t('Gestion des frais', 'Fee management')} — <span className="text-brand-700">{student.name}</span>
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-            <div>
-              <label className="form-label">{t('Frais annuels (FCFA)', 'Annual fees (FCFA)')}</label>
+      <td colSpan={8} className="px-5 py-4 bg-brand-50/70 border-b border-brand-100">
+        <div className="max-w-2xl space-y-4">
+
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-gray-800">
+              {t('Gestion des frais', 'Fee management')} — <span className="text-brand-700">{student.name}</span>
+            </p>
+            <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded-lg hover:bg-white transition-colors">
+              {t('Fermer', 'Close')}
+            </button>
+          </div>
+
+          {/* Frais annuels */}
+          <div className="flex items-end gap-3 bg-white rounded-xl border border-gray-100 p-3">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-gray-500 mb-1">{t('Frais annuels (FCFA)', 'Annual fees (FCFA)')}</label>
               <input
                 type="number" min="0" step="500"
                 className="form-input"
@@ -205,63 +291,240 @@ function PaymentPanel({ student, fee, activeYear, onSave, onClose, onPrintReceip
                 onChange={(e) => setFraisAnnuels(e.target.value)}
               />
             </div>
-            <div>
-              <label className="form-label">{t('Nouveau versement (FCFA)', 'New payment (FCFA)')}</label>
-              <input
-                type="number" min="0" step="500"
-                className="form-input"
-                placeholder={t('Montant encaissé', 'Amount received')}
-                value={montant}
-                onChange={(e) => setMontant(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="form-label">{t('Date du versement', 'Payment date')}</label>
-              <input type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} />
-            </div>
-          </div>
-          {montant && (
-            <p className="text-xs text-gray-500 mb-3">
-              {t('Total payé après ce versement', 'Total paid after this payment')} :&nbsp;
-              <strong className="text-gray-800">{fmt(newTotal)} FCFA</strong>
-              {parsedFraisAnnuels > 0 && (
-                <span className="ml-2 text-gray-400">
-                  ({t('reste', 'remaining')} {fmt(Math.max(0, parsedFraisAnnuels - newTotal))} FCFA)
-                </span>
-              )}
-            </p>
-          )}
-
-          {/* Confirmation + reçu après enregistrement */}
-          {lastPayment && (
-            <div className="flex items-center gap-3 mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
-              <svg className="w-5 h-5 text-emerald-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
-              </svg>
-              <span className="text-sm text-emerald-700 font-medium flex-1">
-                {t('Versement enregistré', 'Payment saved')} — {fmt(lastPayment.versement)} FCFA
-              </span>
-              <button
-                onClick={() => onPrintReceipt(lastPayment)}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a1 1 0 001 1h8a1 1 0 001-1v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a1 1 0 00-1-1H6a1 1 0 00-1 1zm2 0h6v3H7V4zm-1 9v-1h8v1H6zm8-4a1 1 0 110 2 1 1 0 010-2z" clipRule="evenodd"/></svg>
-                {t('Imprimer le reçu', 'Print receipt')}
-              </button>
-            </div>
-          )}
-
-          <div className="flex gap-2">
             <button
-              onClick={handleSave}
-              disabled={saving}
-              className="btn-primary"
-              style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}
+              onClick={handleSaveFrais}
+              disabled={savingFrais}
+              className="btn-secondary"
+              style={{ width: 'auto', paddingLeft: '1rem', paddingRight: '1rem', marginBottom: '0' }}
             >
-              {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer', 'Save')}
+              {savingFrais ? '…' : t('Sauvegarder', 'Save')}
             </button>
-            <button onClick={onClose} className="btn-secondary">{t('Fermer', 'Close')}</button>
           </div>
+
+          {/* Tabs */}
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit text-xs">
+            {[
+              { id: 'versements', label: `${t('Versements', 'Payments')} (${payments.length})` },
+              { id: 'tranches',   label: `${t('Tranches', 'Installments')} (${tranches.length})` },
+            ].map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={`px-4 py-1.5 rounded-lg font-semibold transition-colors ${
+                  tab === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Tab Versements ── */}
+          {tab === 'versements' && (
+            <div className="space-y-3">
+              {/* Nouveau versement */}
+              <div className="bg-white rounded-xl border border-gray-100 p-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('Nouveau versement', 'New payment')}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  <div>
+                    <label className="form-label">{t('Montant (FCFA)', 'Amount (FCFA)')}</label>
+                    <input
+                      type="number" min="0" step="500"
+                      className="form-input"
+                      placeholder={t('Ex : 50 000', 'E.g. 50,000')}
+                      value={montant}
+                      onChange={(e) => setMontant(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">{t('Date', 'Date')}</label>
+                    <input type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="form-label">{t('Note (optionnelle)', 'Note (optional)')}</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder={t('Ex : espèces', 'E.g. cash')}
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {montant && (
+                  <p className="text-xs text-gray-500 mb-3">
+                    {t('Total après ce versement', 'Total after this payment')} :&nbsp;
+                    <strong className="text-gray-800">{fmt((fee?.frais_payes ?? 0) + (parseInt(montant, 10) || 0))} FCFA</strong>
+                    {(parseInt(fraisAnnuels, 10) || fee?.frais_annuels) > 0 && (
+                      <span className="ml-2 text-gray-400">
+                        ({t('reste', 'balance')} {fmt(Math.max(0, (parseInt(fraisAnnuels, 10) || fee?.frais_annuels || 0) - ((fee?.frais_payes ?? 0) + (parseInt(montant, 10) || 0))))} FCFA)
+                      </span>
+                    )}
+                  </p>
+                )}
+                <button
+                  onClick={handleAddPayment}
+                  disabled={saving || !montant}
+                  className="btn-primary"
+                  style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}
+                >
+                  {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer le versement', 'Record payment')}
+                </button>
+              </div>
+
+              {/* Confirmation + reçu */}
+              {lastPayment && (
+                <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                  <svg className="w-5 h-5 text-emerald-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+                  </svg>
+                  <span className="text-sm text-emerald-700 font-medium flex-1">
+                    {t('Versement enregistré', 'Payment saved')} — {fmt(lastPayment.versement)} FCFA
+                  </span>
+                  <button
+                    onClick={() => onPrintReceipt(lastPayment)}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a1 1 0 001 1h8a1 1 0 001-1v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a1 1 0 00-1-1H6a1 1 0 00-1 1zm2 0h6v3H7V4zm-1 9v-1h8v1H6zm8-4a1 1 0 110 2 1 1 0 010-2z" clipRule="evenodd"/></svg>
+                    {t('Imprimer le reçu', 'Print receipt')}
+                  </button>
+                </div>
+              )}
+
+              {/* Historique */}
+              {payments.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-gray-50 bg-gray-50/60">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      {t('Historique des versements', 'Payment history')} · {payments.length}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {payments.map((p) => (
+                      <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/50 group">
+                        <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                        <span className="text-xs text-gray-500 shrink-0 w-24">
+                          {new Date(p.date).toLocaleDateString('fr-FR')}
+                        </span>
+                        <span className="font-mono font-semibold text-emerald-700 text-sm">
+                          + {fmt(p.amount)} FCFA
+                        </span>
+                        {p.note && (
+                          <span className="text-xs text-gray-400 flex-1 truncate">{p.note}</span>
+                        )}
+                        <button
+                          onClick={() => handleDeletePayment(p.id)}
+                          disabled={deleting === p.id}
+                          title={t('Supprimer ce versement', 'Delete this payment')}
+                          className="opacity-0 group-hover:opacity-100 text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 transition-all disabled:opacity-50"
+                        >
+                          {deleting === p.id ? '…' : '✕'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="px-4 py-2.5 border-t border-gray-50 bg-gray-50/40 text-right">
+                    <span className="text-xs text-gray-500">
+                      {t('Total versé', 'Total paid')} : <strong className="text-gray-800">{fmt(fee?.frais_payes ?? 0)} FCFA</strong>
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {payments.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">{t('Aucun versement enregistré.', 'No payments recorded.')}</p>
+              )}
+            </div>
+          )}
+
+          {/* ── Tab Tranches ── */}
+          {tab === 'tranches' && (
+            <div className="space-y-3">
+              {/* Formulaire ajout */}
+              <div className="bg-white rounded-xl border border-gray-100 p-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('Ajouter une tranche', 'Add installment')}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  <div>
+                    <label className="form-label">{t('Libellé', 'Label')}</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder={t('Ex : 1ère tranche', 'E.g. 1st installment')}
+                      value={tLabel}
+                      onChange={(e) => setTLabel(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">{t('Montant (FCFA)', 'Amount (FCFA)')}</label>
+                    <input
+                      type="number" min="0" step="500"
+                      className="form-input"
+                      placeholder="0"
+                      value={tAmount}
+                      onChange={(e) => setTAmount(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">{t('Date d\'échéance', 'Due date')}</label>
+                    <input type="date" className="form-input" value={tDate} onChange={(e) => setTDate(e.target.value)} />
+                  </div>
+                </div>
+                <button
+                  onClick={handleAddTranche}
+                  disabled={savingTranche || !tAmount}
+                  className="btn-secondary"
+                  style={{ width: 'auto', paddingLeft: '1rem', paddingRight: '1rem' }}
+                >
+                  {savingTranche ? '…' : `+ ${t('Ajouter', 'Add')}`}
+                </button>
+              </div>
+
+              {/* Liste tranches */}
+              {tranches.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                  <div className="divide-y divide-gray-50">
+                    {tranches.map((tr) => {
+                      const st  = trancheStatus(tr, feeForTranches);
+                      const cfg = TRANCHE_STATUS_CFG[st];
+                      return (
+                        <div key={tr.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50/50 group">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
+                          <span className={`text-xs font-semibold w-20 shrink-0 ${cfg.text}`}>{cfg.label}</span>
+                          <span className="text-sm font-medium text-gray-800 flex-1">{tr.label}</span>
+                          <span className="font-mono text-sm text-gray-700">{fmt(tr.amount)} FCFA</span>
+                          <span className="text-xs text-gray-400 w-24 text-right shrink-0">
+                            {tr.due_date ? new Date(tr.due_date).toLocaleDateString('fr-FR') : '—'}
+                          </span>
+                          <button
+                            onClick={() => handleDeleteTranche(tr.id)}
+                            title={t('Supprimer', 'Delete')}
+                            className="opacity-0 group-hover:opacity-100 text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 transition-all"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="px-4 py-2.5 border-t border-gray-50 bg-gray-50/40 flex items-center justify-between">
+                    <span className="text-xs text-gray-400">
+                      {t('Total tranches', 'Total installments')} : <strong className="text-gray-700">{fmt(totalTranches)} FCFA</strong>
+                    </span>
+                    {(fee?.frais_annuels ?? 0) > 0 && totalTranches !== (fee?.frais_annuels ?? 0) && (
+                      <span className="text-xs text-amber-600">
+                        ≠ {fmt(fee.frais_annuels)} FCFA {t('frais annuels', 'annual fees')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {tranches.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-2">{t('Aucune tranche définie.', 'No installments defined.')}</p>
+              )}
+            </div>
+          )}
+
         </div>
       </td>
     </tr>
@@ -434,10 +697,13 @@ export default function Fees() {
   const t = useT();
   const { f } = usePlan();
   const { school } = useAuthStore();
-  const classes  = useSchoolStore((s) => s.classes);
-  const students = useSchoolStore((s) => s.students);
-  const fees     = useSchoolStore((s) => s.fees);
-  const saveFee  = useSchoolStore((s) => s.saveFee);
+  const classes      = useSchoolStore((s) => s.classes);
+  const students     = useSchoolStore((s) => s.students);
+  const fees         = useSchoolStore((s) => s.fees);
+  const feePayments  = useSchoolStore((s) => s.feePayments);
+  const saveFee      = useSchoolStore((s) => s.saveFee);
+  const addPayment   = useSchoolStore((s) => s.addPayment);
+  const deletePayment = useSchoolStore((s) => s.deletePayment);
 
   const activeYear = school?.current_year || '';
 
@@ -461,7 +727,11 @@ export default function Fees() {
     return students
       .filter((s) => !filterClass  || s.class_id === filterClass)
       .filter((s) => !search        || s.name.toLowerCase().includes(search.toLowerCase()) || (s.matricule || '').toLowerCase().includes(search.toLowerCase()))
-      .filter((s) => filterStatus === 'all' || feeStatus(feeMap[s.id]) === filterStatus);
+      .filter((s) => {
+        if (filterStatus === 'all') return true;
+        if (filterStatus === 'overdue') return isOverdue(feeMap[s.id]);
+        return feeStatus(feeMap[s.id]) === filterStatus;
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [students, filterClass, filterStatus, search, feeMap]);
 
@@ -595,6 +865,7 @@ export default function Fees() {
             onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
           >
             <option value="all">{t('Tous les statuts', 'All statuses')}</option>
+            <option value="overdue">{t('⚠️ En retard', '⚠️ Overdue')}</option>
             <option value="paid">{t('Payé intégral', 'Paid in full')}</option>
             <option value="partial">{t('Partiel', 'Partial')}</option>
             <option value="unpaid">{t('Non payé', 'Unpaid')}</option>
@@ -666,6 +937,7 @@ export default function Fees() {
                     const isOpen = openRow === student.id;
                     const color  = avatarColor(student.name);
 
+                    const overdue = isOverdue(fee);
                     return [
                       <tr
                         key={student.id}
@@ -681,7 +953,12 @@ export default function Fees() {
                               {initials(student.name)}
                             </div>
                             <div>
-                              <div className="font-semibold text-gray-900">{student.name}</div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-gray-900">{student.name}</span>
+                                {overdue && (
+                                  <span title={t('Tranche en retard', 'Overdue installment')} className="text-amber-500 text-sm leading-none">⚠️</span>
+                                )}
+                              </div>
                               {student.matricule && (
                                 <div className="text-xs text-gray-400 font-mono">{student.matricule}</div>
                               )}
@@ -737,8 +1014,12 @@ export default function Fees() {
                           key={`panel-${student.id}`}
                           student={student}
                           fee={fee}
+                          payments={feePayments.filter((p) => p.student_id === student.id && p.academic_year === activeYear)
+                            .sort((a, b) => b.date.localeCompare(a.date))}
                           activeYear={activeYear}
-                          onSave={saveFee}
+                          onAddPayment={addPayment}
+                          onDeletePayment={deletePayment}
+                          onSaveFee={saveFee}
                           onClose={() => setOpenRow(null)}
                           onPrintReceipt={(payment) =>
                             printReceipt({

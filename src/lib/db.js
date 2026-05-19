@@ -1,11 +1,11 @@
-// IndexedDB — NotesCamDB v3
-// Stores: classes, subjects, students, grades, syncQueue, teachers
+// IndexedDB — NotesCamDB v5
+// Stores: classes, subjects, students, grades, syncQueue, teachers, student_fees, fee_payments
 //
 // grades.key format : "${classId}_${studentId}_${sequence}"
 // This matches bulletinEngine's allGrades key convention exactly.
 
 const DB_NAME = 'NotesCamDB';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 let _db = null;
 
@@ -49,6 +49,12 @@ export async function initDB() {
 
       if (!db.objectStoreNames.contains('student_fees')) {
         const s = db.createObjectStore('student_fees', { keyPath: 'id' });
+        s.createIndex('by_student', 'student_id');
+        s.createIndex('by_school',  'school_id');
+      }
+
+      if (!db.objectStoreNames.contains('fee_payments')) {
+        const s = db.createObjectStore('fee_payments', { keyPath: 'id' });
         s.createIndex('by_student', 'student_id');
         s.createIndex('by_school',  'school_id');
       }
@@ -186,4 +192,11 @@ export const feesDB = {
   put: (r) => idbPut('student_fees', r),
   putMany: (rs) => idbPutMany('student_fees', rs),
   delete: (id) => idbDelete('student_fees', id),
+};
+
+export const feePaymentsDB = {
+  getAll: () => idbGetAll('fee_payments'),
+  put: (r) => idbPut('fee_payments', r),
+  putMany: (rs) => idbPutMany('fee_payments', rs),
+  delete: (id) => idbDelete('fee_payments', id),
 };

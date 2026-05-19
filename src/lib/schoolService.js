@@ -290,6 +290,28 @@ export async function deleteFee(id) {
   return true;
 }
 
+// --- Fee payments (individual installments) ---
+
+export async function fetchFeePayments(schoolId, year) {
+  let q = supabase.from('fee_payments').select('*').eq('school_id', schoolId);
+  if (year) q = q.eq('academic_year', year);
+  const { data, error } = await q.order('date', { ascending: false });
+  if (error) { console.error('fetchFeePayments', error); return null; }
+  return data;
+}
+
+export async function insertFeePayment(payment) {
+  const { data, error } = await supabase.from('fee_payments').insert(payment).select().single();
+  if (error) { console.error('insertFeePayment', error); return null; }
+  return data;
+}
+
+export async function deleteFeePayment(id) {
+  const { error } = await supabase.from('fee_payments').delete().eq('id', id);
+  if (error) { console.error('deleteFeePayment', error); return false; }
+  return true;
+}
+
 // --- Timetable ---
 
 export async function fetchTimetableSlots(schoolId, year) {

@@ -7,7 +7,7 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB } from '../lib/db';
 import {
   fetchClasses, upsertClass, deleteClass as sbDeleteClass,
   fetchSubjects, upsertSubject, deleteSubject as sbDeleteSubject,
@@ -16,6 +16,7 @@ import {
   fetchAbsences, upsertAbsenceEntry,
   fetchTeachers, upsertTeacher, deleteTeacher as sbDeleteTeacher,
   fetchFees, upsertFee, deleteFee as sbDeleteFee,
+  fetchFeePayments, insertFeePayment, deleteFeePayment as sbDeleteFeePayment,
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
 import { logAssignment } from '../lib/classAssignmentService';
@@ -72,14 +73,15 @@ function buildGradeMap(records) {
 export const useSchoolStore = create((set, get) => ({
   schoolId:   null,
   activeYear: null,
-  classes:    [],
-  subjects:   [],
-  students:   [],
-  teachers:   [],
-  fees:       [],
-  gradeMap:   {},
-  loading:    false,
-  error:      null,
+  classes:      [],
+  subjects:     [],
+  students:     [],
+  teachers:     [],
+  fees:         [],
+  feePayments:  [],
+  gradeMap:     {},
+  loading:      false,
+  error:        null,
 
   // Called by App once school is known (schoolId + activeYear from authStore).
   // Loads IDB immediately (year-filtered), then refreshes from Supabase if online.
@@ -88,18 +90,19 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     // Wipe stale data from any previous session immediately — prevents flash of wrong data
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
-          classes: [], subjects: [], students: [], teachers: [], fees: [], gradeMap: {} });
+          classes: [], subjects: [], students: [], teachers: [], fees: [], feePayments: [], gradeMap: {} });
 
     try {
       await initDB();
 
-      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbFees] = await Promise.all([
+      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbFees, idbFeePayments] = await Promise.all([
         classesDB.getAll(),
         subjectsDB.getAll(),
         studentsDB.getAll(),
         gradesDB.getAll(),
         teachersDB.getAll(),
         feesDB.getAll(),
+        feePaymentsDB.getAll(),
       ]);
 
       // Filter by school
@@ -108,7 +111,8 @@ export const useSchoolStore = create((set, get) => ({
       let allStudents = idbStudents.filter((s) => s.school_id === schoolId);
       let allGrades   = idbGrades.filter((g) => g.school_id === schoolId);
       const allTeachers = idbTeachers.filter((t) => t.school_id === schoolId);
-      const allFees = idbFees.filter((f) => f.school_id === schoolId && (!activeYear || f.academic_year === activeYear));
+      const allFees        = idbFees.filter((f) => f.school_id === schoolId && (!activeYear || f.academic_year === activeYear));
+      const allFeePayments = idbFeePayments.filter((p) => p.school_id === schoolId && (!activeYear || p.academic_year === activeYear));
 
       // Filter by active year (classes drive the year scope)
       if (activeYear) {
@@ -135,13 +139,14 @@ export const useSchoolStore = create((set, get) => ({
       }
 
       set({
-        classes:  allClasses,
-        subjects: allSubjects,
-        students: allStudents,
-        teachers: allTeachers,
-        fees:     allFees,
-        gradeMap: buildGradeMap(allGrades),
-        loading:  false,
+        classes:     allClasses,
+        subjects:    allSubjects,
+        students:    allStudents,
+        teachers:    allTeachers,
+        fees:        allFees,
+        feePayments: allFeePayments,
+        gradeMap:    buildGradeMap(allGrades),
+        loading:     false,
       });
 
       if (navigator.onLine) {
@@ -157,7 +162,7 @@ export const useSchoolStore = create((set, get) => ({
     const year      = activeYear ?? get().activeYear;
     const teacherId = useAuthStore.getState().teacherId;
 
-    const [sbClasses, sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbFees] = await Promise.all([
+    const [sbClasses, sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbFees, sbFeePayments] = await Promise.all([
       fetchClasses(schoolId, year),
       fetchSubjects(schoolId),
       fetchStudents(schoolId),
@@ -165,6 +170,7 @@ export const useSchoolStore = create((set, get) => ({
       fetchAbsences(schoolId),
       fetchTeachers(schoolId),
       fetchFees(schoolId, year),
+      fetchFeePayments(schoolId, year),
     ]);
 
     // ── Normalize student genders ────────────────────────────────────────
@@ -187,8 +193,9 @@ export const useSchoolStore = create((set, get) => ({
       ? normalizedStudents.filter((s) => !year || activeClassIds.has(s.class_id))
       : get().students;
 
-    const newTeachers = sbTeachers ?? get().teachers;
-    const newFees     = sbFees     ?? get().fees;
+    const newTeachers     = sbTeachers     ?? get().teachers;
+    const newFees         = sbFees         ?? get().fees;
+    const newFeePayments  = sbFeePayments  ?? get().feePayments;
 
     // ── Teacher scope: filter BEFORE touching state ──────────────────────
     // Build class set from both class.teacher_id and subject.teacher_id
@@ -209,6 +216,7 @@ export const useSchoolStore = create((set, get) => ({
     if (normalizedStudents !== null) await studentsDB.putMany(normalizedStudents);
     if (sbTeachers         !== null) await teachersDB.putMany(sbTeachers);
     if (sbFees             !== null) await feesDB.putMany(sbFees);
+    if (sbFeePayments      !== null) await feePaymentsDB.putMany(sbFeePayments);
 
     // ── Grades ────────────────────────────────────────────────────────────
     const { gradeMap } = get();
@@ -249,11 +257,12 @@ export const useSchoolStore = create((set, get) => ({
 
     // ── Single atomic state update — no intermediate unfiltered state ─────
     set({
-      ...(sbClasses          !== null && { classes:  newClasses }),
-      ...(sbSubjects         !== null && { subjects: newSubjects }),
-      ...(normalizedStudents !== null && { students: newStudents }),
-      ...(sbTeachers         !== null && { teachers: newTeachers }),
-      ...(sbFees             !== null && { fees:     newFees }),
+      ...(sbClasses          !== null && { classes:     newClasses }),
+      ...(sbSubjects         !== null && { subjects:    newSubjects }),
+      ...(normalizedStudents !== null && { students:    newStudents }),
+      ...(sbTeachers         !== null && { teachers:    newTeachers }),
+      ...(sbFees             !== null && { fees:        newFees }),
+      ...(sbFeePayments      !== null && { feePayments: newFeePayments }),
       gradeMap: newGradeMap,
     });
   },
@@ -610,7 +619,8 @@ export const useSchoolStore = create((set, get) => ({
       frais_annuels: feeData.frais_annuels ?? existing?.frais_annuels ?? 0,
       frais_payes:   feeData.frais_payes   ?? existing?.frais_payes   ?? 0,
       date_dernier_paiement: feeData.date_dernier_paiement ?? existing?.date_dernier_paiement ?? null,
-      notes:         feeData.notes ?? existing?.notes ?? null,
+      notes:         feeData.notes         ?? existing?.notes         ?? null,
+      tranches:      feeData.tranches      ?? existing?.tranches      ?? [],
     };
     await feesDB.put(record);
     set((s) => ({
@@ -624,6 +634,66 @@ export const useSchoolStore = create((set, get) => ({
       queueOffline({ table: 'student_fees', operation: 'upsert', payload: record });
     }
     return record;
+  },
+
+  addPayment: async (studentId, { amount, date, note }) => {
+    const { schoolId, activeYear, fees, feePayments } = get();
+    const userId = useAuthStore.getState().userId;
+    const parsedAmount = parseInt(amount, 10) || 0;
+    if (!parsedAmount) return null;
+
+    const record = {
+      id:            crypto.randomUUID(),
+      school_id:     schoolId,
+      student_id:    studentId,
+      academic_year: activeYear,
+      amount:        parsedAmount,
+      date:          date,
+      note:          note || '',
+      recorded_by:   userId,
+      created_at:    new Date().toISOString(),
+    };
+
+    const existing = fees.find((f) => f.student_id === studentId && f.academic_year === activeYear);
+    const newPaid = (existing?.frais_payes || 0) + parsedAmount;
+
+    await feePaymentsDB.put(record);
+    set((s) => ({ feePayments: [record, ...s.feePayments] }));
+
+    await get().saveFee(studentId, { frais_payes: newPaid, date_dernier_paiement: date });
+
+    if (navigator.onLine) {
+      insertFeePayment(record).then((saved) => {
+        if (!saved) queueOffline({ table: 'fee_payments', operation: 'insert', payload: record });
+      });
+    } else {
+      queueOffline({ table: 'fee_payments', operation: 'insert', payload: record });
+    }
+    return record;
+  },
+
+  deletePayment: async (paymentId, studentId) => {
+    const { feePayments, fees, activeYear } = get();
+    const payment = feePayments.find((p) => p.id === paymentId);
+    if (!payment) return;
+
+    const existing = fees.find((f) => f.student_id === studentId && f.academic_year === activeYear);
+    const newPaid = Math.max(0, (existing?.frais_payes || 0) - payment.amount);
+    const remaining = feePayments.filter((p) => p.id !== paymentId && p.student_id === studentId);
+    const lastDate = remaining.sort((a, b) => b.date.localeCompare(a.date))[0]?.date ?? null;
+
+    await feePaymentsDB.delete(paymentId);
+    set((s) => ({ feePayments: s.feePayments.filter((p) => p.id !== paymentId) }));
+
+    await get().saveFee(studentId, { frais_payes: newPaid, date_dernier_paiement: lastDate });
+
+    if (navigator.onLine) {
+      sbDeleteFeePayment(paymentId).then((ok) => {
+        if (!ok) queueOffline({ table: 'fee_payments', operation: 'delete', payload: { id: paymentId } });
+      });
+    } else {
+      queueOffline({ table: 'fee_payments', operation: 'delete', payload: { id: paymentId } });
+    }
   },
 
   deleteFee: async (id) => {

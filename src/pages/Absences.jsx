@@ -36,6 +36,10 @@ const SESSIONS = [
   { value: 'H6',        label: 'Heure 6' },
 ];
 
+// Module-level caches — survive component unmount/remount so navigation back is instant
+const _saisieCache = {};
+const _statsCache  = {};
+
 // ── Onglet Saisie ─────────────────────────────────────────────────────────────
 
 function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
@@ -66,6 +70,12 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
 
   const loadExisting = useCallback(async () => {
     if (!classId || !date) return;
+    const key = `${classId}|${date}|${session}|${subjectId}`;
+    if (_saisieCache[key]) {
+      setMarks(_saisieCache[key].marks);
+      setExisting(_saisieCache[key].existing);
+      return;
+    }
     setLoading(true);
 
     let q = supabase
@@ -82,6 +92,7 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
     const { data } = await q;
     const m = {}, ex = {};
     (data ?? []).forEach((a) => { m[a.student_id] = a.status; ex[a.student_id] = a.id; });
+    _saisieCache[key] = { marks: m, existing: ex };
     setMarks(m);
     setExisting(ex);
     setLoading(false);
@@ -123,6 +134,7 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
     }
 
     await Promise.all(ops);
+    delete _saisieCache[`${classId}|${date}|${session}|${subjectId}`];
     await loadExisting();
     setSaving(false);
     setSaved(true);
@@ -273,6 +285,11 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
   const [loading,  setLoading]  = useState(false);
 
   const load = useCallback(async () => {
+    const key = `${schoolId}|${yearLabel}|${filterClass}|${dateFrom}|${dateTo}`;
+    if (_statsCache[key]) {
+      setRecords(_statsCache[key].records);
+      return;
+    }
     setLoading(true);
     let q = supabase
       .from('attendance')
@@ -285,6 +302,7 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
     if (dateTo)      q = q.lte('date', dateTo);
 
     const { data } = await q;
+    _statsCache[key] = { records: data ?? [] };
     setRecords(data ?? []);
     setLoading(false);
   }, [schoolId, yearLabel, filterClass, dateFrom, dateTo]);

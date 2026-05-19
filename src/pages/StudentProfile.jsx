@@ -1,0 +1,714 @@
+import { useMemo, useState, useEffect } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useSchoolStore } from '../store/schoolStore';
+import { getAvg, frApp, enGrade } from '../core/bulletinEngine';
+import Modal from '../components/Modal';
+import Layout from '../components/Layout';
+import { fetchAssignmentHistory } from '../lib/classAssignmentService';
+import { useT, getLang } from '../lib/i18n';
+import { usePlan } from '../lib/plan';
+
+const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
+const AVT_COLORS = [
+  'bg-violet-100 text-violet-700', 'bg-blue-100 text-blue-700',
+  'bg-emerald-100 text-emerald-700', 'bg-amber-100 text-amber-700',
+  'bg-rose-100 text-rose-700', 'bg-cyan-100 text-cyan-700',
+];
+
+function avatarColor(name) {
+  const n = [...(name || '')].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return AVT_COLORS[n % AVT_COLORS.length];
+}
+function initials(name) {
+  const p = (name || '').trim().split(/\s+/);
+  return p.length >= 2 ? (p[0][0] + p[1][0]).toUpperCase() : (p[0] || '?').slice(0, 2).toUpperCase();
+}
+function calcAge(dob) {
+  if (!dob) return null;
+  const b = new Date(dob), now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  if (now < new Date(now.getFullYear(), b.getMonth(), b.getDate())) age--;
+  return age >= 0 ? age : null;
+}
+function fmtDate(d) {
+  if (!d) return null;
+  const locale = getLang() === 'en' ? 'en-GB' : 'fr-FR';
+  return new Date(d).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+}
+function fmt(n) {
+  return new Intl.NumberFormat('fr-FR').format(n) + ' FCFA';
+}
+
+const EMPTY_EDIT = {
+  name: '', matricule: '', gender: '', date_naissance: '', lieu_naissance: '',
+  adresse: '', parent_phone: '', contact_urgence: '',
+  nom_pere: '', profession_pere: '', nom_mere: '', profession_mere: '', tuteur: '',
+};
+
+function EditForm({ student, classes, onSave, onClose }) {
+  const t = useT();
+  const GENDERS = [
+    { value: 'Masculin', label: t('Masculin', 'Male') },
+    { value: 'Feminin',  label: t('Féminin',  'Female') },
+  ];
+  const [form, setForm] = useState({ ...EMPTY_EDIT, ...student });
+  const [saving, setSaving] = useState(false);
+  const set = (f) => (e) => setForm((p) => ({ ...p, [f]: e.target.value }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    await onSave(form);
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{t('Identité', 'Identity')}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2">
+          <label className="form-label">{t('Nom complet *', 'Full name *')}</label>
+          <input type="text" required className="form-input" value={form.name} onChange={set('name')} />
+        </div>
+        <div>
+          <label className="form-label">{t('Classe', 'Class')}</label>
+          <select className="form-input" value={form.class_id || ''} onChange={set('class_id')}>
+            <option value="">{t('— Non assigné —', '— Unassigned —')}</option>
+            {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="form-label">{t('Matricule', 'Student ID')}</label>
+          <input type="text" className="form-input" value={form.matricule || ''} onChange={set('matricule')} />
+        </div>
+        <div>
+          <label className="form-label">{t('Sexe', 'Gender')}</label>
+          <select className="form-input" value={form.gender || ''} onChange={set('gender')}>
+            <option value="">—</option>
+            {GENDERS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="form-label">{t('Date de naissance', 'Date of birth')}</label>
+          <input type="date" className="form-input" value={form.date_naissance || ''} onChange={set('date_naissance')} />
+        </div>
+        <div>
+          <label className="form-label">{t('Lieu de naissance', 'Place of birth')}</label>
+          <input type="text" className="form-input" value={form.lieu_naissance || ''} onChange={set('lieu_naissance')} />
+        </div>
+      </div>
+
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest pt-1">{t('Contact & famille', 'Contact & family')}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="form-label">{t('Téléphone parent', 'Parent phone')}</label>
+          <input type="tel" className="form-input" value={form.parent_phone || ''} onChange={set('parent_phone')} />
+        </div>
+        <div>
+          <label className="form-label">{t("Contact d'urgence", 'Emergency contact')}</label>
+          <input type="tel" className="form-input" value={form.contact_urgence || ''} onChange={set('contact_urgence')} />
+        </div>
+        <div className="col-span-2">
+          <label className="form-label">{t('Adresse', 'Address')}</label>
+          <input type="text" className="form-input" value={form.adresse || ''} onChange={set('adresse')} />
+        </div>
+        <div>
+          <label className="form-label">{t('Nom du père', "Father's name")}</label>
+          <input type="text" className="form-input" value={form.nom_pere || ''} onChange={set('nom_pere')} />
+        </div>
+        <div>
+          <label className="form-label">{t('Profession père', "Father's occupation")}</label>
+          <input type="text" className="form-input" value={form.profession_pere || ''} onChange={set('profession_pere')} />
+        </div>
+        <div>
+          <label className="form-label">{t('Nom de la mère', "Mother's name")}</label>
+          <input type="text" className="form-input" value={form.nom_mere || ''} onChange={set('nom_mere')} />
+        </div>
+        <div>
+          <label className="form-label">{t('Profession mère', "Mother's occupation")}</label>
+          <input type="text" className="form-input" value={form.profession_mere || ''} onChange={set('profession_mere')} />
+        </div>
+        <div className="col-span-2">
+          <label className="form-label">{t('Tuteur légal', 'Legal guardian')}</label>
+          <input type="text" className="form-input" placeholder={t('Si différent des parents', 'If different from parents')}
+            value={form.tuteur || ''} onChange={set('tuteur')} />
+        </div>
+      </div>
+
+      <div className="flex gap-3 pt-2">
+        <button type="submit" disabled={saving} className="btn-primary"
+          style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}>
+          {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer', 'Save')}
+        </button>
+        <button type="button" onClick={onClose} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
+      </div>
+    </form>
+  );
+}
+
+function InfoRow({ label, value }) {
+  if (!value) return null;
+  return (
+    <div className="flex flex-col gap-0.5 py-2 border-b border-gray-50 last:border-0">
+      <span className="text-xs text-gray-400 font-medium">{label}</span>
+      <span className="text-sm text-gray-800">{value}</span>
+    </div>
+  );
+}
+
+function SectionCard({ title, children }) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function GradeBadge({ val, max, sys }) {
+  if (val === null || val === undefined) return <span className="text-gray-300 text-sm">—</span>;
+  const pass = sys === 'FR' ? 10 : 50;
+  return (
+    <span className={`font-bold text-sm ${val >= pass ? 'text-emerald-600' : 'text-red-500'}`}>
+      {val.toFixed(2)}<span className="text-xs font-normal text-gray-400">/{max}</span>
+    </span>
+  );
+}
+
+export default function StudentProfile() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const t = useT();
+  const { f } = usePlan();
+
+  const SEQ_LABELS = [
+    t('Séq 1', 'Seq 1'), t('Séq 2', 'Seq 2'), t('Séq 3', 'Seq 3'),
+    t('Séq 4', 'Seq 4'), t('Séq 5', 'Seq 5'), t('Séq 6', 'Seq 6'),
+  ];
+
+  const students      = useSchoolStore((s) => s.students);
+  const classes       = useSchoolStore((s) => s.classes);
+  const subjects      = useSchoolStore((s) => s.subjects);
+  const gradeMap      = useSchoolStore((s) => s.gradeMap);
+  const fees          = useSchoolStore((s) => s.fees);
+  const updateStudent = useSchoolStore((s) => s.updateStudent);
+  const deleteStudent = useSchoolStore((s) => s.deleteStudent);
+
+  const [showEdit,        setShowEdit]        = useState(false);
+  const [showChangeClass, setShowChangeClass] = useState(false);
+  const [newClassId,      setNewClassId]      = useState('');
+  const [confirmDel,      setConfirmDel]      = useState(false);
+  const [changingSaving,  setChangingSaving]  = useState(false);
+  const [assignHistory,   setAssignHistory]   = useState([]);
+  const [linkCopied,      setLinkCopied]      = useState(false);
+
+  useEffect(() => {
+    if (!id || !navigator.onLine) return;
+    fetchAssignmentHistory(id).then(setAssignHistory).catch(() => {});
+  }, [id]);
+
+  const student = students.find((s) => s.id === id);
+  const cls     = student ? classes.find((c) => c.id === student.class_id) : null;
+  const subs    = cls ? subjects.filter((s) => s.class_id === cls.id).sort((a, b) => b.coef - a.coef) : [];
+  const sys     = cls?.system || 'FR';
+  const maxScale = sys === 'FR' ? 20 : 100;
+  const pass     = sys === 'FR' ? 10 : 50;
+
+  const fee = useMemo(() => fees.find((f) => f.student_id === id), [fees, id]);
+  const feeStatus = !fee ? 'none' : fee.frais_payes >= fee.frais_annuels ? 'paid' : fee.frais_payes > 0 ? 'partial' : 'unpaid';
+
+  const matrix = useMemo(() => {
+    if (!student || !cls) return [];
+    return subs.map((sub) => {
+      const seqGrades = [1, 2, 3, 4, 5, 6].map((seq) => {
+        const v = (gradeMap[`${cls.id}_${student.id}_${seq}`] || {})[sub.id];
+        return !v || v === 'ABS' || v === '' ? null : parseFloat(v);
+      });
+      const terms = TERM_SEQS.map((pair) => {
+        const vals = pair.map((s) => seqGrades[s - 1]).filter((x) => x !== null);
+        return vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100 : null;
+      });
+      const annualVals = seqGrades.filter((x) => x !== null);
+      const annual = annualVals.length
+        ? Math.round((annualVals.reduce((a, b) => a + b, 0) / annualVals.length) * 100) / 100 : null;
+      return { sub, seqGrades, terms, annual };
+    });
+  }, [subs, gradeMap, cls, student]);
+
+  const seqAvgs = useMemo(() => {
+    return [1, 2, 3, 4, 5, 6].map((seq) => {
+      const scores = {};
+      subs.forEach((sub) => {
+        const v = (gradeMap[`${cls?.id}_${student?.id}_${seq}`] || {})[sub.id];
+        if (v && v !== 'ABS' && v !== '') scores[sub.id] = v;
+      });
+      return getAvg(scores, subs, sys);
+    });
+  }, [subs, gradeMap, cls, student, sys]);
+
+  const lastAvg = [...seqAvgs].reverse().find((v) => v !== null) ?? null;
+  const appr    = sys === 'FR' && lastAvg !== null ? frApp(lastAvg) : null;
+  const enG     = sys === 'EN' && lastAvg !== null ? enGrade(lastAvg) : null;
+  const mention = appr?.text || (enG ? `${enG.g} — ${enG.txt}` : null);
+
+  if (!student) {
+    return (
+      <Layout>
+        <div className="max-w-3xl">
+          <p className="text-gray-500 mb-4">{t('Élève introuvable.', 'Student not found.')}</p>
+          <button onClick={() => navigate('/app/students')} className="btn-secondary" style={{ width: 'auto' }}>
+            {t('← Retour aux élèves', '← Back to students')}
+          </button>
+        </div>
+      </Layout>
+    );
+  }
+
+  const age = calcAge(student.date_naissance);
+
+  const handleSaveEdit = async (form) => { await updateStudent(student.id, form); };
+
+  const handleChangeClass = async () => {
+    if (!newClassId) return;
+    setChangingSaving(true);
+    await useSchoolStore.getState().assignStudentToClass(student.id, newClassId);
+    fetchAssignmentHistory(student.id).then(setAssignHistory).catch(() => {});
+    setChangingSaving(false);
+    setShowChangeClass(false);
+    setNewClassId('');
+  };
+
+  const handleDelete = async () => {
+    await deleteStudent(student.id);
+    navigate('/app/students');
+  };
+
+  const handleCopyParentLink = () => {
+    if (!student.parent_token) return;
+    const url = `${window.location.origin}/parent/${student.parent_token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2500);
+    });
+  };
+
+  const genderLabel = student.gender === 'Masculin' ? t('Masculin', 'Male')
+    : student.gender === 'Feminin' ? t('Féminin', 'Female') : student.gender;
+
+  const actions = [
+    { icon: '💳', label: t('Enregistrer un paiement', 'Record a payment'),    href: '/app/fees',     disabled: false },
+    { icon: '📋', label: t('Historique des paiements', 'Payment history'),     href: '/app/fees',     disabled: false },
+    { icon: '📄', label: t("Rapport de l'élève",        'Student report'),      href: '/app/reports',  disabled: false },
+    { icon: '📊', label: t('Voir les notes',             'View grades'),         href: cls ? '/app/grades'   : null, disabled: !cls },
+    { icon: '✏️',  label: t('Saisir une note',            'Enter a grade'),       href: cls ? '/app/grades'   : null, disabled: !cls },
+    { icon: '📑', label: t('Générer le bulletin',        'Generate report card'), href: cls ? '/app/bulletins': null, disabled: !cls },
+    { icon: '📅', label: t('Voir les absences',          'View absences'),       href: cls ? '/app/grades'   : null, disabled: !cls },
+    { icon: '🏫', label: t('Changer de classe',          'Change class'),        onClick: () => { setNewClassId(student.class_id || ''); setShowChangeClass(true); } },
+  ];
+
+  const dateLocale = getLang() === 'en' ? 'en-GB' : 'fr-FR';
+
+  return (
+    <Layout>
+      <div className="max-w-5xl">
+
+        <button onClick={() => navigate('/app/students')}
+          className="text-sm text-gray-400 hover:text-gray-600 mb-4 flex items-center gap-1 transition-colors">
+          {t('← Retour aux élèves', '← Back to students')}
+        </button>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-extrabold shrink-0 ${avatarColor(student.name)}`}>
+                {initials(student.name)}
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">{student.name}</h1>
+                <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                  {student.matricule && (
+                    <span className="text-xs font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
+                      {student.matricule}
+                    </span>
+                  )}
+                  {student.gender && (
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      student.gender === 'Masculin' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'
+                    }`}>
+                      {student.gender === 'Masculin' ? '♂' : '♀'} {genderLabel}
+                    </span>
+                  )}
+                  {cls && (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-brand-50 text-brand-700">
+                      {cls.name}
+                    </span>
+                  )}
+                  {!cls && (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">
+                      {t('Non assigné', 'Unassigned')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => setShowEdit(true)}
+                className="btn-secondary flex items-center gap-1.5 text-sm">
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+                {t('Modifier', 'Edit')}
+              </button>
+              {f.hasParentPortal ? (
+                student.parent_token && (
+                  <button onClick={handleCopyParentLink}
+                    className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg font-medium border transition-colors ${
+                      linkCopied
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}>
+                    {linkCopied ? (
+                      <>
+                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                        {t('Lien copié !', 'Link copied!')}
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z"/></svg>
+                        {t('Lien parent', 'Parent link')}
+                      </>
+                    )}
+                  </button>
+                )
+              ) : (
+                <a
+                  href="https://wa.me/237670894721?text=Je%20veux%20passer%20au%20plan%20Pro%20pour%20le%20portail%20parents"
+                  target="_blank" rel="noopener noreferrer"
+                  title={t('Portail parents — Plan Pro requis', 'Parent portal — Pro plan required')}
+                  className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg font-medium border border-gray-200 text-gray-400 bg-gray-50 cursor-pointer hover:bg-amber-50 hover:border-amber-200 hover:text-amber-700 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path fillRule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clipRule="evenodd" />
+                  </svg>
+                  {t('Lien parent', 'Parent link')} — Pro
+                </a>
+              )}
+              {!confirmDel ? (
+                <button onClick={() => setConfirmDel(true)}
+                  className="px-3 py-2 rounded-lg text-sm font-medium text-red-500 border border-red-200 hover:bg-red-50 transition-colors flex items-center gap-1.5">
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
+                  {t('Supprimer', 'Delete')}
+                </button>
+              ) : (
+                <div className="flex gap-2 items-center bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  <span className="text-xs text-red-700 font-medium">{t('Confirmer ?', 'Confirm?')}</span>
+                  <button onClick={handleDelete} className="text-xs text-red-600 font-bold hover:underline">{t('Oui', 'Yes')}</button>
+                  <button onClick={() => setConfirmDel(false)} className="text-xs text-gray-500 hover:underline">{t('Non', 'No')}</button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Stats strip */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-5 pt-5 border-t border-gray-100">
+            {[
+              { label: t('Âge', 'Age'), value: age !== null ? `${age} ${t('ans', 'yr')}` : '—' },
+              { label: t('Classe', 'Class'), value: cls?.name || '—' },
+              {
+                label: t('Moyenne', 'Average'),
+                value: lastAvg !== null
+                  ? <span className={lastAvg >= pass ? 'text-emerald-600' : 'text-red-500'}>{lastAvg.toFixed(2)}/{maxScale}</span>
+                  : 'N/A',
+              },
+              {
+                label: t('Mention', 'Grade'),
+                value: mention
+                  ? <span style={{ color: appr?.col || enG?.col }}>{mention}</span>
+                  : 'N/A',
+              },
+              {
+                label: t('Frais de Scolarité', 'Tuition fees'),
+                value: feeStatus === 'none'    ? <span className="text-gray-400">{t('Non configuré', 'Not set')}</span>
+                  : feeStatus === 'paid'        ? <span className="text-emerald-600 font-semibold">{t('Payé', 'Paid')}</span>
+                  : feeStatus === 'partial'     ? <span className="text-amber-600 font-semibold">{t('Partiel', 'Partial')} — {fmt(fee.frais_payes)}</span>
+                  : <span className="text-red-500 font-semibold">{t('Non payé', 'Unpaid')}</span>,
+              },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <p className="text-xs text-gray-400 mb-1">{label}</p>
+                <p className="text-sm font-semibold text-gray-900">{value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 mb-6">
+
+          <div className="space-y-4">
+
+            <SectionCard title={t('Informations personnelles', 'Personal information')}>
+              <InfoRow label={t('Nom complet', 'Full name')}         value={student.name} />
+              <InfoRow label={t('Sexe', 'Gender')}                   value={genderLabel} />
+              <InfoRow label={t('Date de naissance', 'Date of birth')} value={fmtDate(student.date_naissance)} />
+              <InfoRow label={t('Lieu de naissance', 'Place of birth')} value={student.lieu_naissance} />
+              <InfoRow label={t("Date d'inscription", 'Enrollment date')} value={fmtDate(student.created_at)} />
+              {!student.date_naissance && !student.lieu_naissance && (
+                <p className="text-xs text-gray-400 py-2">{t('Aucune information personnelle renseignée.', 'No personal information provided.')}</p>
+              )}
+            </SectionCard>
+
+            <SectionCard title={t('Informations familiales', 'Family information')}>
+              {student.nom_pere && (
+                <div className="py-2 border-b border-gray-50">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs text-gray-400">{t('Père', 'Father')}</p>
+                      <p className="text-sm font-medium text-gray-800">{student.nom_pere}</p>
+                    </div>
+                    {student.profession_pere && (
+                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{student.profession_pere}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+              {student.nom_mere && (
+                <div className="py-2 border-b border-gray-50">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs text-gray-400">{t('Mère', 'Mother')}</p>
+                      <p className="text-sm font-medium text-gray-800">{student.nom_mere}</p>
+                    </div>
+                    {student.profession_mere && (
+                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{student.profession_mere}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+              <InfoRow label={t('Tuteur légal', 'Legal guardian')} value={student.tuteur} />
+              {!student.nom_pere && !student.nom_mere && !student.tuteur && (
+                <p className="text-xs text-gray-400 py-2">{t('Aucune information familiale renseignée.', 'No family information provided.')}</p>
+              )}
+            </SectionCard>
+
+            <SectionCard title={t('Informations de contact', 'Contact information')}>
+              <InfoRow label={t('Adresse', 'Address')}               value={student.adresse} />
+              <InfoRow label={t('Téléphone', 'Phone')}               value={student.parent_phone} />
+              <InfoRow label={t("Contact d'urgence", 'Emergency contact')} value={student.contact_urgence} />
+              {!student.adresse && !student.parent_phone && !student.contact_urgence && (
+                <p className="text-xs text-gray-400 py-2">{t('Aucune information de contact renseignée.', 'No contact information provided.')}</p>
+              )}
+            </SectionCard>
+
+            <SectionCard title={t('Parcours scolaire', 'Academic record')}>
+              {cls ? (
+                <div className="flex items-center justify-between py-2 border-b border-gray-50">
+                  <div>
+                    <p className="text-xs text-gray-400">{t('Classe actuelle', 'Current class')}</p>
+                    <p className="text-sm font-semibold text-gray-900">{cls.name}</p>
+                    {cls.current_year && (
+                      <p className="text-xs text-gray-400">{cls.current_year}</p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    {cls.cycle && (
+                      <span className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded font-medium capitalize">{cls.cycle}</span>
+                    )}
+                    {subs.length > 0 && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        {subs.length} {t(subs.length > 1 ? 'matières' : 'matière', subs.length > 1 ? 'subjects' : 'subject')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 py-2 border-b border-gray-50">{t('Aucune classe assignée.', 'No class assigned.')}</p>
+              )}
+
+              {assignHistory.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">{t('Historique des classes', 'Class history')}</p>
+                  <div className="relative pl-4">
+                    <div className="absolute left-1.5 top-0 bottom-0 w-px bg-gray-100" />
+                    {assignHistory.map((entry, i) => (
+                      <div key={entry.id} className="relative flex gap-3 mb-3 last:mb-0">
+                        <div className={`absolute -left-3 w-3 h-3 rounded-full border-2 mt-0.5 shrink-0 ${
+                          i === 0 ? 'bg-brand-500 border-brand-500' : 'bg-white border-gray-300'
+                        }`} />
+                        <div className="pl-3">
+                          <p className="text-sm font-semibold text-gray-800">{entry.class_name || '—'}</p>
+                          <p className="text-xs text-gray-400">
+                            {new Date(entry.assigned_at).toLocaleDateString(dateLocale, {
+                              day: 'numeric', month: 'long', year: 'numeric',
+                            })}
+                            {entry.assigned_by_name ? ` · ${t('par', 'by')} ${entry.assigned_by_name}` : ''}
+                          </p>
+                          {entry.reason && (
+                            <p className="text-xs text-gray-500 mt-0.5 italic">{entry.reason}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </SectionCard>
+
+          </div>
+
+          <div>
+            <SectionCard title={t('Actions rapides', 'Quick actions')}>
+              <div className="space-y-1">
+                {actions.map(({ icon, label, href, onClick, disabled }) => {
+                  const base = `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left ${
+                    disabled
+                      ? 'text-gray-300 cursor-not-allowed'
+                      : 'text-gray-700 hover:bg-brand-50 hover:text-brand-700'
+                  }`;
+                  if (onClick) return (
+                    <button key={label} type="button" onClick={onClick} disabled={disabled} className={base}>
+                      <span className="text-base w-5 text-center">{icon}</span>
+                      <span>{label}</span>
+                    </button>
+                  );
+                  if (href && !disabled) return (
+                    <Link key={label} to={href} className={base}>
+                      <span className="text-base w-5 text-center">{icon}</span>
+                      <span>{label}</span>
+                    </Link>
+                  );
+                  return (
+                    <div key={label} className={base}>
+                      <span className="text-base w-5 text-center">{icon}</span>
+                      <span>{label}{disabled ? ` — ${t('Aucune classe', 'No class')}` : ''}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </SectionCard>
+          </div>
+        </div>
+
+        {seqAvgs.some((v) => v !== null) && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-5">
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">
+              {t('Progression — moyennes générales', 'Progression — overall averages')}
+            </h2>
+            <div className="grid grid-cols-6 gap-3">
+              {seqAvgs.map((avg, i) => {
+                const a = sys === 'FR' && avg !== null ? frApp(avg) : null;
+                const e = sys === 'EN' && avg !== null ? enGrade(avg) : null;
+                return (
+                  <div key={i} className={`rounded-xl p-3 text-center border ${
+                    avg === null ? 'bg-gray-50 border-gray-100'
+                      : avg >= pass ? 'bg-emerald-50 border-emerald-200'
+                      : 'bg-red-50 border-red-200'
+                  }`}>
+                    <div className="text-xs text-gray-400 font-medium mb-1">{SEQ_LABELS[i]}</div>
+                    {avg !== null ? (
+                      <>
+                        <div className={`text-xl font-extrabold ${avg >= pass ? 'text-emerald-700' : 'text-red-600'}`}>
+                          {avg.toFixed(2)}
+                        </div>
+                        {a && <div className="text-xs mt-0.5" style={{ color: a.col }}>{a.text}</div>}
+                        {e && <div className="text-xs mt-0.5 font-bold" style={{ color: e.col }}>{e.g}</div>}
+                      </>
+                    ) : (
+                      <div className="text-gray-300 text-lg font-bold">—</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {subs.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-5">
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/80">
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">{t('Notes par matière', 'Grades by subject')}</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-semibold">
+                    <th className="text-left px-5 py-3">{t('Matière', 'Subject')}</th>
+                    <th className="px-3 py-3 text-center">{t('Coef', 'Coeff')}</th>
+                    {SEQ_LABELS.map((l) => <th key={l} className="px-3 py-3 text-center">{l}</th>)}
+                    <th className="px-3 py-3 text-center bg-blue-50">T1</th>
+                    <th className="px-3 py-3 text-center bg-blue-50">T2</th>
+                    <th className="px-3 py-3 text-center bg-blue-50">T3</th>
+                    <th className="px-4 py-3 text-center bg-gray-100 font-bold text-gray-700">{t('Annuel', 'Annual')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {matrix.map(({ sub, seqGrades, terms, annual }) => (
+                    <tr key={sub.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-5 py-3 font-semibold text-gray-900">
+                        {sub.name}<span className="text-xs text-gray-400 font-normal ml-1">/{sub.max}</span>
+                      </td>
+                      <td className="px-3 py-3 text-center text-gray-500 text-xs">{sub.coef}</td>
+                      {seqGrades.map((g, i) => (
+                        <td key={i} className="px-3 py-3 text-center">
+                          {g !== null
+                            ? <span className={`font-semibold text-sm ${g >= (pass / maxScale) * sub.max ? 'text-emerald-600' : 'text-red-500'}`}>{g}</span>
+                            : <span className="text-gray-200">—</span>}
+                        </td>
+                      ))}
+                      {terms.map((term, i) => (
+                        <td key={i} className="px-3 py-3 text-center bg-blue-50/40">
+                          <GradeBadge val={term} max={sub.max} sys={sys} />
+                        </td>
+                      ))}
+                      <td className="px-4 py-3 text-center bg-gray-50">
+                        <GradeBadge val={annual} max={sub.max} sys={sys} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {subs.length === 0 && cls && (
+          <div className="bg-white rounded-xl p-8 text-center shadow-sm border border-gray-100">
+            <p className="text-gray-400 text-sm">{t('Aucune matière configurée pour cette classe.', 'No subjects configured for this class.')}</p>
+          </div>
+        )}
+
+      </div>
+
+      {showEdit && (
+        <Modal title={t("Modifier l'élève", 'Edit student')} onClose={() => setShowEdit(false)} size="lg">
+          <EditForm student={student} classes={classes} onSave={handleSaveEdit} onClose={() => setShowEdit(false)} />
+        </Modal>
+      )}
+
+      {showChangeClass && (
+        <Modal title={t('Changer de classe', 'Change class')} onClose={() => setShowChangeClass(false)} size="sm">
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              {t('Choisissez la nouvelle classe pour', 'Choose the new class for')} <strong>{student.name}</strong>.
+            </p>
+            <div>
+              <label className="form-label">{t('Nouvelle classe', 'New class')}</label>
+              <select className="form-input" value={newClassId} onChange={(e) => setNewClassId(e.target.value)}>
+                <option value="">{t('— Choisir —', '— Choose —')}</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name} {c.current_year ? `(${c.current_year})` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={handleChangeClass} disabled={!newClassId || changingSaving}
+                className="btn-primary" style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}>
+                {changingSaving ? t('Enregistrement…', 'Saving…') : t('Confirmer', 'Confirm')}
+              </button>
+              <button onClick={() => setShowChangeClass(false)} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </Layout>
+  );
+}

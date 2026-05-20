@@ -102,7 +102,7 @@ export const useSchoolStore = create((set, get) => ({
         gradesDB.getAll(),
         teachersDB.getAll(),
         feesDB.getAll(),
-        feePaymentsDB.getAll(),
+        feePaymentsDB.getAll().catch(() => []),
       ]);
 
       // Filter by school
@@ -170,7 +170,7 @@ export const useSchoolStore = create((set, get) => ({
       fetchAbsences(schoolId),
       fetchTeachers(schoolId),
       fetchFees(schoolId, year),
-      fetchFeePayments(schoolId, year),
+      fetchFeePayments(schoolId, year).catch(() => null),
     ]);
 
     // ── Normalize student genders ────────────────────────────────────────

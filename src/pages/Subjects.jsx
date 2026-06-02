@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import Layout from '../components/Layout';
+import Modal from '../components/Modal';
 import { useT } from '../lib/i18n';
+import { useCountry, geGradeMax, gePrimaryUsesCoef } from '../lib/useCountry';
 
 
 function getSubjectCategory(subject, categories) {
@@ -18,20 +20,31 @@ function getSubjectCategory(subject, categories) {
 // ── Formulaire matière ────────────────────────────────────────────────────────
 function SubjectForm({ initial, classId, teachers, classes, categories, onSave, onCancel }) {
   const t = useT();
+  const country = useCountry();
+  const school  = useAuthStore((s) => s.school);
+  const isGE    = country.code === 'guinea_eq';
+  const geMax   = geGradeMax(school);
+  // Max par défaut piloté par le pays : Cameroun FR = 20, Cameroun EN = 100,
+  // Guinée Eq = échelle choisie par l'admin (10 ou 20).
+  const defaultMax = isGE ? geMax : (country.maxGrade || 20);
   const [form, setForm] = useState({
-    name: '', coef: 1, max: 20, class_id: classId || '', teacher_id: '', category_id: '',
+    name: '', coef: 1, max: defaultMax, class_id: classId || '', teacher_id: '', category_id: '',
     ...initial,
   });
   const [saving, setSaving] = useState(false);
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
 
+  // Coefficients au primaire (GE) : masqués/forcés à 1 si l'admin les désactive.
+  const selectedCls   = classes.find((c) => c.id === form.class_id) || null;
+  const coefDisabledGE = isGE && selectedCls?.cycle === 'primaire' && !gePrimaryUsesCoef(school);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     await onSave({
       ...form,
-      coef:       Number(form.coef),
+      coef:       coefDisabledGE ? 1 : Number(form.coef),
       max:        Number(form.max),
       teacher_id: form.teacher_id  || null,
       category_id: form.category_id || null,
@@ -40,10 +53,7 @@ function SubjectForm({ initial, classId, teachers, classes, categories, onSave, 
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-gray-50 border border-gray-200 rounded-xl p-6 mb-5">
-      <h3 className="text-base font-semibold text-gray-800 mb-4">
-        {initial?.id ? t('Modifier la matière', 'Edit subject') : t('Nouvelle matière', 'New subject')}
-      </h3>
+    <form onSubmit={handleSubmit} className="pb-2">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <div className="col-span-2 md:col-span-1">
           <label className="form-label">{t('Matière *', 'Subject *')}</label>
@@ -66,15 +76,26 @@ function SubjectForm({ initial, classId, teachers, classes, categories, onSave, 
         </div>
         <div>
           <label className="form-label">{t('Coefficient *', 'Coefficient *')}</label>
-          <input type="number" required min="1" max="10" className="form-input"
-            value={form.coef} onChange={set('coef')} />
+          <input type="number" required min="1" max="10" className="form-input disabled:bg-gray-50 disabled:text-gray-400"
+            disabled={coefDisabledGE}
+            value={coefDisabledGE ? 1 : form.coef} onChange={set('coef')} />
+          {coefDisabledGE && (
+            <p className="text-xs text-gray-400 mt-1">Primaria sin coeficientes (todas las asignaturas pesan igual).</p>
+          )}
         </div>
         <div>
           <label className="form-label">{t('Barème *', 'Max score *')}</label>
-          <select required className="form-input" value={form.max} onChange={set('max')}>
-            <option value={20}>{t('/ 20 (système FR)', '/ 20 (FR system)')}</option>
-            <option value={100}>{t('/ 100 (système EN)', '/ 100 (EN system)')}</option>
-          </select>
+          {isGE ? (
+            <select required className="form-input" value={form.max} onChange={set('max')}>
+              <option value={10}>/ 10</option>
+              <option value={20}>/ 20</option>
+            </select>
+          ) : (
+            <select required className="form-input" value={form.max} onChange={set('max')}>
+              <option value={20}>{t('/ 20 (système FR)', '/ 20 (FR system)')}</option>
+              <option value={100}>{t('/ 100 (système EN)', '/ 100 (EN system)')}</option>
+            </select>
+          )}
         </div>
         <div>
           <label className="form-label">{t('Enseignant', 'Teacher')}</label>
@@ -317,13 +338,11 @@ export default function Subjects() {
     setPrefillCatId(catId);
     setEditing(null);
     setShowForm(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleEditSubject = (sub) => {
     setEditing(sub);
     setShowForm(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAddCategory = async (e) => {
@@ -354,12 +373,10 @@ export default function Subjects() {
             <h1 className="text-2xl font-bold text-gray-900">{t('Gestion des Matières', 'Subjects')}</h1>
             <p className="text-sm text-gray-500 mt-1">{t('Configuration et gestion des matières enseignées', 'Configure and manage taught subjects')}</p>
           </div>
-          {!showForm && !editing && (
-            <button onClick={() => { setShowForm(true); setEditing(null); }}
-              className="btn-primary" style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
-              + {t('Nouvelle matière', 'New subject')}
-            </button>
-          )}
+          <button onClick={() => { setShowForm(true); setEditing(null); }}
+            className="btn-primary" style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
+            + {t('Nouvelle matière', 'New subject')}
+          </button>
         </div>
 
         {/* ── Tabs ──────────────────────────────────────────────── */}
@@ -441,23 +458,29 @@ export default function Subjects() {
               </p>
             )}
 
-            {/* ── Add / Edit form ────────────────────────────────── */}
+            {/* ── Modal formulaire matière ───────────────────────── */}
             {(showForm || editing) && (
-              <SubjectForm
-                initial={editing
-                  ? editing
-                  : {
-                      ...(prefillCatId ? { category_id: prefillCatId } : {}),
-                      ...(classFilter  ? { class_id: classFilter }     : {}),
-                    }
-                }
-                classId={editing?.class_id || classFilter || ''}
-                teachers={teachers}
-                classes={classes}
-                categories={categories}
-                onSave={handleSave}
-                onCancel={() => { setShowForm(false); setEditing(null); setPrefillCatId(''); }}
-              />
+              <Modal
+                title={editing ? t('Modifier la matière', 'Edit subject') : t('Nouvelle matière', 'New subject')}
+                onClose={() => { setShowForm(false); setEditing(null); setPrefillCatId(''); }}
+                size="md"
+              >
+                <SubjectForm
+                  initial={editing
+                    ? editing
+                    : {
+                        ...(prefillCatId ? { category_id: prefillCatId } : {}),
+                        ...(classFilter  ? { class_id: classFilter }     : {}),
+                      }
+                  }
+                  classId={editing?.class_id || classFilter || ''}
+                  teachers={teachers}
+                  classes={classes}
+                  categories={categories}
+                  onSave={handleSave}
+                  onCancel={() => { setShowForm(false); setEditing(null); setPrefillCatId(''); }}
+                />
+              </Modal>
             )}
 
             {/* ── Category sections ──────────────────────────────── */}

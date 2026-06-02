@@ -28,3 +28,31 @@ export function usePlan() {
   const plan   = school?.plan ?? 'starter';
   return { plan, meta: PLAN_META[plan] ?? PLAN_META.starter, f: getPlanFeatures(plan) };
 }
+
+export const STARTER_DAILY_PRINT_LIMIT = 2;
+const PRINT_STORAGE_KEY = 'nc_print_daily';
+
+export function getDailyPrintInfo() {
+  const today = new Date().toISOString().split('T')[0];
+  try {
+    const raw = localStorage.getItem(PRINT_STORAGE_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (data.date === today) return { date: today, count: data.count || 0 };
+    }
+  } catch {}
+  return { date: today, count: 0 };
+}
+
+export function incrementDailyPrint() {
+  const info = getDailyPrintInfo();
+  const updated = { date: info.date, count: info.count + 1 };
+  localStorage.setItem(PRINT_STORAGE_KEY, JSON.stringify(updated));
+  return updated.count;
+}
+
+export function getStarterPrintRemaining(plan) {
+  if (plan !== 'starter') return Infinity;
+  const info = getDailyPrintInfo();
+  return Math.max(0, STARTER_DAILY_PRINT_LIMIT - info.count);
+}

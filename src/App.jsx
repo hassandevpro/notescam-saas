@@ -4,6 +4,7 @@ import { useAuthStore } from './store/authStore';
 import { useSchoolStore } from './store/schoolStore';
 import { useUiStore } from './store/uiStore';
 import { flushSyncQueue, getQueueCount, pruneExpiredItems } from './lib/sync';
+import { requestPersistentStorage } from './lib/db';
 import ProtectedRoute from './components/ProtectedRoute';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import OnboardingWizard from './components/OnboardingWizard';
@@ -38,6 +39,7 @@ const Timetable         = lazy(() => import('./pages/Timetable'));
 const Landing           = lazy(() => import('./pages/Landing'));
 const Terms             = lazy(() => import('./pages/Terms'));
 const Help              = lazy(() => import('./pages/Help'));
+const History           = lazy(() => import('./pages/History'));
 
 function PageLoader() {
   return (
@@ -102,7 +104,19 @@ export default function App() {
 
   useEffect(() => {
     init();
+    // Demande au navigateur de conserver les données IndexedDB de façon persistante,
+    // pour éviter une éviction silencieuse en cas de pression mémoire/disque.
+    requestPersistentStorage();
   }, [init]);
+
+  // Synchronise <html lang="..."> avec la langue UI. Ceci force le navigateur à
+  // afficher les inputs `type="date"`/`type="time"` au bon format
+  // (jj/mm/aaaa en FR, dd/mm/yyyy en EN, dd/mm/aaaa en ES).
+  const uiLang = useUiStore((s) => s.uiLang);
+  useEffect(() => {
+    const map = { fr: 'fr-FR', en: 'en-GB', es: 'es-ES' };
+    document.documentElement.lang = map[uiLang] || 'fr-FR';
+  }, [uiLang]);
 
   // Init school data layer filtered to the selected year (active or archived).
   // Re-runs when current_year changes (e.g. after promotion) or when viewYear changes.
@@ -191,6 +205,7 @@ export default function App() {
           <Route path="/app/conseil"          element={<ProtectedRoute><ConseilDeClasse /></ProtectedRoute>} />
           <Route path="/app/timetable"        element={<ProtectedRoute><Timetable /></ProtectedRoute>} />
           <Route path="/app/aide"             element={<ProtectedRoute><Help /></ProtectedRoute>} />
+          <Route path="/app/historique"       element={<ProtectedRoute><History /></ProtectedRoute>} />
           <Route path="/superadmin" element={<ProtectedRoute><SuperAdmin /></ProtectedRoute>} />
           <Route path="/parent/:token" element={<ParentPortal />} />
           <Route path="*" element={<Navigate to="/" replace />} />

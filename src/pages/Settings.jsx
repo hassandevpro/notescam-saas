@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { useCountry, geGradeMax } from '../lib/useCountry';
+import { COUNTRY_OPTIONS } from '../countries';
 import { getDaysUntilLicenseExpires } from '../lib/auth';
 import { useT } from '../lib/i18n';
 import { uploadSchoolAsset } from '../lib/schoolService';
@@ -13,12 +15,26 @@ import {
 import { DEFAULT_GRADE_SCALE } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
 
-const REGIONS = [
+// Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
+function buildGeScale(maxScale = 10) {
+  const f = maxScale / 10;
+  const r = (n) => Math.round(n * f * 100) / 100;
+  return [
+    { id: 'ge1', mention: 'Sobresaliente', min: r(9),    max: r(10),   couleur: '#10B981', ordre: 1 },
+    { id: 'ge2', mention: 'Notable',       min: r(7),    max: r(8.99), couleur: '#3B82F6', ordre: 2 },
+    { id: 'ge3', mention: 'Bien',          min: r(6),    max: r(6.99), couleur: '#8B5CF6', ordre: 3 },
+    { id: 'ge4', mention: 'Suficiente',    min: r(5),    max: r(5.99), couleur: '#F59E0B', ordre: 4 },
+    { id: 'ge5', mention: 'Insuficiente',  min: 0,       max: r(4.99), couleur: '#EF4444', ordre: 5 },
+  ];
+}
+
+// ── Découpage administratif par pays ────────────────────────────────────────
+const REGIONS_CM = [
   'Adamaoua', 'Centre', 'Est', 'Extrême-Nord', 'Littoral',
   'Nord', 'Nord-Ouest', 'Ouest', 'Sud', 'Sud-Ouest',
 ];
 
-const DEPARTMENTS = {
+const DEPARTMENTS_CM = {
   'Adamaoua':     ['Djérem', 'Faro-et-Déo', 'Mayo-Banyo', 'Mbéré', 'Vina'],
   'Centre':       ['Haute-Sanaga', 'Lekié', 'Mbam-et-Inoubou', 'Mbam-et-Kim', 'Méfou-et-Afamba', 'Méfou-et-Akono', 'Mfoundi', 'Nyong-et-Kellé', 'Nyong-et-Mfoumou', "Nyong-et-So'o"],
   'Est':          ['Boumba-et-Ngoko', 'Haut-Nyong', 'Kadey', 'Lom-et-Djérem'],
@@ -31,11 +47,34 @@ const DEPARTMENTS = {
   'Sud-Ouest':    ['Fako', 'Koupé-Manengouba', 'Lebialem', 'Manyu', 'Meme', 'Ndian'],
 };
 
+// Guinea Ecuatorial — 8 provincias officielles + leurs distritos.
+const PROVINCES_GE = [
+  'Bioko Norte', 'Bioko Sur', 'Annobón', 'Litoral',
+  'Centro Sur', 'Kié-Ntem', 'Wele-Nzas', 'Djibloho',
+];
+
+const DISTRITOS_GE = {
+  'Bioko Norte': ['Malabo', 'Baney', 'Rebola'],
+  'Bioko Sur':   ['Luba', 'Riaba'],
+  'Annobón':     ['San Antonio de Palé'],
+  'Litoral':     ['Bata', 'Mbini', 'Cogo', 'Río Campo'],
+  'Centro Sur':  ['Evinayong', 'Akurenam', 'Niefang'],
+  'Kié-Ntem':    ['Ebebiyín', 'Mikomeseng', 'Nsork', 'Nsoc-Nsomo'],
+  'Wele-Nzas':   ['Mongomo', 'Aconibe', 'Añisok', 'Nsork'],
+  'Djibloho':    ['Ciudad de la Paz', 'Oyala'],
+};
+
+// Backward compat — utilisé par le code existant; renvoie le bon découpage par pays.
+const REGIONS = REGIONS_CM;
+const DEPARTMENTS = DEPARTMENTS_CM;
+
 const SCHOOL_TYPES = [
   'Public', 'Privé Laïc', 'Privé Catholique', 'Privé Protestant',
   'Privé Islamique', 'Communautaire', 'Autre',
 ];
 
+// Options Cameroun — affichées uniquement pour les écoles camerounaises.
+// Les libellés sont des chaînes FR canoniques pour passer par t() côté UI.
 const LANGUAGES = [
   { value: 'francophone', label: 'Francophone (Séquences — notes /20)' },
   { value: 'anglophone',  label: 'Anglophone (Terms — notes /100)' },
@@ -148,6 +187,10 @@ export default function Settings() {
   const role           = useAuthStore((s) => s.role);
   const fullName       = useAuthStore((s) => s.fullName);
   const doUpdateSchool = useAuthStore((s) => s.updateSchool);
+  const country        = useCountry();
+  const isGE           = country.code === 'guinea_eq';
+  // Locale des sélecteurs de date (calendrier natif) selon le pays.
+  const dateLang       = country.uiLang === 'es' ? 'es-ES' : country.uiLang === 'en' ? 'en-GB' : 'fr-FR';
 
   const isAdmin = role === 'admin';
 
@@ -166,6 +209,26 @@ export default function Settings() {
   const [mappingSaving,     setMappingSaving]     = useState(false);
   const [mappingSaved,      setMappingSaved]      = useState(false);
   const [pendingKey,        setPendingKey]        = useState(null);
+
+  // ── Options de notation GE (décidées par l'administrateur) ────────────────
+  const [geMax,       setGeMax]       = useState(10);
+  const [gePrimCoef,  setGePrimCoef]  = useState(false);
+  const [geOptSaving, setGeOptSaving] = useState(false);
+  const [geOptSaved,  setGeOptSaved]  = useState(false);
+  const [geOptError,  setGeOptError]  = useState(null);
+
+  useEffect(() => {
+    setGeMax(Number(school?.ge_grade_max) === 20 ? 20 : 10);
+    setGePrimCoef(school?.ge_primary_coef === true);
+  }, [school?.id, school?.ge_grade_max, school?.ge_primary_coef]);
+
+  const handleGeOptSave = async () => {
+    setGeOptSaving(true); setGeOptSaved(false); setGeOptError(null);
+    const res = await doUpdateSchool({ ge_grade_max: geMax, ge_primary_coef: gePrimCoef });
+    setGeOptSaving(false);
+    if (res?.error) setGeOptError(res.error);
+    else { setGeOptSaved(true); setTimeout(() => setGeOptSaved(false), 3000); }
+  };
 
   useEffect(() => {
     setTemplateMapping(school?.bulletin_template_mapping ?? {});
@@ -333,9 +396,12 @@ export default function Settings() {
       });
       if (Array.isArray(school.grade_scale) && school.grade_scale.length > 0) {
         setGradeScale(school.grade_scale);
+      } else if (isGE) {
+        // Guinée Équatoriale sans barème personnalisé → apreciaciones espagnoles.
+        setGradeScale(buildGeScale(geGradeMax(school)));
       }
     }
-  }, [school]);
+  }, [school, isGE]);
 
   const handleAddEntry = () => {
     if (!newEntry.mention.trim()) return;
@@ -443,7 +509,7 @@ export default function Settings() {
                 </div>
                 <div>
                   <label className="form-label">{t('Numéro WhatsApp / téléphone', 'WhatsApp / phone number')}</label>
-                  <input type="text" className="form-input" placeholder={t('Ex : 699 00 00 00', 'E.g. 699 00 00 00')} value={tProfile.phone}
+                  <input type="text" className="form-input" placeholder={t('Ex : 699 00 00 00', 'E.g. 699 00 00 00', 'Ej: 222 00 00 00')} value={tProfile.phone}
                     onChange={(e) => setTProfile((p) => ({ ...p, phone: e.target.value }))} />
                   <p className="text-xs text-gray-400 mt-1">{t("Permet à l'admin de vous contacter via WhatsApp.", 'Allows the admin to contact you via WhatsApp.')}</p>
                 </div>
@@ -511,11 +577,82 @@ export default function Settings() {
                   </select>
                 </div>
                 <div>
-                  <label className="form-label">{t("Système d'enseignement", 'Teaching system')}</label>
-                  <select disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.language || 'francophone'} onChange={set('language')}>
-                    {LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-                  </select>
+                  <label className="form-label">
+                    {t("Système d'enseignement", 'Teaching system', 'Sistema educativo')}
+                  </label>
+                  {isGE ? (
+                    // Guinea Ecuatorial : champ verrouillé sur ES, pas de FR/EN.
+                    <input
+                      type="text"
+                      disabled
+                      className="form-input disabled:bg-emerald-50 disabled:text-emerald-800 font-medium"
+                      value={`🇬🇶 ${country.name} — Notas /${geMax}, 3 Trimestres`}
+                    />
+                  ) : (
+                    <select
+                      disabled={!isAdmin}
+                      className="form-input disabled:bg-gray-50 disabled:text-gray-500"
+                      value={form.language || 'francophone'}
+                      onChange={set('language')}
+                    >
+                      {LANGUAGES.map((l) => (
+                        <option key={l.value} value={l.value}>{t(l.label, l.label)}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
+                {/* Guinea Ecuatorial : opciones de calificación decididas por el centro */}
+                {isGE && (
+                  <div className="md:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-3">
+                      Opciones de calificación
+                    </p>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="form-label">Escala de notas</label>
+                        <select
+                          disabled={!isAdmin}
+                          className="form-input disabled:bg-gray-50 disabled:text-gray-500"
+                          value={geMax}
+                          onChange={(e) => setGeMax(Number(e.target.value))}
+                        >
+                          <option value={10}>Sobre 10 (modelo español)</option>
+                          <option value={20}>Sobre 20</option>
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <label className={`flex items-center gap-2 text-sm ${isAdmin ? 'cursor-pointer' : 'opacity-60'}`}>
+                          <input
+                            type="checkbox"
+                            disabled={!isAdmin}
+                            className="w-4 h-4 accent-emerald-600"
+                            checked={gePrimCoef}
+                            onChange={(e) => setGePrimCoef(e.target.checked)}
+                          />
+                          <span className="font-medium text-gray-700">Usar coeficientes en Primaria</span>
+                        </label>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      Por defecto la Primaria pondera todas las asignaturas por igual. La Secundaria y el Bachillerato siempre usan coeficientes.
+                    </p>
+                    {isAdmin && (
+                      <div className="flex items-center gap-3 mt-3">
+                        <button
+                          onClick={handleGeOptSave}
+                          disabled={geOptSaving}
+                          className="btn-primary"
+                          style={{ width: 'auto', paddingInline: '1.5rem' }}
+                        >
+                          {geOptSaving ? 'Guardando…' : 'Guardar opciones'}
+                        </button>
+                        {geOptSaved && <span className="text-sm text-emerald-600 font-medium">✓ Guardado</span>}
+                        {geOptError && <span className="text-sm text-red-600">{geOptError}</span>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div>
                   <label className="form-label">{t('Année scolaire', 'Academic year')}</label>
                   <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : 2025-2026', 'E.g. 2025-2026')} value={form.current_year} onChange={set('current_year')} />
@@ -550,19 +687,19 @@ export default function Settings() {
                 </div>
                 <div>
                   <label className="form-label">{t('Arrondissement / Subdivision', 'Subdivision')}</label>
-                  <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : Yaoundé 1er…', 'E.g. Yaoundé 1st…')} value={form.subdivision} onChange={set('subdivision')} />
+                  <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : Yaoundé 1er…', 'E.g. Yaoundé 1st…', 'Ej: Malabo 1º…')} value={form.subdivision} onChange={set('subdivision')} />
                 </div>
                 <div>
                   <label className="form-label">{t('Adresse / B.P.', 'Address / P.O. Box')}</label>
-                  <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : B.P. 1234 Yaoundé', 'E.g. P.O. Box 1234 Yaoundé')} value={form.address} onChange={set('address')} />
+                  <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : B.P. 1234 Yaoundé', 'E.g. P.O. Box 1234 Yaoundé', 'Ej: Apdo. 1234 Malabo')} value={form.address} onChange={set('address')} />
                 </div>
                 <div>
                   <label className="form-label">{t('Téléphone', 'Phone')}</label>
-                  <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder="Ex : 222 XX XX XX" value={form.phone} onChange={set('phone')} />
+                  <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : 222 XX XX XX', 'E.g. 222 XX XX XX', 'Ej: 222 XX XX XX')} value={form.phone} onChange={set('phone')} />
                 </div>
                 <div>
                   <label className="form-label">Email</label>
-                  <input type="email" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder="contact@ecole.cm" value={form.email} onChange={set('email')} />
+                  <input type="email" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('contact@ecole.cm', 'contact@school.com', 'contacto@centro.gq')} value={form.email} onChange={set('email')} />
                 </div>
               </div>
             </Section>
@@ -793,7 +930,7 @@ export default function Settings() {
               <div className="grid grid-cols-2 sm:grid-cols-[1fr_80px_80px_48px_72px_auto] gap-2 items-end">
                 <div className="sm:col-span-1">
                   <label className="form-label text-xs">{t('Mention', 'Label')}</label>
-                  <input type="text" className="form-input" placeholder="Ex: Très bien"
+                  <input type="text" className="form-input" placeholder={t('Ex: Très bien', 'E.g. Very good', 'Ej: Sobresaliente')}
                     value={newEntry.mention}
                     onChange={(e) => setNewEntry((p) => ({ ...p, mention: e.target.value }))}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddEntry())} />
@@ -809,12 +946,12 @@ export default function Settings() {
                     value={newEntry.max} onChange={(e) => setNewEntry((p) => ({ ...p, max: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="form-label text-xs">Couleur</label>
+                  <label className="form-label text-xs">{t('Couleur', 'Color', 'Color')}</label>
                   <input type="color" className="h-[2.625rem] w-full rounded-xl border border-slate-200 cursor-pointer p-0.5 bg-white"
                     value={newEntry.couleur} onChange={(e) => setNewEntry((p) => ({ ...p, couleur: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="form-label text-xs">Ordre</label>
+                  <label className="form-label text-xs">{t('Ordre', 'Order', 'Orden')}</label>
                   <input type="number" min="0" className="form-input"
                     value={newEntry.ordre} onChange={(e) => setNewEntry((p) => ({ ...p, ordre: e.target.value }))} />
                 </div>
@@ -834,7 +971,7 @@ export default function Settings() {
                     <tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 font-semibold uppercase tracking-wider">
                       <th className="text-left px-4 py-2.5">{t('Mention', 'Label')}</th>
                       <th className="text-left px-4 py-2.5">{t('Intervalle', 'Range')}</th>
-                      <th className="text-left px-4 py-2.5">{t('Ordre', 'Order')}</th>
+                      <th className="text-left px-4 py-2.5">{t('Ordre', 'Order', 'Orden')}</th>
                       <th className="px-4 py-2.5"></th>
                     </tr>
                   </thead>
@@ -885,6 +1022,53 @@ export default function Settings() {
               {t('Dates de chaque séquence pour le suivi automatique des retards et alertes enseignants.', 'Dates for each period for automatic tracking of delays and teacher alerts.')}
             </p>
 
+            {/* Guinea Ecuatorial — un seul tableau, 3 trimestres officiels */}
+            {isGE && (
+              <div className="mb-5">
+                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-2">
+                  Sistema equatoguineano — 3 Trimestres
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-separate border-spacing-y-1">
+                    <thead>
+                      <tr className="text-xs text-gray-400 font-medium">
+                        <th className="text-left pb-1 w-32">Trimestre</th>
+                        <th className="text-left pb-1 px-2">Fecha del examen</th>
+                        <th className="text-left pb-1 px-2">Cierre de captura</th>
+                        <th className="text-left pb-1 px-2">Consejo de Curso</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {['Primer Trimestre', 'Segundo Trimestre', 'Tercer Trimestre'].map((label, idx) => {
+                        const row = seqRows[idx] || { exam_date: '', deadline_date: '', conseil_date: '' };
+                        return (
+                          <tr key={idx}>
+                            <td className="font-semibold text-gray-700 pr-2">{label}</td>
+                            {['exam_date', 'deadline_date', 'conseil_date'].map((field) => (
+                              <td key={field} className="px-2">
+                                <input type="date" lang={dateLang} className="form-input py-1.5 text-sm"
+                                  value={row[field]} onChange={(e) => setSeqDate(idx, field, e.target.value)} />
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex items-center gap-4 pt-3 mt-3 border-t border-gray-100">
+                  <button onClick={handleSeqSave} disabled={seqSaving}
+                    className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+                    {seqSaving ? t('Enregistrement…', 'Saving…') : t('Enregistrer les dates', 'Save dates')}
+                  </button>
+                  {seqSaved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Dates sauvegardées', 'Dates saved')}</span>}
+                  {seqError && <span className="text-sm text-red-600">{seqError}</span>}
+                </div>
+              </div>
+            )}
+
+            {!isGE && (<>
             <div className="mb-5">
               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('Système francophone — Séquences', 'Francophone system — Sequences')}</p>
               <div className="overflow-x-auto">
@@ -903,7 +1087,7 @@ export default function Settings() {
                         <td className="font-semibold text-gray-700 pr-2">{row.seq_label}</td>
                         {['exam_date', 'deadline_date', 'conseil_date'].map((field) => (
                           <td key={field} className="px-2">
-                            <input type="date" className="form-input py-1.5 text-sm"
+                            <input type="date" lang={dateLang} className="form-input py-1.5 text-sm"
                               value={row[field]} onChange={(e) => setSeqDate(idx, field, e.target.value)} />
                           </td>
                         ))}
@@ -932,7 +1116,7 @@ export default function Settings() {
                         <td className="font-semibold text-gray-700 pr-2">{row.seq_label}</td>
                         {['exam_date', 'deadline_date', 'conseil_date'].map((field) => (
                           <td key={field} className="px-2">
-                            <input type="date" className="form-input py-1.5 text-sm"
+                            <input type="date" lang={dateLang} className="form-input py-1.5 text-sm"
                               value={row[field]} onChange={(e) => setSeqDate(6 + idx, field, e.target.value)} />
                           </td>
                         ))}
@@ -951,6 +1135,8 @@ export default function Settings() {
               {seqSaved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Dates sauvegardées', 'Dates saved')}</span>}
               {seqError && <span className="text-sm text-red-600">{seqError}</span>}
             </div>
+            </>
+            )}
           </Section>
         )}
 

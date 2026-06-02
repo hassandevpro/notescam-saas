@@ -98,6 +98,25 @@ function SectionSub({ children, white }) {
   );
 }
 
+// ─── Photo écolier (repli gracieux si la photo n'est pas encore fournie) ───────
+// Déposez vos photos dans public/landing/ (ex. public/landing/ecoliers-1.jpg).
+// Tant qu'une photo est absente, un joli dégradé + emoji s'affiche (jamais cassé).
+function SchoolPhoto({ src, alt, className = '', emoji = '🎒', label }) {
+  const [failed, setFailed] = useState(false);
+  if (failed || !src) {
+    return (
+      <div className={`relative flex flex-col items-center justify-center bg-gradient-to-br from-blue-100 via-indigo-100 to-blue-200 overflow-hidden ${className}`}>
+        <span className="text-5xl opacity-70">{emoji}</span>
+        {label && <span className="mt-2 text-xs font-semibold text-blue-700/70 px-3 text-center">{label}</span>}
+      </div>
+    );
+  }
+  return (
+    <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)}
+      className={`object-cover ${className}`} />
+  );
+}
+
 // ─── App screenshot mockup ────────────────────────────────────────────────────
 function DashboardMockup() {
   return (
@@ -264,6 +283,11 @@ function Hero() {
             </div>
             <div className="absolute -right-4 bottom-1/4 bg-green-500 rounded-xl shadow-2xl p-3 text-white text-xs font-bold">
               ✓ Paiement MTN MoMo accepté
+            </div>
+            {/* Vignette écolier */}
+            <div className="absolute -right-6 -top-6 w-24 h-24 rounded-2xl overflow-hidden shadow-2xl ring-4 ring-white/90 lp-float" style={{ animationDelay: '.6s' }}>
+              <SchoolPhoto src="/landing/ecolier-hero.jpg" alt="Écolier souriant" emoji="🎓"
+                className="w-full h-full" />
             </div>
           </div>
         </div>
@@ -453,6 +477,42 @@ function Stats() {
   );
 }
 
+// ─── Galerie écoliers ──────────────────────────────────────────────────────────
+const GALLERY = [
+  { src: '/landing/ecoliers-1.jpg', emoji: '🎒', label: 'Élèves du primaire',  span: 'row-span-2' },
+  { src: '/landing/ecoliers-2.jpg', emoji: '📚', label: 'En classe',            span: '' },
+  { src: '/landing/ecoliers-3.jpg', emoji: '✏️', label: 'Travail de groupe',   span: '' },
+  { src: '/landing/ecoliers-4.jpg', emoji: '🎓', label: 'Fierté de réussir',   span: 'row-span-2' },
+  { src: '/landing/ecoliers-5.jpg', emoji: '🏫', label: 'Cour de récréation',  span: '' },
+  { src: '/landing/ecoliers-6.jpg', emoji: '😀', label: 'Sourires d’élèves',   span: '' },
+];
+
+function Gallery() {
+  const [ref, vis] = useInView();
+  return (
+    <section className="py-20 md:py-28 bg-white" ref={ref}>
+      <div className="max-w-7xl mx-auto px-5 md:px-10">
+        <div className="text-center mb-14">
+          <SectionTag>Au cœur de l'école</SectionTag>
+          <SectionTitle>La réussite des élèves,<br/>mieux accompagnée.</SectionTitle>
+          <SectionSub>Derrière chaque bulletin, il y a un enfant. NotesCam libère du temps administratif pour ce qui compte vraiment : enseigner.</SectionSub>
+        </div>
+        <div className={`grid grid-cols-2 md:grid-cols-4 auto-rows-[140px] md:auto-rows-[170px] gap-4 ${vis ? 'lp-fade-up' : 'opacity-0'}`}>
+          {GALLERY.map(({ src, emoji, label, span }, i) => (
+            <div key={i}
+              className={`relative rounded-2xl overflow-hidden shadow-sm ring-1 ring-black/5 group ${span}`}>
+              <SchoolPhoto src={src} alt={label} emoji={emoji} label={label}
+                className="w-full h-full transition-transform duration-500 group-hover:scale-105" />
+              <div className="absolute inset-0 bg-gradient-to-t from-blue-950/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <span className="absolute bottom-2 left-3 right-3 text-white text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── Prestige ─────────────────────────────────────────────────────────────────
 function Prestige() {
   return (
@@ -534,132 +594,96 @@ function Testimonials() {
   );
 }
 
-// ─── Pricing ──────────────────────────────────────────────────────────────────
-const PLANS = [
-  {
-    name: 'Starter',
-    price: 'Gratuit',
-    period: '',
-    annual: null,
-    desc: 'Pour découvrir sans risque.',
-    popular: false,
-    cta: 'Commencer gratuitement',
-    ctaLink: '/signup',
-    features: [
-      { t: '1 classe uniquement',       ok: true  },
-      { t: '30 élèves maximum',         ok: true  },
-      { t: 'Notes & bulletins',         ok: true  },
-      { t: 'Dashboard basique',         ok: true  },
-      { t: 'Watermark NotesCam',        ok: false },
-      { t: 'Frais scolaires',           ok: false },
-      { t: 'Portail parents',           ok: false },
-      { t: 'Emploi du temps',           ok: false },
-    ],
-  },
-  {
-    name: 'École',
-    price: '8 500',
-    period: 'FCFA / mois',
-    annual: '85 000 FCFA / an — 2 mois offerts',
-    desc: 'Pour maîtriser toute votre administration.',
-    popular: true,
-    cta: 'Essayer 14 jours gratuits',
-    ctaLink: '/signup',
-    features: [
-      { t: 'Élèves illimités',          ok: true  },
-      { t: 'Classes illimitées',        ok: true  },
-      { t: 'Notes & bulletins',         ok: true  },
-      { t: 'Gestion des enseignants',   ok: true  },
-      { t: 'Frais scolaires complets',  ok: true  },
-      { t: 'Sans watermark',            ok: true  },
-      { t: 'Export Excel / PDF',        ok: true  },
-      { t: 'Portail parents',           ok: false },
-      { t: 'Emploi du temps',           ok: false },
-    ],
-  },
-  {
-    name: 'Pro',
-    price: '15 000',
-    period: 'FCFA / mois',
-    annual: '140 000 FCFA / an — 2 mois offerts',
-    desc: 'Pour les directeurs qui veulent le meilleur.',
-    popular: false,
-    cta: 'Essayer 14 jours gratuits',
-    ctaLink: '/signup',
-    features: [
-      { t: 'Tout du plan École',        ok: true  },
-      { t: 'Portail parents',           ok: true  },
-      { t: 'Emploi du temps',           ok: true  },
-      { t: 'Statistiques avancées',     ok: true  },
-      { t: 'Logo personnalisé',         ok: true  },
-      { t: 'Support prioritaire 24h',   ok: true  },
-      { t: 'Formation incluse',         ok: true  },
-      { t: 'Export Excel / PDF',        ok: true  },
-    ],
-  },
+// ─── Pricing (tarification par élève, négociée) ────────────────────────────────
+const PRICE_INCLUDED = [
+  'Toutes les fonctionnalités incluses',
+  'Élèves & classes illimités',
+  'Notes, bulletins & relevés',
+  'Frais scolaires & reçus',
+  'Portail parents WhatsApp',
+  'Emploi du temps & rapports',
+  'Sans filigrane · Export PDF / Excel',
+  'Formation & support inclus',
 ];
 
 function Pricing() {
   const [ref, vis] = useInView();
+  const [students, setStudents] = useState(250);
+  const PRICE = 1000; // FCFA par élève — exemple ; le tarif final est négocié.
+  const fmt = (n) => Number(n || 0).toLocaleString('fr-FR');
+  const total = (Number(students) || 0) * PRICE;
+
   return (
     <section id="tarifs" className="py-20 md:py-28 bg-white" ref={ref}>
       <div className="max-w-7xl mx-auto px-5 md:px-10">
-        <div className="text-center mb-6">
+        <div className="text-center mb-10">
           <SectionTag>Tarifs</SectionTag>
-          <SectionTitle>Un investissement qui se<br/>rembourse dès le premier mois.</SectionTitle>
-          <SectionSub>Commencez gratuitement. Passez au niveau supérieur quand vous êtes convaincu.</SectionSub>
+          <SectionTitle>Une tarification juste :<br/>vous payez par élève.</SectionTitle>
+          <SectionSub>
+            Pas de forfait rigide. Un prix unique <strong>par élève</strong>, négocié avec vous selon la taille
+            de votre établissement. Toutes les fonctionnalités sont incluses.
+          </SectionSub>
         </div>
-        {/* Founder offer banner */}
-        <div className="mb-10 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-5 text-center">
-          <p className="text-amber-800 font-bold text-sm">
-            🎁 Offre fondateurs — 20% de réduction sur tous les plans annuels pour les 50 premiers établissements inscrits.
-            <a href={WA_LINK} target="_blank" rel="noopener noreferrer" className="underline ml-2">Réclamer l'offre →</a>
-          </p>
-        </div>
-        <div className="grid md:grid-cols-3 gap-6 items-stretch" ref={ref}>
-          {PLANS.map(({ name, price, period, annual, desc, popular, cta, ctaLink, features }, i) => (
-            <div key={name}
-              className={`rounded-2xl p-7 flex flex-col transition-all ${vis ? 'lp-fade-up' : 'opacity-0'} ${popular
-                ? 'bg-gradient-to-b from-blue-600 to-blue-700 shadow-2xl shadow-blue-500/25 ring-2 ring-blue-400 scale-105'
-                : 'bg-white border border-gray-200 shadow-sm hover:shadow-lg'}`}
-              style={{ animationDelay: `${i * .1}s` }}>
-              {/* Badge */}
-              <div className="flex justify-between items-start mb-5">
-                <div>
-                  <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${popular ? 'text-blue-200' : 'text-slate-400'}`}>{name}</p>
-                  <p className={`text-sm ${popular ? 'text-blue-100' : 'text-slate-500'}`}>{desc}</p>
-                </div>
-                {popular && <span className="bg-amber-400 text-amber-900 text-xs font-black px-2.5 py-1 rounded-full">⭐ Populaire</span>}
-              </div>
-              {/* Price */}
-              <div className="mb-5">
-                <div className={`text-4xl font-extrabold ${popular ? 'text-white' : 'text-slate-900'}`}>
-                  {price}
-                </div>
-                {period && <div className={`text-sm ${popular ? 'text-blue-200' : 'text-slate-400'}`}>{period}</div>}
-                {annual && <div className={`text-xs mt-1 font-semibold ${popular ? 'text-green-300' : 'text-green-600'}`}>{annual}</div>}
-              </div>
-              {/* CTA */}
-              <Link to={ctaLink}
-                className={`block text-center font-bold py-3 rounded-xl text-sm mb-6 transition-all ${popular
-                  ? 'bg-white text-blue-700 hover:bg-blue-50 shadow-lg'
-                  : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-500/20'}`}>
-                {cta}
-              </Link>
-              {/* Features */}
-              <div className="space-y-2.5 flex-1">
-                {features.map(({ t, ok }) => (
-                  <div key={t} className={`flex items-center gap-2.5 text-sm ${ok ? (popular ? 'text-white' : 'text-slate-700') : (popular ? 'text-blue-300/50' : 'text-slate-300')}`}>
-                    <span className={`flex-shrink-0 ${ok ? (popular ? 'text-green-300' : 'text-blue-600') : 'opacity-40'}`}>
-                      {ok ? '✓' : '✗'}
-                    </span>
-                    {t}
-                  </div>
-                ))}
-              </div>
+
+        <div className={`grid lg:grid-cols-2 gap-6 items-stretch ${vis ? 'lp-fade-up' : 'opacity-0'}`}>
+          {/* Estimateur */}
+          <div className="rounded-3xl p-8 bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-2xl shadow-blue-500/25 flex flex-col">
+            <p className="text-xs font-bold uppercase tracking-widest text-blue-200 mb-2">Estimez votre tarif</p>
+            <div className="flex items-end gap-2 mb-1">
+              <span className="text-5xl font-extrabold">{fmt(PRICE)}</span>
+              <span className="text-blue-200 mb-1.5 text-sm">FCFA / élève<sup>*</sup></span>
             </div>
-          ))}
+            <p className="text-blue-100/80 text-sm mb-6">Exemple indicatif — le prix réel est négocié pour votre école.</p>
+
+            <label className="text-sm font-semibold text-blue-100 mb-2">
+              Nombre d'élèves : <span className="text-white font-bold">{fmt(students)}</span>
+            </label>
+            <input
+              type="range" min="30" max="2000" step="10"
+              value={students}
+              onChange={(e) => setStudents(Number(e.target.value))}
+              className="w-full accent-amber-400 mb-2 cursor-pointer"
+            />
+            <div className="flex justify-between text-[11px] text-blue-200/70 mb-6">
+              <span>30</span><span>2 000</span>
+            </div>
+
+            <div className="rounded-2xl bg-white/10 border border-white/15 p-5 text-center mb-6">
+              <p className="text-xs text-blue-200 mb-1">Budget estimé pour votre établissement</p>
+              <p className="text-4xl font-extrabold text-amber-300">{fmt(total)} <span className="text-lg text-amber-200">FCFA</span></p>
+              <p className="text-[11px] text-blue-200/70 mt-1">{fmt(PRICE)} FCFA × {fmt(students)} élèves</p>
+            </div>
+
+            <a href={WA_LINK} target="_blank" rel="noopener noreferrer"
+              className="mt-auto block text-center font-bold py-3.5 rounded-xl text-sm bg-amber-400 text-amber-950 hover:bg-amber-300 transition-all shadow-lg">
+              💬 Obtenir mon devis personnalisé
+            </a>
+            <p className="text-[11px] text-blue-200/60 mt-3 text-center"><sup>*</sup> Tarif dégressif négocié selon l'effectif.</p>
+          </div>
+
+          {/* Tout inclus + essai gratuit */}
+          <div className="rounded-3xl p-8 bg-white border border-gray-200 shadow-sm flex flex-col">
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Tout est inclus</p>
+            <h3 className="text-2xl font-extrabold text-slate-900 mb-5">Un seul tarif, zéro option cachée.</h3>
+            <div className="space-y-2.5 flex-1">
+              {PRICE_INCLUDED.map((t) => (
+                <div key={t} className="flex items-center gap-2.5 text-sm text-slate-700">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-bold">✓</span>
+                  {t}
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 rounded-2xl bg-blue-50 border border-blue-100 p-5">
+              <p className="text-sm font-bold text-blue-900 mb-1">🎁 Essayez gratuitement</p>
+              <p className="text-xs text-blue-700/80 mb-4">Démarrez sans carte bancaire et testez NotesCam avec votre première classe.</p>
+              <Link to="/signup"
+                className="block text-center font-bold py-3 rounded-xl text-sm bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-md shadow-blue-500/20">
+                Commencer gratuitement
+              </Link>
+            </div>
+          </div>
         </div>
+
         {/* Payment methods */}
         <div className="mt-10 text-center text-sm text-slate-400">
           Paiement accepté : <strong className="text-slate-600">MTN Mobile Money</strong> · <strong className="text-slate-600">Orange Money</strong> · Virement bancaire
@@ -674,8 +698,9 @@ const FAQS = [
   { q: 'Et si mon école n\'a pas toujours internet ?', a: 'NotesCam fonctionne hors-ligne. Les données sont sauvegardées localement sur vos appareils et synchronisées automatiquement dès que la connexion revient. Vos données ne sont jamais perdues.' },
   { q: 'Les données de mon école sont-elles sécurisées ?', a: 'Vos données sont hébergées sur des serveurs sécurisés (chiffrement SSL, sauvegardes automatiques quotidiennes). Nous ne partageons jamais vos informations avec des tiers. Votre école reste propriétaire de ses données.' },
   { q: 'Mes enseignants vont-ils savoir utiliser NotesCam ?', a: 'L\'interface a été conçue pour être utilisée sans formation technique. La prise en main se fait en moins de 30 minutes. Notre équipe vous accompagne lors de la mise en place, gratuitement.' },
-  { q: 'Puis-je commencer avec le plan gratuit ?', a: 'Oui, le plan Starter est 100% gratuit, sans carte bancaire. Il vous permet de tester avec 1 classe et 30 élèves. Vous passez au plan supérieur seulement quand vous êtes convaincu.' },
-  { q: 'Comment se passe le paiement ?', a: 'Nous acceptons MTN Mobile Money, Orange Money, et virement bancaire. Le paiement est mensuel ou annuel. L\'abonnement annuel vous offre 2 mois gratuits, soit une économie de 17 000 à 30 000 FCFA.' },
+  { q: 'Comment fonctionne la tarification par élève ?', a: 'Vous payez un montant unique par élève inscrit, et toutes les fonctionnalités sont incluses. Le prix par élève est négocié avec vous selon la taille de votre établissement (tarif dégressif). Contactez-nous sur WhatsApp pour obtenir votre devis personnalisé.' },
+  { q: 'Puis-je essayer gratuitement avant de payer ?', a: 'Oui. Vous démarrez gratuitement, sans carte bancaire, et testez NotesCam avec votre première classe. Vous ne passez au tarif par élève que lorsque vous êtes convaincu.' },
+  { q: 'Comment se passe le paiement ?', a: 'Nous acceptons MTN Mobile Money, Orange Money et virement bancaire. La facturation se fait selon l\'effectif de votre établissement, au tarif par élève convenu ensemble.' },
   { q: 'Que se passe-t-il si je veux arrêter ?', a: 'Vous pouvez annuler à tout moment, sans frais de résiliation. Vos données restent accessibles pendant 30 jours après l\'arrêt. Vous pouvez les exporter en format Excel ou PDF avant de partir.' },
 ];
 
@@ -839,6 +864,7 @@ export default function Landing() {
         <LogoBar />
         <Problems />
         <Solution />
+        <Gallery />
         <Features />
         <Stats />
         <Prestige />

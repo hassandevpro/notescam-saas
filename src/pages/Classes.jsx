@@ -3,33 +3,19 @@ import { Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import Layout from '../components/Layout';
+import Modal from '../components/Modal';
 import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
+import { useCountry, defaultSystemForCountry } from '../lib/useCountry';
 
 const SYSTEMS = ['FR', 'EN'];
 
-function defaultSystemForLanguage(lang) {
-  return lang === 'anglophone' ? 'EN' : 'FR';
+// Retourne les groupes de niveaux pour un cycle donné, lus depuis la config pays.
+function niveauGroupsForCycle(country, cycleCode) {
+  const cycle = country?.cycles?.find((c) => c.code === cycleCode);
+  return cycle?.levelGroups || [];
 }
-
-const NIVEAU_OPTS = {
-  secondaire: [
-    { group: 'Collège',        items: ['6ème', '5ème', '4ème', '3ème'] },
-    { group: 'Lycée général',  items: ['2nde', '1ère A', '1ère C', '1ère D', 'Terminale A', 'Terminale B', 'Terminale C', 'Terminale D', 'Terminale E'] },
-    { group: 'Lycée technique (TI)', items: ['1ère TI', 'Terminale TI'] },
-    { group: 'Lycée technique (TG)', items: ['1ère TG', 'Terminale TG', '1ère TMG', 'Terminale TMG'] },
-    { group: 'Lycée technique (F)',  items: ['1ère F1', 'Terminale F1', '1ère F2', 'Terminale F2', '1ère F3', 'Terminale F3'] },
-    { group: 'Anglophone',     items: ['Form 1', 'Form 2', 'Form 3', 'Form 4', 'Form 5', 'Lower Sixth', 'Upper Sixth'] },
-  ],
-  primaire: [
-    { group: 'Francophone', items: ['SIL', 'CP', 'CE1', 'CE2', 'CM1', 'CM2'] },
-    { group: 'Anglophone',  items: ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6'] },
-  ],
-  maternelle: [
-    { group: 'Préscolaire', items: ['Toute Petite Section', 'Petite Section', 'Moyenne Section', 'Grande Section'] },
-  ],
-};
 
 const SUBJECT_CATALOG = [
   // Langues
@@ -68,6 +54,29 @@ const SUBJECT_CATALOG_EN = [
   'Religious Studies', 'Practical Work',
 ];
 
+// Catálogo de asignaturas para Guinea Ecuatorial — terminología oficial MEC.
+const SUBJECT_CATALOG_ES = [
+  // Lenguas
+  'Lengua Española', 'Francés', 'Inglés', 'Lengua Nacional',
+  // Ciencias exactas
+  'Matemáticas', 'Física', 'Química', 'Física y Química',
+  'Biología y Geología', 'Ciencias Naturales', 'Informática',
+  // Ciencias humanas
+  'Historia', 'Geografía', 'Historia y Geografía',
+  'Educación para la Ciudadanía', 'Filosofía', 'Economía',
+  // Técnicas
+  'Tecnología', 'Contabilidad', 'Gestión',
+  // Artes y deportes
+  'Educación Física', 'Educación Artística', 'Música',
+  // Otros
+  'Religión', 'Trabajos Prácticos',
+];
+
+function subjectCatalogForCountry(countryCode, isEN) {
+  if (countryCode === 'guinea_eq') return SUBJECT_CATALOG_ES;
+  return isEN ? SUBJECT_CATALOG_EN : SUBJECT_CATALOG;
+}
+
 const EMPTY_FORM = {
   name: '', level: '', system: 'FR',
   cycle: 'secondaire', current_year: '', teacher_id: '', max_students: '',
@@ -76,15 +85,15 @@ const EMPTY_FORM = {
 // ── Formulaire compact (création) ────────────────────────────────────────────
 function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) {
   const t = useT();
-  const CYCLES = [
-    { value: 'secondaire', label: t('Secondaire', 'Secondary') },
-    { value: 'primaire',   label: t('Primaire',   'Primary') },
-    { value: 'maternelle', label: t('Maternelle / Préscolaire', 'Nursery / Pre-school') },
-  ];
+  const country = useCountry();
+  // Cycles dynamiques selon le pays — labels venant du registre countries/*.
+  const CYCLES = country.cycles.map((c) => ({ value: c.code, label: c.label }));
+
+  const isGE = country.code === 'guinea_eq';
   const [form, setForm] = useState({
     ...EMPTY_FORM,
     current_year: defaultYear,
-    system: defaultSystemForLanguage(schoolLanguage),
+    system: defaultSystemForCountry(country.code),
   });
   const [saving, setSaving] = useState(false);
 
@@ -104,6 +113,10 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) 
     const niveau = e.target.value;
     setForm((f) => {
       const nameIsAuto = f.name === '' || f.name === f.level;
+      // Guinea Ecuatorial : système toujours ES, jamais d'autobascule EN.
+      if (isGE) {
+        return { ...f, level: niveau, name: nameIsAuto ? niveau : f.name, system: 'ES' };
+      }
       const autoSystem = ANGLOPHONE_NIVEAUX.has(niveau) ? 'EN' : 'FR';
       return {
         ...f,
@@ -126,8 +139,8 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) 
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-gray-50 border border-gray-200 rounded-xl p-6 mb-6">
-      <h3 className="text-base font-semibold text-gray-800 mb-4">{t('Nouvelle classe', 'New class')}</h3>
+    <form onSubmit={handleSubmit} className="pb-2">
+
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {/* 1. Cycle en premier — détermine les options de niveau */}
         <div>
@@ -136,12 +149,12 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) 
             {CYCLES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
-        {/* 2. Niveau — auto-remplit le nom */}
+        {/* 2. Niveau — auto-remplit le nom — options venant du pays */}
         <div>
           <label className="form-label">{t('Niveau', 'Level')}</label>
           <select className="form-input" value={form.level} onChange={handleNiveauChange}>
             <option value="">— {t('Choisir', 'Select')} —</option>
-            {(NIVEAU_OPTS[form.cycle] || NIVEAU_OPTS.secondaire).map((g) => (
+            {niveauGroupsForCycle(country, form.cycle).map((g) => (
               <optgroup key={g.group} label={g.group}>
                 {g.items.map((n) => <option key={n} value={n}>{n}</option>)}
               </optgroup>
@@ -162,7 +175,7 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) 
             placeholder={t('Ex : Terminale TI A', 'E.g. Form 4 Science A')}
             value={form.name} onChange={set('name')} />
         </div>
-        {schoolLanguage === 'bilingue' && (
+        {schoolLanguage === 'bilingue' && !isGE && (
           <div>
             <label className="form-label">{t('Système de notation *', 'Grading system *')}</label>
             <select required className="form-input" value={form.system} onChange={set('system')}>
@@ -204,11 +217,10 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) 
 // ── Vue détail / édition d'une classe ────────────────────────────────────────
 function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLanguage }) {
   const t = useT();
-  const CYCLES = [
-    { value: 'secondaire', label: t('Secondaire', 'Secondary') },
-    { value: 'primaire',   label: t('Primaire',   'Primary') },
-    { value: 'maternelle', label: t('Maternelle / Préscolaire', 'Nursery / Pre-school') },
-  ];
+  const country = useCountry();
+  const CYCLES = country.cycles.map((c) => ({ value: c.code, label: c.label }));
+  const isEN_local = cls.system === 'EN';
+  const catalog_local = subjectCatalogForCountry(country.code, isEN_local);
   const subjects      = useSchoolStore((s) => s.subjects);
   const students      = useSchoolStore((s) => s.students);
   const addSubject    = useSchoolStore((s) => s.addSubject);
@@ -216,7 +228,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const deleteSubject = useSchoolStore((s) => s.deleteSubject);
 
   const isEN     = cls.system === 'EN';
-  const catalog  = isEN ? SUBJECT_CATALOG_EN : SUBJECT_CATALOG;
+  const catalog  = catalog_local;
 
   const classSubjects = subjects
     .filter((s) => s.class_id === cls.id)
@@ -283,7 +295,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
               <label className="form-label">{t('Niveau', 'Level')}</label>
               <select className="form-input" value={form.level || ''} onChange={set('level')}>
                 <option value="">— {t('Choisir', 'Select')} —</option>
-                {(NIVEAU_OPTS[form.cycle] || NIVEAU_OPTS.secondaire).map((g) => (
+                {niveauGroupsForCycle(country, form.cycle).map((g) => (
                   <optgroup key={g.group} label={g.group}>
                     {g.items.map((n) => <option key={n} value={n}>{n}</option>)}
                   </optgroup>
@@ -456,7 +468,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 <div className="text-brand-400 text-lg font-bold text-center leading-none">+</div>
                 <input
                   type="text"
-                  placeholder={isEN ? 'Custom subject…' : 'Matière personnalisée…'}
+                  placeholder={t('Matière personnalisée…', 'Custom subject…', 'Asignatura personalizada…')}
                   className="text-sm border border-brand-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-brand-400 bg-white placeholder:text-gray-400"
                   value={customSubject.name}
                   onChange={(e) => setCustomSubject((p) => ({ ...p, name: e.target.value }))}
@@ -475,7 +487,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                   value={customSubject.coef}
                   onChange={(e) => setCustomSubject((p) => ({ ...p, coef: e.target.value }))}
                 />
-                <div className="text-center text-xs text-gray-300">auto</div>
+                <div className="text-center text-xs text-gray-300">{t('auto', 'auto', 'auto')}</div>
                 <button
                   type="button"
                   disabled={!customSubject.name.trim()}
@@ -638,9 +650,11 @@ function ClassCard({ cls, studentCount, subjectCount, teacherName, onEdit }) {
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${
-            sys === 'EN' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-purple-50 text-purple-700 border-purple-100'
+            sys === 'EN' ? 'bg-blue-50 text-blue-700 border-blue-100'
+            : sys === 'ES' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+            : 'bg-purple-50 text-purple-700 border-purple-100'
           }`}>
-            {sys === 'FR' ? '/20' : '/100'}
+            {sys === 'FR' ? '/20' : sys === 'EN' ? '/100' : '/10'}
           </span>
           <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${theme.badge}`}>
             {CYCLE_LABELS[cycle]}
@@ -789,28 +803,21 @@ export default function Classes() {
               {classes.length} {t('classe', 'class')}{classes.length !== 1 ? 's' : ''} · {totalStudents} {t('élève', 'student')}{totalStudents !== 1 ? 's' : ''}
             </p>
           </div>
-          {!editing && !showForm && (
-            classes.length >= f.maxClasses ? (
-              <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm text-amber-800">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-500 shrink-0">
-                  <path fillRule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clipRule="evenodd" />
-                </svg>
-                <span>{t('Limite Starter atteinte', 'Starter limit reached')} ·{' '}
-                  <a href="https://wa.me/237670894721?text=Je%20veux%20passer%20au%20plan%20%C3%89cole" target="_blank" rel="noopener noreferrer" className="font-semibold underline text-amber-900">
-                    {t('Passer au plan École', 'Upgrade to École plan')}
-                  </a>
-                </span>
-              </div>
-            ) : (
-              <button onClick={() => setShowForm(true)} className="btn-primary"
-                style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
-                + {t('Ajouter une classe', 'Add a class')}
-              </button>
-            )
-          )}
-          {editing && (
-            <button onClick={() => setEditing(null)} className="btn-secondary text-sm">
-              ← {t('Retour à la liste', 'Back to list')}
+          {classes.length >= f.maxClasses ? (
+            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm text-amber-800">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-500 shrink-0">
+                <path fillRule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clipRule="evenodd" />
+              </svg>
+              <span>{t('Limite Starter atteinte', 'Starter limit reached')} ·{' '}
+                <a href="https://wa.me/237670894721?text=Je%20veux%20passer%20au%20plan%20%C3%89cole" target="_blank" rel="noopener noreferrer" className="font-semibold underline text-amber-900">
+                  {t('Passer au plan École', 'Upgrade to École plan')}
+                </a>
+              </span>
+            </div>
+          ) : (
+            <button onClick={() => setShowForm(true)} className="btn-primary"
+              style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
+              + {t('Ajouter une classe', 'Add a class')}
             </button>
           )}
         </div>
@@ -827,32 +834,35 @@ export default function Classes() {
           </div>
         )}
 
-        {/* Add form */}
+        {/* Modal création classe */}
         {showForm && !editing && (
-          <ClassForm
-            defaultYear={defaultYear}
-            teachers={teachers}
-            onSave={handleSave}
-            onCancel={() => setShowForm(false)}
-            schoolLanguage={schoolLanguage}
-          />
+          <Modal title={t('Nouvelle classe', 'New class')} onClose={() => setShowForm(false)} size="md">
+            <ClassForm
+              defaultYear={defaultYear}
+              teachers={teachers}
+              onSave={handleSave}
+              onCancel={() => setShowForm(false)}
+              schoolLanguage={schoolLanguage}
+            />
+          </Modal>
         )}
 
-        {/* Edit detail view */}
+        {/* Modal édition classe */}
         {editing && (
-          <ClassDetailView
-            cls={editing}
-            teachers={teachers}
-            onSave={handleSave}
-            onCancel={() => setEditing(null)}
-            onDelete={handleDelete}
-            schoolLanguage={schoolLanguage}
-          />
+          <Modal title={`${t('Modifier', 'Edit')} — ${editing.name}`} onClose={() => setEditing(null)} size="xl">
+            <ClassDetailView
+              cls={editing}
+              teachers={teachers}
+              onSave={handleSave}
+              onCancel={() => setEditing(null)}
+              onDelete={handleDelete}
+              schoolLanguage={schoolLanguage}
+            />
+          </Modal>
         )}
 
         {/* Grille de cartes */}
-        {!editing && (
-          classes.length === 0 ? (
+        {classes.length === 0 ? (
             <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100">
               <div className="text-5xl mb-4">🏫</div>
               <p className="text-gray-700 font-semibold mb-1">{t('Aucune classe configurée', 'No class configured')}</p>
@@ -865,29 +875,27 @@ export default function Classes() {
           ) : (
             <>
               {/* Barre de recherche */}
-              {!showForm && (
-                <div className="relative mb-5">
-                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-                  </svg>
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder={t('Rechercher une classe…', 'Search a class…')}
-                    className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-300"
-                  />
-                  {search && (
-                    <button onClick={() => setSearch('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              )}
+              <div className="relative mb-5">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                </svg>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={t('Rechercher une classe…', 'Search a class…')}
+                  className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-300"
+                />
+                {search && (
+                  <button onClick={() => setSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredClasses.length === 0 && (
@@ -923,8 +931,7 @@ export default function Classes() {
               )}
             </div>
             </>
-          )
-        )}
+          )}
       </div>
     </Layout>
   );

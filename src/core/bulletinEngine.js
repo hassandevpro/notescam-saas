@@ -31,15 +31,35 @@ export const calcEN = (g, subs) => {
   return tc ? Math.round((sw / tc) * 100) / 100 : null;
 };
 
-export const getAvg = (g, subs, sys) =>
-  sys === 'FR' ? calcFR(g, subs) : calcEN(g, subs);
+// Système éducatif équato-guinéen : notes /10 par défaut (modèle espagnol),
+// mais l'administrateur peut choisir /20 (maxScale) et activer/désactiver les
+// coefficients (useCoef, ex. désactivés au primaire). Défauts = /10 + coef
+// pour préserver le comportement existant.
+export const calcES = (g, subs, maxScale = 10, useCoef = true) => {
+  let sw = 0, tc = 0;
+  for (const s of subs) {
+    const v = g?.[s.id];
+    if (!v || v === 'ABS' || v === '') continue;
+    const coef = useCoef ? (s.coef || 1) : 1;
+    sw += (parseFloat(v) / s.max) * maxScale * coef;
+    tc += coef;
+  }
+  return tc ? Math.round((sw / tc) * 100) / 100 : null;
+};
+
+// opts (ES uniquement) : { maxScale = 10, useCoef = true }
+export const getAvg = (g, subs, sys, opts = {}) => {
+  if (sys === 'EN') return calcEN(g, subs);
+  if (sys === 'ES') return calcES(g, subs, opts.maxScale ?? 10, opts.useCoef ?? true);
+  return calcFR(g, subs);
+};
 
 // --- Moyenne sur plusieurs séquences ---
 // seqs = [1, 2] ou [1,2,3,4,5,6] selon le trimestre voulu
 
-export const multiAvg = (allGrades, classId, studentId, seqs, subs, sys) => {
+export const multiAvg = (allGrades, classId, studentId, seqs, subs, sys, opts = {}) => {
   const vals = seqs
-    .map((i) => getAvg(allGrades[`${classId}_${studentId}_${i}`] || {}, subs, sys))
+    .map((i) => getAvg(allGrades[`${classId}_${studentId}_${i}`] || {}, subs, sys, opts))
     .filter((x) => x !== null);
   return vals.length
     ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100
@@ -74,10 +94,29 @@ export const DEFAULT_GRADE_SCALE = [
   { id: '5', mention: 'Insuffisant',            min: 0,    max: 9.99,  couleur: '#9CA3AF', ordre: 5 },
 ];
 
+// Apreciaciones officielles MEC (Guinea Ecuatorial) — barème sobre 10.
+export const ES_GRADE_SCALE = [
+  { mention: 'Sobresaliente', min: 9,   max: 10,   couleur: '#10B981' },
+  { mention: 'Notable',       min: 7,   max: 8.99, couleur: '#3B82F6' },
+  { mention: 'Bien',          min: 6,   max: 6.99, couleur: '#8B5CF6' },
+  { mention: 'Suficiente',    min: 5,   max: 5.99, couleur: '#F59E0B' },
+  { mention: 'Insuficiente',  min: 0,   max: 4.99, couleur: '#EF4444' },
+];
+
+// maxScale = 10 (défaut) ou 20 : les bornes des apreciaciones sont mises à
+// l'échelle proportionnellement (ex. Sobresaliente 9-10 → 18-20 sur /20).
+export const esGrade = (avg, maxScale = 10) => {
+  if (avg === null || avg === undefined) return { text: '—', col: '#6b7280' };
+  const f = maxScale / 10;
+  const hit = ES_GRADE_SCALE.find((s) => avg >= s.min * f && avg <= s.max * f);
+  return hit ? { text: hit.mention, col: hit.couleur } : { text: '—', col: '#6b7280' };
+};
+
 // Utilise le barème personnalisé (school.grade_scale) si disponible,
-// sinon DEFAULT_GRADE_SCALE. Pour EN, toujours enGrade.
-export const getAppreciation = (avg, gradeScale, sys) => {
+// sinon DEFAULT_GRADE_SCALE. Pour EN → enGrade, pour ES → esGrade.
+export const getAppreciation = (avg, gradeScale, sys, maxScale = 10) => {
   if (sys === 'EN') return enGrade(avg);
+  if (sys === 'ES') return esGrade(avg, maxScale);
   if (avg === null) return { text: '—', col: '#6b7280' };
   const scale  = Array.isArray(gradeScale) && gradeScale.length ? gradeScale : DEFAULT_GRADE_SCALE;
   const sorted = [...scale].sort((a, b) => b.min - a.min);
@@ -115,15 +154,15 @@ export const enGrade = (p) => {
 
 // --- Statistiques de classe ---
 
-export const clsStat = (studs, allGrades, classId, seqs, subs, sys, excl = {}) => {
+export const clsStat = (studs, allGrades, classId, seqs, subs, sys, excl = {}, opts = {}) => {
   const vals = studs
     .filter((s) => !excl[`${classId}_${s.id}`])
-    .map((s) => multiAvg(allGrades, classId, s.id, seqs, subs, sys))
+    .map((s) => multiAvg(allGrades, classId, s.id, seqs, subs, sys, opts))
     .filter((x) => x !== null);
 
   if (!vals.length) return { min: null, max: null, avg: null, above: 0, total: studs.length };
 
-  const pass = sys === 'FR' ? 10 : 50;
+  const pass = sys === 'ES' ? (opts.maxScale ?? 10) / 2 : sys === 'FR' ? 10 : 50;
   return {
     min:   Math.round(Math.min(...vals) * 100) / 100,
     max:   Math.round(Math.max(...vals) * 100) / 100,
@@ -135,13 +174,13 @@ export const clsStat = (studs, allGrades, classId, seqs, subs, sys, excl = {}) =
 
 // --- Classement ---
 
-export const buildRanks = (studs, allGrades, classId, seqs, subs, sys, excl = {}) => {
+export const buildRanks = (studs, allGrades, classId, seqs, subs, sys, excl = {}, opts = {}) => {
   const wa = studs.map((s) => ({
     ...s,
     excluded: !!excl[`${classId}_${s.id}`],
     av: excl[`${classId}_${s.id}`]
       ? null
-      : multiAvg(allGrades, classId, s.id, seqs, subs, sys),
+      : multiAvg(allGrades, classId, s.id, seqs, subs, sys, opts),
   }));
 
   wa.sort((a, b) => {
@@ -159,4 +198,25 @@ export const buildRanks = (studs, allGrades, classId, seqs, subs, sys, excl = {}
   });
 
   return wa;
+};
+
+// --- Décision annuelle Guinée Équatoriale (règle officielle de promotion) ---
+// ESBA / Bachillerato : passage avec un maximum de 2 matières non validées,
+// SAUF si ce sont simultanément Matemáticas et Lengua Española. Sinon, les
+// matières non validées passent à l'examen de recuperación.
+// subjects        : [{ id, name }]
+// gradesOnScale    : { [subjectId]: note sur l'échelle (ou null si non noté) }
+// passThreshold    : seuil de réussite (ex. 5 sur /10, 10 sur /20)
+// Renvoie 'aprobado' | 'recuperacion'.
+const _norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+export const geAnnualDecision = (subjects, gradesOnScale, passThreshold) => {
+  const failed = (subjects || []).filter((s) => {
+    const g = gradesOnScale?.[s.id];
+    return g !== null && g !== undefined && g < passThreshold;
+  });
+  if (failed.length === 0) return 'aprobado';
+  const hasMath   = failed.some((s) => /matematic|\bmath/.test(_norm(s.name)));
+  const hasLengua = failed.some((s) => /lengua|espanol|castellano/.test(_norm(s.name)));
+  if (failed.length <= 2 && !(hasMath && hasLengua)) return 'aprobado';
+  return 'recuperacion';
 };

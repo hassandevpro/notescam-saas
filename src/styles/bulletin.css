@@ -41,6 +41,23 @@
   border-radius: 4px;
 }
 
+/* Protection visuelle en mode écran */
+@media screen {
+  .bulletin-paper {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+  }
+  .bulletin-paper img {
+    pointer-events: none;
+    -webkit-user-drag: none;
+  }
+  .bulletin-screenshot-blur .bulletin-paper {
+    filter: blur(10px);
+    transition: filter 0.05s;
+  }
+}
+
 .bulletin-header {
   display: grid;
   grid-template-columns: 1fr 130px 1fr;
@@ -282,6 +299,12 @@
    IMPRESSION
    ================================================================ */
 @media print {
+  /* Marges d'impression réduites pour maximiser l'espace utile. */
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
   /* Masquer tout le chrome de l'application */
   header,
   aside,
@@ -310,21 +333,60 @@
     display: none;
   }
 
-  /* Le bulletin occupe toute la page */
+  /* Le bulletin occupe toute la page et tient sur UNE seule page :
+     chaque .bulletin-paper est isolé et son contenu mis à l'échelle au besoin. */
   .bulletin-paper {
     box-shadow: none;
     margin: 0;
-    padding: 16px 20px;
+    padding: 10px 16px;
     border-radius: 0;
     max-width: none;
     width: 100%;
-    font-size: 11px;
+    font-size: 10.5px;
     page-break-after: always;
+    break-after: page;
   }
 
   .bulletin-paper:last-child {
     page-break-after: avoid;
+    break-after: auto;
   }
+
+  /* ── Compactage du bas de bulletin (Classique + Boletín GE) ──
+     Évite que résultats / observations / signatures débordent sur une 2e page. */
+  .bulletin-table th,
+  .bulletin-table td {
+    padding: 3px 6px;
+  }
+
+  .bulletin-bottom {
+    margin-top: 4px;
+    gap: 10px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .bulletin-box { page-break-inside: avoid; break-inside: avoid; }
+
+  .bulletin-box-body { padding: 6px 10px; }
+
+  .bulletin-box-body p { margin: 2px 0; font-size: 10px; }
+
+  .bulletin-box-body strong { font-size: 10.5px; }
+
+  .bulletin-remark {
+    min-height: 32px;
+    margin-top: 8px;
+    padding: 6px 12px;
+  }
+
+  .bulletin-signatures {
+    margin-top: 16px;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .bulletin-signatures > div { padding-top: 6px; }
 
   /* Préserver les couleurs de fond */
   .bulletin-title { -webkit-print-color-adjust: exact; print-color-adjust: exact; }

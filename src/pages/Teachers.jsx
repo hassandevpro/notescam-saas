@@ -9,6 +9,7 @@ import Modal from '../components/Modal';
 import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
+import { resolveCountryCode } from '../countries';
 
 // Client sans persistance de session — crée des comptes sans déconnecter l'admin
 const anonClient = createClient(
@@ -460,6 +461,7 @@ function directorLabel(school) {
   const lang = (school?.language || '').toLowerCase();
   const n    = (school?.name || '').toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (resolveCountryCode(school) === 'guinea_eq') return 'El Director / La Directora';
   if (lang === 'anglophone') return 'The Principal';
   if (/\becole\b|primaire|maternelle|\beps\b|\bepn\b|\bep\b/.test(n))
     return 'Le Directeur / La Directrice';
@@ -477,9 +479,12 @@ function printTeacherList(teachers, subjectsByTeacher, school, cols = {}) {
     subjects:  showSubjects  = true,
   } = cols;
 
-  const today     = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const isGE = resolveCountryCode(school) === 'guinea_eq';
+  const Lp = (fr, es) => (isGE ? es : fr);
+  const today     = new Date().toLocaleDateString(isGE ? 'es-ES' : 'fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   const headTitle = directorLabel(school);
   const colCount  = 1 + (showSpecialty ? 1 : 0) + (showEmail ? 1 : 0) + (showPhone ? 1 : 0) + (showSubjects ? 1 : 0);
+  const teacherWord = (n) => Lp(`enseignant${n !== 1 ? 's' : ''}`, `profesor${n !== 1 ? 'es' : ''}`);
 
   const rows = teachers.map((tc, i) => {
     const subs    = subjectsByTeacher[tc.id] || [];
@@ -496,10 +501,10 @@ function printTeacherList(teachers, subjectsByTeacher, school, cols = {}) {
   }).join('');
 
   const html = `<!DOCTYPE html>
-<html lang="fr">
+<html lang="${isGE ? 'es' : 'fr'}">
 <head>
 <meta charset="utf-8"/>
-<title>Enseignants — ${school?.name || 'École'}</title>
+<title>${Lp('Enseignants', 'Profesorado')} — ${school?.name || 'École'}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #111; }
@@ -532,34 +537,34 @@ function printTeacherList(teachers, subjectsByTeacher, school, cols = {}) {
 <body>
 <div class="page">
   <div class="header">
-    <div class="school">${school?.name || 'Établissement scolaire'}</div>
+    <div class="school">${school?.name || Lp('Établissement scolaire', 'Centro educativo')}</div>
     <div class="subtitle">${[school?.type, school?.region].filter(Boolean).join(' — ') || ''}</div>
-    <div class="doc-title">Liste du personnel enseignant</div>
-    <div class="meta">Année scolaire : ${school?.current_year || '—'} &nbsp;·&nbsp; Imprimé le ${today}</div>
+    <div class="doc-title">${Lp('Liste du personnel enseignant', 'Lista del profesorado')}</div>
+    <div class="meta">${Lp('Année scolaire', 'Año escolar')} : ${school?.current_year || '—'} &nbsp;·&nbsp; ${Lp('Imprimé le', 'Impreso el')} ${today}</div>
   </div>
 
   <table>
     <thead>
       <tr>
-        <th>Nom complet</th>
-        ${showSpecialty ? '<th style="width:130px">Spécialité</th>'              : ''}
-        ${showEmail     ? '<th style="width:160px">Email</th>'                   : ''}
-        ${showPhone     ? '<th class="center" style="width:110px">Téléphone</th>': ''}
-        ${showSubjects  ? '<th>Matières / Classes</th>'                          : ''}
+        <th>${Lp('Nom complet', 'Apellidos y nombre')}</th>
+        ${showSpecialty ? `<th style="width:130px">${Lp('Spécialité', 'Especialidad')}</th>`              : ''}
+        ${showEmail     ? `<th style="width:160px">${Lp('Email', 'Correo')}</th>`                         : ''}
+        ${showPhone     ? `<th class="center" style="width:110px">${Lp('Téléphone', 'Teléfono')}</th>`    : ''}
+        ${showSubjects  ? `<th>${Lp('Matières / Classes', 'Asignaturas / Clases')}</th>`                  : ''}
       </tr>
     </thead>
     <tbody>${rows}</tbody>
     <tfoot>
       <tr>
         <td colspan="${colCount}" style="text-align:right;padding:6px 8px;font-size:11px;color:#555">
-          Total : <strong>${teachers.length}</strong> enseignant${teachers.length !== 1 ? 's' : ''}
+          ${Lp('Total', 'Total')} : <strong>${teachers.length}</strong> ${teacherWord(teachers.length)}
         </td>
       </tr>
     </tfoot>
   </table>
 
   <div class="footer">
-    <span>Total : <strong>${teachers.length}</strong> enseignant${teachers.length !== 1 ? 's' : ''}</span>
+    <span>${Lp('Total', 'Total')} : <strong>${teachers.length}</strong> ${teacherWord(teachers.length)}</span>
     <span>${school?.name || ''} — ${today}</span>
   </div>
 

@@ -1,6 +1,22 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { getCurrentUserContext } from '../lib/auth';
+import { resolveCountryCode, defaultLangForCountry } from '../countries';
+
+// Aligne la langue de l'interface sur la langue par défaut du pays de l'école
+// UNIQUEMENT si l'utilisateur n'a jamais choisi de langue manuellement.
+// Une fois que l'utilisateur a basculé via la sidebar, son choix est respecté.
+function syncUiLangToSchool(school) {
+  if (!school) return;
+  try {
+    const userPick = localStorage.getItem('notescam_ui_lang_user_set');
+    if (userPick === 'true') return;
+    const lang = defaultLangForCountry(resolveCountryCode(school));
+    localStorage.setItem('notescam_ui_lang', lang);
+    // Notifie le store UI sans introduire un import circulaire dur :
+    import('./uiStore').then(({ useUiStore }) => useUiStore.getState().setLang?.(lang));
+  } catch (_) { /* ignored */ }
+}
 
 /**
  * Store global pour l'authentification.
@@ -46,6 +62,7 @@ export const useAuthStore = create((set, get) => ({
         teacherId: ctx?.teacherId || null,
         loading: false,
       });
+      syncUiLangToSchool(ctx?.school);
     } catch (err) {
       console.error('AuthStore.init error:', err);
       set({ loading: false, error: err.message });
@@ -82,6 +99,7 @@ export const useAuthStore = create((set, get) => ({
       teacherId: ctx?.teacherId || null,
       loading: false,
     });
+    syncUiLangToSchool(ctx?.school);
   },
 
   /**

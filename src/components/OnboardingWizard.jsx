@@ -3,16 +3,19 @@ import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import { supabase } from '../lib/supabase';
 import { useT } from '../lib/i18n';
+import { useCountry, defaultSystemForCountry } from '../lib/useCountry';
 import LogoMark from './LogoMark';
 
 // ── Subject presets ───────────────────────────────────────────────────────────
 
 const PRESETS = {
+  // Cameroun Francophone
   secondaire_FR: [
     'Français', 'Anglais', 'Mathématiques', 'Sciences Physiques',
     'SVT', 'Histoire-Géographie', 'Éducation Civique', 'Philosophie',
     'Informatique', 'EPS',
   ],
+  // Cameroun Anglophone
   secondaire_EN: [
     'English Language', 'French Language', 'Mathematics', 'Physics & Chemistry',
     'Biology', 'History & Geography', 'Civic Education', 'Literature',
@@ -34,26 +37,51 @@ const PRESETS = {
     'Motor Skills', 'Oral Language', 'Arts & Crafts',
     'Cognitive Development', 'Science Exploration',
   ],
+  // Guinea Ecuatorial — système ES, terminologie MEC.
+  secondaire_ES: [
+    'Lengua Española', 'Inglés', 'Francés', 'Matemáticas', 'Física y Química',
+    'Biología y Geología', 'Historia', 'Geografía',
+    'Educación para la Ciudadanía', 'Filosofía', 'Educación Física',
+  ],
+  primaire_ES: [
+    'Lengua Española', 'Matemáticas', 'Ciencias Naturales',
+    'Historia y Geografía', 'Educación Física', 'Inglés', 'Religión',
+  ],
+  maternelle_ES: [
+    'Lenguaje Oral', 'Psicomotricidad', 'Educación Artística',
+    'Desarrollo Cognitivo', 'Descubrimiento del Entorno',
+  ],
 };
 
 function getPreset(cycle, system) {
   const key = `${cycle}_${system}`;
-  return PRESETS[key] || PRESETS[`${cycle}_FR`] || [];
+  if (PRESETS[key]) return PRESETS[key];
+  // Fallback : système ES retombe sur ES si cycle inconnu, sinon FR.
+  if (system === 'ES') return PRESETS[`${cycle}_ES`] || PRESETS.secondaire_ES;
+  return PRESETS[`${cycle}_FR`] || [];
 }
 
 // ── Niveau options ────────────────────────────────────────────────────────────
 
 const LEVELS = {
+  // Cameroun
   secondaire_FR: ['6ème', '5ème', '4ème', '3ème', '2nde', '1ère A', '1ère C', '1ère D', 'Terminale A', 'Terminale C', 'Terminale D'],
   secondaire_EN: ['Form 1', 'Form 2', 'Form 3', 'Form 4', 'Form 5', 'Lower Sixth', 'Upper Sixth'],
   primaire_FR:   ['SIL', 'CP', 'CE1', 'CE2', 'CM1', 'CM2'],
   primaire_EN:   ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6'],
   maternelle_FR: ['Toute Petite Section', 'Petite Section', 'Moyenne Section', 'Grande Section'],
   maternelle_EN: ['Nursery 1', 'Nursery 2', 'Kindergarten 1', 'Kindergarten 2'],
+  // Guinea Ecuatorial — niveles oficiales MEC.
+  secondaire_ES: ['1º ESBA', '2º ESBA', '3º ESBA', '4º ESBA', '1º Bachillerato', '2º Bachillerato'],
+  primaire_ES:   ['1º Primaria', '2º Primaria', '3º Primaria', '4º Primaria', '5º Primaria', '6º Primaria'],
+  maternelle_ES: ['Inicial 1', 'Inicial 2', 'Inicial 3'],
 };
 
 function getLevels(cycle, system) {
-  return LEVELS[`${cycle}_${system}`] || LEVELS[`${cycle}_FR`] || [];
+  const key = `${cycle}_${system}`;
+  if (LEVELS[key]) return LEVELS[key];
+  if (system === 'ES') return LEVELS[`${cycle}_ES`] || LEVELS.secondaire_ES;
+  return LEVELS[`${cycle}_FR`] || [];
 }
 
 // ── Step indicator ────────────────────────────────────────────────────────────
@@ -123,17 +151,22 @@ function StepWelcome({ school, onNext, onSkip, t }) {
 
 // ── Step 2 — First class ──────────────────────────────────────────────────────
 
-function StepClass({ school, onNext, onBack, t }) {
+function StepClass({ school, onNext, onBack, t, country }) {
   const activeYear = school?.current_year || '';
+  const isGE       = country.code === 'guinea_eq';
+  const defaultSys = defaultSystemForCountry(country.code);
 
   const [cycle,   setCycle]   = useState('secondaire');
-  const [system,  setSystem]  = useState('FR');
+  const [system,  setSystem]  = useState(defaultSys);
   const [level,   setLevel]   = useState('');
   const [suffix,  setSuffix]  = useState('A');
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState('');
 
   const levels = getLevels(cycle, system);
+
+  // Labels de cycle adaptés au pays — Preescolar / Primaria / Secundaria pour GE.
+  const cycleLabel = (code) => country.cycles.find((c) => c.code === code)?.label || code;
 
   const handleNext = async () => {
     if (!level) { setError(t('Choisissez un niveau.', 'Pick a level.')); return; }
@@ -173,15 +206,11 @@ function StepClass({ school, onNext, onBack, t }) {
         {t('Vous pourrez en ajouter d\'autres depuis la page Classes.', 'You can add more later from the Classes page.')}
       </p>
 
-      {/* Cycle */}
+      {/* Cycle — labels propres au pays (Preescolar/Primaria/Secundaria pour GE) */}
       <div className="mb-4">
         <label className="form-label">{t('Cycle *', 'Cycle *')}</label>
         <div className="flex gap-2">
-          {[
-            { v: 'secondaire', label: t('Secondaire', 'Secondary') },
-            { v: 'primaire',   label: t('Primaire', 'Primary') },
-            { v: 'maternelle', label: t('Maternelle', 'Pre-school') },
-          ].map(({ v, label }) => (
+          {['secondaire', 'primaire', 'maternelle'].map((v) => (
             <button
               key={v}
               type="button"
@@ -192,35 +221,37 @@ function StepClass({ school, onNext, onBack, t }) {
                   : 'border-gray-200 text-gray-500 hover:border-gray-300'
               }`}
             >
-              {label}
+              {cycleLabel(v)}
             </button>
           ))}
         </div>
       </div>
 
-      {/* System */}
-      <div className="mb-4">
-        <label className="form-label">{t('Système *', 'System *')}</label>
-        <div className="flex gap-2">
-          {[
-            { v: 'FR', label: '🇫🇷 Francophone' },
-            { v: 'EN', label: '🇬🇧 Anglophone' },
-          ].map(({ v, label }) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => { setSystem(v); setLevel(''); }}
-              className={`flex-1 py-2 rounded-lg text-sm font-semibold border-2 transition-colors ${
-                system === v
-                  ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-gray-200 text-gray-500 hover:border-gray-300'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+      {/* Système — masqué pour Guinea Ecuatorial (forcé sur ES /10) */}
+      {!isGE && (
+        <div className="mb-4">
+          <label className="form-label">{t('Système *', 'System *')}</label>
+          <div className="flex gap-2">
+            {[
+              { v: 'FR', label: '🇫🇷 Francophone' },
+              { v: 'EN', label: '🇬🇧 Anglophone' },
+            ].map(({ v, label }) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => { setSystem(v); setLevel(''); }}
+                className={`flex-1 py-2 rounded-lg text-sm font-semibold border-2 transition-colors ${
+                  system === v
+                    ? 'border-brand-500 bg-brand-50 text-brand-700'
+                    : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Level */}
       <div className="mb-4">
@@ -242,7 +273,7 @@ function StepClass({ school, onNext, onBack, t }) {
           type="text"
           maxLength={4}
           className="form-input"
-          placeholder={t('Ex : A, B, Rouge…', 'E.g. A, B, Red…')}
+          placeholder={t('Ex : A, B, C…', 'E.g. A, B, C…')}
           value={suffix}
           onChange={(e) => setSuffix(e.target.value)}
         />
@@ -271,7 +302,10 @@ function StepClass({ school, onNext, onBack, t }) {
 
 function StepSubjects({ cls, onNext, onBack, t }) {
   const preset     = getPreset(cls.cycle, cls.system);
-  const defaultMax = cls.system === 'EN' ? 100 : 20;
+  const defaultMax =
+    cls.system === 'EN' ? 100
+    : cls.system === 'ES' ? 10
+    : 20;
 
   const [selected,  setSelected]  = useState(new Set(preset.slice(0, 6)));
   const [custom,    setCustom]    = useState('');
@@ -515,6 +549,7 @@ const TOTAL_STEPS = 5;
 export default function OnboardingWizard({ onClose }) {
   const t          = useT();
   const school     = useAuthStore((s) => s.school);
+  const country    = useCountry();
   const classes    = useSchoolStore((s) => s.classes);
   const subjects   = useSchoolStore((s) => s.subjects);
 
@@ -543,6 +578,7 @@ export default function OnboardingWizard({ onClose }) {
           {step === 1 && (
             <StepClass
               school={school}
+              country={country}
               onNext={(cls) => { setCreatedCls(cls); nextStep(); }}
               onBack={prevStep}
               t={t}

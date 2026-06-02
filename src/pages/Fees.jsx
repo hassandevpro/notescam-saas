@@ -7,6 +7,7 @@ import Modal from '../components/Modal';
 import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
+import { resolveCountryCode } from '../countries';
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
@@ -540,14 +541,16 @@ function receiptNumber(studentMatricule, date) {
 }
 
 function printReceipt({ school, student, className, versement, newTotal, fraisAnnuels, date, lang }) {
-  const isEn   = lang === 'anglophone';
-  const t      = (fr, en) => isEn ? en : fr;
-  const fmtNum = (n) => Number(n || 0).toLocaleString('fr-FR');
+  const isGE   = resolveCountryCode(school) === 'guinea_eq';
+  const isEn   = !isGE && lang === 'anglophone';
+  const t      = (fr, en, es) => isGE ? (es ?? fr) : isEn ? en : fr;
+  const locale = isGE ? 'es-ES' : isEn ? 'en-GB' : 'fr-FR';
+  const fmtNum = (n) => Number(n || 0).toLocaleString(locale);
   const reste  = Math.max(0, (fraisAnnuels || 0) - (newTotal || 0));
   const num    = receiptNumber(student.matricule, date);
   const dateStr = date
-    ? new Date(date).toLocaleDateString(isEn ? 'en-GB' : 'fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
-    : new Date().toLocaleDateString(isEn ? 'en-GB' : 'fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    ? new Date(date).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
+    : new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
 
   const logoHtml = school?.logo_url
     ? `<img src="${school.logo_url}" alt="logo" style="height:60px;width:60px;object-fit:contain;border-radius:6px;">`
@@ -561,7 +564,7 @@ function printReceipt({ school, student, className, versement, newTotal, fraisAn
   if (!win) return;
   win.document.write(`<!DOCTYPE html><html><head>
 <meta charset="UTF-8">
-<title>${t('Reçu', 'Receipt')} — ${student.name}</title>
+<title>${t('Reçu', 'Receipt', 'Recibo')} — ${student.name}</title>
 <style>
   @page { size: A5 portrait; margin: 12mm; }
   * { box-sizing: border-box; }
@@ -629,41 +632,41 @@ function printReceipt({ school, student, className, versement, newTotal, fraisAn
     <div>
       <div class="school-name">${school?.name || '—'}</div>
       <div class="school-meta">${school?.type || ''} ${school?.region ? '· ' + school.region : ''}</div>
-      <div class="school-meta">${t('Année scolaire', 'Academic Year')} : ${school?.current_year || '—'}</div>
+      <div class="school-meta">${t('Année scolaire', 'Academic Year', 'Año escolar')} : ${school?.current_year || '—'}</div>
     </div>
   </div>
 
   <!-- Title bar -->
-  <div class="title-bar">${t('Reçu de paiement', 'Payment Receipt')}</div>
-  <div class="receipt-num">${t('N°', 'No.')} ${num}</div>
+  <div class="title-bar">${t('Reçu de paiement', 'Payment Receipt', 'Recibo de pago')}</div>
+  <div class="receipt-num">${t('N°', 'No.', 'Nº')} ${num}</div>
 
   <!-- Body -->
   <div class="body">
 
     <!-- Élève -->
-    <div class="section-title">${t('Élève', 'Student')}</div>
-    <div class="info-row"><span class="info-label">${t('Nom complet', 'Full name')}</span><span class="info-val">${student.name}</span></div>
-    ${student.matricule ? `<div class="info-row"><span class="info-label">${t('Matricule', 'Student ID')}</span><span class="info-val" style="font-family:monospace">${student.matricule}</span></div>` : ''}
-    <div class="info-row"><span class="info-label">${t('Classe', 'Class')}</span><span class="info-val">${className}</span></div>
+    <div class="section-title">${t('Élève', 'Student', 'Alumno')}</div>
+    <div class="info-row"><span class="info-label">${t('Nom complet', 'Full name', 'Apellidos y nombre')}</span><span class="info-val">${student.name}</span></div>
+    ${student.matricule ? `<div class="info-row"><span class="info-label">${t('Matricule', 'Student ID', 'Matrícula')}</span><span class="info-val" style="font-family:monospace">${student.matricule}</span></div>` : ''}
+    <div class="info-row"><span class="info-label">${t('Classe', 'Class', 'Clase')}</span><span class="info-val">${className}</span></div>
 
     <!-- Versement -->
     <div class="amount-box">
-      <div class="amount-label">${t('Montant encaissé ce jour', 'Amount received today')}</div>
+      <div class="amount-label">${t('Montant encaissé ce jour', 'Amount received today', 'Importe recibido hoy')}</div>
       <div><span class="amount-main">${fmtNum(versement)}</span> <span class="amount-currency">FCFA</span></div>
     </div>
 
     <!-- Récap -->
     <div class="balance-row">
       <div class="balance-cell">
-        <div class="bc-label">${t('Frais annuels', 'Annual fees')}</div>
+        <div class="bc-label">${t('Frais annuels', 'Annual fees', 'Tasas anuales')}</div>
         <div class="bc-val bc-due">${fmtNum(fraisAnnuels)}</div>
       </div>
       <div class="balance-cell">
-        <div class="bc-label">${t('Total versé', 'Total paid')}</div>
+        <div class="bc-label">${t('Total versé', 'Total paid', 'Total pagado')}</div>
         <div class="bc-val bc-paid">${fmtNum(newTotal)}</div>
       </div>
       <div class="balance-cell">
-        <div class="bc-label">${t('Solde restant', 'Balance due')}</div>
+        <div class="bc-label">${t('Solde restant', 'Balance due', 'Saldo pendiente')}</div>
         <div class="bc-val bc-rest">${fmtNum(reste)}</div>
       </div>
     </div>
@@ -673,17 +676,17 @@ function printReceipt({ school, student, className, versement, newTotal, fraisAn
   <!-- Footer -->
   <div class="footer">
     <div class="date-area">
-      <div>${t('Date', 'Date')}</div>
+      <div>${t('Date', 'Date', 'Fecha')}</div>
       <div class="date-val">${dateStr}</div>
     </div>
     <div class="sign-area">
       ${stampHtml}
       <div class="sign-line"></div>
-      <div class="sign-label">${t('Le Caissier / La Caissière', 'Cashier')}</div>
+      <div class="sign-label">${t('Le Caissier / La Caissière', 'Cashier', 'El Cajero / La Cajera')}</div>
     </div>
   </div>
 
-  <div class="notice">${t('Ce reçu fait foi de paiement. Conservez-le précieusement.', 'This receipt is proof of payment. Keep it carefully.')}</div>
+  <div class="notice">${t('Ce reçu fait foi de paiement. Conservez-le précieusement.', 'This receipt is proof of payment. Keep it carefully.', 'Este recibo justifica el pago. Consérvelo.')}</div>
 
 </div>
 </body></html>`);

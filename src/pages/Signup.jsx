@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
+import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
 import LogoMark from '../components/LogoMark';
+import { COUNTRY_OPTIONS, defaultLangForCountry } from '../countries';
 
 function EyeIcon({ open }) {
   return open ? (
@@ -18,10 +20,29 @@ function EyeIcon({ open }) {
   );
 }
 
-const REGIONS = [
+const REGIONS_CM = [
   'Adamaoua','Centre','Est','Extrême-Nord','Littoral',
   'Nord','Nord-Ouest','Ouest','Sud','Sud-Ouest',
 ];
+
+// Provincias de Guinea Ecuatorial.
+const REGIONS_GQ = [
+  'Bioko Norte','Bioko Sur','Centro Sur','Kié-Ntem',
+  'Litoral','Wele-Nzas','Annobón','Djibloho',
+];
+
+function regionsForCountry(country) {
+  if (country === 'guinea_eq') return REGIONS_GQ;
+  return REGIONS_CM;
+}
+
+// Mappe le système éducatif vers la valeur de `language` côté backend
+// (compatibilité avec l'ancien schéma — la RPC ne connaît pas encore guinea_eq).
+function languageForCountry(country) {
+  if (country === 'cameroon_en') return 'anglophone';
+  if (country === 'guinea_eq')   return 'francophone'; // valeur sûre pour RPC héritée
+  return 'francophone';
+}
 
 function Step({ n, label, active, done }) {
   return (
@@ -45,19 +66,15 @@ export default function Signup() {
   const loading  = useAuthStore((s) => s.loading);
 
   const SCHOOL_TYPES = [
-    { value: 'Public',               label: t('Public', 'Public') },
-    { value: 'Privé laïc',           label: t('Privé laïc', 'Secular private') },
-    { value: 'Privé confessionnel',  label: t('Privé confessionnel', 'Faith-based private') },
-  ];
-
-  const LANGUAGES = [
-    { value: 'francophone', label: t('Francophone (Séquences — notes /20)', 'Francophone (Sequences — grades /20)') },
-    { value: 'anglophone',  label: t('Anglophone (Terms — notes /100)', 'Anglophone (Terms — grades /100)') },
-    { value: 'bilingue',    label: t('Bilingue (Francophone + Anglophone)', 'Bilingual (Francophone + Anglophone)') },
+    { value: 'Public',               label: t('Public', 'Public', 'Público') },
+    { value: 'Privé laïc',           label: t('Privé laïc', 'Secular private', 'Privado laico') },
+    { value: 'Privé confessionnel',  label: t('Privé confessionnel', 'Faith-based private', 'Privado confesional') },
   ];
 
   const [form, setForm] = useState({
-    schoolName: '', schoolType: '', region: '', language: '', director: '',
+    schoolName: '', schoolType: '', region: '',
+    countrySystem: '',   // 'cameroon_fr' | 'cameroon_en' | 'guinea_eq'
+    director: '',
     fullName: '', email: '', password: '',
   });
   const [showPass,    setShowPass]    = useState(false);
@@ -71,6 +88,18 @@ export default function Signup() {
   }
 
   const update = (field) => (e) => setForm({ ...form, [field]: e.target.value });
+
+  const handleCountryChange = (e) => {
+    const country = e.target.value;
+    setForm((prev) => ({
+      ...prev,
+      countrySystem: country,
+      // si l'utilisateur avait déjà choisi une région d'un autre pays, on la reset
+      region: regionsForCountry(country).includes(prev.region) ? prev.region : '',
+    }));
+    // Bascule la langue de l'interface vers celle du pays choisi
+    if (country) useUiStore.getState().setLang(defaultLangForCountry(country));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -91,6 +120,7 @@ export default function Signup() {
       if (!authData.user) throw new Error(t('Création du compte échouée', 'Account creation failed'));
 
       const currentYear = new Date().getFullYear();
+      const country = form.countrySystem || 'cameroon_fr';
       const { error: rpcError } = await supabase.rpc('signup_school_and_admin', {
         p_school_name:  form.schoolName.trim(),
         p_school_type:  form.schoolType,
@@ -99,7 +129,7 @@ export default function Signup() {
         p_email:        form.email.trim(),
         p_academic_year: `${currentYear}-${currentYear + 1}`,
         p_full_name:    form.fullName.trim(),
-        p_language:     form.language || 'francophone',
+        p_language:     languageForCountry(country),
       });
       if (rpcError) {
         useAuthStore.setState({ _pendingSignup: false });
@@ -109,6 +139,21 @@ export default function Signup() {
 
       useAuthStore.setState({ _pendingSignup: false });
       await useAuthStore.getState().init();
+
+      // Persiste le système éducatif sur l'école une fois créée.
+      // Si la colonne `country_system` n'existe pas encore en DB, l'erreur est
+      // silencieusement ignorée — la valeur reste inférée depuis `language`.
+      try {
+        await useAuthStore.getState().updateSchool({ country_system: country });
+      } catch (_) {
+        // colonne manquante → no-op
+      }
+      // Repli local : on garde la trace pour cette session avant que la DB ne porte la colonne.
+      try {
+        const sid = useAuthStore.getState().school?.id;
+        if (sid) localStorage.setItem(`notescam_country_${sid}`, country);
+      } catch (_) {}
+
       navigate('/verify-email', { state: { email: form.email.trim() } });
     } catch (err) {
       useAuthStore.setState({ _pendingSignup: false });
@@ -120,7 +165,7 @@ export default function Signup() {
     }
   };
 
-  const step1Done = form.schoolName && form.schoolType && form.region && form.language && form.director;
+  const step1Done = form.schoolName && form.schoolType && form.region && form.countrySystem && form.director;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 py-10"
@@ -159,42 +204,70 @@ export default function Signup() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Étape 1 */}
             <div className="space-y-3.5">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">{t("L'établissement", 'The school')}</p>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                {t("L'établissement", 'The school', 'El centro')}
+              </p>
 
               <div>
-                <label className="form-label">{t("Nom de l'établissement *", 'School name *')}</label>
-                <input type="text" required className="form-input" placeholder={t('Ex: Collège Vogt', 'E.g. Vogt College')}
+                <label className="form-label">
+                  {t('Système éducatif *', 'Educational system *', 'Sistema educativo *')}
+                </label>
+                <select required className="form-input" value={form.countrySystem} onChange={handleCountryChange}>
+                  <option value="">{t('Choisir…', 'Choose…', 'Elegir…')}</option>
+                  {COUNTRY_OPTIONS.map((c) => (
+                    <option key={c.value} value={c.value}>{c.flag} {c.label}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {t(
+                    "Détermine les classes, le système de notation et la langue des bulletins.",
+                    'Determines classes, grading system and report card language.',
+                    'Determina los cursos, el sistema de notas y el idioma de los boletines.'
+                  )}
+                </p>
+              </div>
+
+              <div>
+                <label className="form-label">
+                  {t("Nom de l'établissement *", 'School name *', 'Nombre del centro *')}
+                </label>
+                <input type="text" required className="form-input"
+                  placeholder={t('Ex: Collège Vogt', 'E.g. Vogt College', 'Ej: Colegio Español')}
                   value={form.schoolName} onChange={update('schoolName')} />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="form-label">{t('Type *', 'Type *')}</label>
+                  <label className="form-label">{t('Type *', 'Type *', 'Tipo *')}</label>
                   <select required className="form-input" value={form.schoolType} onChange={update('schoolType')}>
-                    <option value="">{t('Choisir…', 'Choose…')}</option>
+                    <option value="">{t('Choisir…', 'Choose…', 'Elegir…')}</option>
                     {SCHOOL_TYPES.map((st) => <option key={st.value} value={st.value}>{st.label}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="form-label">{t('Région *', 'Region *')}</label>
-                  <select required className="form-input" value={form.region} onChange={update('region')}>
-                    <option value="">{t('Choisir…', 'Choose…')}</option>
-                    {REGIONS.map((r) => <option key={r}>{r}</option>)}
+                  <label className="form-label">
+                    {form.countrySystem === 'guinea_eq'
+                      ? t('Provincia *', 'Province *', 'Provincia *')
+                      : t('Région *', 'Region *', 'Región *')}
+                  </label>
+                  <select required className="form-input" value={form.region} onChange={update('region')}
+                    disabled={!form.countrySystem}>
+                    <option value="">
+                      {form.countrySystem
+                        ? t('Choisir…', 'Choose…', 'Elegir…')
+                        : t('Choisir d\'abord un système', 'Pick a system first', 'Elegir un sistema primero')}
+                    </option>
+                    {regionsForCountry(form.countrySystem).map((r) => <option key={r}>{r}</option>)}
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="form-label">{t("Système d'enseignement *", 'Teaching system *')}</label>
-                <select required className="form-input" value={form.language} onChange={update('language')}>
-                  <option value="">{t('Choisir…', 'Choose…')}</option>
-                  {LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="form-label">{t('Directeur / Proviseur *', 'Principal / Head teacher *')}</label>
-                <input type="text" required className="form-input" placeholder={t('Ex: M. NGUEMA Paul', 'E.g. Mr. NGUEMA Paul')}
+                <label className="form-label">
+                  {t('Directeur / Proviseur *', 'Principal / Head teacher *', 'Director(a) *')}
+                </label>
+                <input type="text" required className="form-input"
+                  placeholder={t('Ex: M. NGUEMA Paul', 'E.g. Mr. NGUEMA Paul', 'Ej: Sr. NGUEMA Paul')}
                   value={form.director} onChange={update('director')} />
               </div>
             </div>

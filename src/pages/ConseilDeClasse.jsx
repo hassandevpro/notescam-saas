@@ -4,6 +4,8 @@ import { useAuthStore } from '../store/authStore';
 import { buildRanks } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
+import { resolveCountryCode } from '../countries';
+import { gradingOpts, geGradeMax } from '../lib/useCountry';
 
 const SEQUENCES_FR = [
   { value: 1, label: 'Séquence 1' }, { value: 2, label: 'Séquence 2' },
@@ -15,6 +17,12 @@ const SEQUENCES_EN = [
   { value: 2, label: 'Term 2' },
   { value: 3, label: 'Term 3' },
 ];
+// Guinea Ecuatorial — tres trimestres oficiales, sin terminología camerunesa.
+const SEQUENCES_GE = [
+  { value: 1, label: 'Primer Trimestre' },
+  { value: 2, label: 'Segundo Trimestre' },
+  { value: 3, label: 'Tercer Trimestre' },
+];
 
 const DECISION_STYLE = {
   admis:      'text-emerald-700 font-semibold',
@@ -23,10 +31,13 @@ const DECISION_STYLE = {
   '':         'text-gray-300',
 };
 
-function honor(scores, isEN) {
-  if (scores['__felicitation__'] === 'true')   return isEN ? 'H.B + Congrats.' : 'T.H + Félic.';
-  if (scores['__encouragement__'] === 'true')  return isEN ? 'H.B + Encour.' : 'T.H + Encour.';
-  if (scores['__th__'] === 'true')             return isEN ? 'H.B' : 'T.H';
+function honor(scores, mode) {
+  if (scores['__felicitation__'] === 'true')
+    return mode === 'es' ? 'C.H + Felicitación' : mode === 'en' ? 'H.B + Congrats.' : 'T.H + Félic.';
+  if (scores['__encouragement__'] === 'true')
+    return mode === 'es' ? 'C.H + Estímulo' : mode === 'en' ? 'H.B + Encour.' : 'T.H + Encour.';
+  if (scores['__th__'] === 'true')
+    return mode === 'es' ? 'C.H' : mode === 'en' ? 'H.B' : 'T.H';
   return '—';
 }
 
@@ -62,28 +73,39 @@ export default function ConseilDeClasse() {
   const cls      = classes.find((c) => c.id === classId) || null;
   const sys      = cls?.system || 'FR';
   const isEN     = sys === 'EN';
-  const periods  = isEN ? SEQUENCES_EN : SEQUENCES_FR;
-  const pass     = sys === 'FR' ? 10 : 50;
+  const isGE     = resolveCountryCode(school) === 'guinea_eq';
+  const honorMode = isGE ? 'es' : isEN ? 'en' : 'fr';
+  const periods  = isGE ? SEQUENCES_GE : isEN ? SEQUENCES_EN : SEQUENCES_FR;
+  const gOpts    = gradingOpts(school, cls?.cycle);
+  const pass     = isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
   const subs     = useMemo(() => subjects.filter((s) => s.class_id === classId), [subjects, classId]);
   const studs    = useMemo(() => students.filter((s) => s.class_id === classId).sort((a, b) => a.name.localeCompare(b.name)), [students, classId]);
 
-  const DECISIONS = [
-    { value: '',           label: '—' },
-    { value: 'admis',      label: t('Admis', 'Passed') },
-    { value: 'redoublant', label: t('Redoublant', 'Repeating') },
-    { value: 'renvoye',    label: t('Renvoyé', 'Expelled') },
-  ];
+  const DECISIONS = isGE
+    ? [
+        { value: '',            label: '—' },
+        { value: 'aprobado',    label: 'Aprobado' },
+        { value: 'recuperacion', label: 'Recuperación' },
+        { value: 'repite',      label: 'Repite' },
+        { value: 'expulsado',   label: 'Expulsado' },
+      ]
+    : [
+        { value: '',           label: '—' },
+        { value: 'admis',      label: t('Admis', 'Passed') },
+        { value: 'redoublant', label: t('Redoublant', 'Repeating') },
+        { value: 'renvoye',    label: t('Renvoyé', 'Expelled') },
+      ];
 
   const rows = useMemo(() => {
     if (!classId) return [];
-    const ranked = buildRanks(studs, gradeMap, classId, [seq], subs, sys);
+    const ranked = buildRanks(studs, gradeMap, classId, [seq], subs, sys, {}, gOpts);
     return ranked.map((r) => ({
       stu:    studs.find((s) => s.id === r.id) || r,
       scores: gradeMap[`${classId}_${r.id}_${seq}`] || {},
       avg:    r.av,
       rang:   r.rankD,
     }));
-  }, [classId, seq, studs, gradeMap, subs, sys]);
+  }, [classId, seq, studs, gradeMap, subs, sys, gOpts.maxScale, gOpts.useCoef]);
 
   const issueRows = useMemo(() => rows.filter((r) => hasIssue(r, pass)), [rows, pass]);
   const visibleRows = showAll ? rows : issueRows;
@@ -92,10 +114,10 @@ export default function ConseilDeClasse() {
     const total     = rows.length;
     const issues    = issueRows.length;
     const admis     = rows.filter((r) => r.avg !== null && r.avg >= pass).length;
-    const distincts = rows.filter((r) => honor(r.scores, isEN) !== '—').length;
+    const distincts = rows.filter((r) => honor(r.scores, honorMode) !== '—').length;
     const decisions = rows.filter((r) => (r.scores['__decision__'] || '') !== '').length;
     return { total, issues, admis, distincts, decisions };
-  }, [rows, issueRows, pass, isEN]);
+  }, [rows, issueRows, pass, honorMode]);
 
   const saveDecision = useCallback(async (studentId, value) => {
     await saveGrade(classId, studentId, seq, { __decision__: value });
@@ -110,9 +132,11 @@ export default function ConseilDeClasse() {
         {/* ── En-tête ──────────────────────────────────────────────────────── */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{t('Procès-verbal — Conseil de Classe', 'Class Council — Official Record')}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{isGE ? 'Acta — Junta de Evaluación' : t('Procès-verbal — Conseil de Classe', 'Class Council — Official Record')}</h1>
             <p className="text-sm text-gray-500 mt-1">
-              {t('Décisions officielles par classe et par', 'Official decisions by class and')} {isEN ? t('terme', 'term') : t('séquence', 'sequence')}.
+              {isGE
+                ? 'Decisiones oficiales por clase y trimestre.'
+                : <>{t('Décisions officielles par classe et par', 'Official decisions by class and')} {isEN ? t('terme', 'term') : t('séquence', 'sequence')}.</>}
             </p>
           </div>
           {classId && (
@@ -145,7 +169,7 @@ export default function ConseilDeClasse() {
           </div>
           {classId && (
             <div className="min-w-[160px]">
-              <label className="form-label">{isEN ? 'Term' : t('Séquence', 'Sequence')}</label>
+              <label className="form-label">{isGE ? 'Trimestre' : isEN ? 'Term' : t('Séquence', 'Sequence')}</label>
               <select className="form-input" value={seq} onChange={(e) => { setSeq(Number(e.target.value)); setShowAll(false); }}>
                 {periods.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
@@ -202,7 +226,7 @@ export default function ConseilDeClasse() {
               </div>
               <div className="border-y-2 border-gray-800 py-2 text-center">
                 <h3 className="text-base font-bold uppercase tracking-wide">
-                  {t('Procès-verbal du Conseil de Classe', 'Class Council Official Record')}
+                  {isGE ? 'Acta de la Junta de Evaluación' : t('Procès-verbal du Conseil de Classe', 'Class Council Official Record')}
                 </h3>
                 <p className="text-sm">{t('Classe', 'Class')} : <strong>{cls?.name}</strong> &nbsp;|&nbsp; {seqLabel}</p>
               </div>
@@ -249,10 +273,12 @@ export default function ConseilDeClasse() {
                       <tr>
                         <td colSpan={13} className="px-6 py-10 text-center text-slate-400 text-sm">
                           {!showAll
-                            ? t(
+                            ? (isGE
+                              ? 'Ningún alumno en dificultad para este trimestre.'
+                              : t(
                                 `Aucun élève en difficulté pour ${isEN ? 'ce terme' : 'cette séquence'}.`,
                                 `No students at risk for this ${isEN ? 'term' : 'sequence'}.`,
-                              )
+                              ))
                             : t('Aucun élève dans cette classe.', 'No students in this class.')}
                         </td>
                       </tr>
@@ -261,7 +287,7 @@ export default function ConseilDeClasse() {
                       const { stu, scores, avg, rang } = row;
                       const absJ  = num(scores['__abs_j__'])  + num(scores['__abs_nj__']);
                       const absNJ = num(scores['__abs_nj__']);
-                      const hon   = honor(scores, isEN);
+                      const hon   = honor(scores, honorMode);
                       const dec   = scores['__decision__'] || '';
                       const decLabel = DECISIONS.find((d) => d.value === dec)?.label || '—';
                       const isAbove = avg !== null && avg >= pass;
@@ -338,23 +364,25 @@ export default function ConseilDeClasse() {
             {/* ── Section signatures (impression) ─────────────────────────── */}
             <div className="mt-10 print-only">
               <p className="text-xs text-gray-500 mb-6">
-                {t(
-                  'Séance du Conseil de Classe tenue le ______________ à ______________.',
-                  'Class Council session held on ______________ at ______________.',
-                )}
+                {isGE
+                  ? 'Sesión de la Junta de Evaluación celebrada el ______________ a las ______________.'
+                  : t(
+                      'Séance du Conseil de Classe tenue le ______________ à ______________.',
+                      'Class Council session held on ______________ at ______________.',
+                    )}
               </p>
               <div className="grid grid-cols-3 gap-8 text-sm">
                 <div className="text-center">
-                  <p className="font-semibold mb-8">{t('Le Professeur Principal', 'The Form Tutor')}</p>
-                  <div className="border-t border-gray-400 pt-1 text-xs text-gray-500">{t('Signature & cachet', 'Signature & stamp')}</div>
+                  <p className="font-semibold mb-8">{isGE ? 'El Tutor / La Tutora' : t('Le Professeur Principal', 'The Form Tutor')}</p>
+                  <div className="border-t border-gray-400 pt-1 text-xs text-gray-500">{isGE ? 'Firma y sello' : t('Signature & cachet', 'Signature & stamp')}</div>
                 </div>
                 <div className="text-center">
-                  <p className="font-semibold mb-8">{t('Le Censeur / Sous-Directeur', 'The Deputy Head')}</p>
-                  <div className="border-t border-gray-400 pt-1 text-xs text-gray-500">{t('Signature & cachet', 'Signature & stamp')}</div>
+                  <p className="font-semibold mb-8">{isGE ? 'El Jefe de Estudios' : t('Le Censeur / Sous-Directeur', 'The Deputy Head')}</p>
+                  <div className="border-t border-gray-400 pt-1 text-xs text-gray-500">{isGE ? 'Firma y sello' : t('Signature & cachet', 'Signature & stamp')}</div>
                 </div>
                 <div className="text-center">
-                  <p className="font-semibold mb-8">{t('Le Directeur / Proviseur', 'The Principal')}</p>
-                  <div className="border-t border-gray-400 pt-1 text-xs text-gray-500">{t('Signature & cachet', 'Signature & stamp')}</div>
+                  <p className="font-semibold mb-8">{isGE ? 'El Director / La Directora' : t('Le Directeur / Proviseur', 'The Principal')}</p>
+                  <div className="border-t border-gray-400 pt-1 text-xs text-gray-500">{isGE ? 'Firma y sello' : t('Signature & cachet', 'Signature & stamp')}</div>
                 </div>
               </div>
             </div>

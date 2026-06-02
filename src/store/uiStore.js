@@ -3,7 +3,9 @@
 
 import { create } from 'zustand';
 
-const _savedLang = localStorage.getItem('notescam_ui_lang') || 'fr';
+const _SUPPORTED_LANGS = ['fr', 'en', 'es'];
+const _stored = localStorage.getItem('notescam_ui_lang') || 'fr';
+const _savedLang = _SUPPORTED_LANGS.includes(_stored) ? _stored : 'fr';
 
 export const useUiStore = create((set) => ({
   online: navigator.onLine,
@@ -14,7 +16,7 @@ export const useUiStore = create((set) => ({
 
   viewYear: null,
 
-  // 'fr' | 'en'
+  // 'fr' | 'en' | 'es'
   uiLang: _savedLang,
 
   // Bulletins page navigation — persisted across route changes
@@ -62,9 +64,30 @@ export const useUiStore = create((set) => ({
   setViewYear:   (year) => set({ viewYear: year }),
   clearViewYear: ()     => set({ viewYear: null }),
 
+  // toggleLang : cycle fr → en → es → fr.
+  // Marque la préférence comme "choisie manuellement" pour ne plus la réécraser
+  // par la valeur par défaut du pays de l'école.
   toggleLang: () => set((s) => {
-    const next = s.uiLang === 'fr' ? 'en' : 'fr';
+    const order = ['fr', 'en', 'es'];
+    const idx = order.indexOf(s.uiLang);
+    const next = order[(idx + 1) % order.length] || 'fr';
     localStorage.setItem('notescam_ui_lang', next);
+    localStorage.setItem('notescam_ui_lang_user_set', 'true');
+    return { uiLang: next };
+  }),
+
+  // setLang : usage interne (Signup, auto-sync pays). Ne marque PAS la préférence
+  // comme utilisateur. Utiliser setLangManual() depuis l'UI utilisateur.
+  setLang: (lang) => set(() => {
+    const next = _SUPPORTED_LANGS.includes(lang) ? lang : 'fr';
+    localStorage.setItem('notescam_ui_lang', next);
+    return { uiLang: next };
+  }),
+
+  setLangManual: (lang) => set(() => {
+    const next = _SUPPORTED_LANGS.includes(lang) ? lang : 'fr';
+    localStorage.setItem('notescam_ui_lang', next);
+    localStorage.setItem('notescam_ui_lang_user_set', 'true');
     return { uiLang: next };
   }),
 }));

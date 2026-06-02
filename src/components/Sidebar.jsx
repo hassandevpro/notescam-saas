@@ -79,6 +79,11 @@ const ICONS = {
       <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
     </svg>
   ),
+  history: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 9 9 9"/><polyline points="12 7 12 12 15 14"/>
+    </svg>
+  ),
   conseil: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
@@ -209,9 +214,10 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
     {
       label: t('Administration', 'Administration'),
       links: [
-        { to: '/app/year',     label: t('Année scolaire', 'Academic Year'), icon: 'year' },
-        { to: '/app/settings', label: t('Paramètres', 'Settings'),          icon: 'settings' },
-        { to: '/app/aide',     label: t('Guide / Aide', 'Help guide'),       icon: 'help' },
+        { to: '/app/year',       label: t('Année scolaire', 'Academic Year', 'Año escolar'), icon: 'year' },
+        { to: '/app/historique', label: t('Historique', 'History', 'Historial'),             icon: 'history' },
+        { to: '/app/settings',   label: t('Paramètres', 'Settings', 'Ajustes'),               icon: 'settings' },
+        { to: '/app/aide',       label: t('Guide / Aide', 'Help guide', 'Ayuda'),             icon: 'help' },
       ],
     },
   ];
@@ -299,11 +305,15 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
           </div>
         </div>
 
-        {/* Language toggle */}
+        {/* Language toggle — cycle FR → EN → ES */}
         <button
           onClick={toggleLang}
           className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-500 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all duration-150 font-medium mb-0.5"
-          title={uiLang === 'fr' ? 'Switch to English' : 'Passer en français'}
+          title={
+            uiLang === 'fr' ? 'Switch to English'
+            : uiLang === 'en' ? 'Cambiar a español'
+            : 'Passer en français'
+          }
         >
           <span className="w-[18px] h-[18px] shrink-0 flex items-center justify-center text-base leading-none">
             🌐
@@ -312,6 +322,8 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
             <span className={uiLang === 'fr' ? 'font-bold text-brand-600' : 'text-slate-400'}>FR</span>
             <span className="text-slate-300">/</span>
             <span className={uiLang === 'en' ? 'font-bold text-brand-600' : 'text-slate-400'}>EN</span>
+            <span className="text-slate-300">/</span>
+            <span className={uiLang === 'es' ? 'font-bold text-brand-600' : 'text-slate-400'}>ES</span>
           </span>
         </button>
 

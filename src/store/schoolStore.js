@@ -19,6 +19,7 @@ import {
   fetchFeePayments, insertFeePayment, deleteFeePayment as sbDeleteFeePayment,
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
+import { moveToTrash, logAction } from '../lib/historyService';
 import { logAssignment } from '../lib/classAssignmentService';
 import { flushSyncQueue } from '../lib/sync';
 import { getNextLevel, computeNextYear } from '../lib/yearEngine';
@@ -382,6 +383,8 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   deleteClass: async (id) => {
+    const snapshot = get().classes.find((c) => c.id === id);
+    if (snapshot) await moveToTrash({ table: 'classes', payload: snapshot });
     await classesDB.delete(id);
     set((s) => ({ classes: s.classes.filter((c) => c.id !== id) }));
     if (navigator.onLine) {
@@ -420,6 +423,8 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   deleteSubject: async (id) => {
+    const snapshot = get().subjects.find((s) => s.id === id);
+    if (snapshot) await moveToTrash({ table: 'subjects', payload: snapshot });
     await subjectsDB.delete(id);
     set((s) => ({ subjects: s.subjects.filter((x) => x.id !== id) }));
     if (navigator.onLine) {
@@ -457,6 +462,8 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   deleteStudent: async (id) => {
+    const snapshot = get().students.find((x) => x.id === id);
+    if (snapshot) await moveToTrash({ table: 'students', payload: snapshot });
     await studentsDB.delete(id);
     set((s) => ({ students: s.students.filter((x) => x.id !== id) }));
     if (navigator.onLine) {
@@ -594,6 +601,8 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   deleteTeacher: async (id) => {
+    const snapshot = get().teachers.find((t) => t.id === id);
+    if (snapshot) await moveToTrash({ table: 'teachers', payload: snapshot });
     await teachersDB.delete(id);
     set((s) => ({
       teachers: s.teachers.filter((t) => t.id !== id),

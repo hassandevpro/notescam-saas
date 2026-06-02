@@ -2,13 +2,18 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import { useUiStore } from '../store/uiStore';
-import { usePlan } from '../lib/plan';
+import { usePlan, getStarterPrintRemaining, incrementDailyPrint, STARTER_DAILY_PRINT_LIMIT } from '../lib/plan';
 import {
   getAvg, frApp, enGrade, getAppreciation, buildRanks, clsStat,
 } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
 import '../styles/bulletin.css';
 import { useT } from '../lib/i18n';
+import BoletinGE from '../components/bulletins/BoletinGE';
+import BoletinGEDetalle from '../components/bulletins/BoletinGEDetalle';
+import BulletinTheme from '../components/bulletins/BulletinTheme';
+import { resolveCountryCode } from '../countries';
+import { gradingOpts, geGradeMax } from '../lib/useCountry';
 
 // ── Helpers avatar ───────────────────────────────────────────────────────────
 const AVT_COLORS = [
@@ -34,9 +39,14 @@ const PERIODS_EN = [
 ];
 
 
+// ── Helper i18n bulletin (basé sur sys de la classe, indépendant de la langue UI)
+const L = (sys, fr, en) => (sys === 'EN' ? en : fr);
+
 // ── Constantes conduite ───────────────────────────────────────────────────────
-const CONDUITE_LABELS = { TB: 'Très Bien', B: 'Bien', AB: 'Assez Bien', P: 'Passable', M: 'Mauvaise' };
-const CONDUITE_COLORS = { TB: '#7c3aed', B: '#059669', AB: '#0284c7', P: '#d97706', M: '#dc2626' };
+const CONDUITE_LABELS    = { TB: 'Très Bien', B: 'Bien', AB: 'Assez Bien', P: 'Passable', M: 'Mauvaise' };
+const CONDUITE_LABELS_EN = { TB: 'Very Good', B: 'Good', AB: 'Fairly Good', P: 'Passable', M: 'Poor'    };
+const CONDUITE_COLORS    = { TB: '#7c3aed', B: '#059669', AB: '#0284c7', P: '#d97706', M: '#dc2626' };
+const conduiteLabel = (sys, code) => (sys === 'EN' ? CONDUITE_LABELS_EN : CONDUITE_LABELS)[code] || code;
 
 function getAbsCond(gradeMap, classId, studentId, seqs) {
   let absJ = 0, absNJ = 0;
@@ -455,8 +465,11 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
 
 // ── Bulletin APC ──────────────────────────────────────────────────────────────
 function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, classStudents = [] }) {
-  const passed     = studentAvg !== null && studentAvg >= 10;
-  const decision   = passed ? 'ADMIS(E)' : 'AJOURNÉ(E)';
+  const isEnSys    = sys === 'EN';
+  const passThr    = isEnSys ? 50 : 10;
+  const maxScale   = isEnSys ? 100 : 20;
+  const passed     = studentAvg !== null && studentAvg >= passThr;
+  const decision   = isEnSys ? (passed ? 'PASSED' : 'FAILED') : (passed ? 'ADMIS(E)' : 'AJOURNÉ(E)');
   const apprGlobal = getAppreciation(studentAvg, school?.grade_scale, sys);
   const { absJ, absNJ, conduite, th, encouragement, felicitation, averTravail, blameTravail, exclusions, averConduite, blameConduite } = getAbsCond(gradeMap, classId, student.id, period.seqs);
   const isAnnuel    = period.value === 'annuel';
@@ -516,11 +529,11 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   const principalTeacher = teachers?.find((t) => t.id === cls?.teacher_id) || null;
 
   const termOrdinal = (() => {
-    if (period.seqs.length >= 4) return 'ANNUEL';
+    if (period.seqs.length >= 4) return isEnSys ? 'ANNUAL' : 'ANNUEL';
     const s = period.seqs[0];
-    if (s <= 2) return '1er TRIMESTRE';
-    if (s <= 4) return '2ème TRIMESTRE';
-    return '3ème TRIMESTRE';
+    if (s <= 2) return isEnSys ? '1ST TERM' : '1er TRIMESTRE';
+    if (s <= 4) return isEnSys ? '2ND TERM' : '2ème TRIMESTRE';
+    return isEnSys ? '3RD TERM' : '3ème TRIMESTRE';
   })();
 
   const totalCols = isAnnuel ? 9 : isTrimestre ? 8 : 6;
@@ -574,19 +587,19 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
 
       {/* TITLE BAR */}
       <div style={{ backgroundColor: '#1e3a5f', color: '#fff', textAlign: 'center', padding: '5px 8px', fontWeight: 'bold', fontSize: '11px', letterSpacing: '0.5px', marginBottom: '5px' }}>
-        BULLETIN SCOLAIRE – {(!isTrimestre && !isAnnuel) ? `${termOrdinal} – ` : ''}{period.label.toUpperCase()}
+        {isEnSys ? 'REPORT CARD' : 'BULLETIN SCOLAIRE'} – {(!isTrimestre && !isAnnuel) ? `${termOrdinal} – ` : ''}{period.label.toUpperCase()}
       </div>
 
       {/* STUDENT INFO */}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
         <tbody>
           <tr>
-            <td style={{ ...info, width: '25%' }}><strong>NOM ET PRÉNOM :</strong><br /><span style={{ fontWeight: 'bold', color: '#111' }}>{student.name}</span></td>
-            <td style={{ ...info, width: '12%' }}><strong>MATRICULE :</strong><br />{student.matricule || '—'}</td>
-            <td style={{ ...info, width: '13%' }}><strong>DATE DE NAISS. :</strong><br />{student.date_naissance || '—'}</td>
-            <td style={{ ...info, width: '22%' }}><strong>ENS. PRINCIPAL :</strong><br />{principalTeacher?.name || '—'}</td>
-            <td style={{ ...info, width: '14%' }}><strong>CLASSE :</strong><br />{cls?.name || '—'}</td>
-            <td style={{ ...info, width: '14%', textAlign: 'center' }}><strong>EFFECTIF :</strong><br /><strong style={{ fontSize: '14px' }}>{stats?.total ?? '—'}</strong></td>
+            <td style={{ ...info, width: '25%' }}><strong>{L(sys, 'NOM ET PRÉNOM', 'FULL NAME')} :</strong><br /><span style={{ fontWeight: 'bold', color: '#111' }}>{student.name}</span></td>
+            <td style={{ ...info, width: '12%' }}><strong>{L(sys, 'MATRICULE', 'REG. NO.')} :</strong><br />{student.matricule || '—'}</td>
+            <td style={{ ...info, width: '13%' }}><strong>{L(sys, 'DATE DE NAISS.', 'DATE OF BIRTH')} :</strong><br />{student.date_naissance || '—'}</td>
+            <td style={{ ...info, width: '22%' }}><strong>{L(sys, 'ENS. PRINCIPAL', 'FORM MASTER')} :</strong><br />{principalTeacher?.name || '—'}</td>
+            <td style={{ ...info, width: '14%' }}><strong>{L(sys, 'CLASSE', 'CLASS')} :</strong><br />{cls?.name || '—'}</td>
+            <td style={{ ...info, width: '14%', textAlign: 'center' }}><strong>{L(sys, 'EFFECTIF', 'TOTAL')} :</strong><br /><strong style={{ fontSize: '14px' }}>{stats?.total ?? '—'}</strong></td>
           </tr>
         </tbody>
       </table>
@@ -595,18 +608,18 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
         <thead>
           <tr>
-            <th style={{ ...thS, width: isAnnuel ? '22%' : isTrimestre ? '28%' : '34%', textAlign: 'left' }}>MATIÈRES</th>
+            <th style={{ ...thS, width: isAnnuel ? '22%' : isTrimestre ? '28%' : '34%', textAlign: 'left' }}>{L(sys, 'MATIÈRES', 'SUBJECTS')}</th>
             {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[0]}/20</th>}
             {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[1]}/20</th>}
             {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[2]}/20</th>}
-            {isAnnuel && <th style={{ ...thS, width: '9%' }}>Moy.Ann/20</th>}
-            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>SEQ {period.seqs[0]} /20</th>}
-            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>SEQ {period.seqs[1]} /20</th>}
-            {!isAnnuel && <th style={{ ...thS, width: '11%' }}>{isTrimestre ? 'MOY /20' : `SEQ ${period.seqs[0]} /20`}</th>}
+            {isAnnuel && <th style={{ ...thS, width: '9%' }}>{L(sys, 'Moy.Ann', 'Ann.Avg')}/20</th>}
+            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'SEQ')} {period.seqs[0]} /20</th>}
+            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'SEQ')} {period.seqs[1]} /20</th>}
+            {!isAnnuel && <th style={{ ...thS, width: '11%' }}>{isTrimestre ? L(sys, 'MOY /20', 'AVG /20') : `${L(sys, 'SEQ', 'SEQ')} ${period.seqs[0]} /20`}</th>}
             <th style={{ ...thS, width: '7%' }}>COEF</th>
             <th style={{ ...thS, width: '9%' }}>TOTAL</th>
-            <th style={{ ...thS, width: '8%' }}>RANG</th>
-            <th style={{ ...thS, width: isTrimestre ? '19%' : '21%' }}>APPRÉCIATION</th>
+            <th style={{ ...thS, width: '8%' }}>{L(sys, 'RANG', 'RANK')}</th>
+            <th style={{ ...thS, width: isTrimestre ? '19%' : '21%' }}>{L(sys, 'APPRÉCIATION', 'GRADE')}</th>
           </tr>
         </thead>
 
@@ -614,7 +627,8 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
           const subs = grouped[group.key] || [];
           if (!subs.length) return null;
           const gs      = groupStats(subs);
-          const gAppr   = getAppreciation(gs.avg, school?.grade_scale, sys);
+          const gApprIn = gs.avg !== null ? (isEnSys ? gs.avg * 5 : gs.avg) : null;
+          const gAppr   = getAppreciation(gApprIn, school?.grade_scale, sys);
           const gPassed = gs.avg !== null && gs.avg >= 10;
 
           return (
@@ -630,7 +644,8 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
                   : null;
                 const total  = on20 !== null ? Math.round(on20 * sub.coef * 100) / 100 : '—';
                 const sRank  = getSubjectRank(sub);
-                const appr   = getAppreciation(on20, school?.grade_scale, sys);
+                const apprIn = on20 !== null ? (isEnSys ? on20 * 5 : on20) : null;
+                const appr   = getAppreciation(apprIn, school?.grade_scale, sys);
                 const isPassed = on20 !== null && on20 >= 10;
                 const s1     = isTrimestre ? seqGrade(sub.id, student.id, classId, period.seqs[0], gradeMap) : null;
                 const s2     = isTrimestre ? seqGrade(sub.id, student.id, classId, period.seqs[1], gradeMap) : null;
@@ -679,7 +694,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
                     <td style={{ ...cell, textAlign: 'center' }}>{total}</td>
                     <td style={{ ...cell, textAlign: 'center', fontSize: '9px' }}>{sRank}</td>
                     <td style={{ ...cell, textAlign: 'center', fontWeight: 'bold', fontSize: '9px', color: on20 !== null ? appr?.col : '#9ca3af' }}>
-                      {on20 !== null ? appr?.text : '—'}
+                      {on20 !== null ? (isEnSys ? `${appr?.g} — ${appr?.txt}` : appr?.text) : '—'}
                     </td>
                   </tr>
                 );
@@ -687,7 +702,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
 
               <tr>
                 <td colSpan={isAnnuel ? 4 : isTrimestre ? 3 : 1} style={{ ...gtot, textAlign: 'right' }}>
-                  TOTAL {group.label.split('/')[0].trim()}
+                  TOTAL {isEnSys ? group.label.split('/')[1].trim() : group.label.split('/')[0].trim()}
                 </td>
                 <td style={{ ...gtot, textAlign: 'center', color: gs.avg !== null ? (gPassed ? '#059669' : '#dc2626') : '#6b7280' }}>
                   {gs.avg !== null ? gs.avg : '—'}
@@ -696,7 +711,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
                 <td style={{ ...gtot, textAlign: 'center' }}>{gs.pts || '—'}</td>
                 <td style={{ ...gtot, textAlign: 'center' }}>—</td>
                 <td style={{ ...gtot, textAlign: 'center', color: gAppr?.col }}>
-                  {gs.avg !== null ? gAppr?.text : '—'}
+                  {gs.avg !== null ? (isEnSys ? `${gAppr?.g} — ${gAppr?.txt}` : gAppr?.text) : '—'}
                 </td>
               </tr>
             </tbody>
@@ -708,17 +723,17 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
         <thead>
           <tr>
-            <th style={{ ...thS, width: '25%' }}>RÉSULTAT DE L'ÉLÈVE</th>
-            <th style={{ ...thS, width: '25%' }}>PROFIL DE LA CLASSE</th>
-            <th style={{ ...thS, width: '25%' }}>TRAVAIL DE L'ÉLÈVE</th>
-            <th style={{ ...thS, width: '25%' }}>CONDUITE DE L'ÉLÈVE</th>
+            <th style={{ ...thS, width: '25%' }}>{L(sys, "RÉSULTAT DE L'ÉLÈVE",  'STUDENT RESULTS')}</th>
+            <th style={{ ...thS, width: '25%' }}>{L(sys, 'PROFIL DE LA CLASSE',  'CLASS PROFILE')}</th>
+            <th style={{ ...thS, width: '25%' }}>{L(sys, "TRAVAIL DE L'ÉLÈVE",   "STUDENT'S WORK")}</th>
+            <th style={{ ...thS, width: '25%' }}>{L(sys, "CONDUITE DE L'ÉLÈVE",  "STUDENT'S CONDUCT")}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td style={{ ...cell, verticalAlign: 'top', padding: '5px' }}>
-              <div>Moy. Gén. : <strong style={{ color: passed ? '#059669' : '#dc2626' }}>{studentAvg !== null ? `${studentAvg}/20` : '—'}</strong></div>
-              <div>Rang : <strong>{rank?.rankD || '—'} / {stats?.total ?? '—'}</strong></div>
+              <div>{L(sys, 'Moy. Gén.', 'Avg.')} : <strong style={{ color: passed ? '#059669' : '#dc2626' }}>{studentAvg !== null ? `${studentAvg}/${maxScale}` : '—'}</strong></div>
+              <div>{L(sys, 'Rang', 'Rank')} : <strong>{rank?.rankD || '—'} / {stats?.total ?? '—'}</strong></div>
               <div style={{ marginTop: 3 }}>
                 <strong style={{ color: passed ? '#059669' : '#dc2626', fontSize: '11px' }}>
                   {studentAvg !== null ? decision : '—'}
@@ -726,28 +741,30 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
               </div>
             </td>
             <td style={{ ...cell, verticalAlign: 'top', padding: '5px' }}>
-              <div>Moy. classe : <strong>{stats?.avg != null ? `${stats.avg}/20` : '—'}</strong></div>
-              <div>Note max : <strong>{stats?.max != null ? `${stats.max}/20` : '—'}</strong></div>
-              <div>Note min : <strong>{stats?.min != null ? `${stats.min}/20` : '—'}</strong></div>
-              <div>Taux réussite : <strong>{stats?.above != null && stats?.total ? `${stats.above}/${stats.total} (${Math.round((stats.above / stats.total) * 100)}%)` : '—'}</strong></div>
+              <div>{L(sys, 'Moy. classe', 'Class avg.')} : <strong>{stats?.avg != null ? `${stats.avg}/${maxScale}` : '—'}</strong></div>
+              <div>{L(sys, 'Note max', 'Highest')} : <strong>{stats?.max != null ? `${stats.max}/${maxScale}` : '—'}</strong></div>
+              <div>{L(sys, 'Note min', 'Lowest')} : <strong>{stats?.min != null ? `${stats.min}/${maxScale}` : '—'}</strong></div>
+              <div>{L(sys, 'Taux réussite', 'Pass rate')} : <strong>{stats?.above != null && stats?.total ? `${stats.above}/${stats.total} (${Math.round((stats.above / stats.total) * 100)}%)` : '—'}</strong></div>
             </td>
             <td style={{ ...cell, verticalAlign: 'top', padding: '5px' }}>
-              <div style={{ color: apprGlobal?.col, fontWeight: 'bold', fontSize: '11px' }}>{apprGlobal?.text || '—'}</div>
-              {th            && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>Tableau d'Honneur</div>}
-              {encouragement && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>T.H + Encouragement</div>}
-              {felicitation  && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>T.H + Félicitation</div>}
-              {averTravail  > 0 && <div style={{ color: '#d97706', fontSize: '9px', marginTop: 2 }}>Aver. Travail : <strong>{averTravail}</strong></div>}
-              {blameTravail > 0 && <div style={{ color: '#dc2626', fontSize: '9px', marginTop: 2 }}>Blâme Travail : <strong>{blameTravail}</strong></div>}
+              <div style={{ color: apprGlobal?.col, fontWeight: 'bold', fontSize: '11px' }}>
+                {isEnSys ? (apprGlobal ? `${apprGlobal.g} — ${apprGlobal.txt}` : '—') : (apprGlobal?.text || '—')}
+              </div>
+              {th            && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, "Tableau d'Honneur", 'Honor Roll')}</div>}
+              {encouragement && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, 'T.H + Encouragement', 'Honor Roll + Encouragement')}</div>}
+              {felicitation  && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, 'T.H + Félicitation', 'Honor Roll + Congratulations')}</div>}
+              {averTravail  > 0 && <div style={{ color: '#d97706', fontSize: '9px', marginTop: 2 }}>{L(sys, 'Aver. Travail', 'Work Warning')} : <strong>{averTravail}</strong></div>}
+              {blameTravail > 0 && <div style={{ color: '#dc2626', fontSize: '9px', marginTop: 2 }}>{L(sys, 'Blâme Travail', 'Work Reprimand')} : <strong>{blameTravail}</strong></div>}
             </td>
             <td style={{ ...cell, verticalAlign: 'top', padding: '5px' }}>
-              <div style={{ fontSize: '9px' }}>T. d'Honneur : <strong style={{ color: th || encouragement || felicitation ? '#059669' : '#374151' }}>{th || encouragement || felicitation ? 'Oui' : 'Non'}</strong></div>
-              <div style={{ fontSize: '9px' }}>Abs. totales : <strong>{absJ + absNJ} H</strong></div>
-              <div style={{ fontSize: '9px' }}>Absences NJ : <strong>{absNJ} H</strong></div>
-              <div style={{ fontSize: '9px' }}>Exclusions : <strong>{exclusions} Jrs</strong></div>
-              <div style={{ fontSize: '9px' }}>Aver. Conduite : <strong>{averConduite}</strong></div>
-              <div style={{ fontSize: '9px' }}>Blâme Conduite : <strong>{blameConduite}</strong></div>
-              <div style={{ fontSize: '9px' }}>Conduite : <strong style={{ color: conduite ? CONDUITE_COLORS[conduite] : undefined }}>
-                {conduite ? `${conduite} — ${CONDUITE_LABELS[conduite]}` : '—'}
+              <div style={{ fontSize: '9px' }}>{L(sys, "T. d'Honneur", 'Honor Roll')} : <strong style={{ color: th || encouragement || felicitation ? '#059669' : '#374151' }}>{th || encouragement || felicitation ? L(sys, 'Oui', 'Yes') : L(sys, 'Non', 'No')}</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Abs. totales', 'Total absences')} : <strong>{absJ + absNJ} H</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Absences NJ', 'Unjust. absences')} : <strong>{absNJ} H</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Exclusions', 'Exclusions')} : <strong>{exclusions} {L(sys, 'Jrs', 'days')}</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Aver. Conduite', 'Conduct Warning')} : <strong>{averConduite}</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Blâme Conduite', 'Conduct Reprimand')} : <strong>{blameConduite}</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Conduite', 'Conduct')} : <strong style={{ color: conduite ? CONDUITE_COLORS[conduite] : undefined }}>
+                {conduite ? `${conduite} — ${conduiteLabel(sys, conduite)}` : '—'}
               </strong></div>
             </td>
           </tr>
@@ -759,13 +776,13 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
         <tbody>
           <tr>
             <td style={{ ...cell, width: '33%', textAlign: 'center', height: 56, verticalAlign: 'bottom', paddingBottom: 5 }}>
-              <strong style={{ fontSize: '9px' }}>Signature du Parent / Tuteur</strong>
+              <strong style={{ fontSize: '9px' }}>{L(sys, 'Signature du Parent / Tuteur', 'Parent / Guardian Signature')}</strong>
             </td>
             <td style={{ ...cell, width: '34%', textAlign: 'center', verticalAlign: 'bottom', paddingBottom: 5 }}>
-              <strong style={{ fontSize: '9px' }}>Le Conseil de Classe</strong>
+              <strong style={{ fontSize: '9px' }}>{L(sys, 'Le Conseil de Classe', 'Class Council')}</strong>
             </td>
             <td style={{ ...cell, width: '33%', textAlign: 'center', verticalAlign: 'top', paddingTop: 5 }}>
-              <strong style={{ fontSize: '9px' }}>LE PRINCIPAL</strong>
+              <strong style={{ fontSize: '9px' }}>{L(sys, 'LE PRINCIPAL', 'THE PRINCIPAL')}</strong>
               {school?.signature_url && (
                 <img src={school.signature_url} alt="Signature" style={{ height: 32, display: 'block', margin: '2px auto' }} />
               )}
@@ -778,7 +795,9 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
       </table>
 
       <p style={{ fontSize: '7.5px', color: '#9ca3af', textAlign: 'center', fontStyle: 'italic', margin: 0 }}>
-        Ce bulletin n'est valable qu'avec la signature et le cachet du chef d'établissement. Toute modification manuelle est passible de sanction.
+        {isEnSys
+          ? "This report card is valid only with the signature and stamp of the head of school. Any manual alteration is liable to sanction."
+          : "Ce bulletin n'est valable qu'avec la signature et le cachet du chef d'établissement. Toute modification manuelle est passible de sanction."}
       </p>
     </div>
   );
@@ -827,27 +846,27 @@ function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, st
       </div>
 
       <div className="bulletin-school">
-        <h1>{school?.name || 'Établissement'}</h1>
+        <h1>{school?.name || (sys === 'EN' ? 'School' : 'Établissement')}</h1>
         <p>
           {school?.address ? `B.P. ${school.address} · ` : ''}
           {school?.phone || ''}
-          {school?.type ? ` · Ens. ${school.type}` : ''}
+          {school?.type ? ` · ${sys === 'EN' ? 'Ed.' : 'Ens.'} ${school.type}` : ''}
         </p>
-        <p>Année scolaire : <strong>{school?.current_year || '—'}</strong></p>
+        <p>{sys === 'EN' ? 'Academic year' : 'Année scolaire'} : <strong>{school?.current_year || '—'}</strong></p>
       </div>
 
       <div className="bulletin-title">
-        Bulletin Annuel — Enseignement Primaire / Annual Primary Report Card
+        {sys === 'EN' ? 'Annual Primary Report Card' : 'Bulletin Annuel — Enseignement Primaire / Annual Primary Report Card'}
       </div>
 
       <div className="bulletin-student">
         <div className="bulletin-student-grid">
-          <div><strong>Nom / Name :</strong>&nbsp;{student.name}</div>
-          <div><strong>Matricule :</strong>&nbsp;{student.matricule || '—'}</div>
-          <div><strong>Classe / Class :</strong>&nbsp;{cls?.name || '—'}</div>
-          <div><strong>Niveau :</strong>&nbsp;{cls?.level || '—'}</div>
-          <div><strong>Sexe / Sex :</strong>&nbsp;{student.gender || '—'}</div>
-          <div><strong>Rang / Rank :</strong>&nbsp;{rank?.rankD || '—'} / {stats?.total ?? '—'}</div>
+          <div><strong>{sys === 'EN' ? 'Name' : 'Nom / Name'} :</strong>&nbsp;{student.name}</div>
+          <div><strong>{sys === 'EN' ? 'Reg. No.' : 'Matricule'} :</strong>&nbsp;{student.matricule || '—'}</div>
+          <div><strong>{sys === 'EN' ? 'Class' : 'Classe / Class'} :</strong>&nbsp;{cls?.name || '—'}</div>
+          <div><strong>{sys === 'EN' ? 'Level' : 'Niveau'} :</strong>&nbsp;{cls?.level || '—'}</div>
+          <div><strong>{sys === 'EN' ? 'Sex' : 'Sexe / Sex'} :</strong>&nbsp;{student.gender || '—'}</div>
+          <div><strong>{sys === 'EN' ? 'Rank' : 'Rang / Rank'} :</strong>&nbsp;{rank?.rankD || '—'} / {stats?.total ?? '—'}</div>
         </div>
       </div>
 
@@ -968,11 +987,25 @@ function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, st
 }
 
 // ── Bulletin Annuel Secondaire (T1 / T2 / T3 / Moy.Ann) ──────────────────────
-function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, sys, teachers, gradeMap, classId }) {
+function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, sys, teachers, gradeMap, classId, annualDecision }) {
   const passThreshold = sys === 'FR' ? 10 : 50;
   const maxScale      = sys === 'FR' ? 20 : 100;
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
-  const decision      = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
+
+  // Décision annuelle : valeur posée explicitement par l'admin, sinon dérivée du seuil.
+  const DECISIONS_FR = {
+    admis:      'Admis(e) en classe supérieure',
+    redouble:   'Autorisé(e) à redoubler',
+    renvoye:    'Exclu(e) de l\'établissement',
+    rattrapage: 'Examen de rattrapage',
+  };
+  const DECISIONS_EN = {
+    admis: 'Promoted', redouble: 'Repeats class', renvoye: 'Dismissed', rattrapage: 'Resit exam',
+  };
+  const decisionMap = sys === 'EN' ? DECISIONS_EN : DECISIONS_FR;
+  const decision = annualDecision && decisionMap[annualDecision]
+    ? decisionMap[annualDecision]
+    : (sys === 'FR' ? (passed ? 'Admis(e) en classe supérieure' : 'Autorisé(e) à redoubler') : (passed ? 'Promoted' : 'Repeats class'));
   const apprGlobal    = getAppreciation(studentAvg, school?.grade_scale, sys);
 
   // EN: 3 terms (seq 1/2/3) — FR: 6 sequences grouped in 3 trimestres (seq 1-2/3-4/5-6)
@@ -1020,13 +1053,13 @@ function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrade
       </div>
 
       <div className="bulletin-school">
-        <h1>{school?.name || 'Établissement'}</h1>
+        <h1>{school?.name || (isEN ? 'School' : 'Établissement')}</h1>
         <p>
           {school?.address ? `B.P. ${school.address} · ` : ''}
           {school?.phone || ''}
-          {school?.type ? ` · Ens. ${school.type}` : ''}
+          {school?.type ? ` · ${isEN ? 'Ed.' : 'Ens.'} ${school.type}` : ''}
         </p>
-        <p>Année scolaire : <strong>{school?.current_year || '—'}</strong></p>
+        <p>{isEN ? 'Academic year' : 'Année scolaire'} : <strong>{school?.current_year || '—'}</strong></p>
       </div>
 
       <div className="bulletin-title">
@@ -1304,15 +1337,37 @@ function BulletinMaternelle({ school, cls, student, subjects, teachers, gradeMap
 }
 
 // ── Helpers APC Moderne ───────────────────────────────────────────────────────
-function apcModerneLevel(grade, maxScale) {
+const APC_MODERNE_LEVEL_KEYS = ['EXCELLENT', 'GOOD', 'FAIRLY_GOOD', 'PASSABLE', 'IN_PROGRESS', 'INSUFFICIENT'];
+const APC_MODERNE_LABELS_FR = {
+  EXCELLENT:    'Très bien',
+  GOOD:         'Bien',
+  FAIRLY_GOOD:  'Assez bien',
+  PASSABLE:     'Passable',
+  IN_PROGRESS:  'En cours',
+  INSUFFICIENT: 'Insuffisant',
+};
+const APC_MODERNE_LABELS_EN = {
+  EXCELLENT:    'Excellent',
+  GOOD:         'Good',
+  FAIRLY_GOOD:  'Fairly good',
+  PASSABLE:     'Passable',
+  IN_PROGRESS:  'In progress',
+  INSUFFICIENT: 'Insufficient',
+};
+function apcModerneLevelKey(grade, maxScale) {
   if (grade === null) return null;
   const pct = (grade / maxScale) * 100;
-  if (pct >= 80) return 'Très bien';
-  if (pct >= 65) return 'Bien';
-  if (pct >= 55) return 'Assez bien';
-  if (pct >= 50) return 'Passable';
-  if (pct >= 25) return 'En cours';
-  return 'Insuffisant';
+  if (pct >= 80) return 'EXCELLENT';
+  if (pct >= 65) return 'GOOD';
+  if (pct >= 55) return 'FAIRLY_GOOD';
+  if (pct >= 50) return 'PASSABLE';
+  if (pct >= 25) return 'IN_PROGRESS';
+  return 'INSUFFICIENT';
+}
+function apcModerneLevel(grade, maxScale, sys = 'FR') {
+  const key = apcModerneLevelKey(grade, maxScale);
+  if (!key) return null;
+  return (sys === 'EN' ? APC_MODERNE_LABELS_EN : APC_MODERNE_LABELS_FR)[key];
 }
 
 function coteLetter(avg, maxScale) {
@@ -1326,14 +1381,13 @@ function coteLetter(avg, maxScale) {
   return 'F';
 }
 
-const APC_LEVELS = ['Très bien', 'Bien', 'Assez bien', 'Passable', 'En cours', 'Insuffisant'];
-const APC_LEVEL_COLORS = {
-  'Très bien':   '#7c3aed',
-  'Bien':        '#059669',
-  'Assez bien':  '#0284c7',
-  'Passable':    '#d97706',
-  'En cours':    '#ea580c',
-  'Insuffisant': '#dc2626',
+const APC_LEVEL_COLOR_BY_KEY = {
+  EXCELLENT:    '#7c3aed',
+  GOOD:         '#059669',
+  FAIRLY_GOOD:  '#0284c7',
+  PASSABLE:     '#d97706',
+  IN_PROGRESS:  '#ea580c',
+  INSUFFICIENT: '#dc2626',
 };
 
 // ── Bulletin APC Moderne ──────────────────────────────────────────────────────
@@ -1392,10 +1446,10 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
       {/* ── Titre ── */}
       <div style={{ textAlign: 'center', borderTop: '2px solid #1e3a5f', borderBottom: '2px solid #1e3a5f', padding: '4px 0', margin: '4px 0' }}>
         <div style={{ fontWeight: 800, fontSize: '1em', letterSpacing: 1, color: '#1e3a5f' }}>
-          BULLETIN DE NOTES APC
+          {L(sys, 'BULLETIN DE NOTES APC', 'CBA REPORT CARD')}
         </div>
         <div style={{ fontSize: '0.78em', fontWeight: 600, color: '#374151' }}>
-          {cls?.name || '—'} &nbsp;·&nbsp; {period.label} &nbsp;·&nbsp; Année scolaire : {school?.current_year || '—'}
+          {cls?.name || '—'} &nbsp;·&nbsp; {period.label} &nbsp;·&nbsp; {L(sys, 'Année scolaire', 'Academic year')} : {school?.current_year || '—'}
         </div>
       </div>
 
@@ -1407,17 +1461,17 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
         </div>
         {/* Infos élève */}
         <div style={{ fontSize: '0.7em', lineHeight: 2 }}>
-          <div><strong>ÉTABLISSEMENT :</strong> {school?.name || '—'}</div>
-          <div><strong>NOM ET PRÉNOM :</strong> {student.name}</div>
-          <div><strong>MATRICULE :</strong> {student.matricule || '—'}</div>
+          <div><strong>{L(sys, 'ÉTABLISSEMENT', 'SCHOOL')} :</strong> {school?.name || '—'}</div>
+          <div><strong>{L(sys, 'NOM ET PRÉNOM', 'FULL NAME')} :</strong> {student.name}</div>
+          <div><strong>{L(sys, 'MATRICULE', 'REG. NO.')} :</strong> {student.matricule || '—'}</div>
           <div style={{ display: 'flex', gap: 16 }}>
-            <span><strong>EFFECTIF :</strong> {stats?.total ?? '—'}</span>
-            <span><strong>SEXE :</strong> {student.gender || '—'}</span>
+            <span><strong>{L(sys, 'EFFECTIF', 'TOTAL')} :</strong> {stats?.total ?? '—'}</span>
+            <span><strong>{L(sys, 'SEXE', 'SEX')} :</strong> {student.gender || '—'}</span>
           </div>
         </div>
         {/* Séquences tracker */}
         <div style={{ fontSize: '0.62em', textAlign: 'center', minWidth: 120 }}>
-          <div style={{ fontWeight: 700, marginBottom: 3, color: '#1e3a5f' }}>SÉQUENCES</div>
+          <div style={{ fontWeight: 700, marginBottom: 3, color: '#1e3a5f' }}>{L(sys, 'SÉQUENCES', 'SEQUENCES')}</div>
           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
             <thead>
               <tr>
@@ -1449,7 +1503,7 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
             </tbody>
           </table>
           <div style={{ marginTop: 4 }}>
-            <strong>RANG :</strong> {rank?.rankD || '—'} / {stats?.total ?? '—'}
+            <strong>{L(sys, 'RANG', 'RANK')} :</strong> {rank?.rankD || '—'} / {stats?.total ?? '—'}
           </div>
         </div>
       </div>
@@ -1459,7 +1513,7 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
         <thead>
           <tr style={{ background: '#1e3a5f', color: 'white' }}>
             <th style={{ border: '1px solid #9ca3af', padding: '3px 4px', textAlign: 'left', width: '22%' }}>
-              DISCIPLINES /<br />COMPÉTENCES ÉVALUÉES
+              {isEN_a ? <>SUBJECTS /<br />ASSESSED COMPETENCIES</> : <>DISCIPLINES /<br />COMPÉTENCES ÉVALUÉES</>}
             </th>
             {isAnnuel ? (
               <>
@@ -1469,20 +1523,20 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
               </>
             ) : isTrimestre ? (
               <>
-                <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '5%' }}>Séq {period.seqs[0]}</th>
-                <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '5%' }}>Séq {period.seqs[1]}</th>
+                <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '5%' }}>{L(sys, 'Séq', 'Seq')} {period.seqs[0]}</th>
+                <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '5%' }}>{L(sys, 'Séq', 'Seq')} {period.seqs[1]}</th>
               </>
             ) : (
-              <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '5%' }}>Note</th>
+              <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '5%' }}>{L(sys, 'Note', 'Mark')}</th>
             )}
-            <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '4%' }}>Coef</th>
-            <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '5%' }}>{isAnnuel ? 'Moy.Ann' : 'Moy'}</th>
+            <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '4%' }}>{L(sys, 'Coef', 'Coef')}</th>
+            <th style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', width: '5%' }}>{isAnnuel ? L(sys, 'Moy.Ann', 'Ann.Avg') : L(sys, 'Moy', 'Avg')}</th>
             <th style={{ border: '1px solid #9ca3af', padding: '3px 4px', textAlign: 'left', width: '18%' }}>
-              NOTES DES<br />ENS. / TUTEURS
+              {isEN_a ? <>TEACHERS /<br />TUTORS' REMARKS</> : <>NOTES DES<br />ENS. / TUTEURS</>}
             </th>
-            {APC_LEVELS.map((lv) => (
-              <th key={lv} style={{ border: '1px solid #9ca3af', padding: '2px 1px', textAlign: 'center', fontSize: '0.85em', width: '6%', lineHeight: 1.2 }}>
-                {lv}
+            {APC_MODERNE_LEVEL_KEYS.map((lvKey) => (
+              <th key={lvKey} style={{ border: '1px solid #9ca3af', padding: '2px 1px', textAlign: 'center', fontSize: '0.85em', width: '6%', lineHeight: 1.2 }}>
+                {(isEN_a ? APC_MODERNE_LABELS_EN : APC_MODERNE_LABELS_FR)[lvKey]}
               </th>
             ))}
           </tr>
@@ -1490,7 +1544,7 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
         <tbody>
           {subjects.map((sub, i) => {
             const grade    = subjectGrades[sub.id];
-            const level    = apcModerneLevel(grade, sub.max);
+            const levelKey = apcModerneLevelKey(grade, sub.max);
             const s1       = isTrimestre ? getSeqGrade(sub.id, period.seqs[0]) : grade;
             const s2       = isTrimestre ? getSeqGrade(sub.id, period.seqs[1]) : null;
             const at1      = isAnnuel ? termAvgA(sub.id, termSeqsA[0]) : null;
@@ -1540,10 +1594,10 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
                   {grade !== null ? grade : '—'}
                 </td>
                 <td style={{ border: '1px solid #d1d5db', padding: '3px 4px', color: '#374151' }}></td>
-                {APC_LEVELS.map((lv) => (
-                  <td key={lv} style={{ border: '1px solid #d1d5db', padding: '3px 1px', textAlign: 'center' }}>
-                    {level === lv && (
-                      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: APC_LEVEL_COLORS[lv] }} />
+                {APC_MODERNE_LEVEL_KEYS.map((lvKey) => (
+                  <td key={lvKey} style={{ border: '1px solid #d1d5db', padding: '3px 1px', textAlign: 'center' }}>
+                    {levelKey === lvKey && (
+                      <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: APC_LEVEL_COLOR_BY_KEY[lvKey] }} />
                     )}
                   </td>
                 ))}
@@ -1554,7 +1608,7 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
         <tfoot>
           <tr style={{ background: '#e0e7ef', fontWeight: 700 }}>
             <td colSpan={isAnnuel ? 4 : isTrimestre ? 3 : 2} style={{ border: '1px solid #9ca3af', padding: '3px 4px', color: '#1e3a5f' }}>
-              TOTAL DES COEFFICIENTS : {subjects.reduce((s, x) => s + (x.coef || 0), 0)}
+              {L(sys, 'TOTAL DES COEFFICIENTS', 'TOTAL COEFFICIENTS')} : {subjects.reduce((s, x) => s + (x.coef || 0), 0)}
             </td>
             <td style={{ border: '1px solid #9ca3af', padding: '3px 2px', textAlign: 'center', color: '#1e3a5f' }}>
               {subjects.reduce((s, x) => s + (x.coef || 0), 0)}
@@ -1649,7 +1703,13 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
 }
 
 // ── Dispatcher selon le cycle et le format ────────────────────────────────────
-function BulletinRenderer({ format, gradeMap, classId, cycle, period, ...props }) {
+function BulletinRenderer({ format, gradeMap, classId, cycle, period, countryCode, annualDecision, ...props }) {
+  // Guinea Ecuatorial : boletín oficial espagnol pour TOUS les cycles.
+  // (Pas de BulletinMaternelle FR ni de BulletinPrimaire FR pour ce profil.)
+  if (countryCode === 'guinea_eq') {
+    const BoletinComp = format === 'boletin_detalle' ? BoletinGEDetalle : BoletinGE;
+    return <BoletinComp {...props} period={period} gradeMap={gradeMap} classId={classId} annualDecision={annualDecision} />;
+  }
   if (cycle === 'maternelle') {
     return <BulletinMaternelle {...props} gradeMap={gradeMap} classId={classId} />;
   }
@@ -1657,12 +1717,71 @@ function BulletinRenderer({ format, gradeMap, classId, cycle, period, ...props }
     return <BulletinPrimaire {...props} gradeMap={gradeMap} classId={classId} />;
   }
   if (cycle === 'secondaire' && period.value === 'annuel' && format !== 'modern' && format !== 'apc' && format !== 'apc_moderne') {
-    return <BulletinAnnuelSecondaire {...props} gradeMap={gradeMap} classId={classId} />;
+    return <BulletinAnnuelSecondaire {...props} gradeMap={gradeMap} classId={classId} annualDecision={annualDecision} />;
   }
   if (format === 'modern')      return <BulletinModern     {...props} period={period} gradeMap={gradeMap} classId={classId} />;
   if (format === 'apc')         return <BulletinAPC        {...props} period={period} gradeMap={gradeMap} classId={classId} />;
   if (format === 'apc_moderne') return <BulletinAPCModerne {...props} period={period} gradeMap={gradeMap} classId={classId} />;
   return <BulletinClassic {...props} period={period} gradeMap={gradeMap} classId={classId} />;
+}
+
+// ── Sélecteur de décision annuelle ────────────────────────────────────────────
+// Persiste sous gradeMap[<class>_<student>_<lastSeq>]['__decision__'].
+// Visible uniquement pour les bulletins annuels (Admin only).
+function AnnualDecisionPicker({ classId, studentId, lastSeq, current, countryCode }) {
+  const saveGrade = useSchoolStore((s) => s.saveGrade);
+  const t = useT();
+
+  // Décisions par pays — affichées dans la langue du système.
+  const DECISIONS = {
+    cameroon_fr: [
+      { value: 'admis',      label: 'Admis(e) en classe supérieure' },
+      { value: 'redouble',   label: 'Autorisé(e) à redoubler' },
+      { value: 'renvoye',    label: 'Exclu(e) de l\'établissement' },
+      { value: 'rattrapage', label: 'Examen de rattrapage' },
+    ],
+    cameroon_en: [
+      { value: 'admis',      label: 'Promoted to next class' },
+      { value: 'redouble',   label: 'Allowed to repeat the class' },
+      { value: 'renvoye',    label: 'Dismissed from the school' },
+      { value: 'rattrapage', label: 'Resit examination required' },
+    ],
+    guinea_eq: [
+      { value: 'admis',      label: 'Aprobado — pasa al curso siguiente' },
+      { value: 'redouble',   label: 'Repite el curso' },
+      { value: 'renvoye',    label: 'Expulsado del centro' },
+      { value: 'rattrapage', label: 'Examen de recuperación' },
+    ],
+  };
+  const options = DECISIONS[countryCode] || DECISIONS.cameroon_fr;
+
+  const handleChange = async (e) => {
+    const val = e.target.value;
+    await saveGrade(classId, studentId, lastSeq, { __decision__: val });
+  };
+
+  return (
+    <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 no-print">
+      <label className="text-xs font-semibold text-amber-900 uppercase tracking-wider block mb-1.5">
+        {countryCode === 'guinea_eq'
+          ? 'Decisión del Consejo de Curso (anual)'
+          : t('Décision du conseil de classe (annuel)', 'End-of-year council decision')}
+      </label>
+      <select
+        className="form-input bg-white"
+        value={current || ''}
+        onChange={handleChange}
+      >
+        <option value="">
+          {countryCode === 'guinea_eq' ? '— Automática según media —'
+            : t('— Automatique d\'après la moyenne —', '— Auto from average —')}
+        </option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 // ── Page principale ───────────────────────────────────────────────────────────
@@ -1692,7 +1811,7 @@ function WatermarkWrap({ active, children }) {
 
 export default function Bulletins() {
   const t = useT();
-  const { f } = usePlan();
+  const { plan, f } = usePlan();
 
   const PERIODS = [
     { value: 'seq_1',  label: t('Séquence 1',  'Sequence 1'),  short: 'Séq 1', seqs: [1] },
@@ -1732,6 +1851,12 @@ export default function Bulletins() {
     { key: 'apc',         label: 'APC',                          icon: '🎯' },
     { key: 'apc_moderne', label: t('APC Moderne', 'APC Modern'), icon: '🏫' },
   ];
+
+  // Guinea Ecuatorial : deux modelos oficiales (sin terminología camerunesa).
+  const GE_FORMATS = [
+    { key: 'boletin',         label: 'Clásico',   icon: '📄' },
+    { key: 'boletin_detalle', label: 'Detallado', icon: '🗂️' },
+  ];
   const canPrint        = role !== 'teacher' || (myTeacher?.can_print_bulletin ?? true);
 
   const classId   = useUiStore((s) => s.bulletinsClassId);
@@ -1743,16 +1868,42 @@ export default function Bulletins() {
   const format    = useUiStore((s) => s.bulletinsFormat);
   const setFormat    = useUiStore((s) => s.setBulletinsFormat);
 
-  const [printAll,      setPrintAll]      = useState(false);
-  const [sidebarSearch, setSidebarSearch] = useState('');
+  const [printAll,        setPrintAll]        = useState(false);
+  const [sidebarSearch,   setSidebarSearch]   = useState('');
+  const [screenshotBlur,  setScreenshotBlur]  = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [printCount,      setPrintCount]      = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    try {
+      const info = JSON.parse(localStorage.getItem('nc_print_daily') || '{}');
+      const today = new Date().toISOString().split('T')[0];
+      return info.date === today ? (info.count || 0) : 0;
+    } catch { return 0; }
+  });
 
   const selectedClass = classes.find((c) => c.id === classId) || null;
   const cycle         = selectedClass?.cycle || 'secondaire';
   const sys           = selectedClass?.system || 'FR';
+  // Options de notation GE (échelle /10 ou /20, coef primaire) — {} hors GE.
+  const gOpts         = gradingOpts(school, cycle);
 
-  const periodsForClass = cycle !== 'secondaire'
-    ? PERIODS_PRIMAIRE
-    : sys === 'EN' ? PERIODS_EN : PERIODS;
+  // Périodes Guinea Ecuatorial — 3 trimestres en espagnol + anual.
+  const PERIODS_GE = [
+    { value: 'trim_1', label: 'Primer Trimestre',  short: '1T',   seqs: [1] },
+    { value: 'trim_2', label: 'Segundo Trimestre', short: '2T',   seqs: [2] },
+    { value: 'trim_3', label: 'Tercer Trimestre',  short: '3T',   seqs: [3] },
+    { value: 'anual',  label: 'Anual',              short: 'Anu.', seqs: [1, 2, 3] },
+  ];
+
+  // Résolution du pays — pilote la liste des périodes au-delà de FR/EN.
+  const schoolCountryCode = resolveCountryCode(school);
+
+  const periodsForClass =
+    schoolCountryCode === 'guinea_eq'
+      ? PERIODS_GE
+      : cycle !== 'secondaire'
+        ? PERIODS_PRIMAIRE
+        : sys === 'EN' ? PERIODS_EN : PERIODS;
   const period = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0];
 
   const classSubjects = useMemo(() =>
@@ -1776,22 +1927,23 @@ export default function Bulletins() {
     const cls = classes.find((c) => c.id === classId);
     const newCycle = cls?.cycle || 'secondaire';
     const newSys   = cls?.system || 'FR';
-    if (newCycle !== 'secondaire') setPeriodKey('tri_1');
-    else if (newSys === 'EN')      setPeriodKey('term_1');
-    else                           setPeriodKey('seq_1');
+    if (schoolCountryCode === 'guinea_eq') setPeriodKey('trim_1');
+    else if (newCycle !== 'secondaire')    setPeriodKey('tri_1');
+    else if (newSys === 'EN')              setPeriodKey('term_1');
+    else                                   setPeriodKey('seq_1');
   }, [classId, classes]);
 
   const ranks = useMemo(() => {
     if (cycle === 'maternelle' || !classStudents.length || !classSubjects.length) return [];
-    return buildRanks(classStudents, gradeMap, classId, period.seqs, classSubjects, sys);
-  }, [cycle, classStudents, classSubjects, gradeMap, classId, period.seqs, sys]);
+    return buildRanks(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
+  }, [cycle, classStudents, classSubjects, gradeMap, classId, period.seqs, sys, gOpts.maxScale, gOpts.useCoef]);
 
   const stats = useMemo(() => {
     if (cycle === 'maternelle' || !classStudents.length || !classSubjects.length) return null;
-    return clsStat(classStudents, gradeMap, classId, period.seqs, classSubjects, sys);
-  }, [cycle, classStudents, classSubjects, gradeMap, classId, period.seqs, sys]);
+    return clsStat(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
+  }, [cycle, classStudents, classSubjects, gradeMap, classId, period.seqs, sys, gOpts.maxScale, gOpts.useCoef]);
 
-  const passThreshold = sys === 'FR' ? 10 : 50;
+  const passThreshold = sys === 'ES' ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
 
   const admisCount = useMemo(() => {
     if (cycle === 'maternelle' || !classStudents.length || !classSubjects.length) return null;
@@ -1802,10 +1954,10 @@ export default function Bulletins() {
       });
       const scores = {};
       Object.entries(subjectGrades).forEach(([id, g]) => { if (g !== null) scores[id] = String(g); });
-      const avg = getAvg(scores, classSubjects, sys);
+      const avg = getAvg(scores, classSubjects, sys, gOpts);
       return avg !== null && avg >= passThreshold;
     }).length;
-  }, [classStudents, classSubjects, classId, period.seqs, gradeMap, sys, cycle, passThreshold]);
+  }, [classStudents, classSubjects, classId, period.seqs, gradeMap, sys, cycle, passThreshold, gOpts.maxScale, gOpts.useCoef]);
 
   const bulletinDataFor = useCallback((student) => {
     const thisCycle = classes.find((c) => c.id === classId)?.cycle || 'secondaire';
@@ -1820,10 +1972,10 @@ export default function Bulletins() {
     });
     const scores = {};
     Object.entries(subjectGrades).forEach(([id, g]) => { if (g !== null) scores[id] = String(g); });
-    const avg  = getAvg(scores, classSubjects, sys);
+    const avg  = getAvg(scores, classSubjects, sys, gOpts);
     const rank = ranks.find((r) => r.id === student.id) || null;
     return { subjectGrades, studentAvg: avg, rank };
-  }, [classSubjects, classId, period.seqs, gradeMap, sys, ranks, classes]);
+  }, [classSubjects, classId, period.seqs, gradeMap, sys, ranks, classes, gOpts.maxScale, gOpts.useCoef]);
 
   useEffect(() => {
     if (!printAll) return;
@@ -1831,15 +1983,59 @@ export default function Bulletins() {
     return () => clearTimeout(timer);
   }, [printAll]);
 
+  // Protection capture d'écran : blur sur keydown, retire après 3s
+  useEffect(() => {
+    const onDown = (e) => { if (e.key === 'PrintScreen') setScreenshotBlur(true); };
+    const onUp   = (e) => { if (e.key === 'PrintScreen') setTimeout(() => setScreenshotBlur(false), 3000); };
+    document.addEventListener('keydown', onDown);
+    document.addEventListener('keyup',   onUp);
+    return () => {
+      document.removeEventListener('keydown', onDown);
+      document.removeEventListener('keyup',   onUp);
+    };
+  }, []);
+
+  const printRemaining = plan === 'starter'
+    ? Math.max(0, STARTER_DAILY_PRINT_LIMIT - printCount)
+    : Infinity;
+
+  const handlePrintSingle = () => {
+    if (plan === 'starter') {
+      if (printRemaining <= 0) { setShowUpgradeModal(true); return; }
+      incrementDailyPrint();
+      setPrintCount((c) => c + 1);
+    }
+    window.print();
+  };
+
+  const handlePrintAll = () => {
+    if (plan === 'starter') { setShowUpgradeModal(true); return; }
+    setPrintAll(true);
+  };
+
   const handleChangeFormat = (key) => {
     setFormat(key);
   };
 
   const hasData = classSubjects.length > 0 && classStudents.length > 0;
 
+  const countryCode = resolveCountryCode(school);
+
+  // Décision annuelle — lue depuis le dernier slot de séquence (champ __decision__).
+  // Stocke via Grades.jsx (champs spéciaux conseil de classe) ou via le sélecteur ci-dessous.
+  const annualDecisionFor = (sid) => {
+    const lastSeq = period?.seqs?.[period.seqs.length - 1];
+    if (!lastSeq) return null;
+    const slot = gradeMap?.[`${classId}_${sid}_${lastSeq}`] || {};
+    return slot['__decision__'] || null;
+  };
+
   const commonProps = {
     school, cls: selectedClass, subjects: classSubjects,
     stats, sys, teachers, gradeMap, classId, cycle, classStudents,
+    countryCode,
+    maxScale: geGradeMax(school),
+    useCoef: gOpts.useCoef ?? true,
   };
 
   return (
@@ -1855,16 +2051,22 @@ export default function Bulletins() {
             <div className="flex items-center gap-2">
               {canPrint ? (
                 <>
-                  <button onClick={() => setPrintAll(true)} className="btn-secondary">
+                  <button onClick={handlePrintAll} className="btn-secondary">
                     {t('Imprimer la classe', 'Print all')} ({classStudents.length})
+                    {plan === 'starter' && (
+                      <span className="ml-1 text-xs text-amber-500">🔒</span>
+                    )}
                   </button>
                   {selectedStudent && (
                     <button
-                      onClick={() => window.print()}
+                      onClick={handlePrintSingle}
                       className="btn-primary no-print"
                       style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}
                     >
                       {t('Imprimer ce bulletin', 'Print this report card')}
+                      {plan === 'starter' && printRemaining < Infinity && (
+                        <span className="ml-2 text-xs opacity-75">({printRemaining} {t('restant', 'left')})</span>
+                      )}
                     </button>
                   )}
                 </>
@@ -1878,8 +2080,8 @@ export default function Bulletins() {
           )}
         </div>
 
-        {/* Sélecteur de format */}
-        {cycle === 'secondaire' && (
+        {/* Sélecteur de format — masqué pour Guinea Ecuatorial (un seul format officiel) */}
+        {cycle === 'secondaire' && schoolCountryCode !== 'guinea_eq' && (
           <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
             <span className="text-sm font-medium text-gray-500">{t('Format :', 'Format:')}</span>
             <div className="flex rounded-lg border border-gray-200 overflow-hidden">
@@ -1910,6 +2112,34 @@ export default function Bulletins() {
           </div>
         )}
 
+        {/* Guinea Ecuatorial — elección entre dos modelos oficiales de boletín */}
+        {schoolCountryCode === 'guinea_eq' && cycle !== 'maternelle' && (
+          <div className="mb-4 no-print">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm font-medium text-gray-500">Modelo de boletín :</span>
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                {GE_FORMATS.map(({ key, label, icon }) => {
+                  const active = (format === 'boletin_detalle' ? 'boletin_detalle' : 'boletin') === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => handleChangeFormat(key)}
+                      className={`px-4 py-2 text-sm font-medium transition-colors ${
+                        active ? 'bg-emerald-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {icon} {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5 inline-flex items-center gap-1">
+              📋 Boletín oficial — Ministerio de Educación de Guinea Ecuatorial
+            </p>
+          </div>
+        )}
+
         {/* Sélecteurs classe + période */}
         <div className="flex flex-wrap gap-4 mb-5 no-print">
           <div className="flex-1 min-w-[180px] max-w-xs">
@@ -1924,12 +2154,24 @@ export default function Bulletins() {
             </select>
           </div>
 
-          {/* Période — cachée pour maternelle (bulletin toujours annuel) */}
-          {classId && cycle !== 'maternelle' && (
+          {/* Période — cachée pour maternelle camerounaise (bulletin toujours annuel).
+              Guinea Ecuatorial : afficher même pour preescolar (3 trimestres officiels). */}
+          {classId && (cycle !== 'maternelle' || schoolCountryCode === 'guinea_eq') && (
             <div className="flex-1 min-w-[180px] max-w-xs">
               <label className="form-label">{t('Période', 'Period')}</label>
               <select className="form-input" value={periodKey} onChange={(e) => setPeriodKey(e.target.value)}>
-                {cycle === 'secondaire' && sys === 'EN' ? (
+                {schoolCountryCode === 'guinea_eq' ? (
+                  <>
+                    <optgroup label="Trimestres">
+                      {PERIODS_GE.filter((p) => p.value !== 'anual').map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Resumen">
+                      <option value="anual">Anual (1T + 2T + 3T)</option>
+                    </optgroup>
+                  </>
+                ) : cycle === 'secondaire' && sys === 'EN' ? (
                   <>
                     <optgroup label="Terms">
                       {PERIODS_EN.filter((p) => p.value !== 'annuel').map((p) => (
@@ -1965,7 +2207,7 @@ export default function Bulletins() {
             </div>
           )}
 
-          {cycle === 'maternelle' && classId && (
+          {cycle === 'maternelle' && classId && schoolCountryCode !== 'guinea_eq' && (
             <div className="flex items-end">
               <span className="px-3 py-2 rounded-lg text-xs font-semibold bg-rose-100 text-rose-700">
                 {t('Maternelle — bulletin compétences annuel', 'Pre-Primary — annual competency report')}
@@ -2065,20 +2307,33 @@ export default function Bulletins() {
             </div>
 
             {/* Zone bulletin */}
-            <div className="bulletin-panel">
+            <div className={`bulletin-panel${screenshotBlur ? ' bulletin-screenshot-blur' : ''}`}>
+              {/* Décision annuelle — admin only, période annuelle uniquement */}
+              {role !== 'teacher' && selectedStudent && period?.seqs?.length >= 3 && (
+                <AnnualDecisionPicker
+                  classId={classId}
+                  studentId={selectedStudent.id}
+                  lastSeq={period.seqs[period.seqs.length - 1]}
+                  current={annualDecisionFor(selectedStudent.id)}
+                  countryCode={countryCode}
+                />
+              )}
               {!printAll && selectedStudent && (() => {
                 const data = bulletinDataFor(selectedStudent);
                 return (
                   <WatermarkWrap active={f.watermark}>
-                    <BulletinRenderer
-                      format={format}
-                      period={period}
-                      {...commonProps}
-                      student={selectedStudent}
-                      subjectGrades={data.subjectGrades}
-                      studentAvg={data.studentAvg}
-                      rank={data.rank}
-                    />
+                    <BulletinTheme school={school}>
+                      <BulletinRenderer
+                        format={format}
+                        period={period}
+                        {...commonProps}
+                        student={selectedStudent}
+                        subjectGrades={data.subjectGrades}
+                        studentAvg={data.studentAvg}
+                        rank={data.rank}
+                        annualDecision={annualDecisionFor(selectedStudent.id)}
+                      />
+                    </BulletinTheme>
                   </WatermarkWrap>
                 );
               })()}
@@ -2094,15 +2349,18 @@ export default function Bulletins() {
                 const data = bulletinDataFor(student);
                 return (
                   <WatermarkWrap key={student.id} active={f.watermark}>
-                    <BulletinRenderer
-                      format={format}
-                      period={period}
-                      {...commonProps}
-                      student={student}
-                      subjectGrades={data.subjectGrades}
-                      studentAvg={data.studentAvg}
-                      rank={data.rank}
-                    />
+                    <BulletinTheme school={school}>
+                      <BulletinRenderer
+                        format={format}
+                        period={period}
+                        {...commonProps}
+                        student={student}
+                        subjectGrades={data.subjectGrades}
+                        studentAvg={data.studentAvg}
+                        rank={data.rank}
+                        annualDecision={annualDecisionFor(student.id)}
+                      />
+                    </BulletinTheme>
                   </WatermarkWrap>
                 );
               })}
@@ -2110,6 +2368,69 @@ export default function Bulletins() {
           </div>
         )}
       </div>
+
+      {/* Modal mise à niveau plan Starter */}
+      {showUpgradeModal && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 no-print"
+          style={{ background: 'rgba(0,0,0,0.55)' }}
+          onClick={() => setShowUpgradeModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl p-7 max-w-sm w-full mx-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center">
+              <div className="text-5xl mb-3">🔒</div>
+              <h2 className="text-xl font-bold text-gray-900 mb-1">
+                {t('Limite atteinte', 'Limit reached')}
+              </h2>
+              <p className="text-gray-500 text-sm mb-2">
+                {t(
+                  `Le plan Starter permet d'imprimer ${STARTER_DAILY_PRINT_LIMIT} bulletins par jour. Passez au plan École pour une impression illimitée.`,
+                  `The Starter plan allows printing ${STARTER_DAILY_PRINT_LIMIT} report cards per day. Upgrade to the School plan for unlimited printing.`
+                )}
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-4 text-xs text-amber-700">
+                {t('Plan actuel : Starter (Gratuit)', 'Current plan: Starter (Free)')}
+                {' → '}
+                <strong>{t('Plan École : 8 500 FCFA/mois', 'School plan: 8,500 FCFA/month')}</strong>
+              </div>
+              <div className="flex gap-3 justify-center">
+                <button
+                  onClick={() => setShowUpgradeModal(false)}
+                  className="px-4 py-2 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50"
+                >
+                  {t('Fermer', 'Close')}
+                </button>
+                <a
+                  href="/app/settings"
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-white"
+                  style={{ background: '#4f46e5' }}
+                >
+                  {t('Mettre à niveau', 'Upgrade')}
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Overlay protection capture d'écran */}
+      {screenshotBlur && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center no-print"
+          style={{ background: 'rgba(0,0,0,0.92)', color: 'white', userSelect: 'none' }}
+        >
+          <div style={{ fontSize: '3rem', marginBottom: '0.75rem' }}>🚫</div>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 700, marginBottom: '0.4rem' }}>
+            {t('Capture d\'écran bloquée', 'Screenshot blocked')}
+          </h2>
+          <p style={{ color: '#9ca3af', fontSize: '0.9rem' }}>
+            {t('Les bulletins scolaires sont protégés.', 'Report cards are protected.')}
+          </p>
+        </div>
+      )}
     </Layout>
   );
 }

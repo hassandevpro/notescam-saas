@@ -6,6 +6,8 @@ import { getAvg } from '../core/bulletinEngine';
 import { downloadCSV, parseGradesCSV } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
+import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../lib/lockService';
+import { useCountry, gradingOpts, geGradeMax } from '../lib/useCountry';
 
 const TERMS_EN = [
   { value: 1, label: 'Term 1' },
@@ -32,7 +34,11 @@ function gradeColor(val, max, sys) {
   if (!val || val === '') return 'text-gray-300';
   if (val === 'ABS') return 'text-gray-400 italic';
   const n = parseFloat(val);
-  const pass = sys === 'FR' ? (10 / 20) * max : 50;
+  // Seuil de réussite : ES = 5/10, FR = 10/20, EN = 50/100.
+  const pass =
+    sys === 'ES' ? (5 / 10) * max
+    : sys === 'FR' ? (10 / 20) * max
+    : 50;
   return n >= pass ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold';
 }
 
@@ -256,7 +262,10 @@ function SubjectTabs({ subjects, activeId, onSelect, gradeMap, classId, sequence
 function SubjectStatsBar({ students, subject, gradeMap, classId, sequence, sys }) {
   const t = useT();
   if (!subject || !students.length) return null;
-  const pass = sys === 'FR' ? (10 / 20) * subject.max : 50;
+  const pass =
+    sys === 'ES' ? (5 / 10) * subject.max
+    : sys === 'FR' ? (10 / 20) * subject.max
+    : 50;
 
   const vals = students
     .map((s) => {
@@ -564,6 +573,8 @@ export default function Grades() {
   const school         = useAuthStore((s) => s.school);
   const schoolLanguage = school?.language || 'francophone';
   const isTeacher = role === 'teacher';
+  const country   = useCountry();
+  const isGE      = country.code === 'guinea_eq';
 
   const SEQUENCES = [
     { value: 1, label: t('Séquence 1', 'Sequence 1'), term: t('Trimestre 1', 'Quarter 1') },
@@ -572,6 +583,13 @@ export default function Grades() {
     { value: 4, label: t('Séquence 4', 'Sequence 4'), term: t('Trimestre 2', 'Quarter 2') },
     { value: 5, label: t('Séquence 5', 'Sequence 5'), term: t('Trimestre 3', 'Quarter 3') },
     { value: 6, label: t('Séquence 6', 'Sequence 6'), term: t('Trimestre 3', 'Quarter 3') },
+  ];
+
+  // Guinea Ecuatorial : 3 trimestres officiels en espagnol.
+  const TRIMESTRES_GE = [
+    { value: 1, label: 'Primer Trimestre' },
+    { value: 2, label: 'Segundo Trimestre' },
+    { value: 3, label: 'Tercer Trimestre' },
   ];
 
   const TRIMESTRES = [
@@ -604,8 +622,16 @@ export default function Grades() {
   const isMaternelle  = cycle === 'maternelle';
   const isPrimaire    = cycle === 'primaire';
   const sys           = selectedClass?.system || 'FR';
+  // Options de notation GE (échelle /10 ou /20, coef primaire) — {} hors GE.
+  const gOpts         = gradingOpts(school, cycle);
+  const geMax         = geGradeMax(school);
   const isEN          = sys === 'EN';
-  const periods       = isMaternelle || isPrimaire ? TRIMESTRES : isEN ? TERMS_EN : SEQUENCES;
+  // Pour les écoles Guinea Ecuatorial : 3 trimestres en espagnol, quel que soit le cycle.
+  const periods = isGE
+    ? TRIMESTRES_GE
+    : (isMaternelle || isPrimaire) ? TRIMESTRES
+    : isEN ? TERMS_EN
+    : SEQUENCES;
 
   const classSubjects = useMemo(() =>
     subjects.filter((s) => s.class_id === classId).sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name)),
@@ -634,9 +660,43 @@ export default function Grades() {
 
   const currentSubject = classSubjects.find((s) => s.id === subjectId) || null;
 
-  const filteredStudents = studentSearch.trim()
-    ? classStudents.filter((s) => s.name.toLowerCase().includes(studentSearch.toLowerCase().trim()))
-    : classStudents;
+  // Verrou de séquence — validation des notes par l'admin. Quand le verrou
+  // est posé, la saisie devient impossible (admin doit déverrouiller d'abord).
+  const schoolId = school?.id;
+  const [, _setLockTick] = useState(0); // pour forcer un rerender après toggle
+  const locked = classId && schoolId
+    ? isSequenceLocked(schoolId, classId, sequence)
+    : false;
+  const lockInfo = classId && schoolId
+    ? getLockInfo(schoolId, 'seq', classId, sequence)
+    : null;
+  const toggleLock = async () => {
+    if (!schoolId || !classId) return;
+    if (locked) {
+      if (!window.confirm(t('Déverrouiller la saisie de cette séquence ?', 'Unlock entry for this sequence?', '¿Desbloquear la captura?'))) return;
+      await unlockSequence(schoolId, classId, sequence);
+    } else {
+      if (!window.confirm(t('Valider et verrouiller les notes ? Aucune modification ne sera possible ensuite (sauf déverrouillage admin).', 'Validate and lock the grades? No further edits allowed (admin can unlock).', '¿Validar y bloquear las notas?'))) return;
+      await lockSequence(schoolId, classId, sequence, useAuthStore.getState().fullName);
+    }
+    _setLockTick((n) => n + 1);
+  };
+
+  // Recherche instantanée : nom complet, prénom isolé, matricule.
+  // Insensible à la casse et aux accents.
+  const filteredStudents = useMemo(() => {
+    const q = studentSearch.trim().toLowerCase();
+    if (!q) return classStudents;
+    const norm = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const qn = norm(q);
+    return classStudents.filter((s) => {
+      const name = norm(s.name);
+      const mat  = norm(s.matricule);
+      // Matching mot par mot pour gérer prénom + nom dans n'importe quel ordre
+      const words = qn.split(/\s+/).filter(Boolean);
+      return words.every((w) => name.includes(w) || mat.includes(w));
+    });
+  }, [classStudents, studentSearch]);
 
   const totalGradePages = Math.max(1, Math.ceil(filteredStudents.length / GRADE_PAGE_SIZE));
   const pagedStudents   = filteredStudents.slice(
@@ -645,12 +705,14 @@ export default function Grades() {
   );
 
   const handleSave = useCallback(async (studentId, fieldId, value) => {
+    if (locked) return; // sécurité réseau : la séquence est verrouillée
     await saveGrade(classId, studentId, sequence, { [fieldId]: value });
-  }, [classId, sequence, saveGrade]);
+  }, [classId, sequence, saveGrade, locked]);
 
   const handleSaveMultiple = useCallback(async (studentId, fields) => {
+    if (locked) return;
     await saveGrade(classId, studentId, sequence, fields);
-  }, [classId, sequence, saveGrade]);
+  }, [classId, sequence, saveGrade, locked]);
 
   const getScores = (studentId) => gradeMap[`${classId}_${studentId}_${sequence}`] || {};
 
@@ -680,7 +742,7 @@ export default function Grades() {
       header,
       ...classStudents.map((student) => {
         const scores = getScores(student.id);
-        const avg    = getAvg(scores, classSubjects, sys);
+        const avg    = getAvg(scores, classSubjects, sys, gOpts);
         return [student.name, ...classSubjects.map((sub) => scores[sub.id] ?? ''), avg != null ? avg.toFixed(2) : ''];
       }),
     ];
@@ -689,7 +751,11 @@ export default function Grades() {
 
   const selectSubject = (id) => { setSubjectId(id); setStudentSearch(''); setGradePage(1); };
 
-  const periodLabel = isMaternelle || isPrimaire ? t('Trimestre', 'Quarter') : isEN ? 'Term' : t('Séquence', 'Sequence');
+  const periodLabel =
+    isGE                              ? t('Trimestre', 'Quarter') /* auto-traduit ES */
+    : (isMaternelle || isPrimaire)    ? t('Trimestre', 'Quarter')
+    : isEN                            ? 'Term'
+                                      : t('Séquence', 'Sequence');
 
   return (
     <Layout>
@@ -709,8 +775,12 @@ export default function Grades() {
                     <span className="text-gray-300">·</span>
                     <span className="text-sm text-gray-500">{classSubjects.length} {classSubjects.length !== 1 ? t('matières', 'subjects') : t('matière', 'subject')}</span>
                     <span className="text-gray-300">·</span>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded ${sys === 'EN' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                      {sys === 'FR' ? 'FR /20' : 'EN /100'}
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                      sys === 'EN' ? 'bg-blue-100 text-blue-700'
+                      : sys === 'ES' ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-purple-100 text-purple-700'
+                    }`}>
+                      {sys === 'FR' ? 'FR /20' : sys === 'EN' ? 'EN /100' : `ES /${geMax}`}
                     </span>
                     {isMaternelle && <span className="text-xs font-semibold px-2 py-0.5 rounded bg-rose-100 text-rose-700">{t('Maternelle', 'Nursery')}</span>}
                     {isPrimaire   && <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">{t('Primaire', 'Primary')}</span>}
@@ -774,7 +844,7 @@ export default function Grades() {
                   <option value="">{t('Choisir une classe…', 'Choose a class…')}</option>
                   {classes.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}{schoolLanguage === 'bilingue' ? ` [${c.system === 'EN' ? 'EN /100' : 'FR /20'}]` : ''}
+                      {c.name}{schoolLanguage === 'bilingue' && !isGE ? ` [${c.system === 'EN' ? 'EN /100' : 'FR /20'}]` : ''}
                     </option>
                   ))}
                 </select>
@@ -793,8 +863,12 @@ export default function Grades() {
 
               {selectedClass && (
                 <div className="flex flex-wrap items-center gap-2 pt-1 sm:items-end">
-                  <span className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold ${sys === 'EN' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                    {sys === 'FR' ? 'FR /20' : 'EN /100'}
+                  <span className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
+                    sys === 'EN' ? 'bg-blue-100 text-blue-700'
+                    : sys === 'ES' ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-purple-100 text-purple-700'
+                  }`}>
+                    {sys === 'FR' ? 'FR /20' : sys === 'EN' ? 'EN /100' : 'ES /10'}
                   </span>
                   {isMaternelle && <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-100 text-rose-700">{t('Maternelle', 'Nursery')}</span>}
                   {isPrimaire   && <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-700">{t('Primaire', 'Primary')}</span>}
@@ -841,6 +915,41 @@ export default function Grades() {
           />
         )}
 
+        {/* ── Bandeau verrouillage de séquence ──────────────────────────────── */}
+        {classId && classStudents.length > 0 && (
+          <div className={`flex items-center justify-between gap-3 mb-4 p-3 rounded-xl border ${
+            locked
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-amber-50 border-amber-200 text-amber-800'
+          }`}>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-lg">{locked ? '🔒' : '✏️'}</span>
+              <div>
+                <div className="font-semibold">
+                  {locked
+                    ? t('Notes validées — saisie verrouillée', 'Grades validated — entry locked', 'Notas validadas — captura bloqueada')
+                    : t('Notes en cours de saisie', 'Grades being entered', 'Notas en captura')}
+                </div>
+                {lockInfo?.by && (
+                  <div className="text-xs opacity-80">
+                    {t('Verrouillé par', 'Locked by', 'Bloqueado por')} {lockInfo.by} —{' '}
+                    {new Date(lockInfo.at).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            </div>
+            {!isTeacher && (
+              <button onClick={toggleLock} className={`text-sm px-3 py-1.5 rounded-lg font-semibold ${
+                locked ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-600 text-white hover:bg-amber-700'
+              }`}>
+                {locked
+                  ? t('Déverrouiller', 'Unlock', 'Desbloquear')
+                  : t('Valider et verrouiller', 'Validate & lock', 'Validar y bloquear')}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* ── Contenu principal ─────────────────────────────────────────────── */}
         {classId && classSubjects.length > 0 && classStudents.length > 0 && currentSubject && (
           <>
@@ -867,8 +976,12 @@ export default function Grades() {
               />
             )}
 
-            {/* Tableau */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            {/* Tableau — verrou physique des inputs quand séquence verrouillée */}
+            <div
+              className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+              style={locked ? { pointerEvents: 'none', opacity: 0.72 } : null}
+              aria-disabled={locked || undefined}
+            >
 
               {/* Barre de recherche */}
               {classStudents.length > 5 && (
@@ -970,7 +1083,7 @@ export default function Grades() {
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           <span className={`text-sm font-bold ${
-                            subjectClassAvg >= (sys === 'FR' ? (10 / 20) * currentSubject.max : 50)
+                            subjectClassAvg >= (sys === 'ES' ? (5 / 10) * currentSubject.max : sys === 'FR' ? (10 / 20) * currentSubject.max : 50)
                               ? 'text-emerald-600' : 'text-red-500'
                           }`}>
                             {subjectClassAvg}/{currentSubject.max}
@@ -1023,7 +1136,9 @@ export default function Grades() {
               </div>
             </div>
 
-            {!isMaternelle && (
+            {/* Conseil de classe = tableau d'honneur / blâmes (concepts camerounais).
+                Masqué pour la Guinée Équatoriale, qui n'utilise pas ce dispositif. */}
+            {!isMaternelle && !isGE && (
               <ConseillDeClasse
                 classStudents={classStudents}
                 gradeMap={gradeMap}

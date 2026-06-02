@@ -3,10 +3,16 @@ import { Link } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate } from '../lib/exportCsv';
+import { printIdCards } from '../lib/idCardService';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
-import { useT } from '../lib/i18n';
+import { useT, getLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
+import { resolveCountryCode } from '../countries';
+import { useUiStore } from '../store/uiStore';
+
+// Locale d'affichage des dates selon la langue UI courante.
+const dateLocale = () => (getLang() === 'es' ? 'es-ES' : getLang() === 'en' ? 'en-GB' : 'fr-FR');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const PAGE_SIZE  = 20;
@@ -33,6 +39,8 @@ function calcAge(dob) {
 }
 
 // ── Formulaire élève (tous champs) ───────────────────────────────────────────
+// Les libellés sont des chaînes FR canoniques qui passent par t() à l'affichage,
+// donc auto-traduites EN/ES via i18n_es.js.
 const STATUTS = [
   { value: '',           label: '—',          color: '' },
   { value: 'nouveau',    label: 'Nouveau',     color: 'bg-emerald-100 text-emerald-700' },
@@ -49,9 +57,12 @@ const EMPTY_FORM = {
 
 function StudentForm({ initial, classes, onSave, onCancel }) {
   const t = useT();
+  const uiLang = useUiStore((s) => s.uiLang);
+  // Locale du sélecteur de date natif (calendrier) : suit la langue de l'UI.
+  const dateLang = uiLang === 'es' ? 'es-ES' : uiLang === 'en' ? 'en-GB' : 'fr-FR';
   const GENDERS = [
-    { value: 'Masculin', label: t('Masculin', 'Male') },
-    { value: 'Feminin',  label: t('Féminin',  'Female') },
+    { value: 'Masculin', label: t('Masculin', 'Male', 'Masculino') },
+    { value: 'Feminin',  label: t('Féminin',  'Female', 'Femenino') },
   ];
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
   const [saving, setSaving] = useState(false);
@@ -65,16 +76,12 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-xl p-6 mb-6 shadow-sm">
-      <h3 className="text-base font-semibold text-gray-800 mb-5">
-        {initial?.id ? t("Modifier l'élève", 'Edit student') : t('Nouvel élève', 'New student')}
-      </h3>
-
+    <form onSubmit={handleSubmit} className="pb-2">
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">{t('Identité', 'Identity')}</p>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
         <div className="col-span-2 md:col-span-1">
           <label className="form-label">{t('Nom complet *', 'Full name *')}</label>
-          <input type="text" required className="form-input" placeholder="Ex : ELOUNDOU Brigitte"
+          <input type="text" required className="form-input" placeholder={t('Ex : ELOUNDOU Brigitte', 'E.g. ELOUNDOU Brigitte', 'Ej. : OBIANG NGUEMA María')}
             value={form.name} onChange={set('name')} />
         </div>
         <div>
@@ -86,7 +93,7 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
         </div>
         <div>
           <label className="form-label">{t('Matricule', 'Student ID')}</label>
-          <input type="text" className="form-input" placeholder="Ex : YDE250086"
+          <input type="text" className="form-input" placeholder={t('Ex : YDE250086', 'E.g. YDE250086', 'Ej. : ML250086')}
             value={form.matricule} onChange={set('matricule')} />
         </div>
         <div>
@@ -99,17 +106,17 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
         <div>
           <label className="form-label">{t("Statut d'inscription", 'Enrolment status')}</label>
           <select className="form-input" value={form.statut || ''} onChange={set('statut')}>
-            {STATUTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            {STATUTS.map((s) => <option key={s.value} value={s.value}>{t(s.label, s.label)}</option>)}
           </select>
         </div>
         <div>
           <label className="form-label">{t('Date de naissance', 'Date of birth')}</label>
-          <input type="date" className="form-input"
+          <input type="date" lang={dateLang} className="form-input"
             value={form.date_naissance || ''} onChange={set('date_naissance')} />
         </div>
         <div>
           <label className="form-label">{t('Lieu de naissance', 'Place of birth')}</label>
-          <input type="text" className="form-input" placeholder="Ex : Yaoundé"
+          <input type="text" className="form-input" placeholder={t('Ex : Yaoundé', 'E.g. Yaoundé', 'Ej. : Malabo')}
             value={form.lieu_naissance || ''} onChange={set('lieu_naissance')} />
         </div>
       </div>
@@ -118,17 +125,17 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <div>
           <label className="form-label">{t('Téléphone parent', 'Parent phone')}</label>
-          <input type="tel" className="form-input" placeholder="677 00 00 00"
+          <input type="tel" className="form-input" placeholder={t('677 00 00 00', '677 00 00 00', '222 00 00 00')}
             value={form.parent_phone || ''} onChange={set('parent_phone')} />
         </div>
         <div>
           <label className="form-label">{t("Contact d'urgence", 'Emergency contact')}</label>
-          <input type="tel" className="form-input" placeholder="699 00 00 00"
+          <input type="tel" className="form-input" placeholder={t('699 00 00 00', '699 00 00 00', '555 00 00 00')}
             value={form.contact_urgence || ''} onChange={set('contact_urgence')} />
         </div>
         <div>
           <label className="form-label">{t('Adresse', 'Address')}</label>
-          <input type="text" className="form-input" placeholder="Quartier, ville"
+          <input type="text" className="form-input" placeholder={t('Quartier, ville', 'Neighbourhood, city', 'Barrio, ciudad')}
             value={form.adresse || ''} onChange={set('adresse')} />
         </div>
         <div>
@@ -153,7 +160,7 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
         </div>
         <div>
           <label className="form-label">{t('Tuteur légal', 'Legal guardian')}</label>
-          <input type="text" className="form-input" placeholder={t('Si différent des parents', 'If different from parents')}
+          <input type="text" className="form-input" placeholder={t('Si différent des parents', 'If different from parents', 'Si distinto de los padres')}
             value={form.tuteur || ''} onChange={set('tuteur')} />
         </div>
       </div>
@@ -174,6 +181,9 @@ function directorLabel(school) {
   const lang = (school?.language || '').toLowerCase();
   const n    = (school?.name || '').toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  // Guinée Équatoriale : intitulé administratif espagnol.
+  if (resolveCountryCode(school) === 'guinea_eq') return 'El Director / La Directora';
 
   if (lang === 'anglophone') return 'The Principal';
 
@@ -200,26 +210,38 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
     contact: showContact = true,
   } = cols;
 
-  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
+  // Guinée Équatoriale : document entièrement en espagnol.
+  const isGE = resolveCountryCode(school) === 'guinea_eq';
+  const Lp = (fr, es) => (isGE ? es : fr);
+  const locale = isGE ? 'es-ES' : 'fr-FR';
+  const isMale   = (g) => g === 'Masculin' || g === 'Masculino';
+  const isFemale = (g) => g === 'Feminin'  || g === 'Femenino';
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString(locale) : '—';
   const className = classFilter ? classes.find((c) => c.id === classFilter)?.name : null;
-  const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const today = new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
   const colCount   = 2 + (showMatricule ? 1 : 0) + (showGenre ? 1 : 0) + (showDateNaissance ? 1 : 0) + (showLieuNaissance ? 1 : 0) + (showContact ? 1 : 0);
   const headTitle  = directorLabel(school);
+  const studentWord = (n) => Lp(`élève${n !== 1 ? 's' : ''}`, `alumno${n !== 1 ? 's' : ''}`);
+
+  // Tri alphabétique systématique des élèves dans la liste imprimée.
+  const sortByName = (arr) =>
+    [...arr].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
 
   // Grouper par classe si pas de filtre
   const groups = classFilter
-    ? [{ name: className, students }]
+    ? [{ name: className, students: sortByName(students) }]
     : (() => {
         const map = {};
         students.forEach((s) => {
           const cls = classes.find((c) => c.id === s.class_id);
-          const key = cls?.name || 'Non assigné';
+          const key = cls?.name || Lp('Non assigné', 'Sin asignar');
           if (!map[key]) map[key] = [];
           map[key].push(s);
         });
         return Object.entries(map)
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([name, sts]) => ({ name, students: sts }));
+          .map(([name, sts]) => ({ name, students: sortByName(sts) }));
       })();
 
   const tableRows = (sts) => sts.map((s, i) => `
@@ -227,7 +249,7 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
       <td class="center">${i + 1}</td>
       <td><strong>${s.name}</strong></td>
       ${showMatricule ? `<td class="center mono">${s.matricule || '—'}</td>` : ''}
-      ${showGenre ? `<td class="center">${s.gender === 'Masculin' ? 'M' : s.gender === 'Feminin' ? 'F' : '—'}</td>` : ''}
+      ${showGenre ? `<td class="center">${isMale(s.gender) ? 'M' : isFemale(s.gender) ? 'F' : '—'}</td>` : ''}
       ${showDateNaissance ? `<td class="center">${fmtDate(s.date_naissance)}</td>` : ''}
       ${showLieuNaissance ? `<td>${s.lieu_naissance || '—'}</td>` : ''}
       ${showContact ? `<td>${s.parent_phone || '—'}</td>` : ''}
@@ -238,26 +260,26 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
     <div class="class-section">
       <div class="class-header">
         <span class="class-name">${g.name}</span>
-        <span class="class-count">${g.students.length} élève${g.students.length !== 1 ? 's' : ''}</span>
+        <span class="class-count">${g.students.length} ${studentWord(g.students.length)}</span>
       </div>
       <table>
         <thead>
           <tr>
             <th class="center" style="width:36px">N°</th>
-            <th>Nom complet</th>
-            ${showMatricule ? `<th class="center" style="width:100px">Matricule</th>` : ''}
-            ${showGenre ? `<th class="center" style="width:36px">Sexe</th>` : ''}
-            ${showDateNaissance ? `<th class="center" style="width:100px">Né(e) le</th>` : ''}
-            ${showLieuNaissance ? `<th style="width:110px">Lieu naiss.</th>` : ''}
-            ${showContact ? `<th style="width:110px">Tél. parent</th>` : ''}
+            <th>${Lp('Nom complet', 'Apellidos y nombre')}</th>
+            ${showMatricule ? `<th class="center" style="width:100px">${Lp('Matricule', 'Matrícula')}</th>` : ''}
+            ${showGenre ? `<th class="center" style="width:36px">${Lp('Sexe', 'Sexo')}</th>` : ''}
+            ${showDateNaissance ? `<th class="center" style="width:100px">${Lp('Né(e) le', 'Fecha nac.')}</th>` : ''}
+            ${showLieuNaissance ? `<th style="width:110px">${Lp('Lieu naiss.', 'Lugar nac.')}</th>` : ''}
+            ${showContact ? `<th style="width:110px">${Lp('Tél. parent', 'Tel. padres')}</th>` : ''}
           </tr>
         </thead>
         <tbody>${tableRows(g.students)}</tbody>
         <tfoot>
           <tr><td colspan="${colCount}" style="text-align:right;padding:6px 8px;font-size:11px;color:#555">
-            Total : <strong>${g.students.length}</strong> élève${g.students.length !== 1 ? 's' : ''} —
-            Garçons : <strong>${g.students.filter(s => s.gender === 'Masculin').length}</strong> —
-            Filles : <strong>${g.students.filter(s => s.gender === 'Feminin').length}</strong>
+            ${Lp('Total', 'Total')} : <strong>${g.students.length}</strong> ${studentWord(g.students.length)} —
+            ${Lp('Garçons', 'Niños')} : <strong>${g.students.filter(s => isMale(s.gender)).length}</strong> —
+            ${Lp('Filles', 'Niñas')} : <strong>${g.students.filter(s => isFemale(s.gender)).length}</strong>
           </td></tr>
         </tfoot>
       </table>
@@ -265,10 +287,10 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
   `;
 
   const html = `<!DOCTYPE html>
-<html lang="fr">
+<html lang="${isGE ? 'es' : 'fr'}">
 <head>
 <meta charset="utf-8"/>
-<title>Liste des élèves — ${school?.name || 'École'}</title>
+<title>${Lp('Liste des élèves', 'Lista de alumnos')} — ${school?.name || 'École'}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #111; }
@@ -307,16 +329,16 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
 <body>
 <div class="page">
   <div class="header">
-    <div class="school">${school?.name || 'Établissement scolaire'}</div>
+    <div class="school">${school?.name || Lp('Établissement scolaire', 'Centro educativo')}</div>
     <div class="subtitle">${[school?.type, school?.region].filter(Boolean).join(' — ') || ''}</div>
-    <div class="doc-title">Liste des élèves${className ? ' — ' + className : ''}</div>
-    <div class="meta">Année scolaire : ${school?.current_year || '—'} &nbsp;·&nbsp; Imprimé le ${today}</div>
+    <div class="doc-title">${Lp('Liste des élèves', 'Lista de alumnos')}${className ? ' — ' + className : ''}</div>
+    <div class="meta">${Lp('Année scolaire', 'Año escolar')} : ${school?.current_year || '—'} &nbsp;·&nbsp; ${Lp('Imprimé le', 'Impreso el')} ${today}</div>
   </div>
 
   ${groups.map(classSection).join('')}
 
   <div class="footer">
-    <span>Total général : <strong>${students.length}</strong> élève${students.length !== 1 ? 's' : ''}</span>
+    <span>${Lp('Total général', 'Total general')} : <strong>${students.length}</strong> ${studentWord(students.length)}</span>
     <span>${school?.name || ''} — ${today}</span>
   </div>
 
@@ -327,7 +349,7 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
     </div>
     <div class="sign-box">
       <div class="sign-line"></div>
-      <div class="sign-label">Le Censeur / La Censeure</div>
+      <div class="sign-label">${Lp('Le Censeur / La Censeure', 'El Jefe de Estudios')}</div>
     </div>
   </div>
 </div>
@@ -634,7 +656,9 @@ export default function Students() {
       .filter((s) => !classFilter  || s.class_id === classFilter)
       .filter((s) => !genderFilter || (s.gender === genderFilter || (genderFilter === 'Feminin' && s.gender === 'Féminin')))
       .filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()) ||
-                                (s.matricule || '').toLowerCase().includes(search.toLowerCase()));
+                                (s.matricule || '').toLowerCase().includes(search.toLowerCase()))
+      // Tri alphabétique par défaut — la liste imprimée (PDF) est toujours en ordre alphabétique.
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
   }, [students, classFilter, genderFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
@@ -701,8 +725,7 @@ export default function Students() {
               {classFilter ? ` — ${classNameById(classFilter)}` : ` ${t('au total', 'total')}`}
             </p>
           </div>
-          {!showForm && !showImport && !editing && (
-            <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap">
               <button onClick={openImport} className="btn-secondary">{t('Importer', 'Import')}</button>
               {visible.length > 0 && (
                 <>
@@ -713,7 +736,19 @@ export default function Students() {
                         onClick={() => { setShowPrintOpts(false); printStudentList(visible, classes, school, classFilter, cols); }}
                         className="btn-secondary"
                       >
-                        {t('Imprimer / PDF', 'Print / PDF')}
+                        {t('Imprimer / PDF', 'Print / PDF', 'Imprimir / PDF')}
+                      </button>
+                      <button
+                        onClick={() => printIdCards({ students: visible, school, classNameById })}
+                        className="btn-secondary inline-flex items-center gap-1.5 !bg-indigo-50 !text-indigo-700 hover:!bg-indigo-100 border-indigo-200"
+                        title={t('Imprimer les cartes scolaires (QR Code)', 'Print ID cards (QR code)', 'Imprimir carnés (QR)')}
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="5" width="18" height="14" rx="2"/>
+                          <circle cx="9" cy="12" r="2.5"/>
+                          <path d="M14 10h4M14 14h4"/>
+                        </svg>
+                        {t('Cartes scolaires', 'ID cards', 'Carnés')}
                       </button>
                       <button
                         onClick={() => setShowPrintOpts((v) => !v)}
@@ -764,7 +799,6 @@ export default function Students() {
                 </button>
               )}
             </div>
-          )}
         </div>
 
         {/* ── Barre d'actions sélection ───────────────────────── */}
@@ -824,17 +858,25 @@ export default function Students() {
 
         {tab === 'actifs' && (
           <>
-            {/* ── Forms ─────────────────────────────────────────── */}
+            {/* ── Modals formulaires ───────────────────────────── */}
             {(showForm || editing) && (
-              <StudentForm
-                initial={editing || (classFilter ? { class_id: classFilter } : {})}
-                classes={classes}
-                onSave={handleSave}
-                onCancel={closeAll}
-              />
+              <Modal
+                title={editing ? t("Modifier l'élève", 'Edit student') : t('Nouvel élève', 'New student')}
+                onClose={closeAll}
+                size="lg"
+              >
+                <StudentForm
+                  initial={editing || (classFilter ? { class_id: classFilter } : {})}
+                  classes={classes}
+                  onSave={handleSave}
+                  onCancel={closeAll}
+                />
+              </Modal>
             )}
             {showImport && (
-              <ImportPanel classes={classes} onImport={addStudent} onCancel={closeAll} />
+              <Modal title={t('Importer des élèves', 'Import students')} onClose={closeAll} size="lg">
+                <ImportPanel classes={classes} onImport={addStudent} onCancel={closeAll} />
+              </Modal>
             )}
 
             {/* ── Filters ───────────────────────────────────────── */}
@@ -927,7 +969,7 @@ export default function Students() {
                                     {student.statut && (() => {
                                       const s = STATUTS.find((x) => x.value === student.statut);
                                       return s ? (
-                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${s.color}`}>{s.label}</span>
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${s.color}`}>{t(s.label, s.label)}</span>
                                       ) : null;
                                     })()}
                                   </div>
@@ -952,7 +994,7 @@ export default function Students() {
                               ) : '—'}
                               {student.date_naissance && (
                                 <span className="block text-xs text-gray-400">
-                                  {new Date(student.date_naissance).toLocaleDateString('fr-FR')}
+                                  {new Date(student.date_naissance).toLocaleDateString(dateLocale())}
                                 </span>
                               )}
                             </td>

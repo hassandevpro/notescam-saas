@@ -1,16 +1,26 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
-import { getAvg, frApp, enGrade, buildRanks, clsStat } from '../core/bulletinEngine';
+import { getAvg, frApp, enGrade, esGrade, buildRanks, clsStat } from '../core/bulletinEngine';
 import { downloadCSV } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
+import { resolveCountryCode } from '../countries';
+import { gradingOpts, geGradeMax } from '../lib/useCountry';
 
 const PERIODS_EN = [
   { value: 'term_1', label: 'Term 1', seqs: [1], group: 'terms' },
   { value: 'term_2', label: 'Term 2', seqs: [2], group: 'terms' },
   { value: 'term_3', label: 'Term 3', seqs: [3], group: 'terms' },
   { value: 'annual', label: 'Annual', seqs: [1, 2, 3], group: 'annual' },
+];
+
+// Guinea Ecuatorial — tres trimestres oficiales + anual, notas /10.
+const PERIODS_GE = [
+  { value: 'trim_1', label: 'Primer Trimestre',  seqs: [1], group: 'terms' },
+  { value: 'trim_2', label: 'Segundo Trimestre', seqs: [2], group: 'terms' },
+  { value: 'trim_3', label: 'Tercer Trimestre',  seqs: [3], group: 'terms' },
+  { value: 'anual',  label: 'Anual',             seqs: [1, 2, 3], group: 'annual' },
 ];
 
 function subjectAvgForStudent(subjectId, studentId, classId, seqs, gradeMap) {
@@ -27,7 +37,7 @@ function subjectAvgForStudent(subjectId, studentId, classId, seqs, gradeMap) {
 // ── Impression dans une nouvelle fenêtre (propre, sans sidebar) ───────────────
 // cols : { matricule, appreciation, decision, subjectTable, distribution }
 function printReport({ school, selectedClass, period, stats, studentResults, subjectStats,
-                       classStudents, maxScale, passThreshold, sys, cols = {} }) {
+                       classStudents, maxScale, passThreshold, sys, cols = {}, isGE = false }) {
   const {
     matricule    = true,
     appreciation = true,
@@ -36,14 +46,17 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
     distribution = false,
   } = cols;
 
-  const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  // Étiquettes du document : espagnol pour la Guinée Équatoriale, français sinon.
+  const Lp = (fr, es) => (isGE ? es : fr);
+
+  const today = new Date().toLocaleDateString(isGE ? 'es-ES' : 'fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   const passRateGlobal = stats?.above != null && stats?.total
     ? Math.round((stats.above / stats.total) * 100) : null;
 
   // Build rank table header
-  const thMatricule    = matricule    ? '<th style="width:90px">Matricule</th>' : '';
-  const thAppreciation = appreciation ? '<th style="width:80px">Appréciation</th>' : '';
-  const thDecision     = decision     ? '<th style="width:85px">Décision</th>' : '';
+  const thMatricule    = matricule    ? `<th style="width:90px">${Lp('Matricule', 'Matrícula')}</th>` : '';
+  const thAppreciation = appreciation ? `<th style="width:80px">${Lp('Appréciation', 'Apreciación')}</th>` : '';
+  const thDecision     = decision     ? `<th style="width:85px">${Lp('Décision', 'Decisión')}</th>` : '';
 
   const rankRows = studentResults.map(({ student, avg, rank, appr }) => {
     const passed = avg !== null && avg >= passThreshold;
@@ -51,8 +64,8 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
     const decisionBg  = passed ? '#d1fae5' : '#fee2e2';
     const decisionCol = passed ? '#065f46' : '#991b1b';
     const tdMatricule    = matricule    ? `<td style="text-align:center;font-family:monospace;color:#6b7280">${student.matricule || '—'}</td>` : '';
-    const tdAppreciation = appreciation ? `<td style="text-align:center;color:#374151">${sys === 'FR' ? (appr?.text || '—') : (appr ? appr.g : '—')}</td>` : '';
-    const tdDecision     = decision     ? `<td style="text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:700;background:${decisionBg};color:${decisionCol}">${passed ? 'Admis(e)' : 'Ajourné(e)'}</span></td>` : '';
+    const tdAppreciation = appreciation ? `<td style="text-align:center;color:#374151">${sys === 'EN' ? (appr ? appr.g : '—') : (appr?.text || '—')}</td>` : '';
+    const tdDecision     = decision     ? `<td style="text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:700;background:${decisionBg};color:${decisionCol}">${passed ? Lp('Admis(e)', 'Aprobado') : Lp('Ajourné(e)', 'Suspenso')}</span></td>` : '';
     return `<tr>
       <td style="text-align:center;font-weight:700">${rank?.rankD ? rank.rankN : '—'}</td>
       <td style="font-weight:600">${student.name}</td>
@@ -83,10 +96,10 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
     : `<div style="width:64px;height:64px;border-radius:50%;background:#eef2ff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#4f46e5">${(school?.name || 'E').charAt(0)}</div>`;
 
   const html = `<!DOCTYPE html>
-<html lang="fr">
+<html lang="${isGE ? 'es' : 'fr'}">
 <head>
   <meta charset="UTF-8"/>
-  <title>Rapport — ${selectedClass?.name} — ${period.label}</title>
+  <title>${Lp('Rapport', 'Informe')} — ${selectedClass?.name} — ${period.label}</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff}
@@ -128,15 +141,15 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
   <div class="hdr">
     <div class="hdr-logo">${logoTag}</div>
     <div class="hdr-school">
-      <h1>${school?.name || 'Établissement'}</h1>
+      <h1>${school?.name || Lp('Établissement', 'Centro educativo')}</h1>
       <p>${[school?.type, school?.region, school?.division].filter(Boolean).join(' · ')}</p>
-      ${school?.director ? `<p>Dir. : <strong>${school.director}</strong></p>` : ''}
+      ${school?.director ? `<p>${Lp('Dir.', 'Dir.')} : <strong>${school.director}</strong></p>` : ''}
       ${school?.address ? `<p>${school.address}</p>` : ''}
     </div>
     <div class="hdr-report">
-      <h2>Rapport de résultats</h2>
+      <h2>${Lp('Rapport de résultats', 'Informe de resultados')}</h2>
       <p><strong>${selectedClass?.name}</strong> · ${period.label}</p>
-      <p>Année : ${school?.current_year || '—'}</p>
+      <p>${Lp('Année', 'Año')} : ${school?.current_year || '—'}</p>
       <p style="margin-top:4px;color:#9ca3af">${today}</p>
     </div>
   </div>
@@ -144,29 +157,29 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
   <div class="stats">
     <div class="stat">
       <div class="stat-val">${stats?.total ?? classStudents.length}</div>
-      <div class="stat-lbl">Effectif</div>
+      <div class="stat-lbl">${Lp('Effectif', 'Efectivo')}</div>
     </div>
     <div class="stat">
       <div class="stat-val" style="color:#4f46e5">${stats?.avg != null ? stats.avg : '—'}<span style="font-size:12px;font-weight:400;color:#9ca3af">/${maxScale}</span></div>
-      <div class="stat-lbl">Moyenne classe</div>
+      <div class="stat-lbl">${Lp('Moyenne classe', 'Media de la clase')}</div>
     </div>
     <div class="stat">
       <div class="stat-val" style="color:${passRateGlobal !== null ? (passRateGlobal >= 50 ? '#059669' : '#ef4444') : '#9ca3af'}">${passRateGlobal !== null ? passRateGlobal + '%' : '—'}</div>
-      <div class="stat-lbl">Taux de réussite</div>
+      <div class="stat-lbl">${Lp('Taux de réussite', 'Tasa de aprobados')}</div>
     </div>
     <div class="stat">
       <div class="stat-val">${stats?.above ?? '—'}<span style="font-size:12px;font-weight:400;color:#9ca3af"> / ${stats?.total ?? ''}</span></div>
-      <div class="stat-lbl">Admis</div>
+      <div class="stat-lbl">${Lp('Admis', 'Aprobados')}</div>
     </div>
   </div>
 
-  <h3>Classement des élèves</h3>
+  <h3>${Lp('Classement des élèves', 'Clasificación de los alumnos')}</h3>
   <table>
     <thead><tr>
-      <th style="width:36px">Rang</th>
-      <th>Nom complet</th>
+      <th style="width:36px">${Lp('Rang', 'Puesto')}</th>
+      <th>${Lp('Nom complet', 'Apellidos y nombre')}</th>
       ${thMatricule}
-      <th style="width:75px">Moy. /${maxScale}</th>
+      <th style="width:75px">${Lp('Moy.', 'Media')} /${maxScale}</th>
       ${thAppreciation}
       ${thDecision}
     </tr></thead>
@@ -174,16 +187,16 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
   </table>
 
   ${subjectTable ? `
-  <h3>Résultats par matière</h3>
+  <h3>${Lp('Résultats par matière', 'Resultados por asignatura')}</h3>
   <table>
     <thead><tr>
-      <th>Matière</th>
-      <th style="width:38px">Coef</th>
-      <th style="width:70px">Moy. classe</th>
+      <th>${Lp('Matière', 'Asignatura')}</th>
+      <th style="width:38px">${Lp('Coef', 'Coef')}</th>
+      <th style="width:70px">${Lp('Moy. classe', 'Media clase')}</th>
       <th style="width:44px">Min</th>
       <th style="width:44px">Max</th>
-      <th style="width:58px">Admis</th>
-      <th style="width:55px">Taux</th>
+      <th style="width:58px">${Lp('Admis', 'Aprob.')}</th>
+      <th style="width:55px">${Lp('Taux', 'Tasa')}</th>
     </tr></thead>
     <tbody>${subRows}</tbody>
   </table>` : ''}
@@ -191,15 +204,15 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
   <div class="footer">
     <div class="sign-box">
       <div class="sign-line"></div>
-      <div class="sign-lbl">Le Censeur / DSCE</div>
+      <div class="sign-lbl">${Lp('Le Censeur / DSCE', 'El Jefe de Estudios')}</div>
     </div>
     <div class="sign-box" style="text-align:center">
-      <div class="sign-lbl" style="margin-bottom:2px;font-weight:700">Cachet de l'établissement</div>
+      <div class="sign-lbl" style="margin-bottom:2px;font-weight:700">${Lp("Cachet de l'établissement", 'Sello del centro')}</div>
       <div style="border:1px dashed #ccc;height:50px;border-radius:4px"></div>
     </div>
     <div class="sign-box">
       <div class="sign-line"></div>
-      <div class="sign-lbl">Le Proviseur / Directeur</div>
+      <div class="sign-lbl">${Lp('Le Proviseur / Directeur', 'El Director / La Directora')}</div>
     </div>
   </div>
 </div>
@@ -234,8 +247,33 @@ function StatBadge({ value, total, label, accent = 'brand' }) {
 }
 
 // ── Sélecteur de période en pills groupés ─────────────────────────────────────
-function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isEN }) {
+function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isEN, isGE }) {
   const t = useT();
+  if (isGE) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {PERIODS_GE.filter((p) => p.group === 'terms').map((p) => (
+          <button key={p.value} onClick={() => setPeriodKey(p.value)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              periodKey === p.value
+                ? 'bg-brand-600 text-white shadow-sm'
+                : 'bg-white border border-gray-200 text-gray-600 hover:border-brand-300'
+            }`}>
+            {p.label}
+          </button>
+        ))}
+        <span className="text-gray-200 mx-1">|</span>
+        <button onClick={() => setPeriodKey('anual')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            periodKey === 'anual'
+              ? 'bg-gray-800 text-white shadow-sm'
+              : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'
+          }`}>
+          Anual
+        </button>
+      </div>
+    );
+  }
   if (isEN) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
@@ -344,16 +382,19 @@ export default function Reports() {
   const selectedClass   = classes.find((c) => c.id === classId) || null;
   const sys             = selectedClass?.system || 'FR';
   const isEN            = sys === 'EN';
-  const passThreshold   = sys === 'FR' ? 10 : 50;
-  const maxScale        = sys === 'FR' ? 20 : 100;
-  const periodsForClass = isEN ? PERIODS_EN : PERIODS_FR;
+  const isGE            = resolveCountryCode(school) === 'guinea_eq';
+  const gOpts           = gradingOpts(school, selectedClass?.cycle);
+  const passThreshold   = isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
+  const maxScale        = isGE ? geGradeMax(school) : sys === 'FR' ? 20 : 100;
+  const periodsForClass = isGE ? PERIODS_GE : isEN ? PERIODS_EN : PERIODS_FR;
   const period          = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0];
 
   useEffect(() => {
     const cls = classes.find((c) => c.id === classId);
-    if (cls?.system === 'EN') setPeriodKey('term_1');
+    if (resolveCountryCode(school) === 'guinea_eq') setPeriodKey('trim_1');
+    else if (cls?.system === 'EN') setPeriodKey('term_1');
     else setPeriodKey('seq_1');
-  }, [classId, classes]);
+  }, [classId, classes, school]);
 
   const classSubjects = useMemo(() =>
     subjects.filter((s) => s.class_id === classId).sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name)),
@@ -366,13 +407,13 @@ export default function Reports() {
 
   const ranks = useMemo(() => {
     if (!classStudents.length || !classSubjects.length) return [];
-    return buildRanks(classStudents, gradeMap, classId, period.seqs, classSubjects, sys);
-  }, [classStudents, classSubjects, gradeMap, classId, period.seqs, sys]);
+    return buildRanks(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
+  }, [classStudents, classSubjects, gradeMap, classId, period.seqs, sys, gOpts.maxScale, gOpts.useCoef]);
 
   const stats = useMemo(() => {
     if (!classStudents.length || !classSubjects.length) return null;
-    return clsStat(classStudents, gradeMap, classId, period.seqs, classSubjects, sys);
-  }, [classStudents, classSubjects, gradeMap, classId, period.seqs, sys]);
+    return clsStat(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
+  }, [classStudents, classSubjects, gradeMap, classId, period.seqs, sys, gOpts.maxScale, gOpts.useCoef]);
 
   const studentResults = useMemo(() => {
     return classStudents.map((student) => {
@@ -381,9 +422,9 @@ export default function Reports() {
         const avg = subjectAvgForStudent(sub.id, student.id, classId, period.seqs, gradeMap);
         if (avg !== null) scores[sub.id] = String(avg);
       });
-      const avg  = getAvg(scores, classSubjects, sys);
+      const avg  = getAvg(scores, classSubjects, sys, gOpts);
       const rank = ranks.find((r) => r.id === student.id) || null;
-      const appr = avg !== null ? (sys === 'FR' ? frApp(avg) : enGrade(avg)) : null;
+      const appr = avg !== null ? (sys === 'ES' ? esGrade(avg, maxScale) : sys === 'FR' ? frApp(avg) : enGrade(avg)) : null;
       return { student, avg, rank, appr };
     }).sort((a, b) => {
       if (a.avg === null && b.avg === null) return 0;
@@ -391,7 +432,7 @@ export default function Reports() {
       if (b.avg === null) return -1;
       return b.avg - a.avg;
     });
-  }, [classStudents, classSubjects, classId, period.seqs, gradeMap, sys, ranks]);
+  }, [classStudents, classSubjects, classId, period.seqs, gradeMap, sys, ranks, gOpts.maxScale, gOpts.useCoef, maxScale]);
 
   const subjectStats = useMemo(() => {
     return classSubjects.map((sub) => {
@@ -438,7 +479,7 @@ export default function Reports() {
         const decision = avg !== null ? (avg >= passThreshold ? t('Admis(e)', 'Passed') : t('Ajourné(e)', 'Failed')) : '';
         return [
           rank?.rankN ?? '', student.name, student.matricule || '', ...subGrades, avg ?? '',
-          sys === 'FR' ? (appr?.text || '') : (appr ? `${appr.g} - ${appr.txt}` : ''),
+          sys === 'EN' ? (appr ? `${appr.g} - ${appr.txt}` : '') : (appr?.text || ''),
           decision,
         ];
       }),
@@ -497,6 +538,7 @@ export default function Reports() {
                 setPeriodKey={setPeriodKey}
                 periodsForClass={periodsForClass}
                 isEN={isEN}
+                isGE={isGE}
               />
             </div>
           )}
@@ -518,7 +560,7 @@ export default function Reports() {
                 ⚙
               </button>
               <button
-                onClick={() => printReport({ school, selectedClass, period, stats, studentResults, subjectStats, classStudents, maxScale, passThreshold, sys, cols })}
+                onClick={() => printReport({ school, selectedClass, period, stats, studentResults, subjectStats, classStudents, maxScale, passThreshold, sys, cols, isGE })}
                 className="btn-primary text-xs"
                 style={{ width: 'auto', paddingInline: '1.25rem' }}
               >
@@ -695,7 +737,7 @@ export default function Reports() {
                             ) : <span className="text-gray-300">—</span>}
                           </td>
                           <td className="px-4 py-3 text-center text-xs font-medium" style={{ color: appr?.col || '#9ca3af' }}>
-                            {sys === 'FR' ? (appr?.text || '—') : (appr ? `${appr.g}` : '—')}
+                            {sys === 'EN' ? (appr ? `${appr.g}` : '—') : (appr?.text || '—')}
                           </td>
                           <td className="px-4 py-3 text-center">
                             {avg !== null ? (

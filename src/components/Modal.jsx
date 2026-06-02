@@ -16,14 +16,16 @@ export default function Modal({ title, onClose, size = 'md', children }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <style>{`@keyframes modal-in{from{opacity:0;transform:scale(.96) translateY(-10px)}to{opacity:1;transform:scale(1) translateY(0)}}`}</style>
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/55 backdrop-blur-md"
         onClick={onClose}
       />
       {/* Panel */}
       <div
-        className={`relative bg-white rounded-2xl shadow-xl w-full ${SIZE_CLASSES[size] ?? SIZE_CLASSES.md} max-h-[90vh] overflow-y-auto`}
+        className={`relative bg-white rounded-2xl shadow-2xl w-full ${SIZE_CLASSES[size] ?? SIZE_CLASSES.md} max-h-[90vh] overflow-y-auto`}
+        style={{ animation: 'modal-in 0.18s ease-out' }}
       >
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-900">{title}</h2>

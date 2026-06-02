@@ -5,9 +5,23 @@
 // This matches bulletinEngine's allGrades key convention exactly.
 
 const DB_NAME = 'NotesCamDB';
-const DB_VERSION = 5;
+// Bump à 6 : ajout des stores `trash` et `audit_log`.
+const DB_VERSION = 6;
 
 let _db = null;
+
+// Demande au navigateur de garder le storage de l'app de façon persistante.
+// Sur Chromium-based & Firefox, cela évite l'éviction silencieuse de IndexedDB
+// si la machine manque d'espace. Sans effet ailleurs.
+export async function requestPersistentStorage() {
+  try {
+    if (navigator?.storage?.persist) {
+      const granted = await navigator.storage.persist();
+      return granted;
+    }
+  } catch (_) { /* ignored */ }
+  return false;
+}
 
 export async function initDB() {
   if (_db) return _db;
@@ -57,6 +71,26 @@ export async function initDB() {
         const s = db.createObjectStore('fee_payments', { keyPath: 'id' });
         s.createIndex('by_student', 'student_id');
         s.createIndex('by_school',  'school_id');
+      }
+
+      // --- v6 ---
+      // Corbeille : conserve un instantané des enregistrements supprimés
+      // pour permettre une restauration ultérieure.
+      // Schema : { id, table, original_id, payload, deleted_at, deleted_by, school_id }
+      if (!db.objectStoreNames.contains('trash')) {
+        const s = db.createObjectStore('trash', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('by_table',  'table');
+        s.createIndex('by_school', 'school_id');
+      }
+
+      // Journal d'audit : trace les opérations sensibles (créa/modif/suppression
+      // de notes, bulletins, utilisateurs, etc.).
+      // Schema : { id, action, table, target_id, user_id, user_name, at, details, school_id }
+      if (!db.objectStoreNames.contains('audit_log')) {
+        const s = db.createObjectStore('audit_log', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('by_school', 'school_id');
+        s.createIndex('by_action', 'action');
+        s.createIndex('by_user',   'user_id');
       }
     };
 
@@ -199,4 +233,17 @@ export const feePaymentsDB = {
   put: (r) => idbPut('fee_payments', r),
   putMany: (rs) => idbPutMany('fee_payments', rs),
   delete: (id) => idbDelete('fee_payments', id),
+};
+
+export const trashDB = {
+  getAll: () => idbGetAll('trash'),
+  getByTable: (table) => idbGetByIndex('trash', 'by_table', table),
+  push: (record) => idbAdd('trash', { ...record, deleted_at: record.deleted_at || Date.now() }),
+  delete: (id) => idbDelete('trash', id),
+};
+
+export const auditDB = {
+  getAll: () => idbGetAll('audit_log'),
+  log: (entry) => idbAdd('audit_log', { ...entry, at: entry.at || Date.now() }),
+  delete: (id) => idbDelete('audit_log', id),
 };

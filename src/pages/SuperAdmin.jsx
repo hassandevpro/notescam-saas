@@ -35,11 +35,16 @@ function PlanBadge({ plan, blocked }) {
 function EditPlanModal({ school, onSave, onClose }) {
   const [plan,    setPlan]    = useState(school.plan || 'starter');
   const [blocked, setBlocked] = useState(school.license_status === 'blocked');
+  const [price,   setPrice]   = useState(Number(school.price_per_student) || 0);
   const [saving,  setSaving]  = useState(false);
+
+  const nbStudents = Number(school.nb_students) || 0;
+  const total = (Number(price) || 0) * nbStudents;
+  const fmt = (n) => Number(n || 0).toLocaleString('fr-FR');
 
   const handleSave = async () => {
     setSaving(true);
-    await onSave(school.id, plan, blocked);
+    await onSave(school.id, plan, blocked, Number(price) || 0);
     setSaving(false);
     onClose();
   };
@@ -48,7 +53,7 @@ function EditPlanModal({ school, onSave, onClose }) {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-bold text-gray-900">Modifier le plan</h3>
+          <h3 className="font-bold text-gray-900">Plan & tarification</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"/>
@@ -77,6 +82,27 @@ function EditPlanModal({ school, onSave, onClose }) {
                   <span className="block text-xs font-normal opacity-60">{meta.price}</span>
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              Prix par élève (FCFA) — négocié
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="50"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder="Ex : 1000"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+            />
+            <div className="mt-2 flex items-center justify-between rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-2.5">
+              <span className="text-xs text-emerald-700">
+                {fmt(price)} FCFA × {nbStudents} élève{nbStudents !== 1 ? 's' : ''}
+              </span>
+              <span className="text-sm font-bold text-emerald-800">{fmt(total)} FCFA</span>
             </div>
           </div>
 
@@ -136,7 +162,7 @@ export default function SuperAdmin() {
 
   useEffect(() => { loadSchools(); }, []);
 
-  const handleUpdateLicense = async (schoolId, plan, blocked) => {
+  const handleUpdateLicense = async (schoolId, plan, blocked, price) => {
     const status = blocked ? 'blocked' : 'active';
     const { error } = await supabase.rpc('update_school_license', {
       p_school_id:  schoolId,
@@ -145,8 +171,20 @@ export default function SuperAdmin() {
       p_plan:       plan,
     });
     if (error) { alert(`Erreur : ${error.message}`); return; }
+
+    // Prix par élève négocié (uniquement si fourni, ex. via la modale).
+    let priceUpdate = {};
+    if (price !== undefined && price !== null) {
+      const { error: priceErr } = await supabase.rpc('update_school_price_per_student', {
+        p_school_id: schoolId,
+        p_price:     price,
+      });
+      if (priceErr) { alert(`Erreur (prix) : ${priceErr.message}`); return; }
+      priceUpdate = { price_per_student: price };
+    }
+
     setSchools((prev) => prev.map((s) =>
-      s.id === schoolId ? { ...s, license_status: status, plan } : s
+      s.id === schoolId ? { ...s, license_status: status, plan, ...priceUpdate } : s
     ));
   };
 
@@ -170,13 +208,16 @@ export default function SuperAdmin() {
       );
   }, [schools, filterPlan, search]);
 
+  const fmt = (n) => Number(n || 0).toLocaleString('fr-FR');
+  const billFor = (s) => (Number(s.price_per_student) || 0) * (Number(s.nb_students) || 0);
+
   const stats = useMemo(() => ({
-    total:   schools.length,
-    starter: schools.filter((s) => (s.plan ?? 'starter') === 'starter' && s.license_status !== 'blocked').length,
-    ecole:   schools.filter((s) => s.plan === 'ecole'  && s.license_status !== 'blocked').length,
-    pro:     schools.filter((s) => s.plan === 'pro'    && s.license_status !== 'blocked').length,
-    reseau:  schools.filter((s) => s.plan === 'reseau' && s.license_status !== 'blocked').length,
-    blocked: schools.filter((s) => s.license_status === 'blocked').length,
+    total:    schools.length,
+    students: schools.reduce((sum, s) => sum + (Number(s.nb_students) || 0), 0),
+    revenue:  schools
+      .filter((s) => s.license_status !== 'blocked')
+      .reduce((sum, s) => sum + billFor(s), 0),
+    blocked:  schools.filter((s) => s.license_status === 'blocked').length,
   }), [schools]);
 
   return (
@@ -235,14 +276,12 @@ export default function SuperAdmin() {
         </div>
 
         {/* Stat cards */}
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { label: 'Total',   value: stats.total,   color: 'border-gray-400' },
-            { label: 'Starter', value: stats.starter, color: 'border-gray-300' },
-            { label: 'École',   value: stats.ecole,   color: 'border-blue-400' },
-            { label: 'Pro',     value: stats.pro,     color: 'border-violet-400' },
-            { label: 'Réseau',  value: stats.reseau,  color: 'border-emerald-400' },
-            { label: 'Bloqués', value: stats.blocked, color: 'border-red-400' },
+            { label: 'Établissements',     value: fmt(stats.total),              color: 'border-gray-400' },
+            { label: 'Élèves (total)',     value: fmt(stats.students),           color: 'border-blue-400' },
+            { label: 'Revenu estimé (FCFA)', value: fmt(stats.revenue),          color: 'border-emerald-400' },
+            { label: 'Bloqués',            value: fmt(stats.blocked),            color: 'border-red-400' },
           ].map(({ label, value, color }) => (
             <div key={label} className={`bg-white rounded-xl p-4 shadow-sm border-l-4 ${color}`}>
               <div className="text-2xl font-bold text-gray-900">{value}</div>
@@ -312,14 +351,16 @@ export default function SuperAdmin() {
                     <th className="px-4 py-3 text-left">Directeur</th>
                     <th className="px-4 py-3 text-center">Année</th>
                     <th className="px-4 py-3 text-center">Plan</th>
-                    <th className="px-4 py-3 text-center">Admins</th>
+                    <th className="px-4 py-3 text-center">Élèves</th>
+                    <th className="px-4 py-3 text-right">Prix/élève</th>
+                    <th className="px-4 py-3 text-right">Total</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {visible.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-5 py-10 text-center text-gray-400 text-sm">
+                      <td colSpan={9} className="px-5 py-10 text-center text-gray-400 text-sm">
                         Aucun établissement trouvé.
                       </td>
                     </tr>
@@ -337,7 +378,13 @@ export default function SuperAdmin() {
                         <td className="px-4 py-3 text-center">
                           <PlanBadge plan={school.plan} blocked={isBlocked} />
                         </td>
-                        <td className="px-4 py-3 text-center text-xs text-gray-500">{school.nb_admins ?? 0}</td>
+                        <td className="px-4 py-3 text-center text-xs font-medium text-gray-700">{fmt(school.nb_students)}</td>
+                        <td className="px-4 py-3 text-right text-xs text-gray-600">
+                          {Number(school.price_per_student) > 0 ? `${fmt(school.price_per_student)}` : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right text-xs font-semibold text-emerald-700">
+                          {Number(school.price_per_student) > 0 ? `${fmt(billFor(school))}` : <span className="text-gray-300">—</span>}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1 flex-wrap">
                             {!isBlocked && school.plan !== 'ecole' && school.plan !== 'pro' && school.plan !== 'reseau' && (

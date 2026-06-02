@@ -1,3 +1,38 @@
+import { getLang } from './i18n';
+import { useAuthStore } from '../store/authStore';
+import { resolveCountryCode, defaultLangForCountry } from '../countries';
+
+// Langue du MODÈLE d'import / export : on suit le pays de l'école (ses données
+// d'exemple, classes et en-têtes sont spécifiques au pays), et non le toggle
+// d'interface. Une école Guinée Éq. obtient toujours le modèle espagnol même si
+// l'admin affiche l'UI en français. À défaut d'école, on retombe sur l'UI.
+function templateLang() {
+  try {
+    const school = useAuthStore.getState().school;
+    if (school) return defaultLangForCountry(resolveCountryCode(school));
+  } catch (_) { /* ignore */ }
+  return getLang();
+}
+
+// User-facing import messages, localized FR / EN / ES.
+const MSG = {
+  empty:     { fr: 'Fichier vide.', en: 'Empty file.', es: 'Archivo vacío.' },
+  emptyData: { fr: 'Fichier vide ou sans données.', en: 'Empty file or no data.', es: 'Archivo vacío o sin datos.' },
+  cantRead:  { fr: 'Impossible de lire le fichier.', en: 'Could not read the file.', es: 'No se pudo leer el archivo.' },
+  readErr:   { fr: 'Erreur de lecture : ', en: 'Read error: ', es: 'Error de lectura: ' },
+  noStudentCols: {
+    fr: 'Colonnes "prenom" et "nom" introuvables. Vérifiez les en-têtes.',
+    en: 'Columns "firstName" and "lastName" not found. Check the headers.',
+    es: 'No se encontraron las columnas "nombre" y "apellidos". Revise los encabezados.',
+  },
+  noTeacherCol: {
+    fr: 'Colonne "nom_complet" introuvable. Vérifiez les en-têtes.',
+    en: 'Column "full_name" not found. Check the headers.',
+    es: 'No se encontró la columna "nombre_completo". Revise los encabezados.',
+  },
+};
+const msg = (key) => MSG[key][getLang()] || MSG[key].fr;
+
 // xlsx is loaded on-demand only when Excel read/write is actually needed
 async function loadXLSX() {
   return (await import('xlsx'));
@@ -47,10 +82,10 @@ export function parseSpreadsheet(file) {
           resolve(parseCsvText(e.target.result));
         }
       } catch (err) {
-        resolve({ rows: [], error: `Erreur de lecture : ${err.message}` });
+        resolve({ rows: [], error: msg('readErr') + err.message });
       }
     };
-    reader.onerror = () => resolve({ rows: [], error: 'Impossible de lire le fichier.' });
+    reader.onerror = () => resolve({ rows: [], error: msg('cantRead') });
 
     if (isExcel) reader.readAsArrayBuffer(file);
     else         reader.readAsText(file, 'UTF-8');
@@ -61,7 +96,7 @@ export function parseSpreadsheet(file) {
 
 function parseCsvText(text) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return { rows: [], error: 'Fichier vide ou sans données.' };
+  if (lines.length < 2) return { rows: [], error: msg('emptyData') };
   const delim = lines[0].includes(';') ? ';' : ',';
   const headers = lines[0].split(delim).map((h) => h.trim().toLowerCase());
   const raw = lines.slice(1).map((l) => l.split(delim).map((c) => c.trim()));
@@ -69,30 +104,35 @@ function parseCsvText(text) {
 }
 
 function rawRowsToStudents(raw) {
-  if (raw.length < 2) return { rows: [], error: 'Fichier vide.' };
+  if (raw.length < 2) return { rows: [], error: msg('empty') };
 
   const headers = raw[0].map((h) => String(h).trim().toLowerCase().replace(/[^a-zàâéèêëîïôùûç0-9_]/g, ''));
-  const col = (candidates) => headers.findIndex((h) => candidates.some((c) => h === c || h.includes(c)));
+  // Exact match first (avoids "nom" capturing the Spanish "nombre"), then loose substring.
+  const col = (candidates) => {
+    let i = headers.findIndex((h) => candidates.includes(h));
+    if (i === -1) i = headers.findIndex((h) => candidates.some((c) => h.includes(c)));
+    return i;
+  };
 
-  const prenomIdx    = col(['prenom', 'prénom', 'firstname', 'first_name']);
-  const nomIdx       = col(['nom', 'lastname', 'last_name', 'name', 'eleve', 'élève']);
-  const matriculeIdx = col(['matricule', 'mat', 'immatricul']);
-  const genderIdx    = col(['sexe', 'genre', 'gender']);
-  const dateIdx      = col(['datenaissance', 'date_naissance', 'dob', 'birthdate', 'naissance']);
-  const lieuIdx      = col(['lieunaissance', 'lieu_naissance', 'birthplace', 'lieu']);
-  const adresseIdx   = col(['adresse', 'address']);
-  const phoneIdx     = col(['telephone', 'téléphone', 'tel', 'phone', 'parent_phone']);
-  const urgenceIdx   = col(['contacturgence', 'contact_urgence', 'urgence', 'emergency']);
-  const pereNomIdx   = col(['nompere', 'nom_pere', 'father', 'pere']);
-  const pereProfIdx  = col(['professionpere', 'profession_pere']);
-  const mereNomIdx   = col(['nommere', 'nom_mere', 'mother', 'mere']);
-  const mereProfIdx  = col(['professionmere', 'profession_mere']);
-  const tuteurIdx    = col(['tuteur', 'guardian']);
-  const classeIdx    = col(['classe', 'class', 'classname', 'class_name']);
-  const statutIdx    = col(['statut', 'status', 'inscription', 'type_eleve', 'typeeleve']);
+  const prenomIdx    = col(['prenom', 'prénom', 'nombre', 'firstname', 'first_name']);
+  const nomIdx       = col(['nom', 'apellidos', 'apellido', 'lastname', 'last_name', 'name', 'eleve', 'élève']);
+  const matriculeIdx = col(['matricule', 'matricula', 'studentid', 'mat', 'immatricul']);
+  const genderIdx    = col(['sexe', 'sexo', 'genre', 'gender']);
+  const dateIdx      = col(['datenaissance', 'fechanacimiento', 'dateofbirth', 'date_naissance', 'dob', 'birthdate', 'naissance']);
+  const lieuIdx      = col(['lieunaissance', 'lugarnacimiento', 'placeofbirth', 'lieu_naissance', 'birthplace', 'lieu']);
+  const adresseIdx   = col(['adresse', 'direccion', 'address']);
+  const phoneIdx     = col(['telephone', 'telefono', 'téléphone', 'tel', 'phone', 'parent_phone']);
+  const urgenceIdx   = col(['contacturgence', 'contactoemergencia', 'emergencycontact', 'contact_urgence', 'urgence', 'emergency']);
+  const pereNomIdx   = col(['nompere', 'nombrepadre', 'fathername', 'nom_pere', 'father', 'padre', 'pere']);
+  const pereProfIdx  = col(['professionpere', 'profesionpadre', 'fatherjob', 'profession_pere']);
+  const mereNomIdx   = col(['nommere', 'nombremadre', 'mothername', 'nom_mere', 'mother', 'madre', 'mere']);
+  const mereProfIdx  = col(['professionmere', 'profesionmadre', 'motherjob', 'profession_mere']);
+  const tuteurIdx    = col(['tuteur', 'tutor', 'guardian']);
+  const classeIdx    = col(['classe', 'clase', 'class', 'classname', 'class_name']);
+  const statutIdx    = col(['statut', 'estado', 'status', 'inscription', 'type_eleve', 'typeeleve']);
 
   if (prenomIdx === -1 && nomIdx === -1) {
-    return { rows: [], error: 'Colonnes "prenom" et "nom" introuvables. Vérifiez les en-têtes.' };
+    return { rows: [], error: msg('noStudentCols') };
   }
 
   const rows = raw.slice(1)
@@ -133,16 +173,16 @@ function rawRowsToStudents(raw) {
 
 function normalizeStatut(val) {
   const v = val.trim().toLowerCase();
-  if (['n', 'nouveau', 'new', 'nouvelle', '0', 'non'].includes(v)) return 'nouveau';
-  if (['r', 'redoublant', 'redoublante', 'repeating', '1', 'oui', 'red'].includes(v)) return 'redoublant';
-  if (['t', 'transfere', 'transféré', 'transfer', 'transfert', 'mutation'].includes(v)) return 'transfere';
+  if (['n', 'nouveau', 'new', 'nouvelle', 'nuevo', 'nueva', '0', 'non'].includes(v)) return 'nouveau';
+  if (['r', 'redoublant', 'redoublante', 'repeating', 'repetidor', 'repetidora', 'repite', '1', 'oui', 'red'].includes(v)) return 'redoublant';
+  if (['t', 'transfere', 'transféré', 'transfer', 'transfert', 'transferido', 'transferida', 'trasladado', 'mutation'].includes(v)) return 'transfere';
   return '';
 }
 
 function normalizeGender(val) {
   const v = val.trim().toLowerCase();
-  if (['m', 'masculin', 'male', 'garçon', 'garcon', 'h', 'homme'].includes(v)) return 'Masculin';
-  if (['f', 'féminin', 'feminin', 'female', 'fille', 'femme'].includes(v)) return 'Feminin';
+  if (['m', 'masculin', 'masculino', 'male', 'garçon', 'garcon', 'h', 'homme', 'hombre'].includes(v)) return 'Masculin';
+  if (['f', 'féminin', 'feminin', 'femenino', 'femenina', 'female', 'fille', 'femme', 'mujer'].includes(v)) return 'Feminin';
   return '';
 }
 
@@ -234,29 +274,61 @@ function splitCSVLine(line, delim) {
 }
 
 // ── Teacher export ────────────────────────────────────────────────────────────
+const TEACHER_EXPORT_HEADERS = {
+  fr: { cols: ['Nom complet', 'Email', 'Téléphone', 'Spécialité', 'Compte app'], yes: 'Oui', no: 'Non', file: 'enseignants' },
+  en: { cols: ['Full name', 'Email', 'Phone', 'Specialty', 'App account'],       yes: 'Yes', no: 'No',  file: 'teachers' },
+  es: { cols: ['Nombre completo', 'Email', 'Teléfono', 'Especialidad', 'Cuenta app'], yes: 'Sí', no: 'No', file: 'profesores' },
+};
+
 export function exportTeachers(teachers) {
+  const h = TEACHER_EXPORT_HEADERS[templateLang()] || TEACHER_EXPORT_HEADERS.fr;
   const rows = [
-    ['Nom complet', 'Email', 'Téléphone', 'Spécialité', 'Compte app'],
+    h.cols,
     ...teachers.map((t) => [
       t.name || '',
       t.email || '',
       t.phone || '',
       t.specialty || '',
-      t.auth_user_id ? 'Oui' : 'Non',
+      t.auth_user_id ? h.yes : h.no,
     ]),
   ];
-  downloadCSV(`enseignants_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  downloadCSV(`${h.file}_${new Date().toISOString().slice(0, 10)}.csv`, rows);
 }
 
 // ── Teacher import template ───────────────────────────────────────────────────
+const TEACHER_TEMPLATE = {
+  fr: {
+    filename: 'modele_import_enseignants.csv',
+    rows: [
+      ['nom_complet', 'email', 'telephone', 'specialite'],
+      ['M. KAMGA Paul',    'paul.kamga@ecole.cm',   '677001122', 'Mathématiques'],
+      ['Mme NKENG Claire', 'claire.nkeng@ecole.cm', '699334455', 'Français'],
+      ['M. BIBI Samuel',   '',                      '655778899', 'Histoire-Géographie'],
+    ],
+  },
+  en: {
+    filename: 'teacher_import_template.csv',
+    rows: [
+      ['full_name', 'email', 'phone', 'specialty'],
+      ['Mr Paul KAMGA',     'paul.kamga@school.gq',   '222001122', 'Mathematics'],
+      ['Mrs Claire NKENG',  'claire.nkeng@school.gq', '222334455', 'English'],
+      ['Mr Samuel BIBI',    '',                       '222778899', 'Geography & History'],
+    ],
+  },
+  es: {
+    filename: 'modelo_importacion_profesores.csv',
+    rows: [
+      ['nombre_completo', 'email', 'telefono', 'especialidad'],
+      ['Sr. NGUEMA Pedro',  'pedro.nguema@escuela.gq', '222001122', 'Matemáticas'],
+      ['Sra. OBIANG Carmen','carmen.obiang@escuela.gq','222334455', 'Lengua Española'],
+      ['Sr. ABAGA Daniel',  '',                        '222778899', 'Geografía e Historia'],
+    ],
+  },
+};
+
 export function downloadTeacherTemplate() {
-  const rows = [
-    ['nom_complet', 'email', 'telephone', 'specialite'],
-    ['M. KAMGA Paul',    'paul.kamga@ecole.cm',    '677001122', 'Mathématiques'],
-    ['Mme NKENG Claire', 'claire.nkeng@ecole.cm',  '699334455', 'Français'],
-    ['M. BIBI Samuel',   '',                        '655778899', 'Histoire-Géographie'],
-  ];
-  downloadCSV('modele_import_enseignants.csv', rows);
+  const tpl = TEACHER_TEMPLATE[templateLang()] || TEACHER_TEMPLATE.fr;
+  downloadCSV(tpl.filename, tpl.rows);
 }
 
 // ── Teacher spreadsheet parse ─────────────────────────────────────────────────
@@ -280,20 +352,20 @@ export function parseTeachersSpreadsheet(file) {
         }
 
         if (!raw || raw.length < 2) {
-          resolve({ rows: [], error: 'Fichier vide ou sans données.' });
+          resolve({ rows: [], error: msg('emptyData') });
           return;
         }
 
         const headers = raw[0].map((h) => String(h).trim().toLowerCase().replace(/[^a-zàâéèêëîïôùûç0-9_]/g, ''));
         const col = (candidates) => headers.findIndex((h) => candidates.some((c) => h === c || h.includes(c)));
 
-        const nomIdx       = col(['nomcomplet', 'nom_complet', 'nom', 'name', 'enseignant', 'fullname']);
+        const nomIdx       = col(['nomcomplet', 'nom_complet', 'nombrecompleto', 'nombre_completo', 'nom', 'name', 'enseignant', 'fullname', 'full_name']);
         const emailIdx     = col(['email', 'mail', 'courriel']);
-        const phoneIdx     = col(['telephone', 'téléphone', 'tel', 'phone', 'portable']);
-        const specialtyIdx = col(['specialite', 'spécialité', 'specialty', 'matiere', 'discipline']);
+        const phoneIdx     = col(['telephone', 'telefono', 'téléphone', 'tel', 'phone', 'portable']);
+        const specialtyIdx = col(['specialite', 'spécialité', 'especialidad', 'specialty', 'matiere', 'discipline', 'asignatura']);
 
         if (nomIdx === -1) {
-          resolve({ rows: [], error: 'Colonne "nom_complet" introuvable. Vérifiez les en-têtes.' });
+          resolve({ rows: [], error: msg('noTeacherCol') });
           return;
         }
 
@@ -313,34 +385,66 @@ export function parseTeachersSpreadsheet(file) {
 
         resolve({ rows, error: null });
       } catch (err) {
-        resolve({ rows: [], error: `Erreur de lecture : ${err.message}` });
+        resolve({ rows: [], error: msg('readErr') + err.message });
       }
     };
 
-    reader.onerror = () => resolve({ rows: [], error: 'Impossible de lire le fichier.' });
+    reader.onerror = () => resolve({ rows: [], error: msg('cantRead') });
     if (isExcel) reader.readAsArrayBuffer(file);
     else         reader.readAsText(file, 'UTF-8');
   });
 }
 
 // ── Student import template ───────────────────────────────────────────────────
+const STUDENT_TEMPLATE = {
+  fr: {
+    filename: 'modele_import_eleves.xlsx',
+    sheet:    'Modèle élèves',
+    rows: [
+      ['matricule', 'prenom', 'nom', 'dateNaissance', 'lieuNaissance',
+       'sexe', 'statut', 'adresse', 'telephone', 'contactUrgence',
+       'nomPere', 'professionPere', 'nomMere', 'professionMere', 'tuteur', 'classe'],
+      ['s260001', 'Jean', 'DUPONT', '2015-03-15', 'Yaoundé',
+       'MALE', 'nouveau', 'Quartier Bastos, Yaoundé', '677123456', '699987654',
+       'Pierre DUPONT', 'Ingénieur', 'Marie DUPONT', 'Enseignante', '', 'CP A'],
+      ['s260002', 'Brigitte', 'ELOUNDOU', '2014-09-22', 'Douala',
+       'FEMALE', 'redoublant', 'Akwa, Douala', '655000001', '',
+       'Paul ELOUNDOU', 'Commerçant', 'Anne ELOUNDOU', 'Ménagère', '', 'CP A'],
+    ],
+  },
+  en: {
+    filename: 'student_import_template.xlsx',
+    sheet:    'Students template',
+    rows: [
+      ['studentId', 'firstName', 'lastName', 'dateOfBirth', 'placeOfBirth',
+       'gender', 'status', 'address', 'phone', 'emergencyContact',
+       'fatherName', 'fatherJob', 'motherName', 'motherJob', 'guardian', 'class'],
+      ['s260001', 'John', 'SMITH', '2015-03-15', 'Malabo',
+       'MALE', 'new', '12 Independence Ave., Malabo', '222123456', '222987654',
+       'Peter SMITH', 'Engineer', 'Mary SMITH', 'Teacher', '', '1st A'],
+      ['s260002', 'Grace', 'JONES', '2014-09-22', 'Bata',
+       'FEMALE', 'repeating', 'Mondoasi district, Bata', '222000001', '',
+       'Paul JONES', 'Trader', 'Anne JONES', 'Homemaker', '', '1st A'],
+    ],
+  },
+  es: {
+    filename: 'modelo_importacion_alumnos.xlsx',
+    sheet:    'Modelo alumnos',
+    rows: [
+      ['matricula', 'nombre', 'apellidos', 'fechaNacimiento', 'lugarNacimiento',
+       'sexo', 'estado', 'direccion', 'telefono', 'contactoEmergencia',
+       'nombrePadre', 'profesionPadre', 'nombreMadre', 'profesionMadre', 'tutor', 'clase'],
+      ['s260001', 'Juan', 'MBA NDONG', '2015-03-15', 'Malabo',
+       'MASCULINO', 'nuevo', 'Barrio Ela Nguema, Malabo', '222123456', '222987654',
+       'Pedro MBA', 'Ingeniero', 'María NDONG', 'Profesora', '', '1º A'],
+      ['s260002', 'Lucía', 'OYANA OBONO', '2014-09-22', 'Bata',
+       'FEMENINO', 'repetidor', 'Barrio Mondoasi, Bata', '222000001', '',
+       'Pablo OYANA', 'Comerciante', 'Ana OBONO', 'Ama de casa', '', '1º A'],
+    ],
+  },
+};
+
 export function downloadStudentTemplate() {
-  const rows = [
-    [
-      'matricule', 'prenom', 'nom', 'dateNaissance', 'lieuNaissance',
-      'sexe', 'statut', 'adresse', 'telephone', 'contactUrgence',
-      'nomPere', 'professionPere', 'nomMere', 'professionMere', 'tuteur', 'classe',
-    ],
-    [
-      's260001', 'Jean', 'DUPONT', '2015-03-15', 'Yaoundé',
-      'MALE', 'nouveau', 'Quartier Bastos, Yaoundé', '677123456', '699987654',
-      'Pierre DUPONT', 'Ingénieur', 'Marie DUPONT', 'Enseignante', '', 'CP A',
-    ],
-    [
-      's260002', 'Brigitte', 'ELOUNDOU', '2014-09-22', 'Douala',
-      'FEMALE', 'redoublant', 'Akwa, Douala', '655000001', '',
-      'Paul ELOUNDOU', 'Commerçant', 'Anne ELOUNDOU', 'Ménagère', '', 'CP A',
-    ],
-  ];
-  return downloadExcel('modele_import_eleves.xlsx', rows, 'Modèle élèves');
+  const tpl = STUDENT_TEMPLATE[templateLang()] || STUDENT_TEMPLATE.fr;
+  return downloadExcel(tpl.filename, tpl.rows, tpl.sheet);
 }

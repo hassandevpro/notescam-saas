@@ -477,7 +477,7 @@ function ImportPanel({ classes, onImport, onCancel }) {
             <div>
               <label className="form-label">{t('Classe de destination', 'Destination class')} <span className="text-xs font-normal text-slate-400">({t('pour les élèves sans classe dans le fichier', 'for students without a class in the file')})</span></label>
               <select className="form-input" value={fallbackClassId} onChange={(e) => setFallbackClassId(e.target.value)}>
-                <option value="">— Choisir —</option>
+                <option value="">{t('— Choisir —', '— Select —', '— Elegir —')}</option>
                 {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>

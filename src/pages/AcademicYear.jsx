@@ -6,7 +6,8 @@ import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
 import { computeNextYear, getNextLevel } from '../lib/yearEngine';
 import { fetchDistinctYears } from '../lib/schoolService';
-import { seedDemoYear } from '../lib/seedDemo';
+import { seedDemoYear, deleteDemoYear } from '../lib/seedDemo';
+import { resolveCountryCode } from '../countries';
 import { initDB, classesDB } from '../lib/db';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -164,6 +165,8 @@ export default function AcademicYear() {
   const [loadingYears, setLoadingYears] = useState(true);
   const [seeding,      setSeeding]      = useState(false);
   const [seedResult,   setSeedResult]   = useState(null);
+  const [deleting,     setDeleting]     = useState(false);
+  const [confirmDel,   setConfirmDel]   = useState(false);
 
   const DEMO_YEAR = '2028-2029';
 
@@ -177,6 +180,16 @@ export default function AcademicYear() {
   const isAdmin     = role === 'admin';
 
   const demoAlreadyExists = pastYears.includes(DEMO_YEAR) || currentYear === DEMO_YEAR;
+
+  // Description de la démo adaptée au pays : Guinée Éq. = 2 classes ES / 3 trimestres,
+  // Cameroun = 3 classes FR+EN / 6 séquences.
+  const isGE            = resolveCountryCode(school) === 'guinea_eq';
+  const demoClassCount  = isGE ? 2 : 3;
+  const demoClassList   = isGE ? '5º Primaria A, 1º ESBA A' : '6ème A FR, 5ème B FR, Form 1 A EN';
+  const demoPeriodCount = isGE ? 3 : 6;
+  const demoPeriodWord  = isGE
+    ? t('trimestres', 'terms', 'trimestres')
+    : t('séquences', 'sequences', 'secuencias');
 
   const handleSeedDemo = async () => {
     if (!school?.id) return;
@@ -196,6 +209,23 @@ export default function AcademicYear() {
       setSeedResult({ ok: false, error: err.message });
     } finally {
       setSeeding(false);
+    }
+  };
+
+  const handleDeleteDemo = async () => {
+    if (!school?.id) return;
+    setDeleting(true);
+    setSeedResult(null);
+    try {
+      const result = await deleteDemoYear(school.id, DEMO_YEAR);
+      setSeedResult({ deleted: true, ...result });
+      if (viewYear === DEMO_YEAR) setViewYear(null);
+      setPastYears((prev) => prev.filter((y) => y !== DEMO_YEAR));
+    } catch (err) {
+      setSeedResult({ ok: false, error: err.message });
+    } finally {
+      setDeleting(false);
+      setConfirmDel(false);
     }
   };
 
@@ -304,14 +334,14 @@ export default function AcademicYear() {
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded">{t('Données de démo', 'Demo data')}</span>
+                  <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded">{t('Données de démo', 'Demo data', 'Datos de demostración')}</span>
                 </div>
                 <h3 className="font-semibold text-gray-900 text-base">
-                  {t('Générer des données de test', 'Generate test data')} — {DEMO_YEAR}
+                  {t('Générer des données de test', 'Generate test data', 'Generar datos de prueba')} — {DEMO_YEAR}
                 </h3>
                 <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-                  {t('Crée', 'Creates')} <strong>3 {t('classes', 'classes')}</strong> (6ème A FR, 5ème B FR, Form 1 A EN),{' '}
-                  {t('matières, élèves et notes sur les', 'subjects, students and grades for all')} <strong>6 {t('séquences', 'sequences')}</strong> {t('pour tester les bulletins.', 'to test report cards.')}
+                  {t('Crée', 'Creates', 'Crea')} <strong>{demoClassCount} {t('classes', 'classes', 'clases')}</strong> ({demoClassList}),{' '}
+                  {t('matières, élèves et notes', 'subjects, students and grades', 'asignaturas, alumnos y notas')} (<strong>{demoPeriodCount} {demoPeriodWord}</strong>) {t('pour tester les bulletins.', 'to test report cards.', 'para probar los boletines.')}
                 </p>
                 {seedResult?.ok && (
                   <p className="text-sm text-emerald-700 font-medium mt-2">
@@ -321,18 +351,60 @@ export default function AcademicYear() {
                 {seedResult?.ok === false && (
                   <p className="text-sm text-red-600 mt-2">{t('Erreur', 'Error')} : {seedResult.error}</p>
                 )}
+                {seedResult?.deleted && (
+                  <p className="text-sm text-emerald-700 font-medium mt-2">
+                    ✓ {t('Données de démo supprimées', 'Demo data deleted', 'Datos de demostración eliminados')}
+                    {seedResult.deletedClasses ? ` (${seedResult.deletedClasses} ${t('classes', 'classes', 'clases')})` : ''}
+                  </p>
+                )}
               </div>
-              <button
-                onClick={handleSeedDemo}
-                disabled={seeding || demoAlreadyExists}
-                className={`shrink-0 text-sm font-semibold px-4 py-2 rounded-xl transition-colors ${
-                  demoAlreadyExists
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                }`}
-              >
-                {seeding ? t('Génération…', 'Generating…') : demoAlreadyExists ? t('Déjà créé', 'Already created') : t('Générer →', 'Generate →')}
-              </button>
+              <div className="shrink-0">
+                {demoAlreadyExists ? (
+                  confirmDel ? (
+                    <div className="flex flex-col items-end gap-2">
+                      <p className="text-xs text-gray-500 max-w-[180px] text-right">
+                        {t('Supprimer définitivement les données de démo ?', 'Permanently delete the demo data?', '¿Eliminar definitivamente los datos de demostración?')}
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleDeleteDemo}
+                          disabled={deleting}
+                          className="text-sm font-semibold px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
+                        >
+                          {deleting ? t('Suppression…', 'Deleting…', 'Eliminando…') : t('Confirmer', 'Confirm', 'Confirmar')}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDel(false)}
+                          disabled={deleting}
+                          className="text-sm font-semibold px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+                        >
+                          {t('Annuler', 'Cancel', 'Cancelar')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg">
+                        ✓ {t('Créé', 'Created', 'Creado')}
+                      </span>
+                      <button
+                        onClick={() => { setConfirmDel(true); setSeedResult(null); }}
+                        className="text-sm font-semibold px-4 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
+                      >
+                        {t('Supprimer', 'Delete', 'Eliminar')}
+                      </button>
+                    </div>
+                  )
+                ) : (
+                  <button
+                    onClick={handleSeedDemo}
+                    disabled={seeding}
+                    className="text-sm font-semibold px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:opacity-50"
+                  >
+                    {seeding ? t('Génération…', 'Generating…') : t('Générer →', 'Generate →')}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}

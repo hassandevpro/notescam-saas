@@ -3,19 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { useAuthStore } from '../store/authStore';
+import { useT, tStatic } from '../lib/i18n';
 
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1)  return "À l'instant";
+  if (mins < 1)  return tStatic("À l'instant", 'Just now', 'Ahora mismo');
   if (mins < 60) return `${mins} min`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24)  return `${hrs} h`;
-  return `${Math.floor(hrs / 24)} j`;
+  return `${Math.floor(hrs / 24)} ${tStatic('j', 'd', 'd')}`;
 }
 
 // ── Vue ADMIN : activité notes des profs ──────────────────────────────────────
 function AdminDropdown({ onClose }) {
+  const t = useT();
   const navigate = useNavigate();
   const school        = useAuthStore((s) => s.school);
   const notifications = useNotificationsStore((s) => s.notifications);
@@ -33,24 +35,24 @@ function AdminDropdown({ onClose }) {
     <>
       <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
         <p className="text-sm font-bold text-slate-800">
-          Activité enseignants
+          {t('Activité enseignants', 'Teacher activity', 'Actividad de profesores')}
           {unreadCount > 0 && (
             <span className="ml-2 text-xs font-semibold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-full">
-              {unreadCount} nouveau{unreadCount > 1 ? 'x' : ''}
+              {unreadCount} {t('nouveau', 'new', 'nuevo')}{unreadCount > 1 ? 'x' : ''}
             </span>
           )}
         </p>
         {unreadCount > 0 && (
           <button onClick={() => school?.id && markAllRead(school.id)}
             className="text-xs text-slate-400 hover:text-brand-600 transition-colors">
-            Tout lire
+            {t('Tout lire', 'Mark all read', 'Marcar todo leído')}
           </button>
         )}
       </div>
 
       <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
         {notifications.length === 0 && (
-          <div className="px-4 py-8 text-center text-sm text-slate-400">Aucune activité</div>
+          <div className="px-4 py-8 text-center text-sm text-slate-400">{t('Aucune activité', 'No activity', 'Sin actividad')}</div>
         )}
         {notifications.map((notif) => (
           <button key={notif.id} onClick={() => handleClick(notif)}
@@ -59,9 +61,9 @@ function AdminDropdown({ onClose }) {
             <div className="min-w-0 flex-1">
               <p className={`text-sm leading-snug ${!notif.read ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>
                 <span className="text-brand-700">{notif.teacher_name}</span>
-                {' — notes '}
+                {` — ${t('notes', 'grades', 'notas')} `}
                 <span className="font-semibold">{notif.class_name}</span>
-                {notif.sequence && <span className="text-slate-400 font-normal"> · Séq {notif.sequence}</span>}
+                {notif.sequence && <span className="text-slate-400 font-normal"> · {t('Séq', 'Seq', 'Sec')} {notif.sequence}</span>}
               </p>
               <p className="text-xs text-slate-400 mt-0.5">{timeAgo(notif.created_at)}</p>
             </div>
@@ -73,7 +75,7 @@ function AdminDropdown({ onClose }) {
       <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50/50">
         <button onClick={() => { onClose(); navigate('/app/monitor'); }}
           className="text-xs text-brand-600 hover:text-brand-700 font-semibold transition-colors">
-          Tableau de surveillance →
+          {t('Tableau de surveillance', 'Monitoring board', 'Panel de seguimiento')} →
         </button>
       </div>
     </>
@@ -82,6 +84,7 @@ function AdminDropdown({ onClose }) {
 
 // ── Vue ENSEIGNANT : messages reçus de l'admin ────────────────────────────────
 function TeacherDropdown({ onClose }) {
+  const t = useT();
   const messages   = useMessagesStore((s) => s.messages);
   const unreadCount = useMessagesStore((s) => s.unreadCount);
   const markRead   = useMessagesStore((s) => s.markRead);
@@ -98,17 +101,17 @@ function TeacherDropdown({ onClose }) {
     <>
       <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
         <p className="text-sm font-bold text-slate-800">
-          Messages
+          {t('Messages', 'Messages', 'Mensajes')}
           {unreadCount > 0 && (
             <span className="ml-2 text-xs font-semibold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-full">
-              {unreadCount} nouveau{unreadCount > 1 ? 'x' : ''}
+              {unreadCount} {t('nouveau', 'new', 'nuevo')}{unreadCount > 1 ? 'x' : ''}
             </span>
           )}
         </p>
         {unreadCount > 0 && (
           <button onClick={markAllRead}
             className="text-xs text-slate-400 hover:text-brand-600 transition-colors">
-            Tout lire
+            {t('Tout lire', 'Mark all read', 'Marcar todo leído')}
           </button>
         )}
       </div>
@@ -117,7 +120,7 @@ function TeacherDropdown({ onClose }) {
         {messages.length === 0 && (
           <div className="px-4 py-8 text-center">
             <div className="text-2xl mb-2">📩</div>
-            <p className="text-sm text-slate-400">Aucun message de l'administration</p>
+            <p className="text-sm text-slate-400">{t("Aucun message de l'administration", 'No messages from administration', 'Sin mensajes de la administración')}</p>
           </div>
         )}
         {messages.map((msg) => (

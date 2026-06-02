@@ -8,6 +8,9 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { resolveCountryCode } from '../countries';
 import { geGradeMax, gePrimaryUsesCoef } from './useCountry';
+import { supabase } from './supabase';
+import { fetchClasses } from './schoolService';
+import { classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB } from './db';
 
 function rnd(min, max) {
   return Math.round((Math.random() * (max - min) + min) * 10) / 10;
@@ -195,4 +198,70 @@ export async function seedDemoYear(schoolId, year) {
   }
 
   return { totalClasses, totalSubjects, totalStudents, totalGrades };
+}
+
+// ── Suppression des données de démo ──────────────────────────────────────────
+// Supprime toutes les classes de l'année `year` (et, par cascade FK côté
+// Supabase, leurs matières, élèves, notes, emplois du temps, absences…).
+// Nettoie également le cache IndexedDB et l'état du store en mémoire.
+// N'envoie PAS les enregistrements à la corbeille : ce sont des données de test.
+export async function deleteDemoYear(schoolId, year) {
+  // 1. Rassembler les IDs des classes de l'année démo (distant + cache local).
+  const idSet = new Set();
+
+  if (navigator.onLine) {
+    const remote = await fetchClasses(schoolId, year).catch(() => null);
+    (remote || []).forEach((c) => idSet.add(c.id));
+  }
+
+  const localClasses = await classesDB.getAll();
+  localClasses
+    .filter((c) => c.school_id === schoolId && c.current_year === year)
+    .forEach((c) => idSet.add(c.id));
+
+  const ids = [...idSet];
+  if (ids.length === 0) return { deletedClasses: 0 };
+
+  // 2. Suppression côté Supabase — le ON DELETE CASCADE retire matières,
+  //    élèves, notes, etc. Hors ligne (ou en cas d'échec) : on met en file.
+  let synced = false;
+  if (navigator.onLine) {
+    const { error } = await supabase.from('classes').delete().in('id', ids);
+    synced = !error;
+  }
+  if (!synced) {
+    for (const id of ids) {
+      await syncQueueDB.push({ table: 'classes', operation: 'delete', payload: { id } });
+    }
+  }
+
+  // 3. Nettoyer le cache IndexedDB (matières, élèves, notes, puis classes).
+  const subs = await subjectsDB.getAll();
+  for (const s of subs) if (idSet.has(s.class_id)) await subjectsDB.delete(s.id);
+
+  const studs = await studentsDB.getAll();
+  for (const s of studs) if (idSet.has(s.class_id)) await studentsDB.delete(s.id);
+
+  const grades = await gradesDB.getAll();
+  for (const g of grades) if (idSet.has(g.class_id)) await gradesDB.delete(g.key);
+
+  for (const id of ids) await classesDB.delete(id);
+
+  // 4. Retirer les enregistrements correspondants du store en mémoire
+  //    (utile si l'année démo est l'année consultée).
+  useSchoolStore.setState((s) => {
+    const gradeMap = {};
+    for (const [k, v] of Object.entries(s.gradeMap || {})) {
+      // clé note = "${classId}_${studentId}_${sequence}" (UUID = pas d'underscore)
+      if (!idSet.has(k.split('_')[0])) gradeMap[k] = v;
+    }
+    return {
+      classes:  s.classes.filter((c) => !idSet.has(c.id)),
+      subjects: s.subjects.filter((x) => !idSet.has(x.class_id)),
+      students: s.students.filter((x) => !idSet.has(x.class_id)),
+      gradeMap,
+    };
+  });
+
+  return { deletedClasses: ids.length };
 }

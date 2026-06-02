@@ -15,6 +15,9 @@ import {
 
 const DAYS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 const DAYS_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAYS_ES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+const daysFor = (lang) => (lang === 'en' ? DAYS_EN : lang === 'es' ? DAYS_ES : DAYS_FR);
 
 const EMPTY_FORM = {
   day_of_week: 1,
@@ -71,7 +74,7 @@ function SlotCard({ slot, subjects, teachers, classes, onEdit, onDelete, showCla
 // ── Slot modal ────────────────────────────────────────────────────────────────
 function SlotModal({ initial, subjects, teachers, onSave, onClose, t }) {
   const lang = getLang();
-  const DAYS = lang === 'en' ? DAYS_EN : DAYS_FR;
+  const DAYS = daysFor(lang);
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
   const [saving, setSaving] = useState(false);
   const set = (f) => (e) => setForm((p) => ({ ...p, [f]: e.target.value }));
@@ -153,7 +156,7 @@ export default function Timetable() {
   const t         = useT();
   const { f }     = usePlan();
   const lang      = getLang();
-  const DAYS      = lang === 'en' ? DAYS_EN : DAYS_FR;
+  const DAYS      = daysFor(lang);
 
   const role      = useAuthStore((s) => s.role);
   const school    = useAuthStore((s) => s.school);

@@ -19,21 +19,21 @@ function initials(name = '') {
 }
 
 const STATUS_CFG = {
-  absent:  { label: 'Absent',  short: 'A', active: 'bg-red-500 text-white border-red-500',    passive: 'text-gray-400 border-gray-200 hover:border-red-300' },
-  retard:  { label: 'Retard',  short: 'R', active: 'bg-amber-500 text-white border-amber-500', passive: 'text-gray-400 border-gray-200 hover:border-amber-300' },
-  excused: { label: 'Excusé',  short: 'E', active: 'bg-blue-500 text-white border-blue-500',   passive: 'text-gray-400 border-gray-200 hover:border-blue-300' },
+  absent:  { label: 'Absent', en: 'Absent', es: 'Ausente',     short: 'A', active: 'bg-red-500 text-white border-red-500',    passive: 'text-gray-400 border-gray-200 hover:border-red-300' },
+  retard:  { label: 'Retard', en: 'Late',   es: 'Retraso',     short: 'R', active: 'bg-amber-500 text-white border-amber-500', passive: 'text-gray-400 border-gray-200 hover:border-amber-300' },
+  excused: { label: 'Excusé', en: 'Excused', es: 'Justificado', short: 'E', active: 'bg-blue-500 text-white border-blue-500',   passive: 'text-gray-400 border-gray-200 hover:border-blue-300' },
 };
 
 const SESSIONS = [
-  { value: '',           label: 'Journée entière' },
-  { value: 'matin',     label: 'Matin' },
-  { value: 'apres-midi',label: 'Après-midi' },
-  { value: 'H1',        label: 'Heure 1' },
-  { value: 'H2',        label: 'Heure 2' },
-  { value: 'H3',        label: 'Heure 3' },
-  { value: 'H4',        label: 'Heure 4' },
-  { value: 'H5',        label: 'Heure 5' },
-  { value: 'H6',        label: 'Heure 6' },
+  { value: '',           label: 'Journée entière', en: 'Full day',   es: 'Jornada completa' },
+  { value: 'matin',     label: 'Matin',           en: 'Morning',    es: 'Mañana' },
+  { value: 'apres-midi',label: 'Après-midi',      en: 'Afternoon',  es: 'Tarde' },
+  { value: 'H1',        label: 'Heure 1',         en: 'Period 1',   es: 'Hora 1' },
+  { value: 'H2',        label: 'Heure 2',         en: 'Period 2',   es: 'Hora 2' },
+  { value: 'H3',        label: 'Heure 3',         en: 'Period 3',   es: 'Hora 3' },
+  { value: 'H4',        label: 'Heure 4',         en: 'Period 4',   es: 'Hora 4' },
+  { value: 'H5',        label: 'Heure 5',         en: 'Period 5',   es: 'Hora 5' },
+  { value: 'H6',        label: 'Heure 6',         en: 'Period 6',   es: 'Hora 6' },
 ];
 
 // Module-level caches — survive component unmount/remount so navigation back is instant
@@ -43,6 +43,7 @@ const _statsCache  = {};
 // ── Onglet Saisie ─────────────────────────────────────────────────────────────
 
 function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
+  const t          = useT();
   const userId     = useAuthStore((s) => s.userId);
 
   const classId    = useUiStore((s) => s.absencesClassId);
@@ -149,18 +150,18 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Classe *</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">{t('Classe *', 'Class *', 'Clase *')}</label>
             <select
               value={classId}
               onChange={(e) => { setClassId(e.target.value); setSubjectId(''); setMarks({}); setExisting({}); }}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
             >
-              <option value="">— Choisir —</option>
+              <option value="">{t('— Choisir —', '— Select —', '— Elegir —')}</option>
               {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Date *</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">{t('Date *', 'Date *', 'Fecha *')}</label>
             <input
               type="date"
               value={date}
@@ -169,23 +170,23 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Période</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">{t('Période', 'Period', 'Período')}</label>
             <select
               value={session}
               onChange={(e) => setSession(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
             >
-              {SESSIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              {SESSIONS.map((s) => <option key={s.value} value={s.value}>{t(s.label, s.en, s.es)}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Matière</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">{t('Matière', 'Subject', 'Asignatura')}</label>
             <select
               value={subjectId}
               onChange={(e) => setSubjectId(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
             >
-              <option value="">— Toutes —</option>
+              <option value="">{t('— Toutes —', '— All —', '— Todas —')}</option>
               {classSubjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
@@ -196,33 +197,33 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
       {!classId ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
           <div className="text-4xl mb-3">📋</div>
-          <p className="text-sm text-gray-500">Sélectionnez une classe pour saisir les absences.</p>
+          <p className="text-sm text-gray-500">{t('Sélectionnez une classe pour saisir les absences.', 'Select a class to record attendance.', 'Seleccione una clase para registrar las faltas.')}</p>
         </div>
       ) : loading ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400 text-sm animate-pulse">
-          Chargement…
+          {t('Chargement…', 'Loading…', 'Cargando…')}
         </div>
       ) : classStudents.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400 text-sm">
-          Aucun élève dans cette classe.
+          {t('Aucun élève dans cette classe.', 'No students in this class.', 'No hay alumnos en esta clase.')}
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              {classStudents.length} élève{classStudents.length > 1 ? 's' : ''}
+              {classStudents.length} {t('élève', 'student', 'alumno')}{classStudents.length > 1 ? 's' : ''}
               {markedCount > 0 && (
-                <span className="ml-2 text-red-600">· {markedCount} signalé{markedCount > 1 ? 's' : ''}</span>
+                <span className="ml-2 text-red-600">· {markedCount} {t('signalé', 'flagged', 'señalado')}{markedCount > 1 ? 's' : ''}</span>
               )}
             </span>
             <div className="flex items-center gap-2">
-              {saved && <span className="text-xs text-emerald-600 font-semibold">✓ Enregistré</span>}
+              {saved && <span className="text-xs text-emerald-600 font-semibold">✓ {t('Enregistré', 'Saved', 'Guardado')}</span>}
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
               >
-                {saving ? 'Enregistrement…' : 'Enregistrer'}
+                {saving ? t('Enregistrement…', 'Saving…', 'Guardando…') : t('Enregistrer', 'Save', 'Guardar')}
               </button>
             </div>
           </div>
@@ -232,7 +233,7 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
             {Object.entries(STATUS_CFG).map(([key, cfg]) => (
               <span key={key} className="flex items-center gap-1">
                 <span className={`w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center border ${cfg.active}`}>{cfg.short}</span>
-                {cfg.label}
+                {t(cfg.label, cfg.en, cfg.es)}
               </span>
             ))}
           </div>
@@ -254,7 +255,7 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
                       <button
                         key={key}
                         onClick={() => toggleMark(student.id, key)}
-                        title={cfg.label}
+                        title={t(cfg.label, cfg.en, cfg.es)}
                         className={`w-8 h-8 rounded-lg text-xs font-bold border transition-colors ${
                           currentStatus === key ? cfg.active : `bg-gray-50 border ${cfg.passive}`
                         }`}
@@ -276,6 +277,7 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
 // ── Onglet Statistiques ────────────────────────────────────────────────────────
 
 function StatsTab({ schoolId, yearLabel, classes, students }) {
+  const t              = useT();
   const filterClass    = useUiStore((s) => s.absencesStatsClassId);
   const setFilterClass = useUiStore((s) => s.setAbsencesStatsClassId);
 
@@ -336,18 +338,18 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Classe</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">{t('Classe', 'Class', 'Clase')}</label>
             <select
               value={filterClass}
               onChange={(e) => setFilterClass(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
             >
-              <option value="">Toutes les classes</option>
+              <option value="">{t('Toutes les classes', 'All classes', 'Todas las clases')}</option>
               {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Du</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">{t('Du', 'From', 'Desde')}</label>
             <input
               type="date"
               value={dateFrom}
@@ -356,7 +358,7 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Au</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">{t('Au', 'To', 'Hasta')}</label>
             <input
               type="date"
               value={dateTo}
@@ -372,15 +374,15 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-xl p-4 shadow-sm border-l-4 border-red-400">
             <div className="text-2xl font-bold text-gray-900">{totals.absent}</div>
-            <div className="text-xs font-semibold text-gray-500 mt-1">Absences</div>
+            <div className="text-xs font-semibold text-gray-500 mt-1">{t('Absences', 'Absences', 'Ausencias')}</div>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm border-l-4 border-amber-400">
             <div className="text-2xl font-bold text-gray-900">{totals.retard}</div>
-            <div className="text-xs font-semibold text-gray-500 mt-1">Retards</div>
+            <div className="text-xs font-semibold text-gray-500 mt-1">{t('Retards', 'Late', 'Retrasos')}</div>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm border-l-4 border-blue-400">
             <div className="text-2xl font-bold text-gray-900">{totals.excused}</div>
-            <div className="text-xs font-semibold text-gray-500 mt-1">Excusées</div>
+            <div className="text-xs font-semibold text-gray-500 mt-1">{t('Excusées', 'Excused', 'Justificadas')}</div>
           </div>
         </div>
       )}
@@ -388,30 +390,30 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
       {/* Tableau */}
       {loading ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center text-gray-400 text-sm animate-pulse">
-          Chargement…
+          {t('Chargement…', 'Loading…', 'Cargando…')}
         </div>
       ) : stats.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
           <div className="text-4xl mb-3">✅</div>
-          <p className="text-sm text-gray-500">Aucune absence enregistrée sur cette période.</p>
+          <p className="text-sm text-gray-500">{t('Aucune absence enregistrée sur cette période.', 'No absences recorded for this period.', 'No hay faltas registradas en este período.')}</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/60">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              {stats.length} élève{stats.length > 1 ? 's' : ''} avec absences
+              {stats.length} {t('élève', 'student', 'alumno')}{stats.length > 1 ? 's' : ''} {t('avec absences', 'with absences', 'con faltas')}
             </span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  <th className="px-5 py-3 text-left">Élève</th>
-                  <th className="px-4 py-3 text-left">Classe</th>
-                  <th className="px-4 py-3 text-center text-red-500">Abs.</th>
-                  <th className="px-4 py-3 text-center text-amber-500">Retard</th>
-                  <th className="px-4 py-3 text-center text-blue-500">Excusé</th>
-                  <th className="px-4 py-3 text-center">Total</th>
+                  <th className="px-5 py-3 text-left">{t('Élève', 'Student', 'Alumno')}</th>
+                  <th className="px-4 py-3 text-left">{t('Classe', 'Class', 'Clase')}</th>
+                  <th className="px-4 py-3 text-center text-red-500">{t('Abs.', 'Abs.', 'Aus.')}</th>
+                  <th className="px-4 py-3 text-center text-amber-500">{t('Retard', 'Late', 'Retraso')}</th>
+                  <th className="px-4 py-3 text-center text-blue-500">{t('Excusé', 'Excused', 'Justif.')}</th>
+                  <th className="px-4 py-3 text-center">{t('Total', 'Total', 'Total')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">

@@ -139,7 +139,8 @@ function BulkFeeModal({ classes, students, activeYear, saveFee, onClose }) {
         <p className="text-sm text-gray-500">
           {t(
             "Définir le même montant de frais annuels pour tous les élèves d'une classe. Les paiements déjà enregistrés ne sont pas modifiés.",
-            "Set the same annual fee amount for all students in a class. Existing payments are not affected."
+            "Set the same annual fee amount for all students in a class. Existing payments are not affected.",
+            "Definir el mismo importe de cuota anual para todos los alumnos de una clase. Los pagos ya registrados no se modifican."
           )}
         </p>
         <div>

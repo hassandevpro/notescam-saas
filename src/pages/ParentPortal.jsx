@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { pickLang } from '../lib/i18n';
 
-function fmt(n) {
-  return new Intl.NumberFormat('fr-FR').format(n ?? 0) + ' FCFA';
+const localeFor = (lang) => (lang === 'es' ? 'es-ES' : lang === 'en' ? 'en-US' : 'fr-FR');
+
+function fmt(n, locale = 'fr-FR') {
+  return new Intl.NumberFormat(locale).format(n ?? 0) + ' FCFA';
 }
 
-function fmtDate(d) {
+function fmtDate(d, locale = 'fr-FR') {
   if (!d) return null;
-  return new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  return new Date(d).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 function calcSeqAvg(subjects, gradeMap, seq, sys) {
@@ -24,7 +27,10 @@ function calcSeqAvg(subjects, gradeMap, seq, sys) {
   return tc ? Math.round((sw / tc) * 100) / 100 : null;
 }
 
-const SEQ_LABELS = ['Séq 1', 'Séq 2', 'Séq 3', 'Séq 4', 'Séq 5', 'Séq 6'];
+const seqLabels = (lang) => {
+  const prefix = pickLang(lang, 'Séq', 'Seq', 'Sec');
+  return [1, 2, 3, 4, 5, 6].map((n) => `${prefix} ${n}`);
+};
 
 export default function ParentPortal() {
   const { token } = useParams();
@@ -43,10 +49,14 @@ export default function ParentPortal() {
     })();
   }, [token]);
 
+  const lang   = data?.school?.language || 'fr';
+  const locale = localeFor(lang);
+  const t      = (fr, en, es) => pickLang(lang, fr, en, es);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-400 animate-pulse text-sm">Chargement…</p>
+        <p className="text-gray-400 animate-pulse text-sm">{t('Chargement…', 'Loading…', 'Cargando…')}</p>
       </div>
     );
   }
@@ -56,8 +66,8 @@ export default function ParentPortal() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-5">
         <div className="bg-white rounded-2xl p-8 max-w-sm w-full shadow text-center">
           <div className="text-5xl mb-4">🔒</div>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">Lien invalide</h2>
-          <p className="text-gray-500 text-sm">{error || 'Ce lien parent n\'est pas valide.'}</p>
+          <h2 className="text-lg font-bold text-gray-900 mb-2">{t('Lien invalide', 'Invalid link', 'Enlace no válido')}</h2>
+          <p className="text-gray-500 text-sm">{error || t("Ce lien parent n'est pas valide.", 'This parent link is not valid.', 'Este enlace de padres no es válido.')}</p>
         </div>
       </div>
     );
@@ -86,8 +96,10 @@ export default function ParentPortal() {
     ? Math.min(100, Math.round(((fee.frais_payes || 0) / fee.frais_annuels) * 100))
     : 0;
 
-  const genderLabel = student.gender === 'Masculin' ? '♂ Masculin'
-    : student.gender === 'Feminin' ? '♀ Féminin'
+  const SEQ_LABELS = seqLabels(lang);
+
+  const genderLabel = student.gender === 'Masculin' ? `♂ ${t('Masculin', 'Male', 'Masculino')}`
+    : student.gender === 'Feminin' ? `♀ ${t('Féminin', 'Female', 'Femenino')}`
     : student.gender;
 
   return (
@@ -103,7 +115,7 @@ export default function ParentPortal() {
             </div>
           )}
           <div>
-            <p className="text-xs text-gray-400 font-semibold uppercase tracking-widest leading-none">Portail Parents</p>
+            <p className="text-xs text-gray-400 font-semibold uppercase tracking-widest leading-none">{t('Portail Parents', 'Parent Portal', 'Portal de Padres')}</p>
             <h1 className="text-base font-bold text-gray-900 leading-tight">{school?.name}</h1>
           </div>
         </div>
@@ -113,7 +125,7 @@ export default function ParentPortal() {
 
         {/* Carte élève */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold mb-3">Élève</p>
+          <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold mb-3">{t('Élève', 'Student', 'Alumno')}</p>
           <h2 className="text-xl font-bold text-gray-900">{student.name}</h2>
           <div className="flex flex-wrap gap-2 mt-2">
             {student.matricule && (
@@ -135,7 +147,7 @@ export default function ParentPortal() {
             )}
             {student.date_naissance && (
               <span className="text-xs bg-gray-50 text-gray-500 px-2 py-0.5 rounded">
-                Né(e) le {fmtDate(student.date_naissance)}
+                {t('Né(e) le', 'Born on', 'Nacido(a) el')} {fmtDate(student.date_naissance, locale)}
               </span>
             )}
           </div>
@@ -144,32 +156,32 @@ export default function ParentPortal() {
         {/* Carte frais */}
         {fee && fee.frais_annuels > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold mb-4">Frais de scolarité</p>
+            <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold mb-4">{t('Frais de scolarité', 'Tuition fees', 'Cuota escolar')}</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
               <div>
-                <p className="text-xs text-gray-400 mb-0.5">Montant annuel</p>
-                <p className="font-bold text-gray-900 text-sm">{fmt(fee.frais_annuels)}</p>
+                <p className="text-xs text-gray-400 mb-0.5">{t('Montant annuel', 'Annual amount', 'Importe anual')}</p>
+                <p className="font-bold text-gray-900 text-sm">{fmt(fee.frais_annuels, locale)}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400 mb-0.5">Montant payé</p>
+                <p className="text-xs text-gray-400 mb-0.5">{t('Montant payé', 'Amount paid', 'Importe pagado')}</p>
                 <p className={`font-bold text-sm ${
                   feeStatus === 'paid' ? 'text-emerald-600'
                   : feeStatus === 'partial' ? 'text-amber-600'
                   : 'text-red-500'
                 }`}>
-                  {fmt(fee.frais_payes || 0)}
+                  {fmt(fee.frais_payes || 0, locale)}
                 </p>
               </div>
               {feeStatus !== 'paid' && (
                 <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Solde restant</p>
-                  <p className="font-bold text-red-500 text-sm">{fmt(fee.frais_annuels - (fee.frais_payes || 0))}</p>
+                  <p className="text-xs text-gray-400 mb-0.5">{t('Solde restant', 'Remaining balance', 'Saldo pendiente')}</p>
+                  <p className="font-bold text-red-500 text-sm">{fmt(fee.frais_annuels - (fee.frais_payes || 0), locale)}</p>
                 </div>
               )}
               {fee.date_dernier_paiement && (
                 <div>
-                  <p className="text-xs text-gray-400 mb-0.5">Dernier paiement</p>
-                  <p className="text-sm text-gray-700">{fmtDate(fee.date_dernier_paiement)}</p>
+                  <p className="text-xs text-gray-400 mb-0.5">{t('Dernier paiement', 'Last payment', 'Último pago')}</p>
+                  <p className="text-sm text-gray-700">{fmtDate(fee.date_dernier_paiement, locale)}</p>
                 </div>
               )}
             </div>
@@ -183,7 +195,7 @@ export default function ParentPortal() {
                 style={{ width: `${feePct}%` }}
               />
             </div>
-            <p className="text-xs text-right mt-1 text-gray-400">{feePct}% payé</p>
+            <p className="text-xs text-right mt-1 text-gray-400">{feePct}% {t('payé', 'paid', 'pagado')}</p>
           </div>
         )}
 
@@ -191,14 +203,14 @@ export default function ParentPortal() {
         {subjects && subjects.length > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
             <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold mb-4">
-              Notes — Système {sys} (/{maxScale})
+              {t('Notes', 'Grades', 'Notas')} — {t('Système', 'System', 'Sistema')} {sys} (/{maxScale})
             </p>
             <div className="overflow-x-auto -mx-5 px-5">
               <table className="w-full text-sm min-w-[500px]">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    <th className="text-left py-2 pr-3 text-xs font-semibold text-gray-600 min-w-[120px]">Matière</th>
-                    <th className="text-center py-2 px-1 text-xs font-semibold text-gray-400 w-8">Coef</th>
+                    <th className="text-left py-2 pr-3 text-xs font-semibold text-gray-600 min-w-[120px]">{t('Matière', 'Subject', 'Asignatura')}</th>
+                    <th className="text-center py-2 px-1 text-xs font-semibold text-gray-400 w-8">{t('Coef', 'Coef', 'Coef')}</th>
                     {SEQ_LABELS.map((l) => (
                       <th key={l} className="text-center py-2 px-1 text-xs font-semibold text-gray-400 w-12">{l}</th>
                     ))}
@@ -232,7 +244,7 @@ export default function ParentPortal() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-gray-200 bg-gray-50">
-                    <td colSpan={2} className="py-3 pr-3 text-xs font-bold text-gray-700">Moyenne générale</td>
+                    <td colSpan={2} className="py-3 pr-3 text-xs font-bold text-gray-700">{t('Moyenne générale', 'Overall average', 'Media general')}</td>
                     {seqAvgs.map((avg, i) => (
                       <td key={i} className="py-3 px-1 text-center">
                         {avg !== null ? (
@@ -249,13 +261,13 @@ export default function ParentPortal() {
               </table>
             </div>
             <p className="text-xs text-gray-300 mt-3">
-              Vert = admis ({sys === 'FR' ? '≥ 10/20' : '≥ 50/100'}) · Rouge = insuffisant
+              {t('Vert = admis', 'Green = pass', 'Verde = aprobado')} ({sys === 'FR' ? '≥ 10/20' : '≥ 50/100'}) · {t('Rouge = insuffisant', 'Red = insufficient', 'Rojo = insuficiente')}
             </p>
           </div>
         )}
 
         <p className="text-center text-xs text-gray-300 pb-6">
-          NotesCam · Données réservées à la famille de l'élève
+          NotesCam · {t("Données réservées à la famille de l'élève", 'Data reserved for the student\'s family', 'Datos reservados a la familia del alumno')}
         </p>
       </div>
     </div>

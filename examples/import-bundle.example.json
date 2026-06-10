@@ -1,0 +1,83 @@
+{
+  "format": "notescam-import/v1",
+  "teachers": [
+    { "name": "M. Abena", "email": "abena@ecole.cm", "phone": "+237690000001", "specialty": "Mathématiques" },
+    { "name": "Mme Ngo", "email": "ngo@ecole.cm", "specialty": "Français" }
+  ],
+  "years": [
+    {
+      "year": "2019-2020",
+      "classes": [
+        {
+          "name": "6e A",
+          "level": "6e",
+          "section": "A",
+          "system": "FR",
+          "teacher": "M. Abena",
+          "subjects": [
+            { "name": "Mathématiques", "coef": 4, "max": 20 },
+            { "name": "Français", "coef": 4, "max": 20 }
+          ],
+          "students": [
+            {
+              "name": "NDONGO Paul",
+              "matricule": "M-2019-001",
+              "gender": "M",
+              "date_naissance": "2008-05-01",
+              "grades": [
+                { "subject": "Mathématiques", "sequence": 1, "value": 14 },
+                { "subject": "Mathématiques", "sequence": 2, "value": 12.5 },
+                { "subject": "Français", "sequence": 1, "value": 11 }
+              ],
+              "fees": {
+                "frais_annuels": 50000,
+                "payments": [
+                  { "amount": 25000, "date": "2019-10-05", "note": "1ère tranche" },
+                  { "amount": 25000, "date": "2020-01-10", "note": "2e tranche" }
+                ]
+              }
+            },
+            {
+              "name": "EYENGA Marie",
+              "matricule": "M-2019-002",
+              "gender": "F",
+              "date_naissance": "2008-11-20",
+              "grades": [
+                { "subject": "Mathématiques", "sequence": 1, "value": 16 },
+                { "subject": "Français", "sequence": 1, "value": 15 }
+              ],
+              "fees": { "frais_annuels": 50000, "frais_payes": 50000 }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "year": "2020-2021",
+      "classes": [
+        {
+          "name": "5e A",
+          "level": "5e",
+          "section": "A",
+          "system": "FR",
+          "subjects": [
+            { "name": "Mathématiques", "coef": 4, "max": 20 },
+            { "name": "Français", "coef": 4, "max": 20 }
+          ],
+          "students": [
+            {
+              "name": "NDONGO Paul",
+              "matricule": "M-2019-001",
+              "gender": "M",
+              "date_naissance": "2008-05-01",
+              "grades": [
+                { "subject": "Mathématiques", "sequence": 1, "value": 13 }
+              ],
+              "fees": { "frais_annuels": 55000, "frais_payes": 30000 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

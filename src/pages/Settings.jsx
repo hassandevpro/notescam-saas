@@ -10,6 +10,7 @@ import { DEFAULT_GRADE_SCALE } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
 import SchoolCalendar from '../components/SchoolCalendar';
 import StaffManager from '../components/StaffManager';
+import DataImportPanel from '../components/DataImportPanel';
 
 // Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
 function buildGeScale(maxScale = 10) {
@@ -775,6 +776,13 @@ export default function Settings() {
         {isAdmin && (
           <Section title={t('Calendrier scolaire', 'School calendar')} className="mb-6">
             <SchoolCalendar />
+          </Section>
+        )}
+
+        {/* ── 7. Import de données historiques (migration depuis une autre app) ── */}
+        {isAdmin && (
+          <Section title={t('Import de données', 'Data import')} className="mb-6">
+            <DataImportPanel />
           </Section>
         )}
 

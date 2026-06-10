@@ -1,0 +1,26 @@
+# Déploiement cloud (SPA) : on n'envoie QUE ce qu'il faut pour `vite build`.
+# Le CLI Vercel n'utilise pas .gitignore pour l'upload — d'où ce fichier dédié,
+# sinon les binaires de packaging (.exe, Node portable) gonflent l'upload (~180 Mo).
+
+# Édition LAN & packaging (sans rapport avec le build cloud)
+packaging/
+server/
+
+# Outillage / scripts hors build
+scripts/
+examples/
+
+# Vidéo Remotion (lourd, non nécessaire au build)
+remotion/
+
+# Sorties de build (Vercel reconstruit dist/)
+dist/
+
+# Docs
+*.md
+
+# Artefacts éventuels
+*.exe
+*.zip
+*.sqlite
+*.db

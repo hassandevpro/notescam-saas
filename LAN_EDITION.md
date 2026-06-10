@@ -84,6 +84,16 @@ En production, pointer ailleurs via variables d'env :
 **Restant** :
 - ⬜ ETL optionnel export Supabase → import SQLite (écoles passant du cloud au LAN).
 
+## Licence — verrou par machine (node-locked)
+
+- L'écran d'activation affiche un **identifiant machine** stable (Windows
+  MachineGuid → MAC → aléatoire persistant, haché en `A1B2-C3D4-E5F6-7890`).
+- L'école communique cet identifiant à l'éditeur, qui signe une licence liée :
+  `node packaging/license/sign-license.mjs --school "…" --plan pro --machine A1B2-C3D4-E5F6-7890`.
+- À l'activation, le serveur refuse une licence dont `machine_id` ne correspond
+  pas à ce poste (`machine_mismatch`). Une licence **sans** `machine_id` reste
+  valable partout (rétrocompatible).
+
 ## Sécurité — points de vigilance
 
 - **HTTP sur le LAN** : `http://<IP>` n'est pas un contexte sécurisé → le Service

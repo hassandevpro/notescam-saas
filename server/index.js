@@ -10,7 +10,7 @@ import { mkdirSync, createReadStream, existsSync, writeFileSync, unlinkSync } fr
 import { randomUUID } from 'node:crypto';
 
 import { db, getSchool, DATA_DIR } from './db.js';
-import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey, licensingEnabled } from './security.js';
+import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey, licensingEnabled, machineFingerprint } from './security.js';
 import { runQuery } from './query.js';
 import { runRpc } from './rpc.js';
 import { scheduleBackups, runBackup } from './backup.js';
@@ -128,17 +128,32 @@ app.get('/api/license', () => {
   const row = db.prepare('SELECT * FROM license_activation WHERE id = 1').get() || null;
   const school = getSchool();
   // licensing_enabled = false -> l'app ne bloque pas (installation non provisionnée)
-  return { data: { activation: row, school, licensing_enabled: licensingEnabled() }, error: null };
+  // machine_id = empreinte de CETTE machine, à communiquer à l'éditeur pour
+  // obtenir une licence verrouillée (node-locked).
+  return { data: { activation: row, school, licensing_enabled: licensingEnabled(), machine_id: machineFingerprint() }, error: null };
 });
+
+// Messages d'erreur d'activation lisibles par école.
+const LICENSE_ERR = {
+  no_public_key:    'Cette installation n’attend pas de licence.',
+  malformed:        'Clé de licence mal formée.',
+  bad_signature:    'Clé de licence invalide (signature incorrecte).',
+  expired:          'Cette licence a expiré.',
+  machine_mismatch: 'Cette licence est verrouillée sur une autre machine. Vérifiez l’identifiant machine et demandez une clé pour ce poste.',
+  error:            'Clé de licence illisible.',
+};
 
 app.post('/api/license/activate', (req, reply) => {
   const { license_key } = req.body || {};
-  const res = verifyLicenseKey(license_key);
-  if (!res.ok) return reply.code(400).send({ data: null, error: { message: `Licence invalide : ${res.reason}` } });
-  db.prepare(`INSERT INTO license_activation (id, license_key, payload, activated_at)
-              VALUES (1, ?, ?, ?)
-              ON CONFLICT(id) DO UPDATE SET license_key=excluded.license_key, payload=excluded.payload, activated_at=excluded.activated_at`)
-    .run(license_key, JSON.stringify(res.payload), new Date().toISOString());
+  const here = machineFingerprint();
+  const res = verifyLicenseKey(license_key, { machineId: here });
+  if (!res.ok) {
+    return reply.code(400).send({ data: null, error: { message: LICENSE_ERR[res.reason] || `Licence invalide : ${res.reason}` } });
+  }
+  db.prepare(`INSERT INTO license_activation (id, license_key, payload, activated_at, machine_id)
+              VALUES (1, ?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET license_key=excluded.license_key, payload=excluded.payload, activated_at=excluded.activated_at, machine_id=excluded.machine_id`)
+    .run(license_key, JSON.stringify(res.payload), new Date().toISOString(), here);
   // Reporte plan / expiration sur l'école si déjà créée
   const school = getSchool();
   if (school && res.payload) {

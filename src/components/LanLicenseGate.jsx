@@ -19,7 +19,8 @@ export default function LanLicenseGate({ children }) {
 }
 
 function LanGateInner({ children }) {
-  const [status, setStatus] = useState('loading'); // loading | locked | open
+  const [status, setStatus]       = useState('loading'); // loading | locked | open
+  const [machineId, setMachineId] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -29,6 +30,7 @@ function LanGateInner({ children }) {
         if (!alive) return;
         const enabled   = data?.licensing_enabled;
         const activated = !!data?.activation;
+        setMachineId(data?.machine_id || '');
         setStatus(!enabled || activated ? 'open' : 'locked');
       })
       .catch(() => alive && setStatus('open')); // fail-open si serveur muet
@@ -42,15 +44,21 @@ function LanGateInner({ children }) {
       </div>
     );
   }
-  if (status === 'locked') return <ActivationScreen />;
+  if (status === 'locked') return <ActivationScreen machineId={machineId} />;
   return children;
 }
 
-function ActivationScreen() {
+function ActivationScreen({ machineId }) {
   const [key, setKey]       = useState('');
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState('');
   const [info, setInfo]     = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyMachineId = async () => {
+    try { await navigator.clipboard.writeText(machineId); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { /* clipboard indisponible (HTTP) : copie manuelle */ }
+  };
 
   const activate = async () => {
     setBusy(true); setError(''); setInfo(null);
@@ -97,6 +105,28 @@ function ActivationScreen() {
           </div>
         ) : (
           <>
+            {machineId && (
+              <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
+                  Identifiant de cette machine
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 font-mono text-sm text-gray-900 bg-white border border-gray-200 rounded-lg px-3 py-2 tracking-wider select-all">
+                    {machineId}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={copyMachineId}
+                    className="px-3 py-2 text-xs font-semibold text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+                  >
+                    {copied ? 'Copié ✓' : 'Copier'}
+                  </button>
+                </div>
+                <p className="text-gray-400 text-xs mt-1.5">
+                  Communiquez cet identifiant à votre fournisseur pour obtenir une clé valable sur ce poste.
+                </p>
+              </div>
+            )}
             <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
               Clé de licence
             </label>

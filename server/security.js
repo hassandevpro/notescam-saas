@@ -6,11 +6,13 @@
 
 import {
   randomBytes, scryptSync, timingSafeEqual,
-  createHmac, verify as cryptoVerify, createPublicKey,
+  createHmac, createHash, verify as cryptoVerify, createPublicKey,
 } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execSync } from 'node:child_process';
+import { networkInterfaces } from 'node:os';
 import { DATA_DIR } from './db.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -89,7 +91,56 @@ export function licensingEnabled() {
   return !!LICENSE_PUBLIC_KEY_B64;
 }
 
-export function verifyLicenseKey(licenseKey) {
+// --- Empreinte machine (verrou de licence node-locked) ----------------
+// Identifiant STABLE de la machine, affiché à l'activation : l'école le
+// communique à l'éditeur, qui signe une licence liée (`--machine <empreinte>`).
+// Sources, par ordre de préférence (aucune dépendance native, sans admin) :
+//   1. Windows MachineGuid (registre) — stable même après réinstallation de l'app
+//   2. 1ʳᵉ adresse MAC physique
+//   3. identifiant aléatoire persistant dans DATA_DIR (dernier recours)
+// On hache la source brute -> empreinte courte lisible (ex. A1B2-C3D4-E5F6-7890).
+let _machineFp = null;
+function rawMachineId() {
+  // 1) Windows MachineGuid
+  try {
+    const out = execSync(
+      'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
+      { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }
+    ).toString();
+    const m = out.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/);
+    if (m) return 'winguid:' + m[1];
+  } catch { /* pas Windows / pas d'accès registre */ }
+
+  // 2) Première MAC physique non interne
+  try {
+    for (const list of Object.values(networkInterfaces())) {
+      for (const i of list || []) {
+        if (!i.internal && i.mac && i.mac !== '00:00:00:00:00:00') return 'mac:' + i.mac;
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 3) Aléatoire persistant (lié à cette installation)
+  const p = join(DATA_DIR, 'machine-id.key');
+  try {
+    if (existsSync(p)) return 'rnd:' + readFileSync(p, 'utf8').trim();
+    const id = randomBytes(16).toString('hex');
+    writeFileSync(p, id, { mode: 0o600 });
+    return 'rnd:' + id;
+  } catch {
+    return 'rnd:fallback';   // jamais en pratique
+  }
+}
+export function machineFingerprint() {
+  if (_machineFp) return _machineFp;
+  const hex = createHash('sha256').update(rawMachineId()).digest('hex').slice(0, 16).toUpperCase();
+  _machineFp = hex.match(/.{4}/g).join('-');   // A1B2-C3D4-E5F6-7890
+  return _machineFp;
+}
+
+// @param {string} licenseKey
+// @param {{ machineId?: string }} opts  empreinte de CETTE machine (pour le verrou)
+export function verifyLicenseKey(licenseKey, opts = {}) {
   if (!LICENSE_PUBLIC_KEY_B64) {
     return { ok: false, reason: 'no_public_key', payload: null };
   }
@@ -112,6 +163,15 @@ export function verifyLicenseKey(licenseKey) {
     const payload = JSON.parse(payloadBuf.toString('utf8'));
     if (payload.expires_at && new Date(payload.expires_at) < new Date()) {
       return { ok: false, reason: 'expired', payload };
+    }
+    // Verrou machine : si la licence est liée (`machine_id`), elle ne s'active
+    // que sur la machine correspondante. Une licence sans `machine_id` reste
+    // valable partout (rétrocompatible / licences non verrouillées).
+    if (payload.machine_id) {
+      const here = opts.machineId || machineFingerprint();
+      if (payload.machine_id !== here) {
+        return { ok: false, reason: 'machine_mismatch', payload };
+      }
     }
     return { ok: true, reason: null, payload };
   } catch (e) {

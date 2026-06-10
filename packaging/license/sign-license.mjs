@@ -44,5 +44,9 @@ const licenseKey = `${b64url(payloadBuf)}.${b64url(signature)}`;
 
 console.log('--- Licence générée ---');
 console.log(JSON.stringify(payload, null, 2));
+console.log(machine
+  ? `\n🔒 Verrouillée sur la machine : ${machine} (activable sur ce poste uniquement)`
+  : '\n🔓 Non verrouillée : activable sur n’importe quelle machine. Pour verrouiller,'
+    + '\n   relance avec --machine <identifiant affiché sur l’écran d’activation de l’école>.');
 console.log('\nClé à fournir à l’école (à coller dans l’écran d’activation) :\n');
 console.log(licenseKey);

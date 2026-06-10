@@ -6,10 +6,13 @@ import { useMessagesStore } from '../store/messagesStore';
 import { buildWhatsAppUrl } from '../lib/messagesService';
 import { fetchSequenceDates } from '../lib/sequenceDatesService';
 import Layout from '../components/Layout';
-import { useT, getLang } from '../lib/i18n';
+import SchoolCalendar from '../components/SchoolCalendar';
+import { useT, getLang, localeForLang } from '../lib/i18n';
+import { useCountry } from '../lib/useCountry';
 
 const SEQUENCES_FR = [1, 2, 3, 4, 5, 6];
 const SEQUENCES_EN = [1, 2, 3]; // Term 1/2/3
+const SEQUENCES_GE = [1, 2, 3]; // Guinea Eq : 3 trimestres / evaluaciones
 
 function timeAgo(dateStr) {
   if (!dateStr) return null;
@@ -204,10 +207,13 @@ function StatCard({ value, label, sub, color = 'border-brand-400' }) {
 
 export default function TeacherMonitor() {
   const t = useT();
-  const { school, fullName } = useAuthStore();
+  const { school, fullName, role } = useAuthStore();
+  const isAdmin = role === 'admin' || role === 'censeur';
+  const country        = useCountry();
+  const isGE           = country.code === 'guinea_eq';
   const schoolLanguage = school?.language || 'francophone';
   const isENSchool     = schoolLanguage === 'anglophone';
-  const SEQUENCES      = isENSchool ? SEQUENCES_EN : SEQUENCES_FR;
+  const SEQUENCES      = isGE ? SEQUENCES_GE : isENSchool ? SEQUENCES_EN : SEQUENCES_FR;
   const classes    = useSchoolStore((s) => s.classes);
   const subjects   = useSchoolStore((s) => s.subjects);
   const students   = useSchoolStore((s) => s.students);
@@ -300,7 +306,7 @@ export default function TeacherMonitor() {
     return classes.filter((c) => !assignedIds.has(c.id));
   }, [classes, teacherClassIds]);
 
-  const dateLocale = getLang() === 'en' ? 'en-GB' : 'fr-FR';
+  const dateLocale = localeForLang();
 
   return (
     <Layout>
@@ -375,6 +381,19 @@ export default function TeacherMonitor() {
             sub={isENSchool ? t('No entries this term', 'No entries this term') : t('Aucune saisie pour cette séq.', 'No entries for this sequence')}
             color="border-red-400"
           />
+        </div>
+
+        {/* Calendrier scolaire — dates d'évaluation pour le suivi des retards */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100">
+            <h2 className="font-semibold text-gray-800">{t('Calendrier scolaire', 'School calendar')}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {t("Dates d'évaluation utilisées pour le suivi automatique des retards.", 'Evaluation dates used for automatic delay tracking.', 'Fechas de evaluación utilizadas para el seguimiento automático de los retrasos.')}
+            </p>
+          </div>
+          <div className="p-6">
+            <SchoolCalendar canEdit={isAdmin} />
+          </div>
         </div>
 
         {/* Tableau enseignants */}

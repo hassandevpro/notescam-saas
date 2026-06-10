@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { downloadCSV } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
-import { useT } from '../lib/i18n';
+import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
 import { resolveCountryCode } from '../countries';
@@ -267,19 +267,12 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
   const totalTranches  = tranches.reduce((s, t) => s + (t.amount || 0), 0);
 
   return (
-    <tr>
-      <td colSpan={8} className="px-5 py-4 bg-brand-50/70 border-b border-brand-100">
-        <div className="max-w-2xl space-y-4">
-
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-gray-800">
-              {t('Gestion des frais', 'Fee management')} — <span className="text-brand-700">{student.name}</span>
-            </p>
-            <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded-lg hover:bg-white transition-colors">
-              {t('Fermer', 'Close')}
-            </button>
-          </div>
+    <Modal
+      title={<>{t('Gestion des frais', 'Fee management')} — <span className="text-brand-700">{student.name}</span></>}
+      onClose={onClose}
+      size="lg"
+    >
+        <div className="space-y-4">
 
           {/* Frais annuels */}
           <div className="flex items-end gap-3 bg-white rounded-xl border border-gray-100 p-3">
@@ -406,7 +399,7 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
                       <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/50 group">
                         <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
                         <span className="text-xs text-gray-500 shrink-0 w-24">
-                          {new Date(p.date).toLocaleDateString('fr-FR')}
+                          {new Date(p.date).toLocaleDateString(localeForLang())}
                         </span>
                         <span className="font-mono font-semibold text-emerald-700 text-sm">
                           + {fmt(p.amount)} FCFA
@@ -495,7 +488,7 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
                           <span className="text-sm font-medium text-gray-800 flex-1">{tr.label}</span>
                           <span className="font-mono text-sm text-gray-700">{fmt(tr.amount)} FCFA</span>
                           <span className="text-xs text-gray-400 w-24 text-right shrink-0">
-                            {tr.due_date ? new Date(tr.due_date).toLocaleDateString('fr-FR') : '—'}
+                            {tr.due_date ? new Date(tr.due_date).toLocaleDateString(localeForLang()) : '—'}
                           </span>
                           <button
                             onClick={() => handleDeleteTranche(tr.id)}
@@ -528,8 +521,7 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
           )}
 
         </div>
-      </td>
-    </tr>
+    </Modal>
   );
 }
 
@@ -942,7 +934,7 @@ export default function Fees() {
                     const color  = avatarColor(student.name);
 
                     const overdue = isOverdue(fee);
-                    return [
+                    return (
                       <tr
                         key={student.id}
                         className={`border-b border-gray-50 hover:bg-gray-50/50 transition-colors ${isOpen ? 'bg-brand-50/30' : ''}`}
@@ -996,7 +988,7 @@ export default function Fees() {
                         </td>
                         <td className="px-4 py-3 text-center text-xs text-gray-400">
                           {fee?.date_dernier_paiement
-                            ? new Date(fee.date_dernier_paiement).toLocaleDateString('fr-FR')
+                            ? new Date(fee.date_dernier_paiement).toLocaleDateString(localeForLang())
                             : '—'}
                         </td>
                         <td className="px-4 py-3 text-center">
@@ -1011,32 +1003,8 @@ export default function Fees() {
                             {isOpen ? t('Fermer', 'Close') : t('Gérer', 'Manage')}
                           </button>
                         </td>
-                      </tr>,
-
-                      isOpen && (
-                        <PaymentPanel
-                          key={`panel-${student.id}`}
-                          student={student}
-                          fee={fee}
-                          payments={feePayments.filter((p) => p.student_id === student.id && p.academic_year === activeYear)
-                            .sort((a, b) => b.date.localeCompare(a.date))}
-                          activeYear={activeYear}
-                          onAddPayment={addPayment}
-                          onDeletePayment={deletePayment}
-                          onSaveFee={saveFee}
-                          onClose={() => setOpenRow(null)}
-                          onPrintReceipt={(payment) =>
-                            printReceipt({
-                              school,
-                              student,
-                              className: classNameById(student.class_id),
-                              lang: school?.language,
-                              ...payment,
-                            })
-                          }
-                        />
-                      ),
-                    ];
+                      </tr>
+                    );
                   })}
                 </tbody>
               </table>
@@ -1104,6 +1072,35 @@ export default function Fees() {
             onClose={() => setShowBulk(false)}
           />
         )}
+
+        {/* Modal gestion des frais (élève sélectionné) */}
+        {openRow && (() => {
+          const student = students.find((s) => s.id === openRow);
+          if (!student) return null;
+          return (
+            <PaymentPanel
+              student={student}
+              fee={feeMap[student.id]}
+              payments={feePayments
+                .filter((p) => p.student_id === student.id && p.academic_year === activeYear)
+                .sort((a, b) => b.date.localeCompare(a.date))}
+              activeYear={activeYear}
+              onAddPayment={addPayment}
+              onDeletePayment={deletePayment}
+              onSaveFee={saveFee}
+              onClose={() => setOpenRow(null)}
+              onPrintReceipt={(payment) =>
+                printReceipt({
+                  school,
+                  student,
+                  className: classNameById(student.class_id),
+                  lang: school?.language,
+                  ...payment,
+                })
+              }
+            />
+          );
+        })()}
 
       </div>
     </Layout>

@@ -5,7 +5,7 @@ import { getAvg, frApp, enGrade } from '../core/bulletinEngine';
 import Modal from '../components/Modal';
 import Layout from '../components/Layout';
 import { fetchAssignmentHistory } from '../lib/classAssignmentService';
-import { useT, getLang } from '../lib/i18n';
+import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
@@ -32,8 +32,7 @@ function calcAge(dob) {
 }
 function fmtDate(d) {
   if (!d) return null;
-  const locale = getLang() === 'en' ? 'en-GB' : 'fr-FR';
-  return new Date(d).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+  return new Date(d).toLocaleDateString(localeForLang(), { day: 'numeric', month: 'long', year: 'numeric' });
 }
 function fmt(n) {
   return new Intl.NumberFormat('fr-FR').format(n) + ' FCFA';
@@ -307,7 +306,7 @@ export default function StudentProfile() {
     { icon: '🏫', label: t('Changer de classe',          'Change class'),        onClick: () => { setNewClassId(student.class_id || ''); setShowChangeClass(true); } },
   ];
 
-  const dateLocale = getLang() === 'en' ? 'en-GB' : 'fr-FR';
+  const dateLocale = localeForLang();
 
   return (
     <Layout>

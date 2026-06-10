@@ -264,11 +264,17 @@ export default function BoletinGEDetalle({
             </td>
             <td style={{ ...cell, width: '33%', textAlign: 'center', verticalAlign: 'top', paddingTop: 5 }}>
               <strong style={{ fontSize: '9px' }}>EL DIRECTOR / LA DIRECTORA</strong>
-              {school?.signature_url && (
-                <img src={school.signature_url} alt="Firma" style={{ height: 30, display: 'block', margin: '2px auto' }} />
-              )}
-              {school?.stamp_url && (
-                <img src={school.stamp_url} alt="Sello" style={{ height: 30, display: 'block', margin: '2px auto' }} />
+              {(school?.signature_url || school?.stamp_url) && (
+                <div style={{ position: 'relative', height: 66, marginTop: 2 }}>
+                  {school?.signature_url && (
+                    <img src={school.signature_url} alt="Firma"
+                      style={{ height: 46, maxWidth: 130, objectFit: 'contain', position: 'absolute', left: '50%', top: 16, transform: 'translateX(-50%)' }} />
+                  )}
+                  {school?.stamp_url && (
+                    <img src={school.stamp_url} alt="Sello"
+                      style={{ height: 64, width: 64, objectFit: 'contain', position: 'absolute', left: '50%', top: 0, transform: 'translateX(-60%) rotate(-8deg)', opacity: 0.85 }} />
+                  )}
+                </div>
               )}
             </td>
           </tr>

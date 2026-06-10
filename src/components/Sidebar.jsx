@@ -222,6 +222,75 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
     },
   ];
 
+  // Censeur (Jefe de Estudios) : supervision pédagogique + surveillance + frais.
+  // Pas d'accès aux enseignants (création de comptes), année scolaire,
+  // historique ni configuration de l'établissement.
+  const censeurGroups = [
+    {
+      links: [
+        { to: '/app', label: t('Tableau de bord', 'Dashboard'), icon: 'home', end: true },
+      ],
+    },
+    {
+      label: t('Scolarité', 'Academics'),
+      links: [
+        { to: '/app/classes',   label: t('Classes', 'Classes'),                   icon: 'classes' },
+        { to: '/app/subjects',  label: t('Matières', 'Subjects'),                 icon: 'subjects' },
+        { to: '/app/students',  label: t('Élèves', 'Students'),                   icon: 'students' },
+        { to: '/app/absences',  label: t('Absences', 'Attendance'),               icon: 'absences', locked: !f.hasAbsences },
+        { to: '/app/grades',    label: t('Notes', 'Grades'),                      icon: 'grades' },
+        { to: '/app/bulletins', label: t('Bulletins', 'Report Cards'),            icon: 'bulletins' },
+        { to: '/app/timetable', label: t('Emploi du temps', 'Timetable'),         icon: 'timetable', locked: !f.hasTimetable },
+        { to: '/app/conseil',   label: t('Conseil de classe', 'Class Council'),   icon: 'conseil' },
+      ],
+    },
+    {
+      label: t('Analyses', 'Analytics'),
+      links: [
+        { to: '/app/reports', label: t('Rapports', 'Reports'),        icon: 'reports' },
+        { to: '/app/monitor', label: t('Surveillance', 'Monitoring'), icon: 'monitor', badge: true },
+      ],
+    },
+    {
+      label: t('Gestion', 'Management'),
+      links: [
+        { to: '/app/fees', label: t('Frais scolaires', 'School Fees'), icon: 'fees', locked: !f.hasFees },
+      ],
+    },
+    {
+      label: t('Administration', 'Administration'),
+      links: [
+        { to: '/app/settings', label: t('Paramètres', 'Settings', 'Ajustes'), icon: 'settings' },
+        { to: '/app/aide',     label: t('Guide / Aide', 'Help guide', 'Ayuda'), icon: 'help' },
+      ],
+    },
+  ];
+
+  // Surveillant (Jefe de Disciplina) : discipline, assiduité (absences), élèves.
+  // Pas d'accès aux notes, bulletins, frais, paramètres ni année scolaire.
+  const surveillantGroups = [
+    {
+      links: [
+        { to: '/app', label: t('Tableau de bord', 'Dashboard'), icon: 'home', end: true },
+      ],
+    },
+    {
+      label: t('Vie scolaire', 'School life'),
+      links: [
+        { to: '/app/students',  label: t('Élèves', 'Students'),                 icon: 'students' },
+        { to: '/app/absences',  label: t('Absences', 'Attendance'),             icon: 'absences', locked: !f.hasAbsences },
+        { to: '/app/conseil',   label: t('Conseil de classe', 'Class Council'), icon: 'conseil' },
+      ],
+    },
+    {
+      label: t('Administration', 'Administration'),
+      links: [
+        { to: '/app/settings', label: t('Paramètres', 'Settings', 'Ajustes'), icon: 'settings' },
+        { to: '/app/aide',     label: t('Guide / Aide', 'Help guide', 'Ayuda'), icon: 'help' },
+      ],
+    },
+  ];
+
   const teacherGroups = [
     {
       label: t('Mon espace', 'My Space'),
@@ -236,7 +305,10 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
     },
   ];
 
-  const groups  = role === 'teacher' ? teacherGroups : adminGroups;
+  const groups  = role === 'teacher' ? teacherGroups
+    : role === 'censeur' ? censeurGroups
+    : role === 'surveillant' ? surveillantGroups
+    : adminGroups;
   const initials = fullName
     ? fullName.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
     : '?';
@@ -300,7 +372,10 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
               {fullName || '—'}
             </p>
             <p className="text-[10px] text-slate-400 leading-tight mt-0.5 capitalize">
-              {role === 'admin' ? t('Administrateur', 'Administrator') : t('Enseignant', 'Teacher')}
+              {role === 'admin' ? t('Administrateur', 'Administrator')
+                : role === 'censeur' ? t('Censeur', 'Dean of studies', 'Jefe de estudios')
+                : role === 'surveillant' ? t('Surveillant', 'Supervisor', 'Jefe de disciplina')
+                : t('Enseignant', 'Teacher')}
             </p>
           </div>
         </div>

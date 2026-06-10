@@ -2,12 +2,19 @@ import { getLang } from './i18n';
 import { useAuthStore } from '../store/authStore';
 import { resolveCountryCode, defaultLangForCountry } from '../countries';
 
-// Langue du MODÈLE d'import / export : on suit le pays de l'école (ses données
-// d'exemple, classes et en-têtes sont spécifiques au pays), et non le toggle
-// d'interface. Une école Guinée Éq. obtient toujours le modèle espagnol même si
-// l'admin affiche l'UI en français. À défaut d'école, on retombe sur l'UI.
+// Langue du MODÈLE d'import / export.
+// Règle (alignée sur syncUiLangToSchool de authStore) :
+//   1. Si l'admin a explicitement choisi une langue via la sidebar
+//      (notescam_ui_lang_user_set), ce choix prime : le modèle suit l'UI.
+//      Ex. école camerounaise dont l'UI est basculée en espagnol → modèle ES.
+//   2. Sinon on suit la langue par défaut du pays de l'école (ses classes,
+//      en-têtes et données d'exemple sont localisés). Une école Guinée Éq.
+//      obtient le modèle espagnol par défaut.
+//   3. À défaut d'école, on retombe sur la langue de l'UI.
 function templateLang() {
   try {
+    const userPick = localStorage.getItem('notescam_ui_lang_user_set') === 'true';
+    if (userPick) return getLang();
     const school = useAuthStore.getState().school;
     if (school) return defaultLangForCountry(resolveCountryCode(school));
   } catch (_) { /* ignore */ }

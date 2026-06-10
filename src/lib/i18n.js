@@ -41,3 +41,10 @@ export function getLang() {
 export function tStatic(fr, en, es) {
   return pickLang(getLang(), fr, en, es);
 }
+
+// Locale BCP-47 pour le formatage des dates / nombres selon la langue d'UI.
+// fr → fr-FR, en → en-GB, es → es-ES. Sert à ce que toutes les dates affichées
+// suivent la langue choisie (ex. interface en espagnol → dates en espagnol).
+export function localeForLang(lang = getLang()) {
+  return lang === 'es' ? 'es-ES' : lang === 'en' ? 'en-GB' : 'fr-FR';
+}

@@ -177,7 +177,8 @@ export default function Timetable() {
   const [defaultDay,     setDefaultDay]     = useState(1);
   const [confirmDelId,   setConfirmDelId]   = useState(null);
 
-  const isAdmin = role === 'admin';
+  // Le censeur gère aussi l'emploi du temps (supervision pédagogique).
+  const isAdmin = role === 'admin' || role === 'censeur';
 
   useEffect(() => {
     if (!school?.id || !activeYear) return;

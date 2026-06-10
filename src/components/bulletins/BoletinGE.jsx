@@ -187,8 +187,17 @@ export default function BoletinGE({
         </div>
         <div className="signature-block">
           <div>El Director / La Directora</div>
-          {school?.signature_url && (
-            <img src={school.signature_url} alt="Firma" style={{ height: 36, marginTop: 4 }} />
+          {(school?.signature_url || school?.stamp_url) && (
+            <div style={{ position: 'relative', height: 80, marginTop: 4 }}>
+              {school?.signature_url && (
+                <img src={school.signature_url} alt="Firma"
+                  style={{ height: 54, maxWidth: 150, objectFit: 'contain', position: 'absolute', left: '50%', top: 20, transform: 'translateX(-50%)' }} />
+              )}
+              {school?.stamp_url && (
+                <img src={school.stamp_url} alt="Sello"
+                  style={{ height: 78, width: 78, objectFit: 'contain', position: 'absolute', left: '50%', top: 0, transform: 'translateX(-62%) rotate(-9deg)', opacity: 0.85 }} />
+              )}
+            </div>
           )}
           <div className="signature-line">_______________</div>
         </div>

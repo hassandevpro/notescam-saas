@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>NotesCam — Dossier Guinea Ecuatorial</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --brand: #4338ca;
+    --brand-light: #667eea;
+    --brand-dark: #312e81;
+    --ink: #1e1b2e;
+    --muted: #5b6075;
+    --line: #e6e8f0;
+    --bg-soft: #f4f5fb;
+    --green: #10b981;
+    --amber: #f59e0b;
+  }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--ink);
+    line-height: 1.55;
+    font-size: 11pt;
+  }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 22mm 20mm;
+    position: relative;
+    page-break-after: always;
+    overflow: hidden;
+  }
+  .page:last-child { page-break-after: auto; }
+
+  /* ---------- COVER ---------- */
+  .cover {
+    background: linear-gradient(150deg, #312e81 0%, #4338ca 45%, #667eea 100%);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    padding: 28mm 22mm;
+  }
+  .cover-logo { display: flex; align-items: center; gap: 14px; }
+  .cover-logo svg { width: 58px; height: 58px; }
+  .cover-logo .wm { font-size: 26pt; font-weight: 800; letter-spacing: -0.5px; }
+  .cover-flag {
+    margin-left: auto;
+    font-size: 13pt;
+    background: rgba(255,255,255,0.14);
+    padding: 7px 16px;
+    border-radius: 999px;
+    font-weight: 600;
+    border: 1px solid rgba(255,255,255,0.25);
+  }
+  .cover-center { margin-top: auto; margin-bottom: auto; }
+  .cover h1 {
+    font-size: 38pt;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1.05;
+    margin-bottom: 18px;
+  }
+  .cover h1 span { color: #c7d2fe; }
+  .cover .lede {
+    font-size: 14pt;
+    color: #dfe3ff;
+    max-width: 150mm;
+    font-weight: 400;
+  }
+  .cover-tags { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 30px; }
+  .cover-tags span {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.22);
+    padding: 8px 15px; border-radius: 10px;
+    font-size: 10pt; font-weight: 600;
+  }
+  .cover-foot {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-top: 1px solid rgba(255,255,255,0.2);
+    padding-top: 16px; font-size: 9.5pt; color: #c7d2fe;
+  }
+
+  /* ---------- GENERIC ---------- */
+  .eyebrow {
+    color: var(--brand);
+    font-weight: 700;
+    font-size: 9.5pt;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  h2 { font-size: 22pt; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 14px; line-height: 1.1; }
+  h3 { font-size: 13pt; font-weight: 700; margin-bottom: 6px; }
+  p { color: var(--muted); margin-bottom: 12px; }
+  .lead { font-size: 12.5pt; color: var(--ink); margin-bottom: 22px; }
+
+  .pagenum {
+    position: absolute; bottom: 12mm; right: 20mm;
+    font-size: 9pt; color: #aab0c4; font-weight: 600;
+  }
+  .pagebrand {
+    position: absolute; bottom: 12mm; left: 20mm;
+    font-size: 9pt; color: #aab0c4; font-weight: 700;
+  }
+
+  /* problem/solution cards */
+  .split { display: flex; gap: 18px; margin-top: 8px; }
+  .split > div { flex: 1; }
+  .panel {
+    border: 1px solid var(--line); border-radius: 14px; padding: 20px;
+    background: #fff;
+  }
+  .panel.soft { background: var(--bg-soft); border-color: #e0e3f2; }
+  .panel ul { list-style: none; }
+  .panel li { padding: 6px 0 6px 26px; position: relative; color: var(--muted); font-size: 10.5pt; }
+  .panel.problem li::before { content: '✕'; position: absolute; left: 0; color: #ef4444; font-weight: 700; }
+  .panel.solution li::before { content: '✓'; position: absolute; left: 0; color: var(--green); font-weight: 700; }
+
+  /* feature grid */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 6px; }
+  .feature {
+    border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px;
+    background: #fff;
+  }
+  .feature .ico {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: var(--bg-soft); color: var(--brand);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18pt; margin-bottom: 10px;
+  }
+  .feature h3 { font-size: 11.5pt; }
+  .feature p { font-size: 9.8pt; margin-bottom: 0; }
+
+  /* banner */
+  .banner {
+    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-light) 100%);
+    color: #fff; border-radius: 16px; padding: 24px 26px; margin: 4px 0 22px;
+  }
+  .banner h3 { color: #fff; font-size: 14pt; }
+  .banner p { color: #e0e7ff; margin-bottom: 0; font-size: 10.5pt; }
+
+  /* steps */
+  .steps { counter-reset: s; margin-top: 8px; }
+  .step { display: flex; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .step:last-child { border-bottom: none; }
+  .step .n {
+    counter-increment: s; flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--brand); color: #fff; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; font-size: 12pt;
+  }
+  .step .n::before { content: counter(s); }
+  .step h3 { font-size: 11.5pt; margin-bottom: 2px; }
+  .step p { font-size: 10pt; margin-bottom: 0; }
+
+  /* pricing */
+  .price-hero {
+    border: 2px solid var(--brand); border-radius: 18px; padding: 26px;
+    background: var(--bg-soft); text-align: center; margin-bottom: 18px;
+  }
+  .price-hero .big { font-size: 30pt; font-weight: 800; color: var(--brand); letter-spacing: -1px; }
+  .price-hero .unit { font-size: 12pt; color: var(--muted); font-weight: 600; }
+  .price-hero p { margin: 10px 0 0; }
+  table.est { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 10.5pt; }
+  table.est th, table.est td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+  table.est th { background: var(--brand-dark); color: #fff; font-weight: 600; }
+  table.est th:last-child, table.est td:last-child { text-align: right; }
+  table.est tr:nth-child(even) td { background: #fafbff; }
+  table.est .tot td { font-weight: 800; color: var(--brand); border-top: 2px solid var(--brand); border-bottom: none; }
+
+  .note { font-size: 9pt; color: #8b90a6; margin-top: 10px; }
+
+  /* contact */
+  .contact {
+    background: linear-gradient(150deg, #312e81 0%, #4338ca 100%);
+    color: #fff; border-radius: 18px; padding: 30px;
+  }
+  .contact h2 { color: #fff; }
+  .contact .row { display: flex; gap: 28px; margin-top: 18px; flex-wrap: wrap; }
+  .contact .row div { font-size: 11pt; }
+  .contact .k { color: #c7d2fe; font-size: 9pt; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; font-weight: 700; }
+  .contact a { color: #fff; text-decoration: none; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- ============ PÁGINA 1 — PORTADA ============ -->
+<section class="page cover">
+  <div class="cover-logo">
+    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="nl" x1="0" y1="0" x2="0" y2="512" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="rgba(255,255,255,0.92)"/>
+        </linearGradient>
+      </defs>
+      <rect x="108" y="112" width="72" height="288" rx="10" fill="url(#nl)"/>
+      <rect x="332" y="112" width="72" height="288" rx="10" fill="url(#nl)"/>
+      <path d="M180 112H248L332 400H264Z" fill="url(#nl)"/>
+    </svg>
+    <span class="wm">NotesCam</span>
+    <span class="cover-flag">🇬🇶 Guinea Ecuatorial</span>
+  </div>
+
+  <div class="cover-center">
+    <h1>La gestión escolar,<br><span>al fin sencilla.</span></h1>
+    <p class="lede">
+      Plataforma completa de gestión académica diseñada para el sistema
+      educativo de Guinea Ecuatorial: notas sobre 10 o sobre 20, tres trimestres,
+      boletines oficiales y decisiones de promoción conformes al Ministerio.
+    </p>
+    <div class="cover-tags">
+      <span>En español</span>
+      <span>Notas /10 o /20 · 3 trimestres</span>
+      <span>Funciona sin internet</span>
+      <span>Boletines oficiales</span>
+    </div>
+  </div>
+
+  <div class="cover-foot">
+    <span>Dossier de presentación para centros educativos</span>
+    <span>notescam-saas.vercel.app</span>
+  </div>
+</section>
+
+<!-- ============ PÁGINA 2 — EL RETO / LA SOLUCIÓN ============ -->
+<section class="page">
+  <div class="eyebrow">Por qué NotesCam</div>
+  <h2>El trabajo administrativo no debería robar tiempo a la enseñanza.</h2>
+  <p class="lead">
+    Cada trimestre, los centros pierden días enteros calculando medias a mano,
+    copiando boletines y persiguiendo notas que faltan. NotesCam automatiza
+    todo ese proceso — con el sistema educativo guineano integrado de fábrica.
+  </p>
+
+  <div class="split">
+    <div class="panel problem soft">
+      <h3>Sin NotesCam</h3>
+      <ul>
+        <li>Medias y puestos calculados a mano, con errores</li>
+        <li>Boletines escritos uno por uno en papel o Word</li>
+        <li>Notas en cuadernos que se pierden o se mojan</li>
+        <li>Imposible saber qué profesor va atrasado</li>
+        <li>Pagos de matrícula difíciles de seguir</li>
+        <li>Reglas camerunesas o francesas que no encajan</li>
+      </ul>
+    </div>
+    <div class="panel solution">
+      <h3>Con NotesCam</h3>
+      <ul>
+        <li>Medias, puestos y apreciaciones automáticas</li>
+        <li>Boletines oficiales generados en un clic</li>
+        <li>Datos seguros, respaldados y siempre accesibles</li>
+        <li>Panel de supervisión de profesores en tiempo real</li>
+        <li>Tesorería: pagos, plazos y alertas de retraso</li>
+        <li>Sistema español de Guinea Ecuatorial nativo</li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="margin-top:22px" class="banner">
+    <h3>Pensado para Guinea Ecuatorial, no adaptado a la fuerza</h3>
+    <p>Notas sobre 10 o sobre 20 (a elección del centro), tres trimestres oficiales, evaluación continua, cursos con
+       reválida (6º Primaria, 4º ESBA, 2º Bachillerato) y decisiones de paso
+       (Aprobado · Repite · Recuperación · Expulsado). Todo en español.</p>
+  </div>
+
+  <span class="pagebrand">NotesCam · Guinea Ecuatorial</span>
+  <span class="pagenum">02</span>
+</section>
+
+<!-- ============ PÁGINA 3 — CARACTERÍSTICAS ============ -->
+<section class="page">
+  <div class="eyebrow">Todo en una sola plataforma</div>
+  <h2>Funcionalidades principales</h2>
+
+  <div class="grid">
+    <div class="feature">
+      <div class="ico">📝</div>
+      <h3>Gestión de notas</h3>
+      <p>Cada profesor introduce sus notas sobre 10 o sobre 20 por evaluación. Medias y puestos calculados al instante.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">📄</div>
+      <h3>Boletines oficiales</h3>
+      <p>Boletín trimestral y anual con apreciaciones (Sobresaliente, Notable, Bien…), listo para imprimir.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">🎓</div>
+      <h3>Decisiones de promoción</h3>
+      <p>Reglas de paso conformes al Ministerio para Primaria, ESBA y Bachillerato, incluida la recuperación.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">👥</div>
+      <h3>Alumnos y clases</h3>
+      <p>Matrículas, expedientes, asignaturas y coeficientes. Importación masiva desde Excel.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">📊</div>
+      <h3>Supervisión de profesores</h3>
+      <p>El director ve en tiempo real qué clases tienen las notas completas y quién va atrasado.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">💰</div>
+      <h3>Tesorería y matrículas</h3>
+      <p>Seguimiento de pagos por alumno, plazos, recibos y alertas automáticas de retraso.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">🪪</div>
+      <h3>Carnets y portal de padres</h3>
+      <p>Carnets escolares con código QR y acceso para que las familias consulten notas y pagos.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">🔐</div>
+      <h3>Roles del centro</h3>
+      <p>Dirección, censor (pedagogía y tarifas), vigilante (disciplina y faltas) y profesores, cada uno con sus permisos.</p>
+    </div>
+  </div>
+
+  <div class="banner" style="margin-top:20px">
+    <h3>📶 Funciona sin internet estable</h3>
+    <p>NotesCam guarda los datos en el propio dispositivo y se sincroniza
+       automáticamente cuando vuelve la conexión. Ideal para centros con
+       internet intermitente.</p>
+  </div>
+
+  <span class="pagebrand">NotesCam · Guinea Ecuatorial</span>
+  <span class="pagenum">03</span>
+</section>
+
+<!-- ============ PÁGINA 4 — CÓMO EMPEZAR + PRECIOS ============ -->
+<section class="page">
+  <div class="eyebrow">Sencillo de adoptar</div>
+  <h2>En marcha en menos de un día</h2>
+
+  <div class="steps">
+    <div class="step">
+      <div class="n"></div>
+      <div><h3>Creamos su centro</h3>
+        <p>Configuramos el centro con el sistema guineano: cursos, asignaturas y calendario de trimestres.</p></div>
+    </div>
+    <div class="step">
+      <div class="n"></div>
+      <div><h3>Importamos alumnos y profesores</h3>
+        <p>Carga masiva desde Excel o registro manual. Cada profesor recibe su acceso.</p></div>
+    </div>
+    <div class="step">
+      <div class="n"></div>
+      <div><h3>Los profesores introducen notas</h3>
+        <p>Desde el móvil u ordenador, en español, con notas sobre 10 por evaluación.</p></div>
+    </div>
+    <div class="step">
+      <div class="n"></div>
+      <div><h3>Generan boletines y decisiones</h3>
+        <p>Boletines oficiales, puestos y decisiones de promoción listos para imprimir.</p></div>
+    </div>
+  </div>
+
+  <div class="eyebrow" style="margin-top:26px">Tarifas</div>
+  <h2 style="font-size:18pt">Un precio justo, por alumno</h2>
+  <p>Paga solo por los alumnos matriculados. Sin instalación, sin servidores
+     que mantener, sin costes ocultos. Tarifa anual negociada según el tamaño del centro.</p>
+
+  <table class="est">
+    <tr><th>Centro</th><th>Alumnos</th><th>Estimación anual*</th></tr>
+    <tr><td>Centro pequeño</td><td>150</td><td>150 000 XAF</td></tr>
+    <tr><td>Centro mediano</td><td>400</td><td>400 000 XAF</td></tr>
+    <tr><td>Centro grande</td><td>900</td><td>900 000 XAF</td></tr>
+  </table>
+  <p class="note">* A razón de 1 000 XAF por alumno y año. El precio final se acuerda con
+     cada centro según el número de alumnos y los módulos activados.
+     Demostración gratuita sin compromiso.</p>
+
+  <span class="pagebrand">NotesCam · Guinea Ecuatorial</span>
+  <span class="pagenum">04</span>
+</section>
+
+<!-- ============ PÁGINA 5 — CONTACTO ============ -->
+<section class="page">
+  <div class="eyebrow">Hablemos</div>
+  <h2>Solicite una demostración gratuita</h2>
+  <p class="lead">Le mostramos NotesCam con los datos reales de su centro, sin compromiso.
+     Configuración incluida y acompañamiento durante el primer trimestre.</p>
+
+  <div class="contact">
+    <h2 style="font-size:18pt">¿Listo para modernizar su centro?</h2>
+    <p style="color:#dfe3ff">Escríbanos y preparamos una presentación a la medida de su escuela.</p>
+    <div class="row">
+      <div>
+        <div class="k">Correo</div>
+        <a href="mailto:hassanousmane0@gmail.com">hassanousmane0@gmail.com</a>
+      </div>
+      <div>
+        <div class="k">WhatsApp</div>
+        <span>Disponible para demostración</span>
+      </div>
+      <div>
+        <div class="k">Web</div>
+        <span>notescam-saas.vercel.app</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:26px" class="split">
+    <div class="panel">
+      <h3>✅ Incluido siempre</h3>
+      <ul style="list-style:none">
+        <li style="padding:5px 0; color:var(--muted); font-size:10.5pt">Configuración del centro</li>
+        <li style="padding:5px 0; color:var(--muted); font-size:10.5pt">Formación del personal</li>
+        <li style="padding:5px 0; color:var(--muted); font-size:10.5pt">Actualizaciones automáticas</li>
+        <li style="padding:5px 0; color:var(--muted); font-size:10.5pt">Soporte en español</li>
+      </ul>
+    </div>
+    <div class="panel soft">
+      <h3>🔒 Sus datos, seguros</h3>
+      <p style="font-size:10.5pt; margin-bottom:0">Copias de seguridad automáticas, acceso protegido por
+         contraseña y permisos por rol. Los datos del centro son siempre suyos.</p>
+    </div>
+  </div>
+
+  <p style="text-align:center; margin-top:40px; color:#aab0c4; font-size:9.5pt">
+    NotesCam — Gestión escolar para Guinea Ecuatorial 🇬🇶 · Hecho con dedicación para los centros africanos.
+  </p>
+
+  <span class="pagebrand">NotesCam · Guinea Ecuatorial</span>
+  <span class="pagenum">05</span>
+</section>
+
+</body>
+</html>

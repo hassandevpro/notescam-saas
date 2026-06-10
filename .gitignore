@@ -8,6 +8,14 @@ dist/
 dist-ssr/
 *.local
 
+# Remotion video renders
+out/
+
+# Clips de démo enregistrés (Playwright) + session temporaire
+remotion/clips/
+# Scripts recorder : contiennent identifiants de démo en dur -> jamais sur le repo public
+remotion/recorder/
+
 # Env files (ne JAMAIS commiter)
 .env
 .env.local

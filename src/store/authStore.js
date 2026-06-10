@@ -1,7 +1,17 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { getCurrentUserContext } from '../lib/auth';
+import { cacheUserContext, loadCachedContext, clearCachedContext } from '../lib/authContextCache';
 import { resolveCountryCode, defaultLangForCountry } from '../countries';
+
+// Extrait du state les champs qui composent le contexte utilisateur, pour
+// les remettre en cache (ex. après mise à jour de l'école hors-ligne).
+function ctxFromState(s) {
+  return {
+    user: s.user, school: s.school, role: s.role, fullName: s.fullName,
+    classId: s.classId, schoolUserId: s.schoolUserId, teacherId: s.teacherId,
+  };
+}
 
 // Aligne la langue de l'interface sur la langue par défaut du pays de l'école
 // UNIQUEMENT si l'utilisateur n'a jamais choisi de langue manuellement.
@@ -50,7 +60,16 @@ export const useAuthStore = create((set, get) => ({
         set({ loading: false, session: null });
         return;
       }
-      const ctx = await getCurrentUserContext();
+      let ctx;
+      try {
+        ctx = await getCurrentUserContext();
+        if (ctx) cacheUserContext(session.user.id, ctx);
+      } catch (netErr) {
+        // Réseau indisponible : repli sur le contexte mis en cache (démarrage hors-ligne).
+        ctx = loadCachedContext(session.user.id);
+        if (!ctx) throw netErr;          // pas de cache → on garde le comportement actuel
+        console.warn('AuthStore.init : contexte chargé depuis le cache (hors-ligne).');
+      }
       set({
         session,
         user: ctx?.user || null,
@@ -88,7 +107,16 @@ export const useAuthStore = create((set, get) => ({
     }
     // Set session immediately so ProtectedRoute never sees session=null during context load
     set({ session, loading: true });
-    const ctx = await getCurrentUserContext();
+    let ctx;
+    try {
+      ctx = await getCurrentUserContext();
+      if (ctx) cacheUserContext(session.user.id, ctx);
+    } catch (netErr) {
+      // Réseau indisponible : repli sur le cache pour ne pas vider le contexte.
+      ctx = loadCachedContext(session.user.id);
+      if (!ctx) { set({ loading: false }); return; }  // on conserve la session
+      console.warn('AuthStore.setSession : contexte chargé depuis le cache (hors-ligne).');
+    }
     set({
       user: ctx?.user || null,
       school: ctx?.school || null,
@@ -120,6 +148,9 @@ export const useAuthStore = create((set, get) => ({
       return { error: error.message };
     }
     set({ school: { ...school, ...data } });
+    // Met à jour le cache hors-ligne pour refléter l'école modifiée.
+    const uid = get().user?.id;
+    if (uid) cacheUserContext(uid, ctxFromState(get()));
     return { data };
   },
 
@@ -127,7 +158,9 @@ export const useAuthStore = create((set, get) => ({
    * Déconnexion + nettoyage du store.
    */
   logout: async () => {
+    const uid = get().user?.id;
     await supabase.auth.signOut();
+    clearCachedContext(uid);   // ne pas laisser de contexte en cache après déconnexion
     set({
       session: null,
       user: null,

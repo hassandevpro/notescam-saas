@@ -49,6 +49,14 @@ function PageLoader() {
   );
 }
 
+// ── Gardes de route par rôle ─────────────────────────────────────────────────
+// Ensembles de rôles autorisés, alignés sur la navigation de la Sidebar.
+const ADMIN_ONLY  = ['admin'];                                   // gestion établissement
+const ACADEMIC    = ['admin', 'censeur'];                        // pédagogie + analyses + frais
+const WITH_TEACHER = ['admin', 'censeur', 'teacher'];            // notes, bulletins, emploi du temps
+const DISCIPLINE  = ['admin', 'censeur', 'surveillant'];         // élèves, conseil
+const ALL_STAFF   = ['admin', 'censeur', 'surveillant', 'teacher']; // absences, paramètres, aide
+
 function HomeRoute() {
   const role   = useAuthStore((s) => s.role);
   const school = useAuthStore((s) => s.school);
@@ -189,24 +197,24 @@ export default function App() {
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/app" element={<ProtectedRoute><HomeRoute /></ProtectedRoute>} />
-          <Route path="/app/classes"        element={<ProtectedRoute><Classes /></ProtectedRoute>} />
-          <Route path="/app/subjects"       element={<ProtectedRoute><Subjects /></ProtectedRoute>} />
-          <Route path="/app/students"       element={<ProtectedRoute><Students /></ProtectedRoute>} />
-          <Route path="/app/students/:id"   element={<ProtectedRoute><StudentProfile /></ProtectedRoute>} />
-          <Route path="/app/grades"         element={<ProtectedRoute><Grades /></ProtectedRoute>} />
-          <Route path="/app/bulletins"      element={<ProtectedRoute><Bulletins /></ProtectedRoute>} />
-          <Route path="/app/teachers"       element={<ProtectedRoute><Teachers /></ProtectedRoute>} />
-          <Route path="/app/settings"       element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="/app/year"           element={<ProtectedRoute><AcademicYear /></ProtectedRoute>} />
-          <Route path="/app/reports"        element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-          <Route path="/app/fees"            element={<ProtectedRoute><Fees /></ProtectedRoute>} />
-          <Route path="/app/absences"         element={<ProtectedRoute><Absences /></ProtectedRoute>} />
-          <Route path="/app/monitor"          element={<ProtectedRoute><TeacherMonitor /></ProtectedRoute>} />
-          <Route path="/app/conseil"          element={<ProtectedRoute><ConseilDeClasse /></ProtectedRoute>} />
-          <Route path="/app/timetable"        element={<ProtectedRoute><Timetable /></ProtectedRoute>} />
-          <Route path="/app/aide"             element={<ProtectedRoute><Help /></ProtectedRoute>} />
-          <Route path="/app/historique"       element={<ProtectedRoute><History /></ProtectedRoute>} />
-          <Route path="/superadmin" element={<ProtectedRoute><SuperAdmin /></ProtectedRoute>} />
+          <Route path="/app/classes"        element={<ProtectedRoute allow={ACADEMIC}><Classes /></ProtectedRoute>} />
+          <Route path="/app/subjects"       element={<ProtectedRoute allow={ACADEMIC}><Subjects /></ProtectedRoute>} />
+          <Route path="/app/students"       element={<ProtectedRoute allow={DISCIPLINE}><Students /></ProtectedRoute>} />
+          <Route path="/app/students/:id"   element={<ProtectedRoute allow={DISCIPLINE}><StudentProfile /></ProtectedRoute>} />
+          <Route path="/app/grades"         element={<ProtectedRoute allow={WITH_TEACHER}><Grades /></ProtectedRoute>} />
+          <Route path="/app/bulletins"      element={<ProtectedRoute allow={WITH_TEACHER}><Bulletins /></ProtectedRoute>} />
+          <Route path="/app/teachers"       element={<ProtectedRoute allow={ADMIN_ONLY}><Teachers /></ProtectedRoute>} />
+          <Route path="/app/settings"       element={<ProtectedRoute allow={ALL_STAFF}><Settings /></ProtectedRoute>} />
+          <Route path="/app/year"           element={<ProtectedRoute allow={ADMIN_ONLY}><AcademicYear /></ProtectedRoute>} />
+          <Route path="/app/reports"        element={<ProtectedRoute allow={ACADEMIC}><Reports /></ProtectedRoute>} />
+          <Route path="/app/fees"            element={<ProtectedRoute allow={ACADEMIC}><Fees /></ProtectedRoute>} />
+          <Route path="/app/absences"         element={<ProtectedRoute allow={ALL_STAFF}><Absences /></ProtectedRoute>} />
+          <Route path="/app/monitor"          element={<ProtectedRoute allow={ACADEMIC}><TeacherMonitor /></ProtectedRoute>} />
+          <Route path="/app/conseil"          element={<ProtectedRoute allow={DISCIPLINE}><ConseilDeClasse /></ProtectedRoute>} />
+          <Route path="/app/timetable"        element={<ProtectedRoute allow={WITH_TEACHER}><Timetable /></ProtectedRoute>} />
+          <Route path="/app/aide"             element={<ProtectedRoute allow={ALL_STAFF}><Help /></ProtectedRoute>} />
+          <Route path="/app/historique"       element={<ProtectedRoute allow={ADMIN_ONLY}><History /></ProtectedRoute>} />
+          <Route path="/superadmin" element={<ProtectedRoute allow={['superadmin']}><SuperAdmin /></ProtectedRoute>} />
           <Route path="/parent/:token" element={<ParentPortal />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

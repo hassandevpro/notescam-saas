@@ -3,17 +3,13 @@ import { useAuthStore } from '../store/authStore';
 import { useCountry, geGradeMax } from '../lib/useCountry';
 import { COUNTRY_OPTIONS } from '../countries';
 import { getDaysUntilLicenseExpires } from '../lib/auth';
-import { useT } from '../lib/i18n';
+import { useT, localeForLang } from '../lib/i18n';
 import { uploadSchoolAsset } from '../lib/schoolService';
-import { pdfToImageDataUrl, uploadTemplateImage, uploadTemplateFile, DATA_KEYS } from '../lib/pdfBulletinTemplate';
 import { supabase } from '../lib/supabase';
-import {
-  SEQ_DEFINITIONS,
-  fetchSequenceDates,
-  upsertSequenceDates,
-} from '../lib/sequenceDatesService';
 import { DEFAULT_GRADE_SCALE } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
+import SchoolCalendar from '../components/SchoolCalendar';
+import StaffManager from '../components/StaffManager';
 
 // Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
 function buildGeScale(maxScale = 10) {
@@ -64,9 +60,10 @@ const DISTRITOS_GE = {
   'Djibloho':    ['Ciudad de la Paz', 'Oyala'],
 };
 
-// Backward compat — utilisé par le code existant; renvoie le bon découpage par pays.
-const REGIONS = REGIONS_CM;
-const DEPARTMENTS = DEPARTMENTS_CM;
+// Découpage administratif selon le pays de l'école.
+// Une école Guinée Éq. liste ses provinces/distritos espagnols ; sinon Cameroun.
+function regionsFor(isGE)     { return isGE ? PROVINCES_GE  : REGIONS_CM; }
+function departmentsFor(isGE) { return isGE ? DISTRITOS_GE  : DEPARTMENTS_CM; }
 
 const SCHOOL_TYPES = [
   'Public', 'Privé Laïc', 'Privé Catholique', 'Privé Protestant',
@@ -189,8 +186,9 @@ export default function Settings() {
   const doUpdateSchool = useAuthStore((s) => s.updateSchool);
   const country        = useCountry();
   const isGE           = country.code === 'guinea_eq';
-  // Locale des sélecteurs de date (calendrier natif) selon le pays.
-  const dateLang       = country.uiLang === 'es' ? 'es-ES' : country.uiLang === 'en' ? 'en-GB' : 'fr-FR';
+  // Découpage administratif (régions/départements) selon le pays de l'école.
+  const regionList     = regionsFor(isGE);
+  const departmentMap  = departmentsFor(isGE);
 
   const isAdmin = role === 'admin';
 
@@ -200,15 +198,6 @@ export default function Settings() {
   const [error,          setError]          = useState(null);
   const [uploadingAsset, setUploadingAsset] = useState(null); // 'logo' | 'stamp' | 'signature'
   const [codeCopied,     setCodeCopied]     = useState(false);
-
-  // ── PDF Template ─────────────────────────────────────────────────────────
-  const [uploadingTemplate, setUploadingTemplate] = useState(false);
-  const [templateStatus,    setTemplateStatus]    = useState(''); // message de progression
-  const [templateError,     setTemplateError]     = useState('');
-  const [templateMapping,   setTemplateMapping]   = useState({});
-  const [mappingSaving,     setMappingSaving]     = useState(false);
-  const [mappingSaved,      setMappingSaved]      = useState(false);
-  const [pendingKey,        setPendingKey]        = useState(null);
 
   // ── Options de notation GE (décidées par l'administrateur) ────────────────
   const [geMax,       setGeMax]       = useState(10);
@@ -228,61 +217,6 @@ export default function Settings() {
     setGeOptSaving(false);
     if (res?.error) setGeOptError(res.error);
     else { setGeOptSaved(true); setTimeout(() => setGeOptSaved(false), 3000); }
-  };
-
-  useEffect(() => {
-    setTemplateMapping(school?.bulletin_template_mapping ?? {});
-  }, [school?.id, school?.bulletin_template_url]);
-
-  const handleTemplateUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = ''; // reset input pour permettre re-upload même fichier
-    setUploadingTemplate(true);
-    setTemplateError('');
-    setTemplateStatus('');
-    try {
-      let url;
-      if (file.type === 'application/pdf') {
-        setTemplateStatus(t('Conversion PDF en image…', 'Converting PDF to image…'));
-        const dataUrl = await pdfToImageDataUrl(file);
-        setTemplateStatus(t('Téléversement…', 'Uploading…'));
-        url = await uploadTemplateImage(school.id, dataUrl);
-      } else {
-        setTemplateStatus(t('Téléversement…', 'Uploading…'));
-        url = await uploadTemplateFile(school.id, file);
-      }
-      setTemplateStatus(t('Sauvegarde…', 'Saving…'));
-      await doUpdateSchool({ bulletin_template_url: url, bulletin_template_mapping: {} });
-      setTemplateMapping({});
-      setTemplateStatus('');
-    } catch (err) {
-      setTemplateError(err.message || t('Erreur inconnue', 'Unknown error'));
-      setTemplateStatus('');
-    } finally {
-      setUploadingTemplate(false);
-    }
-  };
-
-  const handleMappingSave = async () => {
-    setMappingSaving(true);
-    await doUpdateSchool({ bulletin_template_mapping: templateMapping });
-    setMappingSaving(false);
-    setMappingSaved(true);
-    setTimeout(() => setMappingSaved(false), 3000);
-  };
-
-  // Clic sur l'image : ajoute un champ à la position cliquée
-  const handleImageClick = (e) => {
-    if (!pendingKey) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
-    const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
-    setTemplateMapping((m) => ({
-      ...m,
-      [pendingKey]: { x, y, fontSize: 10, color: '#000000', bold: false },
-    }));
-    setPendingKey(null);
   };
 
   // ── Profil enseignant ────────────────────────────────────────────────────
@@ -322,62 +256,12 @@ export default function Settings() {
     }
   };
 
-  // ── Dates des séquences (admin) ──────────────────────────────────────────
-  const [seqRows,   setSeqRows]   = useState(() =>
-    SEQ_DEFINITIONS.map((d) => ({
-      seq_key:       d.key,
-      seq_label:     d.label,
-      exam_date:     '',
-      deadline_date: '',
-      conseil_date:  '',
-    }))
-  );
-  const [seqSaving, setSeqSaving] = useState(false);
-  const [seqSaved,  setSeqSaved]  = useState(false);
-  const [seqError,  setSeqError]  = useState(null);
-
   // ── Barème de notation (admin) ───────────────────────────────────────────
   const [gradeScale,  setGradeScale]  = useState(DEFAULT_GRADE_SCALE);
   const [scaleSaving, setScaleSaving] = useState(false);
   const [scaleSaved,  setScaleSaved]  = useState(false);
   const [scaleError,  setScaleError]  = useState(null);
   const [newEntry,    setNewEntry]    = useState({ mention: '', min: 0, max: 20, couleur: '#10B981', ordre: 0 });
-
-  useEffect(() => {
-    if (!isAdmin || !school?.id) return;
-    fetchSequenceDates(school.id).then((rows) => {
-      if (!rows.length) return;
-      setSeqRows((prev) =>
-        prev.map((r) => {
-          const found = rows.find((x) => x.seq_key === r.seq_key);
-          if (!found) return r;
-          return {
-            ...r,
-            exam_date:     found.exam_date     || '',
-            deadline_date: found.deadline_date || '',
-            conseil_date:  found.conseil_date  || '',
-          };
-        })
-      );
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin, school?.id]);
-
-  const setSeqDate = (idx, field, val) =>
-    setSeqRows((prev) => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
-
-  const handleSeqSave = async () => {
-    if (!school?.id) return;
-    setSeqSaving(true); setSeqError(null); setSeqSaved(false);
-    const { error } = await upsertSequenceDates(school.id, seqRows);
-    setSeqSaving(false);
-    if (error) {
-      setSeqError(error.message);
-    } else {
-      setSeqSaved(true);
-      setTimeout(() => setSeqSaved(false), 3500);
-    }
-  };
 
   useEffect(() => {
     if (school) {
@@ -439,7 +323,7 @@ export default function Settings() {
     setForm((f) => ({
       ...f,
       region:   newRegion,
-      division: DEPARTMENTS[newRegion]?.includes(f.division) ? f.division : '',
+      division: departmentMap[newRegion]?.includes(f.division) ? f.division : '',
     }));
   };
 
@@ -525,7 +409,7 @@ export default function Settings() {
             ) : (
               <div className="grid grid-cols-1 gap-4">
                 <Field label={t('Nom complet', 'Full name')} value={fullName} />
-                <Field label={t('Rôle', 'Role')} value={role === 'admin' ? t('Administrateur', 'Administrator') : role} />
+                <Field label={t('Rôle', 'Role')} value={role === 'admin' ? t('Administrateur', 'Administrator') : role === 'censeur' ? t('Censeur', 'Dean of studies', 'Jefe de estudios') : role === 'surveillant' ? t('Surveillant', 'Supervisor', 'Jefe de disciplina') : role} />
                 <Field label="Email" value={useAuthStore.getState().user?.email} />
               </div>
             )}
@@ -541,7 +425,7 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600 font-medium">{t('Expiration', 'Expiry')}</span>
                   <span className="text-sm text-gray-800">
-                    {new Date(school.license_expires_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    {new Date(school.license_expires_at).toLocaleDateString(localeForLang(), { day: 'numeric', month: 'long', year: 'numeric' })}
                     {daysLeft !== null && daysLeft > 0 && (
                       <span className="text-gray-400 ml-2">({daysLeft} {t(`jour${daysLeft > 1 ? 's' : ''}`, `day${daysLeft > 1 ? 's' : ''}`)})</span>
                     )}
@@ -550,7 +434,7 @@ export default function Settings() {
               )}
               <p className="text-xs text-gray-400 pt-2 border-t border-gray-100">
                 {t('Pour renouveler ou changer de plan, contactez-nous à', 'To renew or change plan, contact us at')}{' '}
-                <a href="mailto:support@notescam.cm" className="text-brand-600 hover:underline">support@notescam.cm</a>
+                <a href="mailto:hassanousmane0@gmail.com" className="text-brand-600 hover:underline">hassanousmane0@gmail.com</a>
               </p>
             </div>
           </Section>
@@ -668,25 +552,25 @@ export default function Settings() {
                 </div>
 
                 <div>
-                  <label className="form-label">{t('Région', 'Region')}</label>
+                  <label className="form-label">{t('Région', 'Region', isGE ? 'Provincia' : 'Región')}</label>
                   <select disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.region} onChange={handleRegionChange}>
                     <option value="">— {t('Choisir', 'Select')} —</option>
-                    {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                    {regionList.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="form-label">{t('Département', 'Division')}</label>
-                  {form.region && DEPARTMENTS[form.region] ? (
+                  <label className="form-label">{t('Département', 'Division', isGE ? 'Distrito' : 'Departamento')}</label>
+                  {form.region && departmentMap[form.region] ? (
                     <select disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.division} onChange={set('division')}>
                       <option value="">— {t('Choisir', 'Select')} —</option>
-                      {DEPARTMENTS[form.region].map((d) => <option key={d} value={d}>{d}</option>)}
+                      {departmentMap[form.region].map((d) => <option key={d} value={d}>{d}</option>)}
                     </select>
                   ) : (
                     <input type="text" disabled className="form-input bg-gray-50 text-gray-400 cursor-not-allowed" placeholder={t("Choisir d'abord une région", 'Select a region first')} value="" readOnly />
                   )}
                 </div>
                 <div>
-                  <label className="form-label">{t('Arrondissement / Subdivision', 'Subdivision')}</label>
+                  <label className="form-label">{t('Arrondissement / Subdivision', 'Subdivision', isGE ? 'Barrio / Subdivisión' : 'Distrito / Subdivisión')}</label>
                   <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : Yaoundé 1er…', 'E.g. Yaoundé 1st…', 'Ej: Malabo 1º…')} value={form.subdivision} onChange={set('subdivision')} />
                 </div>
                 <div>
@@ -749,146 +633,6 @@ export default function Settings() {
             </div>
           )}
         </form>
-
-        {/* ── Template visuel de bulletin ── */}
-        {isAdmin && (
-          <Section title={t('Modèle visuel de bulletin', 'Custom bulletin template')} className="mb-6">
-            <p className="text-xs text-gray-500 mb-4">
-              {t(
-                'Importez un bulletin existant (PDF ou image). Placez ensuite chaque donnée en cliquant sur l\'image.',
-                'Upload an existing bulletin (PDF or image). Then place each data field by clicking on the image.',
-              )}
-            </p>
-
-            {/* Upload */}
-            <div className="flex flex-wrap items-center gap-3 mb-5">
-              <label className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg cursor-pointer hover:bg-brand-700 transition-colors ${uploadingTemplate ? 'opacity-50 pointer-events-none' : ''}`}>
-                <input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" onChange={handleTemplateUpload} disabled={uploadingTemplate} />
-                {school?.bulletin_template_url
-                  ? t('Remplacer le modèle', 'Replace template')
-                  : t('Choisir PDF ou image', 'Choose PDF or image')}
-              </label>
-              {uploadingTemplate && templateStatus && (
-                <span className="text-xs text-brand-600 font-medium animate-pulse">{templateStatus}</span>
-              )}
-              {!uploadingTemplate && school?.bulletin_template_url && (
-                <span className="text-xs text-emerald-600 font-medium">✓ {t('Modèle chargé', 'Template loaded')}</span>
-              )}
-              {templateError && (
-                <span className="text-xs text-red-600 font-medium">⚠ {templateError}</span>
-              )}
-            </div>
-
-            {school?.bulletin_template_url && (
-              <div className="flex gap-6 flex-wrap">
-                {/* Image + placement des champs */}
-                <div className="flex-1 min-w-[280px]">
-                  <p className="text-xs text-gray-500 mb-2">
-                    {pendingKey
-                      ? <span className="text-brand-600 font-medium">👆 {t('Clique sur l\'image pour placer :', 'Click image to place:')} <strong>{DATA_KEYS.find((k) => k.value === pendingKey)?.label}</strong></span>
-                      : t('Sélectionne une donnée à droite, puis clique sur l\'image pour la positionner.', 'Select a field on the right, then click the image to position it.')}
-                  </p>
-                  <div
-                    className={`relative border-2 rounded-xl overflow-hidden ${pendingKey ? 'border-brand-400 cursor-crosshair' : 'border-gray-200'}`}
-                    onClick={handleImageClick}
-                  >
-                    <img src={school.bulletin_template_url} alt="Template" className="w-full block" />
-                    {/* Marqueurs des champs placés */}
-                    {Object.entries(templateMapping).map(([key, cfg]) => (
-                      cfg?.x !== undefined && (
-                        <div
-                          key={key}
-                          className="absolute flex items-center gap-1 bg-brand-600/90 text-white rounded px-1 pointer-events-none"
-                          style={{
-                            left: `${cfg.x}%`,
-                            top: `${cfg.y}%`,
-                            transform: 'translate(-50%, -50%)',
-                            fontSize: '9px',
-                            whiteSpace: 'nowrap',
-                            zIndex: 10,
-                          }}
-                        >
-                          {DATA_KEYS.find((k) => k.value === key)?.label ?? key}
-                        </div>
-                      )
-                    ))}
-                  </div>
-                </div>
-
-                {/* Liste des données à placer */}
-                <div className="w-64 shrink-0">
-                  <p className="text-xs font-semibold text-gray-700 mb-2">{t('Données disponibles', 'Available fields')}</p>
-                  <div className="space-y-1 max-h-96 overflow-y-auto pr-1">
-                    {DATA_KEYS.map((k) => {
-                      const placed = templateMapping[k.value]?.x !== undefined;
-                      return (
-                        <div key={k.value} className="flex items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setPendingKey(pendingKey === k.value ? null : k.value)}
-                            className={`flex-1 text-left text-xs px-2 py-1 rounded border transition-colors ${
-                              pendingKey === k.value
-                                ? 'bg-brand-600 text-white border-brand-600'
-                                : placed
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                            }`}
-                          >
-                            {placed ? '✓ ' : ''}{k.label}
-                          </button>
-                          {placed && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const m = { ...templateMapping };
-                                delete m[k.value];
-                                setTemplateMapping(m);
-                              }}
-                              className="text-red-400 hover:text-red-600 text-xs shrink-0"
-                              title={t('Supprimer', 'Remove')}
-                            >✕</button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Options de style pour le champ sélectionné */}
-                  {pendingKey && templateMapping[pendingKey]?.x !== undefined && (
-                    <div className="mt-3 bg-gray-50 border rounded-lg p-3 space-y-2">
-                      <p className="text-xs font-medium text-gray-700">{t('Style', 'Style')}</p>
-                      <div className="flex gap-2 items-center">
-                        <label className="text-xs text-gray-500">px</label>
-                        <input type="number" min="6" max="24"
-                          value={templateMapping[pendingKey]?.fontSize ?? 10}
-                          onChange={(e) => setTemplateMapping((m) => ({ ...m, [pendingKey]: { ...m[pendingKey], fontSize: parseInt(e.target.value) || 10 } }))}
-                          className="w-16 border rounded px-2 py-1 text-xs" />
-                        <input type="color"
-                          value={templateMapping[pendingKey]?.color ?? '#000000'}
-                          onChange={(e) => setTemplateMapping((m) => ({ ...m, [pendingKey]: { ...m[pendingKey], color: e.target.value } }))}
-                          className="w-8 h-7 border rounded cursor-pointer" />
-                        <label className="flex items-center gap-1 text-xs text-gray-600">
-                          <input type="checkbox"
-                            checked={templateMapping[pendingKey]?.bold ?? false}
-                            onChange={(e) => setTemplateMapping((m) => ({ ...m, [pendingKey]: { ...m[pendingKey], bold: e.target.checked } }))}
-                          /> Gras
-                        </label>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-3 flex items-center gap-2">
-                    <button type="button" onClick={handleMappingSave} disabled={mappingSaving}
-                      className="flex-1 px-3 py-2 bg-brand-600 text-white rounded-lg text-xs font-medium hover:bg-brand-700 disabled:opacity-50">
-                      {mappingSaving ? t('Sauvegarde…', 'Saving…') : t('Sauvegarder', 'Save')}
-                    </button>
-                    {mappingSaved && <span className="text-xs text-emerald-600">✓</span>}
-                  </div>
-                </div>
-              </div>
-            )}
-          </Section>
-        )}
 
         {/* ── 3. Code établissement ───────────────────────────────────────── */}
         {isAdmin && school?.id && (
@@ -1015,128 +759,22 @@ export default function Settings() {
           </Section>
         )}
 
-        {/* ── 5. Calendrier scolaire ───────────────────────────────────────── */}
+        {/* ── 5. Personnel de direction (censeur + surveillant) ────────────── */}
+        {isAdmin && (
+          <Section title={t('Censeur', 'Dean of studies', 'Jefe de estudios')} className="mb-6">
+            <StaffManager role="censeur" />
+          </Section>
+        )}
+        {isAdmin && (
+          <Section title={t('Surveillant', 'Supervisor', 'Jefe de disciplina')} className="mb-6">
+            <StaffManager role="surveillant" />
+          </Section>
+        )}
+
+        {/* ── 6. Calendrier scolaire ───────────────────────────────────────── */}
         {isAdmin && (
           <Section title={t('Calendrier scolaire', 'School calendar')} className="mb-6">
-            <p className="text-xs text-gray-500 mb-4">
-              {t('Dates de chaque séquence pour le suivi automatique des retards et alertes enseignants.', 'Dates for each period for automatic tracking of delays and teacher alerts.')}
-            </p>
-
-            {/* Guinea Ecuatorial — un seul tableau, 3 trimestres officiels */}
-            {isGE && (
-              <div className="mb-5">
-                <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-2">
-                  Sistema equatoguineano — 3 Trimestres
-                </p>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm border-separate border-spacing-y-1">
-                    <thead>
-                      <tr className="text-xs text-gray-400 font-medium">
-                        <th className="text-left pb-1 w-32">Trimestre</th>
-                        <th className="text-left pb-1 px-2">Fecha del examen</th>
-                        <th className="text-left pb-1 px-2">Cierre de captura</th>
-                        <th className="text-left pb-1 px-2">Consejo de Curso</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {['Primer Trimestre', 'Segundo Trimestre', 'Tercer Trimestre'].map((label, idx) => {
-                        const row = seqRows[idx] || { exam_date: '', deadline_date: '', conseil_date: '' };
-                        return (
-                          <tr key={idx}>
-                            <td className="font-semibold text-gray-700 pr-2">{label}</td>
-                            {['exam_date', 'deadline_date', 'conseil_date'].map((field) => (
-                              <td key={field} className="px-2">
-                                <input type="date" lang={dateLang} className="form-input py-1.5 text-sm"
-                                  value={row[field]} onChange={(e) => setSeqDate(idx, field, e.target.value)} />
-                              </td>
-                            ))}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex items-center gap-4 pt-3 mt-3 border-t border-gray-100">
-                  <button onClick={handleSeqSave} disabled={seqSaving}
-                    className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
-                    {seqSaving ? t('Enregistrement…', 'Saving…') : t('Enregistrer les dates', 'Save dates')}
-                  </button>
-                  {seqSaved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Dates sauvegardées', 'Dates saved')}</span>}
-                  {seqError && <span className="text-sm text-red-600">{seqError}</span>}
-                </div>
-              </div>
-            )}
-
-            {!isGE && (<>
-            <div className="mb-5">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('Système francophone — Séquences', 'Francophone system — Sequences')}</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-separate border-spacing-y-1">
-                  <thead>
-                    <tr className="text-xs text-gray-400 font-medium">
-                      <th className="text-left pb-1 w-20">{t('Séquence', 'Sequence')}</th>
-                      <th className="text-left pb-1 px-2">{t("Date d'examen", 'Exam date')}</th>
-                      <th className="text-left pb-1 px-2">{t('Limite saisie notes', 'Grade entry deadline')}</th>
-                      <th className="text-left pb-1 px-2">{t('Conseil de classe', 'Class council')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {seqRows.slice(0, 6).map((row, idx) => (
-                      <tr key={row.seq_key}>
-                        <td className="font-semibold text-gray-700 pr-2">{row.seq_label}</td>
-                        {['exam_date', 'deadline_date', 'conseil_date'].map((field) => (
-                          <td key={field} className="px-2">
-                            <input type="date" lang={dateLang} className="form-input py-1.5 text-sm"
-                              value={row[field]} onChange={(e) => setSeqDate(idx, field, e.target.value)} />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="mb-5">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{t('Système anglophone — Terms', 'Anglophone system — Terms')}</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-separate border-spacing-y-1">
-                  <thead>
-                    <tr className="text-xs text-gray-400 font-medium">
-                      <th className="text-left pb-1 w-20">Term</th>
-                      <th className="text-left pb-1 px-2">{t("Date d'examen", 'Exam date')}</th>
-                      <th className="text-left pb-1 px-2">{t('Limite saisie notes', 'Grade entry deadline')}</th>
-                      <th className="text-left pb-1 px-2">{t('Conseil de classe', 'Class council')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {seqRows.slice(6).map((row, idx) => (
-                      <tr key={row.seq_key}>
-                        <td className="font-semibold text-gray-700 pr-2">{row.seq_label}</td>
-                        {['exam_date', 'deadline_date', 'conseil_date'].map((field) => (
-                          <td key={field} className="px-2">
-                            <input type="date" lang={dateLang} className="form-input py-1.5 text-sm"
-                              value={row[field]} onChange={(e) => setSeqDate(6 + idx, field, e.target.value)} />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 pt-3 border-t border-gray-100">
-              <button onClick={handleSeqSave} disabled={seqSaving}
-                className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
-                {seqSaving ? t('Enregistrement…', 'Saving…') : t('Enregistrer les dates', 'Save dates')}
-              </button>
-              {seqSaved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Dates sauvegardées', 'Dates saved')}</span>}
-              {seqError && <span className="text-sm text-red-600">{seqError}</span>}
-            </div>
-            </>
-            )}
+            <SchoolCalendar />
           </Section>
         )}
 

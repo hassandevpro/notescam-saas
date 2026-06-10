@@ -5,7 +5,7 @@ import { useUiStore } from '../store/uiStore';
 import { getAvg } from '../core/bulletinEngine';
 import { downloadCSV, parseGradesCSV } from '../lib/exportCsv';
 import Layout from '../components/Layout';
-import { useT } from '../lib/i18n';
+import { useT, localeForLang } from '../lib/i18n';
 import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../lib/lockService';
 import { useCountry, gradingOpts, geGradeMax } from '../lib/useCountry';
 
@@ -933,7 +933,7 @@ export default function Grades() {
                 {lockInfo?.by && (
                   <div className="text-xs opacity-80">
                     {t('Verrouillé par', 'Locked by', 'Bloqueado por')} {lockInfo.by} —{' '}
-                    {new Date(lockInfo.at).toLocaleString()}
+                    {new Date(lockInfo.at).toLocaleString(localeForLang())}
                   </div>
                 )}
               </div>

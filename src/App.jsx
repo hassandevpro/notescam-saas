@@ -8,6 +8,7 @@ import { requestPersistentStorage } from './lib/db';
 import ProtectedRoute from './components/ProtectedRoute';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import OnboardingWizard from './components/OnboardingWizard';
+import LanLicenseGate from './components/LanLicenseGate';
 
 // Auth pages — petites, chargées immédiatement
 import Login from './pages/Login';
@@ -185,6 +186,7 @@ export default function App() {
   }, [schoolId, triggerSync]);
 
   return (
+    <LanLicenseGate>
     <BrowserRouter>
       <Suspense fallback={<PageLoader />}>
         <Routes>
@@ -222,5 +224,6 @@ export default function App() {
       <PwaUpdatePrompt />
       <OnboardingGate />
     </BrowserRouter>
+    </LanLicenseGate>
   );
 }

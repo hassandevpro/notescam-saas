@@ -1,8 +1,31 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 
-export default defineConfig({
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// `vite build --mode lan` -> édition hors-ligne : tout import de `./supabase`
+// est redirigé vers l'adaptateur local. Le build par défaut (cloud) est
+// strictement inchangé (alias vide, vendor-supabase conservé).
+export default defineConfig(({ mode }) => {
+  const isLan = mode === 'lan';
+  return {
+  // Expose l'édition au code client (le verrou de licence n'agit qu'en LAN).
+  define: {
+    'import.meta.env.VITE_EDITION': JSON.stringify(isLan ? 'lan' : 'cloud'),
+  },
+  resolve: {
+    alias: isLan
+      ? [
+          // tout `./supabase` ou `../lib/supabase` -> adaptateur local
+          { find: /^.*\/supabase$/, replacement: resolve(__dirname, 'src/lib/localClient.js') },
+          // les clients secondaires `createClient(...)` (Teachers/staff) aussi
+          { find: '@supabase/supabase-js', replacement: resolve(__dirname, 'src/lib/localClient.js') },
+        ]
+      : [],
+  },
   plugins: [
     react(),
     VitePWA({
@@ -65,7 +88,9 @@ export default defineConfig({
         manualChunks: {
           // Vendor libs — rarely change, long-lived cache
           'vendor-react':   ['react', 'react-dom', 'react-router-dom'],
-          'vendor-supabase': ['@supabase/supabase-js'],
+          // En LAN, supabase-js n'est plus dans le graphe (aliasé) -> on
+          // n'en force pas le chunk pour éviter un chunk vide.
+          ...(isLan ? {} : { 'vendor-supabase': ['@supabase/supabase-js'] }),
           'vendor-zustand':  ['zustand'],
           // Heavy pages lazy-loaded separately
           'page-bulletins': ['./src/pages/Bulletins.jsx'],
@@ -76,4 +101,5 @@ export default defineConfig({
     // Silence the 500 kB warning (vendor chunk + lazy pages stay under individually)
     chunkSizeWarningLimit: 600,
   },
+  };
 });

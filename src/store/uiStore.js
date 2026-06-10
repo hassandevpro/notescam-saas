@@ -23,7 +23,7 @@ export const useUiStore = create((set) => ({
   bulletinsClassId:   '',
   bulletinsPeriodKey: 'seq_1',
   bulletinsStudentId: '',
-  bulletinsFormat:    'classic',
+  bulletinsFormat:    'apc',
   setBulletinsClassId:   (v) => set({ bulletinsClassId: v }),
   setBulletinsPeriodKey: (v) => set({ bulletinsPeriodKey: v }),
   setBulletinsStudentId: (v) => set({ bulletinsStudentId: v }),

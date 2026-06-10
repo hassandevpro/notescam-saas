@@ -118,6 +118,187 @@ function getSubjectGroup(name) {
   return 'AUTRES';
 }
 
+// ── Styles partagés en-tête / pied institutionnels camerounais (CM) ───────────
+// Constantes hissées au module pour être réutilisées par BulletinAPC ET par le
+// nouveau Bulletin Classique (mutualisation, zéro duplication de style).
+const CM_BORDER = '1px solid #374151';
+const CM_CELL   = { border: CM_BORDER, padding: '3px 5px', fontSize: '10px', verticalAlign: 'middle' };
+const CM_THS    = { ...CM_CELL, backgroundColor: '#1e3a5f', color: '#fff', textAlign: 'center', fontWeight: 'bold', fontSize: '9px' };
+const CM_GHDR   = { ...CM_CELL, backgroundColor: '#2d3748', color: '#fff', fontWeight: 'bold', textAlign: 'center', fontSize: '9px', padding: '2px 5px' };
+const CM_GTOT   = { ...CM_CELL, backgroundColor: '#e8edf2', fontWeight: 'bold', fontSize: '9px' };
+const CM_INFO   = { ...CM_CELL, backgroundColor: '#f8fafc', fontSize: '9px' };
+
+// Wrapper « papier » commun aux bulletins institutionnels (Arial 10px, A4).
+const CM_PAPER_STYLE = { fontFamily: 'Arial, sans-serif', fontSize: '10px', maxWidth: '210mm', margin: '0 auto', padding: '8px', boxSizing: 'border-box' };
+
+// ── En-tête institutionnel partagé (ex-APC) ───────────────────────────────────
+// Disposition République du Cameroun / MINESEC / Délégations + logo + infos élève.
+function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period }) {
+  const isEnSys     = sys === 'EN';
+  const isAnnuel    = period.value === 'annuel';
+  const isTrimestre = !isAnnuel && period.seqs.length > 1;
+  const principalTeacher = teachers?.find((t) => t.id === cls?.teacher_id) || null;
+  const termOrdinal = (() => {
+    if (period.seqs.length >= 4) return isEnSys ? 'ANNUAL' : 'ANNUEL';
+    const s = period.seqs[0];
+    if (s <= 2) return isEnSys ? '1ST TERM' : '1er TRIMESTRE';
+    if (s <= 4) return isEnSys ? '2ND TERM' : '2ème TRIMESTRE';
+    return isEnSys ? '3RD TERM' : '3ème TRIMESTRE';
+  })();
+
+  return (
+    <>
+      {/* HEADER */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
+        <tbody>
+          <tr>
+            <td style={{ width: '33%', textAlign: 'center', fontSize: '9px', lineHeight: 1.5, padding: '2px' }}>
+              <strong>RÉPUBLIQUE DU CAMEROUN</strong><br />
+              Paix – Travail – Patrie<br />
+              ———————<br />
+              Ministère des Enseignements Secondaires (MINESEC)<br />
+              Délégation Régionale {school?.region || '—'}<br />
+              Délégation Départementale {school?.division || '—'}
+            </td>
+            <td style={{ width: '34%', textAlign: 'center', padding: '2px' }}>
+              {school?.logo_url && (
+                <img src={school.logo_url} alt="Logo" style={{ width: 64, height: 64, objectFit: 'contain', display: 'block', margin: '0 auto 3px' }} />
+              )}
+              <strong style={{ fontSize: '11px', display: 'block' }}>{(school?.name || '').toUpperCase()}</strong>
+              {(school?.address || school?.phone) && (
+                <span style={{ fontSize: '8.5px' }}>
+                  {school?.address ? `B.P. ${school.address}` : ''}{school?.address && school?.phone ? ' · ' : ''}{school?.phone || ''}
+                </span>
+              )}
+              <br />
+              <span style={{ fontSize: '8.5px' }}>Année scolaire : <strong>{school?.current_year || '—'}</strong></span>
+            </td>
+            <td style={{ width: '33%', textAlign: 'center', fontSize: '9px', lineHeight: 1.5, padding: '2px' }}>
+              <strong>REPUBLIC OF CAMEROON</strong><br />
+              Peace – Work – Fatherland<br />
+              ———————<br />
+              Ministry of Secondary Education (MINESEC)<br />
+              Regional Delegation {school?.region || '—'}<br />
+              Divisional Delegation {school?.division || '—'}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* TITLE BAR */}
+      <div style={{ backgroundColor: '#1e3a5f', color: '#fff', textAlign: 'center', padding: '5px 8px', fontWeight: 'bold', fontSize: '11px', letterSpacing: '0.5px', marginBottom: '5px' }}>
+        {isEnSys ? 'REPORT CARD' : 'BULLETIN SCOLAIRE'} – {(!isTrimestre && !isAnnuel) ? `${termOrdinal} – ` : ''}{period.label.toUpperCase()}
+      </div>
+
+      {/* STUDENT INFO */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
+        <tbody>
+          <tr>
+            <td style={{ ...CM_INFO, width: '25%' }}><strong>{L(sys, 'NOM ET PRÉNOM', 'FULL NAME')} :</strong><br /><span style={{ fontWeight: 'bold', color: '#111' }}>{student.name}</span></td>
+            <td style={{ ...CM_INFO, width: '12%' }}><strong>{L(sys, 'MATRICULE', 'REG. NO.')} :</strong><br />{student.matricule || '—'}</td>
+            <td style={{ ...CM_INFO, width: '13%' }}><strong>{L(sys, 'DATE DE NAISS.', 'DATE OF BIRTH')} :</strong><br />{student.date_naissance || '—'}</td>
+            <td style={{ ...CM_INFO, width: '22%' }}><strong>{L(sys, 'ENS. PRINCIPAL', 'FORM MASTER')} :</strong><br />{principalTeacher?.name || '—'}</td>
+            <td style={{ ...CM_INFO, width: '14%' }}><strong>{L(sys, 'CLASSE', 'CLASS')} :</strong><br />{cls?.name || '—'}</td>
+            <td style={{ ...CM_INFO, width: '14%', textAlign: 'center' }}><strong>{L(sys, 'EFFECTIF', 'TOTAL')} :</strong><br /><strong style={{ fontSize: '14px' }}>{stats?.total ?? '—'}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+// ── Pied institutionnel partagé (ex-APC) ──────────────────────────────────────
+// 4 colonnes (Résultat / Profil classe / Travail / Conduite) + signatures + mention.
+function BulletinCMFooter({ school, sys, studentAvg, maxScale, passed, decision, apprGlobal, rank, stats, abs }) {
+  const isEnSys = sys === 'EN';
+  const { absJ, absNJ, conduite, th, encouragement, felicitation, averTravail, blameTravail, exclusions, averConduite, blameConduite } = abs;
+
+  return (
+    <>
+      {/* BOTTOM 4 COLUMNS */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
+        <thead>
+          <tr>
+            <th style={{ ...CM_THS, width: '25%' }}>{L(sys, "RÉSULTAT DE L'ÉLÈVE",  'STUDENT RESULTS')}</th>
+            <th style={{ ...CM_THS, width: '25%' }}>{L(sys, 'PROFIL DE LA CLASSE',  'CLASS PROFILE')}</th>
+            <th style={{ ...CM_THS, width: '25%' }}>{L(sys, "TRAVAIL DE L'ÉLÈVE",   "STUDENT'S WORK")}</th>
+            <th style={{ ...CM_THS, width: '25%' }}>{L(sys, "CONDUITE DE L'ÉLÈVE",  "STUDENT'S CONDUCT")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style={{ ...CM_CELL, verticalAlign: 'top', padding: '5px' }}>
+              <div>{L(sys, 'Moy. Gén.', 'Avg.')} : <strong style={{ color: passed ? '#059669' : '#dc2626' }}>{studentAvg !== null ? `${studentAvg}/${maxScale}` : '—'}</strong></div>
+              <div>{L(sys, 'Rang', 'Rank')} : <strong>{rank?.rankD || '—'} / {stats?.total ?? '—'}</strong></div>
+              <div style={{ marginTop: 3 }}>
+                <strong style={{ color: passed ? '#059669' : '#dc2626', fontSize: '11px' }}>
+                  {studentAvg !== null ? decision : '—'}
+                </strong>
+              </div>
+            </td>
+            <td style={{ ...CM_CELL, verticalAlign: 'top', padding: '5px' }}>
+              <div>{L(sys, 'Moy. classe', 'Class avg.')} : <strong>{stats?.avg != null ? `${stats.avg}/${maxScale}` : '—'}</strong></div>
+              <div>{L(sys, 'Note max', 'Highest')} : <strong>{stats?.max != null ? `${stats.max}/${maxScale}` : '—'}</strong></div>
+              <div>{L(sys, 'Note min', 'Lowest')} : <strong>{stats?.min != null ? `${stats.min}/${maxScale}` : '—'}</strong></div>
+              <div>{L(sys, 'Taux réussite', 'Pass rate')} : <strong>{stats?.above != null && stats?.total ? `${stats.above}/${stats.total} (${Math.round((stats.above / stats.total) * 100)}%)` : '—'}</strong></div>
+            </td>
+            <td style={{ ...CM_CELL, verticalAlign: 'top', padding: '5px' }}>
+              <div style={{ color: apprGlobal?.col, fontWeight: 'bold', fontSize: '11px' }}>
+                {isEnSys ? (apprGlobal ? `${apprGlobal.g} — ${apprGlobal.txt}` : '—') : (apprGlobal?.text || '—')}
+              </div>
+              {th            && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, "Tableau d'Honneur", 'Honor Roll')}</div>}
+              {encouragement && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, 'T.H + Encouragement', 'Honor Roll + Encouragement')}</div>}
+              {felicitation  && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, 'T.H + Félicitation', 'Honor Roll + Congratulations')}</div>}
+              {averTravail  > 0 && <div style={{ color: '#d97706', fontSize: '9px', marginTop: 2 }}>{L(sys, 'Aver. Travail', 'Work Warning')} : <strong>{averTravail}</strong></div>}
+              {blameTravail > 0 && <div style={{ color: '#dc2626', fontSize: '9px', marginTop: 2 }}>{L(sys, 'Blâme Travail', 'Work Reprimand')} : <strong>{blameTravail}</strong></div>}
+            </td>
+            <td style={{ ...CM_CELL, verticalAlign: 'top', padding: '5px' }}>
+              <div style={{ fontSize: '9px' }}>{L(sys, "T. d'Honneur", 'Honor Roll')} : <strong style={{ color: th || encouragement || felicitation ? '#059669' : '#374151' }}>{th || encouragement || felicitation ? L(sys, 'Oui', 'Yes') : L(sys, 'Non', 'No')}</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Abs. totales', 'Total absences')} : <strong>{absJ + absNJ} H</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Absences NJ', 'Unjust. absences')} : <strong>{absNJ} H</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Exclusions', 'Exclusions')} : <strong>{exclusions} {L(sys, 'Jrs', 'days')}</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Aver. Conduite', 'Conduct Warning')} : <strong>{averConduite}</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Blâme Conduite', 'Conduct Reprimand')} : <strong>{blameConduite}</strong></div>
+              <div style={{ fontSize: '9px' }}>{L(sys, 'Conduite', 'Conduct')} : <strong style={{ color: conduite ? CONDUITE_COLORS[conduite] : undefined }}>
+                {conduite ? `${conduite} — ${conduiteLabel(sys, conduite)}` : '—'}
+              </strong></div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* SIGNATURES */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '4px' }}>
+        <tbody>
+          <tr>
+            <td style={{ ...CM_CELL, width: '33%', textAlign: 'center', height: 56, verticalAlign: 'bottom', paddingBottom: 5 }}>
+              <strong style={{ fontSize: '9px' }}>{L(sys, 'Signature du Parent / Tuteur', 'Parent / Guardian Signature')}</strong>
+            </td>
+            <td style={{ ...CM_CELL, width: '34%', textAlign: 'center', verticalAlign: 'bottom', paddingBottom: 5 }}>
+              <strong style={{ fontSize: '9px' }}>{L(sys, 'Le Conseil de Classe', 'Class Council')}</strong>
+            </td>
+            <td style={{ ...CM_CELL, width: '33%', textAlign: 'center', verticalAlign: 'top', paddingTop: 5 }}>
+              <strong style={{ fontSize: '9px' }}>{L(sys, 'LE PRINCIPAL', 'THE PRINCIPAL')}</strong>
+              {school?.signature_url && (
+                <img src={school.signature_url} alt="Signature" style={{ height: 32, display: 'block', margin: '2px auto' }} />
+              )}
+              {school?.stamp_url && (
+                <img src={school.stamp_url} alt="Tampon" style={{ height: 32, display: 'block', margin: '2px auto' }} />
+              )}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p style={{ fontSize: '7.5px', color: '#9ca3af', textAlign: 'center', fontStyle: 'italic', margin: 0 }}>
+        {isEnSys
+          ? "This report card is valid only with the signature and stamp of the head of school. Any manual alteration is liable to sanction."
+          : "Ce bulletin n'est valable qu'avec la signature et le cachet du chef d'établissement. Toute modification manuelle est passible de sanction."}
+      </p>
+    </>
+  );
+}
+
 // ── Bulletin Classique ────────────────────────────────────────────────────────
 function BulletinClassic({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId }) {
   const passThreshold = sys === 'FR' ? 10 : 50;
@@ -125,60 +306,14 @@ function BulletinClassic({ school, cls, student, subjects, subjectGrades, studen
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
   const decision      = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
   const apprGlobal    = getAppreciation(studentAvg, school?.grade_scale, sys);
-  const { absJ, absNJ, conduite } = getAbsCond(gradeMap, classId, student.id, period.seqs);
+  const abs           = getAbsCond(gradeMap, classId, student.id, period.seqs);
 
   return (
-    <div className="bulletin-paper">
-      <div className="bulletin-header">
-        <div>
-          <strong>RÉPUBLIQUE DU CAMEROUN</strong><br />
-          Paix – Travail – Patrie<br />————————<br />
-          <em>{school?.region || ''}</em>
-        </div>
-        <div className="bulletin-logo">
-          {school?.logo_url
-            ? <img src={school.logo_url} alt="Logo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
-            : '📚'
-          }
-        </div>
-        <div>
-          <strong>REPUBLIC OF CAMEROON</strong><br />
-          Peace – Work – Fatherland<br />————————<br />
-          <em>{school?.region || ''}</em>
-        </div>
-      </div>
+    <div className="bulletin-paper" style={CM_PAPER_STYLE}>
+      {/* En-tête institutionnel mutualisé (ex-APC) */}
+      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} />
 
-      <div className="bulletin-school">
-        <h1>{school?.name || 'Établissement'}</h1>
-        <p>
-          {school?.address ? `B.P. ${school.address} · ` : ''}
-          {school?.phone || ''}
-          {school?.type ? ` · Ens. ${school.type}` : ''}
-        </p>
-        <p>Année scolaire : <strong>{school?.current_year || '—'}</strong></p>
-      </div>
-
-      <div className="bulletin-title">
-        {sys === 'EN'
-          ? (period.seqs.length === 1 ? `Report Card — ${period.label}` : `Term Report — ${period.label}`)
-          : (period.seqs.length === 1 ? `Bulletin de Notes — ${period.label}` : `Bulletin Trimestriel — ${period.label}`)
-        }
-        {sys !== 'EN' && (
-          <>{' / '}{period.seqs.length === 1 ? `Report Card — ${period.label}` : `Term Report — ${period.label}`}</>
-        )}
-      </div>
-
-      <div className="bulletin-student">
-        <div className="bulletin-student-grid">
-          <div><strong>{sys === 'EN' ? 'Name' : 'Nom / Name'} :</strong>&nbsp;{student.name}</div>
-          <div><strong>Matricule :</strong>&nbsp;{student.matricule || '—'}</div>
-          <div><strong>{sys === 'EN' ? 'Class' : 'Classe / Class'} :</strong>&nbsp;{cls?.name || '—'}</div>
-          <div><strong>{sys === 'EN' ? 'Sex' : 'Sexe / Sex'} :</strong>&nbsp;{student.gender || '—'}</div>
-          <div><strong>{sys === 'EN' ? 'Rank' : 'Rang / Rank'} :</strong>&nbsp;{rank?.rankD || '—'} / {stats?.total ?? '—'}</div>
-          <div><strong>{sys === 'EN' ? 'Total' : 'Effectif / Total'} :</strong>&nbsp;{stats?.total ?? '—'}</div>
-        </div>
-      </div>
-
+      {/* Tableau détaillé des matières — design Classique conservé (notes, coef, M×C, appréciations, couleurs, calculs) */}
       <table className="bulletin-table">
         <thead>
           <tr>
@@ -223,79 +358,12 @@ function BulletinClassic({ school, cls, student, subjects, subjectGrades, studen
         </tbody>
       </table>
 
-      <div className="bulletin-bottom">
-        <div className="bulletin-box">
-          <div className="bulletin-box-title">{sys === 'EN' ? 'Results' : 'Résultats / Results'}</div>
-          <div className="bulletin-box-body">
-            <p><span>{sys === 'EN' ? 'Average' : 'Moyenne / Average'}</span>
-              <strong style={{ color: passed ? '#059669' : '#dc2626' }}>
-                {studentAvg !== null ? `${studentAvg}/${maxScale}` : '—'}
-              </strong>
-            </p>
-            <p><span>{sys === 'EN' ? 'Rank' : 'Rang / Rank'}</span><strong>{rank?.rankD || '—'} / {stats?.total ?? '—'}</strong></p>
-            <p><span>{sys === 'EN' ? 'Grade' : 'Appréciation'}</span>
-              <strong style={{ color: apprGlobal?.col }}>
-                {sys === 'FR' ? apprGlobal?.text : (apprGlobal ? `${apprGlobal.g} — ${apprGlobal.txt}` : '—')}
-              </strong>
-            </p>
-            <p><span>{sys === 'EN' ? 'Decision' : 'Décision / Decision'}</span>
-              <strong style={{ color: passed ? '#059669' : '#dc2626' }}>{decision}</strong>
-            </p>
-          </div>
-        </div>
-        <div className="bulletin-box">
-          <div className="bulletin-box-title">{sys === 'EN' ? 'Class Statistics' : 'Statistiques de classe / Class Stats'}</div>
-          <div className="bulletin-box-body">
-            <p><span>{sys === 'EN' ? 'Total' : 'Effectif / Total'}</span><strong>{stats?.total ?? '—'}</strong></p>
-            <p><span>{sys === 'EN' ? 'Class Average' : 'Moy. classe / Class avg'}</span>
-              <strong>{stats?.avg != null ? `${stats.avg}/${maxScale}` : '—'}</strong>
-            </p>
-            <p><span>{sys === 'EN' ? 'Highest' : 'Note max / Highest'}</span>
-              <strong>{stats?.max != null ? `${stats.max}/${maxScale}` : '—'}</strong>
-            </p>
-            <p><span>{sys === 'EN' ? 'Lowest' : 'Note min / Lowest'}</span>
-              <strong>{stats?.min != null ? `${stats.min}/${maxScale}` : '—'}</strong>
-            </p>
-            <p><span>{sys === 'EN' ? 'Pass Rate' : 'Taux réussite / Pass rate'}</span>
-              <strong>
-                {stats?.above != null && stats?.total
-                  ? `${stats.above}/${stats.total} (${Math.round((stats.above / stats.total) * 100)}%)`
-                  : '—'}
-              </strong>
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bulletin-absences-row">
-        <span>{sys === 'EN' ? 'Justified absences' : 'Absences justifiées / Just. absences'} : <strong>{absJ > 0 ? `${absJ} h` : '—'}</strong></span>
-        <span>{sys === 'EN' ? 'Unjustified absences' : 'Absences non justifiées / Unjust. absences'} : <strong>{absNJ > 0 ? `${absNJ} h` : '—'}</strong></span>
-        {conduite && (
-          <span>
-            {sys === 'EN' ? 'Conduct' : 'Conduite / Conduct'} :&nbsp;
-            <strong style={{ color: CONDUITE_COLORS[conduite] }}>
-              {conduite} — {CONDUITE_LABELS[conduite]}
-            </strong>
-          </span>
-        )}
-      </div>
-
-      <div className="bulletin-remark">
-        <div className="bulletin-remark-title">{sys === 'EN' ? 'Remarks' : 'Observations / Remarks'}</div>
-      </div>
-      <div className="bulletin-signatures">
-        <div className="bulletin-sig-block">
-          {school?.signature_url && (
-            <img src={school.signature_url} alt="Signature" className="bulletin-sig-img" />
-          )}
-          {school?.stamp_url && (
-            <img src={school.stamp_url} alt="Tampon" className="bulletin-stamp-img" />
-          )}
-          <span>{sys === 'EN' ? 'The Principal' : <>Le Directeur<br />The Principal</>}</span>
-        </div>
-        <div>{sys === 'EN' ? 'Form Master' : <>Le Prof. Principal<br />The Form Master</>}</div>
-        <div>{sys === 'EN' ? 'Parent / Guardian' : <>Parent / Tuteur<br />Parent / Guardian</>}</div>
-      </div>
+      {/* Bas de page institutionnel mutualisé (ex-APC) : résultat, profil classe, travail, conduite, signatures */}
+      <BulletinCMFooter
+        school={school} sys={sys} studentAvg={studentAvg} maxScale={maxScale}
+        passed={passed} decision={decision} apprGlobal={apprGlobal}
+        rank={rank} stats={stats} abs={abs}
+      />
     </div>
   );
 }
@@ -471,7 +539,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   const passed     = studentAvg !== null && studentAvg >= passThr;
   const decision   = isEnSys ? (passed ? 'PASSED' : 'FAILED') : (passed ? 'ADMIS(E)' : 'AJOURNÉ(E)');
   const apprGlobal = getAppreciation(studentAvg, school?.grade_scale, sys);
-  const { absJ, absNJ, conduite, th, encouragement, felicitation, averTravail, blameTravail, exclusions, averConduite, blameConduite } = getAbsCond(gradeMap, classId, student.id, period.seqs);
+  const abs = getAbsCond(gradeMap, classId, student.id, period.seqs);
   const isAnnuel    = period.value === 'annuel';
   const isEN        = sys === 'EN';
   const isTrimestre = !isAnnuel && period.seqs.length > 1;
@@ -526,16 +594,6 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
     };
   }
 
-  const principalTeacher = teachers?.find((t) => t.id === cls?.teacher_id) || null;
-
-  const termOrdinal = (() => {
-    if (period.seqs.length >= 4) return isEnSys ? 'ANNUAL' : 'ANNUEL';
-    const s = period.seqs[0];
-    if (s <= 2) return isEnSys ? '1ST TERM' : '1er TRIMESTRE';
-    if (s <= 4) return isEnSys ? '2ND TERM' : '2ème TRIMESTRE';
-    return isEnSys ? '3RD TERM' : '3ème TRIMESTRE';
-  })();
-
   const totalCols = isAnnuel ? 9 : isTrimestre ? 8 : 6;
 
   const border = '1px solid #374151';
@@ -543,66 +601,12 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   const thS    = { ...cell, backgroundColor: '#1e3a5f', color: '#fff', textAlign: 'center', fontWeight: 'bold', fontSize: '9px' };
   const ghdr   = { ...cell, backgroundColor: '#2d3748', color: '#fff', fontWeight: 'bold', textAlign: 'center', fontSize: '9px', padding: '2px 5px' };
   const gtot   = { ...cell, backgroundColor: '#e8edf2', fontWeight: 'bold', fontSize: '9px' };
-  const info   = { ...cell, backgroundColor: '#f8fafc', fontSize: '9px' };
 
   return (
     <div className="bulletin-paper" style={{ fontFamily: 'Arial, sans-serif', fontSize: '10px', maxWidth: '210mm', margin: '0 auto', padding: '8px', boxSizing: 'border-box' }}>
 
-      {/* HEADER */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
-        <tbody>
-          <tr>
-            <td style={{ width: '33%', textAlign: 'center', fontSize: '9px', lineHeight: 1.5, padding: '2px' }}>
-              <strong>RÉPUBLIQUE DU CAMEROUN</strong><br />
-              Paix – Travail – Patrie<br />
-              ———————<br />
-              Ministère des Enseignements Secondaires (MINESEC)<br />
-              Délégation Régionale {school?.region || '—'}<br />
-              Délégation Départementale {school?.division || '—'}
-            </td>
-            <td style={{ width: '34%', textAlign: 'center', padding: '2px' }}>
-              {school?.logo_url && (
-                <img src={school.logo_url} alt="Logo" style={{ width: 64, height: 64, objectFit: 'contain', display: 'block', margin: '0 auto 3px' }} />
-              )}
-              <strong style={{ fontSize: '11px', display: 'block' }}>{(school?.name || '').toUpperCase()}</strong>
-              {(school?.address || school?.phone) && (
-                <span style={{ fontSize: '8.5px' }}>
-                  {school?.address ? `B.P. ${school.address}` : ''}{school?.address && school?.phone ? ' · ' : ''}{school?.phone || ''}
-                </span>
-              )}
-              <br />
-              <span style={{ fontSize: '8.5px' }}>Année scolaire : <strong>{school?.current_year || '—'}</strong></span>
-            </td>
-            <td style={{ width: '33%', textAlign: 'center', fontSize: '9px', lineHeight: 1.5, padding: '2px' }}>
-              <strong>REPUBLIC OF CAMEROON</strong><br />
-              Peace – Work – Fatherland<br />
-              ———————<br />
-              Ministry of Secondary Education (MINESEC)<br />
-              Regional Delegation {school?.region || '—'}<br />
-              Divisional Delegation {school?.division || '—'}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* TITLE BAR */}
-      <div style={{ backgroundColor: '#1e3a5f', color: '#fff', textAlign: 'center', padding: '5px 8px', fontWeight: 'bold', fontSize: '11px', letterSpacing: '0.5px', marginBottom: '5px' }}>
-        {isEnSys ? 'REPORT CARD' : 'BULLETIN SCOLAIRE'} – {(!isTrimestre && !isAnnuel) ? `${termOrdinal} – ` : ''}{period.label.toUpperCase()}
-      </div>
-
-      {/* STUDENT INFO */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
-        <tbody>
-          <tr>
-            <td style={{ ...info, width: '25%' }}><strong>{L(sys, 'NOM ET PRÉNOM', 'FULL NAME')} :</strong><br /><span style={{ fontWeight: 'bold', color: '#111' }}>{student.name}</span></td>
-            <td style={{ ...info, width: '12%' }}><strong>{L(sys, 'MATRICULE', 'REG. NO.')} :</strong><br />{student.matricule || '—'}</td>
-            <td style={{ ...info, width: '13%' }}><strong>{L(sys, 'DATE DE NAISS.', 'DATE OF BIRTH')} :</strong><br />{student.date_naissance || '—'}</td>
-            <td style={{ ...info, width: '22%' }}><strong>{L(sys, 'ENS. PRINCIPAL', 'FORM MASTER')} :</strong><br />{principalTeacher?.name || '—'}</td>
-            <td style={{ ...info, width: '14%' }}><strong>{L(sys, 'CLASSE', 'CLASS')} :</strong><br />{cls?.name || '—'}</td>
-            <td style={{ ...info, width: '14%', textAlign: 'center' }}><strong>{L(sys, 'EFFECTIF', 'TOTAL')} :</strong><br /><strong style={{ fontSize: '14px' }}>{stats?.total ?? '—'}</strong></td>
-          </tr>
-        </tbody>
-      </table>
+      {/* En-tête institutionnel mutualisé (partagé avec le Bulletin Classique) */}
+      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} />
 
       {/* SUBJECT TABLE */}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
@@ -719,86 +723,12 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
         })}
       </table>
 
-      {/* BOTTOM 4 COLUMNS */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
-        <thead>
-          <tr>
-            <th style={{ ...thS, width: '25%' }}>{L(sys, "RÉSULTAT DE L'ÉLÈVE",  'STUDENT RESULTS')}</th>
-            <th style={{ ...thS, width: '25%' }}>{L(sys, 'PROFIL DE LA CLASSE',  'CLASS PROFILE')}</th>
-            <th style={{ ...thS, width: '25%' }}>{L(sys, "TRAVAIL DE L'ÉLÈVE",   "STUDENT'S WORK")}</th>
-            <th style={{ ...thS, width: '25%' }}>{L(sys, "CONDUITE DE L'ÉLÈVE",  "STUDENT'S CONDUCT")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style={{ ...cell, verticalAlign: 'top', padding: '5px' }}>
-              <div>{L(sys, 'Moy. Gén.', 'Avg.')} : <strong style={{ color: passed ? '#059669' : '#dc2626' }}>{studentAvg !== null ? `${studentAvg}/${maxScale}` : '—'}</strong></div>
-              <div>{L(sys, 'Rang', 'Rank')} : <strong>{rank?.rankD || '—'} / {stats?.total ?? '—'}</strong></div>
-              <div style={{ marginTop: 3 }}>
-                <strong style={{ color: passed ? '#059669' : '#dc2626', fontSize: '11px' }}>
-                  {studentAvg !== null ? decision : '—'}
-                </strong>
-              </div>
-            </td>
-            <td style={{ ...cell, verticalAlign: 'top', padding: '5px' }}>
-              <div>{L(sys, 'Moy. classe', 'Class avg.')} : <strong>{stats?.avg != null ? `${stats.avg}/${maxScale}` : '—'}</strong></div>
-              <div>{L(sys, 'Note max', 'Highest')} : <strong>{stats?.max != null ? `${stats.max}/${maxScale}` : '—'}</strong></div>
-              <div>{L(sys, 'Note min', 'Lowest')} : <strong>{stats?.min != null ? `${stats.min}/${maxScale}` : '—'}</strong></div>
-              <div>{L(sys, 'Taux réussite', 'Pass rate')} : <strong>{stats?.above != null && stats?.total ? `${stats.above}/${stats.total} (${Math.round((stats.above / stats.total) * 100)}%)` : '—'}</strong></div>
-            </td>
-            <td style={{ ...cell, verticalAlign: 'top', padding: '5px' }}>
-              <div style={{ color: apprGlobal?.col, fontWeight: 'bold', fontSize: '11px' }}>
-                {isEnSys ? (apprGlobal ? `${apprGlobal.g} — ${apprGlobal.txt}` : '—') : (apprGlobal?.text || '—')}
-              </div>
-              {th            && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, "Tableau d'Honneur", 'Honor Roll')}</div>}
-              {encouragement && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, 'T.H + Encouragement', 'Honor Roll + Encouragement')}</div>}
-              {felicitation  && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, 'T.H + Félicitation', 'Honor Roll + Congratulations')}</div>}
-              {averTravail  > 0 && <div style={{ color: '#d97706', fontSize: '9px', marginTop: 2 }}>{L(sys, 'Aver. Travail', 'Work Warning')} : <strong>{averTravail}</strong></div>}
-              {blameTravail > 0 && <div style={{ color: '#dc2626', fontSize: '9px', marginTop: 2 }}>{L(sys, 'Blâme Travail', 'Work Reprimand')} : <strong>{blameTravail}</strong></div>}
-            </td>
-            <td style={{ ...cell, verticalAlign: 'top', padding: '5px' }}>
-              <div style={{ fontSize: '9px' }}>{L(sys, "T. d'Honneur", 'Honor Roll')} : <strong style={{ color: th || encouragement || felicitation ? '#059669' : '#374151' }}>{th || encouragement || felicitation ? L(sys, 'Oui', 'Yes') : L(sys, 'Non', 'No')}</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Abs. totales', 'Total absences')} : <strong>{absJ + absNJ} H</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Absences NJ', 'Unjust. absences')} : <strong>{absNJ} H</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Exclusions', 'Exclusions')} : <strong>{exclusions} {L(sys, 'Jrs', 'days')}</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Aver. Conduite', 'Conduct Warning')} : <strong>{averConduite}</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Blâme Conduite', 'Conduct Reprimand')} : <strong>{blameConduite}</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Conduite', 'Conduct')} : <strong style={{ color: conduite ? CONDUITE_COLORS[conduite] : undefined }}>
-                {conduite ? `${conduite} — ${conduiteLabel(sys, conduite)}` : '—'}
-              </strong></div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* SIGNATURES */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '4px' }}>
-        <tbody>
-          <tr>
-            <td style={{ ...cell, width: '33%', textAlign: 'center', height: 56, verticalAlign: 'bottom', paddingBottom: 5 }}>
-              <strong style={{ fontSize: '9px' }}>{L(sys, 'Signature du Parent / Tuteur', 'Parent / Guardian Signature')}</strong>
-            </td>
-            <td style={{ ...cell, width: '34%', textAlign: 'center', verticalAlign: 'bottom', paddingBottom: 5 }}>
-              <strong style={{ fontSize: '9px' }}>{L(sys, 'Le Conseil de Classe', 'Class Council')}</strong>
-            </td>
-            <td style={{ ...cell, width: '33%', textAlign: 'center', verticalAlign: 'top', paddingTop: 5 }}>
-              <strong style={{ fontSize: '9px' }}>{L(sys, 'LE PRINCIPAL', 'THE PRINCIPAL')}</strong>
-              {school?.signature_url && (
-                <img src={school.signature_url} alt="Signature" style={{ height: 32, display: 'block', margin: '2px auto' }} />
-              )}
-              {school?.stamp_url && (
-                <img src={school.stamp_url} alt="Tampon" style={{ height: 32, display: 'block', margin: '2px auto' }} />
-              )}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <p style={{ fontSize: '7.5px', color: '#9ca3af', textAlign: 'center', fontStyle: 'italic', margin: 0 }}>
-        {isEnSys
-          ? "This report card is valid only with the signature and stamp of the head of school. Any manual alteration is liable to sanction."
-          : "Ce bulletin n'est valable qu'avec la signature et le cachet du chef d'établissement. Toute modification manuelle est passible de sanction."}
-      </p>
+      {/* Bas de page institutionnel mutualisé (partagé avec le Bulletin Classique) */}
+      <BulletinCMFooter
+        school={school} sys={sys} studentAvg={studentAvg} maxScale={maxScale}
+        passed={passed} decision={decision} apprGlobal={apprGlobal}
+        rank={rank} stats={stats} abs={abs}
+      />
     </div>
   );
 }

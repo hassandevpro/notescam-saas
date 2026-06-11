@@ -8,14 +8,31 @@ import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
 import { useCountry, defaultSystemForCountry } from '../lib/useCountry';
+import { COUNTRIES } from '../countries';
 
 const SYSTEMS = ['FR', 'EN'];
 
-// Retourne les groupes de niveaux pour un cycle donné, lus depuis la config pays.
+// Le Cameroun est bilingue : à la création d'une classe on propose les niveaux
+// francophones ET anglophones quel que soit le système de l'école (ceux de sa
+// propre langue d'abord). Hors Cameroun (Guinée Éq.), on garde uniquement les
+// niveaux du pays.
+const CAMEROON_CODES = new Set(['cameroon_fr', 'cameroon_en']);
+
 function niveauGroupsForCycle(country, cycleCode) {
-  const cycle = country?.cycles?.find((c) => c.code === cycleCode);
-  return cycle?.levelGroups || [];
+  const own = country?.cycles?.find((c) => c.code === cycleCode)?.levelGroups || [];
+  if (!CAMEROON_CODES.has(country?.code)) return own;
+  const otherCode = country.code === 'cameroon_fr' ? 'cameroon_en' : 'cameroon_fr';
+  const other = COUNTRIES[otherCode]?.cycles?.find((c) => c.code === cycleCode)?.levelGroups || [];
+  const seen = new Set(own.map((g) => g.group));
+  return [...own, ...other.filter((g) => !seen.has(g.group))];
 }
+
+// Tous les niveaux anglophones (Nursery, Class, Form, Sixth), dérivés de la
+// config EN -> sert à basculer automatiquement la classe en notation /100 (EN)
+// quand on en choisit un, même dans une école francophone.
+const EN_NIVEAUX = new Set(
+  (COUNTRIES.cameroon_en?.cycles || []).flatMap((c) => c.levelGroups.flatMap((g) => g.items)),
+);
 
 const SUBJECT_CATALOG = [
   // Langues
@@ -83,7 +100,7 @@ const EMPTY_FORM = {
 };
 
 // ── Formulaire compact (création) ────────────────────────────────────────────
-function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) {
+function ClassForm({ onSave, onCancel, defaultYear, teachers }) {
   const t = useT();
   const country = useCountry();
   // Cycles dynamiques selon le pays — labels venant du registre countries/*.
@@ -99,11 +116,6 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) 
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
 
-  const ANGLOPHONE_NIVEAUX = new Set([
-    'Form 1', 'Form 2', 'Form 3', 'Form 4', 'Form 5', 'Lower Sixth', 'Upper Sixth',
-    'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6',
-  ]);
-
   const handleCycleChange = (e) => {
     const cycle = e.target.value;
     setForm((f) => ({ ...f, cycle, level: '', name: '' }));
@@ -117,12 +129,15 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) 
       if (isGE) {
         return { ...f, level: niveau, name: nameIsAuto ? niveau : f.name, system: 'ES' };
       }
-      const autoSystem = ANGLOPHONE_NIVEAUX.has(niveau) ? 'EN' : 'FR';
+      // Cameroun : le système suit la langue du niveau choisi (anglophone -> EN
+      // /100, francophone -> FR /20), même dans une école francophone. L'admin
+      // peut corriger via le sélecteur « Système de notation » (toujours affiché).
+      const autoSystem = EN_NIVEAUX.has(niveau) ? 'EN' : 'FR';
       return {
         ...f,
         level: niveau,
         name: nameIsAuto ? niveau : f.name,
-        ...(schoolLanguage === 'bilingue' && niveau ? { system: autoSystem } : {}),
+        ...(niveau ? { system: autoSystem } : {}),
       };
     });
   };
@@ -175,7 +190,7 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers, schoolLanguage }) 
             placeholder={t('Ex : Terminale TI A', 'E.g. Form 4 Science A')}
             value={form.name} onChange={set('name')} />
         </div>
-        {schoolLanguage === 'bilingue' && !isGE && (
+        {!isGE && (
           <div>
             <label className="form-label">{t('Système de notation *', 'Grading system *')}</label>
             <select required className="form-input" value={form.system} onChange={set('system')}>
@@ -842,7 +857,6 @@ export default function Classes() {
               teachers={teachers}
               onSave={handleSave}
               onCancel={() => setShowForm(false)}
-              schoolLanguage={schoolLanguage}
             />
           </Modal>
         )}

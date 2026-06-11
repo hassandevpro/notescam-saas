@@ -83,7 +83,13 @@ CREATE TABLE IF NOT EXISTS classes (
   level        TEXT,
   section      TEXT,
   system       TEXT NOT NULL DEFAULT 'FR',
+  cycle        TEXT,
   current_year TEXT,
+  -- Enseignant titulaire. Pas de FK dure : la sync hors-ligne peut envoyer la
+  -- classe avant l'enseignant -> on garde l'id même si la ligne teacher n'est
+  -- pas (encore) là, au lieu de rejeter tout l'upsert (FK ON globalement).
+  teacher_id   TEXT,
+  max_students INTEGER,
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -94,6 +100,8 @@ CREATE TABLE IF NOT EXISTS subjects (
   name       TEXT NOT NULL,
   coef       INTEGER NOT NULL DEFAULT 1,
   max        INTEGER NOT NULL DEFAULT 20,
+  position   INTEGER,
+  teacher_id TEXT,                  -- enseignant de la matière (pas de FK dure, cf. classes)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -107,6 +115,7 @@ CREATE TABLE IF NOT EXISTS students (
   statut         TEXT,
   date_naissance TEXT,
   parent_token   TEXT,
+  photo_url      TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

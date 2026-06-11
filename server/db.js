@@ -25,6 +25,25 @@ db.exec('PRAGMA busy_timeout = 5000');  // attend si un autre process écrit
 const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf8');
 db.exec(schema);
 
+// --- Migrations légères -----------------------------------------------
+// `CREATE TABLE IF NOT EXISTS` ne touche pas une table déjà créée : pour
+// ajouter une colonne aux bases existantes, on fait un ALTER conditionnel
+// (node:sqlite ne connaît pas « ADD COLUMN IF NOT EXISTS »).
+function ensureColumn(table, column, ddl) {
+  const has = db.prepare(`PRAGMA table_info(${quoteIdent(table)})`).all()
+    .some((r) => r.name === column);
+  if (!has) db.exec(`ALTER TABLE ${quoteIdent(table)} ADD COLUMN ${ddl}`);
+}
+ensureColumn('subjects', 'position', 'position INTEGER');   // ordre des matières sur le bulletin
+ensureColumn('students', 'photo_url', 'photo_url TEXT');    // photo de l'élève
+// Affectation des enseignants (titulaire de classe + prof par matière). Absentes
+// du 1er schéma LAN -> sans elles, pickColumns avalait teacher_id en silence et
+// l'assignation « disparaissait » au rechargement. Voir aussi le garde-fou plus bas.
+ensureColumn('classes',  'cycle',        'cycle TEXT');
+ensureColumn('classes',  'teacher_id',   'teacher_id TEXT');
+ensureColumn('classes',  'max_students', 'max_students INTEGER');
+ensureColumn('subjects', 'teacher_id',   'teacher_id TEXT');
+
 // --- Introspection : colonnes réelles par table -------------------
 // Sert à filtrer les payloads entrants -> on ignore toute clé inconnue
 // au lieu de planter (robustesse face aux divergences cloud/LAN).
@@ -52,11 +71,25 @@ export function quoteIdent(name) {
 }
 
 // Filtre un objet pour ne garder que les colonnes existantes de la table.
+// Ignorer une clé inconnue est volontaire (robustesse face aux divergences
+// cloud/LAN), MAIS un silence total cache les vraies dérives de schéma : une
+// colonne que le cloud possède et que le schéma LAN a oubliée est « sauvée »
+// côté app puis perdue au rechargement (bug vécu sur classes.teacher_id).
+// -> on JOURNALISE chaque colonne droppée, une seule fois par (table.colonne),
+// pour que toute future divergence saute aux yeux dans les logs serveur.
+const _droppedWarned = new Set();
 export function pickColumns(table, obj) {
   const cols = tableColumns(table);
   const out = {};
   for (const [k, v] of Object.entries(obj || {})) {
     if (cols.has(k)) out[k] = normalizeValue(v);
+    else {
+      const sig = `${table}.${k}`;
+      if (!_droppedWarned.has(sig)) {
+        _droppedWarned.add(sig);
+        console.warn(`[schema] colonne inconnue ignorée: ${sig} — le schéma LAN a peut-être divergé du cloud (donnée non persistée).`);
+      }
+    }
   }
   return out;
 }

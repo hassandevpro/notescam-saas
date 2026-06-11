@@ -10,17 +10,39 @@
 
 const BASE = import.meta.env.VITE_LAN_API_BASE || ''; // même origine que la SPA
 const SESSION_KEY = 'nc_lan_session';
+const IDLE_MS = 30 * 60 * 1000; // déconnexion auto après 30 min sans interaction
 
 // --- Session locale ---------------------------------------------------
+// Édition LAN sur poste souvent partagé : la session vit en sessionStorage,
+// donc elle est effacée à la fermeture du navigateur ET au redémarrage de la
+// machine -> reconnexion obligatoire. En complément, un délai d'inactivité
+// (IDLE_MS) coupe la session même si le navigateur reste ouvert.
 function loadSession() {
-  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; }
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; }
 }
 function saveSession(session) {
-  if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  else localStorage.removeItem(SESSION_KEY);
+  if (session) sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  else sessionStorage.removeItem(SESSION_KEY);
 }
+// Purge d'une éventuelle session persistante héritée de l'ancien stockage
+// (localStorage), qui survivait au redémarrage — c'était la faille à corriger.
+try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+
 let _session = loadSession();
 const _authListeners = new Set();
+
+// --- Inactivité -------------------------------------------------------
+// Seules les vraies interactions utilisateur repoussent le délai : le polling
+// realtime (toutes les POLL_MS) ne doit PAS maintenir la session en vie, sinon
+// elle ne s'éteindrait jamais.
+let _lastActive = Date.now();
+function markActivity() { _lastActive = Date.now(); }
+function idleExpired() { return _session != null && Date.now() - _lastActive > IDLE_MS; }
+if (typeof window !== 'undefined') {
+  for (const ev of ['mousedown', 'keydown', 'touchstart']) {
+    window.addEventListener(ev, markActivity, { passive: true });
+  }
+}
 function emitAuth(event) {
   for (const cb of _authListeners) { try { cb(event, _session); } catch { /* ignore */ } }
 }
@@ -35,6 +57,13 @@ function authHeaders(extra = {}) {
 }
 
 async function apiJson(path, { method = 'POST', body, headers } = {}) {
+  // Coupe la session après inactivité prolongée. Le polling realtime sert de
+  // chien de garde : il rappelle apiJson régulièrement et déclenche la sortie
+  // même si l'utilisateur s'est éloigné sans toucher au clavier ni à la souris.
+  if (idleExpired()) {
+    setSession(null, 'SIGNED_OUT');
+    return { data: null, error: { message: 'Session expirée pour inactivité. Veuillez vous reconnecter.' } };
+  }
   const res = await fetch(BASE + path, {
     method,
     headers: authHeaders({ 'Content-Type': 'application/json', ...headers }),

@@ -30,6 +30,13 @@ export default defineConfig(({ mode }) => {
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Édition LAN : servie depuis un serveur local sur le réseau de l'école.
+      // Le cache offline du service worker est inutile (le serveur EST le réseau)
+      // et masque les mises à jour (l'ancien SW ressert l'ancien code après un
+      // rebuild). `selfDestroying` génère un SW qui se désinscrit tout seul sur
+      // chaque PC et vide son cache -> les mises à jour s'affichent toujours
+      // après un simple rechargement. Le build cloud garde sa PWA complète.
+      selfDestroying: isLan,
       devOptions: { enabled: false },
       includeAssets: ['favicon.svg', 'icon.svg', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'],
       manifest: {

@@ -47,12 +47,12 @@ export async function deleteClass(id) {
 
 // --- Subjects ---
 
-export async function fetchSubjects(schoolId) {
-  const { data, error } = await supabase
-    .from('subjects')
-    .select('*')
-    .eq('school_id', schoolId)
-    .order('name');
+// `classIds` (optionnel) : limite aux matières de ces classes — sert à ne
+// charger que l'année active (cf. _refreshFromSupabase) au lieu de toute l'école.
+export async function fetchSubjects(schoolId, classIds = null) {
+  let q = supabase.from('subjects').select('*').eq('school_id', schoolId);
+  if (classIds) q = q.in('class_id', classIds);
+  const { data, error } = await q.order('name');
   if (error) { console.error('fetchSubjects', error); return null; }
   return data;
 }
@@ -75,12 +75,10 @@ export async function deleteSubject(id) {
 
 // --- Students ---
 
-export async function fetchStudents(schoolId) {
-  const { data, error } = await supabase
-    .from('students')
-    .select('*')
-    .eq('school_id', schoolId)
-    .order('name');
+export async function fetchStudents(schoolId, classIds = null) {
+  let q = supabase.from('students').select('*').eq('school_id', schoolId);
+  if (classIds) q = q.in('class_id', classIds);
+  const { data, error } = await q.order('name');
   if (error) { console.error('fetchStudents', error); return null; }
   return data;
 }
@@ -113,11 +111,10 @@ export async function deleteStudent(id) {
 // Supabase stores one row per (class × student × subject × sequence).
 // The store uses a gradeMap keyed by "classId_studentId_sequence" for bulletinEngine.
 
-export async function fetchGrades(schoolId) {
-  const { data, error } = await supabase
-    .from('grades')
-    .select('*')
-    .eq('school_id', schoolId);
+export async function fetchGrades(schoolId, classIds = null) {
+  let q = supabase.from('grades').select('*').eq('school_id', schoolId);
+  if (classIds) q = q.in('class_id', classIds);
+  const { data, error } = await q;
   if (error) { console.error('fetchGrades', error); return null; }
   return data;
 }
@@ -221,6 +218,32 @@ export async function uploadSchoolAsset(schoolId, file, assetType) {
 
   const { data } = supabase.storage.from('school-assets').getPublicUrl(path);
   return { url: data.publicUrl, error: null };
+}
+
+// Photo d'élève — même bucket que les assets école, sous-dossier `students/`.
+// `file` est attendu déjà redimensionné en JPEG (cf. lib/image.js). Le chemin
+// est déterministe (un fichier par élève) : un nouvel upload remplace l'ancien.
+// On ajoute `?v=` à l'URL pour casser le cache navigateur après remplacement.
+export async function uploadStudentPhoto(schoolId, studentId, file) {
+  const path = `${schoolId}/students/${studentId}.jpg`;
+  const { error } = await supabase.storage
+    .from('school-assets')
+    .upload(path, file, { upsert: true, contentType: 'image/jpeg' });
+  if (error) { console.error('uploadStudentPhoto', error); return { url: null, error }; }
+
+  const { data } = supabase.storage.from('school-assets').getPublicUrl(path);
+  return { url: `${data.publicUrl}?v=${Date.now()}`, error: null };
+}
+
+// Supprime le fichier photo du stockage (best-effort). À appeler quand l'admin
+// retire la photo d'un élève, pour ne pas laisser de fichier orphelin.
+export async function deleteStudentPhoto(schoolId, studentId) {
+  const path = `${schoolId}/students/${studentId}.jpg`;
+  try {
+    await supabase.storage.from('school-assets').remove([path]);
+  } catch (e) {
+    console.warn('deleteStudentPhoto', e);
+  }
 }
 
 // --- Year utilities ---

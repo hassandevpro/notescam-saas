@@ -163,11 +163,19 @@ export const useSchoolStore = create((set, get) => ({
     const year      = activeYear ?? get().activeYear;
     const teacherId = useAuthStore.getState().teacherId;
 
-    const [sbClasses, sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbFees, sbFeePayments] = await Promise.all([
-      fetchClasses(schoolId, year),
-      fetchSubjects(schoolId),
-      fetchStudents(schoolId),
-      fetchGrades(schoolId),
+    // Perf : on récupère d'abord les classes de l'année active, puis on limite
+    // notes / matières / élèves à CES classes (`.in('class_id', …)`). Sans ce
+    // périmètre, chaque rafraîchissement tirait TOUTE l'école, toutes années
+    // confondues → consulter une archive (ou simplement recharger) devenait très
+    // lent sur une base avec plusieurs années d'historique importé. L'IDB reste
+    // alimentée par fusion, donc les années déjà consultées restent en cache.
+    const sbClasses = await fetchClasses(schoolId, year);
+    const scopeIds  = (sbClasses ?? get().classes).map((c) => c.id);
+
+    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbFees, sbFeePayments] = await Promise.all([
+      fetchSubjects(schoolId, scopeIds),
+      fetchStudents(schoolId, scopeIds),
+      fetchGrades(schoolId, scopeIds),
       fetchAbsences(schoolId),
       fetchTeachers(schoolId),
       fetchFees(schoolId, year),

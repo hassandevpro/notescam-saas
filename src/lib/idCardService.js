@@ -67,7 +67,7 @@ async function qrDataUrl(payload) {
 function singleCardHtml({ student, school, className, theme, cardId, qrSrc, countryCode }) {
   const photo = student.photo_url
     ? `<img src="${student.photo_url}" alt="" />`
-    : `<div class="photo-placeholder">${(student.name || '?').slice(0, 1).toUpperCase()}</div>`;
+    : `<svg class="photo-placeholder" viewBox="0 0 24 24" fill="#9ca3af"><path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v3h20v-3c0-3.33-6.67-5-10-5z"/></svg>`;
   const radius = shapeToRadius(theme.cardShape);
   const header =
     theme.headerStyle === 'gradient'
@@ -140,7 +140,7 @@ export async function printIdCards({ students, school, classNameById }) {
     .card-body { flex:1; display:flex; padding:3mm 5mm; align-items:center; gap:5mm; }
     .photo { width:22mm; height:22mm; border-radius:50%; border:2px solid; overflow:hidden; flex-shrink:0; background:#f3f4f6; display:flex; align-items:center; justify-content:center; }
     .photo img { width:100%; height:100%; object-fit:cover; }
-    .photo .photo-placeholder { font-size:22px; font-weight:700; color:#9ca3af; }
+    .photo .photo-placeholder { width:62%; height:62%; }
     .info { flex:1; line-height:1.4; }
     .info .row strong { font-size:11px; }
     .info .row span { font-size:9px; color:#444; }

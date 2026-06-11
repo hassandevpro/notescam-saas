@@ -4,7 +4,10 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate } from '../lib/exportCsv';
 import { printIdCards } from '../lib/idCardService';
+import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
+import { resizeImageToSquare } from '../lib/image';
 import Layout from '../components/Layout';
+import StudentAvatar from '../components/StudentAvatar';
 import Modal from '../components/Modal';
 import { useT, getLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
@@ -16,20 +19,7 @@ const dateLocale = () => (getLang() === 'es' ? 'es-ES' : getLang() === 'en' ? 'e
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const PAGE_SIZE  = 20;
-const AVT_COLORS = [
-  'bg-violet-100 text-violet-700', 'bg-blue-100 text-blue-700',
-  'bg-emerald-100 text-emerald-700', 'bg-amber-100 text-amber-700',
-  'bg-rose-100 text-rose-700', 'bg-cyan-100 text-cyan-700',
-];
 
-function avatarColor(name) {
-  const n = [...(name || '')].reduce((a, c) => a + c.charCodeAt(0), 0);
-  return AVT_COLORS[n % AVT_COLORS.length];
-}
-function initials(name) {
-  const p = (name || '').trim().split(/\s+/);
-  return p.length >= 2 ? (p[0][0] + p[1][0]).toUpperCase() : (p[0] || '?').slice(0, 2).toUpperCase();
-}
 function calcAge(dob) {
   if (!dob) return null;
   const b = new Date(dob), now = new Date();
@@ -68,15 +58,68 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
   const [saving, setSaving] = useState(false);
   const set = (f) => (e) => setForm((prev) => ({ ...prev, [f]: e.target.value }));
 
+  // Photo : `photoFile` = blob JPEG redimensionné prêt à uploader ; `photoPreview`
+  // = URL d'aperçu (photo existante en édition, ou aperçu local après sélection).
+  const fileInputRef = useRef(null);
+  const [photoFile, setPhotoFile]       = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(initial?.photo_url || null);
+  const [photoErr, setPhotoErr]         = useState('');
+  const [photoBusy, setPhotoBusy]       = useState(false);
+
+  const onPickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';                  // autorise la re-sélection du même fichier
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setPhotoErr(t('Choisissez une image.', 'Please choose an image.')); return; }
+    setPhotoErr(''); setPhotoBusy(true);
+    try {
+      const blob = await resizeImageToSquare(file);
+      setPhotoFile(blob);
+      setPhotoPreview(URL.createObjectURL(blob));
+    } catch {
+      setPhotoErr(t('Image illisible.', 'Unreadable image.'));
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+  const clearPhoto = () => { setPhotoFile(null); setPhotoPreview(null); };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
-    await onSave(form);
+    // Intention photo : nouveau fichier, suppression d'une photo existante, ou rien.
+    const photo = photoFile ? { file: photoFile }
+                : (!photoPreview && initial?.photo_url) ? { remove: true }
+                : null;
+    await onSave(form, photo);
     setSaving(false);
   };
 
   return (
     <form onSubmit={handleSubmit} className="pb-2">
+      {/* Photo de l'élève */}
+      <div className="flex items-center gap-4 mb-5">
+        <StudentAvatar student={{ photo_url: photoPreview }} size={80} />
+        <div>
+          <p className="form-label">{t('Photo', 'Photo')}</p>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={photoBusy}
+              className="btn-secondary" style={{ width: 'auto' }}>
+              {photoBusy ? t('Traitement…', 'Processing…') : photoPreview ? t('Changer', 'Change') : t('Choisir une photo', 'Choose a photo')}
+            </button>
+            {photoPreview && (
+              <button type="button" onClick={clearPhoto} className="text-sm text-red-500 hover:text-red-600 px-2">
+                {t('Retirer', 'Remove')}
+              </button>
+            )}
+          </div>
+          <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickPhoto} />
+          {photoErr
+            ? <p className="text-xs text-red-500 mt-1">{photoErr}</p>
+            : <p className="text-xs text-gray-400 mt-1">{t('JPG/PNG — recadrée et compressée automatiquement.', 'JPG/PNG — auto-cropped and compressed.')}</p>}
+        </div>
+      </div>
+
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">{t('Identité', 'Identity')}</p>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-5">
         <div className="col-span-2 md:col-span-1">
@@ -624,6 +667,11 @@ export default function Students() {
   const updateStudent       = useSchoolStore((s) => s.updateStudent);
   const deleteStudent       = useSchoolStore((s) => s.deleteStudent);
   const bulkAssignToClass   = useSchoolStore((s) => s.bulkAssignToClass);
+  const role                = useAuthStore((s) => s.role);
+
+  // Écriture des élèves réservée à la direction (admin + censeur), aligné sur la
+  // politique RLS Supabase. Le surveillant garde un accès en LECTURE seule.
+  const canEdit = role === 'admin' || role === 'censeur';
 
   const [tab,            setTab]           = useState('actifs');
   const [classFilter,    setClassFilter]   = useState('');
@@ -683,9 +731,22 @@ export default function Students() {
     downloadExcel(`eleves_${cls}_${new Date().toISOString().slice(0, 10)}.xlsx`, rows, t('Élèves', 'Students'));
   };
 
-  const handleSave = async (form) => {
-    if (editing) { await updateStudent(editing.id, form); setEditing(null); }
-    else         { await addStudent(form); setShowForm(false); }
+  const handleSave = async (form, photo) => {
+    // 1) Crée/met à jour l'élève d'abord (il faut un id pour nommer la photo).
+    let studentId;
+    if (editing) { await updateStudent(editing.id, form); studentId = editing.id; }
+    else         { const rec = await addStudent(form); studentId = rec?.id; }
+
+    // 2) Photo : upload du nouveau fichier, ou retrait de la photo existante.
+    if (studentId && photo?.file) {
+      const { url } = await uploadStudentPhoto(school.id, studentId, photo.file);
+      if (url) await updateStudent(studentId, { photo_url: url });
+    } else if (studentId && photo?.remove) {
+      await updateStudent(studentId, { photo_url: null });
+      await deleteStudentPhoto(school.id, studentId);
+    }
+
+    if (editing) setEditing(null); else setShowForm(false);
   };
 
   const handleDelete = async (s) => { await deleteStudent(s.id); setConfirmDel(null); };
@@ -726,7 +787,7 @@ export default function Students() {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
-              <button onClick={openImport} className="btn-secondary">{t('Importer', 'Import')}</button>
+              {canEdit && <button onClick={openImport} className="btn-secondary">{t('Importer', 'Import')}</button>}
               {visible.length > 0 && (
                 <>
                   <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
@@ -781,7 +842,7 @@ export default function Students() {
                   </div>
                 </>
               )}
-              {total >= f.maxStudents ? (
+              {canEdit && (total >= f.maxStudents ? (
                 <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm text-amber-800">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-500 shrink-0">
                     <path fillRule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clipRule="evenodd" />
@@ -797,12 +858,12 @@ export default function Students() {
                   style={{ width: 'auto', paddingLeft: '1.25rem', paddingRight: '1.25rem' }}>
                   + {t('Nouvel Élève', 'New Student')}
                 </button>
-              )}
+              ))}
             </div>
         </div>
 
         {/* ── Barre d'actions sélection ───────────────────────── */}
-        {selectedIds.size > 0 && (
+        {canEdit && selectedIds.size > 0 && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-gray-900 text-white rounded-2xl shadow-2xl px-5 py-3 text-sm">
             <span className="font-semibold">{selectedIds.size} {t('élève', 'student')}{selectedIds.size > 1 ? 's' : ''} {t('sélectionné', 'selected')}{selectedIds.size > 1 ? 's' : ''}</span>
             <button onClick={() => setShowBulkAssign(true)}
@@ -920,12 +981,14 @@ export default function Students() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-100">
-                        <th className="px-3 py-3 w-10">
-                          <input type="checkbox"
-                            className="rounded border-gray-300 text-brand-600"
-                            checked={paginated.length > 0 && selectedIds.size === paginated.length}
-                            onChange={toggleSelectAll} />
-                        </th>
+                        {canEdit && (
+                          <th className="px-3 py-3 w-10">
+                            <input type="checkbox"
+                              className="rounded border-gray-300 text-brand-600"
+                              checked={paginated.length > 0 && selectedIds.size === paginated.length}
+                              onChange={toggleSelectAll} />
+                          </th>
+                        )}
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Élève', 'Student')}</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Matricule', 'ID')}</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Classe', 'Class')}</th>
@@ -942,18 +1005,18 @@ export default function Students() {
                         return (
                           <tr key={student.id} className={`hover:bg-gray-50 transition-colors group ${isSelected ? 'bg-brand-50/40' : ''}`}>
                             {/* Checkbox */}
-                            <td className="px-3 py-3">
-                              <input type="checkbox"
-                                className="rounded border-gray-300 text-brand-600"
-                                checked={isSelected}
-                                onChange={() => toggleSelect(student.id)} />
-                            </td>
+                            {canEdit && (
+                              <td className="px-3 py-3">
+                                <input type="checkbox"
+                                  className="rounded border-gray-300 text-brand-600"
+                                  checked={isSelected}
+                                  onChange={() => toggleSelect(student.id)} />
+                              </td>
+                            )}
                             {/* Avatar + nom */}
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-3">
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${avatarColor(student.name)}`}>
-                                  {initials(student.name)}
-                                </div>
+                                <StudentAvatar student={student} size={32} />
                                 <div>
                                   <Link to={`/app/students/${student.id}`}
                                     className="font-semibold text-gray-900 hover:text-brand-600 transition-colors">
@@ -1023,17 +1086,21 @@ export default function Students() {
                                     title="Voir la fiche">
                                     <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/></svg>
                                   </Link>
-                                  <button
-                                    onClick={() => { setEditing(student); setShowForm(false); setShowImport(false); }}
-                                    className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
-                                    title="Modifier">
-                                    <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
-                                  </button>
-                                  <button onClick={() => setConfirmDel(student)}
-                                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                                    title="Supprimer">
-                                    <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
-                                  </button>
+                                  {canEdit && (
+                                    <>
+                                      <button
+                                        onClick={() => { setEditing(student); setShowForm(false); setShowImport(false); }}
+                                        className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                                        title="Modifier">
+                                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+                                      </button>
+                                      <button onClick={() => setConfirmDel(student)}
+                                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                        title="Supprimer">
+                                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
+                                      </button>
+                                    </>
+                                  )}
                                 </span>
                               )}
                             </td>

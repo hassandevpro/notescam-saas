@@ -7,8 +7,10 @@ import {
   getAvg, frApp, enGrade, getAppreciation, buildRanks, clsStat,
 } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
+import Modal from '../components/Modal';
 import '../styles/bulletin.css';
 import { useT } from '../lib/i18n';
+import BulletinPhoto from '../components/bulletins/BulletinPhoto';
 import BoletinGE from '../components/bulletins/BoletinGE';
 import BoletinGEDetalle from '../components/bulletins/BoletinGEDetalle';
 import BulletinTheme from '../components/bulletins/BulletinTheme';
@@ -27,6 +29,99 @@ function avatarColor(name = '') {
 }
 function initials(name = '') {
   return name.split(' ').slice(0, 2).map((w) => w[0] || '').join('').toUpperCase();
+}
+
+// Ordre d'affichage des matières sur le bulletin : `position` (croissante) en
+// priorité ; les matières sans position gardent le tri historique (coef puis
+// nom) et sont placées après les matières ordonnées. Rétrocompatible.
+function bySubjectOrder(a, b) {
+  const ha = a.position != null, hb = b.position != null;
+  if (ha && hb) return a.position - b.position;
+  if (ha) return -1;
+  if (hb) return 1;
+  return b.coef - a.coef || a.name.localeCompare(b.name);
+}
+
+// ── Modal : réorganiser les matières d'une classe (glisser-déposer) ─────────────
+function SubjectOrderModal({ subjects, onClose }) {
+  const t = useT();
+  const updateSubject = useSchoolStore((s) => s.updateSubject);
+  const [order, setOrder]   = useState(subjects);
+  const [saving, setSaving] = useState(false);
+  const [dragIdx, setDragIdx] = useState(null);   // index de la ligne en cours de déplacement
+
+  // Déplace l'élément depuis -> vers (réordonnancement en direct au survol).
+  const reorder = (from, to) => setOrder((arr) => {
+    if (from === to || from == null || to == null) return arr;
+    const next = [...arr];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    return next;
+  });
+
+  const onDragStart = (idx) => (e) => {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
+    // Firefox exige des données pour démarrer le drag.
+    try { e.dataTransfer.setData('text/plain', String(idx)); } catch { /* ignore */ }
+  };
+  const onDragOver = (idx) => (e) => {
+    e.preventDefault();                 // autorise le drop
+    e.dataTransfer.dropEffect = 'move';
+    if (dragIdx !== null && dragIdx !== idx) {
+      reorder(dragIdx, idx);
+      setDragIdx(idx);                  // la ligne déplacée suit le curseur
+    }
+  };
+  const onDragEnd = () => setDragIdx(null);
+
+  const handleSave = async () => {
+    setSaving(true);
+    // N'écrit que les positions réellement modifiées.
+    await Promise.all(
+      order
+        .map((sub, i) => (sub.position === i ? null : updateSubject(sub.id, { position: i })))
+        .filter(Boolean)
+    );
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <Modal title={t('Ordre des matières sur le bulletin', 'Subject order on the report card')} onClose={onClose} size="md">
+      <p className="text-sm text-gray-500 mb-4">
+        {t('Glissez-déposez les matières dans l’ordre où elles doivent apparaître sur le bulletin.',
+           'Drag and drop the subjects into the order they should appear on the report card.')}
+      </p>
+      <ul className="space-y-1.5">
+        {order.map((sub, idx) => (
+          <li
+            key={sub.id}
+            draggable
+            onDragStart={onDragStart(idx)}
+            onDragOver={onDragOver(idx)}
+            onDrop={(e) => e.preventDefault()}
+            onDragEnd={onDragEnd}
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg border bg-white cursor-grab active:cursor-grabbing transition-colors ${
+              dragIdx === idx ? 'border-brand-400 bg-brand-50/60 opacity-80 shadow-sm' : 'border-gray-100 hover:border-brand-200'
+            }`}
+          >
+            <span className="text-gray-300 select-none shrink-0" aria-hidden>⠿</span>
+            <span className="text-xs text-gray-400 w-5 text-right shrink-0">{idx + 1}</span>
+            <span className="flex-1 text-sm font-medium text-gray-800 truncate">{sub.name}</span>
+            <span className="text-xs text-gray-400 shrink-0">{t('coef', 'coef')} {sub.coef}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex gap-3 mt-5">
+        <button onClick={handleSave} disabled={saving} className="btn-primary"
+          style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}>
+          {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer l’ordre', 'Save order')}
+        </button>
+        <button onClick={onClose} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
+      </div>
+    </Modal>
+  );
 }
 
 
@@ -194,6 +289,9 @@ function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period }
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
         <tbody>
           <tr>
+            <td style={{ ...CM_INFO, width: '10%', textAlign: 'center' }}>
+              <BulletinPhoto src={student.photo_url} width={44} height={54} radius={2} />
+            </td>
             <td style={{ ...CM_INFO, width: '25%' }}><strong>{L(sys, 'NOM ET PRÉNOM', 'FULL NAME')} :</strong><br /><span style={{ fontWeight: 'bold', color: '#111' }}>{student.name}</span></td>
             <td style={{ ...CM_INFO, width: '12%' }}><strong>{L(sys, 'MATRICULE', 'REG. NO.')} :</strong><br />{student.matricule || '—'}</td>
             <td style={{ ...CM_INFO, width: '13%' }}><strong>{L(sys, 'DATE DE NAISS.', 'DATE OF BIRTH')} :</strong><br />{student.date_naissance || '—'}</td>
@@ -410,21 +508,24 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
         <div className="bm-period-badge">{period.short}</div>
       </div>
 
-      <div className="bm-student-card">
-        <div className="bm-student-name">{student.name}</div>
-        <div className="bm-student-meta">
-          <span>{cls?.name || '—'}</span>
-          {student.matricule && <><span>·</span><span>Mat. {student.matricule}</span></>}
-          {student.gender && <><span>·</span><span>{student.gender}</span></>}
-        </div>
-        <div className="bm-student-rank">
-          <span>{sys === 'EN' ? 'Rank' : 'Rang'}&nbsp;<strong>{rank?.rankD || '—'}</strong>&thinsp;/&thinsp;{stats?.total ?? '—'}</span>
-          <span>{sys === 'EN' ? 'Average' : 'Moyenne'}&nbsp;
-            <strong style={{ color: passed ? '#059669' : '#dc2626' }}>
-              {studentAvg !== null ? `${studentAvg}/${maxScale}` : '—'}
-            </strong>
-          </span>
-          <span style={{ color: passed ? '#059669' : '#dc2626', fontWeight: 700 }}>{decision}</span>
+      <div className="bm-student-card" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <BulletinPhoto src={student.photo_url} width={56} height={70} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="bm-student-name">{student.name}</div>
+          <div className="bm-student-meta">
+            <span>{cls?.name || '—'}</span>
+            {student.matricule && <><span>·</span><span>Mat. {student.matricule}</span></>}
+            {student.gender && <><span>·</span><span>{student.gender}</span></>}
+          </div>
+          <div className="bm-student-rank">
+            <span>{sys === 'EN' ? 'Rank' : 'Rang'}&nbsp;<strong>{rank?.rankD || '—'}</strong>&thinsp;/&thinsp;{stats?.total ?? '—'}</span>
+            <span>{sys === 'EN' ? 'Average' : 'Moyenne'}&nbsp;
+              <strong style={{ color: passed ? '#059669' : '#dc2626' }}>
+                {studentAvg !== null ? `${studentAvg}/${maxScale}` : '—'}
+              </strong>
+            </span>
+            <span style={{ color: passed ? '#059669' : '#dc2626', fontWeight: 700 }}>{decision}</span>
+          </div>
         </div>
       </div>
 
@@ -789,8 +890,9 @@ function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, st
         {sys === 'EN' ? 'Annual Primary Report Card' : 'Bulletin Annuel — Enseignement Primaire / Annual Primary Report Card'}
       </div>
 
-      <div className="bulletin-student">
-        <div className="bulletin-student-grid">
+      <div className="bulletin-student" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <BulletinPhoto src={student.photo_url} width={56} height={70} />
+        <div className="bulletin-student-grid" style={{ flex: 1 }}>
           <div><strong>{sys === 'EN' ? 'Name' : 'Nom / Name'} :</strong>&nbsp;{student.name}</div>
           <div><strong>{sys === 'EN' ? 'Reg. No.' : 'Matricule'} :</strong>&nbsp;{student.matricule || '—'}</div>
           <div><strong>{sys === 'EN' ? 'Class' : 'Classe / Class'} :</strong>&nbsp;{cls?.name || '—'}</div>
@@ -996,8 +1098,9 @@ function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrade
         {isEN ? 'Annual Report Card' : 'Bulletin Annuel / Annual Report Card'}
       </div>
 
-      <div className="bulletin-student">
-        <div className="bulletin-student-grid">
+      <div className="bulletin-student" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <BulletinPhoto src={student.photo_url} width={56} height={70} />
+        <div className="bulletin-student-grid" style={{ flex: 1 }}>
           <div><strong>Nom / Name :</strong>&nbsp;{student.name}</div>
           <div><strong>Matricule :</strong>&nbsp;{student.matricule || '—'}</div>
           <div><strong>Classe / Class :</strong>&nbsp;{cls?.name || '—'}</div>
@@ -1179,8 +1282,9 @@ function BulletinMaternelle({ school, cls, student, subjects, teachers, gradeMap
         Bulletin de Compétences — Maternelle / Pre-Primary Competency Report
       </div>
 
-      <div className="bulletin-student">
-        <div className="bulletin-student-grid">
+      <div className="bulletin-student" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <BulletinPhoto src={student.photo_url} width={56} height={70} />
+        <div className="bulletin-student-grid" style={{ flex: 1 }}>
           <div><strong>Nom / Name :</strong>&nbsp;{student.name}</div>
           <div><strong>Classe / Class :</strong>&nbsp;{cls?.name || '—'}</div>
           <div><strong>Niveau :</strong>&nbsp;{cls?.level || '—'}</div>
@@ -1385,10 +1489,8 @@ function BulletinAPCModerne({ school, cls, student, subjects, subjectGrades, stu
 
       {/* ── Fiche élève ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '70px 1fr auto', gap: 8, margin: '6px 0', border: '1px solid #d1d5db', borderRadius: 4, padding: 6, background: '#f8fafc' }}>
-        {/* Photo placeholder */}
-        <div style={{ width: 60, height: 72, border: '1px solid #9ca3af', borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f3f4f6', fontSize: '1.6em', color: '#9ca3af' }}>
-          👤
-        </div>
+        {/* Photo élève (silhouette par défaut) */}
+        <BulletinPhoto src={student.photo_url} width={60} height={72} radius={3} />
         {/* Infos élève */}
         <div style={{ fontSize: '0.7em', lineHeight: 2 }}>
           <div><strong>{L(sys, 'ÉTABLISSEMENT', 'SCHOOL')} :</strong> {school?.name || '—'}</div>
@@ -1799,6 +1901,7 @@ export default function Bulletins() {
   const setFormat    = useUiStore((s) => s.setBulletinsFormat);
 
   const [printAll,        setPrintAll]        = useState(false);
+  const [showOrderModal,  setShowOrderModal]  = useState(false);
   const [sidebarSearch,   setSidebarSearch]   = useState('');
   const [screenshotBlur,  setScreenshotBlur]  = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -1837,7 +1940,7 @@ export default function Bulletins() {
   const period = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0];
 
   const classSubjects = useMemo(() =>
-    subjects.filter((s) => s.class_id === classId).sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name)),
+    subjects.filter((s) => s.class_id === classId).sort(bySubjectOrder),
     [subjects, classId]
   );
   const classStudents = useMemo(() =>
@@ -2144,6 +2247,21 @@ export default function Bulletins() {
               </span>
             </div>
           )}
+
+          {/* Réorganiser l'ordre des matières sur le bulletin (admin/direction) */}
+          {classId && cycle !== 'maternelle' && classSubjects.length > 1 && role !== 'teacher' && (
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => setShowOrderModal(true)}
+                className="btn-secondary inline-flex items-center gap-1.5"
+                style={{ width: 'auto' }}
+                title={t('Changer l’ordre des matières sur le bulletin', 'Change subject order on the report card')}
+              >
+                <span aria-hidden>↕</span> {t('Ordre des matières', 'Subject order')}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* États vides */}
@@ -2298,6 +2416,11 @@ export default function Bulletins() {
           </div>
         )}
       </div>
+
+      {/* Modal : ordre des matières sur le bulletin */}
+      {showOrderModal && (
+        <SubjectOrderModal subjects={classSubjects} onClose={() => setShowOrderModal(false)} />
+      )}
 
       {/* Modal mise à niveau plan Starter */}
       {showUpgradeModal && (

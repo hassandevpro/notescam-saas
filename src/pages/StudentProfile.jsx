@@ -1,28 +1,19 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
+import { useAuthStore } from '../store/authStore';
 import { getAvg, frApp, enGrade } from '../core/bulletinEngine';
 import Modal from '../components/Modal';
 import Layout from '../components/Layout';
+import StudentAvatar from '../components/StudentAvatar';
+import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
+import { resizeImageToSquare } from '../lib/image';
 import { fetchAssignmentHistory } from '../lib/classAssignmentService';
 import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
-const AVT_COLORS = [
-  'bg-violet-100 text-violet-700', 'bg-blue-100 text-blue-700',
-  'bg-emerald-100 text-emerald-700', 'bg-amber-100 text-amber-700',
-  'bg-rose-100 text-rose-700', 'bg-cyan-100 text-cyan-700',
-];
 
-function avatarColor(name) {
-  const n = [...(name || '')].reduce((a, c) => a + c.charCodeAt(0), 0);
-  return AVT_COLORS[n % AVT_COLORS.length];
-}
-function initials(name) {
-  const p = (name || '').trim().split(/\s+/);
-  return p.length >= 2 ? (p[0][0] + p[1][0]).toUpperCase() : (p[0] || '?').slice(0, 2).toUpperCase();
-}
 function calcAge(dob) {
   if (!dob) return null;
   const b = new Date(dob), now = new Date();
@@ -54,16 +45,67 @@ function EditForm({ student, classes, onSave, onClose }) {
   const [saving, setSaving] = useState(false);
   const set = (f) => (e) => setForm((p) => ({ ...p, [f]: e.target.value }));
 
+  // Photo : `photoFile` = blob JPEG prêt à uploader ; `photoPreview` = aperçu.
+  const fileInputRef = useRef(null);
+  const [photoFile, setPhotoFile]       = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(student?.photo_url || null);
+  const [photoErr, setPhotoErr]         = useState('');
+  const [photoBusy, setPhotoBusy]       = useState(false);
+
+  const onPickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setPhotoErr(t('Choisissez une image.', 'Please choose an image.')); return; }
+    setPhotoErr(''); setPhotoBusy(true);
+    try {
+      const blob = await resizeImageToSquare(file);
+      setPhotoFile(blob);
+      setPhotoPreview(URL.createObjectURL(blob));
+    } catch {
+      setPhotoErr(t('Image illisible.', 'Unreadable image.'));
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+  const clearPhoto = () => { setPhotoFile(null); setPhotoPreview(null); };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
-    await onSave(form);
+    const photo = photoFile ? { file: photoFile }
+                : (!photoPreview && student?.photo_url) ? { remove: true }
+                : null;
+    await onSave(form, photo);
     setSaving(false);
     onClose();
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Photo de l'élève */}
+      <div className="flex items-center gap-4">
+        <StudentAvatar student={{ photo_url: photoPreview }} size={72} />
+        <div>
+          <p className="form-label">{t('Photo', 'Photo')}</p>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={photoBusy}
+              className="btn-secondary" style={{ width: 'auto' }}>
+              {photoBusy ? t('Traitement…', 'Processing…') : photoPreview ? t('Changer', 'Change') : t('Choisir une photo', 'Choose a photo')}
+            </button>
+            {photoPreview && (
+              <button type="button" onClick={clearPhoto} className="text-sm text-red-500 hover:text-red-600 px-2">
+                {t('Retirer', 'Remove')}
+              </button>
+            )}
+          </div>
+          <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickPhoto} />
+          {photoErr
+            ? <p className="text-xs text-red-500 mt-1">{photoErr}</p>
+            : <p className="text-xs text-gray-400 mt-1">{t('JPG/PNG — recadrée et compressée automatiquement.', 'JPG/PNG — auto-cropped and compressed.')}</p>}
+        </div>
+      </div>
+
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{t('Identité', 'Identity')}</p>
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
@@ -193,6 +235,9 @@ export default function StudentProfile() {
   const fees          = useSchoolStore((s) => s.fees);
   const updateStudent = useSchoolStore((s) => s.updateStudent);
   const deleteStudent = useSchoolStore((s) => s.deleteStudent);
+  const role          = useAuthStore((s) => s.role);
+  // Écriture élèves réservée à la direction (admin + censeur), aligné sur la RLS.
+  const canEdit       = role === 'admin' || role === 'censeur';
 
   const [showEdit,        setShowEdit]        = useState(false);
   const [showChangeClass, setShowChangeClass] = useState(false);
@@ -266,7 +311,16 @@ export default function StudentProfile() {
 
   const age = calcAge(student.date_naissance);
 
-  const handleSaveEdit = async (form) => { await updateStudent(student.id, form); };
+  const handleSaveEdit = async (form, photo) => {
+    await updateStudent(student.id, form);
+    if (photo?.file) {
+      const { url } = await uploadStudentPhoto(student.school_id, student.id, photo.file);
+      if (url) await updateStudent(student.id, { photo_url: url });
+    } else if (photo?.remove) {
+      await updateStudent(student.id, { photo_url: null });
+      await deleteStudentPhoto(student.school_id, student.id);
+    }
+  };
 
   const handleChangeClass = async () => {
     if (!newClassId) return;
@@ -303,7 +357,7 @@ export default function StudentProfile() {
     { icon: '✏️',  label: t('Saisir une note',            'Enter a grade'),       href: cls ? '/app/grades'   : null, disabled: !cls },
     { icon: '📑', label: t('Générer le bulletin',        'Generate report card'), href: cls ? '/app/bulletins': null, disabled: !cls },
     { icon: '📅', label: t('Voir les absences',          'View absences'),       href: cls ? '/app/grades'   : null, disabled: !cls },
-    { icon: '🏫', label: t('Changer de classe',          'Change class'),        onClick: () => { setNewClassId(student.class_id || ''); setShowChangeClass(true); } },
+    ...(canEdit ? [{ icon: '🏫', label: t('Changer de classe', 'Change class'), onClick: () => { setNewClassId(student.class_id || ''); setShowChangeClass(true); } }] : []),
   ];
 
   const dateLocale = localeForLang();
@@ -320,9 +374,7 @@ export default function StudentProfile() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-extrabold shrink-0 ${avatarColor(student.name)}`}>
-                {initials(student.name)}
-              </div>
+              <StudentAvatar student={student} size={64} square />
               <div>
                 <h1 className="text-xl font-bold text-gray-900">{student.name}</h1>
                 <div className="flex flex-wrap items-center gap-2 mt-1.5">
@@ -353,11 +405,13 @@ export default function StudentProfile() {
             </div>
 
             <div className="flex gap-2 flex-wrap">
-              <button onClick={() => setShowEdit(true)}
-                className="btn-secondary flex items-center gap-1.5 text-sm">
-                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
-                {t('Modifier', 'Edit')}
-              </button>
+              {canEdit && (
+                <button onClick={() => setShowEdit(true)}
+                  className="btn-secondary flex items-center gap-1.5 text-sm">
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+                  {t('Modifier', 'Edit')}
+                </button>
+              )}
               {f.hasParentPortal ? (
                 student.parent_token && (
                   <button onClick={handleCopyParentLink}
@@ -392,7 +446,7 @@ export default function StudentProfile() {
                   {t('Lien parent', 'Parent link')} — Pro
                 </a>
               )}
-              {!confirmDel ? (
+              {canEdit && (!confirmDel ? (
                 <button onClick={() => setConfirmDel(true)}
                   className="px-3 py-2 rounded-lg text-sm font-medium text-red-500 border border-red-200 hover:bg-red-50 transition-colors flex items-center gap-1.5">
                   <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
@@ -404,7 +458,7 @@ export default function StudentProfile() {
                   <button onClick={handleDelete} className="text-xs text-red-600 font-bold hover:underline">{t('Oui', 'Yes')}</button>
                   <button onClick={() => setConfirmDel(false)} className="text-xs text-gray-500 hover:underline">{t('Non', 'No')}</button>
                 </div>
-              )}
+              ))}
             </div>
           </div>
 

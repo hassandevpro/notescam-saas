@@ -6,6 +6,7 @@
 // Mismas props que BoletinGE (intercambiable por el dispatcher de Bulletins.jsx).
 
 import { guineaEq } from '../../countries/guinea_eq';
+import BulletinPhoto from './BulletinPhoto';
 import { esGrade, geAnnualDecision } from '../../core/bulletinEngine';
 
 // Agrupación de asignaturas por áreas (etiquetas en español).
@@ -141,6 +142,9 @@ export default function BoletinGEDetalle({
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
         <tbody>
           <tr>
+            <td style={{ ...info, width: '10%', textAlign: 'center' }}>
+              <BulletinPhoto src={student.photo_url} width={44} height={54} radius={2} />
+            </td>
             <td style={{ ...info, width: '30%' }}><strong>APELLIDOS Y NOMBRE :</strong><br /><span style={{ fontWeight: 'bold', color: '#111' }}>{student.name}</span></td>
             <td style={{ ...info, width: '14%' }}><strong>Nº MATRÍCULA :</strong><br />{student.matricule || '—'}</td>
             <td style={{ ...info, width: '14%' }}><strong>F. NACIM. :</strong><br />{student.date_naissance || '—'}</td>

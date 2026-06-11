@@ -5,6 +5,7 @@
 
 import { guineaEq } from '../../countries/guinea_eq';
 import { geAnnualDecision } from '../../core/bulletinEngine';
+import BulletinPhoto from './BulletinPhoto';
 
 function apreciacion(nota, maxScale) {
   if (nota === null || nota === undefined) return { text: '—', col: '#6b7280' };
@@ -85,8 +86,9 @@ export default function BoletinGE({
           : `Boletín de Calificaciones — ${period.label}`}
       </div>
 
-      <div className="bulletin-student">
-        <div className="bulletin-student-grid">
+      <div className="bulletin-student" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <BulletinPhoto src={student.photo_url} width={56} height={70} />
+        <div className="bulletin-student-grid" style={{ flex: 1 }}>
           <div><strong>Apellidos y nombre :</strong>&nbsp;{student.name}</div>
           <div><strong>Nº de matrícula :</strong>&nbsp;{student.matricule || '—'}</div>
           <div><strong>Curso :</strong>&nbsp;{cls?.name || '—'}</div>

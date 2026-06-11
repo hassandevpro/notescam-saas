@@ -20,7 +20,7 @@ const PHASE_LABELS = {
   done:  ['Terminé', 'Done'],
 };
 
-export default function DataImportPanel() {
+export default function DataImportPanel({ onImported }) {
   const t        = useT();
   const schoolId = useAuthStore((s) => s.school?.id);
 
@@ -29,10 +29,11 @@ export default function DataImportPanel() {
   const [check,   setCheck]   = useState(null);   // résultat validateBundle
   const [busy,    setBusy]    = useState(false);
   const [phase,   setPhase]   = useState(null);
+  const [progress, setProgress] = useState(0);
   const [report,  setReport]  = useState(null);
   const [error,   setError]   = useState('');
 
-  const reset = () => { setBundle(null); setFileName(''); setCheck(null); setReport(null); setError(''); setPhase(null); };
+  const reset = () => { setBundle(null); setFileName(''); setCheck(null); setReport(null); setError(''); setPhase(null); setProgress(0); };
 
   const onFile = async (file) => {
     reset();
@@ -49,10 +50,14 @@ export default function DataImportPanel() {
 
   const run = async () => {
     if (!bundle || !schoolId) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setProgress(0);
     try {
-      const res = await importBundle(bundle, { schoolId, onProgress: (p) => setPhase(p.phase) });
+      const res = await importBundle(bundle, {
+        schoolId,
+        onProgress: (p) => { setPhase(p.phase); setProgress(p.pct ?? 0); },
+      });
       setReport(res);
+      try { onImported?.(); } catch { /* ignore */ }
     } catch (e) {
       setError(e?.message || t('Échec de l\'import.', 'Import failed.'));
     } finally {
@@ -164,12 +169,28 @@ export default function DataImportPanel() {
         </div>
       )}
 
-      {check?.ok && (
-        <button className="btn-primary disabled:opacity-50" onClick={run} disabled={busy || !schoolId}>
-          {busy
-            ? (PHASE_LABELS[phase]?.[0] ? t(...PHASE_LABELS[phase]) : t('Import en cours…', 'Importing…'))
-            : t('Lancer l\'import', 'Start import')}
+      {check?.ok && !busy && (
+        <button className="btn-primary disabled:opacity-50" onClick={run} disabled={!schoolId}>
+          {t('Lancer l\'import', 'Start import')}
         </button>
+      )}
+
+      {busy && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-slate-600">
+              {PHASE_LABELS[phase]?.[0] ? t(...PHASE_LABELS[phase]) : t('Import en cours…', 'Importing…')}
+            </span>
+            <span className="text-sm font-bold text-brand-700 tabular-nums">{progress}%</span>
+          </div>
+          <div className="h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
+            <div className="h-full rounded-full bg-brand-600 transition-all duration-300 ease-out"
+                 style={{ width: `${progress}%` }} />
+          </div>
+          <p className="text-xs text-slate-400 mt-2">
+            {t('Ne fermez pas cette fenêtre pendant l\'import.', 'Do not close this window during import.')}
+          </p>
+        </div>
       )}
     </div>
   );

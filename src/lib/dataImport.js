@@ -35,7 +35,9 @@ import {
   classesDB, subjectsDB, studentsDB, gradesDB,
   teachersDB, feesDB, feePaymentsDB, syncQueueDB,
 } from './db';
-import { getQueueCount, flushSyncQueue } from './sync';
+import { getQueueCount } from './sync';
+import { supabase } from './supabase';
+import { gradeEntryToRows } from './schoolService';
 import { useUiStore } from '../store/uiStore';
 import { validateBundle, buildImportRecords } from './dataImportCore';
 
@@ -59,61 +61,136 @@ export async function importBundle(bundle, { schoolId, flush, onProgress } = {})
   const check = validateBundle(bundle);
   if (!check.ok) throw new Error('Bundle invalide :\n' + check.errors.join('\n'));
 
-  const progress = (phase, done = 0, total = 0) => { try { onProgress?.({ phase, done, total }); } catch { /* ignore */ } };
+  // Progression 0→100 % (en plus du nom de phase) pour la barre de chargement.
+  const report = (phase, pct) => {
+    try { onProgress?.({ phase, pct: Math.max(0, Math.min(100, Math.round(pct))) }); } catch { /* ignore */ }
+  };
 
   // 1) Lecture des lignes existantes (une seule fois) pour l'idempotence.
-  progress('scan');
+  report('scan', 3);
   const [classes, subjects, students, fees, teachers, payments] = await Promise.all([
     classesDB.getAll(), subjectsDB.getAll(), studentsDB.getAll(), feesDB.getAll(), teachersDB.getAll(), feePaymentsDB.getAll(),
   ]);
 
   // 2) Transformation pure pivot → enregistrements (FK résolues, idempotence).
-  progress('build');
+  report('build', 8);
   const { out, reused, warnings } = buildImportRecords(bundle, schoolId, { classes, subjects, students, fees, teachers, payments });
 
-  // 3) Écriture IDB en lot (ordre FK : classes → subjects → students → grades → fees → payments).
-  progress('write');
-  await teachersDB.putMany(out.teachers);
-  await classesDB.putMany(out.classes);
-  await subjectsDB.putMany(out.subjects);
-  await studentsDB.putMany(out.students);
-  await gradesDB.putMany(out.grades);
-  await feesDB.putMany(out.fees);
-  await feePaymentsDB.putMany(out.payments);
-
-  // 4) Empilement de la syncQueue (replayItem dans sync.js sait traiter chaque table).
-  progress('queue');
-  const queueAll = async (table, rows, operation = 'upsert') => {
-    for (const payload of rows) await syncQueueDB.push({ table, operation, payload });
-  };
-  await queueAll('teachers',     out.teachers);
-  await queueAll('classes',      out.classes);
-  await queueAll('subjects',     out.subjects);
-  await queueAll('students',     out.students);
-  await queueAll('grades',       out.grades);
-  await queueAll('student_fees', out.fees);
-  await queueAll('fee_payments', out.payments, 'insert');
-
-  const queued =
-    out.teachers.length + out.classes.length + out.subjects.length +
-    out.students.length + out.grades.length + out.fees.length + out.payments.length;
-
-  // Reflète le nombre d'opérations en attente dans l'indicateur de sync.
-  try { useUiStore.getState().setPendingCount(await getQueueCount()); } catch { /* ignore */ }
-
-  // 5) Flush (sync vers Supabase/localClient). Par défaut si en ligne.
-  let sync = null;
-  const doFlush = flush ?? (typeof navigator !== 'undefined' && navigator.onLine);
-  if (doFlush) {
-    progress('sync', 0, queued);
-    sync = await flushSyncQueue();
-    progress('sync', sync.synced, sync.total);
+  // 3) Écriture IDB en lot (8 → 35 %), ordre FK respecté.
+  const writeSteps = [
+    [teachersDB,    out.teachers],
+    [classesDB,     out.classes],
+    [subjectsDB,    out.subjects],
+    [studentsDB,    out.students],
+    [gradesDB,      out.grades],
+    [feesDB,        out.fees],
+    [feePaymentsDB, out.payments],
+  ];
+  const totalLocal = writeSteps.reduce((n, [, rows]) => n + rows.length, 0) || 1;
+  let written = 0;
+  report('write', 9);
+  for (const [store, rows] of writeSteps) {
+    await store.putMany(rows);
+    written += rows.length;
+    report('write', 9 + 26 * (written / totalLocal));
   }
+  const queued = totalLocal;
+
+  // 4) Sync (35 → 100 %). En ligne : upsert par lots (rapide). Sinon : empilage
+  //    en file pour une sync ultérieure.
+  // En LAN, le serveur local (localhost) est TOUJOURS joignable même si le poste
+  // n'a pas Internet → on ne se fie pas à navigator.onLine, on sync directement.
+  const isLan   = import.meta.env.VITE_EDITION === 'lan';
+  const online  = isLan || (typeof navigator !== 'undefined' && navigator.onLine);
+  const doFlush = flush ?? online;
+  let sync = null;
+
+  if (doFlush && online) {
+    sync = await syncImportBatched(out, report);
+  } else {
+    report('queue', 92);
+    await enqueueImport(out);
+    report('queue', 100);
+  }
+  try { useUiStore.getState().setPendingCount(await getQueueCount()); } catch { /* ignore */ }
 
   const created = {
     classes: out.classes.length, subjects: out.subjects.length, students: out.students.length,
     grades: out.grades.length, teachers: out.teachers.length, fees: out.fees.length, payments: out.payments.length,
   };
-  progress('done');
+  report('done', 100);
   return { created, reused, queued, sync, warnings };
+}
+
+// Aplatit `out` en tables prêtes à upserter (cloud Supabase OU localClient/LAN).
+// Les notes (1 enregistrement = 1 séquence avec map de scores) sont déployées en
+// lignes par matière via gradeEntryToRows (même conversion que la sync normale).
+function importTables(out) {
+  const gradeRows = [];
+  for (const g of out.grades) {
+    gradeRows.push(...gradeEntryToRows(g.class_id, g.student_id, g.sequence, g.scores, g.school_id));
+  }
+  const studentRows = out.students.map((s) => ({ ...s, gender: s.gender || null, statut: s.statut || null }));
+  return [
+    { table: 'teachers',     rows: out.teachers,  onConflict: 'id' },
+    { table: 'classes',      rows: out.classes,   onConflict: 'id' },
+    { table: 'subjects',     rows: out.subjects,  onConflict: 'id' },
+    { table: 'students',     rows: studentRows,   onConflict: 'id' },
+    { table: 'grades',       rows: gradeRows,     onConflict: 'class_id,student_id,subject_id,sequence' },
+    { table: 'student_fees', rows: out.fees,      onConflict: 'id' },
+    { table: 'fee_payments', rows: out.payments,  onConflict: 'id' },
+  ];
+}
+
+const SYNC_CHUNK = 500;
+
+// Sync rapide par lots de SYNC_CHUNK lignes (≈1 requête / 500 lignes au lieu de
+// 1 requête / ligne). Si un lot échoue, la table bascule en syncQueue (repli :
+// nouvel essai automatique plus tard), sans interrompre l'import.
+async function syncImportBatched(out, report) {
+  const tables = importTables(out);
+  const total  = tables.reduce((n, t) => n + t.rows.length, 0) || 1;
+  let done = 0, synced = 0, failed = 0;
+  const failedTables = new Set();
+
+  for (const { table, rows, onConflict } of tables) {
+    for (let i = 0; i < rows.length; i += SYNC_CHUNK) {
+      const batch = rows.slice(i, i + SYNC_CHUNK);
+      try {
+        const { error } = await supabase.from(table).upsert(batch, { onConflict });
+        if (error) throw error;
+        synced += batch.length;
+      } catch (err) {
+        console.error(`[import] lot ${table} échoué — repli en file`, err?.message ?? err);
+        failed += batch.length;
+        failedTables.add(table);
+      }
+      done += batch.length;
+      report('sync', 35 + 64 * (done / total));
+    }
+  }
+
+  // Repli : ré-empile les tables en échec (upsert idempotent au prochain flush).
+  if (failedTables.size) await enqueueImport(out, failedTables);
+  return { synced, failed, total };
+}
+
+// Empile les enregistrements dans la syncQueue (format attendu par replayItem),
+// en UNE transaction. @param only  Set de tables serveur à empiler (défaut: toutes).
+async function enqueueImport(out, only = null) {
+  const map = [
+    ['teachers',     out.teachers, 'upsert'],
+    ['classes',      out.classes,  'upsert'],
+    ['subjects',     out.subjects, 'upsert'],
+    ['students',     out.students, 'upsert'],
+    ['grades',       out.grades,   'upsert'],
+    ['student_fees', out.fees,     'upsert'],
+    ['fee_payments', out.payments, 'insert'],
+  ];
+  const ops = [];
+  for (const [table, rows, operation] of map) {
+    if (only && !only.has(table)) continue;
+    for (const payload of rows) ops.push({ table, operation, payload });
+  }
+  if (ops.length) await syncQueueDB.pushMany(ops);
 }

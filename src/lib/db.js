@@ -174,6 +174,19 @@ async function idbAdd(store, record) {
   });
 }
 
+// Ajoute plusieurs enregistrements en UNE seule transaction (rapide pour l'import).
+async function idbAddMany(store, records) {
+  if (!records.length) return true;
+  const db = await getDbInstance();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    const os = tx.objectStore(store);
+    records.forEach((r) => os.add(r));
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = (e) => reject(e.target.error);
+  });
+}
+
 // --- Public namespaced API ---
 
 export const classesDB = {
@@ -211,6 +224,8 @@ export const syncQueueDB = {
   getAll: () => idbGetAll('syncQueue'),
   // op = { table, operation: 'upsert'|'delete', payload }
   push: (op) => idbAdd('syncQueue', { ...op, timestamp: Date.now() }),
+  // Empile plusieurs ops en une transaction (repli offline de l'import).
+  pushMany: (ops) => idbAddMany('syncQueue', ops.map((o) => ({ ...o, timestamp: Date.now() }))),
   delete: (id) => idbDelete('syncQueue', id),
 };
 

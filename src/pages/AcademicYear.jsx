@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
@@ -11,6 +11,7 @@ import { resolveCountryCode } from '../countries';
 import { initDB, classesDB } from '../lib/db';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
+import DataImportPanel from '../components/DataImportPanel';
 
 // ── Promotion preview + confirmation modal ─────────────────────────────────
 function PromotionModal({ currentYear, newYear, classes, students, subjects, onConfirm, onClose }) {
@@ -229,28 +230,26 @@ export default function AcademicYear() {
     }
   };
 
-  // Load list of all years that exist in the DB (for archive display)
-  useEffect(() => {
+  // Charge la liste de toutes les années présentes en base (archives).
+  // Réutilisable : rappelée après un import pour afficher aussitôt les années reprises.
+  const loadYears = useCallback(async () => {
     if (!school?.id) return;
-
-    async function loadYears() {
-      setLoadingYears(true);
-      let years = [];
-      if (navigator.onLine) {
-        years = await fetchDistinctYears(school.id);
-      } else {
-        await initDB();
-        const all = await classesDB.getAll();
-        years = [...new Set(
-          all.filter((c) => c.school_id === school.id).map((c) => c.current_year).filter(Boolean)
-        )].sort().reverse();
-      }
-      setPastYears(years.filter((y) => y !== currentYear));
-      setLoadingYears(false);
+    setLoadingYears(true);
+    let years = [];
+    if (navigator.onLine) {
+      years = await fetchDistinctYears(school.id);
+    } else {
+      await initDB();
+      const all = await classesDB.getAll();
+      years = [...new Set(
+        all.filter((c) => c.school_id === school.id).map((c) => c.current_year).filter(Boolean)
+      )].sort().reverse();
     }
-
-    loadYears();
+    setPastYears(years.filter((y) => y !== currentYear));
+    setLoadingYears(false);
   }, [school?.id, currentYear]);
+
+  useEffect(() => { loadYears(); }, [loadYears]);
 
   const handlePromote = async () => {
     const res = await promoteYear();
@@ -406,6 +405,20 @@ export default function AcademicYear() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Import de données historiques (migration depuis une autre app) */}
+        {isAdmin && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+            <h3 className="font-semibold text-gray-900 text-base mb-1">
+              {t('Importer des années antérieures', 'Import previous years')}
+            </h3>
+            <p className="text-sm text-gray-500 mb-4 leading-relaxed">
+              {t("Reprenez l'historique (élèves, notes, frais…) depuis un autre logiciel. Chaque année importée devient une archive consultable ci-dessous.",
+                 'Migrate history (students, grades, fees…) from another software. Each imported year becomes an archive you can view below.')}
+            </p>
+            <DataImportPanel onImported={loadYears} />
           </div>
         )}
 

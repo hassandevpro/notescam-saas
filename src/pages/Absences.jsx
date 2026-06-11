@@ -245,10 +245,10 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
                 <div key={student.id} className={`flex items-center gap-3 px-5 py-2.5 transition-colors ${currentStatus ? 'bg-red-50/30' : 'hover:bg-gray-50/50'}`}>
                   <span className="text-xs text-gray-300 w-5 text-right shrink-0">{idx + 1}</span>
                   <div className="w-7 h-7 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center shrink-0">
-                    {initials(student.full_name)}
+                    {initials(student.name)}
                   </div>
                   <span className="flex-1 text-sm font-medium text-gray-800 truncate">
-                    {student.full_name || '—'}
+                    {student.name || '—'}
                   </span>
                   <div className="flex items-center gap-1 shrink-0">
                     {Object.entries(STATUS_CFG).map(([key, cfg]) => (
@@ -420,7 +420,7 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
                 {stats.map(({ studentId, student, cls, absent, retard, excused, total }) => (
                   <tr key={studentId} className={`hover:bg-gray-50/50 transition-colors ${total >= 10 ? 'bg-red-50/40' : ''}`}>
                     <td className="px-5 py-3">
-                      <div className="font-medium text-gray-900">{student?.full_name || '—'}</div>
+                      <div className="font-medium text-gray-900">{student?.name || '—'}</div>
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{cls?.name || '—'}</td>
                     <td className="px-4 py-3 text-center font-bold text-red-600">{absent}</td>

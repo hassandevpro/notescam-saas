@@ -4,48 +4,36 @@
 //   node packaging/license/sign-license.mjs --school "Lycée Bilingue" --plan pro --expires 2027-12-31
 //   node packaging/license/sign-license.mjs --school "..." --plan ecole --expires 2027-09-30 --machine <empreinte>
 //
+// Variante interactive (questions guidées) : node packaging/license/make-license.mjs
+//
 // Sortie : la clé à coller dans l'écran d'activation de l'école.
 // Format : base64url(payload JSON) + "." + base64url(signature Ed25519)
 
-import { createPrivateKey, sign } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = dirname(fileURLToPath(import.meta.url));
+import { signLicense } from './sign-core.mjs';
 
 function arg(name, def = null) {
   const i = process.argv.indexOf('--' + name);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : def;
 }
 
-let priv;
+let result;
 try {
-  priv = createPrivateKey(readFileSync(join(here, 'private-key.pem')));
-} catch {
-  console.error('Clé privée introuvable. Lance d’abord : node packaging/license/keygen.mjs');
+  result = signLicense({
+    school:  arg('school', 'École'),
+    plan:    arg('plan', 'ecole'),
+    expires: arg('expires'),
+    machine: arg('machine'),
+  });
+} catch (e) {
+  console.error(e.message);
   process.exit(1);
 }
 
-const payload = {
-  school:     arg('school', 'École'),
-  plan:       arg('plan', 'ecole'),       // starter | ecole | pro | reseau
-  edition:    'lan',
-  issued_at:  new Date().toISOString(),
-  expires_at: arg('expires', null),       // ISO date ou null = perpétuelle
-};
-const machine = arg('machine');
-if (machine) payload.machine_id = machine;
-
-const b64url = (b) => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const payloadBuf = Buffer.from(JSON.stringify(payload), 'utf8');
-const signature  = sign(null, payloadBuf, priv);       // Ed25519
-const licenseKey = `${b64url(payloadBuf)}.${b64url(signature)}`;
-
+const { payload, licenseKey } = result;
 console.log('--- Licence générée ---');
 console.log(JSON.stringify(payload, null, 2));
-console.log(machine
-  ? `\n🔒 Verrouillée sur la machine : ${machine} (activable sur ce poste uniquement)`
+console.log(payload.machine_id
+  ? `\n🔒 Verrouillée sur la machine : ${payload.machine_id} (activable sur ce poste uniquement)`
   : '\n🔓 Non verrouillée : activable sur n’importe quelle machine. Pour verrouiller,'
     + '\n   relance avec --machine <identifiant affiché sur l’écran d’activation de l’école>.');
 console.log('\nClé à fournir à l’école (à coller dans l’écran d’activation) :\n');

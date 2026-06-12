@@ -230,7 +230,6 @@ export const FR_TO_ES = {
   'Format :': 'Formato :',
   'Classique': 'Clásico',
   'Moderne': 'Moderno',
-  'APC Moderne': 'APC Moderno',
   'Approche Par Compétences — niveaux NA / EC / AQ / BA':
     'Enfoque por competencias — niveles NA / EC / AQ / BA',
   'Mise en page épurée avec barres de progression':

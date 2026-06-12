@@ -416,26 +416,6 @@
 }
 
 /* ================================================================
-   FORMAT APC MODERNE
-   ================================================================ */
-
-.bulletin-apc-moderne {
-  font-family: 'Times New Roman', Times, serif;
-  font-size: 10px;
-}
-
-.bulletin-apc-moderne table th,
-.bulletin-apc-moderne table td {
-  vertical-align: middle;
-}
-
-@media print {
-  .bulletin-apc-moderne {
-    font-size: 8.5px;
-  }
-}
-
-/* ================================================================
    FORMAT MODERNE
    ================================================================ */
 

@@ -236,17 +236,24 @@ export default function AcademicYear() {
     if (!school?.id) return;
     setLoadingYears(true);
     let years = [];
-    if (navigator.onLine) {
-      years = await fetchDistinctYears(school.id);
-    } else {
-      await initDB();
-      const all = await classesDB.getAll();
-      years = [...new Set(
-        all.filter((c) => c.school_id === school.id).map((c) => c.current_year).filter(Boolean)
-      )].sort().reverse();
+    try {
+      if (navigator.onLine) {
+        years = await fetchDistinctYears(school.id);
+      } else {
+        await initDB();
+        const all = await classesDB.getAll();
+        years = [...new Set(
+          all.filter((c) => c.school_id === school.id).map((c) => c.current_year).filter(Boolean)
+        )].sort().reverse();
+      }
+      setPastYears(years.filter((y) => y !== currentYear));
+    } catch (err) {
+      // Ne jamais rester bloqué sur « Chargement… » : on log et on affiche vide.
+      console.error('loadYears', err);
+      setPastYears([]);
+    } finally {
+      setLoadingYears(false);
     }
-    setPastYears(years.filter((y) => y !== currentYear));
-    setLoadingYears(false);
   }, [school?.id, currentYear]);
 
   useEffect(() => { loadYears(); }, [loadYears]);

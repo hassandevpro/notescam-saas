@@ -132,6 +132,15 @@ async function idbGetByIndex(store, index, value) {
   });
 }
 
+async function idbGet(store, key) {
+  const db = await getDbInstance();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(store, 'readonly').objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
 async function idbPut(store, record) {
   const db = await getDbInstance();
   return new Promise((resolve, reject) => {
@@ -206,6 +215,7 @@ export const subjectsDB = {
 
 export const studentsDB = {
   getAll: () => idbGetAll('students'),
+  get: (id) => idbGet('students', id),
   getByClass: (classId) => idbGetByIndex('students', 'by_class', classId),
   put: (r) => idbPut('students', r),
   putMany: (rs) => idbPutMany('students', rs),

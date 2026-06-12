@@ -83,6 +83,19 @@ export async function fetchStudents(schoolId, classIds = null) {
   return data;
 }
 
+// Fetch student rows by id, regardless of their current class. Used to rebuild an
+// archived year's roster: a promoted student's single row now points to a later
+// year's class, so it never comes back from the class-scoped fetch above.
+export async function fetchStudentsByIds(schoolId, ids = []) {
+  if (!ids.length) return [];
+  const { data, error } = await supabase
+    .from('students').select('*')
+    .eq('school_id', schoolId)
+    .in('id', ids);
+  if (error) { console.error('fetchStudentsByIds', error); return []; }
+  return data || [];
+}
+
 function sanitizeStudent(d) {
   return {
     ...d,
@@ -249,13 +262,16 @@ export async function deleteStudentPhoto(schoolId, studentId) {
 // --- Year utilities ---
 
 export async function fetchDistinctYears(schoolId) {
+  // Pas de .not('current_year','is',null) : l'adaptateur LAN (localClient) ne
+  // gère pas l'opérateur `.not` → l'appel levait une TypeError et la page
+  // « Années archivées » restait bloquée sur « Chargement… ». Les valeurs nulles
+  // sont écartées côté client (filter(Boolean)), ce qui marche cloud ET LAN.
   const { data, error } = await supabase
     .from('classes')
     .select('current_year')
-    .eq('school_id', schoolId)
-    .not('current_year', 'is', null);
+    .eq('school_id', schoolId);
   if (error) { console.error('fetchDistinctYears', error); return []; }
-  const years = [...new Set(data.map((r) => r.current_year).filter(Boolean))];
+  const years = [...new Set((data || []).map((r) => r.current_year).filter(Boolean))];
   return years.sort().reverse();
 }
 

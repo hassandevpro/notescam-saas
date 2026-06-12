@@ -9,7 +9,7 @@
 // - operation 'delete' : suppression par payload.id
 // - table 'grades'     : payload est un record IDB → convertir en rows individuelles
 
-import { syncQueueDB, initDB } from './db';
+import { syncQueueDB, studentsDB, initDB } from './db';
 import { supabase } from './supabase';
 import { gradeEntryToRows } from './schoolService';
 import { useUiStore } from '../store/uiStore';
@@ -51,9 +51,25 @@ async function replayItem(item) {
     if (table === 'students') {
       p = { ...p, gender: p.gender || null, statut: p.statut || null };
     }
-    const { error } = await supabase
+    let { error } = await supabase
       .from(table)
       .upsert(p, { onConflict: 'id' });
+
+    // Self-heal : d'anciennes promotions dupliquaient l'élève en réutilisant son
+    // parent_token (UNIQUE) → l'upsert restait bloqué en file. On régénère un
+    // jeton, on réessaie, puis on répercute le nouveau jeton en IDB.
+    if (error && table === 'students' &&
+        (error.code === '23505' || /parent_token/i.test(error.message || ''))) {
+      const token = crypto.randomUUID();
+      p = { ...p, parent_token: token };
+      ({ error } = await supabase.from('students').upsert(p, { onConflict: 'id' }));
+      if (!error) {
+        try {
+          const row = await studentsDB.get(p.id);
+          if (row) await studentsDB.put({ ...row, parent_token: token });
+        } catch { /* IDB best-effort */ }
+      }
+    }
     if (error) throw error;
   }
 }

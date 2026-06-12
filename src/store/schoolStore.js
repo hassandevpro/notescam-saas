@@ -11,7 +11,7 @@ import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teach
 import {
   fetchClasses, upsertClass, deleteClass as sbDeleteClass,
   fetchSubjects, upsertSubject, deleteSubject as sbDeleteSubject,
-  fetchStudents, upsertStudent, deleteStudent as sbDeleteStudent,
+  fetchStudents, fetchStudentsByIds, upsertStudent, deleteStudent as sbDeleteStudent,
   fetchGrades, gradeRowsToMap, upsertGradeEntry,
   fetchAbsences, upsertAbsenceEntry,
   fetchTeachers, upsertTeacher, deleteTeacher as sbDeleteTeacher,
@@ -71,6 +71,42 @@ function buildGradeMap(records) {
   return map;
 }
 
+function normalizeGender(s) {
+  return {
+    ...s,
+    gender: s.gender
+      ? (GENDER_MAP[s.gender.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')] ?? s.gender)
+      : null,
+  };
+}
+
+// Rebuild an archived year's roster when the class-scoped fetch comes back empty.
+// Older promotions moved each student's single row forward (its class_id now points
+// to a later year's class), so the past year shows no students even though their
+// grades still reference (student_id, archived class_id). We recover the roster by
+// taking the canonical student row from `pool` and pinning class_id back to the
+// archived class. No DB write — the override lives only in the in-memory view.
+// Students that still have their own row for this year are kept as-is, so years
+// promoted by the fixed code (which duplicates rows per year) are a no-op here.
+function reconstructRoster(roster, grades, pool, classIds) {
+  if (!grades?.length || !pool?.length) return roster;
+  const present  = new Set(roster.map((s) => s.id));
+  const byId     = new Map(pool.map((s) => [s.id, s]));
+  const archived = new Map(); // student_id → archived class_id (first seen)
+  for (const g of grades) {
+    if (classIds.has(g.class_id) && !present.has(g.student_id) && !archived.has(g.student_id)) {
+      archived.set(g.student_id, g.class_id);
+    }
+  }
+  if (archived.size === 0) return roster;
+  const extra = [];
+  for (const [sid, cid] of archived) {
+    const base = byId.get(sid);
+    if (base) extra.push({ ...base, class_id: cid });
+  }
+  return extra.length ? [...roster, ...extra] : roster;
+}
+
 export const useSchoolStore = create((set, get) => ({
   schoolId:   null,
   activeYear: null,
@@ -119,10 +155,13 @@ export const useSchoolStore = create((set, get) => ({
       if (activeYear) {
         const yearClasses   = allClasses.filter((c) => c.current_year === activeYear);
         const yearClassIds  = new Set(yearClasses.map((c) => c.id));
+        const studentPool   = allStudents; // school-scoped, before the year filter
         allClasses  = yearClasses;
         allSubjects = allSubjects.filter((s) => yearClassIds.has(s.class_id));
-        allStudents = allStudents.filter((s) => yearClassIds.has(s.class_id));
         allGrades   = allGrades.filter((g) => yearClassIds.has(g.class_id));
+        allStudents = allStudents.filter((s) => yearClassIds.has(s.class_id));
+        // Recover archived rosters emptied by an older promotion (see helper).
+        allStudents = reconstructRoster(allStudents, allGrades, studentPool, yearClassIds);
       }
 
       // Teacher scope: keep only classes where teacher is the titulaire (class.teacher_id)
@@ -183,12 +222,7 @@ export const useSchoolStore = create((set, get) => ({
     ]);
 
     // ── Normalize student genders ────────────────────────────────────────
-    const normalizedStudents = sbStudents?.map((s) => ({
-      ...s,
-      gender: s.gender
-        ? (GENDER_MAP[s.gender.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')] ?? s.gender)
-        : null,
-    })) ?? null;
+    const normalizedStudents = sbStudents?.map(normalizeGender) ?? null;
 
     // ── Year scope: build filtered collections in local vars ─────────────
     let newClasses  = sbClasses  ?? get().classes;
@@ -201,6 +235,25 @@ export const useSchoolStore = create((set, get) => ({
     let newStudents = normalizedStudents !== null
       ? normalizedStudents.filter((s) => !year || activeClassIds.has(s.class_id))
       : get().students;
+
+    // Recover an archived year whose roster came back empty because students were
+    // promoted forward: their rows now point to a later year's class, so fetch them
+    // by id and pin them back to the archived class via grades (see reconstructRoster).
+    if (year && normalizedStudents !== null && sbGrades?.length) {
+      const present = new Set(newStudents.map((s) => s.id));
+      const missingIds = [...new Set(
+        sbGrades
+          .filter((g) => activeClassIds.has(g.class_id) && !present.has(g.student_id))
+          .map((g) => g.student_id)
+      )];
+      if (missingIds.length) {
+        const moved = (await fetchStudentsByIds(schoolId, missingIds)).map(normalizeGender);
+        if (moved.length) {
+          await studentsDB.putMany(moved); // cache canonical rows so offline archive view works
+          newStudents = reconstructRoster(newStudents, sbGrades, moved, activeClassIds);
+        }
+      }
+    }
 
     const newTeachers     = sbTeachers     ?? get().teachers;
     const newFees         = sbFees         ?? get().fees;
@@ -287,7 +340,7 @@ export const useSchoolStore = create((set, get) => ({
     const classMapping = new Map(); // oldClassId → newClass | null (diplômés)
     const newClasses   = [];
     const newSubjList  = [];
-    const updatedStudents = [];
+    const newStudents  = [];
     let graduatedCount = 0;
 
     // 1. Build new classes + copy subjects
@@ -299,11 +352,16 @@ export const useSchoolStore = create((set, get) => ({
         graduatedCount += students.filter((s) => s.class_id === cls.id).length;
         continue;
       }
+      // nextLevel undefined = niveau inconnu/ambigu → on garde le niveau actuel.
+      const promotedLevel = nextLevel !== undefined ? nextLevel : cls.level;
+      // Quand le nom était auto-rempli depuis le niveau (ex. classe « CP »), il
+      // doit suivre la promotion (« CE1 ») ; un nom personnalisé (« CP A ») est conservé.
+      const nameWasAuto = !cls.name || cls.name === cls.level;
       const newCls = {
         id:           uuid(),
         school_id:    schoolId,
-        name:         cls.name,
-        level:        nextLevel !== undefined ? nextLevel : cls.level,
+        name:         nameWasAuto ? promotedLevel : cls.name,
+        level:        promotedLevel,
         section:      cls.section,
         system:       cls.system,
         current_year: newYear,
@@ -325,23 +383,29 @@ export const useSchoolStore = create((set, get) => ({
       }
     }
 
-    // 2. Promote students (graduates stay with old class_id → archived)
+    // 2. Promote students — DUPLICATE the row per year, exactly like classes &
+    //    subjects above. The old row stays in its old class so the archived year
+    //    keeps its full roster (and its grades, fees, photos); a fresh copy with a
+    //    new id joins the new class. Graduates get no copy (cycle finished) — their
+    //    original row stays archived in the graduating class.
     for (const student of students) {
       const newCls = classMapping.get(student.class_id);
       if (newCls) {
-        updatedStudents.push({ ...student, class_id: newCls.id });
+        // parent_token is UNIQUE — generate a fresh one for the copy instead of
+        // reusing the old row's (would violate students_parent_token_idx).
+        newStudents.push({ ...student, id: uuid(), class_id: newCls.id, parent_token: uuid(), created_at: undefined });
       }
     }
 
     // 3. Persist to IDB
     if (newClasses.length)   await classesDB.putMany(newClasses);
     if (newSubjList.length)  await subjectsDB.putMany(newSubjList);
-    for (const s of updatedStudents) await studentsDB.put(s);
+    for (const s of newStudents) await studentsDB.put(s);
 
     // 4. Queue sync operations
-    for (const cls of newClasses)      await queueOffline({ table: 'classes',  operation: 'upsert', payload: cls });
-    for (const sub of newSubjList)     await queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
-    for (const s of updatedStudents)   await queueOffline({ table: 'students', operation: 'upsert', payload: s });
+    for (const cls of newClasses)  await queueOffline({ table: 'classes',  operation: 'upsert', payload: cls });
+    for (const sub of newSubjList) await queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+    for (const s of newStudents)   await queueOffline({ table: 'students', operation: 'upsert', payload: s });
 
     // 5. Flush sync immediately if online — ensures Supabase is up-to-date
     //    before _refreshFromSupabase could overwrite our IDB changes.
@@ -357,7 +421,7 @@ export const useSchoolStore = create((set, get) => ({
     return {
       newYear,
       newClasses:  newClasses.length,
-      promoted:    updatedStudents.length,
+      promoted:    newStudents.length,
       graduated:   graduatedCount,
     };
   },

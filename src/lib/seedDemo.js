@@ -9,11 +9,27 @@ import { useAuthStore } from '../store/authStore';
 import { resolveCountryCode } from '../countries';
 import { geGradeMax, gePrimaryUsesCoef } from './useCountry';
 import { supabase } from './supabase';
-import { fetchClasses } from './schoolService';
 import { classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB } from './db';
 
 function rnd(min, max) {
   return Math.round((Math.random() * (max - min) + min) * 10) / 10;
+}
+
+// ── Marqueur des classes de démo ─────────────────────────────────────────────
+// La démo est désormais générée DANS l'année active, à côté des vraies classes.
+// Pour pouvoir la supprimer sans toucher aux données réelles, on retient l'ID des
+// classes créées par le seed (côté client, par école). Pas de migration : un
+// simple registre localStorage, suffisant pour des données de test.
+const demoKey = (schoolId) => `notescam_demo_classes_${schoolId}`;
+
+export function getDemoClassIds(schoolId) {
+  try { return JSON.parse(localStorage.getItem(demoKey(schoolId)) || '[]'); }
+  catch { return []; }
+}
+
+function saveDemoClassIds(schoolId, ids) {
+  try { localStorage.setItem(demoKey(schoolId), JSON.stringify(ids)); }
+  catch { /* localStorage indisponible : best-effort */ }
 }
 
 const CLASSES_FR = [
@@ -143,10 +159,12 @@ export async function seedDemoYear(schoolId, year) {
   };
 
   let totalClasses = 0, totalSubjects = 0, totalStudents = 0, totalGrades = 0;
+  const demoClassIds = []; // pour la suppression ciblée ultérieure
 
   for (const clsDef of allClasses) {
     // Créer la classe
     const cls = await store.addClass({ ...clsDef, current_year: year });
+    demoClassIds.push(cls.id);
     totalClasses++;
 
     // Créer les matières (ES : barème = échelle choisie ; coef primaire optionnel)
@@ -197,30 +215,24 @@ export async function seedDemoYear(schoolId, year) {
     }
   }
 
+  // Enregistrer les classes démo créées (en cumulant avec d'éventuelles précédentes).
+  const merged = [...new Set([...getDemoClassIds(schoolId), ...demoClassIds])];
+  saveDemoClassIds(schoolId, merged);
+
   return { totalClasses, totalSubjects, totalStudents, totalGrades };
 }
 
 // ── Suppression des données de démo ──────────────────────────────────────────
-// Supprime toutes les classes de l'année `year` (et, par cascade FK côté
-// Supabase, leurs matières, élèves, notes, emplois du temps, absences…).
-// Nettoie également le cache IndexedDB et l'état du store en mémoire.
+// Supprime UNIQUEMENT les classes créées par le seed (repérées via le registre
+// localStorage), et par cascade FK côté Supabase leurs matières, élèves, notes,
+// emplois du temps, absences… Les vraies classes de l'année active ne sont jamais
+// touchées. Nettoie aussi le cache IndexedDB et l'état du store en mémoire.
 // N'envoie PAS les enregistrements à la corbeille : ce sont des données de test.
-export async function deleteDemoYear(schoolId, year) {
-  // 1. Rassembler les IDs des classes de l'année démo (distant + cache local).
-  const idSet = new Set();
-
-  if (navigator.onLine) {
-    const remote = await fetchClasses(schoolId, year).catch(() => null);
-    (remote || []).forEach((c) => idSet.add(c.id));
-  }
-
-  const localClasses = await classesDB.getAll();
-  localClasses
-    .filter((c) => c.school_id === schoolId && c.current_year === year)
-    .forEach((c) => idSet.add(c.id));
-
-  const ids = [...idSet];
+export async function deleteDemoYear(schoolId) {
+  // 1. Les IDs des classes démo proviennent du registre rempli par le seed.
+  const ids = getDemoClassIds(schoolId);
   if (ids.length === 0) return { deletedClasses: 0 };
+  const idSet = new Set(ids);
 
   // 2. Suppression côté Supabase — le ON DELETE CASCADE retire matières,
   //    élèves, notes, etc. Hors ligne (ou en cas d'échec) : on met en file.
@@ -262,6 +274,9 @@ export async function deleteDemoYear(schoolId, year) {
       gradeMap,
     };
   });
+
+  // 5. Vider le registre : il n'y a plus de classes démo pour cette école.
+  saveDemoClassIds(schoolId, []);
 
   return { deletedClasses: ids.length };
 }

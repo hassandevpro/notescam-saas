@@ -6,7 +6,7 @@ import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
 import { computeNextYear, getNextLevel } from '../lib/yearEngine';
 import { fetchDistinctYears } from '../lib/schoolService';
-import { seedDemoYear, deleteDemoYear } from '../lib/seedDemo';
+import { seedDemoYear, deleteDemoYear, getDemoClassIds } from '../lib/seedDemo';
 import { resolveCountryCode } from '../countries';
 import { initDB, classesDB } from '../lib/db';
 import Layout from '../components/Layout';
@@ -168,8 +168,7 @@ export default function AcademicYear() {
   const [seedResult,   setSeedResult]   = useState(null);
   const [deleting,     setDeleting]     = useState(false);
   const [confirmDel,   setConfirmDel]   = useState(false);
-
-  const DEMO_YEAR = '2028-2029';
+  const [demoExists,   setDemoExists]   = useState(false);
 
   const handleConsult = (year) => {
     setViewYear(year);
@@ -180,7 +179,11 @@ export default function AcademicYear() {
   const newYear     = computeNextYear(currentYear);
   const isAdmin     = role === 'admin';
 
-  const demoAlreadyExists = pastYears.includes(DEMO_YEAR) || currentYear === DEMO_YEAR;
+  // La démo est générée dans l'année active ; son existence se lit dans le registre
+  // localStorage rempli par le seed (cf. seedDemo.js), pas dans la liste des années.
+  useEffect(() => {
+    if (school?.id) setDemoExists(getDemoClassIds(school.id).length > 0);
+  }, [school?.id]);
 
   // Description de la démo adaptée au pays : Guinée Éq. = 2 classes ES / 3 trimestres,
   // Cameroun = 3 classes FR+EN / 6 séquences.
@@ -197,15 +200,11 @@ export default function AcademicYear() {
     setSeeding(true);
     setSeedResult(null);
     try {
-      const result = await seedDemoYear(school.id, DEMO_YEAR);
+      // Génère dans l'année active : les classes/élèves/notes démo apparaissent
+      // aussitôt dans le tableau de bord, à côté des vraies données.
+      const result = await seedDemoYear(school.id, currentYear);
       setSeedResult({ ok: true, ...result });
-      const years = navigator.onLine
-        ? await fetchDistinctYears(school.id)
-        : [];
-      setPastYears(
-        (years.length ? years : [DEMO_YEAR, currentYear].filter(Boolean))
-          .filter((y) => y !== currentYear)
-      );
+      setDemoExists(true);
     } catch (err) {
       setSeedResult({ ok: false, error: err.message });
     } finally {
@@ -218,10 +217,10 @@ export default function AcademicYear() {
     setDeleting(true);
     setSeedResult(null);
     try {
-      const result = await deleteDemoYear(school.id, DEMO_YEAR);
+      // Supprime uniquement les classes démo enregistrées (pas les vraies).
+      const result = await deleteDemoYear(school.id);
       setSeedResult({ deleted: true, ...result });
-      if (viewYear === DEMO_YEAR) setViewYear(null);
-      setPastYears((prev) => prev.filter((y) => y !== DEMO_YEAR));
+      setDemoExists(false);
     } catch (err) {
       setSeedResult({ ok: false, error: err.message });
     } finally {
@@ -343,7 +342,7 @@ export default function AcademicYear() {
                   <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider bg-indigo-50 px-2 py-0.5 rounded">{t('Données de démo', 'Demo data', 'Datos de demostración')}</span>
                 </div>
                 <h3 className="font-semibold text-gray-900 text-base">
-                  {t('Générer des données de test', 'Generate test data', 'Generar datos de prueba')} — {DEMO_YEAR}
+                  {t('Générer des données de test', 'Generate test data', 'Generar datos de prueba')} — {currentYear}
                 </h3>
                 <p className="text-sm text-gray-500 mt-1 leading-relaxed">
                   {t('Crée', 'Creates', 'Crea')} <strong>{demoClassCount} {t('classes', 'classes', 'clases')}</strong> ({demoClassList}),{' '}
@@ -365,7 +364,7 @@ export default function AcademicYear() {
                 )}
               </div>
               <div className="shrink-0">
-                {demoAlreadyExists ? (
+                {demoExists ? (
                   confirmDel ? (
                     <div className="flex flex-col items-end gap-2">
                       <p className="text-xs text-gray-500 max-w-[180px] text-right">

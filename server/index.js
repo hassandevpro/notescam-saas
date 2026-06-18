@@ -16,6 +16,7 @@ import { runRpc } from './rpc.js';
 import { scheduleBackups, runBackup } from './backup.js';
 import { runMigration } from './migrate.js';
 import { mirrorToCloud, flushMirrorQueue, credentialPublicKey } from './authBridge.js';
+import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -211,6 +212,59 @@ app.post('/api/migrate/cloud', async (req, reply) => {
 // changements de mot de passe (sens Cloud → Local du pont d'identifiants).
 app.get('/api/credential/pubkey', () => {
   return { data: { public_key: credentialPublicKey() }, error: null };
+});
+
+// ====================== ACTIVATION CLOUD (LOCAL FIRST) ===============
+// Réservée à l'admin connecté de l'école locale.
+function requireLocalAdmin(req, reply) {
+  const { userId } = authOf(req);
+  const m = userId && db.prepare('SELECT role FROM school_users WHERE user_id = ? AND active = 1').get(userId);
+  if (!m || m.role !== 'admin') { reply.code(403).send({ error: { message: 'Admin requis' } }); return null; }
+  return userId;
+}
+function cloudCfg(body = {}) {
+  return {
+    url: body.url || process.env.VITE_SUPABASE_URL,
+    anonKey: body.anonKey || process.env.VITE_SUPABASE_ANON_KEY,
+  };
+}
+
+// Étape 1 : création du compte cloud (e-mail de vérification envoyé).
+app.post('/api/activate-cloud/signup', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { email, password } = req.body || {};
+  try {
+    const res = await signupCloud({ ...cloudCfg(req.body), email, password });
+    return { data: res, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Étape 2 : l'e-mail est-il vérifié (connexion cloud possible) ?
+app.post('/api/activate-cloud/verify', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { email, password } = req.body || {};
+  try {
+    const res = await verifyCloud({ ...cloudCfg(req.body), email, password });
+    return { data: res, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Étapes 3-6 : analyse → provision → poussée → activation (reprise sûre).
+app.post('/api/activate-cloud/run', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { email, password } = req.body || {};
+  try {
+    const res = await runCloudActivation({ ...cloudCfg(req.body), email, password });
+    return { data: res, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// État + journal de migration (pour l'assistant : progression / reprise).
+app.get('/api/activate-cloud/status', (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const state = getActivation();
+  const push = db.prepare('SELECT tablename, pushed, total, done FROM cloud_push_state').all();
+  return { data: { state, push }, error: null };
 });
 
 // ====================== STATIC + SPA fallback =========================

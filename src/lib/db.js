@@ -5,8 +5,8 @@
 // This matches bulletinEngine's allGrades key convention exactly.
 
 const DB_NAME = 'NotesCamDB';
-// Bump à 6 : ajout des stores `trash` et `audit_log`.
-const DB_VERSION = 6;
+// Bump à 7 : ajout du store `academic_periods` (état des séquences).
+const DB_VERSION = 7;
 
 let _db = null;
 
@@ -91,6 +91,16 @@ export async function initDB() {
         s.createIndex('by_school', 'school_id');
         s.createIndex('by_action', 'action');
         s.createIndex('by_user',   'user_id');
+      }
+
+      // --- v7 ---
+      // Périodes académiques : état (upcoming/active/closed) + verrou des séquences.
+      // Schema : { id, school_id, school_year, type, parent_id, name, sequence_order,
+      //            teaching_start, teaching_end, entry_deadline, status, is_locked,
+      //            activated_at, activated_by, closed_at, closed_by, created_at, updated_at }
+      if (!db.objectStoreNames.contains('academic_periods')) {
+        const s = db.createObjectStore('academic_periods', { keyPath: 'id' });
+        s.createIndex('by_school', 'school_id');
       }
     };
 
@@ -271,4 +281,12 @@ export const auditDB = {
   getAll: () => idbGetAll('audit_log'),
   log: (entry) => idbAdd('audit_log', { ...entry, at: entry.at || Date.now() }),
   delete: (id) => idbDelete('audit_log', id),
+};
+
+export const academicPeriodsDB = {
+  getAll: () => idbGetAll('academic_periods'),
+  getBySchool: (schoolId) => idbGetByIndex('academic_periods', 'by_school', schoolId),
+  put: (r) => idbPut('academic_periods', r),
+  putMany: (rs) => idbPutMany('academic_periods', rs),
+  delete: (id) => idbDelete('academic_periods', id),
 };

@@ -265,6 +265,43 @@ CREATE TABLE IF NOT EXISTS timetable_slots (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- --- Périodes académiques (état / métadonnées des séquences) --
+-- Couche d'état par-dessus les séquences de notes : `sequence_order` reprend
+-- l'entier de grades.sequence (zéro re-clé). status (upcoming|active|closed) =
+-- ce qui est affiché par défaut ; is_locked = édition bloquée. Indépendants.
+CREATE TABLE IF NOT EXISTS academic_periods (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  school_year    TEXT NOT NULL,
+  type           TEXT NOT NULL CHECK (type IN ('trimestre', 'sequence')),
+  parent_id      TEXT REFERENCES academic_periods(id) ON DELETE SET NULL,
+  name           TEXT NOT NULL,
+  sequence_order INTEGER,                  -- entier de grades.sequence (type='sequence')
+  teaching_start TEXT,                      -- ISO date
+  teaching_end   TEXT,                      -- fin d'enseignement
+  entry_deadline TEXT,                      -- fin de saisie (>= teaching_end)
+  status         TEXT NOT NULL DEFAULT 'upcoming' CHECK (status IN ('upcoming', 'active', 'closed')),
+  is_locked      INTEGER NOT NULL DEFAULT 0,
+  activated_at   TEXT,
+  activated_by   TEXT,
+  closed_at      TEXT,
+  closed_by      TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Au plus UNE séquence active par (école, année) — backstop de la logique app.
+CREATE UNIQUE INDEX IF NOT EXISTS academic_periods_one_active_idx
+  ON academic_periods (school_id, school_year)
+  WHERE status = 'active' AND type = 'sequence';
+
+-- Clé naturelle (idempotence du seed / dédoublonnage).
+CREATE UNIQUE INDEX IF NOT EXISTS academic_periods_natural_idx
+  ON academic_periods (school_id, school_year, type, sequence_order);
+
+CREATE INDEX IF NOT EXISTS academic_periods_school_year_idx
+  ON academic_periods (school_id, school_year);
+
 -- --- Configuration par pays (lecture seule, seedée) ----------
 CREATE TABLE IF NOT EXISTS country_education_config (
   country_system    TEXT PRIMARY KEY,
@@ -341,6 +378,28 @@ CREATE TABLE IF NOT EXISTS pwd_mirror_queue (
   email         TEXT,
   secret        TEXT NOT NULL,           -- mot de passe chiffré (jamais en clair)
   created_at    TEXT NOT NULL
+);
+
+-- --- Activation Cloud (Local FIRST → Cloud) ------------------
+-- Suit l'assistant « Activer NotesCam Cloud ». Une seule ligne (id = 1).
+-- `log` = journal de migration (lignes \n). Permet la REPRISE après interruption.
+CREATE TABLE IF NOT EXISTS cloud_activation (
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  phase       TEXT,                      -- 'signup'|'verify'|'provision'|'push'|'done'
+  email       TEXT,
+  school_id   TEXT,
+  started_at  TEXT,
+  finished_at TEXT,
+  log         TEXT
+);
+
+-- Curseur de poussée par table : reprise idempotente après interruption.
+CREATE TABLE IF NOT EXISTS cloud_push_state (
+  tablename  TEXT PRIMARY KEY,
+  pushed     INTEGER NOT NULL DEFAULT 0,
+  total      INTEGER NOT NULL DEFAULT 0,
+  done       INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT
 );
 
 -- Index utiles (les requêtes filtrent surtout par classe / élève / école)

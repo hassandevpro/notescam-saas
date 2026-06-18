@@ -6,9 +6,16 @@ import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
 import { computeNextYear, getNextLevel } from '../lib/yearEngine';
 import { fetchDistinctYears } from '../lib/schoolService';
+import { backendOnline } from '../lib/edition';
 import { seedDemoYear, deleteDemoYear, getDemoClassIds } from '../lib/seedDemo';
 import { resolveCountryCode } from '../countries';
 import { initDB, classesDB } from '../lib/db';
+import { useCountry } from '../lib/useCountry';
+import { useActivePeriod } from '../lib/useActivePeriod';
+import {
+  seedPeriods, activatePeriod, closePeriod, reopenPeriod, lockPeriod, unlockPeriod,
+} from '../lib/academicPeriodsService';
+import { flushSyncQueue } from '../lib/sync';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import DataImportPanel from '../components/DataImportPanel';
@@ -147,6 +154,138 @@ function PromotionModal({ currentYear, newYear, classes, students, subjects, onC
   );
 }
 
+// ── Gestion des périodes académiques (admin) ───────────────────────────────
+const STATUS_BADGE = {
+  upcoming: { fr: 'À venir', en: 'Upcoming', cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+  active:   { fr: 'Active',  en: 'Active',   cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  closed:   { fr: 'Clôturée', en: 'Closed',  cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+};
+
+function PeriodsManager() {
+  const t       = useT();
+  const country = useCountry();
+  const school  = useAuthStore((s) => s.school);
+  const user    = useAuthStore((s) => s.user);
+  const updateSchool = useAuthStore((s) => s.updateSchool);
+  const { periods, trimesters, refresh } = useActivePeriod();
+
+  const [busy,    setBusy]    = useState(false);
+  const [genMsg,  setGenMsg]  = useState(null);
+  const mode = school?.period_mode || 'auto';
+
+  // Exécute une action période puis rafraîchit l'état + vide la file de synchro.
+  const runAction = async (fn) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fn();
+      await refresh();
+      if (navigator.onLine) await flushSyncQueue();
+    } catch (err) {
+      console.error('period action', err);
+      setGenMsg({ ok: false, text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (busy) return;
+    setBusy(true);
+    setGenMsg(null);
+    try {
+      const res = await seedPeriods({ school, country, userId: user?.id, periodMode: mode });
+      if (res?.error)        setGenMsg({ ok: false, text: res.error });
+      else if (res?.skipped) setGenMsg({ ok: true, text: t('Périodes déjà générées.', 'Periods already generated.') });
+      else                   setGenMsg({ ok: true, text: t(`${res.sequences} séquences + ${res.trimesters} trimestres générés.`, `${res.sequences} sequences + ${res.trimesters} terms generated.`) });
+      await refresh();
+      if (navigator.onLine) await flushSyncQueue();
+    } catch (err) {
+      setGenMsg({ ok: false, text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const trimName = (parentId) => trimesters.find((tr) => tr.id === parentId)?.name || null;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h3 className="font-semibold text-gray-900 text-base">{t('Périodes académiques', 'Academic periods')}</h3>
+          <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+            {t('Une seule séquence est « active » (affichée par défaut). Le verrou bloque l\'édition — indépendant de l\'état.',
+               'A single sequence is "active" (shown by default). The lock blocks editing — independent of status.')}
+          </p>
+        </div>
+        {/* Toggle mode auto / manual */}
+        <div className="shrink-0 flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
+          {['auto', 'manual'].map((m) => (
+            <button
+              key={m}
+              disabled={busy || mode === m}
+              onClick={() => updateSchool({ period_mode: m })}
+              className={`px-3 py-1.5 transition-colors ${mode === m ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+            >
+              {m === 'auto' ? t('Auto', 'Auto') : t('Manuel', 'Manual')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {periods.length === 0 ? (
+        <div className="text-center py-6">
+          <p className="text-sm text-gray-400 mb-3">{t('Aucune période générée pour cette année.', 'No periods generated for this year.')}</p>
+          <button onClick={handleGenerate} disabled={busy} className="btn-primary" style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
+            {busy ? t('Génération…', 'Generating…') : t('Générer les périodes', 'Generate periods')}
+          </button>
+          {genMsg && <p className={`text-sm mt-2 ${genMsg.ok ? 'text-emerald-700' : 'text-red-600'}`}>{genMsg.text}</p>}
+        </div>
+      ) : (
+        <>
+          {genMsg && <p className={`text-sm mb-3 ${genMsg.ok ? 'text-emerald-700' : 'text-red-600'}`}>{genMsg.text}</p>}
+          <div className="space-y-1.5">
+            {periods.map((p) => {
+              const badge = STATUS_BADGE[p.status] || STATUS_BADGE.upcoming;
+              return (
+                <div key={p.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-100 bg-gray-50">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-gray-800 truncate">{p.name}</span>
+                      {p.is_locked && <span title={t('Verrouillée', 'Locked')}>🔒</span>}
+                    </div>
+                    {trimName(p.parent_id) && <p className="text-xs text-gray-400 mt-0.5">{trimName(p.parent_id)}</p>}
+                  </div>
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${badge.cls}`}>{t(badge.fr, badge.en)}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {p.status !== 'active' && (
+                      <button disabled={busy} onClick={() => runAction(() => (p.status === 'closed' ? reopenPeriod(p, user?.id, periods) : activatePeriod(p, user?.id, periods)))}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors">
+                        {p.status === 'closed' ? t('Rouvrir', 'Reopen') : t('Activer', 'Activate')}
+                      </button>
+                    )}
+                    {p.status === 'active' && (
+                      <button disabled={busy} onClick={() => runAction(() => closePeriod(p, user?.id))}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors">
+                        {t('Clôturer', 'Close')}
+                      </button>
+                    )}
+                    <button disabled={busy} onClick={() => runAction(() => (p.is_locked ? unlockPeriod(p) : lockPeriod(p, user?.id)))}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
+                      {p.is_locked ? t('Déverrouiller', 'Unlock') : t('Verrouiller', 'Lock')}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function AcademicYear() {
   const t = useT();
@@ -236,7 +375,7 @@ export default function AcademicYear() {
     setLoadingYears(true);
     let years = [];
     try {
-      if (navigator.onLine) {
+      if (backendOnline()) {
         years = await fetchDistinctYears(school.id);
       } else {
         await initDB();
@@ -332,6 +471,9 @@ export default function AcademicYear() {
             </div>
           </div>
         )}
+
+        {/* Périodes académiques (séquence active + verrous) */}
+        {isAdmin && currentYear && <PeriodsManager />}
 
         {/* Bloc données de démo */}
         {isAdmin && (

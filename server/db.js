@@ -44,6 +44,8 @@ ensureColumn('classes',  'teacher_id',   'teacher_id TEXT');
 ensureColumn('classes',  'max_students', 'max_students INTEGER');
 ensureColumn('classes',  'grade_max',    'grade_max INTEGER'); // barème de classe (/10, /20, /30…)
 ensureColumn('subjects', 'teacher_id',   'teacher_id TEXT');
+ensureColumn('schools',  'ge_grade_max', 'ge_grade_max INTEGER');  // barème GE (/10 ou /20) — lu par geGradeMax()
+ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // pilotage des périodes : 'auto' | 'manual'
 ensureColumn('schools',  'establishment_no', 'establishment_no TEXT'); // N° officiel établissement (en-tête bulletin)
 ensureColumn('schools',  'bulletin_font',    'bulletin_font TEXT');    // police choisie pour le bulletin
 ensureColumn('users',    'cloud_user_id',    'cloud_user_id TEXT');    // pont d'identifiants cloud ↔ local (bases déjà installées)
@@ -66,7 +68,7 @@ export const ALLOWED_TABLES = new Set([
   'teachers', 'student_fees', 'fee_payments', 'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots', 'country_education_config',
-  'evaluation_system', 'superadmins',
+  'evaluation_system', 'superadmins', 'academic_periods',
 ]);
 
 // Quote sûr d'un identifiant SQLite (table / colonne) : double les guillemets.

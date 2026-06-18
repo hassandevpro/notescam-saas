@@ -7,7 +7,9 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB } from '../lib/db';
+import { fetchPeriods } from '../lib/academicPeriodsService';
+import { deriveActiveSequence } from '../lib/periodLogic';
 import {
   fetchClasses, upsertClass, deleteClass as sbDeleteClass,
   fetchSubjects, upsertSubject, deleteSubject as sbDeleteSubject,
@@ -22,16 +24,14 @@ import { upsertGradeNotification } from '../lib/notificationsService';
 import { moveToTrash, logAction } from '../lib/historyService';
 import { logAssignment } from '../lib/classAssignmentService';
 import { flushSyncQueue } from '../lib/sync';
+import { backendOnline } from '../lib/edition';
+import { uuid } from '../lib/uuid';
 import { getNextLevel, computeNextYear } from '../lib/yearEngine';
 import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 
 // Throttle : 1 notification max par (classId_sequence) toutes les 2 min
 const _gradeNotifLastSent = {};
-
-function uuid() {
-  return crypto.randomUUID();
-}
 
 async function queueOffline(op) {
   await syncQueueDB.push(op);
@@ -117,6 +117,8 @@ export const useSchoolStore = create((set, get) => ({
   fees:         [],
   feePayments:  [],
   gradeMap:     {},
+  academicPeriods: [],
+  activeSequence:  null,
   loading:      false,
   error:        null,
 
@@ -127,12 +129,13 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     // Wipe stale data from any previous session immediately — prevents flash of wrong data
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
-          classes: [], subjects: [], students: [], teachers: [], fees: [], feePayments: [], gradeMap: {} });
+          classes: [], subjects: [], students: [], teachers: [], fees: [], feePayments: [], gradeMap: {},
+          academicPeriods: [], activeSequence: null });
 
     try {
       await initDB();
 
-      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbFees, idbFeePayments] = await Promise.all([
+      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbFees, idbFeePayments, idbPeriods] = await Promise.all([
         classesDB.getAll(),
         subjectsDB.getAll(),
         studentsDB.getAll(),
@@ -140,6 +143,7 @@ export const useSchoolStore = create((set, get) => ({
         teachersDB.getAll(),
         feesDB.getAll(),
         feePaymentsDB.getAll().catch(() => []),
+        academicPeriodsDB.getAll().catch(() => []),
       ]);
 
       // Filter by school
@@ -150,6 +154,7 @@ export const useSchoolStore = create((set, get) => ({
       const allTeachers = idbTeachers.filter((t) => t.school_id === schoolId);
       const allFees        = idbFees.filter((f) => f.school_id === schoolId && (!activeYear || f.academic_year === activeYear));
       const allFeePayments = idbFeePayments.filter((p) => p.school_id === schoolId && (!activeYear || p.academic_year === activeYear));
+      const allPeriods     = idbPeriods.filter((p) => p.school_id === schoolId && (!activeYear || p.school_year === activeYear));
 
       // Filter by active year (classes drive the year scope)
       if (activeYear) {
@@ -186,10 +191,12 @@ export const useSchoolStore = create((set, get) => ({
         fees:        allFees,
         feePayments: allFeePayments,
         gradeMap:    buildGradeMap(allGrades),
+        academicPeriods: allPeriods,
+        activeSequence:  deriveActiveSequence(allPeriods),
         loading:     false,
       });
 
-      if (navigator.onLine) {
+      if (backendOnline()) {
         get()._refreshFromSupabase(schoolId, activeYear);
       }
     } catch (err) {
@@ -211,7 +218,7 @@ export const useSchoolStore = create((set, get) => ({
     const sbClasses = await fetchClasses(schoolId, year);
     const scopeIds  = (sbClasses ?? get().classes).map((c) => c.id);
 
-    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbFees, sbFeePayments] = await Promise.all([
+    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbFees, sbFeePayments, sbPeriods] = await Promise.all([
       fetchSubjects(schoolId, scopeIds),
       fetchStudents(schoolId, scopeIds),
       fetchGrades(schoolId, scopeIds),
@@ -219,6 +226,7 @@ export const useSchoolStore = create((set, get) => ({
       fetchTeachers(schoolId),
       fetchFees(schoolId, year),
       fetchFeePayments(schoolId, year).catch(() => null),
+      fetchPeriods(schoolId, year).catch(() => null),
     ]);
 
     // ── Normalize student genders ────────────────────────────────────────
@@ -258,6 +266,9 @@ export const useSchoolStore = create((set, get) => ({
     const newTeachers     = sbTeachers     ?? get().teachers;
     const newFees         = sbFees         ?? get().fees;
     const newFeePayments  = sbFeePayments  ?? get().feePayments;
+    const newPeriods      = sbPeriods !== null
+      ? sbPeriods.filter((p) => !year || p.school_year === year)
+      : get().academicPeriods;
 
     // ── Teacher scope: filter BEFORE touching state ──────────────────────
     // Build class set from both class.teacher_id and subject.teacher_id
@@ -279,6 +290,7 @@ export const useSchoolStore = create((set, get) => ({
     if (sbTeachers         !== null) await teachersDB.putMany(sbTeachers);
     if (sbFees             !== null) await feesDB.putMany(sbFees);
     if (sbFeePayments      !== null) await feePaymentsDB.putMany(sbFeePayments);
+    if (sbPeriods          !== null) await academicPeriodsDB.putMany(sbPeriods);
 
     // ── Grades ────────────────────────────────────────────────────────────
     const { gradeMap } = get();
@@ -325,8 +337,19 @@ export const useSchoolStore = create((set, get) => ({
       ...(sbTeachers         !== null && { teachers:    newTeachers }),
       ...(sbFees             !== null && { fees:        newFees }),
       ...(sbFeePayments      !== null && { feePayments: newFeePayments }),
+      ...(sbPeriods          !== null && { academicPeriods: newPeriods, activeSequence: deriveActiveSequence(newPeriods) }),
       gradeMap: newGradeMap,
     });
+  },
+
+  // Recharge les périodes académiques (IDB → état) et recalcule activeSequence.
+  // Appelé après une action admin (activer/clôturer/verrouiller) ou une synchro.
+  _refreshAcademicPeriods: async () => {
+    const { schoolId, activeYear } = get();
+    if (!schoolId) return;
+    const all = await academicPeriodsDB.getBySchool(schoolId).catch(() => []);
+    const periods = all.filter((p) => !activeYear || p.school_year === activeYear);
+    set({ academicPeriods: periods, activeSequence: deriveActiveSequence(periods) });
   },
 
   // ── Academic year promotion ──────────────────────────────────────────────
@@ -409,7 +432,7 @@ export const useSchoolStore = create((set, get) => ({
 
     // 5. Flush sync immediately if online — ensures Supabase is up-to-date
     //    before _refreshFromSupabase could overwrite our IDB changes.
-    if (navigator.onLine) {
+    if (backendOnline()) {
       await flushSyncQueue();
     }
 
@@ -433,9 +456,10 @@ export const useSchoolStore = create((set, get) => ({
     const record = { id: uuid(), school_id: schoolId, ...classData };
     await classesDB.put(record);
     set((s) => ({ classes: [...s.classes, record] }));
-    if (navigator.onLine) {
-      const saved = await upsertClass(record);
-      if (!saved) queueOffline({ table: 'classes', operation: 'upsert', payload: record });
+    // Fire-and-forget : la donnée est déjà en IDB + state. On ne bloque jamais
+    // l'UI sur le réseau ; un échec (ou un offline) la repousse en syncQueue.
+    if (backendOnline()) {
+      upsertClass(record).then((saved) => { if (!saved) queueOffline({ table: 'classes', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'classes', operation: 'upsert', payload: record });
     }
@@ -447,7 +471,7 @@ export const useSchoolStore = create((set, get) => ({
     const record = { ...classes.find((c) => c.id === id), ...data };
     await classesDB.put(record);
     set((s) => ({ classes: s.classes.map((c) => (c.id === id ? record : c)) }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       upsertClass(record).then((saved) => { if (!saved) queueOffline({ table: 'classes', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'classes', operation: 'upsert', payload: record });
@@ -459,7 +483,7 @@ export const useSchoolStore = create((set, get) => ({
     if (snapshot) await moveToTrash({ table: 'classes', payload: snapshot });
     await classesDB.delete(id);
     set((s) => ({ classes: s.classes.filter((c) => c.id !== id) }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       sbDeleteClass(id).then((ok) => { if (!ok) queueOffline({ table: 'classes', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'classes', operation: 'delete', payload: { id } });
@@ -473,9 +497,9 @@ export const useSchoolStore = create((set, get) => ({
     const record = { id: uuid(), school_id: schoolId, ...subjectData };
     await subjectsDB.put(record);
     set((s) => ({ subjects: [...s.subjects, record] }));
-    if (navigator.onLine) {
-      const saved = await upsertSubject(record);
-      if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: record });
+    // Fire-and-forget : voir addClass — jamais de blocage UI sur le réseau.
+    if (backendOnline()) {
+      upsertSubject(record).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'subjects', operation: 'upsert', payload: record });
     }
@@ -487,7 +511,7 @@ export const useSchoolStore = create((set, get) => ({
     const record = { ...subjects.find((s) => s.id === id), ...data };
     await subjectsDB.put(record);
     set((s) => ({ subjects: s.subjects.map((x) => (x.id === id ? record : x)) }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       upsertSubject(record).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'subjects', operation: 'upsert', payload: record });
@@ -499,7 +523,7 @@ export const useSchoolStore = create((set, get) => ({
     if (snapshot) await moveToTrash({ table: 'subjects', payload: snapshot });
     await subjectsDB.delete(id);
     set((s) => ({ subjects: s.subjects.filter((x) => x.id !== id) }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       sbDeleteSubject(id).then((ok) => { if (!ok) queueOffline({ table: 'subjects', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'subjects', operation: 'delete', payload: { id } });
@@ -513,7 +537,7 @@ export const useSchoolStore = create((set, get) => ({
     const record = { id: uuid(), school_id: schoolId, ...sanitizeStudent(studentData) };
     await studentsDB.put(record);
     set((s) => ({ students: [...s.students, record] }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       upsertStudent(record).then((saved) => { if (!saved) queueOffline({ table: 'students', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'students', operation: 'upsert', payload: record });
@@ -526,7 +550,7 @@ export const useSchoolStore = create((set, get) => ({
     const record = { ...students.find((s) => s.id === id), ...sanitizeStudent(data) };
     await studentsDB.put(record);
     set((s) => ({ students: s.students.map((x) => (x.id === id ? record : x)) }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       upsertStudent(record).then((saved) => { if (!saved) queueOffline({ table: 'students', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'students', operation: 'upsert', payload: record });
@@ -538,7 +562,7 @@ export const useSchoolStore = create((set, get) => ({
     if (snapshot) await moveToTrash({ table: 'students', payload: snapshot });
     await studentsDB.delete(id);
     set((s) => ({ students: s.students.filter((x) => x.id !== id) }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       sbDeleteStudent(id).then((ok) => { if (!ok) queueOffline({ table: 'students', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'students', operation: 'delete', payload: { id } });
@@ -548,7 +572,7 @@ export const useSchoolStore = create((set, get) => ({
   assignStudentToClass: async (studentId, classId, reason) => {
     const { schoolId, classes } = get();
     await get().updateStudent(studentId, { class_id: classId });
-    if (navigator.onLine) {
+    if (backendOnline()) {
       const cls = classes.find((c) => c.id === classId);
       const { user, fullName } = useAuthStore.getState();
       logAssignment({
@@ -569,7 +593,7 @@ export const useSchoolStore = create((set, get) => ({
     const { user, fullName } = useAuthStore.getState();
     for (const studentId of studentIds) {
       await get().updateStudent(studentId, { class_id: classId });
-      if (navigator.onLine) {
+      if (backendOnline()) {
         logAssignment({
           school_id:        schoolId,
           student_id:       studentId,
@@ -597,7 +621,7 @@ export const useSchoolStore = create((set, get) => ({
     const hasSpecial = Object.keys(scores).some((k) => k.startsWith('__'));
     const hasGrades  = Object.keys(scores).some((k) => !k.startsWith('__'));
 
-    if (navigator.onLine) {
+    if (backendOnline()) {
       if (hasGrades) {
         upsertGradeEntry(classId, studentId, sequence, merged, schoolId).then((ok) => {
           if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload: record });
@@ -652,7 +676,7 @@ export const useSchoolStore = create((set, get) => ({
     const record = { id: uuid(), school_id: schoolId, ...teacherData };
     await teachersDB.put(record);
     set((s) => ({ teachers: [...s.teachers, record] }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       upsertTeacher(record).then((saved) => { if (!saved) queueOffline({ table: 'teachers', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'teachers', operation: 'upsert', payload: record });
@@ -665,7 +689,7 @@ export const useSchoolStore = create((set, get) => ({
     const record = { ...teachers.find((t) => t.id === id), ...data };
     await teachersDB.put(record);
     set((s) => ({ teachers: s.teachers.map((t) => (t.id === id ? record : t)) }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       upsertTeacher(record).then((saved) => { if (!saved) queueOffline({ table: 'teachers', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'teachers', operation: 'upsert', payload: record });
@@ -680,7 +704,7 @@ export const useSchoolStore = create((set, get) => ({
       teachers: s.teachers.filter((t) => t.id !== id),
       classes:  s.classes.map((c) => c.teacher_id === id ? { ...c, teacher_id: null } : c),
     }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       sbDeleteTeacher(id).then((ok) => { if (!ok) queueOffline({ table: 'teachers', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'teachers', operation: 'delete', payload: { id } });
@@ -693,7 +717,7 @@ export const useSchoolStore = create((set, get) => ({
     const { schoolId, activeYear, fees } = get();
     const existing = fees.find((f) => f.student_id === studentId && f.academic_year === (activeYear || feeData.academic_year));
     const record = {
-      id:            existing?.id || crypto.randomUUID(),
+      id:            existing?.id || uuid(),
       school_id:     schoolId,
       student_id:    studentId,
       academic_year: activeYear || feeData.academic_year,
@@ -709,7 +733,7 @@ export const useSchoolStore = create((set, get) => ({
         ? s.fees.map((f) => (f.id === existing.id ? record : f))
         : [...s.fees, record],
     }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       upsertFee(record).then((saved) => { if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'student_fees', operation: 'upsert', payload: record });
@@ -724,7 +748,7 @@ export const useSchoolStore = create((set, get) => ({
     if (!parsedAmount) return null;
 
     const record = {
-      id:            crypto.randomUUID(),
+      id:            uuid(),
       school_id:     schoolId,
       student_id:    studentId,
       academic_year: activeYear,
@@ -743,7 +767,7 @@ export const useSchoolStore = create((set, get) => ({
 
     await get().saveFee(studentId, { frais_payes: newPaid, date_dernier_paiement: date });
 
-    if (navigator.onLine) {
+    if (backendOnline()) {
       insertFeePayment(record).then((saved) => {
         if (!saved) queueOffline({ table: 'fee_payments', operation: 'insert', payload: record });
       });
@@ -768,7 +792,7 @@ export const useSchoolStore = create((set, get) => ({
 
     await get().saveFee(studentId, { frais_payes: newPaid, date_dernier_paiement: lastDate });
 
-    if (navigator.onLine) {
+    if (backendOnline()) {
       sbDeleteFeePayment(paymentId).then((ok) => {
         if (!ok) queueOffline({ table: 'fee_payments', operation: 'delete', payload: { id: paymentId } });
       });
@@ -780,7 +804,7 @@ export const useSchoolStore = create((set, get) => ({
   deleteFee: async (id) => {
     await feesDB.delete(id);
     set((s) => ({ fees: s.fees.filter((f) => f.id !== id) }));
-    if (navigator.onLine) {
+    if (backendOnline()) {
       sbDeleteFee(id).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'student_fees', operation: 'delete', payload: { id } });

@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,            -- scrypt : salt:hash (hex)
   full_name     TEXT,
   email_confirmed_at TEXT,
+  cloud_user_id TEXT,                     -- UID auth.users côté cloud (pont d'identifiants)
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -317,6 +318,29 @@ CREATE TABLE IF NOT EXISTS license_activation (
   payload       TEXT,                    -- JSON décodé de la clé
   activated_at  TEXT,
   machine_id    TEXT
+);
+
+-- --- État de migration Cloud → Local/LAN ---------------------
+-- Une seule ligne (id = 1). Sa présence ferme l'assistant de migration
+-- (provisioning déjà fait) et trace la provenance des données.
+CREATE TABLE IF NOT EXISTS migration_state (
+  id          INTEGER PRIMARY KEY CHECK (id = 1),
+  source      TEXT,                      -- 'cloud'
+  school_id   TEXT,
+  cloud_url   TEXT,
+  migrated_at TEXT,
+  report      TEXT                       -- JSON : counts + intégrité
+);
+
+-- --- File de miroir des mots de passe (Local → Cloud) --------
+-- Empilée quand le cloud est injoignable au moment d'un login/changement ;
+-- rejouée à la reconnexion. Le secret est CHIFFRÉ (AES-256-GCM, clé locale).
+CREATE TABLE IF NOT EXISTS pwd_mirror_queue (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  local_user_id TEXT NOT NULL,
+  email         TEXT,
+  secret        TEXT NOT NULL,           -- mot de passe chiffré (jamais en clair)
+  created_at    TEXT NOT NULL
 );
 
 -- Index utiles (les requêtes filtrent surtout par classe / élève / école)

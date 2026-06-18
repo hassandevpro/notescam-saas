@@ -6,10 +6,12 @@
   "description": "Serveur NotesCam édition LAN (Fastify + node:sqlite). Dépendances runtime minimales pour le packaging .exe.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "migrate:cloud": "node migrate-cli.mjs"
   },
   "dependencies": {
     "@fastify/static": "^7.0.4",
+    "@supabase/supabase-js": "^2.45.0",
     "fastify": "^4.29.1"
   }
 }

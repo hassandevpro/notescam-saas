@@ -42,7 +42,11 @@ ensureColumn('students', 'photo_url', 'photo_url TEXT');    // photo de l'élèv
 ensureColumn('classes',  'cycle',        'cycle TEXT');
 ensureColumn('classes',  'teacher_id',   'teacher_id TEXT');
 ensureColumn('classes',  'max_students', 'max_students INTEGER');
+ensureColumn('classes',  'grade_max',    'grade_max INTEGER'); // barème de classe (/10, /20, /30…)
 ensureColumn('subjects', 'teacher_id',   'teacher_id TEXT');
+ensureColumn('schools',  'establishment_no', 'establishment_no TEXT'); // N° officiel établissement (en-tête bulletin)
+ensureColumn('schools',  'bulletin_font',    'bulletin_font TEXT');    // police choisie pour le bulletin
+ensureColumn('users',    'cloud_user_id',    'cloud_user_id TEXT');    // pont d'identifiants cloud ↔ local (bases déjà installées)
 
 // --- Introspection : colonnes réelles par table -------------------
 // Sert à filtrer les payloads entrants -> on ignore toute clé inconnue

@@ -14,6 +14,8 @@ import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey,
 import { runQuery } from './query.js';
 import { runRpc } from './rpc.js';
 import { scheduleBackups, runBackup } from './backup.js';
+import { runMigration } from './migrate.js';
+import { mirrorToCloud, flushMirrorQueue, credentialPublicKey } from './authBridge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -63,6 +65,9 @@ app.post('/api/auth/login', (req, reply) => {
   const row = db.prepare('SELECT * FROM users WHERE email = ?').get(email || '');
   if (!row || !verifyPassword(password, row.password_hash))
     return reply.code(401).send({ error: { message: 'Invalid login credentials' } });
+  // Clair disponible : on s'assure que le cloud a le MÊME mot de passe (fire-and-forget,
+  // ne bloque jamais la connexion ; échec → file chiffrée rejouée plus tard).
+  mirrorToCloud(row.id, row.email, password).catch(() => {});
   return { data: { session: sessionFor(row), user: sessionFor(row).user }, error: null };
 });
 
@@ -77,7 +82,11 @@ app.post('/api/auth/update', (req, reply) => {
   const { userId } = authOf(req);
   if (!userId) return reply.code(401).send({ error: { message: 'Not authenticated' } });
   const { password, full_name } = req.body || {};
-  if (password) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
+  if (password) {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId);
+    const u = userRow(userId);
+    mirrorToCloud(userId, u?.email, password).catch(() => {}); // garde le cloud identique
+  }
   if (full_name != null) db.prepare('UPDATE users SET full_name = ? WHERE id = ?').run(full_name, userId);
   return { data: { user: sessionFor(userRow(userId)).user }, error: null };
 });
@@ -172,6 +181,38 @@ app.post('/api/backup', async (req, reply) => {
   return { data: { path }, error: null };
 });
 
+// ====================== MIGRATION CLOUD → LOCAL/LAN ===================
+// Provisioning initial uniquement : disponible tant qu'aucune école n'existe et
+// qu'aucune migration n'a été faite. Une fois la base peuplée, l'endpoint se
+// ferme (la re-synchronisation passe par le pont/sync, pas par un ré-import).
+function migrationOpen() {
+  const done = db.prepare('SELECT 1 FROM migration_state WHERE id = 1').get();
+  const hasSchool = db.prepare('SELECT 1 FROM schools LIMIT 1').get();
+  return !done && !hasSchool;
+}
+
+app.get('/api/migrate/status', () => {
+  const row = db.prepare('SELECT * FROM migration_state WHERE id = 1').get() || null;
+  return { data: { open: migrationOpen(), state: row }, error: null };
+});
+
+app.post('/api/migrate/cloud', async (req, reply) => {
+  if (!migrationOpen()) return reply.code(409).send({ error: { message: 'Migration déjà effectuée ou base non vide.' } });
+  const { url, anonKey, email, password, localPassword } = req.body || {};
+  try {
+    const res = await runMigration({ url, anonKey, email, password, localPassword });
+    return { data: res, error: null };
+  } catch (e) {
+    return reply.code(400).send({ error: { message: e.message } });
+  }
+});
+
+// Clé publique RSA de CE serveur : l'app cloud l'utilise pour chiffrer les
+// changements de mot de passe (sens Cloud → Local du pont d'identifiants).
+app.get('/api/credential/pubkey', () => {
+  return { data: { public_key: credentialPublicKey() }, error: null };
+});
+
 // ====================== STATIC + SPA fallback =========================
 if (existsSync(DIST_DIR)) {
   app.register(fastifyStatic, { root: DIST_DIR, prefix: '/' });
@@ -195,6 +236,10 @@ const start = async () => {
   try {
     await app.listen({ port: PORT, host: HOST });
     scheduleBackups(2);
+    // Rejoue la file de miroir des mots de passe (Local → Cloud) au boot puis
+    // périodiquement : converge dès que le cloud redevient joignable, sans bloquer.
+    flushMirrorQueue().catch(() => {});
+    setInterval(() => { flushMirrorQueue().catch(() => {}); }, 10 * 60 * 1000).unref();
     console.log(`\n  NotesCam LAN — http://localhost:${PORT}`);
     console.log(`  Accessible sur le réseau : http://<IP-du-PC>:${PORT}`);
     console.log(`  Données : ${DATA_DIR}\n`);

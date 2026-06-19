@@ -5,6 +5,7 @@ import { useNotificationsStore } from '../store/notificationsStore';
 import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
+import LogoMark from './LogoMark';
 
 // ── SVG Icons ────────────────────────────────────────────────────────────────
 const ICONS = {
@@ -326,23 +327,13 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
       {/* ── Logo ── */}
       <div className="px-4 py-4 border-b border-slate-100 shrink-0">
         <div className="flex items-center gap-3">
-          {school?.logo_url ? (
-            <img
-              src={school.logo_url}
-              alt="Logo"
-              className="w-9 h-9 rounded-xl object-contain shrink-0 border border-slate-100"
-            />
-          ) : (
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-sm">
-              {school?.name?.[0]?.toUpperCase() || 'N'}
-            </div>
-          )}
+          <LogoMark size={36} className="shrink-0" />
           <div className="min-w-0">
             <p className="text-sm font-bold text-slate-800 truncate leading-tight">
-              {school?.name || 'NotesCam'}
+              NotesCam
             </p>
             <p className="text-xs text-slate-400 truncate leading-none mt-0.5">
-              {school?.current_year || ''}
+              {t('Gestion scolaire', 'School management', 'Gestión escolar')}
             </p>
           </div>
         </div>

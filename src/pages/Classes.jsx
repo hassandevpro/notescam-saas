@@ -12,6 +12,11 @@ import { COUNTRIES } from '../countries';
 
 const SYSTEMS = ['FR', 'EN'];
 
+// Barème de sortie par défaut d'un système (FR → /20, EN → /100).
+const sysDefaultScale = (sys) => (sys === 'EN' ? 100 : 20);
+// Présets proposés dans le sélecteur « Barème » (+ option « Autre… »).
+const GRADE_SCALE_PRESETS = [10, 20, 30, 40, 50, 100];
+
 // Le Cameroun est bilingue : à la création d'une classe on propose les niveaux
 // francophones ET anglophones quel que soit le système de l'école (ceux de sa
 // propre langue d'abord). Hors Cameroun (Guinée Éq.), on garde uniquement les
@@ -95,7 +100,7 @@ function subjectCatalogForCountry(countryCode, isEN) {
 }
 
 const EMPTY_FORM = {
-  name: '', level: '', system: 'FR',
+  name: '', level: '', system: 'FR', grade_max: 20,
   cycle: 'secondaire', current_year: '', teacher_id: '', max_students: '',
 };
 
@@ -107,14 +112,27 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers }) {
   const CYCLES = country.cycles.map((c) => ({ value: c.code, label: c.label }));
 
   const isGE = country.code === 'guinea_eq';
+  const initSystem = defaultSystemForCountry(country.code);
   const [form, setForm] = useState({
     ...EMPTY_FORM,
     current_year: defaultYear,
-    system: defaultSystemForCountry(country.code),
+    system: initSystem,
+    grade_max: sysDefaultScale(initSystem),
   });
   const [saving, setSaving] = useState(false);
+  // Le barème suit automatiquement le système tant que l'admin ne le force pas
+  // à une valeur hors présets (ex. /30). On affiche alors le champ libre.
+  const [customScale, setCustomScale] = useState(false);
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  // Bascule le système et, si le barème n'a pas été personnalisé, recale sa valeur
+  // par défaut (FR → /20, EN → /100).
+  const applySystem = (f, newSystem) => ({
+    ...f,
+    system: newSystem,
+    grade_max: customScale ? f.grade_max : sysDefaultScale(newSystem),
+  });
 
   const handleCycleChange = (e) => {
     const cycle = e.target.value;
@@ -133,22 +151,38 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers }) {
       // /100, francophone -> FR /20), même dans une école francophone. L'admin
       // peut corriger via le sélecteur « Système de notation » (toujours affiché).
       const autoSystem = EN_NIVEAUX.has(niveau) ? 'EN' : 'FR';
-      return {
-        ...f,
-        level: niveau,
-        name: nameIsAuto ? niveau : f.name,
-        ...(niveau ? { system: autoSystem } : {}),
-      };
+      const base = { ...f, level: niveau, name: nameIsAuto ? niveau : f.name };
+      return niveau ? applySystem(base, autoSystem) : base;
     });
+  };
+
+  const handleSystemChange = (e) => {
+    const newSystem = e.target.value;
+    setForm((f) => applySystem(f, newSystem));
+  };
+
+  const handleScaleChange = (e) => {
+    const val = e.target.value;
+    if (val === 'custom') {
+      setCustomScale(true);
+      // Démarre le champ libre sur une valeur hors présets pour rester visible.
+      setForm((f) => ({ ...f, grade_max: GRADE_SCALE_PRESETS.includes(f.grade_max) ? 25 : f.grade_max }));
+    } else {
+      setCustomScale(false);
+      setForm((f) => ({ ...f, grade_max: Number(val) }));
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
+    const gm = Math.max(1, Math.min(200, Number(form.grade_max) || 20));
     await onSave({
       ...form,
       teacher_id:   form.teacher_id   || null,
       max_students: form.max_students ? Number(form.max_students) : null,
+      // Guinée Éq. : le barème vient des Paramètres (ge_grade_max), pas d'ici.
+      grade_max:    isGE ? null : gm,
     });
     setSaving(false);
   };
@@ -193,11 +227,28 @@ function ClassForm({ onSave, onCancel, defaultYear, teachers }) {
         {!isGE && (
           <div>
             <label className="form-label">{t('Système de notation *', 'Grading system *')}</label>
-            <select required className="form-input" value={form.system} onChange={set('system')}>
+            <select required className="form-input" value={form.system} onChange={handleSystemChange}>
               {SYSTEMS.map((s) => (
-                <option key={s} value={s}>{s === 'FR' ? t('FR — notes sur 20', 'FR — grades out of 20') : t('EN — notes sur 100', 'EN — grades out of 100')}</option>
+                <option key={s} value={s}>{s === 'FR' ? t('FR — francophone', 'FR — Francophone') : t('EN — anglophone', 'EN — Anglophone')}</option>
               ))}
             </select>
+          </div>
+        )}
+        {!isGE && (
+          <div>
+            <label className="form-label">{t('Barème des notes *', 'Grading scale *')}</label>
+            <select required className="form-input"
+              value={customScale || !GRADE_SCALE_PRESETS.includes(form.grade_max) ? 'custom' : form.grade_max}
+              onChange={handleScaleChange}>
+              {GRADE_SCALE_PRESETS.map((n) => <option key={n} value={n}>/{n}</option>)}
+              <option value="custom">{t('Autre…', 'Other…')}</option>
+            </select>
+            {(customScale || !GRADE_SCALE_PRESETS.includes(form.grade_max)) && (
+              <input type="number" min="1" max="200" step="1" className="form-input mt-2"
+                placeholder={t('Ex : 30', 'E.g. 30')}
+                value={form.grade_max}
+                onChange={(e) => setForm((f) => ({ ...f, grade_max: Number(e.target.value) || '' }))} />
+            )}
           </div>
         )}
         <div>

@@ -14,8 +14,9 @@ import BulletinPhoto from '../components/bulletins/BulletinPhoto';
 import BoletinGE from '../components/bulletins/BoletinGE';
 import BoletinGEDetalle from '../components/bulletins/BoletinGEDetalle';
 import BulletinTheme from '../components/bulletins/BulletinTheme';
-import { resolveCountryCode } from '../countries';
+import { resolveCountryCode, bulletinOfficials } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
+import { bulletinFontFamily } from '../lib/schoolTheme';
 
 // ── Helpers avatar ───────────────────────────────────────────────────────────
 const AVT_COLORS = [
@@ -225,6 +226,8 @@ const CM_INFO   = { ...CM_CELL, backgroundColor: '#f8fafc', fontSize: '9px' };
 
 // Wrapper « papier » commun aux bulletins institutionnels (Arial 10px, A4).
 const CM_PAPER_STYLE = { fontFamily: 'Arial, sans-serif', fontSize: '10px', maxWidth: '210mm', margin: '0 auto', padding: '8px', boxSizing: 'border-box' };
+// Applique la police de bulletin choisie par l'école (Settings) au papier A4.
+const cmPaper = (school) => ({ ...CM_PAPER_STYLE, fontFamily: bulletinFontFamily(school) });
 
 // ── En-tête institutionnel partagé (ex-APC) ───────────────────────────────────
 // Disposition République du Cameroun / MINESEC / Délégations + logo + infos élève.
@@ -241,21 +244,36 @@ function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period }
     return isEnSys ? '3RD TERM' : '3ème TRIMESTRE';
   })();
 
+  // En-tête officiel hérité du PAYS choisi à la configuration (Cameroun bilingue,
+  // Côte d'Ivoire / Gabon / Congo mono-langue…). Le N° d'établissement apparaît
+  // sous les délégations. Repli Cameroun si la config pays n'expose rien.
+  const officials = bulletinOfficials(school);
+  const blocks    = officials?.blocks ?? [];
+  const bilingual = officials?.bilingual && blocks.length > 1;
+  const leftW     = bilingual ? '33%' : '50%';
+  const centerW   = bilingual ? '34%' : '50%';
+
+  const OfficialBlock = ({ block }) => (
+    <td style={{ width: leftW, textAlign: 'center', fontSize: '9px', lineHeight: 1.5, padding: '2px' }}>
+      <strong>{block.republic}</strong><br />
+      {block.motto}<br />
+      ———————<br />
+      {block.ministry}{block.lines.length > 0 && <br />}
+      {block.lines.map((ln, i) => (
+        <span key={i}>{ln}{i < block.lines.length - 1 && <br />}</span>
+      ))}
+      {block.establishment && (<><br /><strong>{block.establishment}</strong></>)}
+    </td>
+  );
+
   return (
     <>
-      {/* HEADER */}
+      {/* HEADER — officiels par pays + identification de l'établissement */}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
         <tbody>
           <tr>
-            <td style={{ width: '33%', textAlign: 'center', fontSize: '9px', lineHeight: 1.5, padding: '2px' }}>
-              <strong>RÉPUBLIQUE DU CAMEROUN</strong><br />
-              Paix – Travail – Patrie<br />
-              ———————<br />
-              Ministère des Enseignements Secondaires (MINESEC)<br />
-              Délégation Régionale {school?.region || '—'}<br />
-              Délégation Départementale {school?.division || '—'}
-            </td>
-            <td style={{ width: '34%', textAlign: 'center', padding: '2px' }}>
+            {blocks[0] && <OfficialBlock block={blocks[0]} />}
+            <td style={{ width: centerW, textAlign: 'center', padding: '2px' }}>
               {school?.logo_url && (
                 <img src={school.logo_url} alt="Logo" style={{ width: 64, height: 64, objectFit: 'contain', display: 'block', margin: '0 auto 3px' }} />
               )}
@@ -266,16 +284,9 @@ function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period }
                 </span>
               )}
               <br />
-              <span style={{ fontSize: '8.5px' }}>Année scolaire : <strong>{school?.current_year || '—'}</strong></span>
+              <span style={{ fontSize: '8.5px' }}>{L(sys, 'Année scolaire', 'Academic year')} : <strong>{school?.current_year || '—'}</strong></span>
             </td>
-            <td style={{ width: '33%', textAlign: 'center', fontSize: '9px', lineHeight: 1.5, padding: '2px' }}>
-              <strong>REPUBLIC OF CAMEROON</strong><br />
-              Peace – Work – Fatherland<br />
-              ———————<br />
-              Ministry of Secondary Education (MINESEC)<br />
-              Regional Delegation {school?.region || '—'}<br />
-              Divisional Delegation {school?.division || '—'}
-            </td>
+            {bilingual && blocks[1] && <OfficialBlock block={blocks[1]} />}
           </tr>
         </tbody>
       </table>
@@ -302,6 +313,34 @@ function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period }
         </tbody>
       </table>
     </>
+  );
+}
+
+// ── En-tête « primaire » partagé (bulletins primaire annuel) ──────────────────
+// Même source pays que BulletinCMHeader : République / devise héritées du pays
+// choisi, N° d'établissement sous la zone officielle.
+function BulletinPrimaryHeader({ school }) {
+  const officials = bulletinOfficials(school);
+  const blocks    = officials?.blocks ?? [];
+  const bilingual = officials?.bilingual && blocks.length > 1;
+  const Block = ({ b }) => (
+    <div>
+      <strong>{b.republic}</strong><br />
+      {b.motto}<br />————————<br />
+      <em>{school?.region || ''}</em>
+      {b.establishment && (<><br /><strong>{b.establishment}</strong></>)}
+    </div>
+  );
+  return (
+    <div className="bulletin-header">
+      {blocks[0] && <Block b={blocks[0]} />}
+      <div className="bulletin-logo">
+        {school?.logo_url
+          ? <img src={school.logo_url} alt="Logo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
+          : '📚'}
+      </div>
+      {bilingual && blocks[1] && <Block b={blocks[1]} />}
+    </div>
   );
 }
 
@@ -407,7 +446,7 @@ function BulletinClassic({ school, cls, student, subjects, subjectGrades, studen
   const abs           = getAbsCond(gradeMap, classId, student.id, period.seqs);
 
   return (
-    <div className="bulletin-paper" style={CM_PAPER_STYLE}>
+    <div className="bulletin-paper" style={cmPaper(school)}>
       {/* En-tête institutionnel mutualisé (ex-APC) */}
       <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} />
 
@@ -704,7 +743,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   const gtot   = { ...cell, backgroundColor: '#e8edf2', fontWeight: 'bold', fontSize: '9px' };
 
   return (
-    <div className="bulletin-paper" style={{ fontFamily: 'Arial, sans-serif', fontSize: '10px', maxWidth: '210mm', margin: '0 auto', padding: '8px', boxSizing: 'border-box' }}>
+    <div className="bulletin-paper" style={cmPaper(school)}>
 
       {/* En-tête institutionnel mutualisé (partagé avec le Bulletin Classique) */}
       <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} />
@@ -856,25 +895,8 @@ function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, st
   };
 
   return (
-    <div className="bulletin-paper">
-      <div className="bulletin-header">
-        <div>
-          <strong>RÉPUBLIQUE DU CAMEROUN</strong><br />
-          Paix – Travail – Patrie<br />————————<br />
-          <em>{school?.region || ''}</em>
-        </div>
-        <div className="bulletin-logo">
-          {school?.logo_url
-            ? <img src={school.logo_url} alt="Logo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
-            : '📚'
-          }
-        </div>
-        <div>
-          <strong>REPUBLIC OF CAMEROON</strong><br />
-          Peace – Work – Fatherland<br />————————<br />
-          <em>{school?.region || ''}</em>
-        </div>
-      </div>
+    <div className="bulletin-paper" style={{ fontFamily: bulletinFontFamily(school) }}>
+      <BulletinPrimaryHeader school={school} />
 
       <div className="bulletin-school">
         <h1>{school?.name || (sys === 'EN' ? 'School' : 'Établissement')}</h1>
@@ -1064,25 +1086,8 @@ function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrade
   const abs = <span style={{ color: '#9ca3af' }}>—</span>;
 
   return (
-    <div className="bulletin-paper">
-      <div className="bulletin-header">
-        <div>
-          <strong>RÉPUBLIQUE DU CAMEROUN</strong><br />
-          Paix – Travail – Patrie<br />————————<br />
-          <em>{school?.region || ''}</em>
-        </div>
-        <div className="bulletin-logo">
-          {school?.logo_url
-            ? <img src={school.logo_url} alt="Logo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
-            : '📚'
-          }
-        </div>
-        <div>
-          <strong>REPUBLIC OF CAMEROON</strong><br />
-          Peace – Work – Fatherland<br />————————<br />
-          <em>{school?.region || ''}</em>
-        </div>
-      </div>
+    <div className="bulletin-paper" style={{ fontFamily: bulletinFontFamily(school) }}>
+      <BulletinPrimaryHeader school={school} />
 
       <div className="bulletin-school">
         <h1>{school?.name || (isEN ? 'School' : 'Établissement')}</h1>
@@ -1248,25 +1253,8 @@ function BulletinMaternelle({ school, cls, student, subjects, teachers, gradeMap
   };
 
   return (
-    <div className="bulletin-paper">
-      <div className="bulletin-header">
-        <div>
-          <strong>RÉPUBLIQUE DU CAMEROUN</strong><br />
-          Paix – Travail – Patrie<br />————————<br />
-          <em>{school?.region || ''}</em>
-        </div>
-        <div className="bulletin-logo">
-          {school?.logo_url
-            ? <img src={school.logo_url} alt="Logo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
-            : '📚'
-          }
-        </div>
-        <div>
-          <strong>REPUBLIC OF CAMEROON</strong><br />
-          Peace – Work – Fatherland<br />————————<br />
-          <em>{school?.region || ''}</em>
-        </div>
-      </div>
+    <div className="bulletin-paper" style={{ fontFamily: bulletinFontFamily(school) }}>
+      <BulletinPrimaryHeader school={school} />
 
       <div className="bulletin-school">
         <h1>{school?.name || 'Établissement'}</h1>

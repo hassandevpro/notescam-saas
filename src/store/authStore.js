@@ -60,28 +60,44 @@ export const useAuthStore = create((set, get) => ({
         set({ loading: false, session: null });
         return;
       }
-      let ctx;
+
+      // OFFLINE-FIRST : si un contexte est déjà en cache pour cet utilisateur,
+      // on l'applique IMMÉDIATEMENT et on lève `loading`. L'app démarre alors
+      // sans dépendre du réseau (l'écran « Chargement… » de ProtectedRoute ne
+      // reste plus bloqué pendant un fetch qui pend). Le rafraîchissement cloud
+      // ci-dessous corrige le store en arrière-plan si quelque chose a changé.
+      const cached = loadCachedContext(session.user.id);
+      const applyCtx = (ctx) => {
+        set({
+          session,
+          user: ctx?.user || null,
+          school: ctx?.school || null,
+          role: ctx?.role || null,
+          fullName: ctx?.fullName || null,
+          classId: ctx?.classId || null,
+          schoolUserId: ctx?.schoolUserId || null,
+          teacherId: ctx?.teacherId || null,
+          loading: false,
+        });
+        syncUiLangToSchool(ctx?.school);
+      };
+
+      if (cached) applyCtx(cached);
+
+      // Rafraîchit le contexte depuis le réseau. En échec (hors-ligne / timeout),
+      // on garde le contexte caché s'il existe ; sinon on remonte l'erreur.
       try {
-        ctx = await getCurrentUserContext();
-        if (ctx) cacheUserContext(session.user.id, ctx);
+        const ctx = await getCurrentUserContext();
+        if (ctx) {
+          cacheUserContext(session.user.id, ctx);
+          applyCtx(ctx);
+        } else if (!cached) {
+          set({ loading: false });
+        }
       } catch (netErr) {
-        // Réseau indisponible : repli sur le contexte mis en cache (démarrage hors-ligne).
-        ctx = loadCachedContext(session.user.id);
-        if (!ctx) throw netErr;          // pas de cache → on garde le comportement actuel
-        console.warn('AuthStore.init : contexte chargé depuis le cache (hors-ligne).');
+        if (!cached) throw netErr;        // pas de cache → comportement historique
+        console.warn('AuthStore.init : réseau indisponible, contexte servi depuis le cache.');
       }
-      set({
-        session,
-        user: ctx?.user || null,
-        school: ctx?.school || null,
-        role: ctx?.role || null,
-        fullName: ctx?.fullName || null,
-        classId: ctx?.classId || null,
-        schoolUserId: ctx?.schoolUserId || null,
-        teacherId: ctx?.teacherId || null,
-        loading: false,
-      });
-      syncUiLangToSchool(ctx?.school);
     } catch (err) {
       console.error('AuthStore.init error:', err);
       set({ loading: false, error: err.message });

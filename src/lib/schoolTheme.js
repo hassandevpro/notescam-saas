@@ -54,6 +54,28 @@ export function getSchoolTheme(school) {
   };
 }
 
+// ── Police du bulletin ────────────────────────────────────────────────────
+// Polices « système » uniquement (aucun téléchargement) : garantit un rendu et
+// une impression fidèles même hors-ligne / en édition LAN. `value` est stocké
+// dans school.bulletin_font ; `stack` est la pile CSS appliquée au bulletin.
+export const BULLETIN_FONTS = [
+  { value: 'arial',     label: 'Arial (par défaut)', stack: 'Arial, Helvetica, sans-serif' },
+  { value: 'times',     label: 'Times New Roman',    stack: '"Times New Roman", Times, serif' },
+  { value: 'georgia',   label: 'Georgia',            stack: 'Georgia, "Times New Roman", serif' },
+  { value: 'cambria',   label: 'Cambria',            stack: 'Cambria, Georgia, serif' },
+  { value: 'calibri',   label: 'Calibri',            stack: 'Calibri, "Segoe UI", sans-serif' },
+  { value: 'verdana',   label: 'Verdana',            stack: 'Verdana, Geneva, sans-serif' },
+  { value: 'tahoma',    label: 'Tahoma',             stack: 'Tahoma, Geneva, sans-serif' },
+];
+
+const DEFAULT_FONT_STACK = BULLETIN_FONTS[0].stack;
+
+// Pile CSS de police à appliquer au bulletin de cette école.
+export function bulletinFontFamily(school) {
+  const f = BULLETIN_FONTS.find((x) => x.value === school?.bulletin_font);
+  return f ? f.stack : DEFAULT_FONT_STACK;
+}
+
 // Construit la chaîne `border-radius` à partir de la forme.
 export function shapeToRadius(shape) {
   switch (shape) {

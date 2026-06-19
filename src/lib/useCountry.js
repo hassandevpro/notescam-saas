@@ -54,3 +54,15 @@ export function gradingOpts(school, cycle) {
   const useCoef = cycle === 'primaire' ? gePrimaryUsesCoef(school) : true;
   return { maxScale: geGradeMax(school), useCoef };
 }
+
+// Barème de sortie effectif d'une classe (moyenne générale + affichages).
+// Champ explicite `classes.grade_max` si défini, sinon défaut système :
+// FR → /20, EN → /100, ES → réglage école (/10 ou /20). Rétrocompatible : une
+// classe sans grade_max retombe exactement sur l'ancien comportement.
+export function classScale(cls, school) {
+  const explicit = Number(cls?.grade_max);
+  if (explicit > 0) return explicit;
+  const sys = cls?.system || 'FR';
+  if (sys === 'ES') return geGradeMax(school);
+  return sys === 'EN' ? 100 : 20;
+}

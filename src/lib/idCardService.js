@@ -55,10 +55,10 @@ export function buildCardId(schoolId, studentId) {
   return `NC-${String(schoolId || '').slice(0, 4)}-${String(studentId || '').slice(0, 8)}`.toUpperCase();
 }
 
-async function qrDataUrl(payload) {
+export async function qrDataUrl(payload) {
   return QRCode.toDataURL(payload, {
     margin: 1,
-    width: 120,
+    width: 240,
     color: { dark: '#111111', light: '#ffffff' },
   });
 }

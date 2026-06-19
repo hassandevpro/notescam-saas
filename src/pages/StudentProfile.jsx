@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
+import { useUiStore } from '../store/uiStore';
 import { getAvg, frApp, enGrade } from '../core/bulletinEngine';
 import Modal from '../components/Modal';
 import Layout from '../components/Layout';
@@ -9,6 +10,8 @@ import StudentAvatar from '../components/StudentAvatar';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
 import { fetchAssignmentHistory } from '../lib/classAssignmentService';
+import { backendOnline } from '../lib/edition';
+import { copyText } from '../lib/clipboard';
 import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 
@@ -239,6 +242,13 @@ export default function StudentProfile() {
   // Écriture élèves réservée à la direction (admin + censeur), aligné sur la RLS.
   const canEdit       = role === 'admin' || role === 'censeur';
 
+  // Setters de navigation persistante (uiStore) — pour cibler l'élève / sa classe
+  const setGradesClassId        = useUiStore((s) => s.setGradesClassId);
+  const setBulletinsClassId     = useUiStore((s) => s.setBulletinsClassId);
+  const setBulletinsStudentId   = useUiStore((s) => s.setBulletinsStudentId);
+  const setAbsencesClassId      = useUiStore((s) => s.setAbsencesClassId);
+  const setAbsencesStatsClassId = useUiStore((s) => s.setAbsencesStatsClassId);
+
   const [showEdit,        setShowEdit]        = useState(false);
   const [showChangeClass, setShowChangeClass] = useState(false);
   const [newClassId,      setNewClassId]      = useState('');
@@ -248,7 +258,7 @@ export default function StudentProfile() {
   const [linkCopied,      setLinkCopied]      = useState(false);
 
   useEffect(() => {
-    if (!id || !navigator.onLine) return;
+    if (!id || !backendOnline()) return;
     fetchAssignmentHistory(id).then(setAssignHistory).catch(() => {});
   }, [id]);
 
@@ -340,7 +350,7 @@ export default function StudentProfile() {
   const handleCopyParentLink = () => {
     if (!student.parent_token) return;
     const url = `${window.location.origin}/parent/${student.parent_token}`;
-    navigator.clipboard.writeText(url).then(() => {
+    copyText(url).then(() => {
       setLinkCopied(true);
       setTimeout(() => setLinkCopied(false), 2500);
     });
@@ -349,14 +359,23 @@ export default function StudentProfile() {
   const genderLabel = student.gender === 'Masculin' ? t('Masculin', 'Male')
     : student.gender === 'Feminin' ? t('Féminin', 'Female') : student.gender;
 
+  // Toutes les actions ciblent l'élève courant (ou sa classe) avant de naviguer.
+  const goGrades = () => { setGradesClassId(student.class_id); navigate('/app/grades'); };
   const actions = [
-    { icon: '💳', label: t('Enregistrer un paiement', 'Record a payment'),    href: '/app/fees',     disabled: false },
-    { icon: '📋', label: t('Historique des paiements', 'Payment history'),     href: '/app/fees',     disabled: false },
-    { icon: '📄', label: t("Rapport de l'élève",        'Student report'),      href: '/app/reports',  disabled: false },
-    { icon: '📊', label: t('Voir les notes',             'View grades'),         href: cls ? '/app/grades'   : null, disabled: !cls },
-    { icon: '✏️',  label: t('Saisir une note',            'Enter a grade'),       href: cls ? '/app/grades'   : null, disabled: !cls },
-    { icon: '📑', label: t('Générer le bulletin',        'Generate report card'), href: cls ? '/app/bulletins': null, disabled: !cls },
-    { icon: '📅', label: t('Voir les absences',          'View absences'),       href: cls ? '/app/grades'   : null, disabled: !cls },
+    { icon: '💳', label: t('Enregistrer un paiement', 'Record a payment'),
+      onClick: () => navigate(`/app/fees?student=${student.id}`) },
+    { icon: '📋', label: t('Historique des paiements', 'Payment history'),
+      onClick: () => navigate(`/app/fees?student=${student.id}`) },
+    { icon: '📄', label: t("Rapport de l'élève", 'Student report'),
+      onClick: cls ? () => navigate(`/app/reports?class=${cls.id}`) : undefined, disabled: !cls },
+    { icon: '📊', label: t('Voir les notes', 'View grades'),
+      onClick: cls ? goGrades : undefined, disabled: !cls },
+    { icon: '✏️',  label: t('Saisir une note', 'Enter a grade'),
+      onClick: cls ? goGrades : undefined, disabled: !cls },
+    { icon: '📑', label: t('Générer le bulletin', 'Generate report card'),
+      onClick: cls ? () => { setBulletinsClassId(cls.id); setBulletinsStudentId(student.id); navigate('/app/bulletins'); } : undefined, disabled: !cls },
+    { icon: '📅', label: t('Voir les absences', 'View absences'),
+      onClick: cls ? () => { setAbsencesClassId(cls.id); setAbsencesStatsClassId(cls.id); navigate('/app/absences'); } : undefined, disabled: !cls },
     ...(canEdit ? [{ icon: '🏫', label: t('Changer de classe', 'Change class'), onClick: () => { setNewClassId(student.class_id || ''); setShowChangeClass(true); } }] : []),
   ];
 

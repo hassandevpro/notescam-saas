@@ -61,12 +61,21 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4"
-      style={{ background: 'linear-gradient(135deg, #312e81 0%, #5568d3 50%, #764ba2 100%)' }}>
+    <div className="auth-page relative min-h-screen flex items-center justify-center p-4 overflow-hidden bg-gradient-to-br from-terracotta-700 via-terracotta-600 to-ocre-600">
+      {/* Décor chaleureux */}
+      <div className="absolute -top-24 -left-24 w-96 h-96 bg-ocre-300/30 rounded-full blur-3xl" aria-hidden="true" />
+      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-terracotta-400/40 rounded-full blur-3xl" aria-hidden="true" />
+      <div className="absolute inset-0 opacity-[0.06]" aria-hidden="true"
+        style={{ backgroundImage: 'radial-gradient(white 1.5px,transparent 1.5px)', backgroundSize: '28px 28px' }} />
 
-      <div className="w-full max-w-[400px]">
+      <div className="relative w-full max-w-[400px]">
+        {/* Retour à l'accueil */}
+        <Link to="/" className="inline-flex items-center gap-1.5 text-white/85 hover:text-white text-sm font-medium mb-4 transition-colors">
+          <span aria-hidden="true">←</span> {t("Retour à l'accueil", 'Back to home')}
+        </Link>
+
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-card-xl p-8">
+        <div className="bg-white rounded-3xl shadow-card-xl p-8">
 
           {/* Logo mark */}
           <div className="mb-6">
@@ -137,7 +146,7 @@ export default function Login() {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="form-label mb-0" htmlFor="password">{t('Mot de passe', 'Password')}</label>
-                <Link to="/forgot-password" className="text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors">
+                <Link to="/forgot-password" className="text-xs text-terracotta-600 hover:text-terracotta-700 font-medium transition-colors">
                   {t('Oublié ?', 'Forgot?')}
                 </Link>
               </div>
@@ -163,7 +172,8 @@ export default function Login() {
               </div>
             </div>
 
-            <button type="submit" disabled={submitting} className="btn-primary mt-2">
+            <button type="submit" disabled={submitting}
+              className="w-full mt-2 py-3 px-5 bg-terracotta-500 hover:bg-terracotta-600 active:bg-terracotta-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm rounded-xl transition-all duration-150 shadow-lg shadow-terracotta-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terracotta-500 focus-visible:ring-offset-2">
               {submitting
                 ? <span className="flex items-center justify-center gap-2">
                     <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -178,13 +188,13 @@ export default function Login() {
           <div className="mt-6 pt-5 border-t border-slate-100 space-y-2 text-center">
             <p className="text-sm text-slate-500">
               {t('Pas de compte ?', 'No account?')}{' '}
-              <Link to="/signup" className="text-brand-600 font-semibold hover:text-brand-700 transition-colors">
+              <Link to="/signup" className="text-terracotta-600 font-semibold hover:text-terracotta-700 transition-colors">
                 {t('Créer un établissement', 'Create a school')}
               </Link>
             </p>
             <p className="text-sm text-slate-500">
               {t('Enseignant ?', 'Teacher?')}{' '}
-              <Link to="/teacher-signup" className="text-brand-600 font-semibold hover:text-brand-700 transition-colors">
+              <Link to="/teacher-signup" className="text-terracotta-600 font-semibold hover:text-terracotta-700 transition-colors">
                 {t('Rejoindre un établissement', 'Join a school')}
               </Link>
             </p>

@@ -9,23 +9,26 @@
 
 // --- Calcul de moyenne séquentielle ---
 
-export const calcFR = (g, subs) => {
+// maxScale = barème de sortie de la classe (défaut /20 FR, /100 EN). Chaque note
+// est normalisée par le barème de sa matière (s.max) puis remise à l'échelle de
+// sortie : un barème /30 n'altère donc pas les classes existantes (défaut conservé).
+export const calcFR = (g, subs, maxScale = 20) => {
   let sw = 0, tc = 0;
   for (const s of subs) {
     const v = g?.[s.id];
     if (!v || v === 'ABS' || v === '') continue;
-    sw += (parseFloat(v) / s.max) * 20 * s.coef;
+    sw += (parseFloat(v) / s.max) * maxScale * s.coef;
     tc += s.coef;
   }
   return tc ? Math.round((sw / tc) * 100) / 100 : null;
 };
 
-export const calcEN = (g, subs) => {
+export const calcEN = (g, subs, maxScale = 100) => {
   let sw = 0, tc = 0;
   for (const s of subs) {
     const v = g?.[s.id];
     if (!v || v === 'ABS' || v === '') continue;
-    sw += (parseFloat(v) / s.max) * 100 * (s.coef || 1);
+    sw += (parseFloat(v) / s.max) * maxScale * (s.coef || 1);
     tc += s.coef || 1;
   }
   return tc ? Math.round((sw / tc) * 100) / 100 : null;
@@ -47,11 +50,12 @@ export const calcES = (g, subs, maxScale = 10, useCoef = true) => {
   return tc ? Math.round((sw / tc) * 100) / 100 : null;
 };
 
-// opts (ES uniquement) : { maxScale = 10, useCoef = true }
+// opts : { maxScale, useCoef } — maxScale = barème de sortie de la classe.
+// Défauts par système si absent : FR /20, EN /100, ES /10.
 export const getAvg = (g, subs, sys, opts = {}) => {
-  if (sys === 'EN') return calcEN(g, subs);
+  if (sys === 'EN') return calcEN(g, subs, opts.maxScale ?? 100);
   if (sys === 'ES') return calcES(g, subs, opts.maxScale ?? 10, opts.useCoef ?? true);
-  return calcFR(g, subs);
+  return calcFR(g, subs, opts.maxScale ?? 20);
 };
 
 // --- Moyenne sur plusieurs séquences ---
@@ -162,7 +166,9 @@ export const clsStat = (studs, allGrades, classId, seqs, subs, sys, excl = {}, o
 
   if (!vals.length) return { min: null, max: null, avg: null, above: 0, total: studs.length };
 
-  const pass = sys === 'ES' ? (opts.maxScale ?? 10) / 2 : sys === 'FR' ? 10 : 50;
+  // Seuil de réussite = moitié du barème de sortie (FR 10/20, EN 50/100, ES 5/10).
+  const defScale = sys === 'EN' ? 100 : sys === 'ES' ? 10 : 20;
+  const pass = (opts.maxScale ?? defScale) / 2;
   return {
     min:   Math.round(Math.min(...vals) * 100) / 100,
     max:   Math.round(Math.max(...vals) * 100) / 100,

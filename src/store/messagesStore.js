@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { uuid } from '../lib/uuid';
 import {
   fetchMessagesForAdmin,
   fetchMessagesForTeacher,
@@ -50,7 +51,7 @@ export const useMessagesStore = create((set, get) => ({
     if (ok) {
       const optimistic = {
         ...messageData,
-        id:         crypto.randomUUID(),
+        id:         uuid(),
         read:       false,
         created_at: new Date().toISOString(),
       };

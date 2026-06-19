@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { downloadCSV } from '../lib/exportCsv';
+import { uuid } from '../lib/uuid';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import { useT, localeForLang } from '../lib/i18n';
@@ -244,7 +246,7 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
     const parsed = parseInt(tAmount, 10) || 0;
     if (!parsed) return;
     const newT = {
-      id:       crypto.randomUUID(),
+      id:       uuid(),
       label:    tLabel.trim() || `Tranche ${tranches.length + 1}`,
       amount:   parsed,
       due_date: tDate || null,
@@ -709,6 +711,21 @@ export default function Fees() {
   const [openRow,      setOpenRow]      = useState(null);
   const [page,         setPage]         = useState(1);
   const [showBulk,     setShowBulk]     = useState(false);
+
+  // Arrivée depuis la fiche d'un élève (/app/fees?student=<id>) :
+  // ouvrir directement le panneau de paiement de cet élève.
+  const [searchParams] = useSearchParams();
+  const handledStudentParam = useRef(false);
+  useEffect(() => {
+    if (handledStudentParam.current) return;
+    const sid = searchParams.get('student');
+    if (!sid) return;
+    const stu = students.find((s) => s.id === sid);
+    if (!stu) return;
+    handledStudentParam.current = true;
+    if (stu.class_id) setFilterClass(stu.class_id);
+    setOpenRow(sid);
+  }, [searchParams, students]);
 
   const feeMap = useMemo(() => {
     const map = {};

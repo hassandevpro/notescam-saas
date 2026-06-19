@@ -10,6 +10,7 @@
 // Ed25519 côté serveur (aucun appel internet).
 
 import { useState, useEffect } from 'react';
+import { copyText } from '../lib/clipboard';
 
 const IS_LAN = import.meta.env.VITE_EDITION === 'lan';
 
@@ -56,8 +57,7 @@ function ActivationScreen({ machineId }) {
   const [copied, setCopied] = useState(false);
 
   const copyMachineId = async () => {
-    try { await navigator.clipboard.writeText(machineId); setCopied(true); setTimeout(() => setCopied(false), 1500); }
-    catch { /* clipboard indisponible (HTTP) : copie manuelle */ }
+    if (await copyText(machineId)) { setCopied(true); setTimeout(() => setCopied(false), 1500); }
   };
 
   const activate = async () => {

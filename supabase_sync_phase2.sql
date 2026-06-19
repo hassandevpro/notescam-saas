@@ -44,7 +44,16 @@ CREATE TABLE IF NOT EXISTS public.sync_tombstones (
 CREATE INDEX IF NOT EXISTS idx_sync_tombstones_pull ON public.sync_tombstones (school_id, deleted_at);
 ALTER TABLE public.sync_tombstones ENABLE ROW LEVEL SECURITY; -- service_role uniquement (fonctions edge)
 
-CREATE OR REPLACE FUNCTION public.log_tombstone() RETURNS trigger AS $$
+-- SECURITY DEFINER : le trigger s'exécute pour le compte du propriétaire de la
+-- fonction (postgres), pas de l'utilisateur qui supprime. Sans cela, l'INSERT
+-- dans sync_tombstones (RLS activé, aucune policy pour les rôles applicatifs)
+-- échoue avec « new row violates row-level security policy » et fait échouer
+-- tout le DELETE déclencheur. search_path figé = bonne pratique SECURITY DEFINER.
+CREATE OR REPLACE FUNCTION public.log_tombstone() RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path = public
+AS $$
 DECLARE sid uuid;
 BEGIN
   sid := CASE WHEN TG_TABLE_NAME = 'schools' THEN OLD.id ELSE OLD.school_id END;
@@ -54,7 +63,7 @@ BEGIN
     ON CONFLICT (school_id, tablename, row_id) DO UPDATE SET deleted_at = excluded.deleted_at;
   END IF;
   RETURN OLD;
-END $$ LANGUAGE plpgsql;
+END $$;
 
 -- Attache les deux triggers à chaque table répliquée.
 DO $$

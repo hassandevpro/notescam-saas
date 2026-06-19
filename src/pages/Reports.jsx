@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { getAvg, frApp, enGrade, esGrade, buildRanks, clsStat } from '../core/bulletinEngine';
@@ -61,11 +62,9 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
   const rankRows = studentResults.map(({ student, avg, rank, appr }) => {
     const passed = avg !== null && avg >= passThreshold;
     const avgColor = avg !== null ? (passed ? '#059669' : '#ef4444') : '#9ca3af';
-    const decisionBg  = passed ? '#d1fae5' : '#fee2e2';
-    const decisionCol = passed ? '#065f46' : '#991b1b';
     const tdMatricule    = matricule    ? `<td style="text-align:center;font-family:monospace;color:#6b7280">${student.matricule || '—'}</td>` : '';
     const tdAppreciation = appreciation ? `<td style="text-align:center;color:#374151">${sys === 'EN' ? (appr ? appr.g : '—') : (appr?.text || '—')}</td>` : '';
-    const tdDecision     = decision     ? `<td style="text-align:center"><span style="display:inline-block;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:700;background:${decisionBg};color:${decisionCol}">${passed ? Lp('Admis(e)', 'Aprobado') : Lp('Ajourné(e)', 'Suspenso')}</span></td>` : '';
+    const tdDecision     = decision     ? `<td style="text-align:center;font-weight:700;color:${passed ? '#059669' : '#dc2626'}">${passed ? Lp('Admis(e)', 'Aprobado') : Lp('Ajourné(e)', 'Suspenso')}</td>` : '';
     return `<tr>
       <td style="text-align:center;font-weight:700">${rank?.rankD ? rank.rankN : '—'}</td>
       <td style="font-weight:600">${student.name}</td>
@@ -92,8 +91,8 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
   }).join('');
 
   const logoTag = school?.logo_url
-    ? `<img src="${school.logo_url}" alt="Logo" style="width:64px;height:64px;object-fit:contain" />`
-    : `<div style="width:64px;height:64px;border-radius:50%;background:#eef2ff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#4f46e5">${(school?.name || 'E').charAt(0)}</div>`;
+    ? `<img src="${school.logo_url}" alt="Logo" class="rc-logo" />`
+    : '';
 
   const html = `<!DOCTYPE html>
 <html lang="${isGE ? 'es' : 'fr'}">
@@ -102,35 +101,40 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
   <title>${Lp('Rapport', 'Informe')} — ${selectedClass?.name} — ${period.label}</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:Arial,sans-serif;font-size:11.5px;color:#111;background:#fff}
-    .page{padding:16mm 14mm}
-    /* ── En-tête établissement ── */
-    .hdr{display:flex;align-items:flex-start;gap:14px;border-bottom:2.5px solid #4f46e5;padding-bottom:12px;margin-bottom:14px}
-    .hdr-logo{flex-shrink:0}
-    .hdr-school{flex:1}
-    .hdr-school h1{font-size:15px;font-weight:800;letter-spacing:-.3px}
-    .hdr-school p{font-size:10px;color:#555;margin-top:2px;line-height:1.5}
-    .hdr-report{text-align:right;flex-shrink:0}
-    .hdr-report h2{font-size:13px;font-weight:700;color:#4f46e5}
-    .hdr-report p{font-size:10px;color:#6b7280;margin-top:2px}
+    body{font-family:Arial,sans-serif;font-size:11px;color:#000;background:#fff}
+    .page{padding:8px}
+    /* ── En-tête République (3 colonnes), façon bulletin APC ── */
+    .rc-head{width:100%;border-collapse:collapse;margin-bottom:5px}
+    .rc-head td{padding:2px;vertical-align:top;text-align:center}
+    .rc-side{width:33%;font-size:9px;line-height:1.5}
+    .rc-center{width:34%}
+    .rc-logo{width:64px;height:64px;object-fit:contain;display:block;margin:0 auto 3px}
+    .rc-school{font-size:12px;font-weight:bold;display:block}
+    .rc-meta{font-size:8.5px}
+    /* ── Barre titre ── */
+    .title-bar{background:#1e3a5f;color:#fff;text-align:center;padding:5px 8px;font-weight:bold;font-size:12px;letter-spacing:.5px;margin-bottom:5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    /* ── Ligne info ── */
+    .doc-info{width:100%;border-collapse:collapse;margin-bottom:8px}
+    .doc-info td{border:1px solid #374151;padding:3px 6px;font-size:9.5px;background:#f8fafc;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     /* ── Stats ── */
-    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
-    .stat{border:1px solid #e5e7eb;border-radius:8px;padding:9px 8px;text-align:center}
-    .stat-val{font-size:19px;font-weight:800}
-    .stat-lbl{font-size:9.5px;color:#6b7280;margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
-    /* ── Tableaux ── */
-    h3{font-size:12px;font-weight:700;margin:14px 0 7px;padding-left:4px;border-left:3px solid #4f46e5}
-    table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:6px}
-    thead th{background:#f9fafb;border-bottom:1.5px solid #e5e7eb;padding:5px 7px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;font-weight:700}
-    tbody td{padding:5px 7px;border-bottom:1px solid #f3f4f6}
-    tbody tr:nth-child(even) td{background:#fafafa}
-    /* ── Pied ── */
-    .footer{margin-top:20px;border-top:1px solid #e5e7eb;padding-top:12px;display:flex;justify-content:space-between}
-    .sign-box{text-align:center;width:180px}
-    .sign-line{border-bottom:1px solid #aaa;margin-bottom:4px;height:32px}
-    .sign-lbl{font-size:9.5px;color:#555}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+    .stat{border:1px solid #374151;padding:7px 6px;text-align:center}
+    .stat-val{font-size:18px;font-weight:800}
+    .stat-lbl{font-size:9px;color:#374151;margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+    /* ── Sections + tableaux ── */
+    h3{font-size:10.5px;font-weight:bold;text-transform:uppercase;letter-spacing:.04em;background:#1e3a5f;color:#fff;padding:3px 8px;margin:10px 0 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px}
+    thead th{background:#1e3a5f;color:#fff;border:1px solid #374151;padding:4px 6px;text-align:center;font-size:9px;text-transform:uppercase;letter-spacing:.03em;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    tbody td{border:1px solid #374151;padding:3px 6px}
+    tbody tr:nth-child(even) td{background:#f4f6f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    /* ── Pied signatures bordées ── */
+    .foot{width:100%;border-collapse:collapse;margin-top:16px}
+    .foot td{border:1px solid #374151;width:33.33%;text-align:center;font-size:9px;font-weight:bold;height:62px;vertical-align:bottom;padding:4px 4px 6px}
+    .foot td.foot-head{vertical-align:top;padding-top:5px}
+    .foot td.foot-head img{height:34px;display:block;margin:2px auto;object-fit:contain;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .notice{font-size:7.5px;color:#9ca3af;text-align:center;font-style:italic;margin-top:6px}
     @media print{
-      @page{margin:12mm;size:A4 portrait}
+      @page{margin:10mm;size:A4 portrait}
       body{padding:0}
       .page{padding:0}
     }
@@ -138,21 +142,29 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
 </head>
 <body>
 <div class="page">
-  <div class="hdr">
-    <div class="hdr-logo">${logoTag}</div>
-    <div class="hdr-school">
-      <h1>${school?.name || Lp('Établissement', 'Centro educativo')}</h1>
-      <p>${[school?.type, school?.region, school?.division].filter(Boolean).join(' · ')}</p>
-      ${school?.director ? `<p>${Lp('Dir.', 'Dir.')} : <strong>${school.director}</strong></p>` : ''}
-      ${school?.address ? `<p>${school.address}</p>` : ''}
-    </div>
-    <div class="hdr-report">
-      <h2>${Lp('Rapport de résultats', 'Informe de resultados')}</h2>
-      <p><strong>${selectedClass?.name}</strong> · ${period.label}</p>
-      <p>${Lp('Année', 'Año')} : ${school?.current_year || '—'}</p>
-      <p style="margin-top:4px;color:#9ca3af">${today}</p>
-    </div>
-  </div>
+  <table class="rc-head"><tbody><tr>
+    <td class="rc-side">${isGE
+      ? `<strong>REPÚBLICA DE GUINEA ECUATORIAL</strong><br/>Unidad – Paz – Justicia<br/>———————<br/>Ministerio de Educación<br/>y Enseñanza Universitaria<br/>${school?.region || '—'}`
+      : `<strong>RÉPUBLIQUE DU CAMEROUN</strong><br/>Paix – Travail – Patrie<br/>———————<br/>Ministère des Enseignements Secondaires (MINESEC)<br/>Délégation Régionale ${school?.region || '—'}<br/>Délégation Départementale ${school?.division || '—'}`}</td>
+    <td class="rc-center">
+      ${logoTag}
+      <strong class="rc-school">${(school?.name || Lp('Établissement', 'Centro educativo')).toUpperCase()}</strong>
+      ${(school?.address || school?.phone) ? `<span class="rc-meta">${school?.address ? (isGE ? 'Apdo. ' : 'B.P. ') + school.address : ''}${school?.address && school?.phone ? ' · ' : ''}${school?.phone || ''}</span><br/>` : ''}
+      <span class="rc-meta">${Lp('Année scolaire', 'Año escolar')} : <strong>${school?.current_year || '—'}</strong></span>
+    </td>
+    <td class="rc-side">${isGE
+      ? `<strong>MINISTERIO DE EDUCACIÓN</strong><br/>Y Enseñanza Universitaria<br/>———————<br/>Dirección Provincial<br/>${school?.region || '—'}`
+      : `<strong>REPUBLIC OF CAMEROON</strong><br/>Peace – Work – Fatherland<br/>———————<br/>Ministry of Secondary Education (MINESEC)<br/>Regional Delegation ${school?.region || '—'}<br/>Divisional Delegation ${school?.division || '—'}`}</td>
+  </tr></tbody></table>
+
+  <div class="title-bar">${Lp('RAPPORT DE RÉSULTATS', 'INFORME DE RESULTADOS')} — ${(selectedClass?.name || '').toUpperCase()} — ${period.label.toUpperCase()}</div>
+
+  <table class="doc-info"><tbody><tr>
+    <td><strong>${Lp('Classe', 'Curso')} :</strong> ${selectedClass?.name || '—'}</td>
+    <td><strong>${Lp('Période', 'Período')} :</strong> ${period.label}</td>
+    <td><strong>${Lp('Effectif', 'Efectivo')} :</strong> ${stats?.total ?? classStudents.length}</td>
+    <td><strong>${Lp('Date', 'Fecha')} :</strong> ${today}</td>
+  </tr></tbody></table>
 
   <div class="stats">
     <div class="stat">
@@ -160,7 +172,7 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
       <div class="stat-lbl">${Lp('Effectif', 'Efectivo')}</div>
     </div>
     <div class="stat">
-      <div class="stat-val" style="color:#4f46e5">${stats?.avg != null ? stats.avg : '—'}<span style="font-size:12px;font-weight:400;color:#9ca3af">/${maxScale}</span></div>
+      <div class="stat-val" style="color:#1e3a5f">${stats?.avg != null ? stats.avg : '—'}<span style="font-size:12px;font-weight:400;color:#9ca3af">/${maxScale}</span></div>
       <div class="stat-lbl">${Lp('Moyenne classe', 'Media de la clase')}</div>
     </div>
     <div class="stat">
@@ -201,20 +213,20 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
     <tbody>${subRows}</tbody>
   </table>` : ''}
 
-  <div class="footer">
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div class="sign-lbl">${Lp('Le Censeur / DSCE', 'El Jefe de Estudios')}</div>
-    </div>
-    <div class="sign-box" style="text-align:center">
-      <div class="sign-lbl" style="margin-bottom:2px;font-weight:700">${Lp("Cachet de l'établissement", 'Sello del centro')}</div>
-      <div style="border:1px dashed #ccc;height:50px;border-radius:4px"></div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div class="sign-lbl">${Lp('Le Proviseur / Directeur', 'El Director / La Directora')}</div>
-    </div>
-  </div>
+  <table class="foot"><tbody><tr>
+    <td>${Lp('Le Professeur Principal', 'El Tutor / La Tutora')}</td>
+    <td>${Lp('Le Censeur / DSCE', 'El Jefe de Estudios')}</td>
+    <td class="foot-head">
+      ${Lp('Le Proviseur / Directeur', 'El Director / La Directora')}
+      ${school?.signature_url ? `<img src="${school.signature_url}" alt="Signature" />` : ''}
+      ${school?.stamp_url ? `<img src="${school.stamp_url}" alt="Cachet" />` : ''}
+    </td>
+  </tr></tbody></table>
+
+  <div class="notice">${Lp(
+    "Ce rapport n'est valable qu'avec la signature et le cachet du chef d'établissement.",
+    'Este informe solo es válido con la firma y el sello del director del centro.'
+  )}</div>
 </div>
 </body>
 </html>`;
@@ -370,6 +382,19 @@ export default function Reports() {
   const [classId,     setClassId]     = useState('');
   const [periodKey,   setPeriodKey]   = useState('seq_1');
   const [showPrintOpts, setShowPrintOpts] = useState(false);
+
+  // Arrivée depuis la fiche d'un élève (/app/reports?class=<id>) :
+  // pré-sélectionner la classe de l'élève.
+  const [searchParams] = useSearchParams();
+  const handledClassParam = useRef(false);
+  useEffect(() => {
+    if (handledClassParam.current) return;
+    const cid = searchParams.get('class');
+    if (!cid) return;
+    if (!classes.some((c) => c.id === cid)) return;
+    handledClassParam.current = true;
+    setClassId(cid);
+  }, [searchParams, classes]);
   const [cols, setCols] = useState({
     matricule:    true,
     appreciation: true,

@@ -5,8 +5,9 @@
 // notamment dans les zones rurales ou avec une connexion intermittente. Les
 // entrées peuvent être synchronisées plus tard via le syncQueue si nécessaire.
 
-import { trashDB, auditDB } from './db';
+import { trashDB, auditDB, syncQueueDB } from './db';
 import { useAuthStore } from '../store/authStore';
+import { useUiStore } from '../store/uiStore';
 
 // Logge une action dans le journal d'audit. Silencieux si l'IDB échoue.
 export async function logAction({ action, table, target_id, details = {} }) {
@@ -64,11 +65,37 @@ export async function purgeTrashItem(id) {
   await trashDB.delete(id);
 }
 
+// Annule toute opération `delete` encore en file de sync pour cette ligne.
+// Sans cela, la suppression précédente (mise en file car elle avait échoué côté
+// cloud) serait rejouée au prochain flush et re-supprimerait l'élément restauré.
+async function cancelQueuedDelete(table, rowId) {
+  if (!table || !rowId) return;
+  try {
+    const queue = await syncQueueDB.getAll();
+    let removed = 0;
+    for (const op of queue) {
+      if (op.table === table && op.operation === 'delete' && op.payload?.id === rowId) {
+        await syncQueueDB.delete(op.id);
+        removed++;
+      }
+    }
+    if (removed) {
+      const remaining = await syncQueueDB.getAll();
+      useUiStore.getState().setPendingCount(remaining.length);
+    }
+  } catch (err) {
+    console.warn('cancelQueuedDelete failed', err);
+  }
+}
+
 // Restaure un élément de la corbeille. Réinjecte le payload via le store
 // adapté à la table — laisse le moteur de sync s'occuper de Supabase.
 export async function restoreFromTrash(trashItem, store) {
   if (!trashItem || !store) return;
   const { table, payload, id } = trashItem;
+  // On purge d'abord la suppression en attente, pour qu'elle ne reparte pas
+  // au prochain flush et n'efface pas la ligne que l'on vient de recréer.
+  await cancelQueuedDelete(table, payload?.id);
   switch (table) {
     case 'classes':
       await store.addClass(payload); break;

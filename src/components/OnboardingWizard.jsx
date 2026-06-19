@@ -5,6 +5,8 @@ import { supabase } from '../lib/supabase';
 import { useT } from '../lib/i18n';
 import { useCountry, defaultSystemForCountry } from '../lib/useCountry';
 import LogoMark from './LogoMark';
+import { uuid } from '../lib/uuid';
+import { copyText } from '../lib/clipboard';
 
 // ── Subject presets ───────────────────────────────────────────────────────────
 
@@ -176,7 +178,7 @@ function StepClass({ school, onNext, onBack, t, country }) {
     try {
       const name = suffix.trim() ? `${level} ${suffix.trim()}` : level;
       const record = {
-        id: crypto.randomUUID(),
+        id: uuid(),
         school_id: school.id,
         name, level, cycle, system,
         current_year: activeYear,
@@ -335,7 +337,7 @@ function StepSubjects({ cls, onNext, onBack, t }) {
     try {
       const allNames = [...preset, ...extras].filter((n) => selected.has(n));
       const records = allNames.map((name) => ({
-        id: crypto.randomUUID(),
+        id: uuid(),
         school_id: cls.school_id,
         class_id: cls.id,
         name, coef: 2, max: defaultMax,
@@ -430,7 +432,7 @@ function StepCode({ school, onNext, onBack, t }) {
   const [copied, setCopied] = useState(false);
 
   const copy = () => {
-    navigator.clipboard.writeText(code).then(() => {
+    copyText(code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });

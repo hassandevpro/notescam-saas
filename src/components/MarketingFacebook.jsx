@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { copyText } from '../lib/clipboard';
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 
@@ -238,7 +239,7 @@ function ProgressRing({ pct, size = 56, stroke = 5, color = '#6366f1' }) {
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    navigator.clipboard.writeText(text).then(() => {
+    copyText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     });

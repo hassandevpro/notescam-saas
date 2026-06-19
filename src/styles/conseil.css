@@ -1,0 +1,118 @@
+/* ================================================================
+   Conseil de classe — Procès-verbal : gabarit d'impression dédié.
+   Reprend le look institutionnel du BULLETIN APC (en-tête République
+   du Cameroun / MINESEC sur 3 colonnes, barre-titre bleu marine,
+   tableaux à en-têtes bleu marine, Arial), totalement séparé de
+   l'affichage interactif à l'écran. bulletin.css reste intact.
+   ================================================================ */
+
+/* Le papier PV est invisible à l'écran : il n'existe que pour l'impression. */
+.pv-paper { display: none; }
+
+/* ================================================================
+   IMPRESSION
+   ================================================================ */
+@media print {
+  @page { size: A4 portrait; margin: 10mm; }
+
+  /* Masquer tout le chrome de l'application. */
+  header, aside, nav, .no-print { display: none !important; }
+
+  /* Neutraliser les conteneurs scrollables de l'app : sans ça, seule la
+     portion visible à l'écran sort à l'impression (= « impression de
+     l'écran ») et les grandes classes sont tronquées à une page.
+     #root > div = racine du Layout (h-screen overflow-hidden). */
+  html, body, #root, #root > div { height: auto !important; overflow: visible !important; }
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  main > div { padding: 0 !important; }
+
+  /* N'imprimer QUE le papier institutionnel, jamais l'UI colorée. */
+  .pv-screen { display: none !important; }
+  .pv-paper  { display: block !important; }
+}
+
+/* ================================================================
+   PAPIER — look institutionnel (bulletin APC)
+   ================================================================ */
+.pv-paper {
+  background: #fff;
+  color: #000;
+  font-family: Arial, sans-serif;
+  font-size: 10px;
+  width: 100%;
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+/* En-tête République — 3 colonnes (gauche pays / centre école / droite ministère) */
+.pv-head { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+.pv-head td { padding: 2px; vertical-align: top; text-align: center; }
+.pv-head .pv-head-side { width: 33%; font-size: 9px; line-height: 1.5; }
+.pv-head .pv-head-center { width: 34%; }
+.pv-head-logo { width: 64px; height: 64px; object-fit: contain; display: block; margin: 0 auto 3px; }
+.pv-head-school { font-size: 11px; display: block; }
+.pv-head-meta { font-size: 8.5px; }
+
+/* Barre titre bleu marine */
+.pv-title-bar {
+  background: #1e3a5f; color: #fff; text-align: center;
+  padding: 5px 8px; font-weight: bold; font-size: 11px;
+  letter-spacing: 0.5px; margin-bottom: 5px;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+
+/* Ligne d'information sur la classe */
+.pv-info { width: 100%; border-collapse: collapse; margin-bottom: 5px; }
+.pv-info td {
+  border: 1px solid #374151; padding: 3px 6px; font-size: 9px;
+  background: #f8fafc; text-align: left;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+
+/* Tableau principal — en-têtes bleu marine */
+.pv-doc-table { width: 100%; border-collapse: collapse; font-size: 8.5px; margin-bottom: 5px; }
+.pv-doc-table th,
+.pv-doc-table td {
+  border: 1px solid #374151; padding: 3px 4px;
+  text-align: center; vertical-align: middle;
+}
+.pv-doc-table th {
+  background: #1e3a5f; color: #fff; font-weight: bold;
+  font-size: 8px; text-transform: uppercase;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.pv-doc-table td.pv-name { text-align: left; font-weight: bold; }
+.pv-doc-table td.pv-name small { display: block; font-weight: normal; font-size: 7.5px; color: #6b7280; }
+.pv-doc-table tfoot td {
+  background: #e8edf2; font-weight: bold;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+
+/* Récapitulatif */
+.pv-recap { border: 1px solid #374151; padding: 5px 8px; font-size: 9px; margin-bottom: 6px; }
+
+/* Date + signatures bordées (façon pied de bulletin) */
+.pv-date { font-size: 9.5px; margin: 8px 0 4px; }
+.pv-sign { width: 100%; border-collapse: collapse; }
+.pv-sign td {
+  border: 1px solid #374151; width: 33.33%;
+  text-align: center; font-size: 9px; font-weight: bold;
+  height: 58px; vertical-align: bottom; padding: 4px 4px 6px;
+}
+.pv-sign td.pv-sign-head { vertical-align: top; padding-top: 5px; }
+.pv-sign td.pv-sign-head img {
+  height: 32px; display: block; margin: 2px auto;
+  object-fit: contain;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.pv-notice {
+  font-size: 7.5px; color: #9ca3af; text-align: center;
+  font-style: italic; margin: 4px 0 0;
+}

@@ -83,4 +83,23 @@ export const cameroonEn = {
     promotion:       { rule: 'annual_average >= 50' },
     ranking:         { order: 'desc', tie: 'ex_aequo' },
   },
+
+  // Official bulletin header, inherited from the COUNTRY chosen at setup.
+  // Bilingual (EN primary + FR secondary) — Cameroon specificity.
+  officials: {
+    primary: {
+      republic:    'REPUBLIC OF CAMEROON',
+      motto:       'Peace – Work – Fatherland',
+      ministry:    'Ministry of Secondary Education (MINESEC)',
+      delegations: ['Regional Delegation {region}', 'Divisional Delegation {division}'],
+      estLabel:    'School No.:',
+    },
+    secondary: {
+      republic:    'RÉPUBLIQUE DU CAMEROUN',
+      motto:       'Paix – Travail – Patrie',
+      ministry:    'Ministère des Enseignements Secondaires (MINESEC)',
+      delegations: ['Délégation Régionale {region}', 'Délégation Départementale {division}'],
+      estLabel:    'Établissement N° :',
+    },
+  },
 };

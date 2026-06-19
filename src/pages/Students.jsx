@@ -1,14 +1,14 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate } from '../lib/exportCsv';
-import { printIdCards } from '../lib/idCardService';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
 import Layout from '../components/Layout';
 import StudentAvatar from '../components/StudentAvatar';
 import Modal from '../components/Modal';
+const IdCardModal = lazy(() => import('../components/IdCardModal'));
 import { useT, getLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import { resolveCountryCode } from '../countries';
@@ -91,8 +91,15 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
     const photo = photoFile ? { file: photoFile }
                 : (!photoPreview && initial?.photo_url) ? { remove: true }
                 : null;
-    await onSave(form, photo);
-    setSaving(false);
+    // try/finally : si onSave échoue, on relâche le bouton au lieu de le figer
+    // indéfiniment sur « Enregistrement… ».
+    try {
+      await onSave(form, photo);
+    } catch (err) {
+      console.error('handleSubmit', err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -685,6 +692,7 @@ export default function Students() {
   const [selectedIds,    setSelectedIds]   = useState(new Set());
   const [showBulkAssign, setShowBulkAssign]= useState(false);
   const [showPrintOpts, setShowPrintOpts]  = useState(false);
+  const [showCards,     setShowCards]      = useState(false);
   const [cols, setCols] = useState({ matricule: true, genre: true, dateNaissance: true, lieuNaissance: true, contact: true });
   const toggleCol = (key) => setCols((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -800,7 +808,7 @@ export default function Students() {
                         {t('Imprimer / PDF', 'Print / PDF', 'Imprimir / PDF')}
                       </button>
                       <button
-                        onClick={() => printIdCards({ students: visible, school, classNameById })}
+                        onClick={() => setShowCards(true)}
                         className="btn-secondary inline-flex items-center gap-1.5 !bg-indigo-50 !text-indigo-700 hover:!bg-indigo-100 border-indigo-200"
                         title={t('Imprimer les cartes scolaires (QR Code)', 'Print ID cards (QR code)', 'Imprimir carnés (QR)')}
                       >
@@ -938,6 +946,18 @@ export default function Students() {
               <Modal title={t('Importer des élèves', 'Import students')} onClose={closeAll} size="lg">
                 <ImportPanel classes={classes} onImport={addStudent} onCancel={closeAll} />
               </Modal>
+            )}
+
+            {showCards && (
+              <Suspense fallback={null}>
+                <IdCardModal
+                  open
+                  onClose={() => setShowCards(false)}
+                  students={visible}
+                  school={school}
+                  classNameById={classNameById}
+                />
+              </Suspense>
             )}
 
             {/* ── Filters ───────────────────────────────────────── */}

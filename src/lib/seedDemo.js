@@ -10,6 +10,7 @@ import { resolveCountryCode } from '../countries';
 import { geGradeMax, gePrimaryUsesCoef } from './useCountry';
 import { supabase } from './supabase';
 import { classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB } from './db';
+import { backendOnline } from './edition';
 
 function rnd(min, max) {
   return Math.round((Math.random() * (max - min) + min) * 10) / 10;
@@ -237,7 +238,7 @@ export async function deleteDemoYear(schoolId) {
   // 2. Suppression côté Supabase — le ON DELETE CASCADE retire matières,
   //    élèves, notes, etc. Hors ligne (ou en cas d'échec) : on met en file.
   let synced = false;
-  if (navigator.onLine) {
+  if (backendOnline()) {
     const { error } = await supabase.from('classes').delete().in('id', ids);
     synced = !error;
   }

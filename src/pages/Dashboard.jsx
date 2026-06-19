@@ -107,18 +107,63 @@ function SetupChecklist({ school, classes, subjects, students }) {
   );
 }
 
-function StatCard({ label, value, sub, accent = 'brand' }) {
-  const colors = {
-    brand:  'border-brand-400 bg-brand-50 text-brand-700',
-    green:  'border-emerald-400 bg-emerald-50 text-emerald-700',
-    amber:  'border-amber-400 bg-amber-50 text-amber-700',
-    purple: 'border-purple-400 bg-purple-50 text-purple-700',
+function SchoolBadge({ school }) {
+  return (
+    <div className="flex items-center gap-3">
+      {school?.logo_url && (
+        <img
+          src={school.logo_url}
+          alt={school?.name || 'Logo'}
+          className="w-11 h-11 rounded-lg object-contain shrink-0 border border-slate-100"
+        />
+      )}
+      <div className="leading-tight">
+        <p className="font-semibold text-gray-800">{school?.name}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{school?.current_year || '—'}</p>
+      </div>
+    </div>
+  );
+}
+
+const STAT_ICONS = {
+  classes: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <path d="M3 21h18M3 10h18M3 7l9-4 9 4M4 10v11M20 10v11M8 14v3M16 14v3M12 14v3"/>
+    </svg>
+  ),
+  students: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+    </svg>
+  ),
+  pass: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+    </svg>
+  ),
+  fees: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+    </svg>
+  ),
+};
+
+function StatCard({ label, value, sub, accent = 'brand', icon }) {
+  const themes = {
+    brand:  'bg-brand-50 text-brand-600',
+    green:  'bg-emerald-50 text-emerald-600',
+    amber:  'bg-amber-50 text-amber-600',
+    purple: 'bg-purple-50 text-purple-600',
   };
   return (
-    <div className={`bg-white rounded-xl p-5 shadow-sm border-l-4 ${colors[accent]}`}>
-      <div className="text-2xl font-bold text-gray-900">{value}</div>
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${themes[accent]}`}>
+        {icon ? STAT_ICONS[icon] : null}
+      </div>
+      <div className="text-3xl font-bold text-gray-900 mt-4 tracking-tight tabular-nums">{value}</div>
       <div className="text-sm font-semibold text-gray-700 mt-1">{label}</div>
-      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+      {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -292,20 +337,15 @@ export default function Dashboard() {
           {/* Bandeau bienvenue */}
           <div className="bg-white rounded-xl px-6 py-5 shadow-sm border border-gray-100">
             <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
-                  <span className="text-lg font-bold text-brand-700">
-                    {firstName ? firstName.slice(0, 2).toUpperCase() : 'PR'}
-                  </span>
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold text-gray-900">
-                    {t('Bienvenue', 'Welcome')}{fullName ? `, ${fullName}` : ''}
-                  </h1>
-                  <p className="text-sm text-gray-400 mt-0.5">{school.name} · {t('Enseignant', 'Teacher')}</p>
-                </div>
+              <div className="leading-tight">
+                <h1 className="text-xl font-bold text-gray-900">
+                  {t('Bienvenue', 'Welcome')}{fullName ? `, ${fullName}` : ''}
+                </h1>
+                <p className="text-sm text-gray-400 mt-0.5">{t('Enseignant', 'Teacher')}</p>
               </div>
-              <div className="flex items-center gap-3">
+              {/* Établissement + année + infos */}
+              <div className="flex items-center gap-4">
+                <SchoolBadge school={school} />
                 {unreadMsgs > 0 && (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-xs font-semibold text-amber-700">
                     <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/></svg>
@@ -493,28 +533,15 @@ export default function Dashboard() {
 
         {/* Header école */}
         <div className="bg-white rounded-xl px-8 py-6 shadow-sm border border-gray-100">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                {t('Bonjour', 'Hello')}{fullName ? `, ${fullName.split(' ')[0]}` : ''}
-              </h1>
-              <p className="text-gray-500 mt-0.5 text-sm">{school.name}</p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <h1 className="text-2xl font-bold text-gray-900">
+              {t('Bonjour', 'Hello')}{fullName ? `, ${fullName.split(' ')[0]}` : ''}
+            </h1>
+            {/* Établissement + année */}
+            <div className="flex items-center gap-4">
+              <SchoolBadge school={school} />
+              <LicenseBadge school={school} />
             </div>
-            <LicenseBadge school={school} />
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-6 pt-5 border-t border-gray-100 text-sm">
-            {[
-              { label: t('Type', 'Type'), value: school.type },
-              { label: t('Région', 'Region'), value: school.region },
-              { label: t('Directeur', 'Principal'), value: school.director },
-              { label: t('Année scolaire', 'Academic year'), value: school.current_year },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <div className="text-xs uppercase tracking-wider text-gray-400 mb-0.5">{label}</div>
-                <div className="font-semibold text-gray-800">{value || '—'}</div>
-              </div>
-            ))}
           </div>
         </div>
 
@@ -526,24 +553,28 @@ export default function Dashboard() {
         {/* Stat cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
+            icon="classes"
             label={t('Classes', 'Classes')}
             value={loading ? '—' : classes.length}
             sub={t('configurées', 'configured')}
             accent="brand"
           />
           <StatCard
+            icon="students"
             label={t('Élèves', 'Students')}
             value={loading ? '—' : students.length}
             sub={t('inscrits', 'enrolled')}
             accent="green"
           />
           <StatCard
+            icon="pass"
             label={t('Taux de réussite', 'Pass rate')}
             value={loading ? '—' : globalPassRate !== null ? `${globalPassRate}%` : '—'}
             sub={t('toutes classes', 'all classes')}
             accent="purple"
           />
           <StatCard
+            icon="fees"
             label={t('Recouvrement frais', 'Fee collection')}
             value={loading ? '—' : feesStats.rate !== null ? `${feesStats.rate}%` : '—'}
             sub={feesStats.unpaid > 0 ? `${feesStats.unpaid} ${t('impayé', 'unpaid')}${feesStats.unpaid > 1 ? 's' : ''}` : t('À jour', 'Up to date')}

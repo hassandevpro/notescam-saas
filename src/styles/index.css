@@ -5,6 +5,10 @@
 /* ── Base ──────────────────────────────────────────────────────────────── */
 html, body, #root { height: 100%; }
 
+/* Scroll fluide vers les ancres + décalage sous la navbar sticky (landing) */
+html { scroll-behavior: smooth; }
+:target { scroll-margin-top: 5rem; }
+
 body {
   margin: 0;
   -webkit-font-smoothing: antialiased;
@@ -82,4 +86,11 @@ body {
 
 @media screen {
   .print-only { display: none; }
+}
+
+/* ── Pages d'authentification (login / register) ────────────────────────────
+   Accent terracotta scopé : ne touche pas au thème bleu de l'app interne.   */
+.auth-page .form-input:focus {
+  border-color: #d65a35;                       /* terracotta-500 */
+  box-shadow: 0 0 0 2px rgb(214 90 53 / 0.20);
 }

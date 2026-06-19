@@ -9,16 +9,25 @@
 import { cameroonFr } from './cameroon_fr';
 import { cameroonEn } from './cameroon_en';
 import { guineaEq }   from './guinea_eq';
+import { ivoryCoast } from './ivory_coast';
+import { gabon }      from './gabon';
+import { congo }      from './congo';
 
 export const COUNTRIES = {
   cameroon_fr: cameroonFr,
   cameroon_en: cameroonEn,
   guinea_eq:   guineaEq,
+  ivory_coast: ivoryCoast,
+  gabon:       gabon,
+  congo:       congo,
 };
 
 export const COUNTRY_OPTIONS = [
   { value: 'cameroon_fr', label: 'Cameroun — Francophone',  flag: '🇨🇲', lang: 'fr' },
   { value: 'cameroon_en', label: 'Cameroon — Anglophone',    flag: '🇨🇲', lang: 'en' },
+  { value: 'ivory_coast', label: "Côte d'Ivoire",            flag: '🇨🇮', lang: 'fr' },
+  { value: 'gabon',       label: 'Gabon',                     flag: '🇬🇦', lang: 'fr' },
+  { value: 'congo',       label: 'Congo — Brazzaville',       flag: '🇨🇬', lang: 'fr' },
   { value: 'guinea_eq',   label: 'Guinea Ecuatorial',         flag: '🇬🇶', lang: 'es' },
 ];
 
@@ -54,4 +63,36 @@ export function getCountry(school) {
 export function defaultLangForCountry(countryCode) {
   const c = COUNTRIES[countryCode];
   return c?.uiLang || 'fr';
+}
+
+// Construit l'en-tête officiel du bulletin pour l'école, à partir du PAYS
+// choisi à la configuration. Retourne { bilingual, blocks: [block, …] } où
+// chaque block = { republic, motto, ministry, lines: [string], establishment }.
+// {region}/{division} sont remplis depuis l'établissement ; le numéro de
+// l'établissement (school.establishment_no) est ajouté SOUS les délégations.
+export function bulletinOfficials(school) {
+  const off = getCountry(school)?.officials;
+  if (!off) return null;
+
+  const fill = (s) => String(s ?? '')
+    .replace(/\{region\}/g,   school?.region   || '—')
+    .replace(/\{division\}/g, school?.division || '—');
+
+  const buildBlock = (b) => {
+    if (!b) return null;
+    const lines = (b.delegations || []).map(fill);
+    const establishment = school?.establishment_no
+      ? `${b.estLabel || 'N° :'} ${school.establishment_no}`
+      : null;
+    return {
+      republic: b.republic,
+      motto:    b.motto,
+      ministry: b.ministry,
+      lines,
+      establishment,
+    };
+  };
+
+  const blocks = [buildBlock(off.primary), buildBlock(off.secondary)].filter(Boolean);
+  return { bilingual: !!off.secondary, blocks };
 }

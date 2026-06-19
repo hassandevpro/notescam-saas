@@ -6,6 +6,7 @@ import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { resolveCountryCode } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
+import '../styles/conseil.css';
 
 const SEQUENCES_FR = [
   { value: 1, label: 'Séquence 1' }, { value: 2, label: 'Séquence 2' },
@@ -124,6 +125,10 @@ export default function ConseilDeClasse() {
   }, [classId, seq, saveGrade]);
 
   const seqLabel = periods.find((s) => s.value === seq)?.label || '';
+  const today    = new Date().toLocaleDateString(isGE ? 'es-ES' : isEN ? 'en-GB' : 'fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const classAvg = visibleRows.length > 0 && visibleRows.some((r) => r.avg !== null)
+    ? (visibleRows.filter((r) => r.avg !== null).reduce((s, r) => s + r.avg, 0) / visibleRows.filter((r) => r.avg !== null).length).toFixed(2)
+    : '—';
 
   return (
     <Layout>
@@ -214,24 +219,6 @@ export default function ConseilDeClasse() {
 
         {classId && (
           <>
-            {/* ── En-tête d'impression ─────────────────────────────────────── */}
-            <div className="print-only mb-6">
-              <div className="text-center mb-4">
-                {school?.logo_url && (
-                  <img src={school.logo_url} alt="Logo" className="h-16 mx-auto mb-2 object-contain" />
-                )}
-                <h2 className="text-lg font-bold uppercase">{school?.name}</h2>
-                {school?.region && <p className="text-sm text-gray-600">{school.region}{school?.division ? ` — ${school.division}` : ''}</p>}
-                <p className="text-sm text-gray-600">{t('Année scolaire', 'Academic year')} : {school?.current_year || '—'}</p>
-              </div>
-              <div className="border-y-2 border-gray-800 py-2 text-center">
-                <h3 className="text-base font-bold uppercase tracking-wide">
-                  {isGE ? 'Acta de la Junta de Evaluación' : t('Procès-verbal du Conseil de Classe', 'Class Council Official Record')}
-                </h3>
-                <p className="text-sm">{t('Classe', 'Class')} : <strong>{cls?.name}</strong> &nbsp;|&nbsp; {seqLabel}</p>
-              </div>
-            </div>
-
             {/* ── Stats ────────────────────────────────────────────────────── */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 no-print">
               {[
@@ -247,8 +234,8 @@ export default function ConseilDeClasse() {
               ))}
             </div>
 
-            {/* ── Tableau PV ───────────────────────────────────────────────── */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden pv-table">
+            {/* ── Tableau interactif (écran uniquement) ────────────────────── */}
+            <div className="pv-screen bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden pv-table">
               <div className="overflow-x-auto">
                 <table className="w-full text-xs border-collapse">
                   <thead>
@@ -361,30 +348,168 @@ export default function ConseilDeClasse() {
               </div>
             </div>
 
-            {/* ── Section signatures (impression) ─────────────────────────── */}
-            <div className="mt-10 print-only">
-              <p className="text-xs text-gray-500 mb-6">
+            {/* ══════════════════════════════════════════════════════════════
+                 GABARIT D'IMPRESSION DÉDIÉ — document administratif sobre.
+                 Invisible à l'écran (.pv-paper), seul élément imprimé.
+                ══════════════════════════════════════════════════════════════ */}
+            <div className="pv-paper">
+
+              {/* En-tête institutionnel (République — 3 colonnes), façon bulletin APC */}
+              <table className="pv-head">
+                <tbody>
+                  <tr>
+                    <td className="pv-head-side">
+                      {isGE ? (
+                        <><strong>REPÚBLICA DE GUINEA ECUATORIAL</strong><br />Unidad – Paz – Justicia<br />———————<br />Ministerio de Educación<br />y Enseñanza Universitaria<br />{school?.region || '—'}</>
+                      ) : (
+                        <><strong>RÉPUBLIQUE DU CAMEROUN</strong><br />Paix – Travail – Patrie<br />———————<br />Ministère des Enseignements Secondaires (MINESEC)<br />Délégation Régionale {school?.region || '—'}<br />Délégation Départementale {school?.division || '—'}</>
+                      )}
+                    </td>
+                    <td className="pv-head-center">
+                      {school?.logo_url && <img src={school.logo_url} alt="Logo" className="pv-head-logo" />}
+                      <strong className="pv-head-school">{(school?.name || '').toUpperCase()}</strong>
+                      {(school?.address || school?.phone) && (
+                        <span className="pv-head-meta">{school?.address ? `${isGE ? 'Apdo.' : 'B.P.'} ${school.address}` : ''}{school?.address && school?.phone ? ' · ' : ''}{school?.phone || ''}</span>
+                      )}
+                      <br />
+                      <span className="pv-head-meta">{isGE ? 'Año escolar' : t('Année scolaire', 'Academic year')} : <strong>{school?.current_year || '—'}</strong></span>
+                    </td>
+                    <td className="pv-head-side">
+                      {isGE ? (
+                        <><strong>MINISTERIO DE EDUCACIÓN</strong><br />Y Enseñanza Universitaria<br />———————<br />Dirección Provincial<br />{school?.region || '—'}</>
+                      ) : (
+                        <><strong>REPUBLIC OF CAMEROON</strong><br />Peace – Work – Fatherland<br />———————<br />Ministry of Secondary Education (MINESEC)<br />Regional Delegation {school?.region || '—'}<br />Divisional Delegation {school?.division || '—'}</>
+                      )}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Barre titre */}
+              <div className="pv-title-bar">
                 {isGE
-                  ? 'Sesión de la Junta de Evaluación celebrada el ______________ a las ______________.'
+                  ? `ACTA DE LA JUNTA DE EVALUACIÓN — ${seqLabel.toUpperCase()}`
+                  : `${t('PROCÈS-VERBAL DU CONSEIL DE CLASSE', 'CLASS COUNCIL — OFFICIAL RECORD')} — ${seqLabel.toUpperCase()}`}
+              </div>
+
+              {/* Ligne info classe */}
+              <table className="pv-info">
+                <tbody>
+                  <tr>
+                    <td><strong>{isGE ? 'Curso' : t('Classe', 'Class')} :</strong> {cls?.name || '—'}</td>
+                    <td><strong>{isGE ? 'Trimestre' : isEN ? 'Term' : t('Séquence', 'Sequence')} :</strong> {seqLabel}</td>
+                    <td><strong>{isGE ? 'Efectivo' : t('Effectif', 'Enrolment')} :</strong> {stats.total}</td>
+                    <td><strong>{isGE ? 'Año' : t('Année', 'Year')} :</strong> {school?.current_year || '—'}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Tableau institutionnel */}
+              <table className="pv-doc-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '4%' }}>N°</th>
+                    <th style={{ width: '24%' }}>{isGE ? 'Alumno' : t('Élève', 'Student')}</th>
+                    <th>{isGE ? 'Media' : t('Moy.', 'Avg.')}</th>
+                    <th>{isGE ? 'Pto.' : t('Rang', 'Rank')}</th>
+                    <th>Abs.J</th>
+                    <th>Abs.NJ</th>
+                    <th style={{ width: '13%' }}>{isGE ? 'Distinción' : t('Distinction', 'Honours')}</th>
+                    <th>Av.T</th>
+                    <th>Bl.T</th>
+                    <th>{isGE ? 'Exp.' : 'Excl.'}</th>
+                    <th>Av.C</th>
+                    <th>Bl.C</th>
+                    <th style={{ width: '13%' }}>{isGE ? 'Decisión' : t('Décision', 'Decision')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.length === 0 && (
+                    <tr><td colSpan={13} style={{ padding: '12px' }}>
+                      {isGE ? 'Ningún alumno.' : t('Aucun élève.', 'No students.')}
+                    </td></tr>
+                  )}
+                  {visibleRows.map((row, idx) => {
+                    const { stu, scores, avg, rang } = row;
+                    const absJ  = num(scores['__abs_j__']) + num(scores['__abs_nj__']);
+                    const absNJ = num(scores['__abs_nj__']);
+                    const hon   = honor(scores, honorMode);
+                    const dec   = scores['__decision__'] || '';
+                    const decLabel = DECISIONS.find((d) => d.value === dec)?.label || '—';
+                    return (
+                      <tr key={stu.id}>
+                        <td>{idx + 1}</td>
+                        <td className="pv-name">
+                          {stu.name}
+                          {stu.matricule && <small>{stu.matricule}</small>}
+                        </td>
+                        <td>{avg !== null ? avg : '—'}</td>
+                        <td>{rang ?? '—'}</td>
+                        <td>{absJ || '—'}</td>
+                        <td>{absNJ || '—'}</td>
+                        <td>{hon}</td>
+                        <td>{num(scores['__aver_travail__']) || '—'}</td>
+                        <td>{num(scores['__blame_travail__']) || '—'}</td>
+                        <td>{num(scores['__exclusions__']) || '—'}</td>
+                        <td>{num(scores['__aver_conduite__']) || '—'}</td>
+                        <td>{num(scores['__blame_conduite__']) || '—'}</td>
+                        <td>{decLabel}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={2} className="pv-name">
+                      {showAll ? (isGE ? 'CLASE COMPLETA' : t('CLASSE ENTIÈRE', 'FULL CLASS')) : `${isGE ? 'CASOS' : t('CAS À TRAITER', 'CASES')} (${stats.issues}/${stats.total})`}
+                    </td>
+                    <td>{classAvg}</td>
+                    <td colSpan={3}>{stats.admis}/{stats.total} {isGE ? 'apr.' : t('adm.', 'pass.')}</td>
+                    <td>{stats.distincts}</td>
+                    <td colSpan={5}>—</td>
+                    <td>{stats.decisions}/{stats.total}</td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              <div className="pv-recap">
+                {isGE
+                  ? `Junta de Evaluación celebrada en el centro. Efectivo: ${stats.total}. Aprobados: ${stats.admis}. Distinciones: ${stats.distincts}. Decisiones registradas: ${stats.decisions}.`
                   : t(
-                      'Séance du Conseil de Classe tenue le ______________ à ______________.',
-                      'Class Council session held on ______________ at ______________.',
+                      `Conseil de classe tenu dans l'établissement. Effectif : ${stats.total}. Admis : ${stats.admis}. Distinctions : ${stats.distincts}. Décisions saisies : ${stats.decisions}.`,
+                      `Class council held at the school. Enrolment: ${stats.total}. Passed: ${stats.admis}. Honours: ${stats.distincts}. Decisions entered: ${stats.decisions}.`,
+                    )}
+              </div>
+
+              <p className="pv-date">
+                {isGE
+                  ? `En __________________, a ${today}.`
+                  : t(`Fait à __________________, le ${today}.`, `Done at __________________, on ${today}.`)}
+              </p>
+
+              {/* Signatures + cachet (cellules bordées, façon bulletin) */}
+              <table className="pv-sign">
+                <tbody>
+                  <tr>
+                    <td>{isGE ? 'El Tutor / La Tutora' : t('Le Professeur Principal', 'The Form Tutor')}</td>
+                    <td>{isGE ? 'El Jefe de Estudios' : t('Le Censeur / Sous-Directeur', 'The Deputy Head')}</td>
+                    <td className="pv-sign-head">
+                      {isGE ? 'El Director / La Directora' : t('Le Directeur / Proviseur', 'The Principal')}
+                      {school?.signature_url && <img src={school.signature_url} alt="Signature" />}
+                      {school?.stamp_url && <img src={school.stamp_url} alt="Cachet" />}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p className="pv-notice">
+                {isGE
+                  ? "Esta acta solo es válida con la firma y el sello del director del centro."
+                  : t(
+                      "Ce procès-verbal n'est valable qu'avec la signature et le cachet du chef d'établissement.",
+                      'This record is valid only with the signature and stamp of the head of school.',
                     )}
               </p>
-              <div className="grid grid-cols-3 gap-8 text-sm">
-                <div className="text-center">
-                  <p className="font-semibold mb-8">{isGE ? 'El Tutor / La Tutora' : t('Le Professeur Principal', 'The Form Tutor')}</p>
-                  <div className="border-t border-gray-400 pt-1 text-xs text-gray-500">{isGE ? 'Firma y sello' : t('Signature & cachet', 'Signature & stamp')}</div>
-                </div>
-                <div className="text-center">
-                  <p className="font-semibold mb-8">{isGE ? 'El Jefe de Estudios' : t('Le Censeur / Sous-Directeur', 'The Deputy Head')}</p>
-                  <div className="border-t border-gray-400 pt-1 text-xs text-gray-500">{isGE ? 'Firma y sello' : t('Signature & cachet', 'Signature & stamp')}</div>
-                </div>
-                <div className="text-center">
-                  <p className="font-semibold mb-8">{isGE ? 'El Director / La Directora' : t('Le Directeur / Proviseur', 'The Principal')}</p>
-                  <div className="border-t border-gray-400 pt-1 text-xs text-gray-500">{isGE ? 'Firma y sello' : t('Signature & cachet', 'Signature & stamp')}</div>
-                </div>
-              </div>
             </div>
 
             {/* ── Bouton bas de page ───────────────────────────────────────── */}

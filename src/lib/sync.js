@@ -10,6 +10,7 @@
 // - table 'grades'     : payload est un record IDB → convertir en rows individuelles
 
 import { syncQueueDB, studentsDB, initDB } from './db';
+import { uuid } from './uuid';
 import { supabase } from './supabase';
 import { gradeEntryToRows } from './schoolService';
 import { useUiStore } from '../store/uiStore';
@@ -60,7 +61,7 @@ async function replayItem(item) {
     // jeton, on réessaie, puis on répercute le nouveau jeton en IDB.
     if (error && table === 'students' &&
         (error.code === '23505' || /parent_token/i.test(error.message || ''))) {
-      const token = crypto.randomUUID();
+      const token = uuid();
       p = { ...p, parent_token: token };
       ({ error } = await supabase.from('students').upsert(p, { onConflict: 'id' }));
       if (!error) {

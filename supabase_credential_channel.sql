@@ -32,6 +32,7 @@ create index if not exists idx_credential_outbox_school on credential_outbox (sc
 alter table school_credential_keys enable row level security;
 alter table credential_outbox      enable row level security;
 
+drop policy if exists "members insert own credential change" on credential_outbox;
 create policy "members insert own credential change"
   on credential_outbox for insert to authenticated
   with check (
@@ -43,6 +44,7 @@ create policy "members insert own credential change"
   );
 
 -- Lecture de la clé publique de son école (pour chiffrer) par les membres.
+drop policy if exists "members read school public key" on school_credential_keys;
 create policy "members read school public key"
   on school_credential_keys for select to authenticated
   using (

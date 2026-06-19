@@ -18,6 +18,7 @@ DECLARE
     'school_messages','teacher_notifications','sequence_dates','timetable_slots'];
 BEGIN
   FOREACH t IN ARRAY synced LOOP
+    IF to_regclass('public.'||t) IS NULL THEN CONTINUE; END IF;   -- table absente -> on ignore
     EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()', t);
     EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1', t);
     EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS device_id text', t);
@@ -66,6 +67,7 @@ DECLARE
     'school_messages','teacher_notifications','sequence_dates','timetable_slots'];
 BEGIN
   FOREACH t IN ARRAY synced LOOP
+    IF to_regclass('public.'||t) IS NULL THEN CONTINUE; END IF;   -- table absente -> on ignore
     EXECUTE format('DROP TRIGGER IF EXISTS trg_touch_%1$s ON public.%1$I', t);
     EXECUTE format('CREATE TRIGGER trg_touch_%1$s BEFORE UPDATE ON public.%1$I FOR EACH ROW EXECUTE FUNCTION public.touch_sync_row()', t);
     EXECUTE format('DROP TRIGGER IF EXISTS trg_tomb_%1$s ON public.%1$I', t);

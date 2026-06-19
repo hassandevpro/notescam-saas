@@ -17,6 +17,7 @@ import { scheduleBackups, runBackup } from './backup.js';
 import { runMigration } from './migrate.js';
 import { mirrorToCloud, flushMirrorQueue, credentialPublicKey } from './authBridge.js';
 import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
+import { scheduleCloudSync } from './cloudSync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -294,6 +295,8 @@ const start = async () => {
     // périodiquement : converge dès que le cloud redevient joignable, sans bloquer.
     flushMirrorQueue().catch(() => {});
     setInterval(() => { flushMirrorQueue().catch(() => {}); }, 10 * 60 * 1000).unref();
+    // Sync continue LAN ↔ Cloud (Phase 2) — gated : NOTESCAM_CLOUD_SYNC=1 + jeton présent.
+    if (scheduleCloudSync()) console.log('  Sync continue LAN ↔ Cloud : activée');
     console.log(`\n  NotesCam LAN — http://localhost:${PORT}`);
     console.log(`  Accessible sur le réseau : http://<IP-du-PC>:${PORT}`);
     console.log(`  Données : ${DATA_DIR}\n`);

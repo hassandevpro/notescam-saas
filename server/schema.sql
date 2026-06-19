@@ -402,6 +402,24 @@ CREATE TABLE IF NOT EXISTS cloud_push_state (
   updated_at TEXT
 );
 
+-- --- Sync continue LAN ↔ Cloud (Phase 2) ---------------------
+-- Journal des changements locaux à pousser (alimenté par query.js). La sync
+-- elle-même écrit SANS réalimenter ce journal (anti-écho).
+CREATE TABLE IF NOT EXISTS sync_outbox (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  tablename TEXT NOT NULL,
+  row_id    TEXT NOT NULL,
+  op        TEXT NOT NULL,            -- 'upsert' | 'delete'
+  at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sync_outbox_at ON sync_outbox (id);
+
+-- Curseurs de tirage (dernier updated_at / tombstone vus côté cloud).
+CREATE TABLE IF NOT EXISTS sync_cursor (
+  name  TEXT PRIMARY KEY,
+  value TEXT
+);
+
 -- Index utiles (les requêtes filtrent surtout par classe / élève / école)
 CREATE INDEX IF NOT EXISTS idx_subjects_class       ON subjects(class_id);
 CREATE INDEX IF NOT EXISTS idx_students_class        ON students(class_id);

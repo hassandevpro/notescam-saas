@@ -4,8 +4,24 @@
 // Sécurité : table en liste blanche, identifiants quotés, valeurs toujours
 // passées en paramètres (jamais d'interpolation) -> pas d'injection SQL.
 
-import { db, ALLOWED_TABLES, quoteIdent, tableColumns, pickColumns, normalizeValue, tx } from './db.js';
+import { db, ALLOWED_TABLES, quoteIdent, tableColumns, pickColumns, normalizeValue, tx, SYNCED_TABLES, deviceId } from './db.js';
 import { randomUUID } from 'node:crypto';
+
+// --- Suivi des changements pour la sync continue (Phase 2) ------------
+// Horodate la ligne écrite (updated_at/device_id) pour la résolution LWW.
+function stampSync(table, rec) {
+  if (!SYNCED_TABLES.has(table)) return;
+  const cols = tableColumns(table);
+  if (cols.has('updated_at')) rec.updated_at = new Date().toISOString();
+  if (cols.has('device_id'))  rec.device_id = deviceId();
+}
+// Journalise un changement local à pousser. La sync cloud écrit en base SANS
+// passer par ici (anti-écho) → seuls les vrais changements locaux sont empilés.
+function recordOutbox(table, id, op) {
+  if (!SYNCED_TABLES.has(table) || id == null) return;
+  db.prepare('INSERT INTO sync_outbox (tablename, row_id, op, at) VALUES (?,?,?,?)')
+    .run(table, String(id), op, new Date().toISOString());
+}
 
 // Embeds supabase (`schools (*)`) -> clé FK sur la ligne parente.
 const EMBED_FK = {
@@ -141,6 +157,7 @@ function doInsertOrUpsert(op, isUpsert) {
     for (const raw of rows) {
       const rec = pickColumns(table, raw);
       if (!('id' in rec) && tableColumns(table).has('id')) rec.id = randomUUID();
+      stampSync(table, rec);
       const cols = Object.keys(rec);
       if (!cols.length) continue;
 
@@ -162,6 +179,7 @@ function doInsertOrUpsert(op, isUpsert) {
       } else {
         inserted.push(rec);
       }
+      recordOutbox(table, rec.id, 'upsert');
     }
   });
 
@@ -172,6 +190,7 @@ function doInsertOrUpsert(op, isUpsert) {
 function doUpdate(op) {
   const { table } = op;
   const rec = pickColumns(table, op.values);
+  stampSync(table, rec);
   const cols = Object.keys(rec);
   if (!cols.length) return { data: null, error: { message: 'Aucune colonne à mettre à jour' } };
 
@@ -179,6 +198,10 @@ function doUpdate(op) {
   const setSql = cols.map((c) => `${quoteIdent(c)} = ?`).join(', ');
   const sql = `UPDATE ${quoteIdent(table)} SET ${setSql}${where.sql}`;
   db.prepare(sql).run(...cols.map((c) => rec[c]), ...where.params);
+
+  if (SYNCED_TABLES.has(table) && tableColumns(table).has('id')) {
+    for (const r of db.prepare(`SELECT id FROM ${quoteIdent(table)}${where.sql}`).all(...where.params)) recordOutbox(table, r.id, 'upsert');
+  }
 
   if (op.returning) {
     const rows = db.prepare(`SELECT * FROM ${quoteIdent(table)}${where.sql}`).all(...where.params);
@@ -191,6 +214,13 @@ function doDelete(op) {
   const { table } = op;
   const where = buildWhere(op.filters);
   if (!where.sql) return { error: { message: 'DELETE sans filtre refusé' }, data: null };
+  // Capture les ids supprimés AVANT le DELETE → tombstones dans l'outbox pour
+  // propager la suppression au cloud (la ligne disparaît localement, hard delete).
+  let deletedIds = [];
+  if (SYNCED_TABLES.has(table) && tableColumns(table).has('id')) {
+    deletedIds = db.prepare(`SELECT id FROM ${quoteIdent(table)}${where.sql}`).all(...where.params).map((r) => r.id);
+  }
   db.prepare(`DELETE FROM ${quoteIdent(table)}${where.sql}`).run(...where.params);
+  for (const id of deletedIds) recordOutbox(table, id, 'delete');
   return { data: null, error: null };
 }

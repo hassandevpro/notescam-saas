@@ -3,9 +3,10 @@
 // design : naturellement sérialisé, ce qui convient à une école.
 
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -49,6 +50,33 @@ ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // 
 ensureColumn('schools',  'establishment_no', 'establishment_no TEXT'); // N° officiel établissement (en-tête bulletin)
 ensureColumn('schools',  'bulletin_font',    'bulletin_font TEXT');    // police choisie pour le bulletin
 ensureColumn('users',    'cloud_user_id',    'cloud_user_id TEXT');    // pont d'identifiants cloud ↔ local (bases déjà installées)
+
+// --- Synchronisation continue LAN ↔ Cloud (Phase 2) -------------------
+// Tables dont les changements sont répliqués vers/depuis le cloud. Chacune
+// reçoit updated_at / version / device_id pour la résolution LWW + l'outbox.
+export const SYNCED_TABLES = new Set([
+  'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
+  'students', 'teachers', 'grades', 'student_fees', 'fee_payments',
+  'attendance', 'student_absences', 'student_class_assignments',
+  'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
+]);
+for (const t of SYNCED_TABLES) {
+  ensureColumn(t, 'updated_at', 'updated_at TEXT');                  // horodatage du dernier changement (LWW)
+  ensureColumn(t, 'version',    'version INTEGER NOT NULL DEFAULT 1'); // compteur monotone (départage)
+  ensureColumn(t, 'device_id',  'device_id TEXT');                    // origine du changement (anti-écho + départage)
+}
+
+// Identifiant STABLE de cette installation (origine des changements locaux).
+let _deviceId = null;
+export function deviceId() {
+  if (_deviceId) return _deviceId;
+  const p = join(DATA_DIR, 'device-id.key');
+  try {
+    if (existsSync(p)) _deviceId = readFileSync(p, 'utf8').trim();
+    else { _deviceId = randomUUID(); writeFileSync(p, _deviceId, { mode: 0o600 }); }
+  } catch { _deviceId = 'device-unknown'; }
+  return _deviceId;
+}
 
 // --- Introspection : colonnes réelles par table -------------------
 // Sert à filtrer les payloads entrants -> on ignore toute clé inconnue

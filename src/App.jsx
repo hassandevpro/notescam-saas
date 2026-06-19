@@ -12,6 +12,7 @@ import OnboardingWizard from './components/OnboardingWizard';
 import LanLicenseGate from './components/LanLicenseGate';
 import CloudActivationWizard from './components/CloudActivationWizard';
 import CloudSyncPanel from './components/CloudSyncPanel';
+import CloudMigrationWizard from './components/CloudMigrationWizard';
 
 // Auth pages — petites, chargées immédiatement
 import Login from './pages/Login';
@@ -243,6 +244,7 @@ export default function App() {
       <OnboardingGate />
       <CloudActivationWizard />
       <CloudSyncPanel />
+      <CloudMigrationWizard />
     </BrowserRouter>
     </LanLicenseGate>
   );

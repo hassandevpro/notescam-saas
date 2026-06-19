@@ -206,9 +206,11 @@ app.get('/api/migrate/status', () => {
 
 app.post('/api/migrate/cloud', async (req, reply) => {
   if (!migrationOpen()) return reply.code(409).send({ error: { message: 'Migration déjà effectuée ou base non vide.' } });
-  const { url, anonKey, email, password, localPassword } = req.body || {};
+  const { email, password, localPassword } = req.body || {};
   try {
-    const res = await runMigration({ url, anonKey, email, password, localPassword });
+    // URL + clé anon par défaut depuis l'env du serveur (cloudCfg) → l'école ne
+    // saisit que ses identifiants cloud dans l'assistant.
+    const res = await runMigration({ ...cloudCfg(req.body), email, password, localPassword });
     return { data: res, error: null };
   } catch (e) {
     return reply.code(400).send({ error: { message: e.message } });

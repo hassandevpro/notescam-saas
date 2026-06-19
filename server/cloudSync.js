@@ -15,9 +15,9 @@
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId } from './db.js';
+import { EDGE_BASE } from './cloudEnv.js';
 
 const TOKEN_PATH = join(DATA_DIR, 'server-token.key');
-const EDGE_BASE = (process.env.VITE_SUPABASE_URL || '') + '/functions/v1';
 const BATCH = 500;
 
 // Ordre FK pour appliquer les lignes distantes (parents avant enfants).

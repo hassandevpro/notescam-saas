@@ -18,6 +18,7 @@ import { runMigration } from './migrate.js';
 import { mirrorToCloud, flushMirrorQueue, credentialPublicKey, publishCredentialKey } from './authBridge.js';
 import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
 import { scheduleCloudSync, syncOnce } from './cloudSync.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './cloudEnv.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -233,8 +234,8 @@ function requireLocalAdmin(req, reply) {
 }
 function cloudCfg(body = {}) {
   return {
-    url: body.url || process.env.VITE_SUPABASE_URL,
-    anonKey: body.anonKey || process.env.VITE_SUPABASE_ANON_KEY,
+    url: body.url || SUPABASE_URL,
+    anonKey: body.anonKey || SUPABASE_ANON_KEY,
   };
 }
 

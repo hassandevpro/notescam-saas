@@ -21,8 +21,7 @@ import {
   generateKeyPairSync, privateDecrypt, createPublicKey, constants,
 } from 'node:crypto';
 import { db, DATA_DIR } from './db.js';
-
-const EDGE_BASE  = (process.env.VITE_SUPABASE_URL || '') + '/functions/v1';
+import { EDGE_BASE } from './cloudEnv.js';
 const KEY_PATH   = join(DATA_DIR, 'mirror.key');        // clé AES de la file locale
 const TOKEN_PATH = join(DATA_DIR, 'server-token.key');  // jeton scellé propre à l'école
 const PRIV_PATH  = join(DATA_DIR, 'credential-rsa.pem'); // clé privée RSA (canal cloud→local)

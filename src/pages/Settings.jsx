@@ -5,11 +5,16 @@ import { COUNTRY_OPTIONS } from '../countries';
 import { getDaysUntilLicenseExpires } from '../lib/auth';
 import { useT, localeForLang } from '../lib/i18n';
 import { uploadSchoolAsset } from '../lib/schoolService';
+import { uuid } from '../lib/uuid';
+import { copyText } from '../lib/clipboard';
+import { BULLETIN_FONTS } from '../lib/schoolTheme';
 import { supabase } from '../lib/supabase';
 import { DEFAULT_GRADE_SCALE } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
 import SchoolCalendar from '../components/SchoolCalendar';
 import StaffManager from '../components/StaffManager';
+import LicensePanel from '../components/LicensePanel';
+import SwitchToLocalCard from '../components/SwitchToLocalCard';
 
 // Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
 function buildGeScale(maxScale = 10) {
@@ -189,6 +194,10 @@ export default function Settings() {
   // Découpage administratif (régions/départements) selon le pays de l'école.
   const regionList     = regionsFor(isGE);
   const departmentMap  = departmentsFor(isGE);
+  // Pays sans liste administrative prédéfinie (Côte d'Ivoire, Gabon, Congo…) :
+  // région et département en saisie libre, pour ne pas imposer le découpage
+  // camerounais dans l'en-tête officiel du bulletin.
+  const freeAdmin      = !['cameroon_fr', 'cameroon_en', 'guinea_eq'].includes(country.code);
 
   const isAdmin = role === 'admin';
 
@@ -277,6 +286,8 @@ export default function Settings() {
         phone:        school.phone        || '',
         email:        school.email        || '',
         current_year: school.current_year || '',
+        establishment_no: school.establishment_no || '',
+        bulletin_font:    school.bulletin_font    || 'arial',
       });
       if (Array.isArray(school.grade_scale) && school.grade_scale.length > 0) {
         setGradeScale(school.grade_scale);
@@ -290,7 +301,7 @@ export default function Settings() {
   const handleAddEntry = () => {
     if (!newEntry.mention.trim()) return;
     const entry = {
-      id:      crypto.randomUUID(),
+      id:      uuid(),
       mention: newEntry.mention.trim(),
       min:     Number(newEntry.min),
       max:     Number(newEntry.max),
@@ -374,6 +385,11 @@ export default function Settings() {
           <h1 className="text-2xl font-bold text-gray-900">{t('Paramètres', 'Settings')}</h1>
           <p className="text-sm text-gray-500 mt-1">{t("Configuration de l'établissement, bulletins et calendrier.", 'School configuration, report cards and calendar.')}</p>
         </div>
+
+        {/* Licence (édition LAN, admin) — auto-masqué en cloud / hors admin */}
+        <LicensePanel />
+        {/* Passer en local (édition CLOUD, admin) — auto-masqué en LAN / hors admin */}
+        <SwitchToLocalCard />
 
         {!isAdmin && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 mb-6">
@@ -541,9 +557,14 @@ export default function Settings() {
                   <label className="form-label">{t('Année scolaire', 'Academic year')}</label>
                   <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : 2025-2026', 'E.g. 2025-2026')} value={form.current_year} onChange={set('current_year')} />
                 </div>
-                <div className="md:col-span-2">
+                <div>
                   <label className="form-label">{t('Directeur / Proviseur', 'Principal / Headmaster')}</label>
                   <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : M. NKOA Paul', 'E.g. Mr. NKOA Paul')} value={form.director} onChange={set('director')} />
+                </div>
+                <div>
+                  <label className="form-label">{t("N° d'établissement", 'School number', 'N.º de centro')}</label>
+                  <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t("Ex : 123/MINESEC", 'E.g. 123/MINEDUC')} value={form.establishment_no} onChange={set('establishment_no')} />
+                  <p className="text-xs text-gray-400 mt-1">{t("Apparaît sous les officiels de délégation, en en-tête du bulletin.", 'Shown under the delegation officials, in the report card header.')}</p>
                 </div>
 
                 {/* Séparateur coordonnées */}
@@ -553,14 +574,20 @@ export default function Settings() {
 
                 <div>
                   <label className="form-label">{t('Région', 'Region', isGE ? 'Provincia' : 'Región')}</label>
-                  <select disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.region} onChange={handleRegionChange}>
-                    <option value="">— {t('Choisir', 'Select')} —</option>
-                    {regionList.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
+                  {freeAdmin ? (
+                    <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : Estuaire, Lagunes…', 'E.g. Estuaire, Lagunes…')} value={form.region} onChange={set('region')} />
+                  ) : (
+                    <select disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.region} onChange={handleRegionChange}>
+                      <option value="">— {t('Choisir', 'Select')} —</option>
+                      {regionList.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  )}
                 </div>
                 <div>
                   <label className="form-label">{t('Département', 'Division', isGE ? 'Distrito' : 'Departamento')}</label>
-                  {form.region && departmentMap[form.region] ? (
+                  {freeAdmin ? (
+                    <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : Libreville, Abidjan…', 'E.g. Libreville, Abidjan…')} value={form.division} onChange={set('division')} />
+                  ) : form.region && departmentMap[form.region] ? (
                     <select disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.division} onChange={set('division')}>
                       <option value="">— {t('Choisir', 'Select')} —</option>
                       {departmentMap[form.region].map((d) => <option key={d} value={d}>{d}</option>)}
@@ -591,6 +618,15 @@ export default function Settings() {
             {/* Visuels du bulletin (1/3) — admin seulement */}
             {isAdmin && (
               <Section title={t('Visuels du bulletin', 'Report card visuals')}>
+                <div className="mb-6">
+                  <label className="form-label">{t('Police du bulletin', 'Report card font', 'Fuente del boletín')}</label>
+                  <select className="form-input" value={form.bulletin_font} onChange={set('bulletin_font')} style={{ fontFamily: (BULLETIN_FONTS.find((f) => f.value === form.bulletin_font) || BULLETIN_FONTS[0]).stack }}>
+                    {BULLETIN_FONTS.map((f) => (
+                      <option key={f.value} value={f.value} style={{ fontFamily: f.stack }}>{f.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">{t('Police appliquée à tous les bulletins imprimés.', 'Font applied to all printed report cards.')}</p>
+                </div>
                 <div className="space-y-6">
                   <AssetUploader
                     label={t("Logo de l'école", 'School logo')}
@@ -647,7 +683,7 @@ export default function Settings() {
               </span>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(school.id.slice(0, 8).toUpperCase());
+                  copyText(school.id.slice(0, 8).toUpperCase());
                   setCodeCopied(true);
                   setTimeout(() => setCodeCopied(false), 2000);
                 }}

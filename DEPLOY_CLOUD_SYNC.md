@@ -46,6 +46,7 @@ supabase functions deploy issue-server-token
 supabase functions deploy provision-tenant
 supabase functions deploy sync-pull
 supabase functions deploy sync-push
+supabase functions deploy publish-server-key
 ```
 
 | Fonction | Rôle | Auth de l'appelant |
@@ -55,8 +56,9 @@ supabase functions deploy sync-push
 | `set-password` | Met à jour un mot de passe cloud (Local → Cloud) | Jeton scellé |
 | `sync-pull` | Renvoie les changements cloud + tombstones | Jeton scellé |
 | `sync-push` | Applique les changements locaux (LWW) | Jeton scellé |
+| `publish-server-key` | Publie la clé publique du serveur (Cloud → Local mots de passe) | Jeton scellé |
 
-- [ ] Les 5 fonctions déployées.
+- [ ] Les 6 fonctions déployées.
 
 ---
 
@@ -90,11 +92,13 @@ Le serveur Node lit ces variables (process.env) :
 3. Identifiants **préservés** (aucun doublon), mot de passe admin **conservé**.
 
 ### C. Mots de passe unifiés (les deux sens)
-- Automatique une fois `provision-tenant` / `issue-server-token` + `set-password` déployés.
-- Personnel : mot de passe poussé au cloud à leur **prochaine connexion locale**.
-- ⚠️ **À faire dans l'app cloud** : sur « changer mon mot de passe », chiffrer le nouveau
-  mot de passe avec la clé publique du serveur (`/api/credential/pubkey` → `school_credential_keys`)
-  et l'insérer dans `credential_outbox` (sens Cloud → Local).
+- Automatique une fois `provision-tenant` / `issue-server-token` + `set-password` + `publish-server-key` déployés.
+- **Local → Cloud** : mot de passe poussé au cloud à la connexion/au changement local
+  (admin immédiat ; personnel à leur **prochaine connexion locale**).
+- **Cloud → Local** : ✅ branché dans l'app cloud (`ResetPassword.jsx` → `mirrorPasswordToLan`)
+  — chiffre le nouveau mot de passe (RSA-OAEP SHA-256) avec la clé publiée et l'insère dans
+  `credential_outbox` ; le serveur LAN l'applique au prochain `applyCloudCredentials`.
+  Le serveur publie sa clé au boot (`publish-server-key`). Sans serveur LAN → no-op.
 
 ### D. Synchronisation continue LAN ↔ Cloud
 1. **D'abord valider en simulation** (voir §5) — fortement recommandé.

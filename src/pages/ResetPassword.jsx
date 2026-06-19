@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { mirrorPasswordToLan } from '../lib/cloudCredentialMirror';
 import { useT } from '../lib/i18n';
 import LogoMark from '../components/LogoMark';
 
@@ -40,6 +41,12 @@ export default function ResetPassword() {
     setSubmitting(true);
 
     const { error } = await supabase.auth.updateUser({ password });
+
+    // Sens Cloud → Local : si l'école a un serveur LAN, propage le NOUVEAU mot de
+    // passe (chiffré) vers ce serveur pour qu'il ouvre aussi en local. Best-effort,
+    // ne bloque jamais : sans serveur LAN, c'est un no-op silencieux.
+    if (!error) { try { await mirrorPasswordToLan(password); } catch { /* ignore */ } }
+
     setSubmitting(false);
 
     if (error) {

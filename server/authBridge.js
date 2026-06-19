@@ -105,6 +105,23 @@ export function credentialPublicKey() {
   return createPublicKey(priv).export({ type: 'spki', format: 'pem' }).toString();
 }
 
+// Publie la clé publique de CE serveur dans le cloud (school_credential_keys) via
+// la fonction edge `publish-server-key` (auth = jeton scellé). L'app cloud s'en
+// sert pour chiffrer les changements de mot de passe (sens Cloud → Local).
+// Best-effort : appelée au boot quand un jeton existe ; idempotente.
+export async function publishCredentialKey() {
+  const token = serverToken();
+  if (!token) return { skipped: true };
+  try {
+    const res = await fetch(`${EDGE_BASE}/publish-server-key`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ public_key: credentialPublicKey() }),
+    });
+    return { ok: res.ok };
+  } catch { return { ok: false }; }
+}
+
 // Déchiffre les mots de passe déposés par le cloud et les applique en local
 // (re-hash scrypt). Le clair ne touche jamais le disque. `supa` = client Supabase
 // (ou stub), `hashFn` = hashPassword (injecté pour éviter une dépendance circulaire).
@@ -117,7 +134,7 @@ export async function applyCloudCredentials(supa, schoolId, hashFn) {
   for (const row of data || []) {
     try {
       const plain = privateDecrypt(
-        { key: priv, padding: constants.RSA_PKCS1_OAEP_PADDING },
+        { key: priv, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
         Buffer.from(row.ciphertext, 'base64'),
       ).toString('utf8');
       const local = db.prepare('SELECT id FROM users WHERE cloud_user_id = ? OR email = ?')

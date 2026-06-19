@@ -171,7 +171,7 @@ ok(db.prepare('SELECT COUNT(*) n FROM pwd_mirror_queue').get().n === 0, 'file vi
 // L'app cloud chiffre un nouveau mot de passe avec la clé publique du serveur.
 const pub = credentialPublicKey();
 const cipher = publicEncrypt(
-  { key: pub, padding: constants.RSA_PKCS1_OAEP_PADDING },
+  { key: pub, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
   Buffer.from('changeducloud'),
 ).toString('base64');
 DATA.credential_outbox.push({ id: 'ob1', school_id: 'sch1', cloud_user_id: 'cloud-teacher', email: 'prof@ecole.cm', ciphertext: cipher, applied_at: null });

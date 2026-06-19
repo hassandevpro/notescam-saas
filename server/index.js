@@ -15,7 +15,7 @@ import { runQuery } from './query.js';
 import { runRpc } from './rpc.js';
 import { scheduleBackups, runBackup } from './backup.js';
 import { runMigration } from './migrate.js';
-import { mirrorToCloud, flushMirrorQueue, credentialPublicKey } from './authBridge.js';
+import { mirrorToCloud, flushMirrorQueue, credentialPublicKey, publishCredentialKey } from './authBridge.js';
 import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
 import { scheduleCloudSync, syncOnce } from './cloudSync.js';
 
@@ -306,6 +306,8 @@ const start = async () => {
     // périodiquement : converge dès que le cloud redevient joignable, sans bloquer.
     flushMirrorQueue().catch(() => {});
     setInterval(() => { flushMirrorQueue().catch(() => {}); }, 10 * 60 * 1000).unref();
+    // Publie la clé publique de ce serveur (sens Cloud → Local) — best-effort.
+    publishCredentialKey().catch(() => {});
     // Sync continue LAN ↔ Cloud (Phase 2) — gated : NOTESCAM_CLOUD_SYNC=1 + jeton présent.
     if (scheduleCloudSync()) console.log('  Sync continue LAN ↔ Cloud : activée');
     console.log(`\n  NotesCam LAN — http://localhost:${PORT}`);

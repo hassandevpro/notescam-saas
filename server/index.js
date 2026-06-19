@@ -168,8 +168,14 @@ app.post('/api/license/activate', (req, reply) => {
   // Reporte plan / expiration sur l'école si déjà créée
   const school = getSchool();
   if (school && res.payload) {
+    // Filet de sécurité : normalise la casse du plan (une licence historique « Pro »
+    // serait sinon stockée telle quelle et traitée comme Starter, clé non reconnue
+    // côté app). Un nom hors liste est journalisé mais conservé tel quel.
+    const VALID_PLANS = new Set(['starter', 'ecole', 'pro', 'reseau']);
+    const plan = res.payload.plan ? String(res.payload.plan).trim().toLowerCase() : null;
+    if (plan && !VALID_PLANS.has(plan)) console.warn(`[license] plan non reconnu: « ${res.payload.plan} » (traité comme Starter par l'app).`);
     db.prepare('UPDATE schools SET plan = COALESCE(?, plan), license_status = ?, license_expires_at = ? WHERE id = ?')
-      .run(res.payload.plan || null, 'active', res.payload.expires_at || null, school.id);
+      .run(plan, 'active', res.payload.expires_at || null, school.id);
   }
   return { data: { payload: res.payload }, error: null };
 });

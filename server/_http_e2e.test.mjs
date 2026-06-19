@@ -25,7 +25,7 @@ srv.on('exit', (code) => { if (code) srvLog += `\n[serveur sorti code ${code}]`;
 let pass = 0, fail = 0;
 const ok = (c, label, got) => { c ? (console.log(`✅ ${label}`), pass++) : (console.log(`❌ ${label} (obtenu: ${JSON.stringify(got)})`), fail++); };
 
-async function waitReady(ms = 15000) {
+async function waitReady(ms = 30000) {   // marge pour un démarrage à froid sous charge (spawn Windows)
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
     try { const r = await fetch(`${BASE}/api/license`); if (r.ok) return true; } catch { /* pas encore prêt */ }

@@ -25,10 +25,19 @@ export function signLicense({ school, plan = 'ecole', expires = null, machine = 
   if (!existsSync(PRIV_PATH)) {
     throw new Error('Clé privée introuvable. Lance d’abord : node packaging/license/keygen.mjs');
   }
+  // Normalise + valide le plan AVANT signature. Sans ça, le CLI (sign-license.mjs)
+  // signait la chaîne brute : « Pro » (casse) ou « Standard » (nom inexistant) se
+  // retrouvaient en base puis étaient dégradés silencieusement en Starter, car
+  // PLAN_META[plan] est introuvable côté app (clés en minuscule). On échoue donc
+  // explicitement plutôt que d'émettre une licence qui retombera en Starter.
+  const normPlan = String(plan).trim().toLowerCase();
+  if (!PLANS.includes(normPlan)) {
+    throw new Error(`Plan invalide : « ${plan} ». Valeurs acceptées : ${PLANS.join(', ')}.`);
+  }
   const priv = createPrivateKey(readFileSync(PRIV_PATH));
   const payload = {
     school: school || 'École',
-    plan,
+    plan: normPlan,
     edition: 'lan',
     issued_at: new Date().toISOString(),
     expires_at: expires || null,

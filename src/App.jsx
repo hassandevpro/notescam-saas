@@ -5,10 +5,13 @@ import { useSchoolStore } from './store/schoolStore';
 import { useUiStore } from './store/uiStore';
 import { flushSyncQueue, getQueueCount, pruneExpiredItems } from './lib/sync';
 import { requestPersistentStorage } from './lib/db';
+import { backendOnline, IS_LAN } from './lib/edition';
 import ProtectedRoute from './components/ProtectedRoute';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import OnboardingWizard from './components/OnboardingWizard';
 import LanLicenseGate from './components/LanLicenseGate';
+import CloudActivationWizard from './components/CloudActivationWizard';
+import CloudSyncPanel from './components/CloudSyncPanel';
 
 // Auth pages — petites, chargées immédiatement
 import Login from './pages/Login';
@@ -137,7 +140,7 @@ export default function App() {
 
   // Sync engine — flush syncQueue on startup + reconnection
   const triggerSync = useCallback(async () => {
-    if (!navigator.onLine || !schoolId) return;
+    if (!backendOnline() || !schoolId) return;
     const count = await getQueueCount();
     if (!count) return;
 
@@ -160,8 +163,9 @@ export default function App() {
   useEffect(() => {
     if (!schoolId) return;
 
-    // Initialize online status + pending count from IDB
-    useUiStore.getState().setOnlineStatus(navigator.onLine);
+    // Initialize online status + pending count from IDB. En LAN, le backend est
+    // le serveur local (joignable sans Internet) → toujours « en ligne ».
+    useUiStore.getState().setOnlineStatus(backendOnline());
     // Purge stale/repeatedly-failed items first, then count + flush
     pruneExpiredItems().then(() => {
       getQueueCount().then((n) => useUiStore.getState().setPendingCount(n));
@@ -171,17 +175,31 @@ export default function App() {
     const onOnline = () => {
       useUiStore.getState().setOnlineStatus(true);
       triggerSync();
+      // Au retour de connexion, rafraîchir depuis le cloud MÊME si la file est
+      // vide : récupère les changements faits ailleurs pendant l'hors-ligne.
+      // La fusion est non destructive (cf. _refreshFromSupabase : `?? get().x`),
+      // donc aucune donnée locale n'est écrasée par une réponse partielle.
+      useSchoolStore.getState()._refreshFromSupabase(schoolId);
     };
     const onOffline = () => {
-      useUiStore.getState().setOnlineStatus(false);
-      useUiStore.getState().setIdle();
+      // En LAN on reste « en ligne » (le serveur local ne dépend pas d'Internet).
+      useUiStore.getState().setOnlineStatus(backendOnline());
+      if (!IS_LAN) useUiStore.getState().setIdle();
     };
 
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+
+    // En LAN, l'événement navigateur « online » ne se déclenche jamais (le poste
+    // n'a pas d'Internet) : si le serveur local a été momentanément injoignable,
+    // la file ne se viderait jamais. On rejoue donc périodiquement.
+    let lanTimer = null;
+    if (IS_LAN) lanTimer = setInterval(() => triggerSync(), 20000);
+
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
+      if (lanTimer) clearInterval(lanTimer);
     };
   }, [schoolId, triggerSync]);
 
@@ -223,6 +241,8 @@ export default function App() {
       </Suspense>
       <PwaUpdatePrompt />
       <OnboardingGate />
+      <CloudActivationWizard />
+      <CloudSyncPanel />
     </BrowserRouter>
     </LanLicenseGate>
   );

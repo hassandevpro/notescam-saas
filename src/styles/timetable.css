@@ -1,0 +1,131 @@
+/* ================================================================
+   EMPLOI DU TEMPS — rendu d'impression (PDF)
+   Même approche que bulletin.css : un bloc `.tt-print` masqué à l'écran,
+   révélé uniquement à l'impression, et tout le chrome de l'app masqué.
+   ================================================================ */
+
+/* Le rendu imprimable n'existe qu'à l'impression. */
+.tt-print { display: none; }
+
+.tt-paper {
+  background: #fff;
+  color: #111827;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.tt-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 2px solid #111827;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+}
+
+.tt-head-logo img {
+  width: 70px;
+  height: 70px;
+  object-fit: contain;
+  display: block;
+}
+
+.tt-head-text { flex: 1; text-align: center; }
+
+.tt-head-school {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  margin: 0;
+}
+
+.tt-head-sub { font-size: 11px; color: #4b5563; margin: 2px 0 0; }
+
+.tt-head-title {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin: 6px 0 0;
+}
+
+.tt-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 11px;
+}
+
+.tt-grid th,
+.tt-grid td {
+  border: 1px solid #9ca3af;
+  padding: 5px 6px;
+  vertical-align: top;
+}
+
+.tt-grid thead th {
+  background: #111827;
+  color: #fff;
+  text-align: center;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.tt-grid th.tt-time-col,
+.tt-grid td.tt-time-cell {
+  width: 92px;
+  text-align: center;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  background: #f3f4f6;
+  font-weight: 600;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.tt-cell-subject { font-weight: 700; line-height: 1.2; }
+.tt-cell-meta    { font-size: 9.5px; color: #4b5563; margin-top: 2px; }
+.tt-cell-empty   { color: #d1d5db; text-align: center; }
+
+.tt-foot {
+  margin-top: 12px;
+  font-size: 9.5px;
+  color: #6b7280;
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ================================================================
+   IMPRESSION
+   ================================================================ */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  /* Masquer tout le chrome applicatif + la vue écran. */
+  header,
+  aside,
+  .no-print,
+  .tt-screen {
+    display: none !important;
+  }
+
+  html, body {
+    height: auto;
+    overflow: visible;
+  }
+
+  main {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Révéler le rendu imprimable. */
+  .tt-print { display: block !important; }
+
+  .tt-grid tr { page-break-inside: avoid; break-inside: avoid; }
+}

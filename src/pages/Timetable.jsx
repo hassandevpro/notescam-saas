@@ -12,6 +12,7 @@ import {
   upsertTimetableSlot,
   deleteTimetableSlot,
 } from '../lib/schoolService';
+import '../styles/timetable.css';
 
 const DAYS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 const DAYS_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -151,6 +152,90 @@ function SlotModal({ initial, subjects, teachers, onSave, onClose, t }) {
   );
 }
 
+// ── Rendu imprimable (PDF) ──────────────────────────────────────────────────
+// Grille hebdomadaire « heures × jours », masquée à l'écran et révélée à
+// l'impression (cf. timetable.css). Réutilise le même principe que le bulletin.
+function TimetablePrint({ slots, subjects, teachers, classes, days, title, subtitle, school, showClass }) {
+  // Lignes = plages horaires distinctes présentes dans la semaine, triées.
+  const ranges = [];
+  const seen = new Set();
+  for (const s of slots) {
+    const start = s.start_time?.slice(0, 5);
+    const end   = s.end_time?.slice(0, 5);
+    if (!start || !end) continue;
+    const key = `${start}|${end}`;
+    if (!seen.has(key)) { seen.add(key); ranges.push({ start, end, key }); }
+  }
+  ranges.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+
+  const cellFor = (range, day) =>
+    slots.find(
+      (s) =>
+        s.day_of_week === day &&
+        s.start_time?.slice(0, 5) === range.start &&
+        s.end_time?.slice(0, 5) === range.end,
+    );
+
+  const nameOf = (slot) =>
+    subjects.find((x) => x.id === slot.subject_id)?.name || slot.label || '—';
+
+  return (
+    <div className="tt-print">
+      <div className="tt-paper">
+        <div className="tt-head">
+          {school?.logo_url && (
+            <div className="tt-head-logo"><img src={school.logo_url} alt="" /></div>
+          )}
+          <div className="tt-head-text">
+            <p className="tt-head-school">{school?.name || 'Établissement'}</p>
+            {subtitle && <p className="tt-head-sub">{subtitle}</p>}
+            <p className="tt-head-title">{title}</p>
+          </div>
+          {school?.logo_url && <div className="tt-head-logo" style={{ visibility: 'hidden' }}><img src={school.logo_url} alt="" /></div>}
+        </div>
+
+        {ranges.length === 0 ? (
+          <p className="tt-cell-empty" style={{ padding: '24px 0' }}>—</p>
+        ) : (
+          <table className="tt-grid">
+            <thead>
+              <tr>
+                <th className="tt-time-col">Heures</th>
+                {days.map((d) => <th key={d}>{d}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {ranges.map((range) => (
+                <tr key={range.key}>
+                  <td className="tt-time-cell">{range.start}<br />{range.end}</td>
+                  {days.map((_, i) => {
+                    const slot = cellFor(range, i + 1);
+                    if (!slot) return <td key={i} className="tt-cell-empty">·</td>;
+                    const teacher = teachers.find((x) => x.id === slot.teacher_id);
+                    const cls     = classes.find((x) => x.id === slot.class_id);
+                    return (
+                      <td key={i}>
+                        <div className="tt-cell-subject">{nameOf(slot)}</div>
+                        {showClass && cls && <div className="tt-cell-meta">{cls.name}</div>}
+                        {teacher && <div className="tt-cell-meta">{teacher.name}</div>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <div className="tt-foot">
+          <span>{school?.name || ''}</span>
+          <span>{new Date().toLocaleDateString('fr-FR')}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function Timetable() {
   const t         = useT();
@@ -271,14 +356,33 @@ export default function Timetable() {
     );
   }
 
+  const printTitle = isAdmin
+    ? `${t('Emploi du temps', 'Timetable')} — ${classes.find((c) => c.id === selectedClass)?.name || ''}`
+    : t('Emploi du temps', 'Timetable');
+  const printSubtitle = [
+    role === 'teacher' ? (teachers.find((tt) => tt.id === teacherId)?.name || '') : '',
+    activeYear ? `${t('Année', 'Year')} ${activeYear}` : '',
+  ].filter(Boolean).join(' · ');
+
   return (
     <Layout>
-      <div className="max-w-6xl">
+      <TimetablePrint
+        slots={filteredSlots}
+        subjects={subjects}
+        teachers={teachers}
+        classes={classes}
+        days={DAYS}
+        title={printTitle}
+        subtitle={printSubtitle}
+        school={school}
+        showClass={role === 'teacher'}
+      />
+      <div className="max-w-6xl tt-screen">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <h1 className="text-xl font-bold text-gray-900">{t('Emploi du temps', 'Timetable')}</h1>
-          {isAdmin && (
-            <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
+            {isAdmin && (
               <select
                 className="form-input text-sm"
                 value={selectedClass}
@@ -289,8 +393,20 @@ export default function Timetable() {
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
-            </div>
-          )}
+            )}
+            <button
+              onClick={() => window.print()}
+              disabled={filteredSlots.length === 0}
+              className="btn-secondary inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ width: 'auto' }}
+              title={t('Imprimer / Exporter en PDF', 'Print / Export to PDF')}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M5 4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a1 1 0 001 1h6a1 1 0 001-1v-2h1a2 2 0 002-2V6a2 2 0 00-2-2H5zm10 7V6H5v5h10zm-2 1H7v2h6v-2z" clipRule="evenodd"/>
+              </svg>
+              {t('Imprimer', 'Print')}
+            </button>
+          </div>
         </div>
 
         {/* Day tabs (mobile) */}

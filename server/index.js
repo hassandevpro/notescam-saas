@@ -17,7 +17,7 @@ import { scheduleBackups, runBackup } from './backup.js';
 import { runMigration } from './migrate.js';
 import { mirrorToCloud, flushMirrorQueue, credentialPublicKey } from './authBridge.js';
 import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
-import { scheduleCloudSync } from './cloudSync.js';
+import { scheduleCloudSync, syncOnce } from './cloudSync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -266,6 +266,17 @@ app.get('/api/activate-cloud/status', (req, reply) => {
   const state = getActivation();
   const push = db.prepare('SELECT tablename, pushed, total, done FROM cloud_push_state').all();
   return { data: { state, push }, error: null };
+});
+
+// ====================== SYNC : DRY-RUN (sans écriture) ===============
+// Calcule et journalise ce qui SERAIT poussé/tiré, sans rien écrire (ni base,
+// ni outbox, ni curseurs, ni cloud). Sert à valider la sync avant de l'activer.
+app.post('/api/sync/dry-run', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const res = await syncOnce({ dryRun: true });
+    return { data: res, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
 });
 
 // ====================== STATIC + SPA fallback =========================

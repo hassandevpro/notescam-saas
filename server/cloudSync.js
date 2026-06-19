@@ -12,7 +12,7 @@
 //
 // Gated : ne tourne que si un jeton serveur existe ET NOTESCAM_CLOUD_SYNC=1.
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId } from './db.js';
 
@@ -65,24 +65,6 @@ function rawUpsert(table, row) {
   catch (e) { console.warn(`[sync] upsert ${table} ignoré: ${e.message}`); return false; }
 }
 
-function applyRemoteRow(table, row) {
-  if (!row?.id) return;
-  const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(row.id);
-  if (local && !remoteWins(local, row)) return; // le local est plus récent → on garde
-  rawUpsert(table, row);
-}
-
-function applyTombstone(table, rowId, deletedAt) {
-  if (!SYNCED_TABLES.has(table)) return;
-  const local = db.prepare(`SELECT updated_at FROM "${table}" WHERE id = ?`).get(rowId);
-  if (!local) return;
-  // La suppression gagne si elle est au moins aussi récente que le dernier
-  // changement local connu (sinon une modif locale postérieure la ressuscite).
-  if ((Date.parse(local.updated_at || 0) || 0) <= (Date.parse(deletedAt || 0) || 0)) {
-    try { db.prepare(`DELETE FROM "${table}" WHERE id = ?`).run(rowId); } catch { /* FK : ignore */ }
-  }
-}
-
 // --- Transport edge (injectable pour les tests) -----------------------
 async function edgeFetch(path, body) {
   const token = serverToken();
@@ -98,22 +80,45 @@ async function edgeFetch(path, body) {
 }
 
 // --- Pull : cloud → local --------------------------------------------
-async function pull(edge) {
+// En `dryRun`, l'appel sync-pull (lecture seule côté cloud) est fait pour
+// calculer les décisions LWW, mais RIEN n'est écrit ni les curseurs avancés.
+async function pull(edge, dryRun) {
   const j = await edge('sync-pull', { since: cursor('pull_at'), tomb_since: cursor('tomb_at') });
   const rows = j?.rows || {};
+  const plan = { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] };
+
   for (const table of PULL_ORDER) {
-    for (const row of rows[table] || []) applyRemoteRow(table, row);
+    for (const row of rows[table] || []) {
+      if (!row?.id) continue;
+      const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(row.id);
+      if (local && !remoteWins(local, row)) { plan.keepLocal.push({ table, id: row.id }); continue; }
+      plan.apply.push({ table, id: row.id });
+      if (!dryRun) rawUpsert(table, row);
+    }
   }
-  for (const t of j?.tombstones || []) applyTombstone(t.tablename, t.row_id, t.deleted_at);
-  setCursor('pull_at', j?.cursor);
-  setCursor('tomb_at', j?.tomb_cursor);
-  return { pulled: Object.values(rows).reduce((a, r) => a + r.length, 0), deleted: (j?.tombstones || []).length };
+  for (const t of j?.tombstones || []) {
+    if (!SYNCED_TABLES.has(t.tablename)) continue;
+    const local = db.prepare(`SELECT updated_at FROM "${t.tablename}" WHERE id = ?`).get(t.row_id);
+    if (!local) continue;
+    // La suppression gagne si elle est au moins aussi récente que le dernier
+    // changement local connu (sinon une modif locale postérieure la ressuscite).
+    if ((Date.parse(local.updated_at || 0) || 0) <= (Date.parse(t.deleted_at || 0) || 0)) {
+      plan.remove.push({ table: t.tablename, id: t.row_id });
+      if (!dryRun) { try { db.prepare(`DELETE FROM "${t.tablename}" WHERE id = ?`).run(t.row_id); } catch { /* FK : ignore */ } }
+    } else {
+      plan.keepLocalVsDelete.push({ table: t.tablename, id: t.row_id });
+    }
+  }
+  if (!dryRun) { setCursor('pull_at', j?.cursor); setCursor('tomb_at', j?.tomb_cursor); }
+  return { pulled: Object.values(rows).reduce((a, r) => a + r.length, 0), deleted: plan.remove.length, plan };
 }
 
 // --- Push : local → cloud --------------------------------------------
-async function push(edge) {
+// En `dryRun`, on calcule les changements mais on N'APPELLE PAS sync-push et on
+// NE VIDE PAS l'outbox.
+async function push(edge, dryRun) {
   const entries = db.prepare('SELECT * FROM sync_outbox ORDER BY id LIMIT ?').all(BATCH);
-  if (!entries.length) return { pushed: 0 };
+  if (!entries.length) return { pushed: 0, planned: [] };
   // Réduit à un changement par (table,row_id) — le dernier état gagne.
   const seen = new Set();
   const changes = [];
@@ -127,20 +132,56 @@ async function push(edge) {
     else changes.push({ table: e.tablename, op: 'delete', row: { id: e.row_id } });
   }
   changes.reverse();
+  const planned = changes.map((c) => ({ table: c.table, op: c.op, id: c.row.id }));
+  if (dryRun) return { pushed: 0, planned };
+
   await edge('sync-push', { changes });
   // Succès : purge les entrées traitées (les nouvelles, id > maxId, restent).
   const maxId = entries[entries.length - 1].id;
   db.prepare('DELETE FROM sync_outbox WHERE id <= ?').run(maxId);
-  return { pushed: changes.length };
+  return { pushed: changes.length, planned };
+}
+
+// Journal lisible (console + DATA_DIR/sync-dryrun.log). N'écrit aucune donnée
+// métier : seulement un fichier de log.
+function journalDryRun(r) {
+  const L = [];
+  L.push(`\n=== DRY-RUN ${r.at} ===`);
+  if (r.pullError) L.push(`PULL indisponible (${r.pullError}) — rapport limité à la poussée.`);
+  L.push(`PUSH (local→cloud) : ${r.pushPlan.length} changement(s) seraient envoyés`);
+  for (const c of r.pushPlan) L.push(`  push ${String(c.op).padEnd(6)} ${c.table} ${c.id}`);
+  const p = r.pullPlan;
+  L.push(`PULL (cloud→local) : ${p.apply.length} à appliquer · ${p.keepLocal.length} ignorés (local plus récent) · ${p.remove.length} suppression(s) · ${p.keepLocalVsDelete.length} suppression(s) écartée(s)`);
+  for (const c of p.apply) L.push(`  apply       ${c.table} ${c.id}`);
+  for (const c of p.keepLocal) L.push(`  keep-local  ${c.table} ${c.id}`);
+  for (const c of p.remove) L.push(`  delete      ${c.table} ${c.id}`);
+  const text = L.join('\n');
+  console.log(text);
+  try { appendFileSync(join(DATA_DIR, 'sync-dryrun.log'), text + '\n'); } catch { /* log best-effort */ }
 }
 
 // --- Orchestration ----------------------------------------------------
 // Pull d'abord (intègre le distant avec LWW), puis push (envoie l'état local
-// courant). @param edge  transport (défaut: fonctions edge réelles).
-export async function syncOnce({ edge = edgeFetch } = {}) {
-  const pulled = await pull(edge);
-  const pushed = await push(edge);
-  return { ...pulled, ...pushed, at: new Date().toISOString() };
+// courant). En `dryRun`, RIEN n'est écrit (base, outbox, curseurs, cloud) : on
+// journalise seulement ce qui SERAIT poussé/tiré. @param edge transport.
+export async function syncOnce({ edge = edgeFetch, dryRun = false } = {}) {
+  let p, pullError = null;
+  try {
+    p = await pull(edge, dryRun);
+  } catch (e) {
+    if (!dryRun) throw e;  // hors dry-run, un échec de pull interrompt le cycle
+    pullError = e.message; // en dry-run, on rapporte quand même la poussée (offline OK)
+    p = { pulled: 0, deleted: 0, plan: { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] } };
+  }
+  const q = await push(edge, dryRun);
+
+  const res = {
+    dryRun, at: new Date().toISOString(),
+    pulled: p.pulled, deleted: p.deleted, pushed: q.pushed,
+    pullPlan: p.plan, pushPlan: q.planned, pullError,
+  };
+  if (dryRun) journalDryRun(res);
+  return res;
 }
 
 let _timer = null;

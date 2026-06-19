@@ -52,7 +52,20 @@ const edge = async (path, body) => {
   throw new Error('path inattendu ' + path);
 };
 
-// --- Synchronisation -------------------------------------------------
+// --- DRY-RUN : journalise sans RIEN écrire ----------------------------
+const dry = await syncOnce({ edge, dryRun: true });
+ok(dry.dryRun === true, 'dry-run : flag présent', dry.dryRun);
+ok(dry.pushPlan.length === 1 && dry.pushPlan[0].id === 'cls1', 'dry-run : push planifié (cls1) sans envoi', dry.pushPlan);
+ok(dry.pullPlan.apply.length === 2, 'dry-run : 2 lignes distantes À appliquer', dry.pullPlan.apply);
+ok(dry.pullPlan.keepLocal.length === 1, 'dry-run : 1 ligne distante ignorée (local plus récent)', dry.pullPlan.keepLocal);
+ok(dry.pullPlan.remove.length === 1, 'dry-run : 1 suppression planifiée', dry.pullPlan.remove);
+ok(pushReceived.length === 0, 'dry-run : AUCUN envoi cloud (sync-push non appelé)', pushReceived.length);
+ok(db.prepare('SELECT COUNT(*) n FROM sync_outbox').get().n === 1, 'dry-run : outbox INTACT', db.prepare('SELECT COUNT(*) n FROM sync_outbox').get().n);
+ok(!db.prepare("SELECT 1 FROM students WHERE id='stuRemote'").get(), 'dry-run : aucune écriture locale (stuRemote absent)');
+ok(!!db.prepare("SELECT 1 FROM students WHERE id='stuDel'").get(), 'dry-run : suppression NON appliquée (stuDel présent)');
+ok(!db.prepare("SELECT value FROM sync_cursor WHERE name='pull_at'").get(), 'dry-run : curseur NON avancé');
+
+// --- Synchronisation réelle ------------------------------------------
 const res = await syncOnce({ edge });
 ok(res.pulled === 3 && res.pushed === 1, 'syncOnce : 3 tirés, 1 poussé', res);
 

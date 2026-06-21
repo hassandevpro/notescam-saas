@@ -42,11 +42,21 @@ function withTimeout(promise, label, ms = NET_TIMEOUT_MS) {
 //   - country_education_config / evaluation_system : config GLOBALE déjà en cloud ;
 //   - tables locales (license_activation, migration_state, pwd_mirror_queue, …).
 const PUSH_ORDER = [
-  'academic_periods', 'classes', 'subjects', 'students', 'teachers', 'grades',
+  'academic_periods', 'classes', 'subjects', 'students', 'teachers', 'staff', 'grades',
   'student_fees', 'fee_payments', 'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots',
 ];
+
+// Erreur « table absente côté cloud » (ex. staff si la migration Personnel n'a
+// pas été jouée). On la traite comme SKIP (journalisée) plutôt que comme un
+// échec fatal de toute la migration.
+function isMissingTable(error) {
+  const code = error?.code || '';
+  const msg = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+  return code === '42P01' || code === 'PGRST205'
+    || /does not exist|could not find the table|schema cache/i.test(msg);
+}
 
 const log = (cb, phase, detail = {}) => { try { cb?.({ phase, ...detail }); } catch { /* ignore */ } };
 
@@ -176,7 +186,9 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
 
     let rows = db.prepare(`SELECT * FROM "${table}" WHERE school_id = ?`).all(school.id);
     // Remap des FK pointant vers un utilisateur (id local → id cloud).
-    if (table === 'teachers') rows = rows.map((r) => ({ ...r, auth_user_id: r.auth_user_id ? (cloudByLocal.get(r.auth_user_id) || null) : null }));
+    if (table === 'teachers' || table === 'staff') {
+      rows = rows.map((r) => ({ ...r, auth_user_id: r.auth_user_id ? (cloudByLocal.get(r.auth_user_id) || null) : null }));
+    }
 
     db.prepare(`INSERT INTO cloud_push_state (tablename, pushed, total, done, updated_at)
                 VALUES (?,0,?,0,?)
@@ -184,14 +196,29 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
       .run(table, rows.length, new Date().toISOString());
 
     const onConflict = table === 'grades' ? 'class_id,student_id,subject_id,sequence' : 'id';
+    let pushedThisTable = 0;
+    let skipped = false;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const batch = rows.slice(i, i + CHUNK).map(stripLocalOnly);
       const { error } = await supa.from(table).upsert(batch, { onConflict });
-      if (error) { appendLog(`ÉCHEC ${table} (lot ${i}) : ${error.message}`); throw new Error(`Poussée ${table}: ${error.message}`); }
+      if (error) {
+        // Table absente côté cloud → SKIP journalisé, sans casser le job.
+        if (isMissingTable(error)) { appendLog(`${table} ignorée : table absente côté cloud (${error.message}).`); skipped = true; break; }
+        appendLog(`ÉCHEC ${table} (lot ${i}) : ${error.message}`); throw new Error(`Poussée ${table}: ${error.message}`);
+      }
+      pushedThisTable += batch.length;
       pushedGlobal += batch.length;
       db.prepare('UPDATE cloud_push_state SET pushed = ?, updated_at = ? WHERE tablename = ?')
         .run(Math.min(i + batch.length, rows.length), new Date().toISOString(), table);
       log(onProgress, 'push', { table, pct: Math.round(100 * pushedGlobal / total) });
+    }
+    // Table sautée : on compte son reste comme « traité » pour ne pas figer la
+    // barre, on la marque done (la reprise ne la retentera pas), et on continue.
+    if (skipped) {
+      pushedGlobal += Math.max(0, rows.length - pushedThisTable);
+      db.prepare('UPDATE cloud_push_state SET done = 1, updated_at = ? WHERE tablename = ?')
+        .run(new Date().toISOString(), table);
+      continue;
     }
     db.prepare('UPDATE cloud_push_state SET done = 1, pushed = total, updated_at = ? WHERE tablename = ?')
       .run(new Date().toISOString(), table);

@@ -145,6 +145,33 @@ CREATE TABLE IF NOT EXISTS teachers (
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- --- Personnel (tous départements) ---------------------------
+-- Registre unique du personnel : enseignants, administration, surveillance,
+-- santé, comptabilité, support. Les ENSEIGNANTS gardent EN PLUS leur profil
+-- pédagogique dans `teachers` (matières/classes/titulaire, comptes app) — ils
+-- sont un sous-type du personnel. `documents` = JSON [{ name, url }].
+CREATE TABLE IF NOT EXISTS staff (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  matricule     TEXT,
+  first_name    TEXT,
+  last_name     TEXT,
+  name          TEXT NOT NULL,
+  gender        TEXT,
+  phone         TEXT,
+  email         TEXT,
+  address       TEXT,
+  photo_url     TEXT,
+  fonction      TEXT,
+  department    TEXT NOT NULL DEFAULT 'administration',
+  hire_date     TEXT,
+  status        TEXT,
+  documents     TEXT,
+  auth_user_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- --- Frais de scolarité --------------------------------------
 CREATE TABLE IF NOT EXISTS student_fees (
   id                    TEXT PRIMARY KEY,
@@ -430,3 +457,5 @@ CREATE INDEX IF NOT EXISTS idx_payments_student      ON fee_payments(student_id)
 CREATE INDEX IF NOT EXISTS idx_attendance_student    ON attendance(student_id);
 CREATE INDEX IF NOT EXISTS idx_timetable_class       ON timetable_slots(class_id);
 CREATE INDEX IF NOT EXISTS idx_school_users_user     ON school_users(user_id);
+CREATE INDEX IF NOT EXISTS idx_staff_school          ON staff(school_id);
+CREATE INDEX IF NOT EXISTS idx_staff_department      ON staff(department);

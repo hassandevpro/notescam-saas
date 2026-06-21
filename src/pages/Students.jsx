@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, lazy, Suspense } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate } from '../lib/exportCsv';
@@ -8,6 +8,9 @@ import { resizeImageToSquare } from '../lib/image';
 import Layout from '../components/Layout';
 import StudentAvatar from '../components/StudentAvatar';
 import Modal from '../components/Modal';
+import CameraCaptureModal from '../components/CameraCaptureModal';
+import QrScanModal from '../components/QrScanModal';
+import { buildCardId } from '../lib/idCardService';
 const IdCardModal = lazy(() => import('../components/IdCardModal'));
 import { useT, getLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
@@ -65,15 +68,14 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
   const [photoPreview, setPhotoPreview] = useState(initial?.photo_url || null);
   const [photoErr, setPhotoErr]         = useState('');
   const [photoBusy, setPhotoBusy]       = useState(false);
+  const [showCamera, setShowCamera]     = useState(false);
 
-  const onPickPhoto = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';                  // autorise la re-sélection du même fichier
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { setPhotoErr(t('Choisissez une image.', 'Please choose an image.')); return; }
+  // Pipeline commun (fichier choisi OU photo prise à la caméra) : recadre carré,
+  // compresse, et prépare l'aperçu + le blob à uploader.
+  const ingestPhoto = async (source) => {
     setPhotoErr(''); setPhotoBusy(true);
     try {
-      const blob = await resizeImageToSquare(file);
+      const blob = await resizeImageToSquare(source);
       setPhotoFile(blob);
       setPhotoPreview(URL.createObjectURL(blob));
     } catch {
@@ -81,6 +83,14 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
     } finally {
       setPhotoBusy(false);
     }
+  };
+
+  const onPickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';                  // autorise la re-sélection du même fichier
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setPhotoErr(t('Choisissez une image.', 'Please choose an image.')); return; }
+    await ingestPhoto(file);
   };
   const clearPhoto = () => { setPhotoFile(null); setPhotoPreview(null); };
 
@@ -109,10 +119,14 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
         <StudentAvatar student={{ photo_url: photoPreview }} size={80} />
         <div>
           <p className="form-label">{t('Photo', 'Photo')}</p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button type="button" onClick={() => fileInputRef.current?.click()} disabled={photoBusy}
               className="btn-secondary" style={{ width: 'auto' }}>
               {photoBusy ? t('Traitement…', 'Processing…') : photoPreview ? t('Changer', 'Change') : t('Choisir une photo', 'Choose a photo')}
+            </button>
+            <button type="button" onClick={() => setShowCamera(true)} disabled={photoBusy}
+              className="btn-secondary inline-flex items-center gap-1.5" style={{ width: 'auto' }}>
+              📷 {t('Prendre une photo', 'Take a photo', 'Tomar una foto')}
             </button>
             {photoPreview && (
               <button type="button" onClick={clearPhoto} className="text-sm text-red-500 hover:text-red-600 px-2">
@@ -121,6 +135,11 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
             )}
           </div>
           <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickPhoto} />
+          <CameraCaptureModal
+            open={showCamera}
+            onClose={() => setShowCamera(false)}
+            onCapture={(blob) => ingestPhoto(blob)}
+          />
           {photoErr
             ? <p className="text-xs text-red-500 mt-1">{photoErr}</p>
             : <p className="text-xs text-gray-400 mt-1">{t('JPG/PNG — recadrée et compressée automatiquement.', 'JPG/PNG — auto-cropped and compressed.')}</p>}
@@ -666,6 +685,7 @@ function BulkAssignModal({ count, classes, onConfirm, onClose }) {
 // ── Page principale ───────────────────────────────────────────────────────────
 export default function Students() {
   const t = useT();
+  const navigate = useNavigate();
   const { f } = usePlan();
   const school              = useAuthStore((s) => s.school);
   const classes             = useSchoolStore((s) => s.classes);
@@ -693,8 +713,28 @@ export default function Students() {
   const [showBulkAssign, setShowBulkAssign]= useState(false);
   const [showPrintOpts, setShowPrintOpts]  = useState(false);
   const [showCards,     setShowCards]      = useState(false);
+  const [photoTarget,   setPhotoTarget]    = useState(null);   // élève dont on capture la photo (depuis la liste)
+  const [photoSavingId, setPhotoSavingId]  = useState(null);   // id en cours d'upload (spinner ligne)
+  const [showScan,      setShowScan]       = useState(false);  // scanner QR d'une carte
   const [cols, setCols] = useState({ matricule: true, genre: true, dateNaissance: true, lieuNaissance: true, contact: true });
   const toggleCol = (key) => setCols((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  // Capture caméra depuis la liste : recadre/compresse, upload, met à jour la fiche.
+  const handleCapturePhoto = async (blob) => {
+    const target = photoTarget;
+    if (!target) return;
+    setPhotoSavingId(target.id);
+    try {
+      const square = await resizeImageToSquare(blob);
+      const { url } = await uploadStudentPhoto(school.id, target.id, square);
+      if (url) await updateStudent(target.id, { photo_url: url });
+    } catch (err) {
+      console.error('handleCapturePhoto', err);
+      alert(t('Échec de l’enregistrement de la photo.', 'Failed to save the photo.', 'No se pudo guardar la foto.'));
+    } finally {
+      setPhotoSavingId(null);
+    }
+  };
 
   // Stats
   const total  = students.length;
@@ -706,6 +746,13 @@ export default function Students() {
   }, [students]);
 
   const classNameById = (id) => classes.find((c) => c.id === id)?.name || 'Non assigné';
+
+  // Scan d'un QR de carte : le payload est buildCardId(school.id, student.id).
+  // On le recompose pour chaque élève et on compare (insensible à la casse).
+  const studentByCardCode = (code) => {
+    const norm = String(code || '').trim().toUpperCase();
+    return students.find((s) => buildCardId(school?.id, s.id) === norm) || null;
+  };
 
   const visible = useMemo(() => {
     return students
@@ -818,6 +865,17 @@ export default function Students() {
                           <path d="M14 10h4M14 14h4"/>
                         </svg>
                         {t('Cartes scolaires', 'ID cards', 'Carnés')}
+                      </button>
+                      <button
+                        onClick={() => setShowScan(true)}
+                        className="btn-secondary inline-flex items-center gap-1.5 !bg-emerald-50 !text-emerald-700 hover:!bg-emerald-100 border-emerald-200"
+                        title={t('Scanner le QR d’une carte', 'Scan a card QR code', 'Escanear el QR de una tarjeta')}
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                          <path d="M3 12h18"/>
+                        </svg>
+                        {t('Scanner', 'Scan', 'Escanear')}
                       </button>
                       <button
                         onClick={() => setShowPrintOpts((v) => !v)}
@@ -956,9 +1014,26 @@ export default function Students() {
                   students={visible}
                   school={school}
                   classNameById={classNameById}
+                  classSystemById={(id) => classes.find((c) => c.id === id)?.system}
                 />
               </Suspense>
             )}
+
+            {/* Capture caméra d'une photo directement depuis la liste */}
+            <CameraCaptureModal
+              open={!!photoTarget}
+              onClose={() => setPhotoTarget(null)}
+              onCapture={handleCapturePhoto}
+            />
+
+            {/* Scanner le QR d'une carte → fiche élève */}
+            <QrScanModal
+              open={showScan}
+              onClose={() => setShowScan(false)}
+              lookup={studentByCardCode}
+              classNameById={classNameById}
+              onView={(s) => navigate(`/app/students/${s.id}`)}
+            />
 
             {/* ── Filters ───────────────────────────────────────── */}
             <div className="flex flex-wrap gap-3 mb-4">
@@ -1108,6 +1183,17 @@ export default function Students() {
                                   </Link>
                                   {canEdit && (
                                     <>
+                                      <button
+                                        onClick={() => setPhotoTarget(student)}
+                                        disabled={photoSavingId === student.id}
+                                        className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors disabled:opacity-50"
+                                        title={t('Prendre une photo', 'Take a photo', 'Tomar una foto')}>
+                                        {photoSavingId === student.id ? (
+                                          <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-90" d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round"/></svg>
+                                        ) : (
+                                          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clipRule="evenodd"/><path fillRule="evenodd" d="M7.06 3a1 1 0 00-.84.46L5.4 4.72H4a2 2 0 00-2 2V15a2 2 0 002 2h12a2 2 0 002-2V6.72a2 2 0 00-2-2h-1.4l-.82-1.26A1 1 0 0012.94 3H7.06zM10 6a4 4 0 100 8 4 4 0 000-8z" clipRule="evenodd"/></svg>
+                                        )}
+                                      </button>
                                       <button
                                         onClick={() => { setEditing(student); setShowForm(false); setShowImport(false); }}
                                         className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"

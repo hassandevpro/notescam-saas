@@ -7,7 +7,7 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB } from '../lib/db';
 import { fetchPeriods } from '../lib/academicPeriodsService';
 import { deriveActiveSequence } from '../lib/periodLogic';
 import {
@@ -22,11 +22,13 @@ import {
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
 import { moveToTrash, logAction } from '../lib/historyService';
+import { collectStudentBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
+import { fetchStaff, upsertStaff, deleteStaff as sbDeleteStaff } from '../lib/staffService';
 import { logAssignment } from '../lib/classAssignmentService';
 import { flushSyncQueue } from '../lib/sync';
 import { backendOnline } from '../lib/edition';
 import { uuid } from '../lib/uuid';
-import { getNextLevel, computeNextYear } from '../lib/yearEngine';
+import { getNextLevel, computeNextYear, isRepeater } from '../lib/yearEngine';
 import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 
@@ -114,6 +116,7 @@ export const useSchoolStore = create((set, get) => ({
   subjects:     [],
   students:     [],
   teachers:     [],
+  staff:        [],
   fees:         [],
   feePayments:  [],
   gradeMap:     {},
@@ -129,18 +132,19 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     // Wipe stale data from any previous session immediately — prevents flash of wrong data
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
-          classes: [], subjects: [], students: [], teachers: [], fees: [], feePayments: [], gradeMap: {},
+          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], gradeMap: {},
           academicPeriods: [], activeSequence: null });
 
     try {
       await initDB();
 
-      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbFees, idbFeePayments, idbPeriods] = await Promise.all([
+      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbPeriods] = await Promise.all([
         classesDB.getAll(),
         subjectsDB.getAll(),
         studentsDB.getAll(),
         gradesDB.getAll(),
         teachersDB.getAll(),
+        staffDB.getAll().catch(() => []),
         feesDB.getAll(),
         feePaymentsDB.getAll().catch(() => []),
         academicPeriodsDB.getAll().catch(() => []),
@@ -152,6 +156,7 @@ export const useSchoolStore = create((set, get) => ({
       let allStudents = idbStudents.filter((s) => s.school_id === schoolId);
       let allGrades   = idbGrades.filter((g) => g.school_id === schoolId);
       const allTeachers = idbTeachers.filter((t) => t.school_id === schoolId);
+      const allStaff    = idbStaff.filter((s) => s.school_id === schoolId);
       const allFees        = idbFees.filter((f) => f.school_id === schoolId && (!activeYear || f.academic_year === activeYear));
       const allFeePayments = idbFeePayments.filter((p) => p.school_id === schoolId && (!activeYear || p.academic_year === activeYear));
       const allPeriods     = idbPeriods.filter((p) => p.school_id === schoolId && (!activeYear || p.school_year === activeYear));
@@ -188,6 +193,7 @@ export const useSchoolStore = create((set, get) => ({
         subjects:    allSubjects,
         students:    allStudents,
         teachers:    allTeachers,
+        staff:       allStaff,
         fees:        allFees,
         feePayments: allFeePayments,
         gradeMap:    buildGradeMap(allGrades),
@@ -218,12 +224,13 @@ export const useSchoolStore = create((set, get) => ({
     const sbClasses = await fetchClasses(schoolId, year);
     const scopeIds  = (sbClasses ?? get().classes).map((c) => c.id);
 
-    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbFees, sbFeePayments, sbPeriods] = await Promise.all([
+    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbPeriods] = await Promise.all([
       fetchSubjects(schoolId, scopeIds),
       fetchStudents(schoolId, scopeIds),
       fetchGrades(schoolId, scopeIds),
       fetchAbsences(schoolId),
       fetchTeachers(schoolId),
+      fetchStaff(schoolId).catch(() => null),
       fetchFees(schoolId, year),
       fetchFeePayments(schoolId, year).catch(() => null),
       fetchPeriods(schoolId, year).catch(() => null),
@@ -264,6 +271,7 @@ export const useSchoolStore = create((set, get) => ({
     }
 
     const newTeachers     = sbTeachers     ?? get().teachers;
+    const newStaff        = sbStaff        ?? get().staff;
     const newFees         = sbFees         ?? get().fees;
     const newFeePayments  = sbFeePayments  ?? get().feePayments;
     const newPeriods      = sbPeriods !== null
@@ -288,6 +296,7 @@ export const useSchoolStore = create((set, get) => ({
     if (sbSubjects         !== null) await subjectsDB.putMany(sbSubjects);
     if (normalizedStudents !== null) await studentsDB.putMany(normalizedStudents);
     if (sbTeachers         !== null) await teachersDB.putMany(sbTeachers);
+    if (sbStaff            !== null) await staffDB.putMany(sbStaff);
     if (sbFees             !== null) await feesDB.putMany(sbFees);
     if (sbFeePayments      !== null) await feePaymentsDB.putMany(sbFeePayments);
     if (sbPeriods          !== null) await academicPeriodsDB.putMany(sbPeriods);
@@ -335,6 +344,7 @@ export const useSchoolStore = create((set, get) => ({
       ...(sbSubjects         !== null && { subjects:    newSubjects }),
       ...(normalizedStudents !== null && { students:    newStudents }),
       ...(sbTeachers         !== null && { teachers:    newTeachers }),
+      ...(sbStaff            !== null && { staff:       newStaff }),
       ...(sbFees             !== null && { fees:        newFees }),
       ...(sbFeePayments      !== null && { feePayments: newFeePayments }),
       ...(sbPeriods          !== null && { academicPeriods: newPeriods, activeSequence: deriveActiveSequence(newPeriods) }),
@@ -355,7 +365,7 @@ export const useSchoolStore = create((set, get) => ({
   // ── Academic year promotion ──────────────────────────────────────────────
 
   promoteYear: async () => {
-    const { schoolId, classes, subjects, students } = get();
+    const { schoolId, classes, subjects, students, gradeMap } = get();
     const school = useAuthStore.getState().school;
     if (!school?.current_year) return { error: 'Aucune année active définie.' };
 
@@ -364,15 +374,39 @@ export const useSchoolStore = create((set, get) => ({
     const newClasses   = [];
     const newSubjList  = [];
     const newStudents  = [];
-    let graduatedCount = 0;
 
-    // 1. Build new classes + copy subjects
+    // Copie les matières d'une ancienne classe vers une nouvelle classe.
+    const copySubjects = (oldClassId, newClassId) => {
+      for (const sub of subjects.filter((s) => s.class_id === oldClassId)) {
+        newSubjList.push({
+          id: uuid(), school_id: schoolId, class_id: newClassId,
+          name: sub.name, coef: sub.coef, max: sub.max, teacher_id: sub.teacher_id,
+        });
+      }
+    };
+
+    // Classe « de redoublement » créée à la demande : même niveau/nom que
+    // l'ancienne, dans la nouvelle année. Une seule par ancienne classe.
+    const repeatClassByOldId = new Map();
+    const ensureRepeatClass = (cls) => {
+      if (repeatClassByOldId.has(cls.id)) return repeatClassByOldId.get(cls.id);
+      const rc = {
+        id: uuid(), school_id: schoolId, name: cls.name, level: cls.level,
+        section: cls.section, system: cls.system, current_year: newYear, teacher_id: cls.teacher_id,
+        cycle: cls.cycle, grade_max: cls.grade_max,
+      };
+      repeatClassByOldId.set(cls.id, rc);
+      newClasses.push(rc);
+      copySubjects(cls.id, rc.id);
+      return rc;
+    };
+
+    // 1. Build new classes + copy subjects (cohorte qui monte)
     for (const cls of classes) {
       const nextLevel = getNextLevel(cls.level, cls.system);
       if (nextLevel === null) {
         // Graduating class — students stay archived with old class_id
         classMapping.set(cls.id, null);
-        graduatedCount += students.filter((s) => s.class_id === cls.id).length;
         continue;
       }
       // nextLevel undefined = niveau inconnu/ambigu → on garde le niveau actuel.
@@ -392,18 +426,7 @@ export const useSchoolStore = create((set, get) => ({
       };
       classMapping.set(cls.id, newCls);
       newClasses.push(newCls);
-
-      for (const sub of subjects.filter((s) => s.class_id === cls.id)) {
-        newSubjList.push({
-          id:         uuid(),
-          school_id:  schoolId,
-          class_id:   newCls.id,
-          name:       sub.name,
-          coef:       sub.coef,
-          max:        sub.max,
-          teacher_id: sub.teacher_id,
-        });
-      }
+      copySubjects(cls.id, newCls.id);
     }
 
     // 2. Promote students — DUPLICATE the row per year, exactly like classes &
@@ -411,12 +434,28 @@ export const useSchoolStore = create((set, get) => ({
     //    keeps its full roster (and its grades, fees, photos); a fresh copy with a
     //    new id joins the new class. Graduates get no copy (cycle finished) — their
     //    original row stays archived in the graduating class.
+    //
+    //    Redoublants (décision annuelle 'redoublant' saisie au Conseil de classe)
+    //    NE montent PAS : ils sont dupliqués dans une classe de redoublement au
+    //    même niveau (créée à la demande), même s'ils étaient en classe diplômante.
+    let promotedCount = 0, repeatedCount = 0, graduatedCount = 0;
     for (const student of students) {
+      if (isRepeater(student, classes, gradeMap)) {
+        const oldCls = classes.find((c) => c.id === student.class_id);
+        if (!oldCls) continue;
+        const rc = ensureRepeatClass(oldCls);
+        newStudents.push({ ...student, id: uuid(), class_id: rc.id, parent_token: uuid(), created_at: undefined });
+        repeatedCount++;
+        continue;
+      }
       const newCls = classMapping.get(student.class_id);
       if (newCls) {
         // parent_token is UNIQUE — generate a fresh one for the copy instead of
         // reusing the old row's (would violate students_parent_token_idx).
         newStudents.push({ ...student, id: uuid(), class_id: newCls.id, parent_token: uuid(), created_at: undefined });
+        promotedCount++;
+      } else {
+        graduatedCount++; // classe diplômante, élève non redoublant → archivé diplômé
       }
     }
 
@@ -444,7 +483,8 @@ export const useSchoolStore = create((set, get) => ({
     return {
       newYear,
       newClasses:  newClasses.length,
-      promoted:    newStudents.length,
+      promoted:    promotedCount,
+      repeated:    repeatedCount,
       graduated:   graduatedCount,
     };
   },
@@ -559,13 +599,122 @@ export const useSchoolStore = create((set, get) => ({
 
   deleteStudent: async (id) => {
     const snapshot = get().students.find((x) => x.id === id);
-    if (snapshot) await moveToTrash({ table: 'students', payload: snapshot });
+
+    // Capture le bundle complet AVANT toute suppression : le DELETE backend
+    // efface notes/frais/paiements en cascade (cf. lib/studentBundle.js). On lit
+    // depuis l'IDB, source complète (absences fusionnées dans les notes ; frais et
+    // paiements de toutes les années, pas seulement l'année courante en mémoire).
+    const [allGrades, allFees, allPayments] = await Promise.all([
+      gradesDB.getAll(),
+      feesDB.getAll(),
+      feePaymentsDB.getAll().catch(() => []),
+    ]);
+    const bundle = collectStudentBundle(id, { grades: allGrades, fees: allFees, payments: allPayments });
+
+    if (snapshot) await moveToTrash({ table: 'students', payload: snapshot, related: bundle });
+
+    // Supprime la ligne élève + toutes ses lignes liées en IDB, pour rester
+    // cohérent avec le backend (qui les efface en cascade). Sans ce nettoyage,
+    // des notes/frais/paiements orphelins resteraient en cache local.
     await studentsDB.delete(id);
-    set((s) => ({ students: s.students.filter((x) => x.id !== id) }));
+    for (const g of bundle.grades)   await gradesDB.delete(g.key);
+    for (const f of bundle.fees)     await feesDB.delete(f.id);
+    for (const p of bundle.payments) await feePaymentsDB.delete(p.id);
+
+    set((s) => {
+      const gradeMap = { ...s.gradeMap };
+      for (const g of bundle.grades) delete gradeMap[g.key];
+      return {
+        students:    s.students.filter((x) => x.id !== id),
+        fees:        s.fees.filter((f) => f.student_id !== id),
+        feePayments: s.feePayments.filter((p) => p.student_id !== id),
+        gradeMap,
+      };
+    });
+
     if (backendOnline()) {
       sbDeleteStudent(id).then((ok) => { if (!ok) queueOffline({ table: 'students', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'students', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // Réinjecte les données liées à un élève restauré depuis la corbeille
+  // (notes, absences, frais, paiements). L'élève lui-même est déjà recréé par
+  // addStudent (cf. historyService.restoreFromTrash). On réécrit l'IDB + on
+  // pousse vers le backend (ou la queue offline) en réutilisant exactement les
+  // chemins de saveGrade / saveFee / addPayment, pour que l'élève retrouve TOUTES
+  // ses données — y compris dans le cloud et en LAN où le cascade les avait effacées.
+  restoreStudentBundle: async (studentId, related) => {
+    if (!related) return;
+    const { schoolId, activeYear } = get();
+    const { grades = [], fees = [], payments = [] } = related;
+
+    // --- Notes + absences (les records IDB contiennent les deux) ---
+    const gradeRecords = grades.filter((g) => g.student_id === studentId);
+    if (gradeRecords.length) {
+      await gradesDB.putMany(gradeRecords);
+      set((s) => {
+        const gradeMap = { ...s.gradeMap };
+        for (const g of gradeRecords) gradeMap[g.key] = g.scores;
+        return { gradeMap };
+      });
+      for (const g of gradeRecords) {
+        const scores = g.scores || {};
+        if (backendOnline()) {
+          if (hasRealGrades(scores)) {
+            upsertGradeEntry(g.class_id, studentId, g.sequence, scores, schoolId)
+              .then((ok) => { if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload: g }); });
+          }
+          if (hasSpecialFields(scores)) {
+            upsertAbsenceEntry(g.class_id, studentId, g.sequence, scores, schoolId)
+              .then((ok) => { if (!ok) queueOffline({ table: 'student_absences', operation: 'upsert', payload: g }); });
+          }
+        } else {
+          queueOffline({ table: 'grades', operation: 'upsert', payload: g });
+        }
+      }
+    }
+
+    // --- Frais ---
+    const feeRecords = fees.filter((f) => f.student_id === studentId);
+    if (feeRecords.length) {
+      await feesDB.putMany(feeRecords);
+      set((s) => {
+        const byId = new Map(s.fees.map((f) => [f.id, f]));
+        for (const f of feeRecords) {
+          if (!activeYear || f.academic_year === activeYear) byId.set(f.id, f);
+        }
+        return { fees: [...byId.values()] };
+      });
+      for (const f of feeRecords) {
+        if (backendOnline()) {
+          upsertFee(f).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f }); });
+        } else {
+          queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
+        }
+      }
+    }
+
+    // --- Paiements : réinsérés tels quels, SANS repasser par addPayment (qui
+    //     recalculerait frais_payes et fausserait le total déjà restauré ci-dessus). ---
+    const paymentRecords = payments.filter((p) => p.student_id === studentId);
+    if (paymentRecords.length) {
+      await feePaymentsDB.putMany(paymentRecords);
+      set((s) => {
+        const byId = new Map(s.feePayments.map((p) => [p.id, p]));
+        for (const p of paymentRecords) {
+          if (!activeYear || p.academic_year === activeYear) byId.set(p.id, p);
+        }
+        return { feePayments: [...byId.values()] };
+      });
+      for (const p of paymentRecords) {
+        if (backendOnline()) {
+          insertFeePayment(p).then((ok) => { if (!ok) queueOffline({ table: 'fee_payments', operation: 'insert', payload: p }); });
+        } else {
+          queueOffline({ table: 'fee_payments', operation: 'insert', payload: p });
+        }
+      }
     }
   },
 
@@ -708,6 +857,45 @@ export const useSchoolStore = create((set, get) => ({
       sbDeleteTeacher(id).then((ok) => { if (!ok) queueOffline({ table: 'teachers', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'teachers', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // --- Staff (personnel — tous départements) ---
+
+  addStaff: async (staffData) => {
+    const { schoolId } = get();
+    const record = { id: uuid(), school_id: schoolId, active: 1, ...staffData };
+    await staffDB.put(record);
+    set((s) => ({ staff: [...s.staff, record] }));
+    if (backendOnline()) {
+      upsertStaff(record).then((saved) => { if (!saved) queueOffline({ table: 'staff', operation: 'upsert', payload: record }); });
+    } else {
+      queueOffline({ table: 'staff', operation: 'upsert', payload: record });
+    }
+    return record;
+  },
+
+  updateStaff: async (id, data) => {
+    const { staff } = get();
+    const record = { ...staff.find((m) => m.id === id), ...data };
+    await staffDB.put(record);
+    set((s) => ({ staff: s.staff.map((m) => (m.id === id ? record : m)) }));
+    if (backendOnline()) {
+      upsertStaff(record).then((saved) => { if (!saved) queueOffline({ table: 'staff', operation: 'upsert', payload: record }); });
+    } else {
+      queueOffline({ table: 'staff', operation: 'upsert', payload: record });
+    }
+  },
+
+  deleteStaff: async (id) => {
+    const snapshot = get().staff.find((m) => m.id === id);
+    if (snapshot) await moveToTrash({ table: 'staff', payload: snapshot });
+    await staffDB.delete(id);
+    set((s) => ({ staff: s.staff.filter((m) => m.id !== id) }));
+    if (backendOnline()) {
+      sbDeleteStaff(id).then((ok) => { if (!ok) queueOffline({ table: 'staff', operation: 'delete', payload: { id } }); });
+    } else {
+      queueOffline({ table: 'staff', operation: 'delete', payload: { id } });
     }
   },
 

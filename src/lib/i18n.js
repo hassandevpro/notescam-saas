@@ -2,6 +2,7 @@
 // Usage : const t = useT(); puis t('Texte FR', 'English text', 'Texto ES').
 // Le 3ème argument (espagnol) est optionnel — si absent, on retombe sur le
 // dictionnaire FR_TO_ES (couvre la plupart des chaînes courantes), puis sur FR.
+import { useCallback } from 'react';
 import { useUiStore } from '../store/uiStore';
 import { FR_TO_ES } from './i18n_es';
 
@@ -29,7 +30,10 @@ export function pickLang(lang, fr, en, es) {
 
 export function useT() {
   const lang = useUiStore((s) => s.uiLang);
-  return (fr, en, es) => pickLang(lang, fr, en, es);
+  // Identité stable tant que la langue ne change pas : sinon `t` étant une
+  // nouvelle fonction à chaque rendu casse les useCallback/useEffect qui en
+  // dépendent (ex. boucle de rendu infinie sur la page Relevés de notes).
+  return useCallback((fr, en, es) => pickLang(lang, fr, en, es), [lang]);
 }
 
 // Non-hook version for use outside React components

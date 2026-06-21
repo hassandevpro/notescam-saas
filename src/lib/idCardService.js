@@ -63,6 +63,77 @@ export async function qrDataUrl(payload) {
   });
 }
 
+// Convertit une URL d'image (distante ou locale) en data-URL, UNE seule fois,
+// EN LA REDIMENSIONNANT à une taille raisonnable.
+//
+// Pourquoi : html-to-image ré-télécharge et ré-encode chaque <img> à CHAQUE
+// capture de carte. Sur des photos/logos Supabase distants → un fetch réseau
+// par carte, et si le serveur n'expose pas les en-têtes CORS le canvas devient
+// « tainted » → toPng lève une exception et tout l'export échoue.
+// SURTOUT : une photo de téléphone (4000×3000, plusieurs Mo) embarquée en
+// pleine résolution puis re-rasterisée à chaque carte sature la mémoire — c'est
+// la cause des échecs sur un lot (ex. 24 cartes). On la réduit donc à `maxDim`
+// (elle ne s'affiche qu'en ~110×130 px sur la carte).
+//
+// Le redimensionnement passe par un blob same-origin → canvas NON contaminé.
+// En cas d'échec on renvoie `null` (l'appelant retombe sur un repli/placeholder)
+// plutôt que de réintroduire une URL distante qui ferait planter la capture.
+const _imgDataUrlCache = new Map();
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => resolve(null);
+    fr.readAsDataURL(blob);
+  });
+}
+
+export function imageToDataUrl(url, { maxDim = 700, quality = 0.85 } = {}) {
+  if (!url) return Promise.resolve(null);
+  const cacheKey = `${url}|${maxDim}|${quality}`;
+  if (_imgDataUrlCache.has(cacheKey)) return _imgDataUrlCache.get(cacheKey);
+
+  const p = (async () => {
+    try {
+      // Récupère les octets (blob). Pour un data-URL on le relit tel quel afin
+      // de pouvoir le redimensionner lui aussi.
+      let blob;
+      if (url.startsWith('data:')) {
+        blob = await (await fetch(url)).blob();
+      } else {
+        const res = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+        if (!res.ok) return null;
+        blob = await res.blob();
+      }
+
+      // Décode puis redimensionne via canvas (blob = same-origin → pas de taint).
+      const bmp = await createImageBitmap(blob).catch(() => null);
+      if (!bmp) return blobToDataUrl(blob); // pas de resize possible → brut
+
+      const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+      const w = Math.max(1, Math.round(bmp.width * scale));
+      const h = Math.max(1, Math.round(bmp.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bmp, 0, 0, w, h);
+      bmp.close?.();
+
+      // PNG/WebP → on garde le PNG (transparence : logos, cachets, signatures).
+      // JPEG → on ré-encode en JPEG (photos) : bien plus léger.
+      const keepAlpha = blob.type === 'image/png' || blob.type === 'image/webp';
+      return canvas.toDataURL(keepAlpha ? 'image/png' : 'image/jpeg', quality);
+    } catch {
+      return null; // réseau/CORS/décodage KO → repli silencieux
+    }
+  })();
+
+  _imgDataUrlCache.set(cacheKey, p);
+  return p;
+}
+
 // HTML d'une carte unique — utilisé en boucle pour l'impression en lot.
 function singleCardHtml({ student, school, className, theme, cardId, qrSrc, countryCode }) {
   const photo = student.photo_url

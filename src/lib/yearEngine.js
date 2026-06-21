@@ -8,6 +8,41 @@
 
 import { COUNTRIES } from '../countries';
 
+// ── Redoublement ─────────────────────────────────────────────────────────────
+// La décision de fin d'année est stockée dans le slot de notes `__decision__`
+// (saisie via le Conseil de classe), valeurs 'admis' | 'redoublant'. On lit la
+// dernière séquence de l'année selon le système/cycle de la classe.
+
+// Dernière séquence d'évaluation de l'année pour une classe.
+// FR secondaire = 6 séquences ; EN / ES / primaire = 3 périodes.
+export function lastSequenceFor(cls) {
+  const sys = cls?.system || 'FR';
+  const cycle = cls?.cycle || 'secondaire';
+  if (cycle !== 'secondaire') return 3;
+  if (sys === 'EN' || sys === 'ES') return 3;
+  return 6;
+}
+
+// Valeur de décision annuelle d'un élève : on balaie de la dernière séquence
+// vers la première et on retient la 1re décision saisie (tolérant à l'endroit
+// où le conseil l'a posée).
+export function annualDecisionValue(student, classes, gradeMap) {
+  const cls = (classes || []).find((c) => c.id === student.class_id);
+  if (!cls) return null;
+  const maxSeq = lastSequenceFor(cls);
+  for (let s = maxSeq; s >= 1; s--) {
+    const dec = (gradeMap?.[`${student.class_id}_${student.id}_${s}`] || {})['__decision__'];
+    if (dec) return dec;
+  }
+  return null;
+}
+
+// Un élève redouble si sa décision annuelle est 'redoublant' (ou 'redouble').
+export function isRepeater(student, classes, gradeMap) {
+  const d = annualDecisionValue(student, classes, gradeMap);
+  return d === 'redoublant' || d === 'redouble';
+}
+
 // "2024-2025" → "2025-2026"
 export function computeNextYear(current) {
   if (!current) return '';

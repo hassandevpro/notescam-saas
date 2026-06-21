@@ -48,6 +48,14 @@ const ICONS = {
       <line x1="3" y1="20" x2="21" y2="20"/>
     </svg>
   ),
+  transcript: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4a2 2 0 0 1 2-2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>
+      <circle cx="17.5" cy="17.5" r="2.5"/>
+    </svg>
+  ),
   monitor: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
@@ -194,6 +202,7 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
         { to: '/app/absences',  label: t('Absences', 'Attendance'),               icon: 'absences', locked: !f.hasAbsences },
         { to: '/app/grades',     label: t('Notes', 'Grades'),                      icon: 'grades' },
         { to: '/app/bulletins', label: t('Bulletins', 'Report Cards'),            icon: 'bulletins' },
+        { to: '/app/releves',   label: t('Relevés de notes', 'Transcripts', 'Certificaciones'), icon: 'transcript' },
         { to: '/app/timetable', label: t('Emploi du temps', 'Timetable'),         icon: 'timetable', locked: !f.hasTimetable },
         { to: '/app/conseil',   label: t('Conseil de classe', 'Class Council'),   icon: 'conseil' },
       ],
@@ -208,8 +217,8 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
     {
       label: t('Gestion', 'Management'),
       links: [
-        { to: '/app/fees',     label: t('Frais scolaires', 'School Fees'), icon: 'fees',     locked: !f.hasFees },
-        { to: '/app/teachers', label: t('Enseignants', 'Teachers'),        icon: 'teachers', locked: !f.hasTeachers },
+        { to: '/app/fees',      label: t('Frais scolaires', 'School Fees'),   icon: 'fees',     locked: !f.hasFees },
+        { to: '/app/personnel', label: t('Personnel', 'Staff', 'Personal'),   icon: 'teachers', locked: !f.hasTeachers },
       ],
     },
     {
@@ -241,6 +250,7 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
         { to: '/app/absences',  label: t('Absences', 'Attendance'),               icon: 'absences', locked: !f.hasAbsences },
         { to: '/app/grades',    label: t('Notes', 'Grades'),                      icon: 'grades' },
         { to: '/app/bulletins', label: t('Bulletins', 'Report Cards'),            icon: 'bulletins' },
+        { to: '/app/releves',   label: t('Relevés de notes', 'Transcripts', 'Certificaciones'), icon: 'transcript' },
         { to: '/app/timetable', label: t('Emploi du temps', 'Timetable'),         icon: 'timetable', locked: !f.hasTimetable },
         { to: '/app/conseil',   label: t('Conseil de classe', 'Class Council'),   icon: 'conseil' },
       ],
@@ -299,6 +309,7 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
         { to: '/app/grades',     label: t('Notes', 'Grades'),              icon: 'grades' },
         { to: '/app/absences',   label: t('Absences', 'Attendance'),       icon: 'absences', locked: !f.hasAbsences },
         { to: '/app/bulletins',  label: t('Bulletins', 'Report Cards'),    icon: 'bulletins' },
+        { to: '/app/releves',    label: t('Relevés de notes', 'Transcripts', 'Certificaciones'), icon: 'transcript' },
         { to: '/app/timetable',  label: t('Emploi du temps', 'Timetable'), icon: 'timetable', locked: !f.hasTimetable },
         { to: '/app/settings',   label: t('Paramètres', 'Settings'),       icon: 'settings' },
         { to: '/app/aide',       label: t('Guide / Aide', 'Help guide'),   icon: 'help' },

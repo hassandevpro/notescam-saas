@@ -33,7 +33,7 @@ function decisionLabel(value) {
 
 export default function BoletinGEDetalle({
   school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period,
-  gradeMap, classId, teachers, annualDecision, classStudents = [], maxScale = 10, useCoef = true,
+  gradeMap, classId, teachers, annualDecision, classStudents = [], maxScale = 10, useCoef = true, qrSrc,
 }) {
   const MAX  = maxScale;
   const PASS = maxScale / 2;
@@ -151,6 +151,9 @@ export default function BoletinGEDetalle({
             <td style={{ ...info, width: '14%' }}><strong>CURSO :</strong><br />{cls?.name || '—'}</td>
             <td style={{ ...info, width: '14%' }}><strong>TUTOR/A :</strong><br />{tutor?.name || '—'}</td>
             <td style={{ ...info, width: '14%', textAlign: 'center' }}><strong>EFECTIVO :</strong><br /><strong style={{ fontSize: '13px' }}>{stats?.total ?? '—'}</strong></td>
+            {qrSrc && (
+              <td style={{ ...info, width: '11%', textAlign: 'center' }}><img src={qrSrc} alt="QR" style={{ width: 44, height: 44 }} /></td>
+            )}
           </tr>
         </tbody>
       </table>

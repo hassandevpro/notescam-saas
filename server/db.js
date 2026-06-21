@@ -49,14 +49,28 @@ ensureColumn('schools',  'ge_grade_max', 'ge_grade_max INTEGER');  // barème GE
 ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // pilotage des périodes : 'auto' | 'manual'
 ensureColumn('schools',  'establishment_no', 'establishment_no TEXT'); // N° officiel établissement (en-tête bulletin)
 ensureColumn('schools',  'bulletin_font',    'bulletin_font TEXT');    // police choisie pour le bulletin
+// Relevés de notes — signatures + noms des 2 autorités additionnelles (le chef
+// d'établissement réutilise signature_url/stamp_url/director). Sans ces colonnes,
+// pickColumns avalerait les champs en silence en LAN.
+ensureColumn('schools',  'censeur_signature_url',     'censeur_signature_url TEXT');
+ensureColumn('schools',  'censeur_name',              'censeur_name TEXT');
+ensureColumn('schools',  'surveillant_signature_url', 'surveillant_signature_url TEXT');
+ensureColumn('schools',  'surveillant_name',          'surveillant_name TEXT');
 ensureColumn('users',    'cloud_user_id',    'cloud_user_id TEXT');    // pont d'identifiants cloud ↔ local (bases déjà installées)
+// Champs « personnel » communs ajoutés aux enseignants : ils sont un sous-type
+// du personnel (cf. table `staff`) et portent donc le même socle d'informations.
+for (const [col, ddl] of [
+  ['matricule', 'matricule TEXT'], ['gender', 'gender TEXT'], ['address', 'address TEXT'],
+  ['photo_url', 'photo_url TEXT'], ['fonction', 'fonction TEXT'], ['hire_date', 'hire_date TEXT'],
+  ['status', 'status TEXT'], ['documents', 'documents TEXT'],
+]) ensureColumn('teachers', col, ddl);
 
 // --- Synchronisation continue LAN ↔ Cloud (Phase 2) -------------------
 // Tables dont les changements sont répliqués vers/depuis le cloud. Chacune
 // reçoit updated_at / version / device_id pour la résolution LWW + l'outbox.
 export const SYNCED_TABLES = new Set([
   'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
-  'students', 'teachers', 'grades', 'student_fees', 'fee_payments',
+  'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ]);
@@ -93,7 +107,7 @@ export function tableColumns(table) {
 // Liste blanche des tables exposées par l'API générique.
 export const ALLOWED_TABLES = new Set([
   'schools', 'school_users', 'classes', 'subjects', 'students', 'grades',
-  'teachers', 'student_fees', 'fee_payments', 'attendance', 'student_absences',
+  'teachers', 'staff', 'student_fees', 'fee_payments', 'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots', 'country_education_config',
   'evaluation_system', 'superadmins', 'academic_periods',

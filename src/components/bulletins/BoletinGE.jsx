@@ -21,7 +21,7 @@ function decisionLabel(value) {
 
 export default function BoletinGE({
   school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period,
-  gradeMap, classId, teachers, annualDecision, maxScale = 10, useCoef = true,
+  gradeMap, classId, teachers, annualDecision, maxScale = 10, useCoef = true, qrSrc,
 }) {
   const MAX  = maxScale;       // 10 (défaut) ou 20, choisi par l'admin
   const PASS = maxScale / 2;   // 5/10 ou 10/20
@@ -57,11 +57,12 @@ export default function BoletinGE({
           Unidad – Paz – Justicia<br />————————<br />
           <em>{school?.region || ''}</em>
         </div>
-        <div className="bulletin-logo">
+        <div className="bulletin-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
           {school?.logo_url
             ? <img src={school.logo_url} alt="Logotipo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
             : '🎓'
           }
+          {qrSrc && <img src={qrSrc} alt="QR" style={{ width: 48, height: 48 }} />}
         </div>
         <div>
           <strong>MINISTERIO DE EDUCACIÓN</strong><br />

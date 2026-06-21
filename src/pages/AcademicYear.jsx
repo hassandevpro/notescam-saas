@@ -4,13 +4,18 @@ import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
-import { computeNextYear, getNextLevel } from '../lib/yearEngine';
+import { computeNextYear, getNextLevel, isRepeater, lastSequenceFor, annualDecisionValue } from '../lib/yearEngine';
 import { fetchDistinctYears } from '../lib/schoolService';
 import { backendOnline } from '../lib/edition';
 import { seedDemoYear, deleteDemoYear, getDemoClassIds } from '../lib/seedDemo';
 import { resolveCountryCode } from '../countries';
 import { initDB, classesDB } from '../lib/db';
-import { useCountry } from '../lib/useCountry';
+import { useCountry, gradingOpts, geGradeMax } from '../lib/useCountry';
+import { buildRanks, clsStat, multiAvg, getAppreciation } from '../core/bulletinEngine';
+import { transcriptColumns } from '../lib/transcriptEngine';
+import { palmaresClassSheet } from '../lib/palmaresDoc';
+import { printSheets } from '../lib/transcriptDoc';
+import { exportTranscriptsPdf } from '../lib/transcriptPdf';
 import { useActivePeriod } from '../lib/useActivePeriod';
 import {
   seedPeriods, activatePeriod, closePeriod, reopenPeriod, lockPeriod, unlockPeriod,
@@ -21,7 +26,7 @@ import Modal from '../components/Modal';
 import DataImportPanel from '../components/DataImportPanel';
 
 // ── Promotion preview + confirmation modal ─────────────────────────────────
-function PromotionModal({ currentYear, newYear, classes, students, subjects, onConfirm, onClose }) {
+function PromotionModal({ currentYear, newYear, classes, students, subjects, gradeMap, onConfirm, onClose }) {
   const t = useT();
   const [running, setRunning] = useState(false);
   const [result,  setResult]  = useState(null);
@@ -29,12 +34,15 @@ function PromotionModal({ currentYear, newYear, classes, students, subjects, onC
   const rows = classes.map((cls) => {
     const nextLevel    = getNextLevel(cls.level, cls.system);
     const studs        = students.filter((s) => s.class_id === cls.id);
+    const repeaters    = studs.filter((s) => isRepeater(s, classes, gradeMap));
     const isGraduating = nextLevel === null;
-    return { cls, nextLevel, isGraduating, studs };
+    return { cls, nextLevel, isGraduating, studs, repeaters: repeaters.length };
   });
 
-  const promotedCount  = rows.filter((r) => !r.isGraduating).reduce((n, r) => n + r.studs.length, 0);
-  const graduatedCount = rows.filter((r) =>  r.isGraduating).reduce((n, r) => n + r.studs.length, 0);
+  // Les redoublants ne montent ni ne sont diplômés : ils redoublent leur niveau.
+  const repeatedCount  = rows.reduce((n, r) => n + r.repeaters, 0);
+  const promotedCount  = rows.filter((r) => !r.isGraduating).reduce((n, r) => n + (r.studs.length - r.repeaters), 0);
+  const graduatedCount = rows.filter((r) =>  r.isGraduating).reduce((n, r) => n + (r.studs.length - r.repeaters), 0);
 
   const handleConfirm = async () => {
     setRunning(true);
@@ -65,6 +73,12 @@ function PromotionModal({ currentYear, newYear, classes, students, subjects, onC
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
                 {result.promoted} {t(`élève${result.promoted !== 1 ? 's' : ''} promu${result.promoted !== 1 ? 's' : ''}`, `student${result.promoted !== 1 ? 's' : ''} promoted`)}
               </li>
+              {result.repeated > 0 && (
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+                  {result.repeated} {t(`élève${result.repeated !== 1 ? 's' : ''} redoublant${result.repeated !== 1 ? 's' : ''}`, `student${result.repeated !== 1 ? 's' : ''} repeating`)}
+                </li>
+              )}
               {result.graduated > 0 && (
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
@@ -79,10 +93,14 @@ function PromotionModal({ currentYear, newYear, classes, students, subjects, onC
       ) : (
         <div className="space-y-4">
           {/* Stats summary */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 text-center">
               <div className="text-2xl font-extrabold text-brand-700">{promotedCount}</div>
               <div className="text-xs text-brand-500 mt-0.5 font-medium">{t('élèves promus', 'students promoted')}</div>
+            </div>
+            <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 text-center">
+              <div className="text-2xl font-extrabold text-orange-700">{repeatedCount}</div>
+              <div className="text-xs text-orange-500 mt-0.5 font-medium">{t('redoublants', 'repeating')}</div>
             </div>
             <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
               <div className="text-2xl font-extrabold text-amber-700">{graduatedCount}</div>
@@ -92,7 +110,7 @@ function PromotionModal({ currentYear, newYear, classes, students, subjects, onC
 
           {/* Class rows */}
           <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-            {rows.map(({ cls, nextLevel, isGraduating, studs }) => (
+            {rows.map(({ cls, nextLevel, isGraduating, studs, repeaters }) => (
               <div
                 key={cls.id}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm border ${
@@ -115,6 +133,9 @@ function PromotionModal({ currentYear, newYear, classes, students, subjects, onC
                   <span className="text-xs font-medium text-gray-500">
                     {studs.length} {t('élève', 'student')}{studs.length !== 1 ? 's' : ''}
                   </span>
+                  {repeaters > 0 && (
+                    <div className="text-xs text-orange-600 font-semibold mt-0.5">{repeaters} {t('redoublant', 'repeating')}{repeaters !== 1 ? 's' : ''}</div>
+                  )}
                   {isGraduating && (
                     <div className="text-xs text-amber-600 font-semibold mt-0.5">{t('Diplômés', 'Graduates')}</div>
                   )}
@@ -286,6 +307,197 @@ function PeriodsManager() {
   );
 }
 
+// ── Gestion des redoublements (avant la promotion) ──────────────────────────
+// La décision est durable : écrite dans le slot de notes `__decision__` (même
+// canal que le Conseil de classe), donc relue par la promotion ET affichée sur
+// les relevés / bulletins. Aucun stockage parallèle.
+function RedoublementsManager() {
+  const t        = useT();
+  const school   = useAuthStore((s) => s.school);
+  const classes  = useSchoolStore((s) => s.classes);
+  const students  = useSchoolStore((s) => s.students);
+  const subjects  = useSchoolStore((s) => s.subjects);
+  const gradeMap  = useSchoolStore((s) => s.gradeMap);
+  const saveGrade = useSchoolStore((s) => s.saveGrade);
+
+  const [classId, setClassId] = useState('');
+  const [busy,    setBusy]    = useState(null);
+
+  const cls    = classes.find((c) => c.id === classId) || null;
+  const sys    = cls?.system || 'FR';
+  const cycle  = cls?.cycle || 'secondaire';
+  const cc     = resolveCountryCode(school);
+  const opts   = gradingOpts(school, cycle);
+  const seqs   = transcriptColumns(sys, cycle, cc).seqs;
+  const lastSeq = cls ? lastSequenceFor(cls) : 6;
+  const pass   = sys === 'EN' ? 50 : sys === 'ES' ? geGradeMax(school) / 2 : 10;
+
+  const classSubjects = subjects.filter((s) => s.class_id === classId);
+  const classStudents = students.filter((s) => s.class_id === classId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const setDecision = async (sid, value) => {
+    setBusy(sid);
+    try {
+      // Toggle : recliquer sur la même valeur efface la décision.
+      const current = annualDecisionValue({ id: sid, class_id: classId }, classes, gradeMap);
+      const next = current === value ? '' : value;
+      await saveGrade(classId, sid, lastSeq, { __decision__: next });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const redoublantsCount = classStudents.filter((s) => isRepeater(s, classes, gradeMap)).length;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+      <h3 className="font-semibold text-gray-900 text-base">{t('Redoublements', 'Repeaters', 'Repetidores')}</h3>
+      <p className="text-sm text-gray-500 mt-1 leading-relaxed mb-4">
+        {t("Marquez les élèves qui redoublent. Ils ne seront pas promus : la promotion les replace dans une classe de leur niveau actuel. La décision est aussi reportée sur le relevé et le bulletin.",
+           'Mark students who repeat the year. They will not be promoted: promotion keeps them at their current level. The decision also appears on the transcript and report card.',
+           'Marque a los alumnos que repiten. No serán promocionados.')}
+      </p>
+
+      <div className="mb-4" style={{ maxWidth: 280 }}>
+        <label className="form-label">{t('Classe', 'Class', 'Clase')}</label>
+        <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)}>
+          <option value="">{t('— Choisir une classe —', '— Select a class —', '— Elegir clase —')}</option>
+          {classes.filter((c) => c.cycle !== 'maternelle').map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {cls && (
+        <>
+          {redoublantsCount > 0 && (
+            <p className="text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-1.5 inline-block mb-3">
+              {redoublantsCount} {t('redoublant', 'repeater', 'repetidor')}{redoublantsCount !== 1 ? 's' : ''}
+            </p>
+          )}
+          <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+            {classStudents.map((s) => {
+              const avg = multiAvg(gradeMap, classId, s.id, seqs, classSubjects, sys, opts);
+              const dec = annualDecisionValue(s, classes, gradeMap);
+              const repeats = dec === 'redoublant' || dec === 'redouble';
+              const lowAvg = avg !== null && avg < pass;
+              return (
+                <div key={s.id} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm ${repeats ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-800 truncate">{s.name}</p>
+                    <p className="text-xs text-gray-400">
+                      {t('Moy. annuelle', 'Annual avg', 'Media')} : <span className={lowAvg ? 'text-red-600 font-semibold' : 'font-semibold text-gray-600'}>{avg === null ? '—' : avg}</span>
+                      {lowAvg && !repeats && <span className="ml-2 text-amber-600">{t('· en dessous du seuil', '· below threshold', '· bajo el umbral')}</span>}
+                    </p>
+                  </div>
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
+                    <button disabled={busy === s.id} onClick={() => setDecision(s.id, 'admis')}
+                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${dec === 'admis' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                      {t('Admis', 'Pass', 'Aprob.')}
+                    </button>
+                    <button disabled={busy === s.id} onClick={() => setDecision(s.id, 'redoublant')}
+                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${repeats ? 'bg-orange-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                      {t('Redouble', 'Repeat', 'Repite')}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {classStudents.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-6">{t('Aucun élève dans cette classe.', 'No students in this class.', 'Sin alumnos.')}</p>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Palmarès (tableau d'honneur classé, imprimable) ─────────────────────────
+function PalmaresPanel() {
+  const t        = useT();
+  const school   = useAuthStore((s) => s.school);
+  const classes  = useSchoolStore((s) => s.classes);
+  const students  = useSchoolStore((s) => s.students);
+  const subjects  = useSchoolStore((s) => s.subjects);
+  const gradeMap  = useSchoolStore((s) => s.gradeMap);
+  const viewYear  = useUiStore((s) => s.viewYear);
+  const year      = viewYear ?? school?.current_year ?? '';
+
+  const [pdfProg, setPdfProg] = useState(null);
+  const cc = resolveCountryCode(school);
+
+  const buildSheets = () => {
+    const eligible = classes.filter((c) => c.cycle !== 'maternelle');
+    const sheets = [];
+    for (const cls of eligible) {
+      const sys = cls.system || 'FR';
+      const cycle = cls.cycle || 'secondaire';
+      const opts = gradingOpts(school, cycle);
+      const seqs = transcriptColumns(sys, cycle, cc).seqs;
+      const subs = subjects.filter((s) => s.class_id === cls.id);
+      const studs = students.filter((s) => s.class_id === cls.id);
+      if (!studs.length || !subs.length) continue;
+      const ranks = buildRanks(studs, gradeMap, cls.id, seqs, subs, sys, {}, opts);
+      const stats = clsStat(studs, gradeMap, cls.id, seqs, subs, sys, {}, opts);
+      const rows = ranks.map((r) => {
+        const appr = getAppreciation(r.av, school?.grade_scale, sys, geGradeMax(school));
+        return {
+          rank: r.rankD, name: r.name, avg: r.av,
+          mention: appr.text || appr.txt || appr.g || '—',
+          mentionCol: appr.col,
+          isMajor: r.av !== null && r.rankD === '1er',
+        };
+      });
+      sheets.push(palmaresClassSheet(school, year, { className: cls.name, sys, rows, stats }));
+    }
+    return sheets;
+  };
+
+  const handlePrint = () => {
+    const sheets = buildSheets();
+    if (!sheets.length) { alert(t('Aucune donnée à classer.', 'No data to rank.', 'Sin datos.')); return; }
+    printSheets(sheets, `${t('Palmarès', 'Honour roll', 'Cuadro de honor')} — ${school?.name || ''} — ${year}`);
+  };
+
+  const handlePdf = async () => {
+    const sheets = buildSheets();
+    if (!sheets.length) { alert(t('Aucune donnée à classer.', 'No data to rank.', 'Sin datos.')); return; }
+    setPdfProg({ done: 0, total: sheets.length });
+    try {
+      await exportTranscriptsPdf(sheets, {
+        fileName: `palmares-${year}.pdf`,
+        onProgress: (done, total) => setPdfProg({ done, total }),
+      });
+    } finally {
+      setPdfProg(null);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <h3 className="font-semibold text-gray-900 text-base">🏆 {t('Palmarès', 'Honour roll', 'Cuadro de honor')}</h3>
+          <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+            {t("Tableau d'honneur classé par classe (majors mis en avant), établi sur la moyenne générale annuelle. Imprimez-le ou exportez-le en PDF.",
+               'Honour roll ranked by class (top students highlighted), based on the annual general average. Print it or export to PDF.',
+               'Cuadro de honor por clase según la media anual.')}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={handlePrint} className="btn-secondary">🖨 {t('Imprimer', 'Print', 'Imprimir')}</button>
+          <button onClick={handlePdf} disabled={!!pdfProg} className="btn-primary disabled:opacity-50"
+            style={{ width: 'auto', paddingLeft: '1.25rem', paddingRight: '1.25rem' }}>
+            {pdfProg ? `PDF ${pdfProg.done}/${pdfProg.total}…` : `📄 ${t('PDF', 'PDF', 'PDF')}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function AcademicYear() {
   const t = useT();
@@ -294,6 +506,7 @@ export default function AcademicYear() {
   const classes     = useSchoolStore((s) => s.classes);
   const students    = useSchoolStore((s) => s.students);
   const subjects    = useSchoolStore((s) => s.subjects);
+  const gradeMap    = useSchoolStore((s) => s.gradeMap);
   const promoteYear = useSchoolStore((s) => s.promoteYear);
 
   const navigate      = useNavigate();
@@ -415,6 +628,7 @@ export default function AcademicYear() {
           classes={classes}
           students={students}
           subjects={subjects}
+          gradeMap={gradeMap}
           onConfirm={handlePromote}
           onClose={() => setShowModal(false)}
         />
@@ -474,6 +688,12 @@ export default function AcademicYear() {
 
         {/* Périodes académiques (séquence active + verrous) */}
         {isAdmin && currentYear && <PeriodsManager />}
+
+        {/* Redoublements — à régler avant de lancer la promotion */}
+        {isAdmin && currentYear && <RedoublementsManager />}
+
+        {/* Palmarès — tableau d'honneur imprimable */}
+        {isAdmin && currentYear && <PalmaresPanel />}
 
         {/* Bloc données de démo */}
         {isAdmin && (

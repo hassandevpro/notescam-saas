@@ -5,8 +5,8 @@
 // This matches bulletinEngine's allGrades key convention exactly.
 
 const DB_NAME = 'NotesCamDB';
-// Bump à 7 : ajout du store `academic_periods` (état des séquences).
-const DB_VERSION = 7;
+// Bump à 8 : ajout du store `staff` (module Personnel — tous départements).
+const DB_VERSION = 8;
 
 let _db = null;
 
@@ -101,6 +101,16 @@ export async function initDB() {
       if (!db.objectStoreNames.contains('academic_periods')) {
         const s = db.createObjectStore('academic_periods', { keyPath: 'id' });
         s.createIndex('by_school', 'school_id');
+      }
+
+      // --- v8 ---
+      // Personnel (tous départements). Schema : { id, school_id, matricule,
+      // first_name, last_name, name, gender, phone, email, address, photo_url,
+      // fonction, department, hire_date, status, documents, auth_user_id, active }
+      if (!db.objectStoreNames.contains('staff')) {
+        const s = db.createObjectStore('staff', { keyPath: 'id' });
+        s.createIndex('by_school',     'school_id');
+        s.createIndex('by_department', 'department');
       }
     };
 
@@ -289,4 +299,12 @@ export const academicPeriodsDB = {
   put: (r) => idbPut('academic_periods', r),
   putMany: (rs) => idbPutMany('academic_periods', rs),
   delete: (id) => idbDelete('academic_periods', id),
+};
+
+export const staffDB = {
+  getAll: () => idbGetAll('staff'),
+  getByDepartment: (dep) => idbGetByIndex('staff', 'by_department', dep),
+  put: (r) => idbPut('staff', r),
+  putMany: (rs) => idbPutMany('staff', rs),
+  delete: (id) => idbDelete('staff', id),
 };

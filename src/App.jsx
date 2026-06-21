@@ -30,7 +30,10 @@ const Students      = lazy(() => import('./pages/Students'));
 const StudentProfile = lazy(() => import('./pages/StudentProfile'));
 const Grades        = lazy(() => import('./pages/Grades'));
 const Bulletins     = lazy(() => import('./pages/Bulletins'));
+const Transcripts   = lazy(() => import('./pages/Transcripts'));
+const VerifyTranscript = lazy(() => import('./pages/VerifyTranscript'));
 const Teachers      = lazy(() => import('./pages/Teachers'));
+const Personnel     = lazy(() => import('./pages/Personnel'));
 const Settings      = lazy(() => import('./pages/Settings'));
 const AcademicYear  = lazy(() => import('./pages/AcademicYear'));
 const Reports        = lazy(() => import('./pages/Reports'));
@@ -224,7 +227,9 @@ export default function App() {
           <Route path="/app/students/:id"   element={<ProtectedRoute allow={DISCIPLINE}><StudentProfile /></ProtectedRoute>} />
           <Route path="/app/grades"         element={<ProtectedRoute allow={WITH_TEACHER}><Grades /></ProtectedRoute>} />
           <Route path="/app/bulletins"      element={<ProtectedRoute allow={WITH_TEACHER}><Bulletins /></ProtectedRoute>} />
+          <Route path="/app/releves"        element={<ProtectedRoute allow={WITH_TEACHER}><Transcripts /></ProtectedRoute>} />
           <Route path="/app/teachers"       element={<ProtectedRoute allow={ADMIN_ONLY}><Teachers /></ProtectedRoute>} />
+          <Route path="/app/personnel"      element={<ProtectedRoute allow={ADMIN_ONLY}><Personnel /></ProtectedRoute>} />
           <Route path="/app/settings"       element={<ProtectedRoute allow={ALL_STAFF}><Settings /></ProtectedRoute>} />
           <Route path="/app/year"           element={<ProtectedRoute allow={ADMIN_ONLY}><AcademicYear /></ProtectedRoute>} />
           <Route path="/app/reports"        element={<ProtectedRoute allow={ACADEMIC}><Reports /></ProtectedRoute>} />
@@ -237,6 +242,7 @@ export default function App() {
           <Route path="/app/historique"       element={<ProtectedRoute allow={ADMIN_ONLY}><History /></ProtectedRoute>} />
           <Route path="/superadmin" element={<ProtectedRoute allow={['superadmin']}><SuperAdmin /></ProtectedRoute>} />
           <Route path="/parent/:token" element={<ParentPortal />} />
+          <Route path="/verify/:code" element={<VerifyTranscript />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

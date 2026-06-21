@@ -30,7 +30,10 @@ export async function logAction({ action, table, target_id, details = {} }) {
 
 // Place une ligne supprimée dans la corbeille avant suppression définitive.
 // On stocke un instantané intégral pour pouvoir restaurer plus tard.
-export async function moveToTrash({ table, payload }) {
+// `related` (optionnel) : bundle des lignes dépendantes effacées en cascade par
+// le backend (notes, frais, paiements…) — sans lui, la restauration rendrait un
+// élève vide (cf. lib/studentBundle.js).
+export async function moveToTrash({ table, payload, related = null }) {
   if (!payload) return;
   try {
     const { user, fullName, school } = useAuthStore.getState();
@@ -38,6 +41,7 @@ export async function moveToTrash({ table, payload }) {
       table,
       original_id: payload.id || null,
       payload,
+      related,
       school_id: school?.id || null,
       deleted_by: user?.id  || null,
       deleted_by_name: fullName || user?.email || 'Anonyme',
@@ -92,7 +96,7 @@ async function cancelQueuedDelete(table, rowId) {
 // adapté à la table — laisse le moteur de sync s'occuper de Supabase.
 export async function restoreFromTrash(trashItem, store) {
   if (!trashItem || !store) return;
-  const { table, payload, id } = trashItem;
+  const { table, payload, related, id } = trashItem;
   // On purge d'abord la suppression en attente, pour qu'elle ne reparte pas
   // au prochain flush et n'efface pas la ligne que l'on vient de recréer.
   await cancelQueuedDelete(table, payload?.id);
@@ -102,9 +106,15 @@ export async function restoreFromTrash(trashItem, store) {
     case 'subjects':
       await store.addSubject(payload); break;
     case 'students':
-      await store.addStudent(payload); break;
+      await store.addStudent(payload);
+      // Réinjecte notes / absences / frais / paiements effacés en cascade lors de
+      // la suppression — sinon l'élève reviendrait sans aucune de ses données.
+      if (related) await store.restoreStudentBundle?.(payload.id, related);
+      break;
     case 'teachers':
       await store.addTeacher?.(payload); break;
+    case 'staff':
+      await store.addStaff?.(payload); break;
     default:
       console.warn('restoreFromTrash: unknown table', table);
       return;
@@ -194,14 +204,15 @@ export const TRASH_LABELS = {
     subjects: 'Matière',
     students: 'Élève',
     teachers: 'Enseignant',
+    staff:    'Personnel',
     grades:   'Notes',
   },
   en: {
     classes:  'Class',  subjects: 'Subject', students: 'Student',
-    teachers: 'Teacher', grades:  'Grades',
+    teachers: 'Teacher', staff: 'Staff', grades:  'Grades',
   },
   es: {
     classes:  'Clase',  subjects: 'Asignatura', students: 'Alumno',
-    teachers: 'Profesor', grades: 'Notas',
+    teachers: 'Profesor', staff: 'Personal', grades: 'Notas',
   },
 };

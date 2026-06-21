@@ -288,6 +288,8 @@ export default function Settings() {
         current_year: school.current_year || '',
         establishment_no: school.establishment_no || '',
         bulletin_font:    school.bulletin_font    || 'arial',
+        censeur_name:     school.censeur_name     || '',
+        surveillant_name: school.surveillant_name || '',
       });
       if (Array.isArray(school.grade_scale) && school.grade_scale.length > 0) {
         setGradeScale(school.grade_scale);
@@ -652,6 +654,41 @@ export default function Settings() {
                     uploading={uploadingAsset === 'signature'}
                     hint="JPG, PNG ou SVG."
                   />
+
+                  {/* Signatures additionnelles — relevés de notes (3 autorités) */}
+                  <div className="pt-2 border-t border-gray-100">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                      {t('Signatures du relevé de notes', 'Transcript signatures', 'Firmas de la certificación')}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                      <div>
+                        <label className="form-label">{t('Nom du censeur', 'Dean of studies name', 'Nombre del jefe de estudios')}</label>
+                        <input type="text" className="form-input" value={form.censeur_name || ''} onChange={set('censeur_name')} placeholder={t('Ex : M. NDONGO', 'E.g. Mr NDONGO')} />
+                      </div>
+                      <div>
+                        <label className="form-label">{t('Nom du surveillant général', 'Senior discipline master name', 'Nombre del jefe de disciplina')}</label>
+                        <input type="text" className="form-input" value={form.surveillant_name || ''} onChange={set('surveillant_name')} placeholder={t('Ex : Mme ATANGANA', 'E.g. Mrs ATANGANA')} />
+                      </div>
+                    </div>
+                    <div className="space-y-6">
+                      <AssetUploader
+                        label={t('Signature du censeur', "Dean's signature", 'Firma del jefe de estudios')}
+                        currentUrl={school?.censeur_signature_url}
+                        onUpload={(file) => handleAssetUpload(file, 'censeur_signature', 'censeur_signature_url')}
+                        onRemove={() => handleAssetRemove('censeur_signature_url')}
+                        uploading={uploadingAsset === 'censeur_signature'}
+                        hint="JPG, PNG ou SVG."
+                      />
+                      <AssetUploader
+                        label={t('Signature du surveillant général', "Discipline master's signature", 'Firma del jefe de disciplina')}
+                        currentUrl={school?.surveillant_signature_url}
+                        onUpload={(file) => handleAssetUpload(file, 'surveillant_signature', 'surveillant_signature_url')}
+                        onRemove={() => handleAssetRemove('surveillant_signature_url')}
+                        uploading={uploadingAsset === 'surveillant_signature'}
+                        hint="JPG, PNG ou SVG."
+                      />
+                    </div>
+                  </div>
                 </div>
                 {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
               </Section>

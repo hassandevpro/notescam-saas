@@ -6,10 +6,13 @@ import { createClient } from '@supabase/supabase-js';
 import { exportTeachers, downloadTeacherTemplate, parseTeachersSpreadsheet } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
+import StudentAvatar from '../components/StudentAvatar';
 import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
 import { resolveCountryCode } from '../countries';
+import { resizeImageToSquare } from '../lib/image';
+import { uploadStaffPhoto, uploadStaffDocument, parseDocs } from '../lib/staffService';
 
 // Client sans persistance de session — crée des comptes sans déconnecter l'admin
 const anonClient = createClient(
@@ -37,18 +40,38 @@ function initials(name = '') {
 
 // ── Formulaire ajout / modification ──────────────────────────────────────────
 
-const EMPTY_FORM = { name: '', email: '', phone: '', specialty: '' };
+const EMPTY_FORM = {
+  name: '', matricule: '', gender: '', email: '', phone: '',
+  specialty: '', fonction: '', address: '', hire_date: '', status: '',
+};
+const TEACHER_GENDERS = ['Masculin', 'Feminin'];
 
+// Les enseignants sont un sous-type du personnel : le formulaire porte le même
+// socle d'informations (identité, contact, photo, documents) en plus des champs
+// pédagogiques (spécialité). Photo + documents sont envoyés après création/MAJ
+// (ils ont besoin de l'id) via le callback onSave(form, { photoFile, newDocFiles }).
 function TeacherForm({ initial, onSave, onCancel }) {
   const t = useT();
   const [form,   setForm]   = useState({ ...EMPTY_FORM, ...initial });
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(initial?.photo_url || null);
+  const [docs, setDocs] = useState(parseDocs(initial?.documents));
+  const [newDocFiles, setNewDocFiles] = useState([]);
   const [saving, setSaving] = useState(false);
+  const photoRef = useRef();
+  const docRef = useRef();
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handlePhoto = (file) => {
+    if (!file) return;
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
-    await onSave(form);
+    await onSave({ ...form, documents: docs }, { photoFile, newDocFiles });
     setSaving(false);
   };
 
@@ -56,9 +79,25 @@ function TeacherForm({ initial, onSave, onCancel }) {
     <Modal
       title={initial?.id ? t("Modifier l'enseignant", 'Edit teacher') : t('Nouvel enseignant', 'New teacher')}
       onClose={onCancel}
-      size="md"
+      size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Photo */}
+        <div className="flex items-center gap-4">
+          <StudentAvatar student={{ photo_url: photoPreview }} size={64} square />
+          <div>
+            <button type="button" onClick={() => photoRef.current?.click()} className="btn-secondary text-xs">
+              {photoPreview ? t('Changer la photo', 'Change photo') : t('Ajouter une photo', 'Add photo')}
+            </button>
+            {photoPreview && (
+              <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null); setForm((f) => ({ ...f, photo_url: null })); }}
+                className="ml-2 text-xs text-red-500 hover:underline">{t('Retirer', 'Remove')}</button>
+            )}
+            <input ref={photoRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => handlePhoto(e.target.files?.[0])} />
+          </div>
+        </div>
+
         <div>
           <label className="form-label">{t('Nom complet *', 'Full name *')}</label>
           <input
@@ -67,32 +106,89 @@ function TeacherForm({ initial, onSave, onCancel }) {
             value={form.name} onChange={set('name')}
           />
         </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">{t('Email', 'Email')}</label>
-            <input
-              type="email" className="form-input"
-              placeholder="enseignant@ecole.cm"
-              value={form.email} onChange={set('email')}
-            />
+            <label className="form-label">{t('Matricule *', 'Staff ID *')}</label>
+            <input type="text" required className="form-input" value={form.matricule} onChange={set('matricule')} />
           </div>
           <div>
-            <label className="form-label">{t('Téléphone', 'Phone')}</label>
-            <input
-              type="tel" className="form-input"
-              placeholder="6xx xxx xxx"
-              value={form.phone} onChange={set('phone')}
-            />
+            <label className="form-label">{t('Sexe *', 'Gender *')}</label>
+            <select required className="form-input" value={form.gender} onChange={set('gender')}>
+              <option value="">—</option>
+              {TEACHER_GENDERS.map((g) => <option key={g} value={g}>{g === 'Masculin' ? t('Masculin', 'Male') : t('Féminin', 'Female')}</option>)}
+            </select>
           </div>
         </div>
-        <div>
-          <label className="form-label">{t('Spécialité', 'Specialty')}</label>
-          <input
-            type="text" className="form-input"
-            placeholder={t('Ex : Mathématiques, Physique-Chimie…', 'E.g. Mathematics, Physics-Chemistry…')}
-            value={form.specialty} onChange={set('specialty')}
-          />
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">{t('Téléphone *', 'Phone *')}</label>
+            <input type="tel" required className="form-input" placeholder="6xx xxx xxx" value={form.phone} onChange={set('phone')} />
+          </div>
+          <div>
+            <label className="form-label">{t('Email', 'Email')}</label>
+            <input type="email" className="form-input" placeholder="enseignant@ecole.cm" value={form.email} onChange={set('email')} />
+          </div>
         </div>
+
+        <div>
+          <label className="form-label">{t('Adresse', 'Address')}</label>
+          <input type="text" className="form-input" value={form.address} onChange={set('address')} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">{t('Spécialité', 'Specialty')}</label>
+            <input type="text" className="form-input"
+              placeholder={t('Ex : Mathématiques…', 'E.g. Mathematics…')}
+              value={form.specialty} onChange={set('specialty')} />
+          </div>
+          <div>
+            <label className="form-label">{t('Fonction', 'Role')}</label>
+            <input type="text" className="form-input"
+              placeholder={t('Ex : Professeur principal', 'E.g. Lead teacher')}
+              value={form.fonction} onChange={set('fonction')} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">{t('Date de recrutement', 'Hire date')}</label>
+            <input type="date" className="form-input" value={form.hire_date || ''} onChange={set('hire_date')} />
+          </div>
+          <div>
+            <label className="form-label">{t('Statut', 'Status')}</label>
+            <input type="text" className="form-input"
+              placeholder={t('Titulaire, vacataire…', 'Permanent, contract…')}
+              value={form.status} onChange={set('status')} />
+          </div>
+        </div>
+
+        {/* Documents */}
+        <div>
+          <label className="form-label">{t('Documents', 'Documents')}</label>
+          <div className="space-y-1.5">
+            {docs.map((d, i) => (
+              <div key={`d-${i}`} className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm">
+                <a href={d.url} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline truncate">{d.name}</a>
+                <button type="button" onClick={() => setDocs((arr) => arr.filter((_, j) => j !== i))} className="text-red-500 text-xs hover:underline">{t('Retirer', 'Remove')}</button>
+              </div>
+            ))}
+            {newDocFiles.map((f, i) => (
+              <div key={`n-${i}`} className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 text-sm">
+                <span className="truncate text-amber-800">{f.name} <span className="text-amber-500">({t('à envoyer', 'pending')})</span></span>
+                <button type="button" onClick={() => setNewDocFiles((arr) => arr.filter((_, j) => j !== i))} className="text-red-500 text-xs hover:underline">{t('Retirer', 'Remove')}</button>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={() => docRef.current?.click()} className="btn-secondary text-xs mt-2">
+            + {t('Ajouter un document', 'Add document')}
+          </button>
+          <input ref={docRef} type="file" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) setNewDocFiles((arr) => [...arr, f]); e.target.value = ''; }} />
+        </div>
+
         <div className="flex gap-3 pt-2">
           <button
             type="submit" disabled={saving} className="btn-primary"
@@ -587,7 +683,10 @@ function printTeacherList(teachers, subjectsByTeacher, school, cols = {}) {
 
 // ── Page principale ───────────────────────────────────────────────────────────
 
-export default function Teachers() {
+// Corps de la page Enseignants, SANS <Layout>. Réutilisé tel quel comme onglet
+// « Enseignants » du module Personnel (cf. pages/Personnel.jsx) et enveloppé
+// dans <Layout> par la page Teachers ci-dessous (route /app/teachers conservée).
+export function TeachersPanel() {
   const t           = useT();
   const { f }       = usePlan();
   const teachers      = useSchoolStore((s) => s.teachers);
@@ -634,14 +733,35 @@ export default function Teachers() {
     );
   }, [teachers, search]);
 
-  const handleSave = async (form) => {
-    if (editing) {
-      await updateTeacher(editing.id, form);
-      setEditing(null);
-    } else {
-      await addTeacher(form);
-      setShowForm(false);
+  const handleSave = async (form, uploads = {}) => {
+    const { photoFile, newDocFiles } = uploads;
+    let id = editing?.id;
+    if (editing) await updateTeacher(editing.id, form);
+    else { const rec = await addTeacher(form); id = rec?.id; }
+
+    // Photo + nouveaux documents : envoyés après coup car ils ont besoin de l'id.
+    // Tolérant : un échec d'upload ne bloque pas l'enregistrement de la fiche.
+    const schoolId = school?.id;
+    const patch = {};
+    if (photoFile && id) {
+      try {
+        const blob = await resizeImageToSquare(photoFile);
+        const { url } = await uploadStaffPhoto(schoolId, id, blob, 'teachers');
+        if (url) patch.photo_url = url;
+      } catch (err) { console.warn('photo upload', err); }
     }
+    if (newDocFiles?.length && id) {
+      const uploaded = [];
+      for (const file of newDocFiles) {
+        try { const { doc } = await uploadStaffDocument(schoolId, id, file, 'teachers'); if (doc) uploaded.push(doc); }
+        catch (err) { console.warn('doc upload', err); }
+      }
+      if (uploaded.length) patch.documents = [...parseDocs(form.documents), ...uploaded];
+    }
+    if (id && Object.keys(patch).length) await updateTeacher(id, patch);
+
+    setEditing(null);
+    setShowForm(false);
   };
 
   const handleDelete = async (teacher) => {
@@ -654,11 +774,10 @@ export default function Teachers() {
   };
 
   if (!f.hasTeachers) {
-    return <Layout><UpgradeBanner requiredPlan="ecole" featureName={t('Enseignants', 'Teachers')} /></Layout>;
+    return <UpgradeBanner requiredPlan="ecole" featureName={t('Enseignants', 'Teachers')} />;
   }
 
   return (
-    <Layout>
       <div className="max-w-5xl space-y-6">
 
         {/* Header */}
@@ -964,6 +1083,10 @@ export default function Teachers() {
         )}
 
       </div>
-    </Layout>
   );
+}
+
+// Page autonome (route /app/teachers conservée) — enveloppe le panneau.
+export default function Teachers() {
+  return <Layout><TeachersPanel /></Layout>;
 }

@@ -23,7 +23,7 @@ const BATCH = 500;
 // Ordre FK pour appliquer les lignes distantes (parents avant enfants).
 const PULL_ORDER = [
   'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
-  'students', 'teachers', 'grades', 'student_fees', 'fee_payments',
+  'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ];

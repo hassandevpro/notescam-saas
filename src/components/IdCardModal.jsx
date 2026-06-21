@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from './Modal';
 import IdCard, { CARD_W, CARD_H } from './IdCard';
-import { buildCardId, qrDataUrl } from '../lib/idCardService';
+import { buildCardId, qrDataUrl, imageToDataUrl } from '../lib/idCardService';
 import { exportIdCardsPdf } from '../lib/idCardPdf';
 import { getSchoolTheme } from '../lib/schoolTheme';
 import { resolveCountryCode } from '../countries';
@@ -17,37 +17,81 @@ const MODELS = [
   { key: 'minimaliste', fr: 'Minimaliste',  en: 'Minimalist' },
 ];
 
-export default function IdCardModal({ open, onClose, students = [], school, classNameById }) {
+export default function IdCardModal({ open, onClose, students = [], school, classNameById, classSystemById }) {
   const t = useT();
   const [variant, setVariant] = useState('premium'); // Premium = défaut
   const [qrMap, setQrMap] = useState({});
+  const [photoMap, setPhotoMap] = useState({});   // student.id → photo data-URL
+  const [schoolImgs, setSchoolImgs] = useState(null); // logo/signature/cachet en data-URL
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
 
   const palette     = useMemo(() => getSchoolTheme(school).palette, [school]);
   const countryCode = useMemo(() => resolveCountryCode(school), [school]);
 
-  // Pré-calcule les QR (data-URL) de tous les élèves à l'ouverture.
+  // Pré-calcule, à l'ouverture, TOUT ce que la capture PDF aura besoin :
+  //   - les QR (data-URL) de chaque élève,
+  //   - les images de l'école (logo/signature/cachet) converties UNE fois,
+  //   - la photo de chaque élève convertie en data-URL.
+  // Résultat : au moment de la capture, plus aucune image distante à charger
+  // → export rapide et insensible aux soucis réseau / CORS (cf. imageToDataUrl).
   useEffect(() => {
     if (!open || !students.length) return;
     let cancelled = false;
     (async () => {
-      const map = {};
+      // Images de l'école : identiques pour toutes les cartes → résolues une fois.
+      // Images de l'école : petites à l'affichage (logo ~60 px, cachet/signature
+      // ~50 px) → maxDim modeste suffit et allège fortement chaque capture.
+      const [logo, signature, stamp] = await Promise.all([
+        imageToDataUrl(school?.logo_url,      { maxDim: 400 }),
+        imageToDataUrl(school?.signature_url, { maxDim: 400 }),
+        imageToDataUrl(school?.stamp_url,     { maxDim: 400 }),
+      ]);
+      if (cancelled) return;
+      // En cas d'échec de conversion (URL cassée / hôte sans CORS) on conserve
+      // l'URL d'origine : l'image reste affichable, sans régression visuelle.
+      setSchoolImgs({
+        logo_url: logo ?? school?.logo_url ?? null,
+        signature_url: signature ?? school?.signature_url ?? null,
+        stamp_url: stamp ?? school?.stamp_url ?? null,
+      });
+
+      // QR + photos des élèves (en parallèle, mais bornés pour ne pas saturer
+      // le navigateur sur de très grands effectifs).
+      const qr = {};
+      const photos = {};
       for (const s of students) {
         const cardId = buildCardId(school?.id, s.id);
-        map[s.id] = await qrDataUrl(cardId);
+        const [q, p] = await Promise.all([
+          qrDataUrl(cardId),
+          imageToDataUrl(s?.photo_url, { maxDim: 600 }), // photo carte ~110×130 px
+        ]);
+        if (cancelled) return;
+        qr[s.id] = q;
+        photos[s.id] = p ?? s?.photo_url ?? null; // repli sur l'URL d'origine
       }
-      if (!cancelled) setQrMap(map);
+      if (cancelled) return;
+      setQrMap(qr);
+      setPhotoMap(photos);
     })();
     return () => { cancelled = true; };
-  }, [open, students, school?.id]);
+  }, [open, students, school?.id, school?.logo_url, school?.signature_url, school?.stamp_url]);
 
   // Refs sur chaque carte rendue (zone cachée) pour la capture PDF.
   const cardRefs = useRef([]);
   cardRefs.current = [];
   const registerRef = (el) => { if (el) cardRefs.current.push(el); };
 
-  const ready = students.length > 0 && Object.keys(qrMap).length === students.length;
+  const ready =
+    students.length > 0 &&
+    schoolImgs !== null &&
+    Object.keys(qrMap).length === students.length;
+
+  // École avec ses images déjà en data-URL (capture sans fetch ni risque CORS).
+  const resolvedSchool = useMemo(
+    () => (schoolImgs ? { ...school, ...schoolImgs } : school),
+    [school, schoolImgs]
+  );
 
   const handleExport = async (mode) => {
     if (!ready || busy) return;
@@ -55,12 +99,18 @@ export default function IdCardModal({ open, onClose, students = [], school, clas
     setProgress({ done: 0, total: students.length });
     try {
       const safe = (school?.name || 'ecole').replace(/[^\w]+/g, '_');
-      await exportIdCardsPdf(cardRefs.current, {
+      const res = await exportIdCardsPdf(cardRefs.current, {
         fileName: `cartes-scolaires-${safe}.pdf`,
         ratio: CARD_W / CARD_H,
         mode,
         onProgress: (done, total) => setProgress({ done, total }),
       });
+      if (res?.failed > 0) {
+        alert(t(
+          `${res.failed} carte(s) sur ${res.total} n'ont pas pu être générées et ont été ignorées.`,
+          `${res.failed} of ${res.total} card(s) could not be generated and were skipped.`
+        ));
+      }
     } catch (err) {
       console.error('export cartes PDF', err);
       alert(t('Échec de la génération du PDF.', 'PDF generation failed.'));
@@ -72,13 +122,16 @@ export default function IdCardModal({ open, onClose, students = [], school, clas
   if (!open) return null;
 
   const cardProps = (s) => ({
-    student: s,
-    school,
+    // Photo déjà convertie en data-URL (ou null → placeholder de la carte).
+    student: { ...s, photo_url: photoMap[s.id] ?? null },
+    school: resolvedSchool,
     className: classNameById?.(s.class_id) || '',
     cardId: buildCardId(school?.id, s.id),
     qrSrc: qrMap[s.id],
     countryCode,
     variant,
+    // Classe anglophone (système EN) → carte en anglais (sauf modèle bilingue).
+    classLang: classSystemById?.(s.class_id) === 'EN' ? 'en' : 'fr',
     palette,
   });
 

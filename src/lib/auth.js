@@ -12,6 +12,8 @@ export async function getSession() {
   return data.session;
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Récupère l'utilisateur connecté + son école + son rôle + son nom complet.
  * Retourne { user, school, role, fullName, classId, schoolUserId } ou null.
@@ -22,11 +24,26 @@ export async function getCurrentUserContext() {
 
   const user = session.user;
 
-  // Vérifie superadmin en premier — indépendant de school_users
-  const [saResult, schoolResult] = await Promise.all([
-    supabase.from('superadmins').select('user_id').eq('user_id', user.id).maybeSingle(),
-    supabase.from('school_users').select('id, role, full_name, class_id, school_id, schools (*)').eq('user_id', user.id).eq('active', true),
-  ]);
+  // Course de jeton (token race) : juste après un sign-in, la requête PostgREST
+  // peut partir AVANT que le nouveau jeton d'accès soit attaché au client. La
+  // RLS filtre alors toutes les lignes et `school_users` revient VIDE (pas une
+  // erreur), ce qui faisait afficher « Compte non configuré » à la 1re connexion.
+  // On retente donc quelques fois tant que les lignes sont vides ET sans erreur.
+  let saResult, schoolResult;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    [saResult, schoolResult] = await Promise.all([
+      supabase.from('superadmins').select('user_id').eq('user_id', user.id).maybeSingle(),
+      supabase.from('school_users').select('id, role, full_name, class_id, school_id, schools (*)').eq('user_id', user.id).eq('active', true),
+    ]);
+
+    // Contexte trouvé (superadmin ou au moins une école) → on sort.
+    if (saResult.data || (schoolResult.data && schoolResult.data.length > 0)) break;
+    // Erreur réseau/RLS explicite → inutile de boucler, on laisse le repli gérer.
+    if (saResult.error || schoolResult.error) break;
+    // Dernière tentative atteinte : le compte est probablement réellement non lié.
+    if (attempt === 3) break;
+    await sleep(300 * (attempt + 1)); // 300ms, 600ms, 900ms
+  }
 
   if (saResult.data) {
     // Compte superadmin — peut ou non avoir un school_users

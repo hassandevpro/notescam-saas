@@ -17,6 +17,19 @@ import BulletinTheme from '../components/bulletins/BulletinTheme';
 import { resolveCountryCode, bulletinOfficials } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import { bulletinFontFamily } from '../lib/schoolTheme';
+import { buildCardId, qrDataUrl } from '../lib/idCardService';
+
+// QR de bulletin : même payload que la carte scolaire (buildCardId) → le même
+// scanner identifie l'élève. Placé discrètement (en-tête / pied selon le modèle).
+function BulletinQR({ src, size = 52, label = true }) {
+  if (!src) return null;
+  return (
+    <div style={{ textAlign: 'center', lineHeight: 1 }}>
+      <img src={src} alt="QR" style={{ width: size, height: size, display: 'inline-block' }} />
+      {label && <div style={{ fontSize: '6.5px', color: '#9ca3af', marginTop: 1, letterSpacing: 0.3 }}>SCAN</div>}
+    </div>
+  );
+}
 
 // ── Helpers avatar ───────────────────────────────────────────────────────────
 const AVT_COLORS = [
@@ -231,7 +244,7 @@ const cmPaper = (school) => ({ ...CM_PAPER_STYLE, fontFamily: bulletinFontFamily
 
 // ── En-tête institutionnel partagé (ex-APC) ───────────────────────────────────
 // Disposition République du Cameroun / MINESEC / Délégations + logo + infos élève.
-function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period }) {
+function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period, qrSrc }) {
   const isEnSys     = sys === 'EN';
   const isAnnuel    = period.value === 'annuel';
   const isTrimestre = !isAnnuel && period.seqs.length > 1;
@@ -309,6 +322,9 @@ function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period }
             <td style={{ ...CM_INFO, width: '22%' }}><strong>{L(sys, 'ENS. PRINCIPAL', 'FORM MASTER')} :</strong><br />{principalTeacher?.name || '—'}</td>
             <td style={{ ...CM_INFO, width: '14%' }}><strong>{L(sys, 'CLASSE', 'CLASS')} :</strong><br />{cls?.name || '—'}</td>
             <td style={{ ...CM_INFO, width: '14%', textAlign: 'center' }}><strong>{L(sys, 'EFFECTIF', 'TOTAL')} :</strong><br /><strong style={{ fontSize: '14px' }}>{stats?.total ?? '—'}</strong></td>
+            {qrSrc && (
+              <td style={{ ...CM_INFO, width: '11%', textAlign: 'center' }}><BulletinQR src={qrSrc} size={46} /></td>
+            )}
           </tr>
         </tbody>
       </table>
@@ -319,7 +335,7 @@ function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period }
 // ── En-tête « primaire » partagé (bulletins primaire annuel) ──────────────────
 // Même source pays que BulletinCMHeader : République / devise héritées du pays
 // choisi, N° d'établissement sous la zone officielle.
-function BulletinPrimaryHeader({ school }) {
+function BulletinPrimaryHeader({ school, qrSrc }) {
   const officials = bulletinOfficials(school);
   const blocks    = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
@@ -334,10 +350,11 @@ function BulletinPrimaryHeader({ school }) {
   return (
     <div className="bulletin-header">
       {blocks[0] && <Block b={blocks[0]} />}
-      <div className="bulletin-logo">
+      <div className="bulletin-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
         {school?.logo_url
           ? <img src={school.logo_url} alt="Logo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
           : '📚'}
+        {qrSrc && <BulletinQR src={qrSrc} size={48} />}
       </div>
       {bilingual && blocks[1] && <Block b={blocks[1]} />}
     </div>
@@ -437,7 +454,7 @@ function BulletinCMFooter({ school, sys, studentAvg, maxScale, passed, decision,
 }
 
 // ── Bulletin Classique ────────────────────────────────────────────────────────
-function BulletinClassic({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId }) {
+function BulletinClassic({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, qrSrc }) {
   const passThreshold = sys === 'FR' ? 10 : 50;
   const maxScale      = sys === 'FR' ? 20 : 100;
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
@@ -448,7 +465,7 @@ function BulletinClassic({ school, cls, student, subjects, subjectGrades, studen
   return (
     <div className="bulletin-paper" style={cmPaper(school)}>
       {/* En-tête institutionnel mutualisé (ex-APC) */}
-      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} />
+      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} qrSrc={qrSrc} />
 
       {/* Tableau détaillé des matières — design Classique conservé (notes, coef, M×C, appréciations, couleurs, calculs) */}
       <table className="bulletin-table">
@@ -506,7 +523,7 @@ function BulletinClassic({ school, cls, student, subjects, subjectGrades, studen
 }
 
 // ── Bulletin Moderne ──────────────────────────────────────────────────────────
-function BulletinModern({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId }) {
+function BulletinModern({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, qrSrc }) {
   const passThreshold = sys === 'FR' ? 10 : 50;
   const maxScale      = sys === 'FR' ? 20 : 100;
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
@@ -566,6 +583,7 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
             <span style={{ color: passed ? '#059669' : '#dc2626', fontWeight: 700 }}>{decision}</span>
           </div>
         </div>
+        {qrSrc && <BulletinQR src={qrSrc} size={54} />}
       </div>
 
       <table className="bulletin-table bm-table">
@@ -672,7 +690,7 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
 }
 
 // ── Bulletin APC ──────────────────────────────────────────────────────────────
-function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, classStudents = [] }) {
+function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, classStudents = [], qrSrc }) {
   const isEnSys    = sys === 'EN';
   const passThr    = isEnSys ? 50 : 10;
   const maxScale   = isEnSys ? 100 : 20;
@@ -746,7 +764,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
     <div className="bulletin-paper" style={cmPaper(school)}>
 
       {/* En-tête institutionnel mutualisé (partagé avec le Bulletin Classique) */}
-      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} />
+      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} qrSrc={qrSrc} />
 
       {/* SUBJECT TABLE */}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
@@ -874,7 +892,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
 }
 
 // ── Bulletin Primaire (annuel — T1 + T2 + T3 côte à côte) ────────────────────
-function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, stats, sys, teachers, gradeMap, classId }) {
+function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, stats, sys, teachers, gradeMap, classId, qrSrc }) {
   const passThreshold = sys === 'FR' ? 10 : 50;
   const maxScale      = sys === 'FR' ? 20 : 100;
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
@@ -896,7 +914,7 @@ function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, st
 
   return (
     <div className="bulletin-paper" style={{ fontFamily: bulletinFontFamily(school) }}>
-      <BulletinPrimaryHeader school={school} />
+      <BulletinPrimaryHeader school={school} qrSrc={qrSrc} />
 
       <div className="bulletin-school">
         <h1>{school?.name || (sys === 'EN' ? 'School' : 'Établissement')}</h1>
@@ -1041,7 +1059,7 @@ function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, st
 }
 
 // ── Bulletin Annuel Secondaire (T1 / T2 / T3 / Moy.Ann) ──────────────────────
-function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, sys, teachers, gradeMap, classId, annualDecision }) {
+function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, sys, teachers, gradeMap, classId, annualDecision, qrSrc }) {
   const passThreshold = sys === 'FR' ? 10 : 50;
   const maxScale      = sys === 'FR' ? 20 : 100;
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
@@ -1087,7 +1105,7 @@ function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrade
 
   return (
     <div className="bulletin-paper" style={{ fontFamily: bulletinFontFamily(school) }}>
-      <BulletinPrimaryHeader school={school} />
+      <BulletinPrimaryHeader school={school} qrSrc={qrSrc} />
 
       <div className="bulletin-school">
         <h1>{school?.name || (isEN ? 'School' : 'Établissement')}</h1>
@@ -1246,7 +1264,7 @@ function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrade
 // ── Bulletin Maternelle (grille A / EA / NA par trimestre) ────────────────────
 const COMP_BUL_COLORS = { A: '#059669', EA: '#d97706', NA: '#dc2626' };
 
-function BulletinMaternelle({ school, cls, student, subjects, teachers, gradeMap, classId }) {
+function BulletinMaternelle({ school, cls, student, subjects, teachers, gradeMap, classId, qrSrc }) {
   const getComp = (subjectId, seq) => {
     const v = (gradeMap[`${classId}_${student.id}_${seq}`] || {})[subjectId];
     return v || '';
@@ -1254,7 +1272,7 @@ function BulletinMaternelle({ school, cls, student, subjects, teachers, gradeMap
 
   return (
     <div className="bulletin-paper" style={{ fontFamily: bulletinFontFamily(school) }}>
-      <BulletinPrimaryHeader school={school} />
+      <BulletinPrimaryHeader school={school} qrSrc={qrSrc} />
 
       <div className="bulletin-school">
         <h1>{school?.name || 'Établissement'}</h1>
@@ -1570,6 +1588,22 @@ export default function Bulletins() {
     [students, classId]
   );
   const selectedStudent = classStudents.find((s) => s.id === studentId) || null;
+
+  // QR (data-URL) par élève pour le bulletin — même payload que la carte scolaire
+  // (buildCardId) → un scan identifie l'élève de façon cohérente.
+  const [qrMap, setQrMap] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!school?.id || !classStudents.length) { setQrMap({}); return; }
+      const map = {};
+      for (const s of classStudents) {
+        map[s.id] = await qrDataUrl(buildCardId(school.id, s.id));
+      }
+      if (!cancelled) setQrMap(map);
+    })();
+    return () => { cancelled = true; };
+  }, [school?.id, classStudents]);
 
   // Reset period + student when class ACTUALLY changes (skip on mount to preserve persisted state)
   const prevClassIdRef = useRef(null);
@@ -2001,6 +2035,7 @@ export default function Bulletins() {
                         subjectGrades={data.subjectGrades}
                         studentAvg={data.studentAvg}
                         rank={data.rank}
+                        qrSrc={qrMap[selectedStudent.id]}
                         annualDecision={annualDecisionFor(selectedStudent.id)}
                       />
                     </BulletinTheme>
@@ -2028,6 +2063,7 @@ export default function Bulletins() {
                         subjectGrades={data.subjectGrades}
                         studentAvg={data.studentAvg}
                         rank={data.rank}
+                        qrSrc={qrMap[student.id]}
                         annualDecision={annualDecisionFor(student.id)}
                       />
                     </BulletinTheme>

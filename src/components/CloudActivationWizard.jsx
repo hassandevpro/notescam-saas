@@ -46,16 +46,34 @@ export default function CloudActivationWizard() {
     }).catch(() => {});
   }, [open]);
 
+  // Arrêt du polling au démontage ou à la fermeture de l'assistant.
+  useEffect(() => {
+    if (!open) clearInterval(pollRef.current);
+    return () => clearInterval(pollRef.current);
+  }, [open]);
+
   if (!IS_LAN || role !== 'admin') return null;
 
   function pollStatus() {
     clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       const j = await authFetch('/api/activate-cloud/status').catch(() => null);
-      const push = j?.data?.push || [];
+      if (!j?.data) return;
+      const push = j.data.push || [];
       const total = push.reduce((a, t) => a + t.total, 0) || 1;
       const pushed = push.reduce((a, t) => a + t.pushed, 0);
-      setProgress({ pct: Math.round(100 * pushed / total), log: j?.data?.state?.log || '', tables: push });
+      const phase = j.data.state?.phase;
+      setProgress({ pct: Math.round(100 * pushed / total), log: j.data.state?.log || '', tables: push });
+      // Le polling fait AUTORITÉ sur l'achèvement : même si la longue requête
+      // /run a été coupée (proxy/navigateur) alors que le serveur a terminé,
+      // on finalise dès que la base passe en phase 'done'.
+      if (phase === 'done') {
+        clearInterval(pollRef.current);
+        setError(null);
+        setBusy(false);
+        setProgress((p) => ({ ...p, pct: 100 }));
+        setStep(5);
+      }
     }, 1500);
   }
 
@@ -78,13 +96,23 @@ export default function CloudActivationWizard() {
 
   async function doRun() {
     setBusy(true); setError(null); setStep(4);
+    setProgress({ pct: 0, log: '', tables: [] });
     pollStatus();
-    const j = await authFetch('/api/activate-cloud/run', form);
-    clearInterval(pollRef.current);
-    setBusy(false);
-    if (j?.error) { setError(j.error.message); return; }
-    setProgress((p) => ({ ...p, pct: 100 }));
-    setStep(5);
+    try {
+      const j = await authFetch('/api/activate-cloud/run', form);
+      if (j?.error) { clearInterval(pollRef.current); setBusy(false); setError(j.error.message); return; }
+      clearInterval(pollRef.current);
+      setProgress((p) => ({ ...p, pct: 100 }));
+      setBusy(false);
+      setStep(5);
+    } catch {
+      // La requête longue a pu être coupée alors que le serveur poursuit la
+      // migration. On NE bloque pas : le polling prend le relais et finalisera
+      // à 'done'. On informe seulement, sans figer l'assistant.
+      setBusy(false);
+      setError("Connexion interrompue pendant la migration. Elle se poursuit côté serveur ; "
+        + "cette fenêtre se mettra à jour automatiquement. Si rien ne bouge, fermez puis rouvrez pour reprendre.");
+    }
   }
 
   return (

@@ -24,6 +24,19 @@ const TOKEN_PATH = join(DATA_DIR, 'server-token.key');
 const EDGE_BASE = (process.env.VITE_SUPABASE_URL || '');
 const CHUNK = 500;
 
+// Garde-fou réseau : aucun appel distant (auth Supabase, fonction edge) ne doit
+// pouvoir bloquer indéfiniment, sinon l'assistant reste figé « 0 % — migration
+// en cours… » sans jamais d'erreur. On borne donc chaque appel ; un dépassement
+// remonte une erreur EXPLICITE que l'assistant affiche au lieu de tourner à vide.
+const NET_TIMEOUT_MS = 30000;
+function withTimeout(promise, label, ms = NET_TIMEOUT_MS) {
+  let timer;
+  const guard = new Promise((_, rej) => {
+    timer = setTimeout(() => rej(new Error(`${label} : délai dépassé (réseau ?).`)), ms);
+  });
+  return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
+}
+
 // Tables de données poussées vers le cloud (ordre FK). On EXCLUT :
 //   - users / school_users  : gérées par la fonction edge (auth + memberships) ;
 //   - country_education_config / evaluation_system : config GLOBALE déjà en cloud ;
@@ -68,7 +81,7 @@ async function getClient(clientFactory, url, anonKey, accessToken) {
 export async function signupCloud({ url, anonKey, email, password, clientFactory }) {
   if (!url || !anonKey || !email || !password) throw new Error('Paramètres requis manquants.');
   const supa = await getClient(clientFactory, url, anonKey);
-  const { data, error } = await supa.auth.signUp({ email, password });
+  const { data, error } = await withTimeout(supa.auth.signUp({ email, password }), 'Création du compte cloud');
   if (error && !/already registered/i.test(error.message || '')) throw new Error('Création du compte cloud : ' + error.message);
   setPhase('verify', { email, started_at: new Date().toISOString() });
   appendLog(`Compte cloud demandé pour ${email}. E-mail de vérification envoyé.`);
@@ -79,7 +92,7 @@ export async function signupCloud({ url, anonKey, email, password, clientFactory
 
 export async function verifyCloud({ url, anonKey, email, password, clientFactory }) {
   const supa = await getClient(clientFactory, url, anonKey);
-  const { data, error } = await supa.auth.signInWithPassword({ email, password });
+  const { data, error } = await withTimeout(supa.auth.signInWithPassword({ email, password }), 'Connexion cloud');
   if (error || !data?.session) return { confirmed: false };
   appendLog(`E-mail vérifié, connexion cloud établie pour ${email}.`);
   return { confirmed: true };
@@ -92,7 +105,8 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
   // (3) Connexion (l'e-mail doit être vérifié) + analyse SQLite
   log(onProgress, 'connect');
   const authClient = await getClient(clientFactory, url, anonKey);
-  const { data: auth, error: authErr } = await authClient.auth.signInWithPassword({ email, password });
+  const { data: auth, error: authErr } = await withTimeout(
+    authClient.auth.signInWithPassword({ email, password }), 'Connexion cloud');
   if (authErr || !auth?.session) throw new Error('Connexion cloud impossible (e-mail non vérifié ?).');
   const accessToken = auth.session.access_token;
   const cloudAdminId = auth.user.id;
@@ -205,11 +219,23 @@ function localUserByEmail(email) {
 // Appel de la fonction edge `provision-tenant` (auth = JWT admin). Best-effort
 // d'idempotence côté edge (réutilise les comptes existants → reprise sûre).
 async function provisionTenant(url, accessToken, payload) {
-  const res = await fetch(`${url}/functions/v1/provision-tenant`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  // Abandon réel après NET_TIMEOUT_MS : sans cela, une fonction edge bloquée fige
+  // toute l'activation à « 0 % » (c'est l'appel le plus à risque de pendre).
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), NET_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(`${url}/functions/v1/provision-tenant`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    throw new Error('Provision tenant : ' + (e?.name === 'AbortError' ? 'délai dépassé (réseau ?)' : (e?.message || 'échec réseau')));
+  } finally {
+    clearTimeout(timer);
+  }
   const j = await res.json().catch(() => null);
   if (!res.ok || !j || j.error) throw new Error('Provision tenant : ' + (j?.error || `HTTP ${res.status}`));
   return j; // { server_token, map:[{local_user_id, cloud_user_id}] }

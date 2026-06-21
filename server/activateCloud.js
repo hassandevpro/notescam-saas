@@ -119,8 +119,15 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
   //     Crée l'école, les comptes auth manquants et les memberships ; renvoie le
   //     mapping local_user_id → cloud_user_id + un jeton serveur scellé.
   log(onProgress, 'provision');
+  // Une école locale plus ancienne (ex. Cameroun) peut avoir des colonnes à null
+  // que le cloud a depuis passées en NOT NULL DEFAULT (ex. ge_grade_max). Un null
+  // explicite court-circuite le DEFAULT côté Postgres → on retire les clés nulles
+  // pour laisser la base appliquer ses valeurs par défaut.
+  const schoolPayload = Object.fromEntries(
+    Object.entries(school).filter(([, v]) => v !== null && v !== undefined),
+  );
   const provision = await provisionTenant(url, accessToken, {
-    school,
+    school: schoolPayload,
     admin_email: email,
     members: members.map((m) => ({
       local_user_id: m.local_user_id, email: m.email, role: m.role,

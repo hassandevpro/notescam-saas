@@ -40,6 +40,11 @@ export default function ParentPortal() {
 
   useEffect(() => {
     if (!token) return;
+    // Garde : un token mal formé déclencherait côté Postgres une erreur 400
+    // « invalid input syntax for type uuid » (message brut affiché aux parents
+    // + bruit console). On affiche directement un message propre.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
+    if (!isUuid) { setError('Lien invalide ou expiré.'); setLoading(false); return; }
     (async () => {
       const { data: result, error: err } = await supabase.rpc('get_parent_portal_data', { p_token: token });
       if (err) { setError(err.message); setLoading(false); return; }

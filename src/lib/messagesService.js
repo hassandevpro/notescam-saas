@@ -46,8 +46,10 @@ export async function markAllTeacherMessagesRead(teacherId) {
 }
 
 export function subscribeToTeacherMessages(teacherId, onNew) {
+  // Nom de canal unique : évite la réutilisation d'un canal déjà souscrit lors
+  // d'un remount rapide (cf. subscribeToNotifications) qui ferait planter `.on()`.
   return supabase
-    .channel(`msg_${teacherId}`)
+    .channel(`msg_${teacherId}_${Math.random().toString(36).slice(2)}`)
     .on(
       'postgres_changes',
       {

@@ -42,8 +42,13 @@ export async function upsertGradeNotification(data) {
 }
 
 export function subscribeToNotifications(schoolId, onNew) {
+  // Suffixe unique : `supabase.removeChannel()` étant asynchrone, réutiliser le
+  // même nom de canal lors d'un remount rapide (StrictMode, navigation) renvoie
+  // l'ancien canal DÉJÀ souscrit -> `.on()` après `subscribe()` lève
+  // « cannot add postgres_changes callbacks after subscribe() ». Un nom unique
+  // garantit un canal neuf à chaque souscription.
   return supabase
-    .channel(`notif_${schoolId}`)
+    .channel(`notif_${schoolId}_${Math.random().toString(36).slice(2)}`)
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'teacher_notifications', filter: `school_id=eq.${schoolId}` },

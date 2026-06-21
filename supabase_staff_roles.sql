@@ -64,9 +64,12 @@ AS $$
 DECLARE
   v_school_id uuid;
 BEGIN
-  SELECT school_id INTO v_school_id
-  FROM school_users
-  WHERE user_id = auth.uid() AND active = true AND role = 'admin';
+  -- `user_id` est qualifié (su.user_id) : la fonction RETURNS TABLE(... user_id ...)
+  -- déclare une variable de sortie homonyme, donc un `user_id` nu serait ambigu
+  -- (erreur 42702 « column reference user_id is ambiguous »).
+  SELECT su.school_id INTO v_school_id
+  FROM school_users su
+  WHERE su.user_id = auth.uid() AND su.active = true AND su.role = 'admin';
 
   IF v_school_id IS NULL THEN
     RAISE EXCEPTION 'Non autorisé';

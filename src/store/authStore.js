@@ -13,6 +13,15 @@ function ctxFromState(s) {
   };
 }
 
+// Un contexte « vide » = compte authentifié mais aucune école ET aucun rôle
+// trouvés. Ce résultat est souvent TRANSITOIRE (course de jeton / RLS lors d'un
+// TOKEN_REFRESHED ou d'un re-focus d'onglet) : il ne doit JAMAIS écraser un
+// contexte déjà valide en mémoire, sous peine de « déconnecter » l'utilisateur
+// avec le message « Ce compte n'est lié à aucun établissement ».
+function isEmptyContext(ctx) {
+  return !ctx || (!ctx.school && !ctx.role);
+}
+
 // Aligne la langue de l'interface sur la langue par défaut du pays de l'école
 // UNIQUEMENT si l'utilisateur n'a jamais choisi de langue manuellement.
 // Une fois que l'utilisateur a basculé via la sidebar, son choix est respecté.
@@ -88,11 +97,16 @@ export const useAuthStore = create((set, get) => ({
       // on garde le contexte caché s'il existe ; sinon on remonte l'erreur.
       try {
         const ctx = await getCurrentUserContext();
-        if (ctx) {
+        // Ne pas écraser un contexte déjà valide (caché) par un résultat vide
+        // transitoire (course de jeton). On ne l'applique que s'il est réel.
+        if (ctx && !(isEmptyContext(ctx) && (get().school || get().role))) {
           cacheUserContext(session.user.id, ctx);
           applyCtx(ctx);
-        } else if (!cached) {
+        } else if (!cached && !ctx) {
           set({ loading: false });
+        } else if (!cached) {
+          // Aucun cache et contexte réellement vide → compte non configuré.
+          applyCtx(ctx);
         }
       } catch (netErr) {
         if (!cached) throw netErr;        // pas de cache → comportement historique
@@ -132,6 +146,16 @@ export const useAuthStore = create((set, get) => ({
       ctx = loadCachedContext(session.user.id);
       if (!ctx) { set({ loading: false }); return; }  // on conserve la session
       console.warn('AuthStore.setSession : contexte chargé depuis le cache (hors-ligne).');
+    }
+    // GARDE ANTI-DÉCONNEXION FANTÔME : si le contexte fraîchement récupéré est
+    // vide (course de jeton lors d'un TOKEN_REFRESHED / re-focus d'onglet : la
+    // RLS renvoie des lignes vides SANS erreur) alors qu'on tient déjà un
+    // contexte valide, on NE vide PAS l'école/rôle. On rafraîchit juste la
+    // session. Un vrai dé-rattachement sera corrigé à la prochaine connexion.
+    const prev = get();
+    if (isEmptyContext(ctx) && (prev.school || prev.role)) {
+      set({ session, loading: false });
+      return;
     }
     set({
       user: ctx?.user || null,
@@ -194,9 +218,29 @@ export const useAuthStore = create((set, get) => ({
 supabase.auth.onAuthStateChange((event, session) => {
   if (event === 'SIGNED_OUT') {
     useAuthStore.getState().setSession(null);
-  } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+    return;
+  }
+
+  if (event === 'TOKEN_REFRESHED') {
+    // Rafraîchissement périodique du jeton : le contexte métier (école/rôle)
+    // n'a pas changé. On NE re-fetch PAS (une course de jeton renverrait des
+    // lignes vides et « déconnecterait » l'utilisateur). On met simplement à
+    // jour la session pour garder le jeton frais.
+    if (session) useAuthStore.setState({ session });
+    return;
+  }
+
+  if (event === 'SIGNED_IN') {
     // Skip if a signup flow will call init() manually after creating school_users
     if (useAuthStore.getState()._pendingSignup) return;
+    // supabase-js refire SIGNED_IN au retour de focus de l'onglet. Si on tient
+    // déjà le contexte du même utilisateur, on évite un re-fetch superflu (qui
+    // pourrait revenir vide transitoirement) : on rafraîchit juste la session.
+    const st = useAuthStore.getState();
+    if (session && st.user?.id === session.user?.id && (st.school || st.role)) {
+      useAuthStore.setState({ session });
+      return;
+    }
     useAuthStore.getState().setSession(session);
   }
 });

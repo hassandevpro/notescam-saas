@@ -7,7 +7,7 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB } from '../lib/db';
 import { fetchPeriods } from '../lib/academicPeriodsService';
 import { deriveActiveSequence } from '../lib/periodLogic';
 import {
@@ -19,6 +19,7 @@ import {
   fetchTeachers, upsertTeacher, deleteTeacher as sbDeleteTeacher,
   fetchFees, upsertFee, deleteFee as sbDeleteFee,
   fetchFeePayments, insertFeePayment, deleteFeePayment as sbDeleteFeePayment,
+  fetchClassFeeGrids, upsertClassFeeGrid, deleteClassFeeGrid as sbDeleteClassFeeGrid,
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
 import { moveToTrash, logAction } from '../lib/historyService';
@@ -42,6 +43,23 @@ async function queueOffline(op) {
 
 function gradeKey(classId, studentId, sequence) {
   return `${classId}_${studentId}_${sequence}`;
+}
+
+// Le serveur LAN renvoie les colonnes jsonb comme CHAÎNES JSON (alors que
+// Supabase les renvoie déjà désérialisées). On normalise donc les champs JSON
+// à l'entrée du store pour que le reste de l'app voie TOUJOURS des tableaux.
+function parseJsonArray(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string' && v.trim()) {
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; }
+  }
+  return [];
+}
+function coerceFeeRow(f) {
+  return { ...f, tranches: parseJsonArray(f?.tranches), adjustments: parseJsonArray(f?.adjustments) };
+}
+function coerceGridRow(g) {
+  return { ...g, tranches: parseJsonArray(g?.tranches) };
 }
 
 // Converts empty strings to null for date/nullable columns so Postgres doesn't reject them.
@@ -119,6 +137,7 @@ export const useSchoolStore = create((set, get) => ({
   staff:        [],
   fees:         [],
   feePayments:  [],
+  classFeeGrids: [],
   gradeMap:     {},
   academicPeriods: [],
   activeSequence:  null,
@@ -132,13 +151,13 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     // Wipe stale data from any previous session immediately — prevents flash of wrong data
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
-          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], gradeMap: {},
+          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], gradeMap: {},
           academicPeriods: [], activeSequence: null });
 
     try {
       await initDB();
 
-      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbPeriods] = await Promise.all([
+      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbFeeGrids, idbPeriods] = await Promise.all([
         classesDB.getAll(),
         subjectsDB.getAll(),
         studentsDB.getAll(),
@@ -147,6 +166,7 @@ export const useSchoolStore = create((set, get) => ({
         staffDB.getAll().catch(() => []),
         feesDB.getAll(),
         feePaymentsDB.getAll().catch(() => []),
+        classFeeGridsDB.getAll().catch(() => []),
         academicPeriodsDB.getAll().catch(() => []),
       ]);
 
@@ -157,8 +177,9 @@ export const useSchoolStore = create((set, get) => ({
       let allGrades   = idbGrades.filter((g) => g.school_id === schoolId);
       const allTeachers = idbTeachers.filter((t) => t.school_id === schoolId);
       const allStaff    = idbStaff.filter((s) => s.school_id === schoolId);
-      const allFees        = idbFees.filter((f) => f.school_id === schoolId && (!activeYear || f.academic_year === activeYear));
+      const allFees        = idbFees.filter((f) => f.school_id === schoolId && (!activeYear || f.academic_year === activeYear)).map(coerceFeeRow);
       const allFeePayments = idbFeePayments.filter((p) => p.school_id === schoolId && (!activeYear || p.academic_year === activeYear));
+      const allFeeGrids    = idbFeeGrids.filter((g) => g.school_id === schoolId && (!activeYear || g.academic_year === activeYear)).map(coerceGridRow);
       const allPeriods     = idbPeriods.filter((p) => p.school_id === schoolId && (!activeYear || p.school_year === activeYear));
 
       // Filter by active year (classes drive the year scope)
@@ -196,6 +217,7 @@ export const useSchoolStore = create((set, get) => ({
         staff:       allStaff,
         fees:        allFees,
         feePayments: allFeePayments,
+        classFeeGrids: allFeeGrids,
         gradeMap:    buildGradeMap(allGrades),
         academicPeriods: allPeriods,
         activeSequence:  deriveActiveSequence(allPeriods),
@@ -224,7 +246,7 @@ export const useSchoolStore = create((set, get) => ({
     const sbClasses = await fetchClasses(schoolId, year);
     const scopeIds  = (sbClasses ?? get().classes).map((c) => c.id);
 
-    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbPeriods] = await Promise.all([
+    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbFeeGrids, sbPeriods] = await Promise.all([
       fetchSubjects(schoolId, scopeIds),
       fetchStudents(schoolId, scopeIds),
       fetchGrades(schoolId, scopeIds),
@@ -233,6 +255,7 @@ export const useSchoolStore = create((set, get) => ({
       fetchStaff(schoolId).catch(() => null),
       fetchFees(schoolId, year),
       fetchFeePayments(schoolId, year).catch(() => null),
+      fetchClassFeeGrids(schoolId, year).catch(() => null),
       fetchPeriods(schoolId, year).catch(() => null),
     ]);
 
@@ -272,8 +295,9 @@ export const useSchoolStore = create((set, get) => ({
 
     const newTeachers     = sbTeachers     ?? get().teachers;
     const newStaff        = sbStaff        ?? get().staff;
-    const newFees         = sbFees         ?? get().fees;
+    const newFees         = sbFees !== null ? sbFees.map(coerceFeeRow) : get().fees;
     const newFeePayments  = sbFeePayments  ?? get().feePayments;
+    const newFeeGrids     = sbFeeGrids !== null ? sbFeeGrids.map(coerceGridRow) : get().classFeeGrids;
     const newPeriods      = sbPeriods !== null
       ? sbPeriods.filter((p) => !year || p.school_year === year)
       : get().academicPeriods;
@@ -297,8 +321,9 @@ export const useSchoolStore = create((set, get) => ({
     if (normalizedStudents !== null) await studentsDB.putMany(normalizedStudents);
     if (sbTeachers         !== null) await teachersDB.putMany(sbTeachers);
     if (sbStaff            !== null) await staffDB.putMany(sbStaff);
-    if (sbFees             !== null) await feesDB.putMany(sbFees);
+    if (sbFees             !== null) await feesDB.putMany(newFees);
     if (sbFeePayments      !== null) await feePaymentsDB.putMany(sbFeePayments);
+    if (sbFeeGrids         !== null) await classFeeGridsDB.putMany(newFeeGrids);
     if (sbPeriods          !== null) await academicPeriodsDB.putMany(sbPeriods);
 
     // ── Grades ────────────────────────────────────────────────────────────
@@ -347,6 +372,7 @@ export const useSchoolStore = create((set, get) => ({
       ...(sbStaff            !== null && { staff:       newStaff }),
       ...(sbFees             !== null && { fees:        newFees }),
       ...(sbFeePayments      !== null && { feePayments: newFeePayments }),
+      ...(sbFeeGrids         !== null && { classFeeGrids: newFeeGrids }),
       ...(sbPeriods          !== null && { academicPeriods: newPeriods, activeSequence: deriveActiveSequence(newPeriods) }),
       gradeMap: newGradeMap,
     });
@@ -772,8 +798,12 @@ export const useSchoolStore = create((set, get) => ({
 
     if (backendOnline()) {
       if (hasGrades) {
-        upsertGradeEntry(classId, studentId, sequence, merged, schoolId).then((ok) => {
-          if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload: record });
+        // On n'écrit QUE les matières modifiées (`scores`, le delta), jamais toute
+        // la ligne (`merged`). En mode « enseignant de matière », la RLS rejette
+        // les notes des matières non affectées : ré-upserter `merged` ferait
+        // échouer la sauvegarde. Le delta est aussi plus correct/rapide en Mode 2.
+        upsertGradeEntry(classId, studentId, sequence, scores, schoolId).then((ok) => {
+          if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload: { ...record, scores } });
         });
       }
       if (hasSpecial) {
@@ -823,6 +853,8 @@ export const useSchoolStore = create((set, get) => ({
   addTeacher: async (teacherData) => {
     const { schoolId } = get();
     const record = { id: uuid(), school_id: schoolId, ...teacherData };
+    // Une chaîne vide est invalide pour une colonne `date` (Postgres) → null.
+    if (record.hire_date === '') record.hire_date = null;
     await teachersDB.put(record);
     set((s) => ({ teachers: [...s.teachers, record] }));
     if (backendOnline()) {
@@ -836,6 +868,8 @@ export const useSchoolStore = create((set, get) => ({
   updateTeacher: async (id, data) => {
     const { teachers } = get();
     const record = { ...teachers.find((t) => t.id === id), ...data };
+    // Une chaîne vide est invalide pour une colonne `date` (Postgres) → null.
+    if (record.hire_date === '') record.hire_date = null;
     await teachersDB.put(record);
     set((s) => ({ teachers: s.teachers.map((t) => (t.id === id ? record : t)) }));
     if (backendOnline()) {
@@ -914,6 +948,8 @@ export const useSchoolStore = create((set, get) => ({
       date_dernier_paiement: feeData.date_dernier_paiement ?? existing?.date_dernier_paiement ?? null,
       notes:         feeData.notes         ?? existing?.notes         ?? null,
       tranches:      feeData.tranches      ?? existing?.tranches      ?? [],
+      payment_mode:  feeData.payment_mode  ?? existing?.payment_mode  ?? null,
+      adjustments:   feeData.adjustments   ?? existing?.adjustments   ?? [],
     };
     await feesDB.put(record);
     set((s) => ({
@@ -999,7 +1035,87 @@ export const useSchoolStore = create((set, get) => ({
     }
   },
 
+  // --- Class fee grids (grilles tarifaires) ---
+
+  // Crée / met à jour la grille tarifaire d'une classe pour l'année active.
+  // gridData : { class_id, amount_comptant, amount_echelonne, tranches[], notes }
+  saveClassFeeGrid: async (gridData) => {
+    const { schoolId, activeYear, classFeeGrids } = get();
+    const year = activeYear || gridData.academic_year;
+    const existing = classFeeGrids.find(
+      (g) => g.class_id === gridData.class_id && g.academic_year === year
+    );
+    const record = {
+      id:               existing?.id || uuid(),
+      school_id:        schoolId,
+      class_id:         gridData.class_id,
+      academic_year:    year,
+      amount_comptant:  parseInt(gridData.amount_comptant, 10)  || 0,
+      amount_echelonne: parseInt(gridData.amount_echelonne, 10) || 0,
+      tranches:         Array.isArray(gridData.tranches) ? gridData.tranches : (existing?.tranches ?? []),
+      currency:         gridData.currency ?? existing?.currency ?? 'XAF',
+      notes:            gridData.notes ?? existing?.notes ?? null,
+    };
+    await classFeeGridsDB.put(record);
+    set((s) => ({
+      classFeeGrids: existing
+        ? s.classFeeGrids.map((g) => (g.id === existing.id ? record : g))
+        : [...s.classFeeGrids, record],
+    }));
+    if (backendOnline()) {
+      upsertClassFeeGrid(record).then((saved) => { if (!saved) queueOffline({ table: 'class_fee_grids', operation: 'upsert', payload: record }); });
+    } else {
+      queueOffline({ table: 'class_fee_grids', operation: 'upsert', payload: record });
+    }
+    return record;
+  },
+
+  deleteClassFeeGrid: async (id) => {
+    await classFeeGridsDB.delete(id);
+    set((s) => ({ classFeeGrids: s.classFeeGrids.filter((g) => g.id !== id) }));
+    if (backendOnline()) {
+      sbDeleteClassFeeGrid(id).then((ok) => { if (!ok) queueOffline({ table: 'class_fee_grids', operation: 'delete', payload: { id } }); });
+    } else {
+      queueOffline({ table: 'class_fee_grids', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // Fige le mode de paiement d'un élève à l'inscription et applique la grille de
+  // sa classe : copie le total dû (comptant ou échelonné) + un INSTANTANÉ des
+  // tranches (pour qu'une modif ultérieure de la grille ne perturbe pas l'élève).
+  // Les paiements déjà saisis (frais_payes) sont PRÉSERVÉS. mode null = repasse
+  // en saisie libre (déblocage admin).
+  setStudentPaymentMode: async (studentId, mode) => {
+    const { classFeeGrids, students, activeYear } = get();
+    const student = students.find((s) => s.id === studentId);
+    const grid = classFeeGrids.find(
+      (g) => g.class_id === student?.class_id && g.academic_year === (activeYear || g.academic_year)
+    );
+
+    const patch = { payment_mode: mode };
+    if (mode === 'comptant') {
+      patch.frais_annuels = grid?.amount_comptant ?? 0;
+      patch.tranches = grid?.amount_comptant
+        ? [{ id: 'comptant', label: 'Paiement comptant', amount: grid.amount_comptant, due_date: grid?.tranches?.[0]?.due_date || null }]
+        : [];
+    } else if (mode === 'echelonne') {
+      patch.frais_annuels = grid?.amount_echelonne ?? 0;
+      // Instantané profond des tranches de la grille.
+      patch.tranches = (grid?.tranches ?? []).map((t) => ({ ...t }));
+    }
+    // mode 'libre' / null : on ne touche ni au total ni aux tranches (saisie manuelle).
+    return get().saveFee(studentId, patch);
+  },
+
   // --- Selectors ---
+
+  // Grille tarifaire applicable à une classe pour l'année active (ou null).
+  getClassFeeGrid: (classId) => {
+    const { classFeeGrids, activeYear } = get();
+    return classFeeGrids.find(
+      (g) => g.class_id === classId && (!activeYear || g.academic_year === activeYear)
+    ) || null;
+  },
 
   getClassSubjects: (classId) => get().subjects.filter((s) => s.class_id === classId),
   getClassStudents: (classId) => get().students.filter((s) => s.class_id === classId),

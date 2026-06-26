@@ -5,26 +5,31 @@
 import { useCallback } from 'react';
 import { useUiStore } from '../store/uiStore';
 import { FR_TO_ES } from './i18n_es';
+import { FR_TO_TR } from './i18n_tr';
 
-export const SUPPORTED_LANGS = ['fr', 'en', 'es'];
+export const SUPPORTED_LANGS = ['fr', 'en', 'es', 'tr'];
 
-// Tente de traduire `fr` en espagnol via le dictionnaire, sinon laisse fr brut.
-// Gère aussi les chaînes commençant par un emoji ou un préfixe (ex: "🔒 Verrouillé")
-// en essayant le suffixe.
-function autoEs(fr) {
+// Traduit `fr` via un dictionnaire FR→XX, sinon laisse fr brut. Gère aussi la
+// ponctuation finale courante (ex: « … », « ! ») en réessayant sans elle.
+function autoDict(dict, fr) {
   if (!fr) return fr;
-  if (FR_TO_ES[fr]) return FR_TO_ES[fr];
-  // tentative sans la ponctuation finale courante
+  if (dict[fr]) return dict[fr];
   const trimmed = fr.replace(/[.…!?:]+$/, '');
-  if (trimmed !== fr && FR_TO_ES[trimmed]) {
-    return FR_TO_ES[trimmed] + fr.slice(trimmed.length);
+  if (trimmed !== fr && dict[trimmed]) {
+    return dict[trimmed] + fr.slice(trimmed.length);
   }
   return fr;
 }
 
+const autoEs = (fr) => autoDict(FR_TO_ES, fr);
+const autoTr = (fr) => autoDict(FR_TO_TR, fr);
+
 export function pickLang(lang, fr, en, es) {
   if (lang === 'en') return en ?? fr;
   if (lang === 'es') return es ?? autoEs(fr);
+  // Le turc n'a pas d'argument positionnel dédié (comme l'espagnol au départ) :
+  // il passe TOUJOURS par le dictionnaire FR→TR, avec repli sur le FR.
+  if (lang === 'tr') return autoTr(fr);
   return fr;
 }
 
@@ -50,5 +55,5 @@ export function tStatic(fr, en, es) {
 // fr → fr-FR, en → en-GB, es → es-ES. Sert à ce que toutes les dates affichées
 // suivent la langue choisie (ex. interface en espagnol → dates en espagnol).
 export function localeForLang(lang = getLang()) {
-  return lang === 'es' ? 'es-ES' : lang === 'en' ? 'en-GB' : 'fr-FR';
+  return lang === 'es' ? 'es-ES' : lang === 'en' ? 'en-GB' : lang === 'tr' ? 'tr-TR' : 'fr-FR';
 }

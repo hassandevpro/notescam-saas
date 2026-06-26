@@ -85,13 +85,19 @@ async function captureCard(el, pixelRatio) {
  * @param {number} [opts.pixelRatio=2]  2× ≈ 380 DPI à l'impression (cf. DEFAULT_PIXEL_RATIO)
  * @param {'save'|'open'} [opts.mode='save']
  * @param {(done:number,total:number)=>void} [opts.onProgress]  avancement (cartes traitées)
+ * @param {object} [opts.layout]   surcharge de la planche (cols/rows/margin/gapX/gapY).
+ *   Défaut = planche cartes 2×4. Pour un document pleine page (ex. diplôme A4),
+ *   passer { cols:1, rows:1, margin:0, gapX:0, gapY:0 } avec un ratio A4.
+ *   Le MOTEUR reste unique : seule la géométrie de pose change.
+ * @param {'portrait'|'landscape'} [opts.orientation='portrait'] orientation des pages A4.
  */
-export async function exportIdCardsPdf(cardEls, { fileName = 'cartes-scolaires.pdf', ratio = 660 / 416, pixelRatio = DEFAULT_PIXEL_RATIO, mode = 'save', onProgress } = {}) {
+export async function exportIdCardsPdf(cardEls, { fileName = 'cartes-scolaires.pdf', ratio = 660 / 416, pixelRatio = DEFAULT_PIXEL_RATIO, mode = 'save', onProgress, layout, orientation = 'portrait' } = {}) {
   if (!cardEls?.length) return;
 
   const total = cardEls.length;
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
-  const { slots } = buildLayout({ count: total, ratio });
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation, compress: true });
+  const page = orientation === 'landscape' ? { w: A4.h, h: A4.w } : A4;
+  const { slots } = buildLayout({ count: total, ratio, page, ...(layout || {}) });
 
   onProgress?.(0, total);
   let curPage = 0;

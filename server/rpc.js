@@ -4,6 +4,7 @@
 
 import { db, getSchool, tx } from './db.js';
 import { randomUUID } from 'node:crypto';
+import { hashPassword } from './security.js';
 
 // --- Helpers d'autorisation -------------------------------------------
 function membership(userId) {
@@ -25,6 +26,70 @@ const addDaysISO = (d) => new Date(Date.now() + d * 86400000).toISOString();
 
 // --- Table des RPC ----------------------------------------------------
 const handlers = {
+
+  // Génération atomique d'un établissement depuis un modèle académique.
+  // Miroir LAN de la fonction Postgres apply_academic_template : tout dans une
+  // transaction (tx) → aucun objet partiel en cas d'erreur (point #8).
+  apply_academic_template(p, ctx) {
+    const schoolId = requireAdmin(ctx);
+    const classes  = Array.isArray(p.p_classes)  ? p.p_classes  : [];
+    const subjects = Array.isArray(p.p_subjects) ? p.p_subjects : [];
+    let nc = 0, ns = 0;
+    tx(() => {
+      const insC = db.prepare(`INSERT INTO classes
+        (id, school_id, name, level, section, system, cycle, current_year, max_students)
+        VALUES (?,?,?,?,?,?,?,?,?)`);
+      for (const c of classes) {
+        insC.run(c.id, schoolId, c.name, c.level ?? null, c.section ?? null,
+          c.system || 'FR', c.cycle ?? null, c.current_year ?? null, c.max_students ?? null);
+        nc++;
+      }
+      const insS = db.prepare(`INSERT INTO subjects
+        (id, school_id, class_id, name, coef, max, position, parent_id, calc_method, formula)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`);
+      for (const s of subjects) {
+        insS.run(s.id, schoolId, s.class_id, s.name, s.coef ?? 1, s.max ?? 20,
+          s.position ?? null, s.parent_id ?? null, s.calc_method ?? null, s.formula ?? null);
+        ns++;
+      }
+    });
+    return { classes: nc, subjects: ns };
+  },
+
+  // Import / fusion intelligente d'un modèle dans un établissement existant.
+  // Miroir LAN de merge_academic_template : insère le nouveau + met à jour les
+  // conflits, le tout dans une transaction (tx).
+  merge_academic_template(p, ctx) {
+    const schoolId = requireAdmin(ctx);
+    const classes  = Array.isArray(p.p_classes)  ? p.p_classes  : [];
+    const subjects = Array.isArray(p.p_subjects) ? p.p_subjects : [];
+    const updates  = Array.isArray(p.p_updates)  ? p.p_updates  : [];
+    let nc = 0, ns = 0, nu = 0;
+    tx(() => {
+      const insC = db.prepare(`INSERT INTO classes
+        (id, school_id, name, level, section, system, cycle, current_year, max_students)
+        VALUES (?,?,?,?,?,?,?,?,?)`);
+      for (const c of classes) {
+        insC.run(c.id, schoolId, c.name, c.level ?? null, c.section ?? null,
+          c.system || 'FR', c.cycle ?? null, c.current_year ?? null, c.max_students ?? null);
+        nc++;
+      }
+      const insS = db.prepare(`INSERT INTO subjects
+        (id, school_id, class_id, name, coef, max, position, parent_id, calc_method, formula)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`);
+      for (const s of subjects) {
+        insS.run(s.id, schoolId, s.class_id, s.name, s.coef ?? 1, s.max ?? 20,
+          s.position ?? null, s.parent_id ?? null, s.calc_method ?? null, s.formula ?? null);
+        ns++;
+      }
+      const upd = db.prepare(`UPDATE subjects SET coef = ?, max = ? WHERE id = ? AND school_id = ?`);
+      for (const u of updates) {
+        const r = upd.run(u.coef, u.max, u.id, schoolId);
+        nu += r.changes || 0;
+      }
+    });
+    return { classes: nc, subjects: ns, updated: nu };
+  },
 
   // École + admin (1ère configuration). Mono-établissement : une seule école.
   signup_school_and_admin(p, ctx) {
@@ -111,6 +176,21 @@ const handlers = {
       `UPDATE school_users SET active = ?
        WHERE id = ? AND school_id = ? AND role IN ('censeur','surveillant')`
     ).run(p.p_active ? 1 : 0, p.p_school_user_id, schoolId);
+    return null;
+  },
+
+  // L'admin redéfinit le mot de passe d'un compte de direction de SON école.
+  admin_set_staff_password(p, ctx) {
+    const schoolId = requireAdmin(ctx);
+    const su = db.prepare(
+      `SELECT user_id, role FROM school_users WHERE id = ? AND school_id = ?`
+    ).get(p.p_school_user_id, schoolId);
+    if (!su) throw new Error('Compte introuvable');
+    if (!['censeur', 'surveillant'].includes(su.role)) throw new Error('Rôle non autorisé');
+    if (!p.p_new_password || String(p.p_new_password).length < 8)
+      throw new Error('Mot de passe trop court (8 caractères min.)');
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+      .run(hashPassword(p.p_new_password), su.user_id);
     return null;
   },
 

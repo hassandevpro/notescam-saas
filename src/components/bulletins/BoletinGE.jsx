@@ -6,6 +6,7 @@
 import { guineaEq } from '../../countries/guinea_eq';
 import { geAnnualDecision } from '../../core/bulletinEngine';
 import BulletinPhoto from './BulletinPhoto';
+import AssetImg from '../AssetImg';
 
 function apreciacion(nota, maxScale) {
   if (nota === null || nota === undefined) return { text: '—', col: '#6b7280' };
@@ -59,7 +60,7 @@ export default function BoletinGE({
         </div>
         <div className="bulletin-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
           {school?.logo_url
-            ? <img src={school.logo_url} alt="Logotipo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
+            ? <AssetImg src={school.logo_url} alt="Logotipo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
             : '🎓'
           }
           {qrSrc && <img src={qrSrc} alt="QR" style={{ width: 48, height: 48 }} />}
@@ -193,11 +194,11 @@ export default function BoletinGE({
           {(school?.signature_url || school?.stamp_url) && (
             <div style={{ position: 'relative', height: 80, marginTop: 4 }}>
               {school?.signature_url && (
-                <img src={school.signature_url} alt="Firma"
+                <AssetImg src={school.signature_url} alt="Firma"
                   style={{ height: 54, maxWidth: 150, objectFit: 'contain', position: 'absolute', left: '50%', top: 20, transform: 'translateX(-50%)' }} />
               )}
               {school?.stamp_url && (
-                <img src={school.stamp_url} alt="Sello"
+                <AssetImg src={school.stamp_url} alt="Sello"
                   style={{ height: 78, width: 78, objectFit: 'contain', position: 'absolute', left: '50%', top: 0, transform: 'translateX(-62%) rotate(-9deg)', opacity: 0.85 }} />
               )}
             </div>

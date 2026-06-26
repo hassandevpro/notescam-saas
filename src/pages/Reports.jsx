@@ -214,9 +214,8 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
   </table>` : ''}
 
   <table class="foot"><tbody><tr>
-    <td>${Lp('Le Professeur Principal', 'El Tutor / La Tutora')}</td>
-    <td>${Lp('Le Censeur / DSCE', 'El Jefe de Estudios')}</td>
-    <td class="foot-head">
+    <td style="border:none;width:55%"></td>
+    <td class="foot-head" style="width:45%">
       ${Lp('Le Proviseur / Directeur', 'El Director / La Directora')}
       ${school?.signature_url ? `<img src="${school.signature_url}" alt="Signature" />` : ''}
       ${school?.stamp_url ? `<img src="${school.stamp_url}" alt="Cachet" />` : ''}

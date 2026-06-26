@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Layout from '../components/Layout';
+import HubTabs from '../components/hubs/HubTabs';
 import { useT } from '../lib/i18n';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
@@ -12,8 +13,6 @@ import {
   listAudit, describeAction, TRASH_LABELS,
   exportLocalBackup, importLocalBackup,
 } from '../lib/historyService';
-
-const TABS = ['corbeille', 'journal', 'sauvegarde'];
 
 function formatDate(ts, lang) {
   const d = new Date(ts);
@@ -28,7 +27,6 @@ export default function History() {
   const schoolId = useAuthStore((s) => s.school?.id);
   const store    = useSchoolStore.getState();
 
-  const [tab, setTab]       = useState('corbeille');
   const [trash, setTrash]   = useState([]);
   const [audit, setAudit]   = useState([]);
   const [loading, setLoad]  = useState(false);
@@ -100,44 +98,52 @@ export default function History() {
 
   const labels = TRASH_LABELS[lang] || TRASH_LABELS.fr;
 
+  const tabs = [
+    {
+      id: 'journal',
+      label: t('Journal', 'Audit log', 'Registro'),
+      render: renderAudit,
+    },
+    {
+      id: 'corbeille',
+      label: (
+        <span className="flex items-center gap-1.5">
+          {t('Corbeille', 'Trash', 'Papelera')}
+          {trash.length > 0 && <span className="text-xs bg-red-100 text-red-700 px-1.5 rounded-full">{trash.length}</span>}
+        </span>
+      ),
+      render: renderTrash,
+    },
+    {
+      id: 'sauvegarde',
+      label: t('Sauvegardes', 'Backups', 'Copias'),
+      render: renderBackup,
+    },
+  ];
+
   return (
     <Layout>
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">
-          {t('Historique & Sauvegardes', 'History & Backups', 'Historial y copias')}
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          {t(
-            'Corbeille, journal des modifications, exports complets de votre école.',
-            'Trash, audit log, full backups of your school data.',
-            'Papelera, registro de actividad y copia completa de los datos.'
-          )}
-        </p>
-      </div>
-
       {msg && (
         <div className={`mb-4 p-3 rounded-lg text-sm ${msg.type === 'ok' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
           {msg.text}
         </div>
       )}
+      <HubTabs
+        title={t('Audit & Sauvegardes', 'Audit & Backups', 'Auditoría y copias')}
+        subtitle={t(
+          'Traçabilité (qui, quand, quoi), corbeille et copies complètes de votre école.',
+          'Traceability (who, when, what), trash and full backups of your school data.',
+          'Trazabilidad, papelera y copias completas de los datos.'
+        )}
+        tabs={tabs}
+        storageKey="nc_history_tab"
+      />
+    </Layout>
+  );
 
-      <div className="flex gap-1 mb-4 border-b border-gray-200">
-        {TABS.map((k) => (
-          <button key={k}
-            onClick={() => setTab(k)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === k ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-          >
-            {k === 'corbeille' && t('Corbeille', 'Trash', 'Papelera')}
-            {k === 'journal'   && t('Journal',   'Audit log', 'Registro')}
-            {k === 'sauvegarde'&& t('Sauvegarde', 'Backup', 'Copia')}
-            {k === 'corbeille' && trash.length > 0 && <span className="ml-1.5 text-xs bg-red-100 text-red-700 px-1.5 rounded-full">{trash.length}</span>}
-          </button>
-        ))}
-      </div>
-
-      {loading && <div className="text-sm text-gray-400 animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div>}
-
-      {tab === 'corbeille' && !loading && (
+  function renderTrash() {
+    if (loading) return <div className="text-sm text-gray-400 animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div>;
+    return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           {trash.length === 0 ? (
             <div className="p-12 text-center text-gray-400 text-sm">
@@ -179,9 +185,12 @@ export default function History() {
             </table>
           )}
         </div>
-      )}
+    );
+  }
 
-      {tab === 'journal' && !loading && (
+  function renderAudit() {
+    if (loading) return <div className="text-sm text-gray-400 animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div>;
+    return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           {audit.length === 0 ? (
             <div className="p-12 text-center text-gray-400 text-sm">
@@ -213,9 +222,11 @@ export default function History() {
             </table>
           )}
         </div>
-      )}
+    );
+  }
 
-      {tab === 'sauvegarde' && (
+  function renderBackup() {
+    return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
           <div>
             <h3 className="font-semibold text-gray-900 mb-1">
@@ -251,7 +262,6 @@ export default function History() {
             </label>
           </div>
         </div>
-      )}
-    </Layout>
-  );
+    );
+  }
 }

@@ -10,6 +10,9 @@ server/
 scripts/
 examples/
 
+# Dépôt tiers cloné localement (sans rapport avec le build)
+claude-skills/
+
 # Vidéo Remotion (lourd, non nécessaire au build)
 remotion/
 

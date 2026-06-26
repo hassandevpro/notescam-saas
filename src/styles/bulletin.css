@@ -70,8 +70,9 @@
 }
 
 .bulletin-logo {
-  width: 110px;
-  height: 110px;
+  /* Taille pilotée par le DocumentScaleManager (catégorie standard) ; repli 110px. */
+  width: var(--doc-logo, 110px);
+  height: var(--doc-logo, 110px);
   border: 2px solid #1e1b4b;
   border-radius: 8px;
   margin: auto;
@@ -257,19 +258,21 @@
 
 .bulletin-sig-img {
   display: block;
-  height: 38px;
+  height: var(--doc-signature, 38px);
   max-width: 110px;
   object-fit: contain;
   margin: 0 auto 4px;
+  mix-blend-mode: multiply;
 }
 
 .bulletin-stamp-img {
   position: absolute;
   top: -16px;
   right: -8px;
-  width: 52px;
-  height: 52px;
+  width: var(--doc-stamp, 52px);
+  height: var(--doc-stamp, 52px);
   object-fit: contain;
+  mix-blend-mode: multiply;
   opacity: 0.82;
 }
 
@@ -436,8 +439,8 @@
 }
 
 .bm-logo-circle {
-  width: 52px;
-  height: 52px;
+  width: var(--doc-logo-sm, 52px);
+  height: var(--doc-logo-sm, 52px);
   background: rgba(255, 255, 255, 0.2);
   border-radius: 50%;
   display: flex;

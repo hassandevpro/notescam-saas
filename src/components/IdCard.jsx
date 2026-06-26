@@ -7,6 +7,7 @@
 // Modèles (couleurs) : 'premium' (défaut) · 'classique' · 'bilingue' · 'minimaliste'.
 
 import armsUrl from '../assets/cameroon-arms.png'; // sceau du Cameroun, fond détouré (transparent)
+import { createDocumentScale } from '../lib/documentScale';
 
 export const CARD_W = 660;
 export const CARD_H = 416;
@@ -184,6 +185,8 @@ function InfoRow({ icon, label, labelEn, value, c, last }) {
  */
 export default function IdCard({ student, school, className, qrSrc, variant = 'premium', classLang = 'fr', countryCode, innerRef }) {
   const c = colors(variant);
+  // Dimensionnement intelligent (catégorie « compact » — carte). Aucune taille fixe.
+  const scale = createDocumentScale({ docType: 'idcard', orientation: 'landscape', pageWidth: CARD_W, pageHeight: CARD_H });
   const isGE = countryCode === 'guinea_eq';
   // GE : espagnol, point. Cameroun : modèle bilingue, sinon langue de la classe.
   const lang = isGE
@@ -226,7 +229,7 @@ export default function IdCard({ student, school, className, qrSrc, variant = 'p
       </svg>
       {/* Filigrane logo établissement */}
       {school?.logo_url && (
-        <img src={school.logo_url} crossOrigin="anonymous" alt="" style={{ position: 'absolute', top: '52%', left: '60%', width: 230, height: 230, objectFit: 'contain', transform: 'translate(-50%,-50%)', opacity: 0.05, pointerEvents: 'none' }} />
+        <img src={school.logo_url} crossOrigin="anonymous" alt="" style={{ position: 'absolute', top: '52%', left: '60%', width: scale.watermark, height: scale.watermark, objectFit: 'contain', transform: 'translate(-50%,-50%)', opacity: scale.watermarkOpacity, pointerEvents: 'none' }} />
       )}
 
       {/* ── Bande latérale rouge ── */}
@@ -238,8 +241,8 @@ export default function IdCard({ student, school, className, qrSrc, variant = 'p
         {/* En-tête */}
         <div style={{ height: 84, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '8px 16px 4px', boxSizing: 'border-box' }}>
           {isGE
-            ? <GeFlag w={60} />
-            : <img src={armsUrl} crossOrigin="anonymous" alt="" style={{ width: 64, height: 64, objectFit: 'contain', flexShrink: 0 }} />}
+            ? <GeFlag w={scale.ministryLogo} />
+            : <img src={armsUrl} crossOrigin="anonymous" alt="" style={{ width: scale.ministryLogo, height: scale.ministryLogo, objectFit: 'contain', flexShrink: 0 }} />}
           <div style={{ flex: 1, textAlign: 'center', lineHeight: 1.15 }}>
             {isGE ? (
               <>
@@ -258,7 +261,7 @@ export default function IdCard({ student, school, className, qrSrc, variant = 'p
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            {school?.logo_url && <img src={school.logo_url} crossOrigin="anonymous" alt="" style={{ width: 46, height: 46, objectFit: 'contain', flexShrink: 0 }} />}
+            {school?.logo_url && <img src={school.logo_url} crossOrigin="anonymous" alt="" style={{ width: scale.logoSm, height: scale.logoSm, objectFit: 'contain', flexShrink: 0 }} />}
             <div style={{ textAlign: 'center', minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 900, color: c.navy, lineHeight: 1.05 }}>{(school?.name || '').toUpperCase()}</div>
               {city && <div style={{ fontSize: 10, fontWeight: 700, color: c.navy, marginTop: 2 }}>{city}</div>}
@@ -342,11 +345,11 @@ export default function IdCard({ student, school, className, qrSrc, variant = 'p
             <div style={{ fontSize: 8.5, fontWeight: 700, color: '#6b7280', letterSpacing: 0.4, lineHeight: 1 }}>{T("LE CHEF D'ÉTABLISSEMENT", 'THE PRINCIPAL', lang, 'EL DIRECTOR')}</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44 }}>
               {school?.signature_url
-                ? <img src={school.signature_url} crossOrigin="anonymous" alt="" style={{ height: 30, objectFit: 'contain' }} />
+                ? <img src={school.signature_url} crossOrigin="anonymous" alt="" style={{ height: scale.signatureHeight, objectFit: 'contain', mixBlendMode: 'multiply' }} />
                 : <span style={{ width: 64 }} />}
               {school?.stamp_url
-                ? <img src={school.stamp_url} crossOrigin="anonymous" alt="" style={{ height: 50, objectFit: 'contain' }} />
-                : <StampFallback city={city} red={c.red} size={50} lang={lang} />}
+                ? <img src={school.stamp_url} crossOrigin="anonymous" alt="" style={{ height: scale.stamp, objectFit: 'contain', mixBlendMode: 'multiply' }} />
+                : <StampFallback city={city} red={c.red} size={scale.stamp} lang={lang} />}
             </div>
           </div>
         </div>

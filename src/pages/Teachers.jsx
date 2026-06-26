@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { supabase } from '../lib/supabase';
 import { createClient } from '@supabase/supabase-js';
 import { exportTeachers, downloadTeacherTemplate, parseTeachersSpreadsheet } from '../lib/exportCsv';
+import { officialHeaderHtml, officialSignatureHtml } from '../lib/officialDocHeader';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import StudentAvatar from '../components/StudentAvatar';
@@ -327,7 +328,7 @@ function TeacherSubjectsPanel({ teacher, teacherSubjects, classes }) {
   if (!teacherSubjects.length) {
     return (
       <tr>
-        <td colSpan={6} className="px-6 py-4 bg-gray-50 border-b border-gray-100 text-sm text-gray-400 text-center">
+        <td colSpan={8} className="px-6 py-4 bg-gray-50 border-b border-gray-100 text-sm text-gray-400 text-center">
           {t('Aucune matière assignée à cet enseignant.', 'No subject assigned to this teacher.')}
         </td>
       </tr>
@@ -344,7 +345,7 @@ function TeacherSubjectsPanel({ teacher, teacherSubjects, classes }) {
 
   return (
     <tr>
-      <td colSpan={6} className="px-6 py-4 bg-gray-50/80 border-b border-gray-100">
+      <td colSpan={8} className="px-6 py-4 bg-gray-50/80 border-b border-gray-100">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('Matières enseignées', 'Subjects taught')}</p>
         <div className="flex flex-wrap gap-3">
           {Object.entries(byClass).map(([clsName, subs]) => (
@@ -578,7 +579,6 @@ function printTeacherList(teachers, subjectsByTeacher, school, cols = {}) {
   const isGE = resolveCountryCode(school) === 'guinea_eq';
   const Lp = (fr, es) => (isGE ? es : fr);
   const today     = new Date().toLocaleDateString(isGE ? 'es-ES' : 'fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-  const headTitle = directorLabel(school);
   const colCount  = 1 + (showSpecialty ? 1 : 0) + (showEmail ? 1 : 0) + (showPhone ? 1 : 0) + (showSubjects ? 1 : 0);
   const teacherWord = (n) => Lp(`enseignant${n !== 1 ? 's' : ''}`, `profesor${n !== 1 ? 'es' : ''}`);
 
@@ -632,12 +632,8 @@ function printTeacherList(teachers, subjectsByTeacher, school, cols = {}) {
 </head>
 <body>
 <div class="page">
-  <div class="header">
-    <div class="school">${school?.name || Lp('Établissement scolaire', 'Centro educativo')}</div>
-    <div class="subtitle">${[school?.type, school?.region].filter(Boolean).join(' — ') || ''}</div>
-    <div class="doc-title">${Lp('Liste du personnel enseignant', 'Lista del profesorado')}</div>
-    <div class="meta">${Lp('Année scolaire', 'Año escolar')} : ${school?.current_year || '—'} &nbsp;·&nbsp; ${Lp('Imprimé le', 'Impreso el')} ${today}</div>
-  </div>
+  ${officialHeaderHtml(school, { sys: isGE ? 'ES' : 'FR', title: Lp('LISTE DU PERSONNEL ENSEIGNANT', 'LISTA DEL PROFESORADO') })}
+  <div style="text-align:center;font-size:9px;color:#777;margin:-2px 0 12px">${Lp('Imprimé le', 'Impreso el')} ${today}</div>
 
   <table>
     <thead>
@@ -664,12 +660,7 @@ function printTeacherList(teachers, subjectsByTeacher, school, cols = {}) {
     <span>${school?.name || ''} — ${today}</span>
   </div>
 
-  <div class="sign-area">
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div class="sign-label">${headTitle}</div>
-    </div>
-  </div>
+  ${officialSignatureHtml(school, isGE ? 'ES' : 'FR')}
 </div>
 </body>
 </html>`;
@@ -708,6 +699,11 @@ export function TeachersPanel() {
   const [showPrintOpts, setShowPrintOpts] = useState(false);
   const [cols, setCols] = useState({ specialty: true, email: true, phone: true, subjects: true });
   const toggleCol = (key) => setCols((prev) => ({ ...prev, [key]: !prev[key] }));
+  const [specialtyF, setSpecialtyF] = useState('');
+  const [classF,     setClassF]     = useState('');
+  const [subjectF,   setSubjectF]   = useState('');
+  const [accessF,    setAccessF]    = useState('');
+  const [cardView,   setCardView]   = useState(false);
 
   // Matières par enseignant
   const subjectsByTeacher = useMemo(() => {
@@ -720,18 +716,57 @@ export function TeachersPanel() {
     return map;
   }, [subjects]);
 
+  // Classes couvertes par enseignant (via matières assignées + titulariat).
+  const classesByTeacher = useMemo(() => {
+    const map = {};
+    const add = (tid, cid) => { if (!tid || !cid) return; (map[tid] ||= new Set()).add(cid); };
+    subjects.forEach((s) => add(s.teacher_id, s.class_id));
+    classes.forEach((c) => add(c.teacher_id, c.id));
+    return map;
+  }, [subjects, classes]);
+
+  const TARGET_LOAD = 8; // matières = 100 % d'occupation (repère pilotage)
+  const chargeOf = (tc) => (subjectsByTeacher[tc.id] || []).length;
+  const occupationOf = (tc) => Math.min(100, Math.round((chargeOf(tc) / TARGET_LOAD) * 100));
+  const teacherStatus = (tc) => {
+    const subs = chargeOf(tc), cls = (classesByTeacher[tc.id]?.size || 0);
+    if (subs === 0 && cls === 0) return 'red';
+    if (!tc.auth_user_id || subs === 0) return 'yellow';
+    return 'green';
+  };
+
   const withAccount  = teachers.filter((tc) => tc.auth_user_id).length;
   const withSubjects = teachers.filter((tc) => subjectsByTeacher[tc.id]?.length > 0).length;
 
+  // KPIs pilotage
+  const kpi = {
+    total: teachers.length,
+    subjectsAssigned: subjects.filter((s) => s.teacher_id).length,
+    classesCovered: new Set(Object.values(classesByTeacher).flatMap((set) => [...set])).size,
+    missing: teachers.filter((tc) => chargeOf(tc) === 0 && (classesByTeacher[tc.id]?.size || 0) === 0).length,
+    accounts: withAccount,
+  };
+  const subjectsNoTeacher = subjects.filter((s) => !s.teacher_id).length;
+  const noSubject = teachers.filter((tc) => chargeOf(tc) === 0).length;
+  const noClass   = teachers.filter((tc) => (classesByTeacher[tc.id]?.size || 0) === 0).length;
+  const noAccount = teachers.length - withAccount;
+
+  const specialties = useMemo(() => [...new Set(teachers.map((tc) => tc.specialty).filter(Boolean))].sort(), [teachers]);
+  const subjectNames = useMemo(() => [...new Set(subjects.map((s) => s.name).filter(Boolean))].sort(), [subjects]);
+
   const visible = useMemo(() => {
-    if (!search) return teachers;
     const q = search.toLowerCase();
-    return teachers.filter(
-      (tc) => tc.name.toLowerCase().includes(q) ||
-              (tc.specialty || '').toLowerCase().includes(q) ||
-              (tc.email || '').toLowerCase().includes(q)
-    );
-  }, [teachers, search]);
+    return teachers.filter((tc) => {
+      if (q && !(tc.name.toLowerCase().includes(q) || (tc.specialty || '').toLowerCase().includes(q) || (tc.email || '').toLowerCase().includes(q))) return false;
+      if (specialtyF && tc.specialty !== specialtyF) return false;
+      if (classF && !(classesByTeacher[tc.id]?.has(classF))) return false;
+      if (subjectF && !(subjectsByTeacher[tc.id] || []).some((s) => s.name === subjectF)) return false;
+      if (accessF === 'with' && !tc.auth_user_id) return false;
+      if (accessF === 'without' && tc.auth_user_id) return false;
+      return true;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teachers, search, specialtyF, classF, subjectF, accessF, classesByTeacher, subjectsByTeacher]);
 
   const handleSave = async (form, uploads = {}) => {
     const { photoFile, newDocFiles } = uploads;
@@ -848,23 +883,32 @@ export function TeachersPanel() {
           </div>
         </div>
 
-        {/* Stats strip */}
+        {/* Dashboard KPI */}
         {teachers.length > 0 && (
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white rounded-xl border-l-4 border-brand-400 p-4 shadow-sm">
-              <div className="text-2xl font-bold text-gray-900">{teachers.length}</div>
-              <div className="text-sm text-gray-600 mt-0.5">{t('Enseignants', 'Teachers')}</div>
-            </div>
-            <div className="bg-white rounded-xl border-l-4 border-emerald-400 p-4 shadow-sm">
-              <div className="text-2xl font-bold text-gray-900">{withAccount}</div>
-              <div className="text-sm text-gray-600 mt-0.5">{t('Avec compte app', 'With app access')}</div>
-              <div className="text-xs text-gray-400">{teachers.length - withAccount} {t('sans accès', 'without access')}</div>
-            </div>
-            <div className="bg-white rounded-xl border-l-4 border-amber-400 p-4 shadow-sm">
-              <div className="text-2xl font-bold text-gray-900">{withSubjects}</div>
-              <div className="text-sm text-gray-600 mt-0.5">{t('Ont des matières', 'Have subjects')}</div>
-              <div className="text-xs text-gray-400">{teachers.length - withSubjects} {t('non assignés', 'unassigned')}</div>
-            </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {[
+              { emoji: '👨‍🏫', tone: 'bg-indigo-50',  value: kpi.total,            label: t('Enseignants', 'Teachers', 'Profesores') },
+              { emoji: '📚', tone: 'bg-sky-50',     value: kpi.subjectsAssigned, label: t('Matières assignées', 'Subjects assigned', 'Asignaturas') },
+              { emoji: '🏫', tone: 'bg-emerald-50', value: kpi.classesCovered,   label: t('Classes couvertes', 'Classes covered', 'Clases') },
+              { emoji: '⚠️', tone: kpi.missing ? 'bg-red-50' : 'bg-slate-50', value: kpi.missing, label: t('Affectations manquantes', 'Missing assignments', 'Sin asignar'), danger: true },
+              { emoji: '🔑', tone: 'bg-violet-50',  value: kpi.accounts,         label: t('Comptes actifs', 'Active accounts', 'Cuentas activas') },
+            ].map((c) => (
+              <div key={c.label} className="bg-white rounded-2xl border border-slate-200/70 p-4 shadow-sm">
+                <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${c.tone}`}>{c.emoji}</span>
+                <div className={`text-2xl font-extrabold mt-2 ${c.danger && kpi.missing ? 'text-red-600' : 'text-slate-900'}`}>{c.value}</div>
+                <div className="text-xs text-slate-500 leading-tight">{c.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Alertes intelligentes */}
+        {teachers.length > 0 && (noSubject || noClass || subjectsNoTeacher || noAccount) > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {noSubject > 0 && <button onClick={() => { setSubjectF(''); setAccessF(''); setSpecialtyF(''); setClassF(''); }} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">📚 {noSubject} {t('sans matière', 'no subject', 'sin asignatura')}</button>}
+            {noClass > 0 && <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">🏫 {noClass} {t('sans classe', 'no class', 'sin clase')}</span>}
+            {subjectsNoTeacher > 0 && <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-red-50 text-red-700 border border-red-200">⚠ {subjectsNoTeacher} {t('matière(s) sans enseignant', 'subject(s) without teacher', 'sin profesor')}</span>}
+            {noAccount > 0 && <button onClick={() => setAccessF('without')} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">🔑 {noAccount} {t('sans compte', 'no account', 'sin cuenta')}</button>}
           </div>
         )}
 
@@ -876,15 +920,78 @@ export function TeachersPanel() {
           />
         )}
 
-        {/* Recherche */}
-        {teachers.length > 3 && (
-          <input
-            type="text"
-            className="form-input max-w-sm"
-            placeholder={t('Rechercher par nom, spécialité…', 'Search by name, specialty…')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        {/* Recherche + filtres + bascule de vue */}
+        {teachers.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="text" className="form-input max-w-xs" placeholder={t('Rechercher par nom, spécialité…', 'Search by name, specialty…')}
+              value={search} onChange={(e) => setSearch(e.target.value)} />
+            <select className="form-input" style={{ maxWidth: 160 }} value={specialtyF} onChange={(e) => setSpecialtyF(e.target.value)}>
+              <option value="">{t('Spécialité', 'Specialty', 'Especialidad')}</option>
+              {specialties.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select className="form-input" style={{ maxWidth: 150 }} value={classF} onChange={(e) => setClassF(e.target.value)}>
+              <option value="">{t('Classe', 'Class', 'Clase')}</option>
+              {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <select className="form-input" style={{ maxWidth: 150 }} value={subjectF} onChange={(e) => setSubjectF(e.target.value)}>
+              <option value="">{t('Matière', 'Subject', 'Asignatura')}</option>
+              {subjectNames.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select className="form-input" style={{ maxWidth: 160 }} value={accessF} onChange={(e) => setAccessF(e.target.value)}>
+              <option value="">{t('Accès plateforme', 'Platform access', 'Acceso')}</option>
+              <option value="with">{t('Avec compte', 'With account', 'Con cuenta')}</option>
+              <option value="without">{t('Sans compte', 'No account', 'Sin cuenta')}</option>
+            </select>
+            {(search || specialtyF || classF || subjectF || accessF) && (
+              <button onClick={() => { setSearch(''); setSpecialtyF(''); setClassF(''); setSubjectF(''); setAccessF(''); }} className="text-xs text-gray-400 hover:text-gray-600 underline">{t('Effacer', 'Clear', 'Limpiar')}</button>
+            )}
+            <div className="ml-auto flex rounded-xl border border-slate-200 overflow-hidden text-xs font-semibold">
+              {[['table', t('Tableau', 'Table', 'Tabla')], ['cards', t('Cartes', 'Cards', 'Tarjetas')]].map(([v, label]) => (
+                <button key={v} onClick={() => setCardView(v === 'cards')}
+                  className={`px-3 py-2 transition-colors ${(cardView ? 'cards' : 'table') === v ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}>{label}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Vue cartes */}
+        {visible.length > 0 && cardView && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {visible.map((teacher) => {
+              const subs = subjectsByTeacher[teacher.id] || [];
+              const clsN = classesByTeacher[teacher.id]?.size || 0;
+              const occ = occupationOf(teacher);
+              const st = teacherStatus(teacher);
+              const S = st === 'green' ? { dot: 'bg-emerald-500', cls: 'bg-emerald-50 text-emerald-700', label: t('Opérationnel', 'Operational', 'Operativo') }
+                : st === 'yellow' ? { dot: 'bg-amber-500', cls: 'bg-amber-50 text-amber-700', label: t('À compléter', 'To complete', 'Por completar') }
+                : { dot: 'bg-red-500', cls: 'bg-red-50 text-red-700', label: t('Non affecté', 'Unassigned', 'Sin asignar') };
+              return (
+                <div key={teacher.id} className="bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-lg hover:border-indigo-200 transition-all p-5">
+                  <div className="flex items-start gap-3">
+                    <StudentAvatar student={{ photo_url: teacher.photo_url, name: teacher.name }} size={44} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-slate-900 truncate">{teacher.name}</p>
+                      <p className="text-xs text-slate-400 truncate">{teacher.specialty || t('Sans spécialité', 'No specialty', 'Sin especialidad')}</p>
+                    </div>
+                    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-full ${S.cls}`}><span className={`w-1.5 h-1.5 rounded-full ${S.dot}`} />{S.label}</span>
+                  </div>
+                  <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
+                    <span><strong className="text-slate-800">{subs.length}</strong> {t('matière(s)', 'subject(s)', 'asig.')}</span>
+                    <span><strong className="text-slate-800">{clsN}</strong> {t('classe(s)', 'class(es)', 'clases')}</span>
+                    <span className={teacher.auth_user_id ? 'text-emerald-600' : 'text-slate-400'}>{teacher.auth_user_id ? '🔑 ' + t('Compte', 'Account', 'Cuenta') : t('Sans compte', 'No account', 'Sin cuenta')}</span>
+                  </div>
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1"><span>{t('Charge pédagogique', 'Teaching load', 'Carga')}</span><span className="font-semibold text-slate-600">{occ}%</span></div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full ${occ >= 100 ? 'bg-red-500' : occ >= 60 ? 'bg-amber-400' : 'bg-emerald-500'}`} style={{ width: `${occ}%` }} /></div>
+                  </div>
+                  <div className="flex gap-1.5 mt-4 pt-3 border-t border-slate-50">
+                    <button onClick={() => { setEditing(teacher); setShowForm(true); }} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{t('Modifier', 'Edit', 'Editar')}</button>
+                    {role === 'admin' && <button onClick={() => setAccessModal(teacher)} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{teacher.auth_user_id ? t('Accès', 'Access', 'Acceso') : t('Créer accès', 'Create access', 'Crear acceso')}</button>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {/* Empty state */}
@@ -907,7 +1014,7 @@ export function TeachersPanel() {
         )}
 
         {/* Tableau */}
-        {visible.length > 0 && (
+        {visible.length > 0 && !cardView && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-6 py-3 border-b border-gray-100 bg-gray-50/70">
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -923,6 +1030,7 @@ export function TeachersPanel() {
                     <th className="px-4 py-3 text-left">{t('Spécialité', 'Specialty')}</th>
                     <th className="px-4 py-3 text-left">{t('Contact', 'Contact')}</th>
                     <th className="px-4 py-3 text-center">{t('Matières', 'Subjects')}</th>
+                    <th className="px-4 py-3 text-left">{t('Charge', 'Load', 'Carga')}</th>
                     <th className="px-4 py-3 text-center">{t('Accès app', 'App access')}</th>
                     {role === 'admin' && <th className="px-4 py-3 text-center">{t('Bulletins', 'Bulletins')}</th>}
                     <th className="px-4 py-3 text-right">{t('Actions', 'Actions')}</th>
@@ -984,6 +1092,22 @@ export function TeachersPanel() {
                           ) : (
                             <span className="text-xs text-gray-300">{t('Aucune', 'None')}</span>
                           )}
+                        </td>
+
+                        {/* Charge pédagogique */}
+                        <td className="px-4 py-3">
+                          {(() => {
+                            const occ = occupationOf(teacher);
+                            const clsN = classesByTeacher[teacher.id]?.size || 0;
+                            return (
+                              <div className="w-28">
+                                <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                                  <span>{clsN} {t('cl.', 'cl.')}</span><span className="font-semibold text-slate-600">{occ}%</span>
+                                </div>
+                                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full ${occ >= 100 ? 'bg-red-500' : occ >= 60 ? 'bg-amber-400' : 'bg-emerald-500'}`} style={{ width: `${occ}%` }} /></div>
+                              </div>
+                            );
+                          })()}
                         </td>
 
                         {/* Accès app */}

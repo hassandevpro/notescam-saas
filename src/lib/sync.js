@@ -12,7 +12,7 @@
 import { syncQueueDB, studentsDB, initDB } from './db';
 import { uuid } from './uuid';
 import { supabase } from './supabase';
-import { gradeEntryToRows } from './schoolService';
+import { gradeEntryToRows, upsertAbsenceEntry } from './schoolService';
 import { useUiStore } from '../store/uiStore';
 
 // Nombre d'opérations en attente (lecture IDB, sans dépendance React)
@@ -46,11 +46,29 @@ async function replayItem(item) {
       .from('grades')
       .upsert(rows, { onConflict: 'class_id,student_id,subject_id,sequence' });
     if (error) throw error;
+  } else if (table === 'student_absences') {
+    // payload = record IDB { key, class_id, student_id, sequence, school_id, scores }
+    // → mappe les clés spéciales (__abs_j__, __conduite__, …) vers les vraies
+    //   colonnes. Upserter le record brut écrirait `key`/`scores` (inexistants).
+    const ok = await upsertAbsenceEntry(
+      payload.class_id,
+      payload.student_id,
+      payload.sequence,
+      payload.scores,
+      payload.school_id
+    );
+    if (!ok) throw new Error('upsertAbsenceEntry failed');
   } else {
-    // classes | subjects | students
+    // classes | subjects | students | teachers | staff …
     let p = payload;
     if (table === 'students') {
       p = { ...p, gender: p.gender || null, statut: p.statut || null };
+    } else if (table === 'teachers' || table === 'staff') {
+      // Une chaîne vide est invalide pour la colonne `date` (hire_date) côté
+      // Postgres → null. Auto-réparation des anciens éléments mis en file avant
+      // l'assainissement (sinon ils échouent indéfiniment à chaque sync).
+      p = { ...p };
+      if (p.hire_date === '') p.hire_date = null;
     }
     let { error } = await supabase
       .from(table)

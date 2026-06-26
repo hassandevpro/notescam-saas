@@ -89,6 +89,24 @@
 .tt-cell-meta    { font-size: 9.5px; color: #4b5563; margin-top: 2px; }
 .tt-cell-empty   { color: #d1d5db; text-align: center; }
 
+/* Bloc de signature de l'administration (pied de planning). */
+.tt-sign {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+.tt-sign-box { width: 220px; text-align: center; }
+.tt-sign-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #374151;
+  margin: 0 0 30px;
+}
+.tt-sign-line {
+  border-top: 1px solid #9ca3af;
+  height: 0;
+}
+
 .tt-foot {
   margin-top: 12px;
   font-size: 9.5px;

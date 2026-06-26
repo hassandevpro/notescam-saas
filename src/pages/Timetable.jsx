@@ -12,259 +12,62 @@ import {
   upsertTimetableSlot,
   deleteTimetableSlot,
 } from '../lib/schoolService';
+import {
+  decorateSlot, detectConflicts, conflictedSlotIds, buildTimeRanges, buildGrid,
+  computeStats, filterByView, distinctRooms,
+} from '../lib/timetableEngine';
+import TimetableDashboard from '../components/timetable/TimetableDashboard';
+import ConflictBanner     from '../components/timetable/ConflictBanner';
+import ViewSwitcher       from '../components/timetable/ViewSwitcher';
+import TimetableGrid      from '../components/timetable/TimetableGrid';
+import SlotEditor         from '../components/timetable/SlotEditor';
+import TimetablePrint     from '../components/timetable/TimetablePrint';
 import '../styles/timetable.css';
 
 const DAYS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 const DAYS_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAYS_ES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const daysFor = (l) => (l === 'en' ? DAYS_EN : l === 'es' ? DAYS_ES : DAYS_FR);
 
-const daysFor = (lang) => (lang === 'en' ? DAYS_EN : lang === 'es' ? DAYS_ES : DAYS_FR);
-
-const EMPTY_FORM = {
-  day_of_week: 1,
-  start_time: '07:30',
-  end_time: '09:30',
-  subject_id: '',
-  label: '',
-  teacher_id: '',
+// Colonnes réelles de timetable_slots → on n'envoie JAMAIS les champs décorés
+// (title, color, category…) au backend (Supabase rejette les colonnes inconnues).
+const DB_COLUMNS = [
+  'id', 'school_id', 'class_id', 'academic_year', 'day_of_week',
+  'start_time', 'end_time', 'subject_id', 'teacher_id', 'label', 'room',
+];
+const toPayload = (slot) => {
+  const out = {};
+  for (const k of DB_COLUMNS) if (slot[k] !== undefined) out[k] = slot[k];
+  return out;
 };
 
-// ── Slot card ─────────────────────────────────────────────────────────────────
-function SlotCard({ slot, subjects, teachers, classes, onEdit, onDelete, showClass }) {
-  const sub     = subjects.find((s) => s.id === slot.subject_id);
-  const teacher = teachers.find((t) => t.id === slot.teacher_id);
-  const cls     = classes.find((c) => c.id === slot.class_id);
-  const title   = sub?.name || slot.label || '—';
-
-  return (
-    <div className="group relative bg-white rounded-xl border border-gray-100 shadow-sm p-3 hover:border-brand-200 hover:shadow transition-all">
-      <p className="text-[10px] font-mono text-gray-400 mb-1">
-        {slot.start_time?.slice(0, 5)} – {slot.end_time?.slice(0, 5)}
-      </p>
-      <p className="text-sm font-bold text-gray-900 leading-tight">{title}</p>
-      {showClass && cls && (
-        <p className="text-xs text-indigo-600 font-medium mt-0.5">{cls.name}</p>
-      )}
-      {teacher && (
-        <p className="text-xs text-gray-500 mt-0.5 truncate">{teacher.name}</p>
-      )}
-      {onEdit && (
-        <div className="absolute top-2 right-2 hidden group-hover:flex gap-1">
-          <button
-            onClick={() => onEdit(slot)}
-            className="w-6 h-6 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-brand-100 text-gray-500 hover:text-brand-700 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
-            </svg>
-          </button>
-          <button
-            onClick={() => onDelete(slot.id)}
-            className="w-6 h-6 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/>
-            </svg>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Slot modal ────────────────────────────────────────────────────────────────
-function SlotModal({ initial, subjects, teachers, onSave, onClose, t }) {
-  const lang = getLang();
-  const DAYS = daysFor(lang);
-  const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
-  const [saving, setSaving] = useState(false);
-  const set = (f) => (e) => setForm((p) => ({ ...p, [f]: e.target.value }));
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (form.start_time >= form.end_time) return;
-    setSaving(true);
-    await onSave({
-      ...form,
-      day_of_week: Number(form.day_of_week),
-      subject_id:  form.subject_id || null,
-      teacher_id:  form.teacher_id || null,
-      label:       form.subject_id ? null : (form.label || null),
-    });
-    setSaving(false);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
-          <label className="form-label">{t('Jour', 'Day')}</label>
-          <select className="form-input" value={form.day_of_week} onChange={set('day_of_week')}>
-            {DAYS.map((d, i) => (
-              <option key={i + 1} value={i + 1}>{d}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="form-label">{t('Heure début', 'Start time')}</label>
-          <input type="time" required className="form-input" value={form.start_time} onChange={set('start_time')} />
-        </div>
-        <div>
-          <label className="form-label">{t('Heure fin', 'End time')}</label>
-          <input type="time" required className="form-input" value={form.end_time} onChange={set('end_time')} />
-          {form.start_time >= form.end_time && (
-            <p className="text-xs text-red-500 mt-1">{t('Heure de fin invalide', 'Invalid end time')}</p>
-          )}
-        </div>
-        <div className="col-span-2">
-          <label className="form-label">{t('Matière', 'Subject')}</label>
-          <select className="form-input" value={form.subject_id} onChange={set('subject_id')}>
-            <option value="">{t('— Autre (texte libre) —', '— Other (free text) —')}</option>
-            {subjects.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-        </div>
-        {!form.subject_id && (
-          <div className="col-span-2">
-            <label className="form-label">{t('Libellé', 'Label')}</label>
-            <input type="text" className="form-input" placeholder={t('Sport, Récréation…', 'Sport, Break…')}
-              value={form.label} onChange={set('label')} />
-          </div>
-        )}
-        <div className="col-span-2">
-          <label className="form-label">{t('Enseignant', 'Teacher')}</label>
-          <select className="form-input" value={form.teacher_id} onChange={set('teacher_id')}>
-            <option value="">{t('— Aucun —', '— None —')}</option>
-            {teachers.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <div className="flex gap-3 pt-1">
-        <button type="submit" disabled={saving || form.start_time >= form.end_time} className="btn-primary" style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}>
-          {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer', 'Save')}
-        </button>
-        <button type="button" onClick={onClose} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
-      </div>
-    </form>
-  );
-}
-
-// ── Rendu imprimable (PDF) ──────────────────────────────────────────────────
-// Grille hebdomadaire « heures × jours », masquée à l'écran et révélée à
-// l'impression (cf. timetable.css). Réutilise le même principe que le bulletin.
-function TimetablePrint({ slots, subjects, teachers, classes, days, title, subtitle, school, showClass }) {
-  // Lignes = plages horaires distinctes présentes dans la semaine, triées.
-  const ranges = [];
-  const seen = new Set();
-  for (const s of slots) {
-    const start = s.start_time?.slice(0, 5);
-    const end   = s.end_time?.slice(0, 5);
-    if (!start || !end) continue;
-    const key = `${start}|${end}`;
-    if (!seen.has(key)) { seen.add(key); ranges.push({ start, end, key }); }
-  }
-  ranges.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
-
-  const cellFor = (range, day) =>
-    slots.find(
-      (s) =>
-        s.day_of_week === day &&
-        s.start_time?.slice(0, 5) === range.start &&
-        s.end_time?.slice(0, 5) === range.end,
-    );
-
-  const nameOf = (slot) =>
-    subjects.find((x) => x.id === slot.subject_id)?.name || slot.label || '—';
-
-  return (
-    <div className="tt-print">
-      <div className="tt-paper">
-        <div className="tt-head">
-          {school?.logo_url && (
-            <div className="tt-head-logo"><img src={school.logo_url} alt="" /></div>
-          )}
-          <div className="tt-head-text">
-            <p className="tt-head-school">{school?.name || 'Établissement'}</p>
-            {subtitle && <p className="tt-head-sub">{subtitle}</p>}
-            <p className="tt-head-title">{title}</p>
-          </div>
-          {school?.logo_url && <div className="tt-head-logo" style={{ visibility: 'hidden' }}><img src={school.logo_url} alt="" /></div>}
-        </div>
-
-        {ranges.length === 0 ? (
-          <p className="tt-cell-empty" style={{ padding: '24px 0' }}>—</p>
-        ) : (
-          <table className="tt-grid">
-            <thead>
-              <tr>
-                <th className="tt-time-col">Heures</th>
-                {days.map((d) => <th key={d}>{d}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {ranges.map((range) => (
-                <tr key={range.key}>
-                  <td className="tt-time-cell">{range.start}<br />{range.end}</td>
-                  {days.map((_, i) => {
-                    const slot = cellFor(range, i + 1);
-                    if (!slot) return <td key={i} className="tt-cell-empty">·</td>;
-                    const teacher = teachers.find((x) => x.id === slot.teacher_id);
-                    const cls     = classes.find((x) => x.id === slot.class_id);
-                    return (
-                      <td key={i}>
-                        <div className="tt-cell-subject">{nameOf(slot)}</div>
-                        {showClass && cls && <div className="tt-cell-meta">{cls.name}</div>}
-                        {teacher && <div className="tt-cell-meta">{teacher.name}</div>}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        <div className="tt-foot">
-          <span>{school?.name || ''}</span>
-          <span>{new Date().toLocaleDateString('fr-FR')}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Main ──────────────────────────────────────────────────────────────────────
 export default function Timetable() {
-  const t         = useT();
-  const { f }     = usePlan();
-  const lang      = getLang();
-  const DAYS      = daysFor(lang);
+  const t          = useT();
+  const { f }      = usePlan();
+  const DAYS       = daysFor(getLang());
 
-  const role      = useAuthStore((s) => s.role);
-  const school    = useAuthStore((s) => s.school);
-  const teacherId = useAuthStore((s) => s.teacherId);
-  const viewYear  = useUiStore((s) => s.viewYear);
+  const role       = useAuthStore((s) => s.role);
+  const school     = useAuthStore((s) => s.school);
+  const teacherId  = useAuthStore((s) => s.teacherId);
+  const viewYear   = useUiStore((s) => s.viewYear);
   const activeYear = viewYear ?? school?.current_year;
 
-  const classes   = useSchoolStore((s) => s.classes);
-  const subjects  = useSchoolStore((s) => s.subjects);
-  const teachers  = useSchoolStore((s) => s.teachers);
+  const classes    = useSchoolStore((s) => s.classes);
+  const subjects   = useSchoolStore((s) => s.subjects);
+  const teachers   = useSchoolStore((s) => s.teachers);
 
-  const [slots,          setSlots]          = useState([]);
-  const [loading,        setLoading]        = useState(true);
-  const [selectedClass,  setSelectedClass]  = useState('');
-  const [activeDay,      setActiveDay]      = useState(1);
-  const [showModal,      setShowModal]      = useState(false);
-  const [editSlot,       setEditSlot]       = useState(null);
-  const [defaultDay,     setDefaultDay]     = useState(1);
-  const [confirmDelId,   setConfirmDelId]   = useState(null);
+  const isManager  = role === 'admin' || role === 'censeur';
 
-  // Le censeur gère aussi l'emploi du temps (supervision pédagogique).
-  const isAdmin = role === 'admin' || role === 'censeur';
+  const [slots,        setSlots]        = useState([]);   // BRUT (colonnes réelles)
+  const [loading,      setLoading]      = useState(true);
+  const [view,         setView]         = useState(isManager ? 'class' : 'teacher');
+  const [entityId,     setEntityId]     = useState('');
+  const [showModal,    setShowModal]    = useState(false);
+  const [editSlot,     setEditSlot]     = useState(null);
+  const [defaultCell,  setDefaultCell]  = useState(null);
+  const [confirmDelId, setConfirmDelId] = useState(null);
 
+  // ── Chargement des créneaux de l'école pour l'année active ─────────────────
   useEffect(() => {
     if (!school?.id || !activeYear) return;
     setLoading(true);
@@ -274,63 +77,111 @@ export default function Timetable() {
     });
   }, [school?.id, activeYear]);
 
-  // Auto-select first class
-  useEffect(() => {
-    if (isAdmin && classes.length > 0 && !selectedClass) {
-      setSelectedClass(classes[0].id);
-    }
-  }, [classes, isAdmin, selectedClass]);
+  const ctx = useMemo(() => ({ subjects, teachers, classes }), [subjects, teachers, classes]);
 
-  const classSubjects = useMemo(
-    () => subjects.filter((s) => s.class_id === selectedClass),
-    [subjects, selectedClass],
+  // Décoration (titre, couleur, noms) — uniquement pour le rendu.
+  const decorated = useMemo(() => slots.map((s) => decorateSlot(s, ctx)), [slots, ctx]);
+
+  // Conflits calculés à l'échelle de TOUTE l'école (prof/salle se chevauchent
+  // entre classes : c'est là qu'ils se voient).
+  const conflicts   = useMemo(() => detectConflicts(slots, ctx), [slots, ctx]);
+  const conflictIds = useMemo(() => conflictedSlotIds(conflicts), [conflicts]);
+
+  // Vues disponibles selon le rôle.
+  const views = isManager ? ['class', 'teacher', 'room', 'subject'] : ['teacher'];
+
+  // Entités du sélecteur selon la vue.
+  const rooms = useMemo(() => distinctRooms(slots), [slots]);
+  const subjectsInUse = useMemo(() => {
+    const map = new Map();
+    for (const s of slots) {
+      if (!s.subject_id) continue;
+      const name = subjects.find((x) => x.id === s.subject_id)?.name;
+      if (name && !map.has(s.subject_id)) map.set(s.subject_id, name);
+    }
+    return [...map.entries()].map(([id, name]) => ({ id, name }));
+  }, [slots, subjects]);
+
+  const entities = useMemo(() => {
+    if (view === 'class')   return classes.map((c) => ({ id: c.id, name: c.name }));
+    if (view === 'teacher') return teachers.map((tc) => ({ id: tc.id, name: tc.name }));
+    if (view === 'room')    return rooms.map((r) => ({ id: r, name: r }));
+    if (view === 'subject') return subjectsInUse;
+    return [];
+  }, [view, classes, teachers, rooms, subjectsInUse]);
+
+  // Sélection courante : teacher non-manager = soi-même ; sinon 1re entité.
+  useEffect(() => {
+    if (!isManager) { setEntityId(teacherId || ''); return; }
+    if (entities.length === 0) { setEntityId(''); return; }
+    if (!entities.some((e) => e.id === entityId)) setEntityId(entities[0].id);
+  }, [view, entities, isManager, teacherId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Données dérivées de la vue ──────────────────────────────────────────────
+  const filtered = useMemo(
+    () => filterByView(decorated, view, entityId),
+    [decorated, view, entityId],
+  );
+  const ranges = useMemo(() => buildTimeRanges(filtered), [filtered]);
+  const grid   = useMemo(() => buildGrid(filtered, ranges, 6), [filtered, ranges]);
+  const stats  = useMemo(
+    () => computeStats({ slots, gridSlots: filtered, ranges, days: 6, conflicts }),
+    [slots, filtered, ranges, conflicts],
   );
 
-  // Slots filtered and grouped by day
-  const filteredSlots = useMemo(() => {
-    if (role === 'teacher') return slots.filter((s) => s.teacher_id === teacherId);
-    return slots.filter((s) => s.class_id === selectedClass);
-  }, [slots, role, teacherId, selectedClass]);
+  // Édition possible pour les managers ; ajout de cellule seulement en Vue Classe
+  // (besoin d'un class_id non ambigu).
+  const editable = isManager;
+  const canAdd   = isManager && view === 'class' && !!entityId;
+  const showClass = view !== 'class';
 
-  const slotsByDay = useMemo(() => {
-    const map = {};
-    for (let d = 1; d <= 6; d++) map[d] = [];
-    filteredSlots.forEach((s) => {
-      if (map[s.day_of_week]) map[s.day_of_week].push(s);
-    });
-    return map;
-  }, [filteredSlots]);
+  // Classe concernée par l'édition (cours existant → sa classe ; sinon classe sélectionnée en Vue Classe).
+  const selectedClassId = editSlot?.class_id || (view === 'class' ? entityId : null);
 
-  const openAdd = (day) => {
-    setEditSlot(null);
-    setDefaultDay(day);
-    setShowModal(true);
-  };
+  // Matières proposées dans l'éditeur. MÊME source que « Gestion des Matières »
+  // (store `subjects`, table officielle) — aucune seconde source.
+  // On propose en priorité les matières de la classe ; si la classe n'en a
+  // aucune (ou class_id non concordant), on se rabat sur TOUTES les matières du
+  // système au lieu d'afficher un menu vide.
+  const editorSubjects = useMemo(() => {
+    const classSubs = selectedClassId ? subjects.filter((s) => s.class_id === selectedClassId) : [];
+    const base = classSubs.length ? classSubs : subjects;
+    // Dédoublonnage par NOM : le repli « toutes les matières » répète le même
+    // intitulé une fois par classe (Géo, Géo…). On garde une entrée par nom.
+    const seen = new Set();
+    const list = [];
+    for (const s of base) {
+      const key = (s.name || '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      list.push(s);
+    }
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }, [selectedClassId, subjects]);
 
-  const openEdit = (slot) => {
-    setEditSlot(slot);
-    setShowModal(true);
-  };
-
-  const handleSave = async (form) => {
-    const payload = {
-      ...(editSlot?.id ? { id: editSlot.id } : {}),
-      school_id:    school.id,
-      class_id:     isAdmin ? selectedClass : (editSlot?.class_id || ''),
-      academic_year: activeYear,
-      ...form,
-    };
+  // ── Mutations ───────────────────────────────────────────────────────────────
+  const persist = async (payload) => {
     const saved = await upsertTimetableSlot(payload);
     if (saved) {
       setSlots((prev) => {
         const without = prev.filter((s) => s.id !== saved.id);
-        return [...without, saved].sort((a, b) =>
-          a.day_of_week !== b.day_of_week
-            ? a.day_of_week - b.day_of_week
-            : a.start_time.localeCompare(b.start_time),
-        );
+        return [...without, saved];
       });
     }
+    return saved;
+  };
+
+  const handleMove = async (decoratedSlot, day, range) => {
+    const raw = slots.find((s) => s.id === decoratedSlot.id);
+    if (!raw) return;
+    await persist(toPayload({ ...raw, day_of_week: day, start_time: range.start, end_time: range.end }));
+  };
+
+  const handleSave = async (form) => {
+    const base = editSlot
+      ? { ...editSlot }
+      : { school_id: school.id, class_id: entityId, academic_year: activeYear };
+    await persist(toPayload({ ...base, ...form }));
     setShowModal(false);
   };
 
@@ -340,207 +191,163 @@ export default function Timetable() {
     setConfirmDelId(null);
   };
 
+  const openAdd = (day, range) => {
+    setEditSlot(null);
+    setDefaultCell({ day_of_week: day, start_time: range.start, end_time: range.end });
+    setShowModal(true);
+  };
+  const openEdit = (decoratedSlot) => {
+    const raw = slots.find((s) => s.id === decoratedSlot.id) || decoratedSlot;
+    setEditSlot(raw);
+    setShowModal(true);
+  };
+
+  // ── Plan / garde-fous ───────────────────────────────────────────────────────
   if (!f.hasTimetable) {
     return <Layout><UpgradeBanner requiredPlan="pro" featureName={t('Emploi du temps', 'Timetable')} /></Layout>;
   }
-
-  // ── Empty state ──
-  if (!loading && isAdmin && classes.length === 0) {
+  if (!loading && isManager && classes.length === 0) {
     return (
       <Layout>
         <div className="max-w-3xl">
-          <h1 className="text-xl font-bold text-gray-900 mb-6">{t('Emploi du temps', 'Timetable')}</h1>
-          <p className="text-gray-500">{t('Créez d\'abord des classes pour configurer l\'emploi du temps.', 'Create classes first to set up the timetable.')}</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">{t('Emploi du temps', 'Timetable')}</h1>
+          <p className="text-gray-500">{t("Créez d'abord des classes pour configurer l'emploi du temps.", 'Create classes first to set up the timetable.')}</p>
         </div>
       </Layout>
     );
   }
 
-  const printTitle = isAdmin
-    ? `${t('Emploi du temps', 'Timetable')} — ${classes.find((c) => c.id === selectedClass)?.name || ''}`
-    : t('Emploi du temps', 'Timetable');
-  const printSubtitle = [
-    role === 'teacher' ? (teachers.find((tt) => tt.id === teacherId)?.name || '') : '',
-    activeYear ? `${t('Année', 'Year')} ${activeYear}` : '',
-  ].filter(Boolean).join(' · ');
+  // En-tête imprimable.
+  const entityName = entities.find((e) => e.id === entityId)?.name || '';
+  const viewLabel = {
+    class: t('Classe', 'Class'), teacher: t('Enseignant', 'Teacher'),
+    room: t('Salle', 'Room'), subject: t('Matière', 'Subject'),
+  }[view];
+  const printTitle = entityName || t('Emploi du temps', 'Timetable');
+  const printSubtitle = `${viewLabel}${activeYear ? '' : ''}`;
 
   return (
     <Layout>
+      {/* Rendu PDF (masqué à l'écran) */}
       <TimetablePrint
-        slots={filteredSlots}
-        subjects={subjects}
-        teachers={teachers}
-        classes={classes}
-        days={DAYS}
+        slots={filtered}
+        ranges={ranges}
+        dayLabels={DAYS}
         title={printTitle}
         subtitle={printSubtitle}
+        year={activeYear}
         school={school}
-        showClass={role === 'teacher'}
+        showClass={showClass}
+        t={t}
       />
-      <div className="max-w-6xl tt-screen">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <h1 className="text-xl font-bold text-gray-900">{t('Emploi du temps', 'Timetable')}</h1>
-          <div className="flex items-center gap-3 flex-wrap">
-            {isAdmin && (
-              <select
-                className="form-input text-sm"
-                value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
-                style={{ width: 'auto', minWidth: '160px' }}
-              >
-                {classes.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            )}
-            <button
-              onClick={() => window.print()}
-              disabled={filteredSlots.length === 0}
-              className="btn-secondary inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ width: 'auto' }}
-              title={t('Imprimer / Exporter en PDF', 'Print / Export to PDF')}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M5 4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a1 1 0 001 1h6a1 1 0 001-1v-2h1a2 2 0 002-2V6a2 2 0 00-2-2H5zm10 7V6H5v5h10zm-2 1H7v2h6v-2z" clipRule="evenodd"/>
-              </svg>
-              {t('Imprimer', 'Print')}
-            </button>
+
+      <div className="max-w-7xl tt-screen">
+        {/* En-tête */}
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('Emploi du temps', 'Timetable')}</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              {t('Planificateur scolaire — glissez-déposez les cours, détectez les conflits.',
+                 'School planner — drag & drop courses, detect conflicts.')}
+            </p>
           </div>
+          <button
+            onClick={() => window.print()}
+            disabled={filtered.length === 0}
+            className="btn-secondary inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ width: 'auto' }}
+            title={t('Imprimer / Exporter en PDF', 'Print / Export to PDF')}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a1 1 0 001 1h6a1 1 0 001-1v-2h1a2 2 0 002-2V6a2 2 0 00-2-2H5zm10 7V6H5v5h10zm-2 1H7v2h6v-2z" clipRule="evenodd"/></svg>
+            {t('Imprimer / PDF', 'Print / PDF')}
+          </button>
         </div>
 
-        {/* Day tabs (mobile) */}
-        <div className="flex gap-1 mb-4 overflow-x-auto pb-1 lg:hidden">
-          {DAYS.map((d, i) => (
-            <button
-              key={i}
-              onClick={() => setActiveDay(i + 1)}
-              className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                activeDay === i + 1
-                  ? 'bg-brand-600 text-white'
-                  : 'bg-white text-gray-500 border border-gray-200 hover:border-brand-300'
-              }`}
-            >
-              {d.slice(0, 3)}
-            </button>
-          ))}
+        {/* Tableau de bord */}
+        <TimetableDashboard stats={stats} t={t} />
+
+        {/* Bandeau conflits */}
+        <ConflictBanner conflicts={conflicts} dayLabels={DAYS} t={t} />
+
+        {/* Sélecteur de vue + entité */}
+        <div className="mb-4">
+          <ViewSwitcher
+            views={views}
+            view={view}
+            onViewChange={setView}
+            entities={isManager ? entities : []}
+            entityId={entityId}
+            onEntityChange={setEntityId}
+            entityPlaceholder={view === 'room' && rooms.length === 0 ? t('Aucune salle', 'No room') : undefined}
+            t={t}
+          />
         </div>
 
+        {/* Grille */}
         {loading ? (
-          <p className="text-gray-400 animate-pulse text-sm">{t('Chargement…', 'Loading…')}</p>
+          <p className="text-gray-400 animate-pulse text-sm py-10 text-center">{t('Chargement…', 'Loading…')}</p>
+        ) : ranges.length === 0 && filtered.length === 0 && !canAdd ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-16 text-center">
+            <p className="text-slate-400 text-sm">{t('Aucun cours pour cette sélection.', 'No courses for this selection.')}</p>
+          </div>
         ) : (
-          <>
-            {/* Desktop grid */}
-            <div className="hidden lg:grid grid-cols-6 gap-3">
-              {DAYS.map((dayLabel, i) => {
-                const day = i + 1;
-                const daySlots = slotsByDay[day] || [];
-                return (
-                  <div key={day} className="flex flex-col gap-2">
-                    <div className="text-xs font-bold text-gray-500 uppercase tracking-widest pb-1 border-b border-gray-100">
-                      {dayLabel}
-                    </div>
-                    {daySlots.map((slot) => (
-                      <SlotCard
-                        key={slot.id}
-                        slot={slot}
-                        subjects={subjects}
-                        teachers={teachers}
-                        classes={classes}
-                        showClass={role === 'teacher'}
-                        onEdit={isAdmin ? openEdit : null}
-                        onDelete={isAdmin ? setConfirmDelId : null}
-                      />
-                    ))}
-                    {daySlots.length === 0 && (
-                      <p className="text-xs text-gray-300 text-center py-4">
-                        {t('Vide', 'Empty')}
-                      </p>
-                    )}
-                    {isAdmin && (
-                      <button
-                        onClick={() => openAdd(day)}
-                        className="mt-1 w-full py-2 text-xs font-medium text-gray-400 border border-dashed border-gray-200 rounded-xl hover:border-brand-300 hover:text-brand-600 transition-colors"
-                      >
-                        + {t('Ajouter', 'Add')}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Mobile: single day view */}
-            <div className="lg:hidden space-y-3">
-              {(slotsByDay[activeDay] || []).map((slot) => (
-                <SlotCard
-                  key={slot.id}
-                  slot={slot}
-                  subjects={subjects}
-                  teachers={teachers}
-                  classes={classes}
-                  showClass={role === 'teacher'}
-                  onEdit={isAdmin ? openEdit : null}
-                  onDelete={isAdmin ? setConfirmDelId : null}
-                />
-              ))}
-              {(slotsByDay[activeDay] || []).length === 0 && (
-                <p className="text-gray-400 text-sm text-center py-8">
-                  {t('Aucun créneau ce jour.', 'No slots this day.')}
-                </p>
-              )}
-              {isAdmin && (
-                <button
-                  onClick={() => openAdd(activeDay)}
-                  className="w-full py-3 text-sm font-medium text-brand-600 border-2 border-dashed border-brand-200 rounded-xl hover:bg-brand-50 transition-colors"
-                >
-                  + {t('Ajouter un créneau', 'Add slot')}
-                </button>
-              )}
-            </div>
-          </>
+          <TimetableGrid
+            grid={grid}
+            dayLabels={DAYS}
+            editable={editable}
+            conflictedIds={conflictIds}
+            showClass={showClass}
+            onMove={handleMove}
+            onEdit={openEdit}
+            onDelete={isManager ? setConfirmDelId : undefined}
+            onAdd={canAdd ? openAdd : () => {}}
+            t={t}
+          />
         )}
 
-        {/* Delete confirm */}
+        {/* Légende des catégories */}
+        <p className="mt-3 text-[11px] text-slate-400">
+          {t('Couleurs automatiques par catégorie de matière.', 'Automatic colours by subject category.')}
+        </p>
+
+        {/* Confirmation suppression */}
         {confirmDelId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
             <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
-              <p className="text-gray-900 font-semibold mb-4">
-                {t('Supprimer ce créneau ?', 'Delete this slot?')}
-              </p>
+              <p className="text-gray-900 font-semibold mb-4">{t('Supprimer ce cours ?', 'Delete this course?')}</p>
               <div className="flex gap-3">
                 <button onClick={() => handleDelete(confirmDelId)}
                   className="btn-primary bg-red-500 hover:bg-red-600 border-red-500" style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
                   {t('Supprimer', 'Delete')}
                 </button>
-                <button onClick={() => setConfirmDelId(null)} className="btn-secondary">
-                  {t('Annuler', 'Cancel')}
-                </button>
+                <button onClick={() => setConfirmDelId(null)} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Add / Edit modal */}
+        {/* Éditeur de créneau */}
         {showModal && (
           <Modal
-            title={editSlot ? t('Modifier le créneau', 'Edit slot') : t('Nouveau créneau', 'New slot')}
+            title={editSlot ? t('Modifier le cours', 'Edit course') : t('Nouveau cours', 'New course')}
             onClose={() => setShowModal(false)}
           >
-            <SlotModal
+            <SlotEditor
               initial={editSlot
                 ? {
                     day_of_week: editSlot.day_of_week,
-                    start_time:  editSlot.start_time?.slice(0, 5) || '07:30',
-                    end_time:    editSlot.end_time?.slice(0, 5)   || '09:30',
+                    start_time:  (editSlot.start_time || '07:30').slice(0, 5),
+                    end_time:    (editSlot.end_time   || '09:30').slice(0, 5),
                     subject_id:  editSlot.subject_id || '',
                     label:       editSlot.label || '',
                     teacher_id:  editSlot.teacher_id || '',
+                    room:        editSlot.room || '',
                   }
-                : { ...EMPTY_FORM, day_of_week: defaultDay }
+                : { day_of_week: 1, start_time: '07:30', end_time: '09:30', subject_id: '', label: '', teacher_id: '', room: '', ...defaultCell }
               }
-              subjects={isAdmin ? classSubjects : subjects}
+              subjects={editorSubjects}
               teachers={teachers}
+              rooms={rooms}
               onSave={handleSave}
               onClose={() => setShowModal(false)}
               t={t}

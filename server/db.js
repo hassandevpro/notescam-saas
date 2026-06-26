@@ -37,6 +37,13 @@ function ensureColumn(table, column, ddl) {
 }
 ensureColumn('subjects', 'position', 'position INTEGER');   // ordre des matières sur le bulletin
 ensureColumn('students', 'photo_url', 'photo_url TEXT');    // photo de l'élève
+// Frais flexibles : instantané des tranches + mode de paiement figé + ajustements
+// (bourses/remises). Sur bases LAN déjà installées, ces colonnes manquaient et
+// pickColumns avalait silencieusement les tranches (donnée perdue au rechargement).
+ensureColumn('student_fees', 'tranches',     "tranches TEXT NOT NULL DEFAULT '[]'");
+ensureColumn('student_fees', 'payment_mode', 'payment_mode TEXT');
+ensureColumn('student_fees', 'adjustments',  "adjustments TEXT NOT NULL DEFAULT '[]'");
+ensureColumn('timetable_slots', 'room', 'room TEXT');       // salle du cours (Vue Salle + conflits de salle)
 // Affectation des enseignants (titulaire de classe + prof par matière). Absentes
 // du 1er schéma LAN -> sans elles, pickColumns avalait teacher_id en silence et
 // l'assignation « disparaissait » au rechargement. Voir aussi le garde-fou plus bas.
@@ -45,8 +52,15 @@ ensureColumn('classes',  'teacher_id',   'teacher_id TEXT');
 ensureColumn('classes',  'max_students', 'max_students INTEGER');
 ensureColumn('classes',  'grade_max',    'grade_max INTEGER'); // barème de classe (/10, /20, /30…)
 ensureColumn('subjects', 'teacher_id',   'teacher_id TEXT');
+// Matières composites (modèles académiques) — parent + méthode de calcul.
+ensureColumn('subjects', 'parent_id',   'parent_id TEXT');
+ensureColumn('subjects', 'calc_method', 'calc_method TEXT');
+ensureColumn('subjects', 'formula',     'formula TEXT');
+ensureColumn('schools',  'currency',     "currency TEXT NOT NULL DEFAULT 'XAF'"); // devise officielle (affichage multi-devises)
 ensureColumn('schools',  'ge_grade_max', 'ge_grade_max INTEGER');  // barème GE (/10 ou /20) — lu par geGradeMax()
 ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // pilotage des périodes : 'auto' | 'manual'
+ensureColumn('schools',  'grade_entry_mode', "grade_entry_mode TEXT NOT NULL DEFAULT 'principal'"); // 'principal' | 'subject' (enseignant de matière)
+ensureColumn('schools',  'bulletin_subject_mode', "bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic'"); // 'synthetic' | 'detailed'
 ensureColumn('schools',  'establishment_no', 'establishment_no TEXT'); // N° officiel établissement (en-tête bulletin)
 ensureColumn('schools',  'bulletin_font',    'bulletin_font TEXT');    // police choisie pour le bulletin
 // Relevés de notes — signatures + noms des 2 autorités additionnelles (le chef
@@ -71,6 +85,7 @@ for (const [col, ddl] of [
 export const SYNCED_TABLES = new Set([
   'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
+  'class_fee_grids',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ]);
@@ -107,7 +122,8 @@ export function tableColumns(table) {
 // Liste blanche des tables exposées par l'API générique.
 export const ALLOWED_TABLES = new Set([
   'schools', 'school_users', 'classes', 'subjects', 'students', 'grades',
-  'teachers', 'staff', 'student_fees', 'fee_payments', 'attendance', 'student_absences',
+  'teachers', 'staff', 'student_fees', 'fee_payments', 'class_fee_grids',
+  'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots', 'country_education_config',
   'evaluation_system', 'superadmins', 'academic_periods',

@@ -5,8 +5,8 @@
 // This matches bulletinEngine's allGrades key convention exactly.
 
 const DB_NAME = 'NotesCamDB';
-// Bump à 8 : ajout du store `staff` (module Personnel — tous départements).
-const DB_VERSION = 8;
+// Bump à 10 : ajout du store `class_fee_grids` (grilles tarifaires par classe).
+const DB_VERSION = 10;
 
 let _db = null;
 
@@ -111,6 +111,26 @@ export async function initDB() {
         const s = db.createObjectStore('staff', { keyPath: 'id' });
         s.createIndex('by_school',     'school_id');
         s.createIndex('by_department', 'department');
+      }
+
+      // --- v9 ---
+      // Historique des générations de relevés (centre de production documentaire).
+      // Local par poste (aucune table cloud) — suffit pour le suivi direction.
+      // Schema : { id, school_id, at, user_name, type, scope, count, status, detail }
+      if (!db.objectStoreNames.contains('document_log')) {
+        const s = db.createObjectStore('document_log', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('by_school', 'school_id');
+      }
+
+      // --- v10 ---
+      // Grilles tarifaires par classe (frais comptant + échelonné + tranches).
+      // Schema : { id, school_id, class_id, academic_year, amount_comptant,
+      //            amount_echelonne, tranches:[{id,label,amount,due_date}],
+      //            currency, notes, created_at, updated_at }
+      if (!db.objectStoreNames.contains('class_fee_grids')) {
+        const s = db.createObjectStore('class_fee_grids', { keyPath: 'id' });
+        s.createIndex('by_school', 'school_id');
+        s.createIndex('by_class',  'class_id');
       }
     };
 
@@ -280,6 +300,14 @@ export const feePaymentsDB = {
   delete: (id) => idbDelete('fee_payments', id),
 };
 
+export const classFeeGridsDB = {
+  getAll: () => idbGetAll('class_fee_grids'),
+  getByClass: (classId) => idbGetByIndex('class_fee_grids', 'by_class', classId),
+  put: (r) => idbPut('class_fee_grids', r),
+  putMany: (rs) => idbPutMany('class_fee_grids', rs),
+  delete: (id) => idbDelete('class_fee_grids', id),
+};
+
 export const trashDB = {
   getAll: () => idbGetAll('trash'),
   getByTable: (table) => idbGetByIndex('trash', 'by_table', table),
@@ -307,4 +335,11 @@ export const staffDB = {
   put: (r) => idbPut('staff', r),
   putMany: (rs) => idbPutMany('staff', rs),
   delete: (id) => idbDelete('staff', id),
+};
+
+export const documentLogDB = {
+  getBySchool: (schoolId) => idbGetByIndex('document_log', 'by_school', schoolId),
+  // entry = { school_id, user_name, type, scope, count, status, detail }
+  log: (entry) => idbAdd('document_log', { ...entry, at: entry.at || Date.now() }),
+  delete: (id) => idbDelete('document_log', id),
 };

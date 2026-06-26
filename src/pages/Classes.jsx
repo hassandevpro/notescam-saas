@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
+import { useUiStore } from '../store/uiStore';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import { useT } from '../lib/i18n';
@@ -104,179 +105,244 @@ const EMPTY_FORM = {
   cycle: 'secondaire', current_year: '', teacher_id: '', max_students: '',
 };
 
-// ── Formulaire compact (création) ────────────────────────────────────────────
-function ClassForm({ onSave, onCancel, defaultYear, teachers }) {
+// Icône de cycle (emoji) selon le code.
+function cycleIcon(code) {
+  if (/mat/.test(code)) return '🧸';
+  if (/prim/.test(code)) return '✏️';
+  if (/sec|college|lycee|esba|bach/.test(code)) return '🎓';
+  return '📚';
+}
+
+// ── Stepper accessible (effectif) ─────────────────────────────────────────────
+function Stepper({ value, onChange, min = 0, max = 200, step = 5, ariaLabel }) {
+  const v = value === '' ? '' : Number(value);
+  const dec = () => onChange(Math.max(min, (v || 0) - step));
+  const inc = () => onChange(Math.min(max, (v || 0) + step));
+  return (
+    <div className="inline-flex items-stretch rounded-xl border border-slate-200 overflow-hidden" role="group" aria-label={ariaLabel}>
+      <button type="button" onClick={dec} aria-label="−" className="px-3 text-slate-500 hover:bg-slate-50 text-lg font-bold">−</button>
+      <input type="number" min={min} max={max} value={value} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+        className="w-16 text-center text-sm font-semibold border-x border-slate-200 focus:outline-none" aria-label={ariaLabel} />
+      <button type="button" onClick={inc} aria-label="+" className="px-3 text-slate-500 hover:bg-slate-50 text-lg font-bold">+</button>
+    </div>
+  );
+}
+
+// ── Modale "Nouvelle classe" — expérience orientée métier ─────────────────────
+// Sections logiques + cartes visuelles (cycle/niveau) + nom auto + aperçu temps
+// réel. Self-contained (overlay propre) pour la mise en page 2 colonnes.
+function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teachers }) {
   const t = useT();
   const country = useCountry();
-  // Cycles dynamiques selon le pays — labels venant du registre countries/*.
   const CYCLES = country.cycles.map((c) => ({ value: c.code, label: c.label }));
-
   const isGE = country.code === 'guinea_eq';
   const initSystem = defaultSystemForCountry(country.code);
-  const [form, setForm] = useState({
-    ...EMPTY_FORM,
-    current_year: defaultYear,
-    system: initSystem,
-    grade_max: sysDefaultScale(initSystem),
-  });
+
+  const makeInitial = () => ({ ...EMPTY_FORM, current_year: defaultYear, system: initSystem, grade_max: sysDefaultScale(initSystem) });
+  const [form, setForm] = useState(makeInitial);
   const [saving, setSaving] = useState(false);
-  // Le barème suit automatiquement le système tant que l'admin ne le force pas
-  // à une valeur hors présets (ex. /30). On affiche alors le champ libre.
   const [customScale, setCustomScale] = useState(false);
+  const [createdCount, setCreatedCount] = useState(0);
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+  const applySystem = (f, newSystem) => ({ ...f, system: newSystem, grade_max: customScale ? f.grade_max : sysDefaultScale(newSystem) });
 
-  // Bascule le système et, si le barème n'a pas été personnalisé, recale sa valeur
-  // par défaut (FR → /20, EN → /100).
-  const applySystem = (f, newSystem) => ({
-    ...f,
-    system: newSystem,
-    grade_max: customScale ? f.grade_max : sysDefaultScale(newSystem),
+  const pickCycle = (cycle) => setForm((f) => ({ ...f, cycle, level: '', name: '' }));
+  const pickLevel = (niveau) => setForm((f) => {
+    const nameIsAuto = f.name === '' || f.name === f.level;
+    if (isGE) return { ...f, level: niveau, name: nameIsAuto ? niveau : f.name, system: 'ES' };
+    const autoSystem = EN_NIVEAUX.has(niveau) ? 'EN' : 'FR';
+    const base = { ...f, level: niveau, name: nameIsAuto ? niveau : f.name };
+    return niveau ? applySystem(base, autoSystem) : base;
   });
+  const pickSystem = (s) => setForm((f) => applySystem(f, s));
+  const pickScale = (val) => { if (val === 'custom') { setCustomScale(true); setForm((f) => ({ ...f, grade_max: GRADE_SCALE_PRESETS.includes(f.grade_max) ? 25 : f.grade_max })); } else { setCustomScale(false); setForm((f) => ({ ...f, grade_max: Number(val) })); } };
 
-  const handleCycleChange = (e) => {
-    const cycle = e.target.value;
-    setForm((f) => ({ ...f, cycle, level: '', name: '' }));
-  };
-
-  const handleNiveauChange = (e) => {
-    const niveau = e.target.value;
-    setForm((f) => {
-      const nameIsAuto = f.name === '' || f.name === f.level;
-      // Guinea Ecuatorial : système toujours ES, jamais d'autobascule EN.
-      if (isGE) {
-        return { ...f, level: niveau, name: nameIsAuto ? niveau : f.name, system: 'ES' };
-      }
-      // Cameroun : le système suit la langue du niveau choisi (anglophone -> EN
-      // /100, francophone -> FR /20), même dans une école francophone. L'admin
-      // peut corriger via le sélecteur « Système de notation » (toujours affiché).
-      const autoSystem = EN_NIVEAUX.has(niveau) ? 'EN' : 'FR';
-      const base = { ...f, level: niveau, name: nameIsAuto ? niveau : f.name };
-      return niveau ? applySystem(base, autoSystem) : base;
-    });
-  };
-
-  const handleSystemChange = (e) => {
-    const newSystem = e.target.value;
-    setForm((f) => applySystem(f, newSystem));
-  };
-
-  const handleScaleChange = (e) => {
-    const val = e.target.value;
-    if (val === 'custom') {
-      setCustomScale(true);
-      // Démarre le champ libre sur une valeur hors présets pour rester visible.
-      setForm((f) => ({ ...f, grade_max: GRADE_SCALE_PRESETS.includes(f.grade_max) ? 25 : f.grade_max }));
-    } else {
-      setCustomScale(false);
-      setForm((f) => ({ ...f, grade_max: Number(val) }));
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSaving(true);
+  const buildPayload = () => {
     const gm = Math.max(1, Math.min(200, Number(form.grade_max) || 20));
-    await onSave({
-      ...form,
-      teacher_id:   form.teacher_id   || null,
-      max_students: form.max_students ? Number(form.max_students) : null,
-      // Guinée Éq. : le barème vient des Paramètres (ge_grade_max), pas d'ici.
-      grade_max:    isGE ? null : gm,
-    });
+    return { ...form, teacher_id: form.teacher_id || null, max_students: form.max_students ? Number(form.max_students) : null, grade_max: isGE ? null : gm };
+  };
+  const submit = async (another) => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    if (another) {
+      await onSaveAnother(buildPayload());
+      setCreatedCount((n) => n + 1);
+      // Garde cycle/système/barème/année/titulaire ; réinitialise niveau + nom + effectif.
+      setForm((f) => ({ ...f, level: '', name: '', max_students: '' }));
+    } else {
+      await onSave(buildPayload());
+    }
     setSaving(false);
   };
 
-  return (
-    <form onSubmit={handleSubmit} className="pb-2">
+  const teacherName = teachers.find((tc) => tc.id === form.teacher_id)?.name;
+  const sysLabel = isGE ? 'ES' : form.system;
+  const scaleLabel = isGE ? `/${country?.geMax || 10}` : `/${form.grade_max || '—'}`;
+  const cycleLabel = CYCLES.find((c) => c.value === form.cycle)?.label || form.cycle;
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {/* 1. Cycle en premier — détermine les options de niveau */}
-        <div>
-          <label className="form-label">{t('Cycle *', 'Cycle *')}</label>
-          <select required className="form-input" value={form.cycle} onChange={handleCycleChange}>
-            {CYCLES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-          </select>
-        </div>
-        {/* 2. Niveau — auto-remplit le nom — options venant du pays */}
-        <div>
-          <label className="form-label">{t('Niveau', 'Level')}</label>
-          <select className="form-input" value={form.level} onChange={handleNiveauChange}>
-            <option value="">— {t('Choisir', 'Select')} —</option>
-            {niveauGroupsForCycle(country, form.cycle).map((g) => (
-              <optgroup key={g.group} label={g.group}>
-                {g.items.map((n) => <option key={n} value={n}>{n}</option>)}
-              </optgroup>
-            ))}
-          </select>
-        </div>
-        {/* 3. Nom — pré-rempli depuis le niveau, éditable pour distinguer A/B */}
-        <div>
-          <label className="form-label">
-            {t('Nom de la classe *', 'Class name *')}
-            {form.level && form.name === form.level && (
-              <span className="ml-1 text-gray-400 font-normal normal-case">
-                — {t('ajoutez A, B… si besoin', 'add A, B… if needed')}
-              </span>
-            )}
-          </label>
-          <input type="text" required className="form-input"
-            placeholder={t('Ex : Terminale TI A', 'E.g. Form 4 Science A')}
-            value={form.name} onChange={set('name')} />
-        </div>
-        {!isGE && (
+  const Section = ({ n, title, children }) => (
+    <div className="mb-5">
+      <div className="flex items-center gap-2 mb-2.5">
+        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center">{n}</span>
+        <h3 className="text-sm font-bold text-slate-700">{title}</h3>
+      </div>
+      {children}
+    </div>
+  );
+  const Row = ({ label, value }) => (
+    <div className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
+      <span className="text-xs text-slate-400">{label}</span>
+      <span className="text-sm font-semibold text-slate-800 text-right truncate max-w-[60%]">{value}</span>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t('Nouvelle classe', 'New class')}>
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col" style={{ animation: 'modal-in .18s ease-out' }}>
+        <style>{`@keyframes modal-in{from{opacity:0;transform:scale(.97) translateY(-8px)}to{opacity:1;transform:scale(1) translateY(0)}}`}</style>
+
+        {/* En-tête + description */}
+        <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-slate-100">
           <div>
-            <label className="form-label">{t('Système de notation *', 'Grading system *')}</label>
-            <select required className="form-input" value={form.system} onChange={handleSystemChange}>
-              {SYSTEMS.map((s) => (
-                <option key={s} value={s}>{s === 'FR' ? t('FR — francophone', 'FR — Francophone') : t('EN — anglophone', 'EN — Anglophone')}</option>
-              ))}
-            </select>
+            <h2 className="text-lg font-bold text-slate-900">{t('Nouvelle classe', 'New class', 'Nueva clase')}</h2>
+            <p className="text-sm text-slate-500 mt-0.5">{t('Configurez le cycle, le niveau et la notation. Le nom est généré automatiquement.', 'Set the cycle, level and grading. The name is generated automatically.', 'Configure el ciclo, el nivel y la calificación.')}</p>
           </div>
-        )}
-        {!isGE && (
-          <div>
-            <label className="form-label">{t('Barème des notes *', 'Grading scale *')}</label>
-            <select required className="form-input"
-              value={customScale || !GRADE_SCALE_PRESETS.includes(form.grade_max) ? 'custom' : form.grade_max}
-              onChange={handleScaleChange}>
-              {GRADE_SCALE_PRESETS.map((n) => <option key={n} value={n}>/{n}</option>)}
-              <option value="custom">{t('Autre…', 'Other…')}</option>
-            </select>
-            {(customScale || !GRADE_SCALE_PRESETS.includes(form.grade_max)) && (
-              <input type="number" min="1" max="200" step="1" className="form-input mt-2"
-                placeholder={t('Ex : 30', 'E.g. 30')}
-                value={form.grade_max}
-                onChange={(e) => setForm((f) => ({ ...f, grade_max: Number(e.target.value) || '' }))} />
+          <button onClick={onClose} aria-label={t('Fermer', 'Close')} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100">
+            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        {/* Corps : formulaire (gauche) + aperçu (droite) */}
+        <div className="grid lg:grid-cols-[1fr_300px] overflow-y-auto">
+          <div className="p-6">
+            {/* 1. Informations académiques */}
+            <Section n="1" title={t('Informations académiques', 'Academic information', 'Información académica')}>
+              <label className="form-label">{t('Cycle', 'Cycle', 'Ciclo')}</label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+                {CYCLES.map((c) => (
+                  <button key={c.value} type="button" onClick={() => pickCycle(c.value)}
+                    aria-pressed={form.cycle === c.value}
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${form.cycle === c.value ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
+                    <span className="text-lg">{cycleIcon(c.value)}</span><span className="truncate">{c.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <label className="form-label">{t('Niveau', 'Level', 'Nivel')}</label>
+              <div className="max-h-44 overflow-y-auto pr-1 space-y-2 mb-3">
+                {niveauGroupsForCycle(country, form.cycle).map((g) => (
+                  <div key={g.group}>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{g.group}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {g.items.map((n) => (
+                        <button key={n} type="button" onClick={() => pickLevel(n)} aria-pressed={form.level === n}
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${form.level === n ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <label className="form-label">
+                {t('Nom de la classe', 'Class name', 'Nombre')}
+                {form.level && form.name === form.level && <span className="ml-1 text-slate-400 font-normal normal-case">— {t('ajoutez A, B…', 'add A, B…', 'añada A, B…')}</span>}
+              </label>
+              <input type="text" required className="form-input" placeholder={t('Ex : Terminale TI A', 'E.g. Form 4 Science A', 'Ej: 2º Bachillerato A')} value={form.name} onChange={set('name')} />
+            </Section>
+
+            {/* 2. Paramètres pédagogiques */}
+            {!isGE && (
+              <Section n="2" title={t('Paramètres pédagogiques', 'Teaching settings', 'Parámetros pedagógicos')}>
+                <label className="form-label">{t('Système de notation', 'Grading system', 'Sistema')}</label>
+                <div className="flex gap-2 mb-3">
+                  {SYSTEMS.map((s) => (
+                    <button key={s} type="button" onClick={() => pickSystem(s)} aria-pressed={form.system === s}
+                      className={`flex-1 px-3 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${form.system === s ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
+                      {s === 'FR' ? t('FR — francophone', 'FR — Francophone') : t('EN — anglophone', 'EN — Anglophone')}
+                    </button>
+                  ))}
+                </div>
+                <label className="form-label">{t('Barème des notes', 'Grading scale', 'Escala')}</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {GRADE_SCALE_PRESETS.map((n) => (
+                    <button key={n} type="button" onClick={() => pickScale(n)} aria-pressed={!customScale && form.grade_max === n}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${!customScale && form.grade_max === n ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>/{n}</button>
+                  ))}
+                  <button type="button" onClick={() => pickScale('custom')} aria-pressed={customScale}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${customScale ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>{t('Autre…', 'Other…', 'Otro…')}</button>
+                  {customScale && (
+                    <input type="number" min="1" max="200" className="w-20 px-2 py-1.5 rounded-lg border border-indigo-300 text-xs" placeholder="30" value={form.grade_max}
+                      onChange={(e) => setForm((f) => ({ ...f, grade_max: Number(e.target.value) || '' }))} />
+                  )}
+                </div>
+              </Section>
             )}
+
+            {/* 3. Organisation */}
+            <Section n={isGE ? '2' : '3'} title={t('Organisation', 'Organisation', 'Organización')}>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">{t('Année scolaire', 'Academic year', 'Año')}</label>
+                  <input type="text" className="form-input" placeholder="2025-2026" value={form.current_year} onChange={set('current_year')} />
+                </div>
+                <div>
+                  <label className="form-label">{t('Effectif maximum', 'Max enrolment', 'Plazas')}</label>
+                  <div><Stepper value={form.max_students} onChange={(v) => setForm((f) => ({ ...f, max_students: v }))} min={0} max={200} step={5} ariaLabel={t('Effectif maximum', 'Max enrolment')} /></div>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="form-label">{t('Enseignant titulaire', 'Class teacher', 'Tutor')}</label>
+                  <select className="form-input" value={form.teacher_id} onChange={set('teacher_id')}>
+                    <option value="">— {t('Aucun', 'None', 'Ninguno')} —</option>
+                    {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
+                  </select>
+                </div>
+              </div>
+            </Section>
           </div>
-        )}
-        <div>
-          <label className="form-label">{t('Année scolaire', 'Academic year')}</label>
-          <input type="text" className="form-input" placeholder="2025-2026"
-            value={form.current_year} onChange={set('current_year')} />
+
+          {/* Aperçu temps réel */}
+          <aside className="bg-slate-50 border-t lg:border-t-0 lg:border-l border-slate-100 p-6">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">{t('Aperçu', 'Preview', 'Vista')}</p>
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="w-11 h-11 rounded-xl bg-indigo-50 flex items-center justify-center text-2xl">{cycleIcon(form.cycle)}</span>
+                <div className="min-w-0">
+                  <p className="font-bold text-slate-900 truncate">{form.name || t('Nom de la classe', 'Class name', 'Nombre')}</p>
+                  <p className="text-xs text-slate-400 truncate">{cycleLabel}{form.level ? ` · ${form.level}` : ''}</p>
+                </div>
+              </div>
+              <Row label={t('Cycle', 'Cycle', 'Ciclo')} value={cycleLabel} />
+              <Row label={t('Niveau', 'Level', 'Nivel')} value={form.level || '—'} />
+              <Row label={t('Nom', 'Name', 'Nombre')} value={form.name || '—'} />
+              <Row label={t('Système', 'System', 'Sistema')} value={sysLabel} />
+              <Row label={t('Barème', 'Scale', 'Escala')} value={scaleLabel} />
+              <Row label={t('Titulaire', 'Teacher', 'Tutor')} value={teacherName || '—'} />
+              <Row label={t('Effectif', 'Enrolment', 'Plazas')} value={form.max_students || '—'} />
+            </div>
+            {createdCount > 0 && (
+              <p className="text-xs text-emerald-600 font-semibold mt-3 text-center">✓ {createdCount} {t('classe(s) créée(s)', 'class(es) created', 'clase(s) creada(s)')}</p>
+            )}
+          </aside>
         </div>
-        <div>
-          <label className="form-label">{t('Effectif maximum', 'Maximum enrolment')}</label>
-          <input type="number" min="1" max="200" className="form-input" placeholder="Ex : 40"
-            value={form.max_students} onChange={set('max_students')} />
-        </div>
-        <div>
-          <label className="form-label">{t('Enseignant titulaire', 'Class teacher')}</label>
-          <select className="form-input" value={form.teacher_id} onChange={set('teacher_id')}>
-            <option value="">— {t('Aucun', 'None')} —</option>
-            {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
-          </select>
+
+        {/* Pied — actions */}
+        <div className="flex flex-wrap items-center justify-end gap-2 px-6 py-4 border-t border-slate-100">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors mr-auto">{t('Annuler', 'Cancel', 'Cancelar')}</button>
+          <button type="button" disabled={saving || !form.name.trim()} onClick={() => submit(true)}
+            className="px-4 py-2.5 rounded-xl border-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-sm font-semibold transition-colors disabled:opacity-40">
+            {t('Enregistrer et ajouter une autre', 'Save and add another', 'Guardar y añadir otra')}
+          </button>
+          <button type="button" disabled={saving || !form.name.trim()} onClick={() => submit(false)}
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors disabled:opacity-40">
+            {saving ? t('Enregistrement…', 'Saving…', 'Guardando…') : t('Enregistrer', 'Save', 'Guardar')}
+          </button>
         </div>
       </div>
-      <div className="flex gap-3 mt-5">
-        <button type="submit" disabled={saving} className="btn-primary"
-          style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}>
-          {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer', 'Save')}
-        </button>
-        <button type="button" onClick={onCancel} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
-      </div>
-    </form>
+    </div>
   );
 }
 
@@ -687,108 +753,122 @@ const CYCLE_THEME = {
   },
 };
 
-function ClassCard({ cls, studentCount, subjectCount, teacherName, onEdit }) {
+// Statut métier d'une classe (partagé carte + dashboard).
+function classStatus({ studentCount, subjectCount, teacherName }) {
+  if (studentCount === 0 || subjectCount === 0) return 'red';
+  if (!teacherName) return 'yellow';
+  return 'green';
+}
+
+function ClassCard({ cls, stats, onEdit, onDuplicate, onDelete, onGo }) {
   const t = useT();
+  const [menu, setMenu] = useState(false);
   const CYCLE_LABELS = {
-    secondaire: t('Secondaire', 'Secondary'),
-    primaire:   t('Primaire',   'Primary'),
-    maternelle: t('Maternelle', 'Nursery'),
+    secondaire: t('Secondaire', 'Secondary', 'Secundaria'),
+    primaire:   t('Primaire',   'Primary',   'Primaria'),
+    maternelle: t('Maternelle', 'Nursery',   'Infantil'),
   };
+  const { studentCount, subjectCount, teacherName } = stats;
   const cycle = cls.cycle || 'secondaire';
   const theme = CYCLE_THEME[cycle] || CYCLE_THEME.secondaire;
   const sys   = cls.system || 'FR';
+  const scale = sys === 'FR' ? '/20' : sys === 'EN' ? '/100' : '/10';
   const max   = cls.max_students || null;
   const pct   = max ? Math.min(100, Math.round((studentCount / max) * 100)) : null;
-  const capacityColor = pct === null ? null : pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-400' : 'bg-emerald-400';
+  const fillColor = pct === null ? 'bg-slate-300' : pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-400' : 'bg-emerald-500';
+
+  const alerts = [];
+  if (!teacherName)      alerts.push(t('Aucun titulaire', 'No teacher', 'Sin tutor'));
+  if (subjectCount === 0) alerts.push(t('Aucune matière', 'No subjects', 'Sin asignaturas'));
+  if (studentCount === 0) alerts.push(t('Aucun élève', 'No students', 'Sin alumnos'));
+
+  const STATUS = {
+    green:  { dot: 'bg-emerald-500', cls: 'bg-emerald-50 text-emerald-700', label: t('Opérationnelle', 'Operational', 'Operativa') },
+    yellow: { dot: 'bg-amber-500',  cls: 'bg-amber-50 text-amber-700',     label: t('Incomplète', 'Incomplete', 'Incompleta') },
+    red:    { dot: 'bg-red-500',    cls: 'bg-red-50 text-red-700',         label: t('Action requise', 'Action required', 'Acción requerida') },
+  }[classStatus(stats)];
+
+  const Btn = ({ label, onClick }) => (
+    <button onClick={onClick} className="flex-1 text-center text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{label}</button>
+  );
 
   return (
-    <div className={`bg-white rounded-xl border shadow-sm hover:shadow-md transition-all flex flex-col ${theme.border} ${theme.hover}`}>
-      {/* Barre d'accent colorée */}
-      <div className={`h-1 rounded-t-xl ${theme.accent}`} />
+    <div className={`bg-white rounded-2xl border shadow-sm hover:shadow-lg transition-all flex flex-col ${theme.border} hover:border-indigo-200`}>
+      <div className={`h-1 rounded-t-2xl ${theme.accent}`} />
 
-      {/* En-tête carte */}
+      {/* En-tête : nom + statut + menu */}
       <div className="px-5 pt-4 pb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-lg font-bold text-gray-900 leading-tight truncate">{cls.name}</h3>
-          {cls.level && (
-            <p className="text-xs text-gray-400 mt-0.5">{cls.level}</p>
-          )}
+          <h3 className="text-lg font-bold text-slate-900 leading-tight truncate">{cls.name}</h3>
+          {cls.level && <p className="text-xs text-slate-400 mt-0.5">{cls.level}</p>}
         </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${
-            sys === 'EN' ? 'bg-blue-50 text-blue-700 border-blue-100'
-            : sys === 'ES' ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-            : 'bg-purple-50 text-purple-700 border-purple-100'
-          }`}>
-            {sys === 'FR' ? '/20' : sys === 'EN' ? '/100' : '/10'}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded-full ${STATUS.cls}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${STATUS.dot}`} />{STATUS.label}
           </span>
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${theme.badge}`}>
-            {CYCLE_LABELS[cycle]}
-          </span>
+          <div className="relative">
+            <button onClick={() => setMenu((v) => !v)} className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100" aria-label={t('Actions', 'Actions')}>
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+            </button>
+            {menu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 z-20 w-40 bg-white rounded-xl shadow-xl border border-slate-100 py-1 text-sm">
+                  <button onClick={() => { setMenu(false); onEdit(); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700">{t('Modifier', 'Edit', 'Editar')}</button>
+                  <button onClick={() => { setMenu(false); onDuplicate(); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700">{t('Dupliquer', 'Duplicate', 'Duplicar')}</button>
+                  <div className="border-t border-slate-100 my-1" />
+                  <button onClick={() => { setMenu(false); if (window.confirm(t('Supprimer cette classe ?', 'Delete this class?', '¿Eliminar?'))) onDelete(); }} className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600">{t('Supprimer', 'Delete', 'Eliminar')}</button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="px-5 py-3 border-t border-gray-50 grid grid-cols-2 gap-3">
-        <div>
-          <p className="text-xl font-bold text-gray-900">
-            {studentCount}
-            {max ? <span className="text-sm font-normal text-gray-400">/{max}</span> : null}
-          </p>
-          <p className="text-xs text-gray-400">{t('élève', 'student')}{studentCount !== 1 ? 's' : ''}</p>
-          {max && (
-            <div className="mt-1.5 h-1.5 bg-gray-100 rounded-full overflow-hidden w-full">
-              <div className={`h-full rounded-full transition-all ${capacityColor}`} style={{ width: `${pct}%` }} />
-            </div>
-          )}
+      {/* Badges cycle + barème */}
+      <div className="px-5 flex flex-wrap gap-1.5">
+        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${theme.badge}`}>{CYCLE_LABELS[cycle]}</span>
+        <span className="text-[11px] font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-100">{t('Barème', 'Scale', 'Escala')} {scale}</span>
+      </div>
+
+      {/* Effectif + remplissage */}
+      <div className="px-5 py-3 mt-1">
+        <div className="flex items-end justify-between">
+          <div>
+            <p className="text-xl font-bold text-slate-900">{studentCount}{max ? <span className="text-sm font-normal text-slate-400">/{max}</span> : null}</p>
+            <p className="text-xs text-slate-400">{t('élève', 'student')}{studentCount !== 1 ? 's' : ''} · {subjectCount} {t('matière', 'subject')}{subjectCount !== 1 ? 's' : ''}</p>
+          </div>
+          {pct !== null && <span className="text-xs font-bold text-slate-500">{pct}%</span>}
         </div>
-        <div>
-          <p className="text-xl font-bold text-gray-900">{subjectCount}</p>
-          <p className="text-xs text-gray-400">{t('matière', 'subject')}{subjectCount !== 1 ? 's' : ''}</p>
+        <div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full transition-all ${fillColor}`} style={{ width: `${pct ?? 0}%` }} />
         </div>
       </div>
 
-      {/* Enseignant */}
-      <div className="px-5 py-3 border-t border-gray-50 flex items-center gap-2">
+      {/* Titulaire */}
+      <div className="px-5 pb-2 flex items-center gap-2">
         {teacherName ? (
           <>
-            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${theme.avatar}`}>
-              <span className="text-[10px] font-bold">
-                {teacherName.slice(0, 2).toUpperCase()}
-              </span>
-            </div>
-            <span className="text-xs text-gray-700 font-medium truncate">{teacherName}</span>
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${theme.avatar}`}><span className="text-[10px] font-bold">{teacherName.slice(0, 2).toUpperCase()}</span></div>
+            <span className="text-xs text-slate-700 font-medium truncate">{teacherName}</span>
           </>
         ) : (
-          <span className="text-xs text-amber-600 font-medium flex items-center gap-1">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            {t('Aucun enseignant assigné', 'No teacher assigned')}
-          </span>
+          <span className="text-xs text-amber-600 font-medium">⚠ {t('Aucun titulaire assigné', 'No class teacher', 'Sin tutor')}</span>
         )}
       </div>
 
-      {/* Actions */}
-      <div className="px-4 py-3 border-t border-gray-50 flex items-center gap-1 mt-auto">
-        <button
-          onClick={onEdit}
-          className={`flex-1 text-center text-xs font-semibold px-2 py-1.5 rounded-lg transition-colors ${theme.editBtn}`}
-        >
-          {t('Modifier', 'Edit')}
-        </button>
-        <Link
-          to={`/app/grades`}
-          className="flex-1 text-center text-xs font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1.5 rounded-lg transition-colors"
-        >
-          {t('Notes', 'Grades')}
-        </Link>
-        <Link
-          to={`/app/bulletins`}
-          className="flex-1 text-center text-xs font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2 py-1.5 rounded-lg transition-colors"
-        >
-          {t('Bulletins', 'Report cards')}
-        </Link>
+      {/* Alertes visuelles */}
+      {alerts.length > 0 && (
+        <div className="px-5 pb-2 flex flex-wrap gap-1.5">
+          {alerts.map((a) => <span key={a} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600">⚠ {a}</span>)}
+        </div>
+      )}
+
+      {/* Boutons d'action réels */}
+      <div className="px-4 py-3 border-t border-slate-50 flex items-center gap-1.5 mt-auto">
+        <Btn label={t('Élèves', 'Students', 'Alumnos')} onClick={() => onGo('students', cls)} />
+        <Btn label={t('Notes', 'Grades', 'Notas')} onClick={() => onGo('grades', cls)} />
+        <Btn label={t('Bulletins', 'Reports', 'Boletines')} onClick={() => onGo('bulletins', cls)} />
       </div>
     </div>
   );
@@ -808,9 +888,22 @@ export default function Classes() {
   const updateClass = useSchoolStore((s) => s.updateClass);
   const deleteClass = useSchoolStore((s) => s.deleteClass);
 
+  const navigate            = useNavigate();
+  const setGradesClassId    = useUiStore((s) => s.setGradesClassId);
+  const setBulletinsClassId = useUiStore((s) => s.setBulletinsClassId);
+  const country             = useCountry();
+
   const [showForm, setShowForm] = useState(false);
   const [editing,  setEditing]  = useState(null);
   const [search,   setSearch]   = useState('');
+  const [cycleF,   setCycleF]   = useState('all');
+  const [levelF,   setLevelF]   = useState('all');
+  const [statusF,  setStatusF]  = useState('all');
+  // Affichage : tableau (par défaut) ou cartes — mémorisé.
+  const [view,     setView]     = useState(() => {
+    try { return localStorage.getItem('nc_classes_view') || 'table'; } catch { return 'table'; }
+  });
+  const chooseView = (v) => { setView(v); try { localStorage.setItem('nc_classes_view', v); } catch {} };
 
   const defaultYear = school?.current_year || '';
 
@@ -827,19 +920,24 @@ export default function Classes() {
     return map;
   }, [classes, students, subjects, teachers]);
 
-  const totalStudents     = students.length;
-  const classesNoTeacher  = classes.filter((c) => !c.teacher_id).length;
+  // KPIs du tableau de bord
+  const kpi = useMemo(() => {
+    const titulaires = new Set(classes.map((c) => c.teacher_id).filter(Boolean)).size;
+    const alerts = classes.filter((c) => classStatus(classStats[c.id] || {}) !== 'green').length;
+    return { classes: classes.length, students: students.length, subjects: subjects.length, titulaires, alerts };
+  }, [classes, students, subjects, classStats]);
 
-  const filteredClasses = search.trim()
-    ? classes.filter((c) => {
-        const q = search.trim().toLowerCase();
-        return (
-          c.name.toLowerCase().includes(q) ||
-          (c.level   || '').toLowerCase().includes(q) ||
-          (c.section || '').toLowerCase().includes(q)
-        );
-      })
-    : classes;
+  const levelOptions = useMemo(() => [...new Set(classes.map((c) => c.level).filter(Boolean))].sort(), [classes]);
+  const cycleOptions = country.cycles.map((c) => ({ value: c.code, label: c.label }));
+
+  const filteredClasses = useMemo(() => classes.filter((c) => {
+    const q = search.trim().toLowerCase();
+    if (q && !(c.name.toLowerCase().includes(q) || (c.level || '').toLowerCase().includes(q))) return false;
+    if (cycleF !== 'all' && (c.cycle || 'secondaire') !== cycleF) return false;
+    if (levelF !== 'all' && c.level !== levelF) return false;
+    if (statusF !== 'all' && classStatus(classStats[c.id] || {}) !== statusF) return false;
+    return true;
+  }), [classes, search, cycleF, levelF, statusF, classStats]);
 
   const handleSave = async (form) => {
     if (editing) {
@@ -848,7 +946,6 @@ export default function Classes() {
     } else {
       const created = await addClass(form);
       setShowForm(false);
-      // Ouvre directement la vue détail pour configurer matières + coefs
       setEditing(created);
     }
   };
@@ -858,22 +955,29 @@ export default function Classes() {
     setEditing(null);
   };
 
+  const handleDuplicate = async (cls) => {
+    const { id, created_at, updated_at, ...rest } = cls;
+    await addClass({ ...rest, name: `${cls.name} (copie)` });
+  };
+
+  // Navigation contextuelle vers les modules de la classe.
+  const onGo = (kind, cls) => {
+    if (kind === 'grades')        { setGradesClassId(cls.id); navigate('/app/grades'); }
+    else if (kind === 'bulletins'){ setBulletinsClassId(cls.id); navigate('/app/bulletins'); }
+    else                          { navigate('/app/students'); }
+  };
+
   return (
     <Layout>
-      <div className="max-w-5xl">
+      <div className="max-w-6xl">
         {/* Header */}
-        <div className="flex flex-wrap justify-between items-start gap-4 mb-6">
+        <div className="flex flex-wrap justify-between items-start gap-4 mb-5">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{t('Classes', 'Classes')}</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              {classes.length} {t('classe', 'class')}{classes.length !== 1 ? 's' : ''} · {totalStudents} {t('élève', 'student')}{totalStudents !== 1 ? 's' : ''}
-            </p>
+            <h1 className="text-2xl font-bold text-slate-900">{t('Classes', 'Classes')}</h1>
+            <p className="text-sm text-slate-500 mt-1">{t("Pilotez l'état de votre établissement en un coup d'œil.", 'Monitor your school at a glance.', 'Supervise su centro de un vistazo.')}</p>
           </div>
           {classes.length >= f.maxClasses ? (
             <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm text-amber-800">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-amber-500 shrink-0">
-                <path fillRule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clipRule="evenodd" />
-              </svg>
               <span>{t('Limite Starter atteinte', 'Starter limit reached')} ·{' '}
                 <a href="https://wa.me/237670894721?text=Je%20veux%20passer%20au%20plan%20%C3%89cole" target="_blank" rel="noopener noreferrer" className="font-semibold underline text-amber-900">
                   {t('Passer au plan École', 'Upgrade to École plan')}
@@ -881,35 +985,40 @@ export default function Classes() {
               </span>
             </div>
           ) : (
-            <button onClick={() => setShowForm(true)} className="btn-primary"
-              style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
+            <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm transition-colors">
               + {t('Ajouter une classe', 'Add a class')}
             </button>
           )}
         </div>
 
-        {/* Alerte enseignants manquants */}
-        {!editing && classesNoTeacher > 0 && classes.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 flex items-center gap-3 text-sm">
-            <svg className="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-amber-800">
-              <strong>{classesNoTeacher}</strong> {t('classe', 'class')}{classesNoTeacher > 1 ? 's' : ''} {t('sans enseignant titulaire assigné — cliquez sur la carte pour modifier.', 'without a class teacher assigned — click a card to edit.')}
-            </span>
+        {/* DASHBOARD — KPIs */}
+        {classes.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+            {[
+              { emoji: '🏫', tone: 'bg-indigo-50', value: kpi.classes, label: t('Classes', 'Classes', 'Clases') },
+              { emoji: '👨‍🎓', tone: 'bg-emerald-50', value: kpi.students, label: t('Élèves', 'Students', 'Alumnos') },
+              { emoji: '📚', tone: 'bg-sky-50', value: kpi.subjects, label: t('Matières', 'Subjects', 'Asignaturas') },
+              { emoji: '👨‍🏫', tone: 'bg-violet-50', value: kpi.titulaires, label: t('Titulaires', 'Class teachers', 'Tutores') },
+              { emoji: '⚠️', tone: kpi.alerts ? 'bg-red-50' : 'bg-slate-50', value: kpi.alerts, label: t('Alertes', 'Alerts', 'Alertas') },
+            ].map((c) => (
+              <div key={c.label} className="bg-white rounded-2xl border border-slate-200/70 p-4 shadow-sm">
+                <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${c.tone}`}>{c.emoji}</span>
+                <div className={`text-2xl font-extrabold mt-2 ${c.label === t('Alertes', 'Alerts', 'Alertas') && kpi.alerts ? 'text-red-600' : 'text-slate-900'}`}>{c.value}</div>
+                <div className="text-xs text-slate-500">{c.label}</div>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* Modal création classe */}
+        {/* Modal création classe — expérience orientée métier */}
         {showForm && !editing && (
-          <Modal title={t('Nouvelle classe', 'New class')} onClose={() => setShowForm(false)} size="md">
-            <ClassForm
-              defaultYear={defaultYear}
-              teachers={teachers}
-              onSave={handleSave}
-              onCancel={() => setShowForm(false)}
-            />
-          </Modal>
+          <ClassCreateModal
+            defaultYear={defaultYear}
+            teachers={teachers}
+            onSave={handleSave}
+            onSaveAnother={async (form) => { await addClass(form); }}
+            onClose={() => setShowForm(false)}
+          />
         )}
 
         {/* Modal édition classe */}
@@ -939,62 +1048,121 @@ export default function Classes() {
             </div>
           ) : (
             <>
-              {/* Barre de recherche */}
-              <div className="relative mb-5">
-                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
-                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-                </svg>
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={t('Rechercher une classe…', 'Search a class…')}
-                  className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-300"
-                />
-                {search && (
-                  <button onClick={() => setSearch('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
+              {/* Barre de recherche + filtres */}
+              <div className="flex flex-wrap items-center gap-2 mb-5">
+                <div className="relative flex-1 min-w-[180px] max-w-sm">
+                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                  </svg>
+                  <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Rechercher…', 'Search…', 'Buscar…')}
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                </div>
+                <select value={cycleF} onChange={(e) => setCycleF(e.target.value)} className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-indigo-400">
+                  <option value="all">{t('Tous les cycles', 'All cycles', 'Todos los ciclos')}</option>
+                  {cycleOptions.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+                <select value={levelF} onChange={(e) => setLevelF(e.target.value)} className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-indigo-400">
+                  <option value="all">{t('Tous niveaux', 'All levels', 'Todos los niveles')}</option>
+                  {levelOptions.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
+                </select>
+                <select value={statusF} onChange={(e) => setStatusF(e.target.value)} className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-indigo-400">
+                  <option value="all">{t('Tous statuts', 'All statuses', 'Todos los estados')}</option>
+                  <option value="green">🟢 {t('Opérationnelle', 'Operational', 'Operativa')}</option>
+                  <option value="yellow">🟡 {t('Incomplète', 'Incomplete', 'Incompleta')}</option>
+                  <option value="red">🔴 {t('Action requise', 'Action required', 'Acción requerida')}</option>
+                </select>
+                {/* Bascule d'affichage Tableau / Cartes */}
+                <div className="flex rounded-xl border border-slate-200 overflow-hidden text-sm font-semibold ml-auto shrink-0">
+                  {[['table', t('Tableau', 'Table', 'Tabla')], ['cards', t('Cartes', 'Cards', 'Tarjetas')]].map(([v, label]) => (
+                    <button key={v} type="button" onClick={() => chooseView(v)}
+                      className={`px-3 py-2 transition-colors ${view === v ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredClasses.length === 0 && (
-                <div className="col-span-full bg-white rounded-xl border border-gray-100 p-10 text-center text-sm text-gray-400">
-                  {t('Aucune classe ne correspond à votre recherche.', 'No class matches your search.')}
-                </div>
-              )}
-              {filteredClasses.map((cls) => {
-                const s = classStats[cls.id] || { studentCount: 0, subjectCount: 0, teacherName: null };
-                return (
+            {filteredClasses.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-100 p-10 text-center text-sm text-slate-400">
+                {t('Aucune classe ne correspond aux filtres.', 'No class matches the filters.', 'Sin resultados.')}
+              </div>
+            ) : view === 'table' ? (
+              /* ── Vue tableau (par défaut) ─────────────────────────────── */
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-x-auto">
+                <table className="w-full text-sm border-collapse min-w-[680px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase tracking-wider text-slate-400">
+                      <th className="text-left px-4 py-3 font-semibold">{t('Classe', 'Class', 'Clase')}</th>
+                      <th className="text-left px-3 py-3 font-semibold">{t('Cycle', 'Cycle', 'Ciclo')}</th>
+                      <th className="text-center px-3 py-3 font-semibold">{t('Sys.', 'Sys.', 'Sis.')}</th>
+                      <th className="text-center px-3 py-3 font-semibold">{t('Élèves', 'Students', 'Alumnos')}</th>
+                      <th className="text-center px-3 py-3 font-semibold">{t('Matières', 'Subjects', 'Asign.')}</th>
+                      <th className="text-left px-3 py-3 font-semibold">{t('Titulaire', 'Class teacher', 'Tutor')}</th>
+                      <th className="text-center px-3 py-3 font-semibold">{t('Statut', 'Status', 'Estado')}</th>
+                      <th className="px-3 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredClasses.map((cls) => {
+                      const st = classStats[cls.id] || { studentCount: 0, subjectCount: 0, teacherName: null };
+                      const status = classStatus(st);
+                      const dot = status === 'green' ? '#10b981' : status === 'yellow' ? '#f59e0b' : '#ef4444';
+                      return (
+                        <tr key={cls.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="px-4 py-2.5">
+                            <button onClick={() => { setEditing(cls); setShowForm(false); }} className="text-left font-semibold text-slate-800 hover:text-indigo-600">
+                              {cls.name}
+                            </button>
+                            {cls.level && cls.level !== cls.name && <div className="text-xs text-slate-400">{cls.level}</div>}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-500 capitalize">{cls.cycle || 'secondaire'}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${cls.system === 'EN' ? 'bg-blue-100 text-blue-700' : cls.system === 'ES' ? 'bg-emerald-100 text-emerald-700' : 'bg-purple-100 text-purple-700'}`}>
+                              {cls.system || 'FR'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-slate-700">{st.studentCount}</td>
+                          <td className="px-3 py-2.5 text-center text-slate-700">{st.subjectCount}</td>
+                          <td className="px-3 py-2.5 text-slate-500">{st.teacherName || <span className="text-amber-600">—</span>}</td>
+                          <td className="px-3 py-2.5 text-center"><span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: dot }} title={status} /></td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center justify-end gap-1">
+                              <button onClick={() => onGo('grades', cls)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 px-2 py-1 rounded hover:bg-indigo-50">{t('Notes', 'Grades', 'Notas')}</button>
+                              <button onClick={() => { setEditing(cls); setShowForm(false); }} title={t('Modifier', 'Edit', 'Editar')} className="p-1.5 rounded hover:bg-slate-100 text-slate-500">✏️</button>
+                              <button onClick={() => handleDuplicate(cls)} title={t('Dupliquer', 'Duplicate', 'Duplicar')} className="p-1.5 rounded hover:bg-slate-100 text-slate-500">⧉</button>
+                              <button onClick={() => { if (window.confirm(t('Supprimer cette classe ?', 'Delete this class?', '¿Eliminar esta clase?'))) handleDelete(cls); }} title={t('Supprimer', 'Delete', 'Eliminar')} className="p-1.5 rounded hover:bg-red-50 text-slate-400 hover:text-red-600">🗑</button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              /* ── Vue cartes ───────────────────────────────────────────── */
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {filteredClasses.map((cls) => (
                   <ClassCard
                     key={cls.id}
                     cls={cls}
-                    studentCount={s.studentCount}
-                    subjectCount={s.subjectCount}
-                    teacherName={s.teacherName}
+                    stats={classStats[cls.id] || { studentCount: 0, subjectCount: 0, teacherName: null }}
                     onEdit={() => { setEditing(cls); setShowForm(false); }}
+                    onDuplicate={() => handleDuplicate(cls)}
+                    onDelete={() => handleDelete(cls)}
+                    onGo={onGo}
                   />
-                );
-              })}
-
-              {/* Carte + ajouter */}
-              {!search && classes.length < f.maxClasses && (
-                <button
-                  onClick={() => setShowForm(true)}
-                  className="rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-300 hover:bg-brand-50 transition-all flex flex-col items-center justify-center gap-2 py-10 text-gray-400 hover:text-brand-600 min-h-[200px]"
-                >
-                  <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                  </svg>
-                  <span className="text-sm font-semibold">{t('Ajouter une classe', 'Add a class')}</span>
-                </button>
-              )}
-            </div>
+                ))}
+                {/* Carte + ajouter */}
+                {!search && cycleF === 'all' && levelF === 'all' && statusF === 'all' && classes.length < f.maxClasses && (
+                  <button onClick={() => setShowForm(true)}
+                    className="rounded-2xl border-2 border-dashed border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 transition-all flex flex-col items-center justify-center gap-2 py-10 text-slate-400 hover:text-indigo-600 min-h-[200px]">
+                    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                    <span className="text-sm font-semibold">{t('Ajouter une classe', 'Add a class')}</span>
+                  </button>
+                )}
+              </div>
+            )}
             </>
           )}
       </div>

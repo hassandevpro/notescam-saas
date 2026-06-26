@@ -2,12 +2,11 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { pickLang } from '../lib/i18n';
+import { studentFeeSituation, FEE_STATUS } from '../lib/feeEngine';
+import { STATUS_UI, TRANCHE_UI } from '../components/fees/feeUi';
+import { formatMoney, currencyCode } from '../lib/currency';
 
 const localeFor = (lang) => (lang === 'es' ? 'es-ES' : lang === 'en' ? 'en-US' : 'fr-FR');
-
-function fmt(n, locale = 'fr-FR') {
-  return new Intl.NumberFormat(locale).format(n ?? 0) + ' FCFA';
-}
 
 function fmtDate(d, locale = 'fr-FR') {
   if (!d) return null;
@@ -92,14 +91,17 @@ export default function ParentPortal() {
 
   const seqAvgs = [1, 2, 3, 4, 5, 6].map((seq) => calcSeqAvg(subjects, gradeMap, seq, sys));
 
-  const feeStatus = !fee || !fee.frais_annuels ? 'none'
-    : fee.frais_payes >= fee.frais_annuels ? 'paid'
-    : fee.frais_payes > 0 ? 'partial'
-    : 'unpaid';
-
-  const feePct = fee?.frais_annuels
-    ? Math.min(100, Math.round(((fee.frais_payes || 0) / fee.frais_annuels) * 100))
+  // Montants dans la devise de l'établissement.
+  const money = (n) => formatMoney(n, currencyCode(school));
+  // Situation des frais via le moteur tarifaire (mode + échéancier figé).
+  const feeSit = studentFeeSituation(fee, null);
+  const feeSU  = STATUS_UI[feeSit.status] || STATUS_UI[FEE_STATUS.NONE];
+  const feePct = feeSit.total > 0
+    ? Math.min(100, Math.round((feeSit.paid / feeSit.total) * 100))
     : 0;
+  const feeBarColor = feeSit.status === FEE_STATUS.LATE ? 'bg-red-400'
+    : feeSit.status === FEE_STATUS.DUE_SOON ? 'bg-amber-400'
+    : feeSit.balance <= 0 ? 'bg-emerald-500' : 'bg-amber-400';
 
   const SEQ_LABELS = seqLabels(lang);
 
@@ -159,28 +161,30 @@ export default function ParentPortal() {
         </div>
 
         {/* Carte frais */}
-        {fee && fee.frais_annuels > 0 && (
+        {fee && feeSit.total > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-            <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold mb-4">{t('Frais de scolarité', 'Tuition fees', 'Cuota escolar')}</p>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold">{t('Frais de scolarité', 'Tuition fees', 'Cuota escolar')}</p>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${feeSU.chip}`}>
+                {feeSU.icon} {t(...feeSU.label)}
+                {feeSit.status === FEE_STATUS.LATE && feeSit.daysLate > 0 && (
+                  <span className="font-normal">· {feeSit.daysLate} {t('j de retard', 'days late', 'd atraso')}</span>
+                )}
+              </span>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
               <div>
-                <p className="text-xs text-gray-400 mb-0.5">{t('Montant annuel', 'Annual amount', 'Importe anual')}</p>
-                <p className="font-bold text-gray-900 text-sm">{fmt(fee.frais_annuels, locale)}</p>
+                <p className="text-xs text-gray-400 mb-0.5">{t('Montant dû', 'Total due', 'Importe total')}</p>
+                <p className="font-bold text-gray-900 text-sm">{money(feeSit.total)}</p>
               </div>
               <div>
                 <p className="text-xs text-gray-400 mb-0.5">{t('Montant payé', 'Amount paid', 'Importe pagado')}</p>
-                <p className={`font-bold text-sm ${
-                  feeStatus === 'paid' ? 'text-emerald-600'
-                  : feeStatus === 'partial' ? 'text-amber-600'
-                  : 'text-red-500'
-                }`}>
-                  {fmt(fee.frais_payes || 0, locale)}
-                </p>
+                <p className="font-bold text-sm text-emerald-600">{money(feeSit.paid)}</p>
               </div>
-              {feeStatus !== 'paid' && (
+              {feeSit.balance > 0 && (
                 <div>
                   <p className="text-xs text-gray-400 mb-0.5">{t('Solde restant', 'Remaining balance', 'Saldo pendiente')}</p>
-                  <p className="font-bold text-red-500 text-sm">{fmt(fee.frais_annuels - (fee.frais_payes || 0), locale)}</p>
+                  <p className="font-bold text-red-500 text-sm">{money(feeSit.balance)}</p>
                 </div>
               )}
               {fee.date_dernier_paiement && (
@@ -191,16 +195,36 @@ export default function ParentPortal() {
               )}
             </div>
             <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full ${
-                  feeStatus === 'paid' ? 'bg-emerald-500'
-                  : feeStatus === 'partial' ? 'bg-amber-400'
-                  : 'bg-red-400'
-                }`}
-                style={{ width: `${feePct}%` }}
-              />
+              <div className={`h-full rounded-full ${feeBarColor}`} style={{ width: `${feePct}%` }} />
             </div>
             <p className="text-xs text-right mt-1 text-gray-400">{feePct}% {t('payé', 'paid', 'pagado')}</p>
+
+            {/* Échéancier (paiement par tranches) */}
+            {feeSit.tranches.length > 1 && (
+              <div className="mt-4 border-t border-gray-100 pt-3 space-y-2">
+                <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold mb-1">{t('Échéancier', 'Schedule', 'Calendario')}</p>
+                {feeSit.tranches.map((tr) => {
+                  const ui = TRANCHE_UI[tr.status] || TRANCHE_UI.upcoming;
+                  const isCurrent = feeSit.current && tr.id === feeSit.current.id;
+                  return (
+                    <div key={tr.id} className={`flex items-center gap-3 py-1.5 ${isCurrent ? 'bg-brand-50/40 -mx-2 px-2 rounded-lg' : ''}`}>
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${ui.dot}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-800 truncate">
+                          {tr.label}
+                          {isCurrent && <span className="ml-2 text-[10px] font-semibold text-brand-600 uppercase">{t('attendue', 'expected', 'esperada')}</span>}
+                        </div>
+                        <div className="text-[11px] text-gray-400">{t('Échéance', 'Due', 'Vence')} : {tr.due_date ? fmtDate(tr.due_date, locale) : '—'}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-mono text-sm text-gray-700">{money(tr.amount)}</div>
+                        <div className={`text-[11px] font-semibold ${ui.text}`}>{t(...ui.label)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

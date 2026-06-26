@@ -131,8 +131,10 @@ function importTables(out) {
     gradeRows.push(...gradeEntryToRows(g.class_id, g.student_id, g.sequence, g.scores, g.school_id));
   }
   const studentRows = out.students.map((s) => ({ ...s, gender: s.gender || null, statut: s.statut || null }));
+  // hire_date vide ('') invalide pour la colonne `date` Postgres → null.
+  const teacherRows = out.teachers.map((t) => ({ ...t, hire_date: t.hire_date || null }));
   return [
-    { table: 'teachers',     rows: out.teachers,  onConflict: 'id' },
+    { table: 'teachers',     rows: teacherRows,   onConflict: 'id' },
     { table: 'classes',      rows: out.classes,   onConflict: 'id' },
     { table: 'subjects',     rows: out.subjects,  onConflict: 'id' },
     { table: 'students',     rows: studentRows,   onConflict: 'id' },

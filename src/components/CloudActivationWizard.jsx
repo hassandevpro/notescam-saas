@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { IS_LAN } from '../lib/edition';
 import { useAuthStore } from '../store/authStore';
+import { useUiStore } from '../store/uiStore';
 
 const STEPS = ['Compte Cloud', 'Vérification', 'Analyse', 'Tenant', 'Migration', 'Activation'];
 
@@ -25,7 +26,8 @@ function authFetch(path, body) {
 export default function CloudActivationWizard() {
   const role = useAuthStore((s) => s.role);
   const user = useAuthStore((s) => s.user);
-  const [open, setOpen] = useState(false);
+  const open = useUiStore((s) => s.cloudActivationOpen);
+  const setOpen = (v) => (v ? useUiStore.getState().openCloudActivation() : useUiStore.getState().closeCloudActivation());
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({ email: '', password: '' });
   const [busy, setBusy] = useState(false);
@@ -117,12 +119,6 @@ export default function CloudActivationWizard() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-4 right-4 z-40 rounded-full bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-lg hover:bg-sky-700">
-        ☁ Activer NotesCam Cloud
-      </button>
-
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">

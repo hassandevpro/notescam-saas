@@ -6,6 +6,10 @@
 
 import { bulletinOfficials } from '../countries';
 import { bulletinFontFamily } from './schoolTheme';
+import { createDocumentScale, pageDimsPx } from './documentScale';
+
+// Dimensionnement « standard » (palmarès A4) — aucune taille fixe.
+const S = createDocumentScale({ category: 'standard', orientation: 'portrait', ...pageDimsPx('portrait') });
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -35,7 +39,7 @@ function headerHtml(school, sys, year) {
       <tbody><tr>
         ${block(blocks[0])}
         <td style="width:${centerW};text-align:center;padding:2px;vertical-align:top">
-          ${school?.logo_url ? `<img src="${esc(school.logo_url)}" alt="" style="width:58px;height:58px;object-fit:contain;display:block;margin:0 auto 3px"/>` : ''}
+          ${school?.logo_url ? `<img src="${esc(school.logo_url)}" alt="" style="width:${S.logoSm}px;height:${S.logoSm}px;object-fit:contain;display:block;margin:0 auto 3px"/>` : ''}
           <strong style="font-size:12px;display:block">${esc((school?.name || '').toUpperCase())}</strong>
           <span style="font-size:8.5px">${L(sys, 'Année scolaire', 'Academic year', 'Año escolar')} : <strong>${esc(year || '')}</strong></span>
         </td>

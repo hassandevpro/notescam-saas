@@ -4,10 +4,11 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useUiStore } from '../store/uiStore';
 import { usePlan, getStarterPrintRemaining, incrementDailyPrint, STARTER_DAILY_PRINT_LIMIT } from '../lib/plan';
 import {
-  getAvg, frApp, enGrade, getAppreciation, buildRanks, clsStat,
+  getAvg, frApp, enGrade, getAppreciation, buildRanks, clsStat, resolveScores,
 } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
+import AssetImg from '../components/AssetImg';
 import '../styles/bulletin.css';
 import { useT } from '../lib/i18n';
 import BulletinPhoto from '../components/bulletins/BulletinPhoto';
@@ -288,7 +289,7 @@ function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period, 
             {blocks[0] && <OfficialBlock block={blocks[0]} />}
             <td style={{ width: centerW, textAlign: 'center', padding: '2px' }}>
               {school?.logo_url && (
-                <img src={school.logo_url} alt="Logo" style={{ width: 64, height: 64, objectFit: 'contain', display: 'block', margin: '0 auto 3px' }} />
+                <AssetImg src={school.logo_url} alt="Logo" style={{ width: 64, height: 64, objectFit: 'contain', display: 'block', margin: '0 auto 3px' }} />
               )}
               <strong style={{ fontSize: '11px', display: 'block' }}>{(school?.name || '').toUpperCase()}</strong>
               {(school?.address || school?.phone) && (
@@ -352,7 +353,7 @@ function BulletinPrimaryHeader({ school, qrSrc }) {
       {blocks[0] && <Block b={blocks[0]} />}
       <div className="bulletin-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
         {school?.logo_url
-          ? <img src={school.logo_url} alt="Logo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
+          ? <AssetImg src={school.logo_url} alt="Logo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
           : '📚'}
         {qrSrc && <BulletinQR src={qrSrc} size={48} />}
       </div>
@@ -434,10 +435,10 @@ function BulletinCMFooter({ school, sys, studentAvg, maxScale, passed, decision,
             <td style={{ ...CM_CELL, width: '33%', textAlign: 'center', verticalAlign: 'top', paddingTop: 5 }}>
               <strong style={{ fontSize: '9px' }}>{L(sys, 'LE PRINCIPAL', 'THE PRINCIPAL')}</strong>
               {school?.signature_url && (
-                <img src={school.signature_url} alt="Signature" style={{ height: 32, display: 'block', margin: '2px auto' }} />
+                <AssetImg src={school.signature_url} alt="Signature" style={{ height: 32, display: 'block', margin: '2px auto' }} />
               )}
               {school?.stamp_url && (
-                <img src={school.stamp_url} alt="Tampon" style={{ height: 32, display: 'block', margin: '2px auto' }} />
+                <AssetImg src={school.stamp_url} alt="Tampon" style={{ height: 32, display: 'block', margin: '2px auto' }} />
               )}
             </td>
           </tr>
@@ -550,7 +551,7 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
       <div className="bm-header-band">
         <div className="bm-logo-circle">
           {school?.logo_url
-            ? <img src={school.logo_url} alt="Logo" style={{ width: 40, height: 40, objectFit: 'contain' }} />
+            ? <AssetImg src={school.logo_url} alt="Logo" style={{ width: 40, height: 40, objectFit: 'contain' }} />
             : '📚'
           }
         </div>
@@ -675,10 +676,10 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
       <div className="bm-signatures">
         <div className="bm-sig bulletin-sig-block">
           {school?.signature_url && (
-            <img src={school.signature_url} alt="Signature" className="bulletin-sig-img" />
+            <AssetImg src={school.signature_url} alt="Signature" className="bulletin-sig-img" />
           )}
           {school?.stamp_url && (
-            <img src={school.stamp_url} alt="Tampon" className="bulletin-stamp-img" />
+            <AssetImg src={school.stamp_url} alt="Tampon" className="bulletin-stamp-img" />
           )}
           {sys === 'EN' ? 'The Principal' : 'Le Directeur'}
         </div>
@@ -740,8 +741,9 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
     subs.forEach((sub) => {
       const g = subjectGrades[sub.id];
       if (g !== null && g !== undefined) {
-        const on20 = sys === 'FR' ? g : Math.round((g / (sub.max || 100)) * 20 * 100) / 100;
-        pts     += on20 * sub.coef;
+        // Échelle native du système : /20 en FR, /100 en EN (anglophone).
+        const disp = sys === 'FR' ? g : Math.round((g / (sub.max || 100)) * maxScale * 100) / 100;
+        pts     += disp * sub.coef;
         coefSum += sub.coef;
       }
     });
@@ -771,13 +773,13 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
         <thead>
           <tr>
             <th style={{ ...thS, width: isAnnuel ? '22%' : isTrimestre ? '28%' : '34%', textAlign: 'left' }}>{L(sys, 'MATIÈRES', 'SUBJECTS')}</th>
-            {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[0]}/20</th>}
-            {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[1]}/20</th>}
-            {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[2]}/20</th>}
-            {isAnnuel && <th style={{ ...thS, width: '9%' }}>{L(sys, 'Moy.Ann', 'Ann.Avg')}/20</th>}
-            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'SEQ')} {period.seqs[0]} /20</th>}
-            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'SEQ')} {period.seqs[1]} /20</th>}
-            {!isAnnuel && <th style={{ ...thS, width: '11%' }}>{isTrimestre ? L(sys, 'MOY /20', 'AVG /20') : `${L(sys, 'SEQ', 'SEQ')} ${period.seqs[0]} /20`}</th>}
+            {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[0]}/{maxScale}</th>}
+            {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[1]}/{maxScale}</th>}
+            {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[2]}/{maxScale}</th>}
+            {isAnnuel && <th style={{ ...thS, width: '9%' }}>{L(sys, 'Moy.Ann', 'Ann.Avg')}/{maxScale}</th>}
+            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'Term')} {period.seqs[0]} /{maxScale}</th>}
+            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'Term')} {period.seqs[1]} /{maxScale}</th>}
+            {!isAnnuel && <th style={{ ...thS, width: '11%' }}>{isTrimestre ? L(sys, `MOY /${maxScale}`, `AVG /${maxScale}`) : `${L(sys, 'SEQ', 'Term')} ${period.seqs[0]} /${maxScale}`}</th>}
             <th style={{ ...thS, width: '7%' }}>COEF</th>
             <th style={{ ...thS, width: '9%' }}>TOTAL</th>
             <th style={{ ...thS, width: '8%' }}>{L(sys, 'RANG', 'RANK')}</th>
@@ -789,9 +791,9 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
           const subs = grouped[group.key] || [];
           if (!subs.length) return null;
           const gs      = groupStats(subs);
-          const gApprIn = gs.avg !== null ? (isEnSys ? gs.avg * 5 : gs.avg) : null;
-          const gAppr   = getAppreciation(gApprIn, school?.grade_scale, sys);
-          const gPassed = gs.avg !== null && gs.avg >= 10;
+          // gs.avg est déjà sur l'échelle native (/20 FR, /100 EN), ce que getAppreciation attend.
+          const gAppr   = getAppreciation(gs.avg, school?.grade_scale, sys);
+          const gPassed = gs.avg !== null && gs.avg >= passThr;
 
           return (
             <tbody key={group.key}>
@@ -801,14 +803,15 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
 
               {subs.map((sub) => {
                 const rawG   = subjectGrades[sub.id];
+                // Échelle native du système : /20 en FR, /100 en EN (anglophone).
                 const on20   = rawG !== null && rawG !== undefined
-                  ? (sys === 'FR' ? rawG : Math.round((rawG / (sub.max || 100)) * 20 * 100) / 100)
+                  ? (sys === 'FR' ? rawG : Math.round((rawG / (sub.max || 100)) * maxScale * 100) / 100)
                   : null;
                 const total  = on20 !== null ? Math.round(on20 * sub.coef * 100) / 100 : '—';
                 const sRank  = getSubjectRank(sub);
-                const apprIn = on20 !== null ? (isEnSys ? on20 * 5 : on20) : null;
-                const appr   = getAppreciation(apprIn, school?.grade_scale, sys);
-                const isPassed = on20 !== null && on20 >= 10;
+                // on20 est déjà sur l'échelle native attendue par getAppreciation (/20 FR, /100 EN).
+                const appr   = getAppreciation(on20, school?.grade_scale, sys);
+                const isPassed = on20 !== null && on20 >= passThr;
                 const s1     = isTrimestre ? seqGrade(sub.id, student.id, classId, period.seqs[0], gradeMap) : null;
                 const s2     = isTrimestre ? seqGrade(sub.id, student.id, classId, period.seqs[1], gradeMap) : null;
                 const t1     = isAnnuel ? termAvg(sub.id, termSeqs[0]) : null;
@@ -1044,10 +1047,10 @@ function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, st
       <div className="bulletin-signatures">
         <div className="bulletin-sig-block">
           {school?.signature_url && (
-            <img src={school.signature_url} alt="Signature" className="bulletin-sig-img" />
+            <AssetImg src={school.signature_url} alt="Signature" className="bulletin-sig-img" />
           )}
           {school?.stamp_url && (
-            <img src={school.stamp_url} alt="Tampon" className="bulletin-stamp-img" />
+            <AssetImg src={school.stamp_url} alt="Tampon" className="bulletin-stamp-img" />
           )}
           <span>Le Directeur / The Principal</span>
         </div>
@@ -1247,10 +1250,10 @@ function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrade
       <div className="bulletin-signatures">
         <div className="bulletin-sig-block">
           {school?.signature_url && (
-            <img src={school.signature_url} alt="Signature" className="bulletin-sig-img" />
+            <AssetImg src={school.signature_url} alt="Signature" className="bulletin-sig-img" />
           )}
           {school?.stamp_url && (
-            <img src={school.stamp_url} alt="Tampon" className="bulletin-stamp-img" />
+            <AssetImg src={school.stamp_url} alt="Tampon" className="bulletin-stamp-img" />
           )}
           <span>Le Directeur<br />The Principal</span>
         </div>
@@ -1362,10 +1365,10 @@ function BulletinMaternelle({ school, cls, student, subjects, teachers, gradeMap
       <div className="bulletin-signatures">
         <div className="bulletin-sig-block">
           {school?.signature_url && (
-            <img src={school.signature_url} alt="Signature" className="bulletin-sig-img" />
+            <AssetImg src={school.signature_url} alt="Signature" className="bulletin-sig-img" />
           )}
           {school?.stamp_url && (
-            <img src={school.stamp_url} alt="Tampon" className="bulletin-stamp-img" />
+            <AssetImg src={school.stamp_url} alt="Tampon" className="bulletin-stamp-img" />
           )}
           <span>La Directrice / Le Directeur</span>
         </div>
@@ -1583,6 +1586,20 @@ export default function Bulletins() {
     subjects.filter((s) => s.class_id === classId).sort(bySubjectOrder),
     [subjects, classId]
   );
+
+  // Matières composites — liste AFFICHÉE sur le bulletin selon le réglage école.
+  // Le calcul des moyennes utilise toujours `classSubjects` (liste complète, le
+  // moteur exclut les enfants) ; seul l'AFFICHAGE des lignes change ici.
+  //   synthetic : matières principales uniquement.
+  //   detailed  : matières + sous-composantes en retrait (« ↳ »).
+  const bulletinMode = school?.bulletin_subject_mode === 'detailed' ? 'detailed' : 'synthetic';
+  const displaySubjects = useMemo(() => {
+    if (!classSubjects.some((s) => s.parent_id)) return classSubjects;
+    if (bulletinMode === 'detailed') {
+      return classSubjects.map((s) => (s.parent_id ? { ...s, name: '↳ ' + s.name } : s));
+    }
+    return classSubjects.filter((s) => !s.parent_id);
+  }, [classSubjects, bulletinMode]);
   const classStudents = useMemo(() =>
     students.filter((s) => s.class_id === classId).sort((a, b) => a.name.localeCompare(b.name)),
     [students, classId]
@@ -1661,6 +1678,16 @@ export default function Bulletins() {
     });
     const scores = {};
     Object.entries(subjectGrades).forEach(([id, g]) => { if (g !== null) scores[id] = String(g); });
+    // Matières composites : la note d'une matière parente est calculée depuis
+    // ses enfants (le moteur exclut les enfants de la moyenne générale).
+    if (classSubjects.some((s) => s.parent_id)) {
+      const { g: eff } = resolveScores(scores, classSubjects);
+      classSubjects.forEach((sub) => {
+        if (!sub.parent_id && subjectGrades[sub.id] === null && eff[sub.id] !== undefined) {
+          subjectGrades[sub.id] = parseFloat(eff[sub.id]);
+        }
+      });
+    }
     const avg  = getAvg(scores, classSubjects, sys, gOpts);
     const rank = ranks.find((r) => r.id === student.id) || null;
     return { subjectGrades, studentAvg: avg, rank };
@@ -1720,7 +1747,7 @@ export default function Bulletins() {
   };
 
   const commonProps = {
-    school, cls: selectedClass, subjects: classSubjects,
+    school, cls: selectedClass, subjects: displaySubjects,
     stats, sys, teachers, gradeMap, classId, cycle, classStudents,
     countryCode,
     maxScale: geGradeMax(school),

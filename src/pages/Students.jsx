@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate } from '../lib/exportCsv';
+import { officialHeaderHtml, officialSignatureHtml } from '../lib/officialDocHeader';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
 import Layout from '../components/Layout';
@@ -47,6 +48,16 @@ const EMPTY_FORM = {
   nom_pere: '', profession_pere: '', nom_mere: '', profession_mere: '',
   tuteur: '', class_id: '', statut: '',
 };
+
+// Score de complétude du dossier élève (matricule, classe, sexe, naissance,
+// photo, contact parent). Renvoie pct + statut vert/orange/rouge.
+function studentCompleteness(s) {
+  const fields = [s.matricule, s.class_id, s.gender, s.date_naissance, s.photo_url, s.parent_phone];
+  const filled = fields.filter(Boolean).length;
+  const pct = Math.round((filled / fields.length) * 100);
+  const status = (!s.class_id || pct < 50) ? 'red' : pct < 100 ? 'yellow' : 'green';
+  return { pct, status };
+}
 
 function StudentForm({ initial, classes, onSave, onCancel }) {
   const t = useT();
@@ -290,7 +301,6 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
   const className = classFilter ? classes.find((c) => c.id === classFilter)?.name : null;
   const today = new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
   const colCount   = 2 + (showMatricule ? 1 : 0) + (showGenre ? 1 : 0) + (showDateNaissance ? 1 : 0) + (showLieuNaissance ? 1 : 0) + (showContact ? 1 : 0);
-  const headTitle  = directorLabel(school);
   const studentWord = (n) => Lp(`élève${n !== 1 ? 's' : ''}`, `alumno${n !== 1 ? 's' : ''}`);
 
   // Tri alphabétique systématique des élèves dans la liste imprimée.
@@ -397,12 +407,8 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
 </head>
 <body>
 <div class="page">
-  <div class="header">
-    <div class="school">${school?.name || Lp('Établissement scolaire', 'Centro educativo')}</div>
-    <div class="subtitle">${[school?.type, school?.region].filter(Boolean).join(' — ') || ''}</div>
-    <div class="doc-title">${Lp('Liste des élèves', 'Lista de alumnos')}${className ? ' — ' + className : ''}</div>
-    <div class="meta">${Lp('Année scolaire', 'Año escolar')} : ${school?.current_year || '—'} &nbsp;·&nbsp; ${Lp('Imprimé le', 'Impreso el')} ${today}</div>
-  </div>
+  ${officialHeaderHtml(school, { sys: isGE ? 'ES' : 'FR', title: Lp('LISTE DES ÉLÈVES', 'LISTA DE ALUMNOS'), subtitle: className || '' })}
+  <div style="text-align:center;font-size:9px;color:#777;margin:-2px 0 12px">${Lp('Imprimé le', 'Impreso el')} ${today}</div>
 
   ${groups.map(classSection).join('')}
 
@@ -411,16 +417,7 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
     <span>${school?.name || ''} — ${today}</span>
   </div>
 
-  <div class="sign-area">
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div class="sign-label">${headTitle}</div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div class="sign-label">${Lp('Le Censeur / La Censeure', 'El Jefe de Estudios')}</div>
-    </div>
-  </div>
+  ${officialSignatureHtml(school, isGE ? 'ES' : 'FR')}
 </div>
 </body>
 </html>`;
@@ -703,6 +700,8 @@ export default function Students() {
   const [tab,            setTab]           = useState('actifs');
   const [classFilter,    setClassFilter]   = useState('');
   const [genderFilter,   setGenderFilter]  = useState('');
+  const [levelFilter,    setLevelFilter]   = useState('');
+  const [dossierFilter,  setDossierFilter] = useState('');
   const [search,         setSearch]        = useState('');
   const [page,           setPage]          = useState(1);
   const [showForm,       setShowForm]      = useState(false);
@@ -739,7 +738,17 @@ export default function Students() {
   // Stats
   const total  = students.length;
   const boys   = students.filter((s) => s.gender === 'Masculin').length;
-  const girls  = students.filter((s) => s.gender === 'Feminin').length;
+  const girls  = students.filter((s) => s.gender === 'Feminin' || s.gender === 'Féminin').length;
+
+  // Pilotage : complétude des dossiers + alertes intelligentes.
+  const incompleteCount = students.filter((s) => studentCompleteness(s).status !== 'green').length;
+  const cardsReady      = students.filter((s) => s.photo_url && s.class_id).length;
+  const noPhoto   = students.filter((s) => !s.photo_url).length;
+  const noContact = students.filter((s) => !s.parent_phone).length;
+  const noClass   = students.filter((s) => !s.class_id).length;
+  const classCount = new Set(students.map((s) => s.class_id).filter(Boolean)).size;
+  const levelOptions = useMemo(() => [...new Set(classes.map((c) => c.level).filter(Boolean))].sort(), [classes]);
+  const classLevel = (id) => classes.find((c) => c.id === id)?.level || '';
   const avgAge = useMemo(() => {
     const ages = students.map((s) => calcAge(s.date_naissance)).filter((a) => a !== null);
     return ages.length ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : null;
@@ -757,12 +766,15 @@ export default function Students() {
   const visible = useMemo(() => {
     return students
       .filter((s) => !classFilter  || s.class_id === classFilter)
+      .filter((s) => !levelFilter  || classLevel(s.class_id) === levelFilter)
       .filter((s) => !genderFilter || (s.gender === genderFilter || (genderFilter === 'Feminin' && s.gender === 'Féminin')))
+      .filter((s) => !dossierFilter || studentCompleteness(s).status === dossierFilter)
       .filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()) ||
                                 (s.matricule || '').toLowerCase().includes(search.toLowerCase()))
       // Tri alphabétique par défaut — la liste imprimée (PDF) est toujours en ordre alphabétique.
       .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }, [students, classFilter, genderFilter, search]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, classes, classFilter, levelFilter, genderFilter, dossierFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const paginated  = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -943,27 +955,49 @@ export default function Students() {
           </div>
         )}
 
-        {/* ── Stats ───────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        {/* ── Dashboard KPI ───────────────────────────────────── */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
           {[
-            { label: t('Total', 'Total'), value: total, color: 'text-gray-900', bg: 'bg-white' },
-            { label: t('Garçons', 'Boys'), value: boys,  color: 'text-blue-700',   bg: 'bg-blue-50',    dot: '♂' },
-            { label: t('Filles', 'Girls'),  value: girls, color: 'text-rose-700',   bg: 'bg-rose-50',    dot: '♀' },
-            { label: t('Âge moyen', 'Avg. age'), value: avgAge !== null ? `${avgAge} ${t('ans', 'yrs')}` : '—', color: 'text-amber-700', bg: 'bg-amber-50' },
-          ].map(({ label, value, color, bg, dot }) => (
-            <div key={label} className={`${bg} rounded-xl border border-gray-100 px-5 py-4 flex items-center gap-4`}>
-              {dot && (
-                <span className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${
-                  dot === '♂' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'
-                }`}>{dot}</span>
-              )}
-              <div>
-                <p className={`text-2xl font-extrabold ${color}`}>{value}</p>
-                <p className="text-xs text-gray-500">{label}</p>
-              </div>
+            { emoji: '👥', tone: 'bg-indigo-50',  value: total,          label: t('Élèves', 'Students', 'Alumnos') },
+            { emoji: '🏫', tone: 'bg-sky-50',     value: classCount,     label: t('Classes', 'Classes', 'Clases') },
+            { emoji: '👦', tone: 'bg-blue-50',    value: boys,           label: t('Garçons', 'Boys', 'Chicos') },
+            { emoji: '👧', tone: 'bg-rose-50',    value: girls,          label: t('Filles', 'Girls', 'Chicas') },
+            { emoji: '⚠️', tone: incompleteCount ? 'bg-red-50' : 'bg-slate-50', value: incompleteCount, label: t('Dossiers incomplets', 'Incomplete files', 'Expedientes'), danger: true },
+            { emoji: '🪪', tone: 'bg-emerald-50', value: cardsReady,     label: t('Cartes prêtes', 'Cards ready', 'Carnés listos') },
+          ].map((c) => (
+            <div key={c.label} className="bg-white rounded-2xl border border-slate-200/70 p-4 shadow-sm">
+              <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${c.tone}`}>{c.emoji}</span>
+              <div className={`text-2xl font-extrabold mt-2 ${c.danger && incompleteCount ? 'text-red-600' : 'text-slate-900'}`}>{c.value}</div>
+              <div className="text-xs text-slate-500 leading-tight">{c.label}</div>
             </div>
           ))}
         </div>
+
+        {/* ── Alertes intelligentes ───────────────────────────── */}
+        {(noPhoto || noContact || noClass) > 0 && (
+          <div className="flex flex-wrap gap-2 mb-5">
+            {noPhoto > 0 && (
+              <button onClick={() => { setDossierFilter(''); setSearch(''); }} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                📷 {noPhoto} {t('sans photo', 'without photo', 'sin foto')}
+              </button>
+            )}
+            {noContact > 0 && (
+              <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                📞 {noContact} {t('sans contact parent', 'without parent contact', 'sin contacto')}
+              </span>
+            )}
+            {noClass > 0 && (
+              <button onClick={() => setClassFilter('')} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                🏫 {noClass} {t('sans classe', 'without class', 'sin clase')}
+              </button>
+            )}
+            {incompleteCount > 0 && (
+              <button onClick={() => setDossierFilter('red')} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                ⚠ {incompleteCount} {t('dossier(s) incomplet(s)', 'incomplete file(s)', 'expediente(s)')}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* ── Tabs ────────────────────────────────────────────── */}
         <div className="flex gap-1 mb-5 border-b border-gray-200">
@@ -1046,14 +1080,26 @@ export default function Students() {
                   <option key={c.id} value={c.id}>{c.name} ({students.filter((s) => s.class_id === c.id).length})</option>
                 ))}
               </select>
+              <select className="form-input" style={{ maxWidth: 150 }}
+                value={levelFilter} onChange={(e) => { setLevelFilter(e.target.value); resetPage(); }}>
+                <option value="">{t('Tous niveaux', 'All levels')}</option>
+                {levelOptions.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
+              </select>
               <select className="form-input" style={{ maxWidth: 160 }}
                 value={genderFilter} onChange={(e) => { setGenderFilter(e.target.value); resetPage(); }}>
                 <option value="">{t('Tous les genres', 'All genders')}</option>
                 <option value="Masculin">{t('Garçons', 'Boys')}</option>
                 <option value="Feminin">{t('Filles', 'Girls')}</option>
               </select>
-              {(search || classFilter || genderFilter) && (
-                <button onClick={() => { setSearch(''); setClassFilter(''); setGenderFilter(''); resetPage(); }}
+              <select className="form-input" style={{ maxWidth: 170 }}
+                value={dossierFilter} onChange={(e) => { setDossierFilter(e.target.value); resetPage(); }}>
+                <option value="">{t('Tous les dossiers', 'All files', 'Todos')}</option>
+                <option value="green">🟢 {t('Complets', 'Complete', 'Completos')}</option>
+                <option value="yellow">🟡 {t('Partiels', 'Partial', 'Parciales')}</option>
+                <option value="red">🔴 {t('Incomplets', 'Incomplete', 'Incompletos')}</option>
+              </select>
+              {(search || classFilter || genderFilter || levelFilter || dossierFilter) && (
+                <button onClick={() => { setSearch(''); setClassFilter(''); setGenderFilter(''); setLevelFilter(''); setDossierFilter(''); resetPage(); }}
                   className="text-xs text-gray-400 hover:text-gray-600 underline">
                   {t('Effacer les filtres', 'Clear filters')}
                 </button>
@@ -1089,6 +1135,7 @@ export default function Students() {
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Classe', 'Class')}</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Âge', 'Age')}</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Contact', 'Contact')}</th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Dossier', 'File', 'Expediente')}</th>
                         <th className="px-4 py-3 text-right font-semibold text-gray-600">{t('Actions', 'Actions')}</th>
                       </tr>
                     </thead>
@@ -1166,6 +1213,25 @@ export default function Students() {
                                   {student.adresse}
                                 </span>
                               )}
+                            </td>
+                            {/* Dossier : score de complétude */}
+                            <td className="px-4 py-3">
+                              {(() => {
+                                const { pct, status } = studentCompleteness(student);
+                                const c = status === 'green' ? { dot: 'bg-emerald-500', bar: 'bg-emerald-500', txt: t('Complet', 'Complete', 'Completo') }
+                                  : status === 'yellow' ? { dot: 'bg-amber-500', bar: 'bg-amber-400', txt: t('Partiel', 'Partial', 'Parcial') }
+                                  : { dot: 'bg-red-500', bar: 'bg-red-500', txt: t('Incomplet', 'Incomplete', 'Incompleto') };
+                                return (
+                                  <div className="w-24">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+                                      <span className="text-[11px] font-semibold text-slate-600">{c.txt}</span>
+                                      <span className="text-[10px] text-slate-400 ml-auto">{pct}%</span>
+                                    </div>
+                                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full ${c.bar}`} style={{ width: `${pct}%` }} /></div>
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="px-4 py-3 text-right">
                               {confirmDel?.id === student.id ? (

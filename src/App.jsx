@@ -6,6 +6,10 @@ import { useUiStore } from './store/uiStore';
 import { flushSyncQueue, getQueueCount, pruneExpiredItems } from './lib/sync';
 import { requestPersistentStorage } from './lib/db';
 import { backendOnline, IS_LAN } from './lib/edition';
+import { installDocumentScaleVars } from './lib/documentScaleVars';
+
+// Dimensionnement des éléments graphiques (variables CSS) — installé une fois.
+installDocumentScaleVars();
 import ProtectedRoute from './components/ProtectedRoute';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import OnboardingWizard from './components/OnboardingWizard';
@@ -48,6 +52,7 @@ const Landing           = lazy(() => import('./pages/Landing'));
 const Terms             = lazy(() => import('./pages/Terms'));
 const Help              = lazy(() => import('./pages/Help'));
 const History           = lazy(() => import('./pages/History'));
+const HonorRoll         = lazy(() => import('./pages/HonorRoll'));
 
 function PageLoader() {
   return (
@@ -228,6 +233,7 @@ export default function App() {
           <Route path="/app/grades"         element={<ProtectedRoute allow={WITH_TEACHER}><Grades /></ProtectedRoute>} />
           <Route path="/app/bulletins"      element={<ProtectedRoute allow={WITH_TEACHER}><Bulletins /></ProtectedRoute>} />
           <Route path="/app/releves"        element={<ProtectedRoute allow={WITH_TEACHER}><Transcripts /></ProtectedRoute>} />
+          <Route path="/app/palmares"       element={<ProtectedRoute allow={ACADEMIC}><HonorRoll /></ProtectedRoute>} />
           <Route path="/app/teachers"       element={<ProtectedRoute allow={ADMIN_ONLY}><Teachers /></ProtectedRoute>} />
           <Route path="/app/personnel"      element={<ProtectedRoute allow={ADMIN_ONLY}><Personnel /></ProtectedRoute>} />
           <Route path="/app/settings"       element={<ProtectedRoute allow={ALL_STAFF}><Settings /></ProtectedRoute>} />

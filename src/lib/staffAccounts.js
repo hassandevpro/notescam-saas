@@ -54,3 +54,13 @@ export async function setStaffActive(schoolUserId, active) {
   });
   return { error };
 }
+
+// L'admin redéfinit le mot de passe d'un compte de direction (censeur/surveillant)
+// de SON école. RPC SECURITY DEFINER (cloud) / handler local (LAN).
+export async function setStaffPassword(schoolUserId, newPassword) {
+  const { error } = await supabase.rpc('admin_set_staff_password', {
+    p_school_user_id: schoolUserId,
+    p_new_password:   newPassword,
+  });
+  return { error };
+}

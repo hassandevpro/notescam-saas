@@ -143,18 +143,16 @@ export function gradeRowsToMap(rows) {
   return map;
 }
 
-// Keys starting with __ are special (absences, conduite, conseil) — not subject UUIDs
-const SPECIAL_KEYS = new Set([
-  '__abs_j__', '__abs_nj__', '__conduite__',
-  '__th__', '__encouragement__', '__felicitation__',
-  '__aver_travail__', '__blame_travail__', '__exclusions__',
-  '__aver_conduite__', '__blame_conduite__',
-]);
+// Keys starting with __ are special (absences, conduite, conseil, décision…) —
+// JAMAIS des subject_id (UUID). On filtre par le préfixe `__` plutôt que par une
+// liste exhaustive : tout nouveau champ spécial (ex. __decision__) est exclu
+// automatiquement et ne peut plus être inséré dans `grades.subject_id`.
+const isSpecialKey = (k) => k.startsWith('__');
 
 // Converts gradeMap entry → array of upsert-ready rows (filters special keys)
 export function gradeEntryToRows(classId, studentId, sequence, scores, schoolId) {
   return Object.entries(scores)
-    .filter(([k]) => !SPECIAL_KEYS.has(k))
+    .filter(([k]) => !isSpecialKey(k))
     .map(([subjectId, value]) => ({
       school_id: schoolId,
       class_id: classId,
@@ -287,10 +285,24 @@ export async function fetchTeachers(schoolId) {
   return data;
 }
 
+// Colonnes nullables des enseignants : une chaîne vide est invalide pour la
+// colonne `date` (hire_date) côté Postgres — on convertit '' → null. On
+// sanitise au point d'écriture pour couvrir TOUS les chemins (formulaire,
+// rejeu de la file de sync, import de données), pas seulement le store.
+const TEACHER_NULLABLE = [
+  'hire_date', 'matricule', 'gender', 'address', 'photo_url',
+  'fonction', 'status', 'email', 'phone', 'specialty',
+];
+function sanitizeTeacher(d) {
+  const out = { ...d };
+  for (const k of TEACHER_NULLABLE) if (k in out && out[k] === '') out[k] = null;
+  return out;
+}
+
 export async function upsertTeacher(teacherData) {
   const { data, error } = await supabase
     .from('teachers')
-    .upsert(teacherData, { onConflict: 'id' })
+    .upsert(sanitizeTeacher(teacherData), { onConflict: 'id' })
     .select()
     .single();
   if (error) { console.error('upsertTeacher', error); return null; }
@@ -326,6 +338,32 @@ export async function upsertFee(feeData) {
 export async function deleteFee(id) {
   const { error } = await supabase.from('student_fees').delete().eq('id', id);
   if (error) { console.error('deleteFee', error); return false; }
+  return true;
+}
+
+// --- Class fee grids (grilles tarifaires par classe) ---
+
+export async function fetchClassFeeGrids(schoolId, year) {
+  let q = supabase.from('class_fee_grids').select('*').eq('school_id', schoolId);
+  if (year) q = q.eq('academic_year', year);
+  const { data, error } = await q;
+  if (error) { console.error('fetchClassFeeGrids', error); return null; }
+  return data;
+}
+
+export async function upsertClassFeeGrid(grid) {
+  const { data, error } = await supabase
+    .from('class_fee_grids')
+    .upsert(grid, { onConflict: 'id' })
+    .select()
+    .single();
+  if (error) { console.error('upsertClassFeeGrid', error); return null; }
+  return data;
+}
+
+export async function deleteClassFeeGrid(id) {
+  const { error } = await supabase.from('class_fee_grids').delete().eq('id', id);
+  if (error) { console.error('deleteClassFeeGrid', error); return false; }
   return true;
 }
 

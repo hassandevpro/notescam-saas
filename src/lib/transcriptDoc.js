@@ -10,6 +10,10 @@
 
 import { bulletinOfficials } from '../countries';
 import { bulletinFontFamily } from './schoolTheme';
+import { createDocumentScale, pageDimsPx } from './documentScale';
+
+// Dimensionnement « standard » (relevé A4 portrait) — aucune taille fixe.
+const S = createDocumentScale({ category: 'standard', orientation: 'portrait', ...pageDimsPx('portrait') });
 
 // Échappement HTML minimal (les données viennent de la saisie utilisateur).
 function esc(s) {
@@ -44,7 +48,7 @@ function officialsHeaderHtml(school, sys) {
       <tbody><tr>
         ${block(blocks[0])}
         <td style="width:${centerW};text-align:center;padding:2px;vertical-align:top">
-          ${school?.logo_url ? `<img src="${esc(school.logo_url)}" alt="" style="width:60px;height:60px;object-fit:contain;display:block;margin:0 auto 3px"/>` : ''}
+          ${school?.logo_url ? `<img src="${esc(school.logo_url)}" alt="" style="width:${S.logoSm}px;height:${S.logoSm}px;object-fit:contain;display:block;margin:0 auto 3px"/>` : ''}
           <strong style="font-size:12px;display:block">${esc((school?.name || '').toUpperCase())}</strong>
           ${(school?.address || school?.phone) ? `<span style="font-size:8.5px">${school?.address ? 'B.P. ' + esc(school.address) : ''}${school?.address && school?.phone ? ' · ' : ''}${esc(school?.phone || '')}</span><br/>` : ''}
           <span style="font-size:8.5px">${L(sys, 'Année scolaire', 'Academic year', 'Año escolar')} : <strong>${esc(school?.current_year || '—')}</strong></span>
@@ -54,34 +58,27 @@ function officialsHeaderHtml(school, sys) {
     </table>`;
 }
 
-// ── Bloc signatures (3 autorités) + cachet ───────────────────────────────────
+// ── Bloc signature unique : seul le Chef d'établissement / Proviseur signe ─────
+// Standard de mise en page des documents (sauf carte scolaire & diplôme) : un
+// seul signataire en pied de page, le chef d'établissement, avec son cachet.
 function signaturesHtml(school, sys) {
-  const sigImg = (url) => url
-    ? `<img src="${esc(url)}" alt="" style="height:34px;display:block;margin:2px auto;object-fit:contain"/>`
-    : `<div style="height:34px"></div>`;
-
-  const censeurName     = school?.censeur_name || '';
-  const directorName    = school?.director || '';
-  const surveillantName = school?.surveillant_name || '';
-
-  const col = (title, name, sigUrl, extra = '') => `
-    <td style="width:33.33%;text-align:center;vertical-align:top;padding:4px 6px;font-size:9px">
-      <div style="font-weight:bold;margin-bottom:2px">${esc(title)}</div>
-      ${sigImg(sigUrl)}
-      ${extra}
-      <div style="border-top:1px solid #94a3b8;margin-top:2px;padding-top:2px;min-height:12px">${esc(name)}</div>
-    </td>`;
-
+  const sig = school?.signature_url
+    ? `<img src="${esc(school.signature_url)}" alt="" style="height:${S.signatureHeight}px;display:block;margin:2px auto;object-fit:contain;mix-blend-mode:multiply"/>`
+    : `<div style="height:${S.signatureHeight}px"></div>`;
   const stamp = school?.stamp_url
-    ? `<img src="${esc(school.stamp_url)}" alt="" style="height:46px;display:block;margin:2px auto;object-fit:contain;opacity:.95"/>`
+    ? `<img src="${esc(school.stamp_url)}" alt="" style="height:${S.stamp}px;display:block;margin:-4px auto 2px;object-fit:contain;opacity:.95;mix-blend-mode:multiply"/>`
     : '';
 
   return `
-    <table style="width:100%;border-collapse:collapse;margin-top:10px">
+    <table style="width:100%;border-collapse:collapse;margin-top:12px">
       <tbody><tr>
-        ${col(L(sys, 'Le Censeur', 'The Dean of Studies', 'El Jefe de Estudios'), censeurName, school?.censeur_signature_url)}
-        ${col(L(sys, "Le Chef d'établissement", 'The Principal', 'El Director'), directorName, school?.signature_url, stamp)}
-        ${col(L(sys, 'Le Surveillant Général', 'The Senior Discipline Master', 'El Jefe de Disciplina'), surveillantName, school?.surveillant_signature_url)}
+        <td style="width:55%"></td>
+        <td style="width:45%;text-align:center;vertical-align:top;padding:4px 6px;font-size:9px">
+          <div style="font-weight:bold;margin-bottom:2px">${L(sys, "Le Chef d'établissement", 'The Principal', 'El Director')}</div>
+          ${sig}
+          ${stamp}
+          <div style="border-top:1px solid #94a3b8;margin-top:2px;padding-top:2px;min-height:12px">${esc(school?.director || '')}</div>
+        </td>
       </tr></tbody>
     </table>`;
 }
@@ -226,6 +223,76 @@ export function multiYearSheetHtml(student, history, { qrSrc, verification, scho
       </table>
 
       ${signaturesHtml(school, sys)}
+      ${verifyBlockHtml(verification, qrSrc, sys)}
+    </div>`;
+}
+
+// ── Bloc signature unique (Chef d'établissement) + lieu/date — certificat ─────
+function principalSignatureHtml(school, sys, { place, date }) {
+  const sig = school?.signature_url
+    ? `<img src="${esc(school.signature_url)}" alt="" style="height:${S.signatureHeight}px;display:block;margin:2px auto;object-fit:contain;mix-blend-mode:multiply"/>`
+    : `<div style="height:${S.signatureHeight}px"></div>`;
+  const stamp = school?.stamp_url
+    ? `<img src="${esc(school.stamp_url)}" alt="" style="height:${S.stamp}px;display:block;margin:-4px auto 2px;object-fit:contain;opacity:.95;mix-blend-mode:multiply"/>`
+    : '';
+  const dateLine = place
+    ? `${L(sys, 'Fait à', 'Done at', 'Hecho en')} ${esc(place)}, ${L(sys, 'le', 'on', 'el')} ${esc(date)}`
+    : `${L(sys, 'Le', 'On', 'El')} ${esc(date)}`;
+
+  return `
+    <table style="width:100%;border-collapse:collapse;margin-top:26px">
+      <tbody><tr>
+        <td style="width:52%"></td>
+        <td style="width:48%;text-align:center;vertical-align:top;font-size:10px">
+          <div style="margin-bottom:4px">${dateLine}</div>
+          <div style="font-weight:bold">${L(sys, "Le Chef d'établissement", 'The Principal', 'El Director')}</div>
+          ${sig}
+          ${stamp}
+          <div style="border-top:1px solid #94a3b8;margin-top:2px;padding-top:2px;min-height:12px">${esc(school?.director || '')}</div>
+        </td>
+      </tr></tbody>
+    </table>`;
+}
+
+// ── Feuille A4 : certificat de scolarité (attestation d'inscription) ──────────
+// Document administratif simple : atteste qu'un élève est régulièrement inscrit
+// dans l'établissement pour l'année scolaire en cours. Réutilise l'en-tête
+// officiel, la signature du chef d'établissement et le bloc de vérification QR.
+export function certificateSheetHtml(student, cls, { qrSrc, verification, school, sys = 'FR', schoolYear, place, date }) {
+  const year = schoolYear || school?.current_year || '';
+  const dob  = student.date_naissance || '—';
+  const pob  = student.lieu_naissance ? ` ${L(sys, 'à', 'in', 'en')} <strong>${esc(student.lieu_naissance)}</strong>` : '';
+  const dir  = esc(school?.director || '—');
+  const name = esc(student.name);
+  const matr = esc(student.matricule || '—');
+  const sch  = esc((school?.name || '').toUpperCase());
+  const clsN = esc(cls.name);
+  const yr   = esc(year);
+
+  const body = L(sys,
+    `Je soussigné(e), <strong>${dir}</strong>, Chef d'établissement de <strong>${sch}</strong>, certifie que l'élève <strong>${name}</strong>, né(e) le <strong>${esc(dob)}</strong>${pob}, immatriculé(e) sous le numéro <strong>${matr}</strong>, est régulièrement inscrit(e) et fréquente notre établissement en classe de <strong>${clsN}</strong> au titre de l'année scolaire <strong>${yr}</strong>.`,
+    `I, the undersigned, <strong>${dir}</strong>, Principal of <strong>${sch}</strong>, hereby certify that the student <strong>${name}</strong>, born on <strong>${esc(dob)}</strong>${pob}, registration number <strong>${matr}</strong>, is duly enrolled and attends our school in class <strong>${clsN}</strong> for the <strong>${yr}</strong> academic year.`,
+    `El/La abajo firmante, <strong>${dir}</strong>, Director(a) de <strong>${sch}</strong>, certifica que el/la alumno(a) <strong>${name}</strong>, nacido(a) el <strong>${esc(dob)}</strong>${pob}, con matrícula <strong>${matr}</strong>, está debidamente matriculado(a) y asiste a nuestro centro en la clase de <strong>${clsN}</strong> durante el año escolar <strong>${yr}</strong>.`,
+  );
+  const closing = L(sys,
+    "Le présent certificat est délivré à l'intéressé(e) pour servir et valoir ce que de droit.",
+    'This certificate is issued to the person concerned to serve as may be required.',
+    'El presente certificado se expide al interesado(a) para los fines que correspondan.');
+
+  return `
+    ${PAPER_OPEN(school)}
+      ${officialsHeaderHtml(school, sys)}
+
+      <div style="background:#1e3a5f;color:#fff;text-align:center;padding:6px 8px;font-weight:bold;font-size:14px;letter-spacing:1px;margin:14px 0 22px">
+        ${L(sys, 'CERTIFICAT DE SCOLARITÉ', 'CERTIFICATE OF ENROLLMENT', 'CERTIFICADO DE ESCOLARIDAD')}
+      </div>
+
+      <div style="font-size:12px;line-height:2;text-align:justify;padding:0 8px">
+        <p style="margin-bottom:16px;text-indent:28px">${body}</p>
+        <p>${esc(closing)}</p>
+      </div>
+
+      ${principalSignatureHtml(school, sys, { place, date })}
       ${verifyBlockHtml(verification, qrSrc, sys)}
     </div>`;
 }

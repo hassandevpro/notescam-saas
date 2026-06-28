@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useSchoolStore } from '../../store/schoolStore';
 import { useT } from '../../lib/i18n';
 import { uuid } from '../../lib/uuid';
@@ -270,7 +270,7 @@ function BulkFeeGridModal({ classes, students, gridByClass, onClose }) {
 }
 
 // ── Onglet « Grilles tarifaires » ───────────────────────────────────────────
-export default function FeeGridsTab({ classes, students }) {
+export default function FeeGridsTab({ classes, students, focusClassId, onFocusHandled }) {
   const t = useT();
   const money = useMoney();
   const classFeeGrids = useSchoolStore((s) => s.classFeeGrids);
@@ -283,6 +283,14 @@ export default function FeeGridsTab({ classes, students }) {
     classFeeGrids.forEach((g) => { m[g.class_id] = g; });
     return m;
   }, [classFeeGrids]);
+
+  // Ouverture directe de l'éditeur d'une classe (depuis le panneau d'un élève).
+  useEffect(() => {
+    if (!focusClassId) return;
+    const cls = classes.find((c) => c.id === focusClassId);
+    if (cls) setEditing(cls);
+    onFocusHandled?.();
+  }, [focusClassId, classes, onFocusHandled]);
 
   if (!classes.length) {
     return (

@@ -1,4 +1,4 @@
-import { NavLink, Link, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useState, useCallback } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { useNotificationsStore } from '../../store/notificationsStore';
@@ -10,14 +10,6 @@ import { ICONS, LockBadge } from './icons';
 import LogoMark from '../LogoMark';
 
 const COLLAPSE_KEY = 'nc_nav_collapsed';
-
-// Langues proposées dans le sélecteur (drapeau + libellé natif).
-const LANGS = [
-  { code: 'fr', flag: '🇫🇷', label: 'Français' },
-  { code: 'en', flag: '🇬🇧', label: 'English' },
-  { code: 'es', flag: '🇪🇸', label: 'Español' },
-  { code: 'tr', flag: '🇹🇷', label: 'Türkçe' },
-];
 
 function loadCollapsed() {
   try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY)) || {}; } catch { return {}; }
@@ -85,21 +77,16 @@ function NavGroup({ group, t, unreadCount, open, onToggle, forcedOpen }) {
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
-export default function Sidebar({ onLogout, mobileOpen, onClose }) {
+export default function Sidebar({ mobileOpen, onClose }) {
   const role     = useAuthStore((s) => s.role);
-  const fullName = useAuthStore((s) => s.fullName);
   const { pathname } = useLocation();
   const unreadCount  = useNotificationsStore((s) => s.unreadCount);
-  const uiLang       = useUiStore((s) => s.uiLang);
-  const setLangManual = useUiStore((s) => s.setLangManual);
   const sidebarHidden  = useUiStore((s) => s.sidebarHidden);
   const toggleSidebar  = useUiStore((s) => s.toggleSidebar);
   const t = useT();
   const { f } = usePlan();
 
   const [collapsed, setCollapsed] = useState(loadCollapsed);
-  const [langOpen, setLangOpen]   = useState(false);
-  const curLang = LANGS.find((l) => l.code === uiLang) || LANGS[0];
 
   // Ferme la sidebar mobile à chaque changement de route
   useEffect(() => { if (onClose) onClose(); /* eslint-disable-next-line */ }, [pathname]);
@@ -119,10 +106,6 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
       return next;
     });
   }, []);
-
-  const initials = fullName
-    ? fullName.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
-    : '?';
 
   return (
     <aside className={`
@@ -174,88 +157,6 @@ export default function Sidebar({ onLogout, mobileOpen, onClose }) {
           />
         ))}
       </nav>
-
-      {/* Profil + langue + déconnexion */}
-      <div className="px-2.5 py-3 border-t border-slate-100 shrink-0">
-        <Link
-          to="/app/settings"
-          title={t('Mon profil et paramètres', 'My profile & settings', 'Mi perfil y ajustes')}
-          className="flex items-center gap-2.5 px-2.5 py-2 mb-1 rounded-xl bg-slate-50 border border-slate-100 hover:bg-brand-50 hover:border-brand-100 transition-colors duration-150"
-        >
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
-            {initials}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-slate-800 truncate leading-tight">{fullName || '—'}</p>
-            <p className="text-[10px] text-slate-400 leading-tight mt-0.5 capitalize">
-              {role === 'admin' ? t('Administrateur', 'Administrator')
-                : role === 'censeur' ? t('Censeur', 'Dean of studies', 'Jefe de estudios')
-                : role === 'surveillant' ? t('Surveillant', 'Supervisor', 'Jefe de disciplina')
-                : t('Enseignant', 'Teacher')}
-            </p>
-          </div>
-          <span className="w-4 h-4 shrink-0 text-slate-300">{ICONS.chevron}</span>
-        </Link>
-
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setLangOpen((v) => !v)}
-            aria-haspopup="listbox"
-            aria-expanded={langOpen}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-500 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all duration-150 font-medium mb-0.5"
-          >
-            <span className="w-[18px] h-[18px] shrink-0 flex items-center justify-center text-base leading-none">🌐</span>
-            <span className="flex-1 flex items-center gap-1.5 text-left">
-              <span className="text-base leading-none">{curLang.flag}</span>
-              <span className="text-slate-600">{curLang.label}</span>
-            </span>
-            <span className={`w-3 h-3 shrink-0 text-slate-400 transition-transform duration-200 ${langOpen ? 'rotate-180' : ''}`}>
-              {ICONS.chevron}
-            </span>
-          </button>
-
-          {langOpen && (
-            <>
-              {/* Voile transparent pour fermer au clic extérieur */}
-              <div className="fixed inset-0 z-10" onClick={() => setLangOpen(false)} />
-              <ul
-                role="listbox"
-                className="absolute bottom-full left-0 right-0 mb-1 z-20 bg-white rounded-xl shadow-card-lg border border-slate-200 overflow-hidden py-1"
-              >
-                {LANGS.map((l) => {
-                  const active = uiLang === l.code;
-                  return (
-                    <li key={l.code}>
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={active}
-                        onClick={() => { setLangManual(l.code); setLangOpen(false); }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
-                          active ? 'bg-brand-50 text-brand-700 font-semibold' : 'text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span className="text-base leading-none">{l.flag}</span>
-                        <span className="flex-1 text-left">{l.label}</span>
-                        {active && <span className="text-brand-600 font-bold">✓</span>}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
-          )}
-        </div>
-
-        <button
-          onClick={onLogout}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-150 font-medium"
-        >
-          <span className="w-[18px] h-[18px] shrink-0">{ICONS.logout}</span>
-          {t('Déconnexion', 'Logout')}
-        </button>
-      </div>
     </aside>
   );
 }

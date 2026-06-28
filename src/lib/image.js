@@ -27,3 +27,26 @@ export async function resizeImageToSquare(file, size = 400, quality = 0.82) {
   if (!blob) throw new Error('resizeImageToSquare : encodage JPEG impossible.');
   return blob;
 }
+
+// Formats image acceptés pour les photos de profil / d'élève.
+export const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+export const ACCEPTED_IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp'];
+const MAX_IMAGE_BYTES = 12 * 1024 * 1024; // 12 Mo en entrée (recompressé ensuite)
+
+// Valide un fichier image AVANT traitement/upload. Vérifie le type MIME (avec
+// repli sur l'extension, certains navigateurs/OS laissant le type vide) et la
+// taille brute. Renvoie { ok, error } — `error` est un message déjà lisible.
+export function validateImageFile(file) {
+  if (!file) return { ok: false, error: 'Aucun fichier sélectionné.' };
+  const ext = (file.name?.split('.').pop() || '').toLowerCase();
+  const typeOk = file.type
+    ? ACCEPTED_IMAGE_TYPES.includes(file.type.toLowerCase())
+    : ACCEPTED_IMAGE_EXT.includes(ext);
+  if (!typeOk) {
+    return { ok: false, error: 'Format non supporté. Utilisez JPG, PNG ou WEBP.' };
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    return { ok: false, error: 'Image trop volumineuse (12 Mo max).' };
+  }
+  return { ok: true, error: null };
+}

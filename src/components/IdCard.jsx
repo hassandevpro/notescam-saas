@@ -260,11 +260,25 @@ export default function IdCard({ student, school, className, qrSrc, variant = 'p
               </>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, maxWidth: 230 }}>
             {school?.logo_url && <img src={school.logo_url} crossOrigin="anonymous" alt="" style={{ width: scale.logoSm, height: scale.logoSm, objectFit: 'contain', flexShrink: 0 }} />}
-            <div style={{ textAlign: 'center', minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 900, color: c.navy, lineHeight: 1.05 }}>{(school?.name || '').toUpperCase()}</div>
-              {city && <div style={{ fontSize: 10, fontWeight: 700, color: c.navy, marginTop: 2 }}>{city}</div>}
+            <div style={{ textAlign: 'center', minWidth: 0, flex: 1 }}>
+              {/* Nom d'établissement borné : 3 lignes max, ellipsis et taille de
+                  police réduite pour les noms très longs → l'en-tête (84px) ne
+                  déborde JAMAIS et les autres blocs restent alignés. `title`
+                  affiche le nom complet au survol. */}
+              <div
+                title={school?.name || ''}
+                style={{
+                  fontSize: (school?.name || '').length > 38 ? 11.5 : (school?.name || '').length > 26 ? 13 : 15,
+                  fontWeight: 900, color: c.navy, lineHeight: 1.08,
+                  display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden', wordBreak: 'break-word',
+                }}
+              >
+                {(school?.name || '').toUpperCase()}
+              </div>
+              {city && <div style={{ fontSize: 10, fontWeight: 700, color: c.navy, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{city}</div>}
             </div>
           </div>
         </div>
@@ -282,7 +296,19 @@ export default function IdCard({ student, school, className, qrSrc, variant = 'p
           </div>
           {/* infos */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 21, fontWeight: 900, color: c.navy, letterSpacing: 0.3, marginBottom: 6, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(student?.name || '').toUpperCase()}</div>
+            {/* Nom de l'élève : taille adaptative + 2 lignes max (ellipsis) pour
+                ne JAMAIS couper un nom long. `title` = nom complet au survol. */}
+            <div
+              title={student?.name || ''}
+              style={{
+                fontSize: (student?.name || '').length > 32 ? 15 : (student?.name || '').length > 22 ? 17.5 : 21,
+                fontWeight: 900, color: c.navy, letterSpacing: 0.3, marginBottom: 6, lineHeight: 1.05,
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                overflow: 'hidden', wordBreak: 'break-word',
+              }}
+            >
+              {(student?.name || '').toUpperCase()}
+            </div>
             <InfoRow icon={I.user}  {...lbl('Matricule', 'Reg. No.', 'Matrícula')} value={student?.matricule} c={c} />
             <InfoRow icon={I.cap}   {...lbl('Classe', 'Class', 'Curso')}          value={className} c={c} />
             <InfoRow icon={I.users} {...lbl('Sexe', 'Sex', 'Sexo')}               value={genderLabel(student?.gender, lang)} c={c} />

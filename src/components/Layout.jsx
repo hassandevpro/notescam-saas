@@ -8,6 +8,8 @@ import { flushSyncQueue, clearSyncQueue, pruneExpiredItems } from '../lib/sync';
 import Sidebar from './nav/Sidebar';
 import MobileNav from './nav/MobileNav';
 import NotificationBell from './NotificationBell';
+import UserMenu from './UserMenu';
+import LanguageMenu from './LanguageMenu';
 import { localeForLang } from '../lib/i18n';
 
 // ── Horloge d'en-tête (date + heure du jour) ───────────────────────────────
@@ -288,15 +290,18 @@ export default function Layout({ children, bleed = false }) {
         </div>
 
         {/* Right actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <HeaderClock />
+          <LanguageMenu />
           {!isArchive && <SyncIndicator />}
           {!isArchive && <NotificationBell />}
+          <div className="w-px h-6 bg-slate-200 mx-0.5 hidden sm:block" />
+          <UserMenu onLogout={handleLogout} />
         </div>
       </header>
 
       {/* Sidebar (desktop/tablette) */}
-      <Sidebar onLogout={handleLogout} mobileOpen={sidebarOpen} onClose={closeSidebar} />
+      <Sidebar mobileOpen={sidebarOpen} onClose={closeSidebar} />
 
       {/* Contenu principal scrollable */}
       <main className={`ml-0 ${sidebarHidden ? 'md:ml-0' : 'md:ml-60'} ${isArchive ? 'mt-[calc(3.5rem+2.25rem)]' : 'mt-14'} ${isArchive ? 'h-[calc(100vh-3.5rem-2.25rem)]' : 'h-[calc(100vh-3.5rem)]'} overflow-y-auto transition-all`}>

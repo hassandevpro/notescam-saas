@@ -77,7 +77,7 @@ function PayProgress({ fee }) {
 
 // ── Panneau de gestion étendu ─────────────────────────────────────────────────
 
-function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeletePayment, onClose, onPrintReceipt }) {
+function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeletePayment, onClose, onPrintReceipt, onConfigureGrid }) {
   const t = useT();
   const money = useMoney();
 
@@ -85,19 +85,9 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
 
   const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
   const setStudentPaymentMode = useSchoolStore((s) => s.setStudentPaymentMode);
-  const saveFee = useSchoolStore((s) => s.saveFee);
   const grid = getClassFeeGrid(student.class_id);
   const situation = studentFeeSituation(fee, grid);
   const mode = fee?.payment_mode || null;
-
-  // Saisie manuelle du total (mode libre) si la classe n'a pas de grille.
-  const [manual, setManual] = useState(String(fee?.frais_annuels ?? ''));
-  const [savingManual, setSavingManual] = useState(false);
-  const saveManual = async () => {
-    setSavingManual(true);
-    await saveFee(student.id, { frais_annuels: parseInt(manual, 10) || 0, payment_mode: 'libre' });
-    setSavingManual(false);
-  };
 
   // Détection AUTOMATIQUE du mode à partir du montant versé : payer la totalité
   // du tarif comptant en une fois → comptant (tarif réduit) ; sinon → échelonné.
@@ -261,18 +251,20 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
               </div>
             )}
 
-            {/* Aucune grille : saisie manuelle du total (mode libre) */}
+            {/* Aucune grille : inviter à configurer la grille tarifaire de la classe */}
             {!grid && (
-              <div className="flex items-end gap-2 mt-3 pt-3 border-t border-gray-50">
-                <div className="flex-1">
-                  <label className="block text-[11px] font-semibold text-gray-400 uppercase mb-1">{t('Frais annuels', 'Annual fees')} ({money.code})</label>
-                  <input type="number" min="0" step="500" className="form-input !py-1.5 text-sm"
-                    placeholder={t('Ex : 150 000', 'E.g. 150,000')} value={manual} onChange={(e) => setManual(e.target.value)} />
+              <div className="mt-3 pt-3 border-t border-gray-50">
+                <div className="flex items-center justify-between gap-3 bg-brand-50/60 border border-brand-100 rounded-lg px-3 py-2.5">
+                  <p className="text-xs text-brand-800/80">
+                    {t('Cette classe n’a pas encore de grille tarifaire.', 'This class has no fee grid yet.', 'Esta clase aún no tiene tarifa.')}
+                  </p>
+                  {onConfigureGrid && (
+                    <button onClick={() => onConfigureGrid(student.class_id)}
+                      className="shrink-0 text-xs font-semibold text-brand-700 hover:text-brand-800 hover:underline underline-offset-2">
+                      {t('Configurer la grille', 'Configure grid', 'Configurar tarifa')} →
+                    </button>
+                  )}
                 </div>
-                <button onClick={saveManual} disabled={savingManual} className="btn-secondary"
-                  style={{ width: 'auto', paddingLeft: '1rem', paddingRight: '1rem', marginBottom: 0 }}>
-                  {savingManual ? '…' : t('Sauvegarder', 'Save')}
-                </button>
               </div>
             )}
           </div>
@@ -413,6 +405,7 @@ export default function Fees() {
   const classes      = useSchoolStore((s) => s.classes);
   const students     = useSchoolStore((s) => s.students);
   const fees         = useSchoolStore((s) => s.fees);
+  const classFeeGrids = useSchoolStore((s) => s.classFeeGrids);
   const feePayments  = useSchoolStore((s) => s.feePayments);
   const addPayment   = useSchoolStore((s) => s.addPayment);
   const deletePayment = useSchoolStore((s) => s.deletePayment);
@@ -428,6 +421,14 @@ export default function Fees() {
   const [search,       setSearch]       = useState('');
   const [openRow,      setOpenRow]      = useState(null);
   const [page,         setPage]         = useState(1);
+  const [gridFocusClass, setGridFocusClass] = useState(null); // classe à éditer dans l'onglet Grilles
+
+  // Depuis le panneau d'un élève : aller configurer la grille de sa classe.
+  const goConfigureGrid = (classId) => {
+    setOpenRow(null);
+    setGridFocusClass(classId);
+    setMainTab('grilles');
+  };
 
   // Ouvre le panneau d'un élève depuis le tableau de bord (peut changer d'onglet).
   const openStudentPanel = (sid) => {
@@ -458,6 +459,25 @@ export default function Fees() {
     return map;
   }, [fees]);
 
+  // Grille tarifaire applicable par classe (année active) : permet d'afficher le
+  // montant dû dès qu'une grille est définie, AVANT tout versement.
+  const gridMap = useMemo(() => {
+    const map = {};
+    classFeeGrids.forEach((g) => {
+      if (!activeYear || g.academic_year === activeYear) map[g.class_id] = g;
+    });
+    return map;
+  }, [classFeeGrids, activeYear]);
+
+  // Montant dû effectif d'un élève : tarif figé (après 1er versement) sinon, à
+  // défaut, l'échelonné de la grille de classe (estimation tant que le mode
+  // n'est pas déterminé).
+  const effectiveDue = (student, fee) => {
+    if (fee?.frais_annuels) return fee.frais_annuels;
+    const grid = gridMap[student.class_id];
+    return grid?.amount_echelonne || grid?.amount_comptant || 0;
+  };
+
   const classNameById = (id) => classes.find((c) => c.id === id)?.name || '—';
 
   const visible = useMemo(() => {
@@ -479,13 +499,14 @@ export default function Fees() {
   // ── Statistiques globales ──
   const stats = useMemo(() => {
     const all      = students.filter((s) => !filterClass || s.class_id === filterClass);
-    const withFees = all.map((s) => feeMap[s.id]).filter(Boolean);
-    const totalDu   = withFees.reduce((n, f) => n + (f.frais_annuels || 0), 0);
-    const totalPaye = withFees.reduce((n, f) => n + (f.frais_payes   || 0), 0);
-    const countPaid = withFees.filter((f) => feeStatus(f) === 'paid').length;
+    // Dû = tarif figé ou, à défaut, échelonné de la grille de classe.
+    const totalDu   = all.reduce((n, s) => n + effectiveDue(s, feeMap[s.id]), 0);
+    const totalPaye = all.reduce((n, s) => n + (feeMap[s.id]?.frais_payes || 0), 0);
+    const countPaid = all.filter((s) => feeStatus(feeMap[s.id]) === 'paid').length;
     const countUnpaid = all.filter((s) => ['unpaid', 'none'].includes(feeStatus(feeMap[s.id]))).length;
     return { totalDu, totalPaye, countPaid, countUnpaid, effectif: all.length };
-  }, [students, filterClass, feeMap]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, filterClass, feeMap, gridMap]);
 
   const statusLabel = (status) => ({
     paid:    t('Payé intégral', 'Paid in full'),
@@ -501,13 +522,14 @@ export default function Fees() {
         t('Statut', 'Status'), t('Dernière date', 'Last date')],
       ...visible.map((s) => {
         const f = feeMap[s.id];
+        const due = effectiveDue(s, f);
         return [
           s.name,
           s.matricule || '',
           classNameById(s.class_id),
-          f?.frais_annuels ?? '',
+          due || '',
           f?.frais_payes ?? '',
-          f ? Math.max(0, f.frais_annuels - f.frais_payes) : '',
+          due ? Math.max(0, due - (f?.frais_payes || 0)) : '',
           statusLabel(feeStatus(f)),
           f?.date_dernier_paiement || '',
         ];
@@ -522,10 +544,11 @@ export default function Fees() {
     const scope = filterClass ? classNameById(filterClass) : t('Toutes les classes', 'All classes', 'Todas las clases');
     const rows = visible.map((s) => {
       const fe = feeMap[s.id];
-      const reste = fe ? Math.max(0, (fe.frais_annuels || 0) - (fe.frais_payes || 0)) : '';
+      const due = effectiveDue(s, fe);
+      const reste = due ? Math.max(0, due - (fe?.frais_payes || 0)) : '';
       return `<tr>
         <td>${s.name}</td><td>${s.matricule || ''}</td><td>${classNameById(s.class_id)}</td>
-        <td style="text-align:right">${fe?.frais_annuels ? money.amount(fe.frais_annuels) : '—'}</td>
+        <td style="text-align:right">${due ? money.amount(due) : '—'}</td>
         <td style="text-align:right">${fe?.frais_payes ? money.amount(fe.frais_payes) : '—'}</td>
         <td style="text-align:right">${reste !== '' ? money.amount(reste) : '—'}</td>
         <td>${statusLabel(feeStatus(fe))}</td></tr>`;
@@ -655,7 +678,12 @@ export default function Fees() {
 
         {/* ── Onglet Grilles tarifaires ── */}
         {mainTab === 'grilles' && (
-          <FeeGridsTab classes={classes} students={students} />
+          <FeeGridsTab
+            classes={classes}
+            students={students}
+            focusClassId={gridFocusClass}
+            onFocusHandled={() => setGridFocusClass(null)}
+          />
         )}
 
         {mainTab === 'suivi' && (<>
@@ -781,7 +809,11 @@ export default function Fees() {
                     const fee    = feeMap[student.id];
                     const status = feeStatus(fee);
                     const cfg    = STATUS_CONFIG[status];
-                    const reste  = fee ? Math.max(0, fee.frais_annuels - fee.frais_payes) : null;
+                    const grid   = gridMap[student.class_id];
+                    // Grille définie mais mode pas encore figé → on prévisualise les deux tarifs.
+                    const showGridPreview = !fee?.frais_annuels && grid && (grid.amount_comptant > 0 || grid.amount_echelonne > 0);
+                    const due    = effectiveDue(student, fee);
+                    const reste  = due > 0 ? Math.max(0, due - (fee?.frais_payes || 0)) : null;
                     const isOpen = openRow === student.id;
                     const color  = avatarColor(student.name);
 
@@ -815,7 +847,26 @@ export default function Fees() {
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">{classNameById(student.class_id)}</td>
                         <td className="px-4 py-3 text-right font-mono text-gray-700">
-                          {fee?.frais_annuels ? money.amount(fee.frais_annuels) : <span className="text-gray-300">—</span>}
+                          {fee?.frais_annuels ? (
+                            money.amount(fee.frais_annuels)
+                          ) : showGridPreview ? (
+                            <div className="flex flex-col items-end gap-0.5 leading-tight">
+                              {grid.amount_comptant > 0 && (
+                                <span className="text-xs whitespace-nowrap">
+                                  <span className="text-emerald-600 font-semibold">{money.amount(grid.amount_comptant)}</span>
+                                  <span className="text-gray-400 ml-1 font-sans">{t('comptant', 'lump sum')}</span>
+                                </span>
+                              )}
+                              {grid.amount_echelonne > 0 && (
+                                <span className="text-xs whitespace-nowrap">
+                                  <span className="text-brand-600 font-semibold">{money.amount(grid.amount_echelonne)}</span>
+                                  <span className="text-gray-400 ml-1 font-sans">{t('échelonné', 'installments')}</span>
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex flex-col items-end">
@@ -826,7 +877,7 @@ export default function Fees() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right font-mono">
-                          {reste !== null && fee?.frais_annuels > 0
+                          {reste !== null && !showGridPreview
                             ? <span className={reste === 0 ? 'text-emerald-600' : 'text-red-500 font-semibold'}>{money.amount(reste)}</span>
                             : <span className="text-gray-300">—</span>}
                         </td>
@@ -930,6 +981,7 @@ export default function Fees() {
               onAddPayment={addPayment}
               onDeletePayment={deletePayment}
               onClose={() => setOpenRow(null)}
+              onConfigureGrid={isAdmin ? goConfigureGrid : null}
               onPrintReceipt={(payment) =>
                 printReceipt({
                   school,

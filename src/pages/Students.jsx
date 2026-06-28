@@ -451,28 +451,35 @@ function ImportPanel({ classes, onImport, onCancel }) {
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .replace(/\s+/g, ' ');
 
+  // Résolution intelligente de la classe de chaque élève :
+  //  • classe présente dans le fichier ET reconnue → on la relie ;
+  //  • classe absente du fichier (ou introuvable) → classe de repli SI l'admin
+  //    en a choisi une, sinon l'élève est importé SANS classe (class_id null).
+  // Aucun élève n'est jamais ignoré.
   const resolveRows = () =>
     (preview?.rows || []).map((row) => {
-      let class_id = fallbackClassId;
+      let class_id = null;
       if (row.class_name) {
         const target = normalizeStr(row.class_name);
         const m = classes.find((c) => normalizeStr(c.name) === target);
         if (m) class_id = m.id;
       }
+      if (!class_id && fallbackClassId) class_id = fallbackClassId;
       const { class_name, ...rest } = row;
-      return { ...rest, class_id };
+      return { ...rest, class_id: class_id || null };
     });
 
   const resolvedRows  = resolveRows();
   const withClass     = resolvedRows.filter((r) => r.class_id);
-  const needsFallback = resolvedRows.some((r) => !r.class_id);
+  const withoutClass  = resolvedRows.length - withClass.length;
+  const needsFallback = withoutClass > 0;
 
   const handleImport = async () => {
-    if (!withClass.length) return;
+    if (!resolvedRows.length) return;
     setImporting(true);
-    for (const row of withClass) await onImport(row);
+    for (const row of resolvedRows) await onImport(row);
     setImporting(false);
-    setDone(withClass.length);
+    setDone(resolvedRows.length);
   };
 
   if (done !== null) {
@@ -541,11 +548,17 @@ function ImportPanel({ classes, onImport, onCancel }) {
           )}
           {preview?.rows?.length > 0 && needsFallback && (
             <div>
-              <label className="form-label">{t('Classe de destination', 'Destination class')} <span className="text-xs font-normal text-slate-400">({t('pour les élèves sans classe dans le fichier', 'for students without a class in the file')})</span></label>
+              <label className="form-label">
+                {t('Classe pour les élèves sans classe', 'Class for students without a class')}{' '}
+                <span className="text-xs font-normal text-slate-400">({t('optionnel', 'optional')})</span>
+              </label>
               <select className="form-input" value={fallbackClassId} onChange={(e) => setFallbackClassId(e.target.value)}>
-                <option value="">{t('— Choisir —', '— Select —', '— Elegir —')}</option>
+                <option value="">{t('— Importer sans classe —', '— Import without a class —', '— Importar sin clase —')}</option>
                 {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              <p className="text-xs text-slate-400 mt-1">
+                {withoutClass} {t('élève(s) sans classe dans le fichier. Laissez vide pour les importer sans classe.', 'student(s) without a class in the file. Leave empty to import them without a class.')}
+              </p>
             </div>
           )}
           {preview?.rows?.length > 0 && (
@@ -588,14 +601,14 @@ function ImportPanel({ classes, onImport, onCancel }) {
           )}
           {preview?.rows?.length > 0 && (
             <div className="flex items-center gap-3 pt-1">
-              <button type="button" onClick={handleImport} disabled={importing || withClass.length === 0}
+              <button type="button" onClick={handleImport} disabled={importing || resolvedRows.length === 0}
                 className="btn-primary" style={{ width: 'auto', paddingInline: '1.75rem' }}>
-                {importing ? t('Import en cours…', 'Importing…') : `${t('Importer', 'Import')} ${withClass.length} ${t('élève', 'student')}${withClass.length > 1 ? 's' : ''}`}
+                {importing ? t('Import en cours…', 'Importing…') : `${t('Importer', 'Import')} ${resolvedRows.length} ${t('élève', 'student')}${resolvedRows.length > 1 ? 's' : ''}`}
               </button>
               <button type="button" onClick={onCancel} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
-              {withClass.length < resolvedRows.length && (
+              {withoutClass > 0 && (
                 <span className="text-xs text-amber-600 font-medium">
-                  {resolvedRows.length - withClass.length} {t('sans classe ignoré', 'without class skipped')}{resolvedRows.length - withClass.length > 1 ? 's' : ''}
+                  {withClass.length} {t('avec classe', 'with class')} · {withoutClass} {t('sans classe', 'without class')}
                 </span>
               )}
             </div>
@@ -697,7 +710,6 @@ export default function Students() {
   // politique RLS Supabase. Le surveillant garde un accès en LECTURE seule.
   const canEdit = role === 'admin' || role === 'censeur';
 
-  const [tab,            setTab]           = useState('actifs');
   const [classFilter,    setClassFilter]   = useState('');
   const [genderFilter,   setGenderFilter]  = useState('');
   const [levelFilter,    setLevelFilter]   = useState('');
@@ -858,47 +870,25 @@ export default function Students() {
               {visible.length > 0 && (
                 <>
                   <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
-                  <div className="relative">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => { setShowPrintOpts(false); printStudentList(visible, classes, school, classFilter, cols); }}
-                        className="btn-secondary"
-                      >
-                        {t('Imprimer / PDF', 'Print / PDF', 'Imprimir / PDF')}
-                      </button>
-                      <button
-                        onClick={() => setShowCards(true)}
-                        className="btn-secondary inline-flex items-center gap-1.5 !bg-indigo-50 !text-indigo-700 hover:!bg-indigo-100 border-indigo-200"
-                        title={t('Imprimer les cartes scolaires (QR Code)', 'Print ID cards (QR code)', 'Imprimir carnés (QR)')}
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="5" width="18" height="14" rx="2"/>
-                          <circle cx="9" cy="12" r="2.5"/>
-                          <path d="M14 10h4M14 14h4"/>
-                        </svg>
-                        {t('Cartes scolaires', 'ID cards', 'Carnés')}
-                      </button>
-                      <button
-                        onClick={() => setShowScan(true)}
-                        className="btn-secondary inline-flex items-center gap-1.5 !bg-emerald-50 !text-emerald-700 hover:!bg-emerald-100 border-emerald-200"
-                        title={t('Scanner le QR d’une carte', 'Scan a card QR code', 'Escanear el QR de una tarjeta')}
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
-                          <path d="M3 12h18"/>
-                        </svg>
-                        {t('Scanner', 'Scan', 'Escanear')}
-                      </button>
-                      <button
-                        onClick={() => setShowPrintOpts((v) => !v)}
-                        className={`btn-secondary px-2.5 ${showPrintOpts ? '!bg-gray-100' : ''}`}
-                        title={t('Options impression', 'Print options')}
-                      >
-                        ⚙
-                      </button>
-                    </div>
+                  {/* Groupe Impression : Print / PDF + son engrenage d'options
+                      (colonnes à imprimer) côte à côte. Le panneau s'ancre sous
+                      ce groupe. */}
+                  <div className="relative flex gap-1">
+                    <button
+                      onClick={() => { setShowPrintOpts(false); printStudentList(visible, classes, school, classFilter, cols); }}
+                      className="btn-secondary"
+                    >
+                      {t('Imprimer / PDF', 'Print / PDF', 'Imprimir / PDF')}
+                    </button>
+                    <button
+                      onClick={() => setShowPrintOpts((v) => !v)}
+                      className={`btn-secondary px-2.5 ${showPrintOpts ? '!bg-gray-100' : ''}`}
+                      title={t('Colonnes à imprimer', 'Columns to print')}
+                    >
+                      ⚙
+                    </button>
                     {showPrintOpts && (
-                      <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg p-4 w-52">
+                      <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg p-4 w-52">
                         <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
                           {t('Colonnes à imprimer', 'Columns to print')}
                         </p>
@@ -918,6 +908,29 @@ export default function Students() {
                       </div>
                     )}
                   </div>
+                  <button
+                    onClick={() => setShowCards(true)}
+                    className="btn-secondary inline-flex items-center gap-1.5 !bg-indigo-50 !text-indigo-700 hover:!bg-indigo-100 border-indigo-200"
+                    title={t('Imprimer les cartes scolaires (QR Code)', 'Print ID cards (QR code)', 'Imprimir carnés (QR)')}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="5" width="18" height="14" rx="2"/>
+                      <circle cx="9" cy="12" r="2.5"/>
+                      <path d="M14 10h4M14 14h4"/>
+                    </svg>
+                    {t('Cartes scolaires', 'ID cards', 'Carnés')}
+                  </button>
+                  <button
+                    onClick={() => setShowScan(true)}
+                    className="btn-secondary inline-flex items-center gap-1.5 !bg-emerald-50 !text-emerald-700 hover:!bg-emerald-100 border-emerald-200"
+                    title={t('Scanner le QR d’une carte', 'Scan a card QR code', 'Escanear el QR de una tarjeta')}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                      <path d="M3 12h18"/>
+                    </svg>
+                    {t('Scanner', 'Scan', 'Escanear')}
+                  </button>
                 </>
               )}
               {canEdit && (total >= f.maxStudents ? (
@@ -999,25 +1012,7 @@ export default function Students() {
           </div>
         )}
 
-        {/* ── Tabs ────────────────────────────────────────────── */}
-        <div className="flex gap-1 mb-5 border-b border-gray-200">
-          {['actifs', 'supprimes'].map((tabVal) => (
-            <button key={tabVal} onClick={() => setTab(tabVal)}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                tab === tabVal ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}>
-              {tabVal === 'actifs' ? t('Actifs', 'Active') : t('Supprimés', 'Deleted')}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'supprimes' && (
-          <div className="bg-white rounded-xl p-10 text-center shadow-sm border border-gray-100">
-            <p className="text-gray-400 text-sm">{t('La suppression est définitive — aucun élève archivé.', 'Deletion is permanent — no archived students.')}</p>
-          </div>
-        )}
-
-        {tab === 'actifs' && (
+        {(
           <>
             {/* ── Modals formulaires ───────────────────────────── */}
             {(showForm || editing) && (

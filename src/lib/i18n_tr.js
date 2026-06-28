@@ -2244,4 +2244,56 @@ export const FR_TO_TR = {
   "Changer le mot de passe": "Şifreyi değiştir",
   "Définissez un nouveau mot de passe pour": "Şu kişi için yeni bir şifre belirleyin:",
 
+  // === Module Profil utilisateur ===
+  // Rôles
+  'Censeur': 'Eğitim müdür yardımcısı',
+  'Surveillant': 'Disiplin sorumlusu',
+  'Super-administrateur': 'Süper yönetici',
+  // Menu utilisateur (en-tête)
+  'Mon compte': 'Hesabım',
+  'Modifier mon profil': 'Profilimi düzenle',
+  'Changer ma photo': 'Fotoğrafımı değiştir',
+  'Modifier mon mot de passe': 'Şifremi değiştir',
+  // Page profil — informations
+  'Informations personnelles': 'Kişisel bilgiler',
+  'Matière enseignée': 'Verdiği ders',
+  'Compte': 'Hesap',
+  'Compte créé le': 'Hesap oluşturulma tarihi',
+  'Dernière connexion': 'Son giriş',
+  "L'email se modifie depuis l'authentification — contactez le support si besoin.": 'E-posta kimlik doğrulama üzerinden değiştirilir — gerekirse destek ile iletişime geçin.',
+  // Page profil — photo
+  'Photo de profil': 'Profil fotoğrafı',
+  'Téléverser': 'Yükle',
+  'Traitement…': 'İşleniyor…',
+  'JPG, PNG ou WEBP. Redimensionnée automatiquement.': 'JPG, PNG veya WEBP. Otomatik olarak yeniden boyutlandırılır.',
+  'Photo mise à jour.': 'Fotoğraf güncellendi.',
+  'Photo supprimée.': 'Fotoğraf silindi.',
+  'Échec du téléversement.': 'Yükleme başarısız.',
+  'Échec de la suppression.': 'Silme başarısız.',
+  // Page profil — édition infos
+  'Le nom est obligatoire.': 'İsim zorunludur.',
+  'Profil mis à jour.': 'Profil güncellendi.',
+  'Échec de la mise à jour.': 'Güncelleme başarısız.',
+  // Page profil — mot de passe
+  'Sécurité — mot de passe': 'Güvenlik — şifre',
+  'Modifiez votre mot de passe régulièrement pour sécuriser votre compte.': 'Hesabınızı güvende tutmak için şifrenizi düzenli olarak değiştirin.',
+  'Ancien mot de passe *': 'Eski şifre *',
+  'Confirmer le nouveau mot de passe *': 'Yeni şifreyi onayla *',
+  'Ancien mot de passe incorrect.': 'Eski şifre yanlış.',
+  'Les deux mots de passe ne correspondent pas.': 'İki şifre eşleşmiyor.',
+  'Mot de passe mis à jour.': 'Şifre güncellendi.',
+  'Erreur inattendue.': 'Beklenmeyen hata.',
+
+  // === Import élèves — différenciation classe ===
+  "Importez plusieurs élèves à partir d'un fichier CSV": 'CSV dosyasından birden fazla öğrenci içe aktarın',
+  'Classe pour les élèves sans classe': 'Sınıfı olmayan öğrenciler için sınıf',
+  '— Importer sans classe —': '— Sınıfsız içe aktar —',
+  'élève(s) sans classe dans le fichier. Laissez vide pour les importer sans classe.': 'öğrencinin dosyada sınıfı yok. Sınıfsız içe aktarmak için boş bırakın.',
+  'avec classe': 'sınıflı',
+
+  // === Profil — licence ===
+  'Licence — expire le': 'Lisans — bitiş tarihi',
+  'expirée': 'süresi doldu',
+  'j restants': 'gün kaldı',
+
 };

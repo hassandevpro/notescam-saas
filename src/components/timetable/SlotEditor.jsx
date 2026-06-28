@@ -5,7 +5,8 @@ import { inferCategory, categoryLabel } from '../../lib/timetableEngine';
 const DAYS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 const DAYS_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAYS_ES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-const daysFor = (l) => (l === 'en' ? DAYS_EN : l === 'es' ? DAYS_ES : DAYS_FR);
+const DAYS_TR = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+const daysFor = (l) => (l === 'en' ? DAYS_EN : l === 'es' ? DAYS_ES : l === 'tr' ? DAYS_TR : DAYS_FR);
 
 const EMPTY = { day_of_week: 1, start_time: '07:30', end_time: '09:30', subject_id: '', label: '', teacher_id: '', room: '' };
 

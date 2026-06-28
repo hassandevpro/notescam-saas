@@ -39,6 +39,7 @@ const VerifyTranscript = lazy(() => import('./pages/VerifyTranscript'));
 const Teachers      = lazy(() => import('./pages/Teachers'));
 const Personnel     = lazy(() => import('./pages/Personnel'));
 const Settings      = lazy(() => import('./pages/Settings'));
+const Profile       = lazy(() => import('./pages/Profile'));
 const AcademicYear  = lazy(() => import('./pages/AcademicYear'));
 const Reports        = lazy(() => import('./pages/Reports'));
 const Fees           = lazy(() => import('./pages/Fees'));
@@ -237,6 +238,7 @@ export default function App() {
           <Route path="/app/teachers"       element={<ProtectedRoute allow={ADMIN_ONLY}><Teachers /></ProtectedRoute>} />
           <Route path="/app/personnel"      element={<ProtectedRoute allow={ADMIN_ONLY}><Personnel /></ProtectedRoute>} />
           <Route path="/app/settings"       element={<ProtectedRoute allow={ALL_STAFF}><Settings /></ProtectedRoute>} />
+          <Route path="/app/profile"        element={<ProtectedRoute allow={ALL_STAFF}><Profile /></ProtectedRoute>} />
           <Route path="/app/year"           element={<ProtectedRoute allow={ADMIN_ONLY}><AcademicYear /></ProtectedRoute>} />
           <Route path="/app/reports"        element={<ProtectedRoute allow={ACADEMIC}><Reports /></ProtectedRoute>} />
           <Route path="/app/fees"            element={<ProtectedRoute allow={ACADEMIC}><Fees /></ProtectedRoute>} />

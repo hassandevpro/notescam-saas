@@ -6,11 +6,15 @@ import { useT } from '../../lib/i18n';
 import { usePlan } from '../../lib/plan';
 import { getNavGroups } from '../../config/navigation';
 import { ICONS, LockBadge } from './icons';
+import UserAvatar from '../UserAvatar';
+import { roleLabel } from '../../lib/roleLabel';
 
 // Bottom-sheet mobile : arborescence COMPLÈTE (même source que la sidebar).
 // Ouverte par le bouton « Plus » de la MobileNav.
 export default function MoreSheet({ open, onClose, onLogout }) {
   const role = useAuthStore((s) => s.role);
+  const fullName = useAuthStore((s) => s.fullName);
+  const photoUrl = useAuthStore((s) => s.photoUrl);
   const unreadCount = useNotificationsStore((s) => s.unreadCount);
   const uiLang     = useUiStore((s) => s.uiLang);
   const toggleLang = useUiStore((s) => s.toggleLang);
@@ -33,6 +37,20 @@ export default function MoreSheet({ open, onClose, onLogout }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-3">
+          {/* Carte « Mon profil » */}
+          <NavLink
+            to="/app/profile"
+            onClick={onClose}
+            className="flex items-center gap-3 px-3 py-2.5 mb-1 rounded-xl bg-slate-50 border border-slate-100 hover:bg-brand-50 transition-colors"
+          >
+            <UserAvatar name={fullName} photoUrl={photoUrl} size={36} />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-800 truncate leading-tight">{fullName || '—'}</p>
+              <p className="text-xs text-slate-400 leading-tight mt-0.5">{roleLabel(role, t)}</p>
+            </div>
+            <span className="w-4 h-4 shrink-0 text-slate-300">{ICONS.chevron}</span>
+          </NavLink>
+
           {groups.map((group) => (
             <div key={group.id} className="mb-1">
               {group.label && (

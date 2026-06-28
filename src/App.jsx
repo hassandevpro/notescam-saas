@@ -15,7 +15,6 @@ import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import OnboardingWizard from './components/OnboardingWizard';
 import LanLicenseGate from './components/LanLicenseGate';
 import CloudActivationWizard from './components/CloudActivationWizard';
-import CloudSyncPanel from './components/CloudSyncPanel';
 import CloudMigrationWizard from './components/CloudMigrationWizard';
 
 // Auth pages — petites, chargées immédiatement
@@ -257,7 +256,6 @@ export default function App() {
       <PwaUpdatePrompt />
       <OnboardingGate />
       <CloudActivationWizard />
-      <CloudSyncPanel />
       <CloudMigrationWizard />
     </BrowserRouter>
     </LanLicenseGate>

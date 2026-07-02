@@ -19,7 +19,11 @@ import { cameroonFr } from '../countries/cameroon_fr.js';
 import { cameroonEn } from '../countries/cameroon_en.js';
 
 // Séries officielles du second cycle MINESEC (slug stocké dans classes.serie).
-const SC_SERIES = ['A1', 'A2', 'A3', 'A4', 'A5', 'ABI', 'AC', 'SH', 'TI', 'C', 'D', 'E'];
+// « B » volontairement absent : réduit les faux positifs (« Bilingue », « Bleu »)
+// et le Cameroun n'a pas de série B au lycée général.
+const SC_SERIES = ['A1', 'A2', 'A3', 'A4', 'A5', 'ABI', 'AC', 'SH', 'TI', 'TG', 'A', 'C', 'D', 'E'];
+// Pour un rapprochement « greedy » du 1er token de suffixe (ex. « A1 » avant « A »).
+const SERIES_BY_LEN = [...SC_SERIES].sort((a, b) => b.length - a.length);
 
 // Le Cameroun est bilingue : un nom anglophone dans une école FR (et inversement)
 // reste reconnaissable — on propose les niveaux des DEUX langues.
@@ -70,13 +74,31 @@ function fallbackCycle(name) {
   return 'secondaire';
 }
 
-// Extrait la série depuis un LIBELLÉ de niveau (jamais depuis le nom brut, pour
-// éviter de confondre la lettre de section « A » avec la série « A »).
+// Extrait la série depuis un LIBELLÉ de niveau (voies techniques « 1ère TI » /
+// « Terminale TG » qui gardent la série dans le libellé).
 function serieFromLevel(level) {
   if (!level) return null;
   const up = level.toUpperCase();
   const m = up.match(new RegExp(`\\b(${SC_SERIES.join('|')})\\b`));
   return m ? m[1].toLowerCase() : null;
+}
+
+// Sépare le suffixe (partie après le niveau « nu ») en { série, section }.
+// La série doit couvrir TOUT le premier token (éventuellement suivi de chiffres de
+// section, « D2 » → série D + section 2) — sinon « Ciel »→C, « Bilingue »→B.
+//   « E »    → { serie:'e',  rest:'' }        « D 2 » → { serie:'d', rest:'2' }
+//   « TI A » → { serie:'ti', rest:'A' }       « Bleu » → { serie:null, rest:'Bleu' }
+function splitSuffixSerie(suffix) {
+  const raw = String(suffix || '').trim();
+  if (!raw) return { serie: null, rest: '' };
+  const firstTok = raw.split(/\s+/)[0];
+  const tokU = squash(firstTok).toUpperCase();
+  for (const code of SERIES_BY_LEN) {
+    if (tokU === code || (tokU.startsWith(code) && /^[0-9]*$/.test(tokU.slice(code.length)))) {
+      return { serie: code.toLowerCase(), rest: raw.slice(firstTok.length).trim() };
+    }
+  }
+  return { serie: null, rest: raw };
 }
 
 // Barème de sortie hérité du sous-système : FR → /20, EN → /100, ES/GE → /geMax.
@@ -103,8 +125,17 @@ export function parseClassName(raw, { school, country }) {
   // compris dans une école francophone (auto-bascule /100).
   const system = isGE ? 'ES' : matched?.fromEN ? 'EN' : 'FR';
 
-  // Série (second cycle uniquement) déduite du libellé de niveau matché.
-  const serie = serieFromLevel(level);
+  // Partie du nom après le niveau (peut contenir la série puis la section).
+  const rawSuffix = level ? name.slice(matchedPrefixLength(name, level)).trim() : '';
+
+  // Série (second cycle uniquement) : soit encodée dans le libellé (voies
+  // techniques « 1ère TI »), soit lue en TÊTE du suffixe pour les niveaux « nus »
+  // (« Terminale E » → série E). Le collège n'a pas de série.
+  const serieInLevel = serieFromLevel(level);
+  const secondCycle  = isSecondCycle(level ?? '', name);
+  const { serie: serieInSuffix, rest: section } =
+    (!serieInLevel && secondCycle) ? splitSuffixSerie(rawSuffix) : { serie: null, rest: rawSuffix };
+  const serie = serieInLevel || serieInSuffix || null;
 
   // Moteur effectif : réutilise LA résolution partagée par tout le reste de
   // l'app — aucune logique de bulletin dupliquée.
@@ -113,13 +144,12 @@ export function parseClassName(raw, { school, country }) {
   const grade_max = scaleForSystem(system, country);
 
   // Le second cycle exige une série pour l'auto-config des matières : si non
-  // résolue (ex. « Terminale A » sans subdivision A1…A5), on baisse la confiance.
+  // résolue (ex. « Terminale » sans série précisée), on baisse la confiance.
   const needsSeries = engine === 'sc' && !serie;
 
   // Suffixe de section restant (« A », « Red », « Science ») — purement affiché.
-  const displaySuffix = level
-    ? name.slice(matchedPrefixLength(name, level)).trim()
-    : '';
+  // Quand la série a été lue dans le libellé, le suffixe brut est déjà la section.
+  const displaySuffix = serieInLevel ? rawSuffix : section;
 
   return {
     name,

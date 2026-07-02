@@ -16,7 +16,8 @@ import { parseClassName } from '../core/classNameParser';
 const SYSTEMS = ['FR', 'EN'];
 
 // Séries officielles du second cycle MINESEC (slug = valeur stockée dans classes.serie).
-const SC_SERIES = ['A1', 'A2', 'A3', 'A4', 'A5', 'ABI', 'C', 'D', 'E', 'TI', 'SH', 'AC'];
+// Séries générales franco (A, C, D, E), techniques (TI, TG), puis variantes.
+const SC_SERIES = ['A', 'C', 'D', 'E', 'TI', 'TG', 'A1', 'A2', 'A3', 'A4', 'A5', 'ABI', 'SH', 'AC'];
 
 // Présets proposés dans le sélecteur « Barème » (+ option « Autre… »).
 const GRADE_SCALE_PRESETS = [10, 20, 30, 40, 50, 100];

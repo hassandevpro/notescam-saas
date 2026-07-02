@@ -36,21 +36,46 @@ const p = (raw, school, country = FR) => parseClassName(raw, { school, country }
   ok(r.confidence === 'high',  '6ème A → confiance haute');
 }
 
-// « 1ère D » → second cycle → série D → moteur SC.
+// « 1ère D » → niveau NU « 1ère » + série D lue dans le suffixe → moteur SC.
 {
   const r = p('1ère D', minesec);
-  ok(r.level === '1ère D',   '1ère D → niveau 1ère D');
+  ok(r.level === '1ère',     '1ère D → niveau nu 1ère');
   ok(r.serie === 'd',        '1ère D → série d');
   ok(r.engine === 'sc',      '1ère D → moteur SC');
   ok(r.confidence === 'high','1ère D → confiance haute');
 }
 
-// « Terminale C » → série C → SC.
+// « Terminale C » → niveau nu « Terminale » + série C.
 {
   const r = p('Terminale C', minesec);
-  ok(r.level === 'Terminale C', 'Terminale C → niveau');
-  ok(r.serie === 'c',           'Terminale C → série c');
-  ok(r.engine === 'sc',         'Terminale C → moteur SC');
+  ok(r.level === 'Terminale', 'Terminale C → niveau nu Terminale');
+  ok(r.serie === 'c',         'Terminale C → série c');
+  ok(r.engine === 'sc',       'Terminale C → moteur SC');
+}
+
+// « Terminale E » : la série E existe désormais (niveau nu + série au suffixe).
+{
+  const r = p('Terminale E', minesec);
+  ok(r.level === 'Terminale', 'Terminale E → niveau nu Terminale');
+  ok(r.serie === 'e',         'Terminale E → série e');
+  ok(r.engine === 'sc',       'Terminale E → moteur SC');
+  ok(r.needsSeries === false, 'Terminale E → série résolue');
+  ok(r.confidence === 'high', 'Terminale E → confiance haute');
+}
+
+// « Terminale » seul → série à préciser (needsSeries), section vide.
+{
+  const r = p('Terminale', minesec);
+  ok(r.level === 'Terminale', 'Terminale → niveau nu');
+  ok(r.serie === null,        'Terminale → série non précisée');
+  ok(r.needsSeries === true,  'Terminale → needsSeries (choisir la série)');
+}
+
+// « Terminale D 2 » → série D + section « 2 ».
+{
+  const r = p('Terminale D 2', minesec);
+  ok(r.serie === 'd',           'Terminale D 2 → série d');
+  ok(r.displaySuffix === '2',   'Terminale D 2 → section « 2 »');
 }
 
 // « 1ère TI A » → série TI (technique), section « A ».
@@ -90,13 +115,13 @@ const p = (raw, school, country = FR) => parseClassName(raw, { school, country }
   ok(r.confidence === 'low',    'Groupe B → confiance basse');
 }
 
-// « Terminale A » : série A subdivisée (A1…A5) non résolue → needsSeries.
+// « Terminale A » : série A directe (modèle « niveau nu + série »).
 {
   const r = p('Terminale A', minesec);
   ok(r.engine === 'sc',        'Terminale A → moteur SC');
-  ok(r.serie === null,         'Terminale A → série bare A non extraite');
-  ok(r.needsSeries === true,   'Terminale A → needsSeries (choisir A1…A5)');
-  ok(r.confidence === 'low',   'Terminale A → confiance basse');
+  ok(r.serie === 'a',          'Terminale A → série a directe');
+  ok(r.needsSeries === false,  'Terminale A → série résolue');
+  ok(r.confidence === 'high',  'Terminale A → confiance haute');
 }
 
 // École classique : jamais de moteur référentiel même sur un niveau collège.

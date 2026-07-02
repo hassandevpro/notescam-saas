@@ -30,7 +30,8 @@ export const cameroonFr = {
       code: 'secondaire', label: 'Secondaire',
       levelGroups: [
         { group: 'Collège',       items: ['6ème', '5ème', '4ème', '3ème'] },
-        { group: 'Lycée général', items: ['2nde', '1ère A', '1ère C', '1ère D', 'Terminale A', 'Terminale C', 'Terminale D'] },
+        // Lycée général : niveaux « nus » — la série (A, C, D, E…) se choisit à part.
+        { group: 'Lycée général', items: ['2nde', '1ère', 'Terminale'] },
         { group: 'Lycée technique', items: ['1ère TI', 'Terminale TI', '1ère TG', 'Terminale TG'] },
       ],
     },

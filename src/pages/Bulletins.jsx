@@ -15,6 +15,15 @@ import BulletinPhoto from '../components/bulletins/BulletinPhoto';
 import BoletinGE from '../components/bulletins/BoletinGE';
 import BoletinGEDetalle from '../components/bulletins/BoletinGEDetalle';
 import BulletinTheme from '../components/bulletins/BulletinTheme';
+import BulletinApcOfficial from '../components/bulletins/BulletinApcOfficial';
+import BulletinApcAnnual from '../components/bulletins/BulletinApcAnnual';
+import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
+import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug } from '../core/engineResolver';
+import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
+import { buildApcRanks, sequencesOfTrimestre, SEQ_TO_TRIM } from '../core/apcEngine';
+import { assembleScBulletin, scDisciplineConseil, matieresForSerieClasse } from '../core/scEngine';
+import { perSubjectRanksAndStats, classProfile } from '../lib/scBulletinPdf';
+import { teacherByMatiere as teacherByMatiereMap, teacherIndexById, normName } from '../lib/teacherNames';
 import { resolveCountryCode, bulletinOfficials } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import { bulletinFontFamily } from '../lib/schoolTheme';
@@ -1518,6 +1527,11 @@ export default function Bulletins() {
   const students = useSchoolStore((s) => s.students);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
   const teachers = useSchoolStore((s) => s.teachers);
+  const apcReferentiel = useSchoolStore((s) => s.apcReferentiel);
+  const apcNotes       = useSchoolStore((s) => s.apcNotes);
+  const loadApc        = useSchoolStore((s) => s.loadApc);
+  const scReferentiel  = useSchoolStore((s) => s.scReferentiel);
+  const loadSc         = useSchoolStore((s) => s.loadSc);
 
   const myTeacher       = role === 'teacher' ? teachers.find((t) => t.id === teacherId) : null;
 
@@ -1560,6 +1574,25 @@ export default function Bulletins() {
   const selectedClass = classes.find((c) => c.id === classId) || null;
   const cycle         = selectedClass?.cycle || 'secondaire';
   const sys           = selectedClass?.system || 'FR';
+  // Moteur pédagogique résolu PAR CLASSE : 'classic' | 'apc' | 'sc'. Les bulletins
+  // 'apc'/'sc' (MINESEC officiels) sont des PDF — pas d'aperçu React : on remplace
+  // le sélecteur de format + l'aperçu classique par le panneau d'export dédié.
+  const classEngine   = resolveClassEngine(school, selectedClass);
+  // APC (premier cycle) ET Second Cycle (lycée) sont désormais des APERÇUS ÉCRAN
+  // imprimables (window.print), comme les autres bulletins — plus d'export PDF lourd.
+  const isApc         = classEngine === 'apc';
+  const isSc          = classEngine === 'sc';
+  // Les bulletins officiels MINESEC sont des FORMATS de plus (à côté de Classique/
+  // Moderne/APC), pas un remplacement : affichés seulement si l'utilisateur les
+  // choisit. APC (1er cycle) → 'apc_officiel' ; Second Cycle (lycée) → 'sc_officiel'.
+  const showApcOfficial = isApc && format === 'apc_officiel';
+  const showScOfficial  = isSc  && format === 'sc_officiel';
+  // On ajoute l'option officielle adaptée à la classe sans retirer les autres.
+  const formatsForClass = isApc
+    ? [...FORMATS, { key: 'apc_officiel', label: t('APC officiel', 'Official APC'), icon: '🏛️' }]
+    : isSc
+      ? [...FORMATS, { key: 'sc_officiel', label: t('2nd cycle officiel', 'Official 2nd cycle'), icon: '🏛️' }]
+      : FORMATS;
   // Options de notation GE (échelle /10 ou /20, coef primaire) — {} hors GE.
   const gOpts         = gradingOpts(school, cycle);
 
@@ -1575,11 +1608,15 @@ export default function Bulletins() {
   const schoolCountryCode = resolveCountryCode(school);
 
   const periodsForClass =
-    schoolCountryCode === 'guinea_eq'
-      ? PERIODS_GE
-      : cycle !== 'secondaire'
-        ? PERIODS_PRIMAIRE
-        : sys === 'EN' ? PERIODS_EN : PERIODS;
+    // APC officiel : 6 séquences + 3 trimestres + annuel, quel que soit le système
+    // (le référentiel MINESEC est trimestriel à 2 séquences ; l'annuel agrège T1/T2/T3).
+    showApcOfficial
+      ? PERIODS
+      : schoolCountryCode === 'guinea_eq'
+        ? PERIODS_GE
+        : cycle !== 'secondaire'
+          ? PERIODS_PRIMAIRE
+          : sys === 'EN' ? PERIODS_EN : PERIODS;
   const period = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0];
 
   const classSubjects = useMemo(() =>
@@ -1605,6 +1642,157 @@ export default function Bulletins() {
     [students, classId]
   );
   const selectedStudent = classStudents.find((s) => s.id === studentId) || null;
+
+  // ── APC (premier cycle) — données du bulletin officiel pour l'aperçu écran ───
+  // Charge le référentiel à la sélection d'une classe APC (idempotent côté store).
+  useEffect(() => { if (isApc) loadApc(); }, [isApc, loadApc]);
+
+  // Slug de classe référentiel ('6e'…'3e') + résolution séquence(s) de la période.
+  // Période = 1 séquence (bulletin de séquence) OU 2 séquences (trimestre).
+  const apcClasseSlug = isApc ? firstCycleClasseSlug(selectedClass?.level, selectedClass?.name) : null;
+  const apcAnnual     = isApc && period.value === 'annuel';   // bulletin annuel (T1+T2+T3)
+  const apcSeqNums    = period.seqs;                       // [1] | [1,2] | [1..6] (annuel)
+  const apcTrimId     = SEQ_TO_TRIM[apcSeqNums[0]] || 't1';
+  const apcSeqIds = useMemo(() => {
+    if (!isApc || !apcReferentiel) return [];
+    const all = apcReferentiel.sequences || [];
+    return apcSeqNums.map((num) => {
+      const trimSeqs = sequencesOfTrimestre(all, SEQ_TO_TRIM[num]);   // triées par numero
+      const byGlobal = trimSeqs.find((s) => s.numero === num);        // numero global (1..6)
+      if (byGlobal) return byGlobal.id;
+      const pos = (num % 2 === 1) ? 0 : 1;                            // sinon position dans le trimestre
+      return (trimSeqs[pos] || trimSeqs[0])?.id;
+    }).filter(Boolean);
+  }, [isApc, apcReferentiel, apcSeqNums.join(',')]);
+
+  const apcProfPrincipal = teachers.find((tc) => tc.id === selectedClass?.teacher_id)?.name || '';
+  const apcTeacherMap = useMemo(
+    () => (isApc && apcReferentiel ? teacherByMatiereMap(apcReferentiel.matieres, classSubjects, teachers) : {}),
+    [isApc, apcReferentiel, classSubjects, teachers],
+  );
+
+  // Données assemblées par élève. Annuel → assembleApcAnnual (T1/T2/T3 par matière) ;
+  // sinon assemblePeriod (séquence ou trimestre, par compétence).
+  const apcDataById = useMemo(() => {
+    if (!isApc || !apcReferentiel || !apcClasseSlug) return {};
+    const out = {};
+    for (const s of classStudents) {
+      out[s.id] = apcAnnual
+        ? assembleApcAnnual(apcReferentiel, apcNotes, { classeSlug: apcClasseSlug, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale })
+        : assemblePeriod(apcReferentiel, apcNotes, { classeSlug: apcClasseSlug, trimestreId: apcTrimId, seqIds: apcSeqIds, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale });
+    }
+    return out;
+  }, [isApc, apcAnnual, apcReferentiel, apcClasseSlug, apcTrimId, apcSeqIds, classStudents, apcNotes, apcTeacherMap, school?.grade_scale]);
+
+  // Rangs (moyennes générales) + profil de la classe pour le pied du bulletin.
+  const apcRanks = useMemo(() => {
+    if (!isApc) return {};
+    const avgById = {};
+    Object.entries(apcDataById).forEach(([id, d]) => { avgById[id] = d?.moyenneGenerale ?? null; });
+    return Object.fromEntries(buildApcRanks(classStudents, avgById).map((r) => [r.id, r.rang]));
+  }, [isApc, apcDataById, classStudents]);
+
+  const apcClassStats = useMemo(() => {
+    if (!isApc) return null;
+    const avgs = Object.values(apcDataById).map((d) => d?.moyenneGenerale).filter((v) => v != null);
+    if (!avgs.length) return null;
+    const sum = avgs.reduce((a, b) => a + b, 0);
+    return {
+      min: Math.min(...avgs), max: Math.max(...avgs),
+      avg: Math.round((sum / avgs.length) * 100) / 100, count: avgs.length,
+      rate: Math.round((avgs.filter((a) => a >= 10).length / avgs.length) * 100),
+    };
+  }, [isApc, apcDataById]);
+
+  // Titre officiel selon la période (séquence isolée ou trimestre complet).
+  const apcTitle = useMemo(() => {
+    if (!isApc) return '';
+    const en = sys === 'EN';
+    if (apcAnnual) return en ? 'ANNUAL REPORT CARD' : 'BULLETIN ANNUEL';
+    if (apcSeqNums.length >= 2) {
+      return { t1: en ? 'FIRST TERM REPORT CARD'  : 'BULLETIN SCOLAIRE DU PREMIER TRIMESTRE',
+               t2: en ? 'SECOND TERM REPORT CARD' : 'BULLETIN SCOLAIRE DU DEUXIÈME TRIMESTRE',
+               t3: en ? 'THIRD TERM REPORT CARD'  : 'BULLETIN SCOLAIRE DU TROISIÈME TRIMESTRE' }[apcTrimId];
+    }
+    const n = apcSeqNums[0];
+    if (en) return `SEQUENCE ${n} REPORT CARD`;
+    const ord = { 1: 'PREMIÈRE', 2: 'DEUXIÈME', 3: 'TROISIÈME', 4: 'QUATRIÈME', 5: 'CINQUIÈME', 6: 'SIXIÈME' }[n] || '';
+    return `BULLETIN DE LA ${ord} SÉQUENCE`;
+  }, [isApc, apcAnnual, sys, apcSeqNums.join(','), apcTrimId]);
+
+  // Prêt à afficher : référentiel chargé + classe reconnue 1er cycle + des élèves.
+  const apcReady = isApc && !!apcReferentiel && !!apcClasseSlug && classStudents.length > 0;
+
+  // ── Second Cycle (lycée) — données du bulletin officiel pour l'aperçu écran ──
+  // SC réutilise le moteur de NOTES classique (subjects + gradeMap). On charge le
+  // référentiel pour RÉSOUDRE le groupe (Groupe 1/2) et la charge horaire des
+  // matières qui n'ont pas été auto-configurées (sinon « Groupe 99 »).
+  useEffect(() => { if (isSc) loadSc(); }, [isSc, loadSc]);
+
+  const scEnrichedSubjects = useMemo(() => {
+    if (!isSc) return classSubjects;
+    const serieId  = (selectedClass?.serie || '').toLowerCase();
+    const classeId = secondCycleClasseSlug(selectedClass?.level, selectedClass?.name);
+    if (!scReferentiel || !serieId || !classeId) return classSubjects;
+    const rows = matieresForSerieClasse(scReferentiel, { serieId, classeId });
+    if (!rows.length) return classSubjects;
+    const byName = new Map(rows.map((r) => [normName(r.nom), r]));
+    // Enrichit MATIÈRE PAR MATIÈRE (celles déjà groupées sont laissées telles quelles) :
+    // groupe (1/2) + charge + coef résolus depuis le référentiel selon la SÉRIE.
+    return classSubjects.map((s) => {
+      if (s.sc_groupe_ordre != null) return s;
+      const r = byName.get(normName(s.name));
+      if (!r) return s;
+      return {
+        ...s,
+        sc_groupe_ordre: r.groupe_ordre,        // 1 ou 2 → libellé GROUPE 1/2 dérivé
+        sc_groupe: undefined,                   // laisse assembleScBulletin nommer proprement
+        charge_horaire: s.charge_horaire ?? r.charge_horaire,
+        coef: (s.coef != null && s.coef !== 1) ? s.coef : (r.coefficient || s.coef),
+      };
+    });
+  }, [isSc, classSubjects, scReferentiel, selectedClass]);
+
+  const scProfPrincipal = apcProfPrincipal;     // même résolution (prof. de la classe)
+  const scSerieLabel    = selectedClass?.serie ? `Série ${String(selectedClass.serie).toUpperCase()}` : '';
+  const scTrimId        = period.seqs.length >= 4 ? 'annual' : (SEQ_TO_TRIM[period.seqs[0]] || 't1');
+  const scTitle = useMemo(() => {
+    if (!showScOfficial) return '';
+    const en = sys === 'EN';
+    if (period.seqs.length >= 4) return en ? 'ANNUAL REPORT CARD' : 'BULLETIN DE NOTES ANNUEL';
+    if (period.seqs.length >= 2) {
+      return { t1: en ? 'FIRST TERM REPORT CARD'  : 'BULLETIN DE NOTES DU PREMIER TRIMESTRE',
+               t2: en ? 'SECOND TERM REPORT CARD' : 'BULLETIN DE NOTES DU DEUXIÈME TRIMESTRE',
+               t3: en ? 'THIRD TERM REPORT CARD'  : 'BULLETIN DE NOTES DU TROISIÈME TRIMESTRE' }[scTrimId];
+    }
+    const n = period.seqs[0];
+    return en ? `SEQUENCE ${n} REPORT CARD` : `BULLETIN DE NOTES — SÉQUENCE ${n}`;
+  }, [showScOfficial, sys, period.seqs.join(','), scTrimId]);
+
+  const scDataById = useMemo(() => {
+    if (!showScOfficial || !scEnrichedSubjects.length || !classStudents.length) return {};
+    const subs = scEnrichedSubjects;
+    const teachersById = teacherIndexById(teachers);
+    const { ranks, stats } = perSubjectRanksAndStats(subs, gradeMap, classId, period.seqs, classStudents);
+    const stats2 = classProfile(subs, gradeMap, classId, period.seqs, classStudents, sys, gOpts);
+    const ranked = buildRanks(classStudents, gradeMap, classId, period.seqs, subs, sys, {}, gOpts);
+    const generalRankById = Object.fromEntries(ranked.map((s) => [s.id, s.rankD]));
+    const pass = (gOpts.maxScale ?? (sys === 'EN' ? 100 : 20)) / 2;
+    const isAnnual = period.seqs.length >= 4;
+    const out = {};
+    for (const s of classStudents) {
+      const data = assembleScBulletin({
+        subjects: subs, allGrades: gradeMap, classId, student: s, seqs: period.seqs,
+        sys, opts: gOpts, gradeScale: school?.grade_scale,
+        subjectRanks: ranks, subjectStats: stats, classStats: stats2, teachersById,
+        generalRank: generalRankById[s.id],
+      });
+      const discipline = scDisciplineConseil(gradeMap, classId, s.id, period.seqs);
+      const fallback = isAnnual && data.moyenneGenerale != null ? (data.moyenneGenerale >= pass ? 'Admis(e)' : '') : '';
+      out[s.id] = { data, discipline, decision: discipline.decision || fallback };
+    }
+    return out;
+  }, [showScOfficial, scEnrichedSubjects, gradeMap, classId, period.seqs, classStudents, sys, gOpts.maxScale, gOpts.useCoef, school?.grade_scale, teachers]);
 
   // QR (data-URL) par élève pour le bulletin — même payload que la carte scolaire
   // (buildCardId) → un scan identifie l'élève de façon cohérente.
@@ -1637,6 +1825,13 @@ export default function Bulletins() {
     else if (newCycle !== 'secondaire')    setPeriodKey('tri_1');
     else if (newSys === 'EN')              setPeriodKey('term_1');
     else                                   setPeriodKey('seq_1');
+    // Format par défaut selon la classe (les autres formats restent disponibles) :
+    // APC → 'apc_officiel' ; Second Cycle → 'sc_officiel' ; sinon on quitte un
+    // format officiel devenu inapplicable.
+    const newEngine = resolveClassEngine(school, cls);
+    if (newEngine === 'apc')                                     setFormat('apc_officiel');
+    else if (newEngine === 'sc')                                 setFormat('sc_officiel');
+    else if (format === 'apc_officiel' || format === 'sc_officiel') setFormat('classic');
   }, [classId, classes]);
 
   const ranks = useMemo(() => {
@@ -1649,7 +1844,8 @@ export default function Bulletins() {
     return clsStat(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
   }, [cycle, classStudents, classSubjects, gradeMap, classId, period.seqs, sys, gOpts.maxScale, gOpts.useCoef]);
 
-  const passThreshold = sys === 'ES' ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
+  // APC officiel : notes toujours sur /20 (cotes MINESEC) → seuil 10 quel que soit le système.
+  const passThreshold = showApcOfficial ? 10 : sys === 'ES' ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
 
   const admisCount = useMemo(() => {
     if (cycle === 'maternelle' || !classStudents.length || !classSubjects.length) return null;
@@ -1734,6 +1930,9 @@ export default function Bulletins() {
   };
 
   const hasData = classSubjects.length > 0 && classStudents.length > 0;
+  // Disponibilité de l'aperçu/impression : l'APC officiel s'appuie sur le référentiel
+  // (pas sur classSubjects) ; les autres bulletins sur matières + élèves.
+  const canShow = showApcOfficial ? apcReady : hasData;
 
   const countryCode = resolveCountryCode(school);
 
@@ -1744,6 +1943,37 @@ export default function Bulletins() {
     if (!lastSeq) return null;
     const slot = gradeMap?.[`${classId}_${sid}_${lastSeq}`] || {};
     return slot['__decision__'] || null;
+  };
+
+  // Libellé de la décision du conseil (bulletin APC annuel).
+  const APC_DECISION_LABELS = {
+    admis:      t('Admis(e) en classe supérieure', 'Promoted to next class'),
+    redouble:   t('Autorisé(e) à redoubler', 'Allowed to repeat the class'),
+    renvoye:    t("Exclu(e) de l'établissement", 'Dismissed from school'),
+    rattrapage: t('Examen de rattrapage', 'Resit examination required'),
+  };
+  const apcDecisionLabel = (sid) => {
+    const d = annualDecisionFor(sid);
+    return d ? (APC_DECISION_LABELS[d] || d) : '';
+  };
+
+  // Rend le bon bulletin APC (annuel ou séquence/trimestre) pour un élève.
+  const renderApcBulletin = (student) => {
+    const data = apcDataById[student.id];
+    if (!data) return null;
+    const common = {
+      school, sys, title: apcTitle,
+      student, classLabel: selectedClass?.name || '',
+      effectif: classStudents.length, profPrincipal: apcProfPrincipal,
+      rang: apcRanks[student.id], classStats: apcClassStats, data,
+    };
+    return (
+      <WatermarkWrap key={student.id} active={f.watermark}>
+        {apcAnnual
+          ? <BulletinApcAnnual {...common} decision={apcDecisionLabel(student.id)} />
+          : <BulletinApcOfficial {...common} />}
+      </WatermarkWrap>
+    );
   };
 
   const commonProps = {
@@ -1763,7 +1993,7 @@ export default function Bulletins() {
             <h1 className="text-2xl font-bold text-gray-900">{t('Bulletins', 'Report Cards')}</h1>
             <p className="text-sm text-gray-500 mt-1">{t('Génération et impression des bulletins scolaires.', 'Generate and print student report cards.')}</p>
           </div>
-          {hasData && classId && (
+          {canShow && classId && (
             <div className="flex items-center gap-2">
               {canPrint ? (
                 <>
@@ -1796,12 +2026,14 @@ export default function Bulletins() {
           )}
         </div>
 
-        {/* Sélecteur de format — masqué pour Guinea Ecuatorial (un seul format officiel) */}
+        {/* Sélecteur de format — masqué pour Guinea Ecuatorial (un seul format
+            officiel). Pour les classes MINESEC, on AJOUTE l'option officielle
+            (APC ou 2nd cycle) sans retirer Classique/Moderne/APC. */}
         {cycle === 'secondaire' && schoolCountryCode !== 'guinea_eq' && (
           <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
             <span className="text-sm font-medium text-gray-500">{t('Format :', 'Format:')}</span>
             <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-              {FORMATS.map(({ key, label, icon }) => (
+              {formatsForClass.map(({ key, label, icon }) => (
                 <button
                   key={key}
                   onClick={() => handleChangeFormat(key)}
@@ -1815,6 +2047,16 @@ export default function Bulletins() {
                 </button>
               ))}
             </div>
+            {format === 'apc_officiel' && (
+              <span className="text-xs text-gray-400 italic">
+                {t('Bulletin officiel MINESEC par compétences (référentiel)', 'Official MINESEC competency report card (framework)')}
+              </span>
+            )}
+            {format === 'sc_officiel' && (
+              <span className="text-xs text-gray-400 italic">
+                {t('Bulletin officiel MINESEC du second cycle (matières par groupe)', 'Official MINESEC second-cycle report card (subjects by group)')}
+              </span>
+            )}
             {format === 'apc' && (
               <span className="text-xs text-gray-400 italic">
                 {t('Approche Par Compétences — niveaux NA / EC / AQ / BA', 'Competency-Based Approach — levels NA / EC / AQ / BA')}
@@ -1876,7 +2118,23 @@ export default function Bulletins() {
             <div className="flex-1 min-w-[180px] max-w-xs">
               <label className="form-label">{t('Période', 'Period')}</label>
               <select className="form-input" value={periodKey} onChange={(e) => setPeriodKey(e.target.value)}>
-                {schoolCountryCode === 'guinea_eq' ? (
+                {isApc ? (
+                  <>
+                    <optgroup label={t('Séquences', 'Sequences')}>
+                      {PERIODS.filter((p) => p.seqs.length === 1).map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label={t('Trimestres (moyenne de 2 séquences)', 'Quarters (average of 2 sequences)')}>
+                      {PERIODS.filter((p) => p.seqs.length === 2).map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label={t('Récapitulatif', 'Summary')}>
+                      <option value="annuel">{t('Annuel (T1 + T2 + T3)', 'Annual (T1 + T2 + T3)')}</option>
+                    </optgroup>
+                  </>
+                ) : schoolCountryCode === 'guinea_eq' ? (
                   <>
                     <optgroup label="Trimestres">
                       {PERIODS_GE.filter((p) => p.value !== 'anual').map((p) => (
@@ -1954,18 +2212,29 @@ export default function Bulletins() {
             <p className="text-gray-500 text-sm">{t('Sélectionnez une classe pour générer les bulletins.', 'Select a class to generate report cards.')}</p>
           </div>
         )}
-        {classId && !hasData && (
+        {classId && !showApcOfficial && !hasData && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
             {t('Cette classe manque de données. Vérifiez que des', 'This class has no data. Make sure')}{' '}
-            <a href="/app/subjects" className="font-semibold underline">
+            <a href="/app/classes" className="font-semibold underline">
               {cycle === 'maternelle' ? t('domaines de compétences', 'competency domains') : t('matières', 'subjects')}
             </a>{' '}
             {t('et des', 'and')} <a href="/app/students" className="font-semibold underline">{t('élèves', 'students')}</a> {t('sont configurés.', 'are configured.')}
           </div>
         )}
 
+        {/* APC officiel — états spécifiques (référentiel en cours, classe non reconnue, vide) */}
+        {classId && showApcOfficial && !apcReady && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
+            {!apcClasseSlug
+              ? t('Classe non reconnue comme premier cycle (6e–3e).', 'Class not recognized as first cycle (6e–3e).')
+              : classStudents.length === 0
+                ? t('Aucun élève dans cette classe.', 'No student in this class.')
+                : t('Référentiel APC en cours de chargement…', 'APC framework still loading…')}
+          </div>
+        )}
+
         {/* Layout bulletin : sidebar élèves + aperçu */}
-        {hasData && (
+        {canShow && (
           <div className="bulletin-layout">
             {/* Sidebar */}
             <div className="bulletin-sidebar no-print">
@@ -1974,7 +2243,7 @@ export default function Bulletins() {
                 <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
                   {classStudents.length} {t('élève', 'student')}{classStudents.length > 1 ? 's' : ''} — {selectedClass?.name}
                 </p>
-                {admisCount !== null && (
+                {!showApcOfficial && admisCount !== null && (
                   <p className="text-xs mt-0.5">
                     <span className="text-emerald-600 font-semibold">{admisCount} {t('admis', 'passed')}</span>
                     <span className="text-gray-300 mx-1">·</span>
@@ -1999,7 +2268,9 @@ export default function Bulletins() {
                 {classStudents
                   .filter((s) => !sidebarSearch || s.name.toLowerCase().includes(sidebarSearch.toLowerCase()))
                   .map((s) => {
-                    const { studentAvg, rank } = bulletinDataFor(s);
+                    // APC officiel : moyenne/rang issus du moteur référentiel ; sinon moteur générique.
+                    const studentAvg = showApcOfficial ? (apcDataById[s.id]?.moyenneGenerale ?? null) : bulletinDataFor(s).studentAvg;
+                    const rankN      = showApcOfficial ? (apcRanks[s.id] === '—' ? null : apcRanks[s.id]) : bulletinDataFor(s).rank?.rankN;
                     const isPassed = studentAvg !== null && studentAvg >= passThreshold;
                     const color    = avatarColor(s.name);
                     return (
@@ -2016,8 +2287,8 @@ export default function Bulletins() {
                             {initials(s.name)}
                           </div>
                           <span className="truncate flex-1 text-sm">{s.name}</span>
-                          {rank?.rankN && (
-                            <span className="text-[10px] text-gray-400 shrink-0">#{rank.rankN}</span>
+                          {rankN && (
+                            <span className="text-[10px] text-gray-400 shrink-0">#{rankN}</span>
                           )}
                           {studentAvg !== null && (
                             <span
@@ -2039,8 +2310,18 @@ export default function Bulletins() {
 
             {/* Zone bulletin */}
             <div className={`bulletin-panel${screenshotBlur ? ' bulletin-screenshot-blur' : ''}`}>
-              {/* Décision annuelle — admin only, période annuelle uniquement */}
-              {role !== 'teacher' && selectedStudent && period?.seqs?.length >= 3 && (
+              {/* Filigrane logo À L'IMPRESSION uniquement : élément `position:fixed`
+                  unique → se répète sur CHAQUE page (bulletin long ou classe entière)
+                  sans se cumuler. L'aperçu écran a son propre filigrane par feuille. */}
+              {(showApcOfficial || showScOfficial) && school?.logo_url && (
+                <div className="official-print-watermark" aria-hidden>
+                  <AssetImg src={school.logo_url} alt="" />
+                </div>
+              )}
+
+              {/* Décision annuelle — admin only, période annuelle uniquement.
+                  Disponible pour le Second Cycle et pour le bulletin APC ANNUEL. */}
+              {(!isApc || apcAnnual) && role !== 'teacher' && selectedStudent && period?.seqs?.length >= 3 && (
                 <AnnualDecisionPicker
                   classId={classId}
                   studentId={selectedStudent.id}
@@ -2049,7 +2330,57 @@ export default function Bulletins() {
                   countryCode={countryCode}
                 />
               )}
-              {!printAll && selectedStudent && (() => {
+
+              {/* Second Cycle officiel (lycée) — aperçu écran, imprimable nativement. */}
+              {showScOfficial && !printAll && selectedStudent && scDataById[selectedStudent.id] && (
+                <WatermarkWrap active={f.watermark}>
+                  <BulletinScOfficial
+                    school={school} sys={sys} title={scTitle}
+                    student={selectedStudent} classLabel={selectedClass?.name || ''}
+                    serieLabel={scSerieLabel} effectif={classStudents.length} profPrincipal={scProfPrincipal}
+                    data={scDataById[selectedStudent.id].data}
+                    discipline={scDataById[selectedStudent.id].discipline}
+                    decision={scDataById[selectedStudent.id].decision}
+                  />
+                </WatermarkWrap>
+              )}
+
+              {showScOfficial && !printAll && !selectedStudent && (
+                <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100 no-print">
+                  <div className="text-4xl mb-3">🏛️</div>
+                  <p className="text-gray-500 text-sm">{t('Cliquez sur un élève dans la liste pour afficher son bulletin du second cycle.', 'Click on a student in the list to view their second-cycle report card.')}</p>
+                </div>
+              )}
+
+              {showScOfficial && printAll && classStudents.map((student) => (
+                scDataById[student.id] ? (
+                  <WatermarkWrap key={student.id} active={f.watermark}>
+                    <BulletinScOfficial
+                      school={school} sys={sys} title={scTitle}
+                      student={student} classLabel={selectedClass?.name || ''}
+                      serieLabel={scSerieLabel} effectif={classStudents.length} profPrincipal={scProfPrincipal}
+                      data={scDataById[student.id].data}
+                      discipline={scDataById[student.id].discipline}
+                      decision={scDataById[student.id].decision}
+                    />
+                  </WatermarkWrap>
+                ) : null
+              ))}
+
+              {/* APC officiel (premier cycle) — aperçu écran, imprimable nativement.
+                  Annuel → bulletin annuel (T1/T2/T3 + décision) ; sinon séquence/trimestre. */}
+              {showApcOfficial && !printAll && selectedStudent && renderApcBulletin(selectedStudent)}
+
+              {showApcOfficial && !printAll && !selectedStudent && (
+                <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100 no-print">
+                  <div className="text-4xl mb-3">🏛️</div>
+                  <p className="text-gray-500 text-sm">{t('Cliquez sur un élève dans la liste pour afficher son bulletin APC officiel.', 'Click on a student in the list to view their official APC report card.')}</p>
+                </div>
+              )}
+
+              {showApcOfficial && printAll && classStudents.map((student) => renderApcBulletin(student))}
+
+              {!showApcOfficial && !showScOfficial && !printAll && selectedStudent && (() => {
                 const data = bulletinDataFor(selectedStudent);
                 return (
                   <WatermarkWrap active={f.watermark}>
@@ -2070,14 +2401,14 @@ export default function Bulletins() {
                 );
               })()}
 
-              {!printAll && !selectedStudent && (
+              {!showApcOfficial && !showScOfficial && !printAll && !selectedStudent && (
                 <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100 no-print">
                   <div className="text-4xl mb-3">👤</div>
                   <p className="text-gray-500 text-sm">{t('Cliquez sur un élève dans la liste pour afficher son bulletin.', 'Click on a student in the list to view their report card.')}</p>
                 </div>
               )}
 
-              {printAll && classStudents.map((student) => {
+              {!showApcOfficial && !showScOfficial && printAll && classStudents.map((student) => {
                 const data = bulletinDataFor(student);
                 return (
                   <WatermarkWrap key={student.id} active={f.watermark}>

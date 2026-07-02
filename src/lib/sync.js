@@ -46,6 +46,15 @@ async function replayItem(item) {
       .from('grades')
       .upsert(rows, { onConflict: 'class_id,student_id,subject_id,sequence' });
     if (error) throw error;
+  } else if (table === 'apc_notes') {
+    // payload = record IDB { id, school_id, eleve_id, competence_id,
+    //   sequence_id, …, nkey }. `nkey` est local : on le retire et on upsert
+    //   sur le triplet officiel (anti-doublon, comme le chemin online direct).
+    const { nkey, ...row } = payload;
+    const { error } = await supabase
+      .from('apc_notes')
+      .upsert(row, { onConflict: 'eleve_id,competence_id,sequence_id' });
+    if (error) throw error;
   } else if (table === 'student_absences') {
     // payload = record IDB { key, class_id, student_id, sequence, school_id, scores }
     // → mappe les clés spéciales (__abs_j__, __conduite__, …) vers les vraies
@@ -61,7 +70,12 @@ async function replayItem(item) {
   } else {
     // classes | subjects | students | teachers | staff …
     let p = payload;
-    if (table === 'students') {
+    if (table === 'classes' && (p.serie === '' || p.serie == null)) {
+      // `serie` (Second Cycle MINESEC) n'existe en base qu'après la migration ;
+      // ne jamais l'envoyer vide → évite « Could not find the 'serie' column ».
+      const { serie, ...rest } = p;
+      p = rest;
+    } else if (table === 'students') {
       p = { ...p, gender: p.gender || null, statut: p.statut || null };
     } else if (table === 'teachers' || table === 'staff') {
       // Une chaîne vide est invalide pour la colonne `date` (hire_date) côté

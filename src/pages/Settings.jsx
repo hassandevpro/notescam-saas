@@ -13,6 +13,7 @@ import { BULLETIN_FONTS } from '../lib/schoolTheme';
 import { CURRENCIES } from '../lib/currency';
 import { supabase } from '../lib/supabase';
 import { DEFAULT_GRADE_SCALE } from '../core/bulletinEngine';
+import { apcBulletinCols, APC_BULLETIN_COLS_DEFAULT } from '../core/apcEngine';
 import Layout from '../components/Layout';
 import HubTabs from '../components/hubs/HubTabs';
 import SchoolCalendar from '../components/SchoolCalendar';
@@ -92,7 +93,8 @@ const LANGUAGES = [
 function LicenseBadge({ school }) {
   const t = useT();
   const daysLeft = getDaysUntilLicenseExpires(school?.license_expires_at);
-  const status   = school?.license_status;
+  // LAN (.exe) : produit sous licence, jamais en « essai » — affiché actif.
+  const status   = IS_LAN ? 'active' : school?.license_status;
   if (status === 'active') {
     return (
       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-emerald-100 text-emerald-800">
@@ -357,6 +359,8 @@ export default function Settings() {
 
   // ── Barème de notation (admin) ───────────────────────────────────────────
   const [gradeScale,  setGradeScale]  = useState(DEFAULT_GRADE_SCALE);
+  // Bascules des colonnes du bulletin APC (premier cycle) : COTE / [Min–Max] / Appréciation.
+  const [apcCols,     setApcCols]     = useState(APC_BULLETIN_COLS_DEFAULT);
   const [scaleSaving, setScaleSaving] = useState(false);
   const [scaleSaved,  setScaleSaved]  = useState(false);
   const [scaleError,  setScaleError]  = useState(null);
@@ -379,6 +383,7 @@ export default function Settings() {
         currency:     school.currency     || 'XAF',
         establishment_no: school.establishment_no || '',
         grade_entry_mode: school.grade_entry_mode === 'subject' ? 'subject' : 'principal',
+        bulletin_engine: ['apc_minesec', 'minesec'].includes(school.bulletin_engine) ? school.bulletin_engine : 'classic',
         bulletin_subject_mode: school.bulletin_subject_mode === 'detailed' ? 'detailed' : 'synthetic',
         bulletin_font:    school.bulletin_font    || 'arial',
         censeur_name:     school.censeur_name     || '',
@@ -390,6 +395,7 @@ export default function Settings() {
         // Guinée Équatoriale sans barème personnalisé → apreciaciones espagnoles.
         setGradeScale(buildGeScale(geGradeMax(school)));
       }
+      setApcCols(apcBulletinCols(school));
     }
   }, [school, isGE]);
 
@@ -419,6 +425,23 @@ export default function Settings() {
     } else {
       setScaleSaved(true);
       setTimeout(() => setScaleSaved(false), 3500);
+    }
+  };
+
+  // Sauvegarde INDÉPENDANTE des bascules de colonnes APC : ne couple pas la
+  // colonne apc_bulletin_cols (migration récente) à l'enregistrement du barème.
+  const [apcColsSaving, setApcColsSaving] = useState(false);
+  const [apcColsSaved,  setApcColsSaved]  = useState(false);
+  const [apcColsError,  setApcColsError]  = useState(null);
+  const handleApcColsSave = async () => {
+    setApcColsSaving(true); setApcColsError(null); setApcColsSaved(false);
+    const result = await doUpdateSchool({ apc_bulletin_cols: apcCols });
+    setApcColsSaving(false);
+    if (result.error) {
+      setApcColsError(result.error);
+    } else {
+      setApcColsSaved(true);
+      setTimeout(() => setApcColsSaved(false), 3500);
     }
   };
 
@@ -754,6 +777,60 @@ export default function Settings() {
                     "Pensez à affecter chaque matière à un enseignant dans Matières. Une matière sans enseignant ne sera saisissable par aucun professeur de matière.",
                     'Remember to assign each subject to a teacher in Subjects. A subject without a teacher cannot be entered by any subject teacher.',
                     'Asigne cada asignatura a un profesor en Asignaturas.',
+                  )}
+                </div>
+              )}
+            </Section>
+
+            {/* ── Moteur de bulletin (référentiels MINESEC) ────────────────── */}
+            <Section title={t('Moteur de bulletin', 'Report card engine', 'Motor de boletín')} className="mt-6">
+              <p className="text-sm text-gray-500 mb-4">
+                {t(
+                  "Choisit le système d'évaluation officiel. Le moteur est résolu par classe : APC s'applique au premier cycle (6e–3e), le Second Cycle MINESEC au lycée (2nde–Tle). Le mode classique conserve le comportement historique.",
+                  'Selects the official evaluation system. The engine is resolved per class: APC applies to the first cycle (forms 1–4), MINESEC Second Cycle to high school. Classic keeps the historical behavior.',
+                  'Selecciona el sistema de evaluación oficial. El motor se resuelve por clase.',
+                )}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  { value: 'classic',
+                    title: t('Classique', 'Classic', 'Clásico'),
+                    desc:  t('Notes et moyennes habituelles. Aucun référentiel officiel.', 'Usual grades and averages. No official framework.', 'Notas y medias habituales.') },
+                  { value: 'apc_minesec',
+                    title: t('APC (1er cycle)', 'APC (first cycle)', 'APC (primer ciclo)'),
+                    desc:  t('Bulletin par compétences MINESEC sur le collège (6e–3e).', 'MINESEC competency report card for the first cycle.', 'Boletín por competencias MINESEC.') },
+                  { value: 'minesec',
+                    title: t('APC + Second Cycle', 'APC + Second cycle', 'APC + Segundo ciclo'),
+                    desc:  t('APC au collège ET Second Cycle MINESEC au lycée (par séries).', 'APC for the first cycle AND MINESEC second cycle for high school.', 'APC primer ciclo Y segundo ciclo MINESEC.') },
+                ].map((opt) => {
+                  const active = (form.bulletin_engine || 'classic') === opt.value;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      disabled={!isAdmin}
+                      onClick={() => setForm((f) => ({ ...f, bulletin_engine: opt.value }))}
+                      className={`text-left rounded-xl border p-4 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                        active ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-brand-600' : 'border-gray-300'}`}>
+                          {active && <span className="w-2 h-2 rounded-full bg-brand-600" />}
+                        </span>
+                        <span className="font-semibold text-gray-900 text-sm">{opt.title}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1.5 ml-6">{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {(form.bulletin_engine || 'classic') === 'minesec' && (
+                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                  {t(
+                    "Les classes de lycée doivent porter une série reconnue (A, C, D…) pour être auto-configurées. Les matières officielles (coefficients, groupes) sont alors créées automatiquement à l'ouverture de la classe.",
+                    'High school classes must carry a recognized stream (A, C, D…) to be auto-configured. Official subjects (coefficients, groups) are then created automatically.',
+                    'Las clases de bachillerato deben tener una serie reconocida (A, C, D…).',
                   )}
                 </div>
               )}
@@ -1125,6 +1202,40 @@ export default function Settings() {
               </div>
             ) : (
               <p className="text-sm text-slate-400 text-center py-6">{t('Aucun barème configuré.', 'No grade scale configured.')}</p>
+            )}
+
+            {['apc_minesec', 'minesec'].includes(school?.bulletin_engine) && (
+              <div className="pt-4 mt-4 border-t border-slate-100">
+                <h4 className="text-sm font-semibold text-slate-700 mb-1">
+                  {t('Bulletin premier cycle (APC) — colonnes affichées', 'First-cycle report card (APC) — displayed columns')}
+                </h4>
+                <p className="text-xs text-slate-400 mb-3">
+                  {t('Activez ou désactivez chaque colonne du bulletin par compétences. La COTE et l\'appréciation suivent ce barème.',
+                     'Enable or disable each column of the competency report card. The grade code and appreciation follow this scale.')}
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  {[
+                    { key: 'cote',         label: t('COTE', 'Grade code') },
+                    { key: 'minmax',       label: t('[Min–Max]', '[Min–Max]') },
+                    { key: 'appreciation', label: t('Appréciation', 'Appreciation') },
+                  ].map((o) => (
+                    <label key={o.key} className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                      <input type="checkbox" checked={apcCols[o.key] !== false}
+                        onChange={(e) => setApcCols((p) => ({ ...p, [o.key]: e.target.checked }))}
+                        className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-400" />
+                      {o.label}
+                    </label>
+                  ))}
+                </div>
+                <div className="flex items-center gap-4 mt-4">
+                  <button type="button" onClick={handleApcColsSave} disabled={apcColsSaving}
+                    className="btn-secondary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+                    {apcColsSaving ? t('Enregistrement…', 'Saving…') : t('Enregistrer les colonnes', 'Save columns')}
+                  </button>
+                  {apcColsSaved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Colonnes sauvegardées', 'Columns saved')}</span>}
+                  {apcColsError && <span className="text-sm text-red-600">{apcColsError}</span>}
+                </div>
+              </div>
             )}
 
             <div className="flex items-center gap-4 pt-4 mt-4 border-t border-slate-100">

@@ -28,7 +28,6 @@ import VerifyEmail from './pages/VerifyEmail';
 // App pages — lazy-loaded pour réduire le bundle initial
 const Dashboard     = lazy(() => import('./pages/Dashboard'));
 const Classes       = lazy(() => import('./pages/Classes'));
-const Subjects      = lazy(() => import('./pages/Subjects'));
 const Students      = lazy(() => import('./pages/Students'));
 const StudentProfile = lazy(() => import('./pages/StudentProfile'));
 const Grades        = lazy(() => import('./pages/Grades'));
@@ -227,7 +226,6 @@ export default function App() {
           <Route path="/terms" element={<Terms />} />
           <Route path="/app" element={<ProtectedRoute><HomeRoute /></ProtectedRoute>} />
           <Route path="/app/classes"        element={<ProtectedRoute allow={ACADEMIC}><Classes /></ProtectedRoute>} />
-          <Route path="/app/subjects"       element={<ProtectedRoute allow={ACADEMIC}><Subjects /></ProtectedRoute>} />
           <Route path="/app/students"       element={<ProtectedRoute allow={DISCIPLINE}><Students /></ProtectedRoute>} />
           <Route path="/app/students/:id"   element={<ProtectedRoute allow={DISCIPLINE}><StudentProfile /></ProtectedRoute>} />
           <Route path="/app/grades"         element={<ProtectedRoute allow={WITH_TEACHER}><Grades /></ProtectedRoute>} />

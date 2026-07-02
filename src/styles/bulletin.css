@@ -302,10 +302,10 @@
    IMPRESSION
    ================================================================ */
 @media print {
-  /* Marges d'impression réduites pour maximiser l'espace utile. */
+  /* Marges d'impression réduites pour maximiser l'espace utile (auto-fit APC). */
   @page {
     size: A4 portrait;
-    margin: 8mm;
+    margin: 6mm;
   }
 
   /* Masquer tout le chrome de l'application */
@@ -334,6 +334,13 @@
 
   .bulletin-sidebar {
     display: none;
+  }
+
+  /* IMPORTANT : repasser le panneau en bloc. En `display:flex`, Chrome ne
+     fragmente PAS un bulletin trop long sur plusieurs pages → il le coupe en bas.
+     En bloc, le contenu long continue proprement sur la page suivante. */
+  .bulletin-panel {
+    display: block;
   }
 
   /* Le bulletin occupe toute la page et tient sur UNE seule page :
@@ -396,6 +403,47 @@
   .bulletin-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .bulletin-box-title { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .bulletin-table tbody tr:nth-child(even) { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* ── Bulletins officiels MINESEC (auto-fit) : pagination & pleine surface ──
+     La pagination est EXPLICITE (moteur apcLayout) ; chaque feuille = une page.
+     On exploite presque toute la largeur (padding minimal) ; l'en-tête de colonnes
+     se répète et ni une matière ni un pied ne sont scindés au milieu. */
+  .apc-sheet {
+    padding: 4px 7px !important;   /* taille de police pilotée en pt par le composant (≥10pt) */
+  }
+  .apc-sheet thead { display: table-header-group; }
+  .apc-sheet tbody.apc-mat,
+  .apc-sheet .apc-keep {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .apc-sheet th,
+  .apc-sheet td,
+  .apc-sheet .apc-title-bar { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* ── Filigrane logo officiel — répété sur CHAQUE page imprimée ──
+   `position:fixed` ⇒ le navigateur le re-rend sur toutes les pages. Atténué (7 %),
+   il se superpose au contenu sans gêner la lecture. Masqué à l'écran. */
+.official-print-watermark { display: none; }
+@media print {
+  .official-print-watermark {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 9999;
+  }
+  .official-print-watermark img {
+    width: 58%;
+    max-width: 440px;
+    opacity: 0.07;
+    object-fit: contain;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }
 
 /* ── Ligne absences / conduite ── */

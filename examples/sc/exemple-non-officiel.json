@@ -1,0 +1,32 @@
+{
+  "_avertissement": "EXEMPLE NON-OFFICIEL — uniquement pour tester le pipeline d'import. Coefficients repris des 2 cas cités par l'utilisateur (Tle C, 1ère D) ; les matières sans coefficient indiqué et l'affectation des groupes sont à confirmer par l'arrêté officiel. NE PAS utiliser en production.",
+  "version": { "label": "EXEMPLE NON-OFFICIEL — Tle C / 1ère D", "source": "fictif / test pipeline" },
+  "matieres": [
+    { "id": "mathematiques", "nom": "Mathématiques", "code": "MATH", "domaine": "Sciences et technologies", "ordre": 1 },
+    { "id": "physique",      "nom": "Physique",        "code": "PHY",  "domaine": "Sciences et technologies", "ordre": 2 },
+    { "id": "chimie",        "nom": "Chimie",          "code": "CHI",  "domaine": "Sciences et technologies", "ordre": 3 },
+    { "id": "svteehb",       "nom": "SVTEEHB",         "code": "SVT",  "domaine": "Sciences et technologies", "ordre": 4 },
+    { "id": "informatique",  "nom": "Informatique",    "code": "INFO", "domaine": "Sciences et technologies", "ordre": 5 },
+    { "id": "francais",      "nom": "Français",        "code": "FRA",  "domaine": "Langues et littératures",   "ordre": 6 },
+    { "id": "anglais",       "nom": "Anglais",         "code": "ANG",  "domaine": "Langues et littératures",   "ordre": 7 },
+    { "id": "philosophie",   "nom": "Philosophie",     "code": "PHILO","domaine": "Sciences humaines",         "ordre": 8 }
+  ],
+  "entries": [
+    { "serie": "c", "classe": "tle", "matiere": "mathematiques", "groupe": "g1", "coef": 7 },
+    { "serie": "c", "classe": "tle", "matiere": "physique",      "groupe": "g1", "coef": 4 },
+    { "serie": "c", "classe": "tle", "matiere": "chimie",        "groupe": "g1", "coef": 2 },
+    { "serie": "c", "classe": "tle", "matiere": "informatique",  "groupe": "g1", "coef": 4 },
+    { "serie": "c", "classe": "tle", "matiere": "francais",      "groupe": "g2", "coef": 1 },
+    { "serie": "c", "classe": "tle", "matiere": "anglais",       "groupe": "g2", "coef": 3 },
+    { "serie": "c", "classe": "tle", "matiere": "philosophie",   "groupe": "g2", "coef": 2 },
+
+    { "serie": "d", "classe": "1ere", "matiere": "svteehb",      "groupe": "g1", "coef": 6 },
+    { "serie": "d", "classe": "1ere", "matiere": "mathematiques","groupe": "g1", "coef": 4 },
+    { "serie": "d", "classe": "1ere", "matiere": "chimie",       "groupe": "g1", "coef": 2 },
+    { "serie": "d", "classe": "1ere", "matiere": "informatique", "groupe": "g1", "coef": 2 },
+    { "serie": "d", "classe": "1ere", "matiere": "physique",     "groupe": "g1", "coef": 2 },
+    { "serie": "d", "classe": "1ere", "matiere": "francais",     "groupe": "g2", "coef": 1 },
+    { "serie": "d", "classe": "1ere", "matiere": "anglais",      "groupe": "g2", "coef": 3 },
+    { "serie": "d", "classe": "1ere", "matiere": "philosophie",  "groupe": "g2", "coef": 2 }
+  ]
+}

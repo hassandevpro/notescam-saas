@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
@@ -8,13 +8,16 @@ import Modal from '../components/Modal';
 import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
-import { useCountry, defaultSystemForCountry } from '../lib/useCountry';
+import { useCountry } from '../lib/useCountry';
 import { COUNTRIES } from '../countries';
+import { resolveClassEngine } from '../core/engineResolver';
+import { parseClassName } from '../core/classNameParser';
 
 const SYSTEMS = ['FR', 'EN'];
 
-// Barème de sortie par défaut d'un système (FR → /20, EN → /100).
-const sysDefaultScale = (sys) => (sys === 'EN' ? 100 : 20);
+// Séries officielles du second cycle MINESEC (slug = valeur stockée dans classes.serie).
+const SC_SERIES = ['A1', 'A2', 'A3', 'A4', 'A5', 'ABI', 'C', 'D', 'E', 'TI', 'SH', 'AC'];
+
 // Présets proposés dans le sélecteur « Barème » (+ option « Autre… »).
 const GRADE_SCALE_PRESETS = [10, 20, 30, 40, 50, 100];
 
@@ -32,13 +35,6 @@ function niveauGroupsForCycle(country, cycleCode) {
   const seen = new Set(own.map((g) => g.group));
   return [...own, ...other.filter((g) => !seen.has(g.group))];
 }
-
-// Tous les niveaux anglophones (Nursery, Class, Form, Sixth), dérivés de la
-// config EN -> sert à basculer automatiquement la classe en notation /100 (EN)
-// quand on en choisit un, même dans une école francophone.
-const EN_NIVEAUX = new Set(
-  (COUNTRIES.cameroon_en?.cycles || []).flatMap((c) => c.levelGroups.flatMap((g) => g.items)),
-);
 
 const SUBJECT_CATALOG = [
   // Langues
@@ -100,11 +96,6 @@ function subjectCatalogForCountry(countryCode, isEN) {
   return isEN ? SUBJECT_CATALOG_EN : SUBJECT_CATALOG;
 }
 
-const EMPTY_FORM = {
-  name: '', level: '', system: 'FR', grade_max: 20,
-  cycle: 'secondaire', current_year: '', teacher_id: '', max_students: '',
-};
-
 // Icône de cycle (emoji) selon le code.
 function cycleIcon(code) {
   if (/mat/.test(code)) return '🧸';
@@ -134,211 +125,280 @@ function Stepper({ value, onChange, min = 0, max = 200, step = 5, ariaLabel }) {
 function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teachers }) {
   const t = useT();
   const country = useCountry();
+  const school = useAuthStore((s) => s.school);
+  // Modèle de bulletin choisi pour l'établissement (Réglages) — pilote le formulaire.
+  const engine = school?.bulletin_engine || 'classic';   // 'classic' | 'apc_minesec' | 'minesec'
+  const MODEL_INFO = {
+    classic:     { icon: '📄', label: t('Classique', 'Classic'),               desc: t('Notes et moyennes habituelles. Aucun référentiel officiel.', 'Usual marks and averages. No official framework.') },
+    apc_minesec: { icon: '🎯', label: t('APC (1er cycle)', 'APC (lower secondary)'), desc: t('Bulletin par compétences MINESEC sur le collège (6e–3e).', 'MINESEC competency report card for lower secondary (6e–3e).') },
+    minesec:     { icon: '🏛️', label: t('APC + Second Cycle', 'APC + Upper secondary'), desc: t('APC au collège ET Second Cycle MINESEC au lycée (par séries).', 'APC in lower secondary AND MINESEC upper secondary (by streams).') },
+  };
+  const model = MODEL_INFO[engine] || MODEL_INFO.classic;
   const CYCLES = country.cycles.map((c) => ({ value: c.code, label: c.label }));
   const isGE = country.code === 'guinea_eq';
-  const initSystem = defaultSystemForCountry(country.code);
 
-  const makeInitial = () => ({ ...EMPTY_FORM, current_year: defaultYear, system: initSystem, grade_max: sysDefaultScale(initSystem) });
-  const [form, setForm] = useState(makeInitial);
-  const [saving, setSaving] = useState(false);
-  const [customScale, setCustomScale] = useState(false);
+  // ── UN SEUL champ obligatoire (le nom) — tout le reste est inféré ou hérité ──
+  const [rawName, setRawName]           = useState('');
+  const [teacherId, setTeacherId]       = useState('');
+  const [maxStudents, setMaxStudents]   = useState('');
+  const [advanced, setAdvanced]         = useState(false);   // disclosure réglages avancés
+  const [overrides, setOverrides]       = useState({});      // corrections manuelles éventuelles
+  const [saving, setSaving]             = useState(false);
+  const [customScale, setCustomScale]   = useState(false);
   const [createdCount, setCreatedCount] = useState(0);
 
-  const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
-  const applySystem = (f, newSystem) => ({ ...f, system: newSystem, grade_max: customScale ? f.grade_max : sysDefaultScale(newSystem) });
+  // Inférence temps réel depuis le nom saisi.
+  const parsed = useMemo(() => parseClassName(rawName, { school, country }), [rawName, school, country]);
 
-  const pickCycle = (cycle) => setForm((f) => ({ ...f, cycle, level: '', name: '' }));
-  const pickLevel = (niveau) => setForm((f) => {
-    const nameIsAuto = f.name === '' || f.name === f.level;
-    if (isGE) return { ...f, level: niveau, name: nameIsAuto ? niveau : f.name, system: 'ES' };
-    const autoSystem = EN_NIVEAUX.has(niveau) ? 'EN' : 'FR';
-    const base = { ...f, level: niveau, name: nameIsAuto ? niveau : f.name };
-    return niveau ? applySystem(base, autoSystem) : base;
-  });
-  const pickSystem = (s) => setForm((f) => applySystem(f, s));
-  const pickScale = (val) => { if (val === 'custom') { setCustomScale(true); setForm((f) => ({ ...f, grade_max: GRADE_SCALE_PRESETS.includes(f.grade_max) ? 25 : f.grade_max })); } else { setCustomScale(false); setForm((f) => ({ ...f, grade_max: Number(val) })); } };
+  // Valeurs effectives = inférence, éventuellement corrigée dans les réglages avancés.
+  const pick = (key, fallback) => (overrides[key] !== undefined ? overrides[key] : (parsed?.[key] ?? fallback));
+  const eff = {
+    name:      rawName.trim(),
+    cycle:     pick('cycle', 'secondaire'),
+    level:     pick('level', ''),
+    system:    isGE ? 'ES' : pick('system', 'FR'),
+    grade_max: isGE ? null : pick('grade_max', 20),
+    serie:     pick('serie', '') || '',
+  };
+  const setOverride = (key, value) => setOverrides((o) => ({ ...o, [key]: value }));
+
+  // Moteur re-résolu depuis les valeurs EFFECTIVES : une correction de niveau/série
+  // dans les réglages avancés rebascule correctement 'sc' | 'apc' | 'classic'.
+  const classEngine = resolveClassEngine(school, { level: eff.level, name: eff.name, serie: eff.serie });
+
+  // Ouvre les réglages avancés quand l'inférence est incertaine (niveau non
+  // reconnu) ou incomplète (série lycée A1…A5 à préciser).
+  useEffect(() => {
+    if (parsed && (parsed.confidence === 'low' || parsed.needsSeries)) setAdvanced(true);
+  }, [parsed?.confidence, parsed?.needsSeries]);
 
   const buildPayload = () => {
-    const gm = Math.max(1, Math.min(200, Number(form.grade_max) || 20));
-    return { ...form, teacher_id: form.teacher_id || null, max_students: form.max_students ? Number(form.max_students) : null, grade_max: isGE ? null : gm };
+    const gm = Math.max(1, Math.min(200, Number(eff.grade_max) || 20));
+    const payload = {
+      name:         eff.name,
+      level:        eff.level || '',
+      cycle:        eff.cycle,
+      system:       eff.system,
+      grade_max:    isGE ? null : gm,
+      teacher_id:   teacherId || null,
+      max_students: maxStudents ? Number(maxStudents) : null,
+      serie:        eff.serie,
+      // `current_year` volontairement ABSENT : hérité de l'année active (addClass).
+    };
+    // `serie` n'existe en base que pour le Second Cycle MINESEC.
+    if (classEngine !== 'sc' || !payload.serie) delete payload.serie;
+    return payload;
   };
+
+  const resetForNext = () => { setRawName(''); setMaxStudents(''); setOverrides({}); setAdvanced(false); setCustomScale(false); };
+
   const submit = async (another) => {
-    if (!form.name.trim()) return;
+    if (!eff.name) return;
     setSaving(true);
     if (another) {
       await onSaveAnother(buildPayload());
       setCreatedCount((n) => n + 1);
-      // Garde cycle/système/barème/année/titulaire ; réinitialise niveau + nom + effectif.
-      setForm((f) => ({ ...f, level: '', name: '', max_students: '' }));
+      resetForNext();
     } else {
       await onSave(buildPayload());
     }
     setSaving(false);
   };
 
-  const teacherName = teachers.find((tc) => tc.id === form.teacher_id)?.name;
-  const sysLabel = isGE ? 'ES' : form.system;
-  const scaleLabel = isGE ? `/${country?.geMax || 10}` : `/${form.grade_max || '—'}`;
-  const cycleLabel = CYCLES.find((c) => c.value === form.cycle)?.label || form.cycle;
+  const teacherName   = teachers.find((tc) => tc.id === teacherId)?.name;
+  const sysLabel      = isGE ? 'ES' : eff.system;
+  const scaleLabel    = isGE ? `/${country?.geMax || 10}` : `/${eff.grade_max || '—'}`;
+  const cycleLabel    = CYCLES.find((c) => c.value === eff.cycle)?.label || eff.cycle;
+  const templateLabel = classEngine === 'sc'
+    ? `${t('Second Cycle', 'Upper sec.')}${eff.serie ? ` · ${eff.serie.toUpperCase()}` : ` · ${t('série ?', 'stream ?')}`}`
+    : classEngine === 'apc'
+      ? t('APC (compétences)', 'APC (competencies)')
+      : t('Classique', 'Classic');
 
-  const Section = ({ n, title, children }) => (
-    <div className="mb-5">
-      <div className="flex items-center gap-2 mb-2.5">
-        <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-bold flex items-center justify-center">{n}</span>
-        <h3 className="text-sm font-bold text-slate-700">{title}</h3>
-      </div>
-      {children}
-    </div>
-  );
-  const Row = ({ label, value }) => (
-    <div className="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0">
-      <span className="text-xs text-slate-400">{label}</span>
-      <span className="text-sm font-semibold text-slate-800 text-right truncate max-w-[60%]">{value}</span>
-    </div>
+  const Chip = ({ children, tone = 'slate' }) => (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border ${
+      tone === 'indigo' ? 'bg-indigo-50 text-indigo-700 border-indigo-100'
+      : tone === 'amber' ? 'bg-amber-50 text-amber-700 border-amber-100'
+      : 'bg-white text-slate-600 border-slate-200'}`}>{children}</span>
   );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t('Nouvelle classe', 'New class')}>
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-hidden flex flex-col" style={{ animation: 'modal-in .18s ease-out' }}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[92vh] overflow-hidden flex flex-col" style={{ animation: 'modal-in .18s ease-out' }}>
         <style>{`@keyframes modal-in{from{opacity:0;transform:scale(.97) translateY(-8px)}to{opacity:1;transform:scale(1) translateY(0)}}`}</style>
 
-        {/* En-tête + description */}
+        {/* En-tête + héritages (année active + modèle établissement) — non éditables */}
         <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b border-slate-100">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-lg font-bold text-slate-900">{t('Nouvelle classe', 'New class', 'Nueva clase')}</h2>
-            <p className="text-sm text-slate-500 mt-0.5">{t('Configurez le cycle, le niveau et la notation. Le nom est généré automatiquement.', 'Set the cycle, level and grading. The name is generated automatically.', 'Configure el ciclo, el nivel y la calificación.')}</p>
+            <p className="text-sm text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-1.5">
+              <span>{t('Année', 'Year', 'Año')} <strong className="text-slate-700">{defaultYear || '—'}</strong></span>
+              <span className="text-slate-300">·</span>
+              <span>{model.icon} <strong className="text-slate-700">{model.label}</strong></span>
+            </p>
           </div>
-          <button onClick={onClose} aria-label={t('Fermer', 'Close')} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100">
+          <button onClick={onClose} aria-label={t('Fermer', 'Close')} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 shrink-0">
             <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
         </div>
 
-        {/* Corps : formulaire (gauche) + aperçu (droite) */}
-        <div className="grid lg:grid-cols-[1fr_300px] overflow-y-auto">
-          <div className="p-6">
-            {/* 1. Informations académiques */}
-            <Section n="1" title={t('Informations académiques', 'Academic information', 'Información académica')}>
-              <label className="form-label">{t('Cycle', 'Cycle', 'Ciclo')}</label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
-                {CYCLES.map((c) => (
-                  <button key={c.value} type="button" onClick={() => pickCycle(c.value)}
-                    aria-pressed={form.cycle === c.value}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${form.cycle === c.value ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
-                    <span className="text-lg">{cycleIcon(c.value)}</span><span className="truncate">{c.label}</span>
-                  </button>
-                ))}
+        <div className="p-6 overflow-y-auto">
+          {/* CHAMP UNIQUE OBLIGATOIRE — le nom pilote toute l'inférence */}
+          <label className="form-label" htmlFor="nc-classname">{t('Nom de la classe', 'Class name', 'Nombre de la clase')} *</label>
+          <input
+            id="nc-classname" type="text" autoFocus required
+            className="form-input text-lg font-semibold"
+            placeholder={t('Ex : 6ème A · Terminale C · Form 3 Red', 'E.g. Form 3 Red · Terminale C · 6ème A', 'Ej: 6ème A · Terminale C')}
+            value={rawName}
+            onChange={(e) => setRawName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && eff.name && !saving) { e.preventDefault(); submit(false); } }}
+          />
+          <p className="text-xs text-slate-400 mt-1">
+            {t('Cycle, niveau, série et bulletin sont déduits automatiquement du nom.',
+               'Cycle, level, stream and report card are inferred automatically from the name.',
+               'El ciclo, el nivel y el boletín se deducen automáticamente del nombre.')}
+          </p>
+
+          {/* INFÉRENCE — aperçu temps réel en chips */}
+          {parsed && (
+            <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+              <div className="flex flex-wrap gap-1.5">
+                <Chip tone="indigo">{cycleIcon(eff.cycle)} {cycleLabel}</Chip>
+                {eff.level ? <Chip>{eff.level}</Chip> : <Chip tone="amber">{t('Niveau ?', 'Level ?', 'Nivel ?')}</Chip>}
+                {eff.serie && <Chip>{t('Série', 'Stream')} {eff.serie.toUpperCase()}</Chip>}
+                <Chip>{sysLabel} {scaleLabel}</Chip>
+                {engine !== 'classic' && <Chip tone="indigo">📋 {templateLabel}</Chip>}
               </div>
+              {(classEngine === 'apc' || (classEngine === 'sc' && eff.serie)) && (
+                <p className="text-[11px] text-emerald-700 mt-2 inline-flex items-start gap-1">
+                  <span>✓</span>
+                  <span>{t('Matières, coefficients et groupes officiels créés automatiquement.',
+                           'Official subjects, coefficients and groups created automatically.')}</span>
+                </p>
+              )}
+              {parsed.needsSeries && (
+                <p className="text-[11px] text-amber-700 mt-2 inline-flex items-start gap-1">
+                  <span>⚠️</span>
+                  <span>{t('Précisez la série (A1…A5) dans les réglages avancés pour générer les matières.',
+                           'Set the exact stream (A1…A5) in advanced settings to generate subjects.')}</span>
+                </p>
+              )}
+              {parsed.confidence === 'low' && !parsed.needsSeries && !eff.level && (
+                <p className="text-[11px] text-amber-700 mt-2 inline-flex items-start gap-1">
+                  <span>⚠️</span>
+                  <span>{t('Niveau non reconnu — vérifiez les réglages avancés.',
+                           'Level not recognised — check advanced settings.')}</span>
+                </p>
+              )}
+            </div>
+          )}
 
-              <label className="form-label">{t('Niveau', 'Level', 'Nivel')}</label>
-              <div className="max-h-44 overflow-y-auto pr-1 space-y-2 mb-3">
-                {niveauGroupsForCycle(country, form.cycle).map((g) => (
-                  <div key={g.group}>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{g.group}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {g.items.map((n) => (
-                        <button key={n} type="button" onClick={() => pickLevel(n)} aria-pressed={form.level === n}
-                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${form.level === n ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
-                          {n}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <label className="form-label">
-                {t('Nom de la classe', 'Class name', 'Nombre')}
-                {form.level && form.name === form.level && <span className="ml-1 text-slate-400 font-normal normal-case">— {t('ajoutez A, B…', 'add A, B…', 'añada A, B…')}</span>}
-              </label>
-              <input type="text" required className="form-input" placeholder={t('Ex : Terminale TI A', 'E.g. Form 4 Science A', 'Ej: 2º Bachillerato A')} value={form.name} onChange={set('name')} />
-            </Section>
-
-            {/* 2. Paramètres pédagogiques */}
-            {!isGE && (
-              <Section n="2" title={t('Paramètres pédagogiques', 'Teaching settings', 'Parámetros pedagógicos')}>
-                <label className="form-label">{t('Système de notation', 'Grading system', 'Sistema')}</label>
-                <div className="flex gap-2 mb-3">
-                  {SYSTEMS.map((s) => (
-                    <button key={s} type="button" onClick={() => pickSystem(s)} aria-pressed={form.system === s}
-                      className={`flex-1 px-3 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${form.system === s ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
-                      {s === 'FR' ? t('FR — francophone', 'FR — Francophone') : t('EN — anglophone', 'EN — Anglophone')}
-                    </button>
-                  ))}
-                </div>
-                <label className="form-label">{t('Barème des notes', 'Grading scale', 'Escala')}</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {GRADE_SCALE_PRESETS.map((n) => (
-                    <button key={n} type="button" onClick={() => pickScale(n)} aria-pressed={!customScale && form.grade_max === n}
-                      className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${!customScale && form.grade_max === n ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>/{n}</button>
-                  ))}
-                  <button type="button" onClick={() => pickScale('custom')} aria-pressed={customScale}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${customScale ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>{t('Autre…', 'Other…', 'Otro…')}</button>
-                  {customScale && (
-                    <input type="number" min="1" max="200" className="w-20 px-2 py-1.5 rounded-lg border border-indigo-300 text-xs" placeholder="30" value={form.grade_max}
-                      onChange={(e) => setForm((f) => ({ ...f, grade_max: Number(e.target.value) || '' }))} />
-                  )}
-                </div>
-              </Section>
-            )}
-
-            {/* 3. Organisation */}
-            <Section n={isGE ? '2' : '3'} title={t('Organisation', 'Organisation', 'Organización')}>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="form-label">{t('Année scolaire', 'Academic year', 'Año')}</label>
-                  <input type="text" className="form-input" placeholder="2025-2026" value={form.current_year} onChange={set('current_year')} />
-                </div>
-                <div>
-                  <label className="form-label">{t('Effectif maximum', 'Max enrolment', 'Plazas')}</label>
-                  <div><Stepper value={form.max_students} onChange={(v) => setForm((f) => ({ ...f, max_students: v }))} min={0} max={200} step={5} ariaLabel={t('Effectif maximum', 'Max enrolment')} /></div>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="form-label">{t('Enseignant titulaire', 'Class teacher', 'Tutor')}</label>
-                  <select className="form-input" value={form.teacher_id} onChange={set('teacher_id')}>
-                    <option value="">— {t('Aucun', 'None', 'Ninguno')} —</option>
-                    {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
-                  </select>
-                </div>
-              </div>
-            </Section>
+          {/* 2 CHAMPS OPTIONNELS (maximum) */}
+          <div className="grid sm:grid-cols-2 gap-4 mt-5">
+            <div>
+              <label className="form-label">{t('Titulaire', 'Class teacher', 'Tutor')} <span className="text-slate-400 font-normal normal-case">({t('optionnel', 'optional', 'opcional')})</span></label>
+              <select className="form-input" value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
+                <option value="">— {t('Aucun', 'None', 'Ninguno')} —</option>
+                {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">{t('Effectif max', 'Max enrolment', 'Plazas')} <span className="text-slate-400 font-normal normal-case">({t('optionnel', 'optional', 'opcional')})</span></label>
+              <div><Stepper value={maxStudents} onChange={setMaxStudents} min={0} max={200} step={5} ariaLabel={t('Effectif maximum', 'Max enrolment')} /></div>
+            </div>
           </div>
 
-          {/* Aperçu temps réel */}
-          <aside className="bg-slate-50 border-t lg:border-t-0 lg:border-l border-slate-100 p-6">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3">{t('Aperçu', 'Preview', 'Vista')}</p>
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="w-11 h-11 rounded-xl bg-indigo-50 flex items-center justify-center text-2xl">{cycleIcon(form.cycle)}</span>
-                <div className="min-w-0">
-                  <p className="font-bold text-slate-900 truncate">{form.name || t('Nom de la classe', 'Class name', 'Nombre')}</p>
-                  <p className="text-xs text-slate-400 truncate">{cycleLabel}{form.level ? ` · ${form.level}` : ''}</p>
+          {/* RÉGLAGES AVANCÉS (auto) — repliés, corrigent l'inférence si besoin */}
+          <div className="mt-5 border-t border-slate-100 pt-3">
+            <button type="button" onClick={() => setAdvanced((v) => !v)}
+              className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-indigo-700">
+              <svg viewBox="0 0 24 24" className={`w-4 h-4 transition-transform ${advanced ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+              {t('Réglages avancés', 'Advanced settings', 'Ajustes avanzados')}
+              <span className="text-xs font-normal text-slate-400">({t('auto — rarement nécessaire', 'auto — rarely needed', 'auto')})</span>
+            </button>
+
+            {advanced && (
+              <div className="mt-3 space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                {/* Cycle */}
+                <div>
+                  <label className="form-label">{t('Cycle', 'Cycle', 'Ciclo')}</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {CYCLES.map((c) => (
+                      <button key={c.value} type="button" onClick={() => { setOverride('cycle', c.value); setOverride('level', ''); }} aria-pressed={eff.cycle === c.value}
+                        className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg border-2 text-xs font-semibold transition-all ${eff.cycle === c.value ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
+                        <span>{cycleIcon(c.value)}</span><span className="truncate">{c.label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
+                {/* Niveau */}
+                <div>
+                  <label className="form-label">{t('Niveau', 'Level', 'Nivel')}</label>
+                  <select className="form-input" value={eff.level || ''} onChange={(e) => setOverride('level', e.target.value)}>
+                    <option value="">— {t('Choisir', 'Select', 'Elegir')} —</option>
+                    {niveauGroupsForCycle(country, eff.cycle).map((g) => (
+                      <optgroup key={g.group} label={g.group}>
+                        {g.items.map((n) => <option key={n} value={n}>{n}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                {/* Série — Second Cycle uniquement */}
+                {classEngine === 'sc' && (
+                  <div>
+                    <label className="form-label">{t('Série (MINESEC)', 'Stream (MINESEC)')}</label>
+                    <select className="form-input" value={eff.serie || ''} onChange={(e) => setOverride('serie', e.target.value)}>
+                      <option value="">— {t('choisir la série', 'choose stream')} —</option>
+                      {SC_SERIES.map((s) => <option key={s} value={s.toLowerCase()}>{s}</option>)}
+                    </select>
+                  </div>
+                )}
+                {/* Système + barème — hors Guinée Éq. */}
+                {!isGE && (
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">{t('Système', 'System', 'Sistema')}</label>
+                      <div className="flex gap-2">
+                        {SYSTEMS.map((s) => (
+                          <button key={s} type="button" onClick={() => setOverride('system', s)} aria-pressed={eff.system === s}
+                            className={`flex-1 px-3 py-2 rounded-lg border-2 text-xs font-semibold transition-all ${eff.system === s ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>{s}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="form-label">{t('Barème', 'Scale', 'Escala')}</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {GRADE_SCALE_PRESETS.map((n) => (
+                          <button key={n} type="button" onClick={() => { setCustomScale(false); setOverride('grade_max', n); }} aria-pressed={!customScale && eff.grade_max === n}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${!customScale && eff.grade_max === n ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>/{n}</button>
+                        ))}
+                        <button type="button" onClick={() => setCustomScale(true)} aria-pressed={customScale}
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${customScale ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>{t('Autre…', 'Other…', 'Otro…')}</button>
+                        {customScale && (
+                          <input type="number" min="1" max="200" className="w-20 px-2 py-1.5 rounded-lg border border-indigo-300 text-xs" placeholder="30" value={eff.grade_max || ''}
+                            onChange={(e) => setOverride('grade_max', Number(e.target.value) || '')} />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-              <Row label={t('Cycle', 'Cycle', 'Ciclo')} value={cycleLabel} />
-              <Row label={t('Niveau', 'Level', 'Nivel')} value={form.level || '—'} />
-              <Row label={t('Nom', 'Name', 'Nombre')} value={form.name || '—'} />
-              <Row label={t('Système', 'System', 'Sistema')} value={sysLabel} />
-              <Row label={t('Barème', 'Scale', 'Escala')} value={scaleLabel} />
-              <Row label={t('Titulaire', 'Teacher', 'Tutor')} value={teacherName || '—'} />
-              <Row label={t('Effectif', 'Enrolment', 'Plazas')} value={form.max_students || '—'} />
-            </div>
-            {createdCount > 0 && (
-              <p className="text-xs text-emerald-600 font-semibold mt-3 text-center">✓ {createdCount} {t('classe(s) créée(s)', 'class(es) created', 'clase(s) creada(s)')}</p>
             )}
-          </aside>
+          </div>
         </div>
 
         {/* Pied — actions */}
         <div className="flex flex-wrap items-center justify-end gap-2 px-6 py-4 border-t border-slate-100">
           <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors mr-auto">{t('Annuler', 'Cancel', 'Cancelar')}</button>
-          <button type="button" disabled={saving || !form.name.trim()} onClick={() => submit(true)}
+          {createdCount > 0 && <span className="text-xs text-emerald-600 font-semibold">✓ {createdCount} {t('créée(s)', 'created', 'creada(s)')}</span>}
+          <button type="button" disabled={saving || !eff.name} onClick={() => submit(true)}
             className="px-4 py-2.5 rounded-xl border-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-sm font-semibold transition-colors disabled:opacity-40">
-            {t('Enregistrer et ajouter une autre', 'Save and add another', 'Guardar y añadir otra')}
+            {t('Enregistrer + une autre', 'Save + another', 'Guardar + otra')}
           </button>
-          <button type="button" disabled={saving || !form.name.trim()} onClick={() => submit(false)}
+          <button type="button" disabled={saving || !eff.name} onClick={() => submit(false)}
             className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors disabled:opacity-40">
-            {saving ? t('Enregistrement…', 'Saving…', 'Guardando…') : t('Enregistrer', 'Save', 'Guardar')}
+            {saving ? t('Enregistrement…', 'Saving…', 'Guardando…') : t('Créer la classe', 'Create class', 'Crear')}
           </button>
         </div>
       </div>
@@ -760,7 +820,7 @@ function classStatus({ studentCount, subjectCount, teacherName }) {
   return 'green';
 }
 
-function ClassCard({ cls, stats, onEdit, onDuplicate, onDelete, onGo }) {
+function ClassCard({ cls, stats, onEdit, onDuplicate, onDelete, onGo, onConfigureSubjects }) {
   const t = useT();
   const [menu, setMenu] = useState(false);
   const CYCLE_LABELS = {
@@ -816,6 +876,11 @@ function ClassCard({ cls, stats, onEdit, onDuplicate, onDelete, onGo }) {
                 <div className="absolute right-0 top-full mt-1 z-20 w-40 bg-white rounded-xl shadow-xl border border-slate-100 py-1 text-sm">
                   <button onClick={() => { setMenu(false); onEdit(); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700">{t('Modifier', 'Edit', 'Editar')}</button>
                   <button onClick={() => { setMenu(false); onDuplicate(); }} className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700">{t('Dupliquer', 'Duplicate', 'Duplicar')}</button>
+                  {onConfigureSubjects && subjectCount === 0 && (
+                    <button onClick={() => { setMenu(false); onConfigureSubjects(); }} className="w-full text-left px-3 py-2 hover:bg-indigo-50 text-indigo-700 font-medium">
+                      🎯 {t('Configurer les matières', 'Configure subjects')}
+                    </button>
+                  )}
                   <div className="border-t border-slate-100 my-1" />
                   <button onClick={() => { setMenu(false); if (window.confirm(t('Supprimer cette classe ?', 'Delete this class?', '¿Eliminar?'))) onDelete(); }} className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600">{t('Supprimer', 'Delete', 'Eliminar')}</button>
                 </div>
@@ -887,6 +952,18 @@ export default function Classes() {
   const addClass    = useSchoolStore((s) => s.addClass);
   const updateClass = useSchoolStore((s) => s.updateClass);
   const deleteClass = useSchoolStore((s) => s.deleteClass);
+  const loadSc      = useSchoolStore((s) => s.loadSc);
+  const loadApc     = useSchoolStore((s) => s.loadApc);
+  const configureClassSubjects = useSchoolStore((s) => s.configureClassSubjects);
+
+  // Préchauffe les référentiels (cache IDB + refresh cloud) pour l'auto-config des
+  // matières à la création : second cycle (minesec) ET premier cycle APC
+  // (apc_minesec | minesec). Garantit que le référentiel est prêt avant addClass.
+  useEffect(() => {
+    const eng = school?.bulletin_engine;
+    if (eng === 'minesec') loadSc();
+    if (eng === 'minesec' || eng === 'apc_minesec') loadApc();
+  }, [school?.bulletin_engine, loadSc, loadApc]);
 
   const navigate            = useNavigate();
   const setGradesClassId    = useUiStore((s) => s.setGradesClassId);
@@ -958,6 +1035,15 @@ export default function Classes() {
   const handleDuplicate = async (cls) => {
     const { id, created_at, updated_at, ...rest } = cls;
     await addClass({ ...rest, name: `${cls.name} (copie)` });
+  };
+
+  // Rattrapage : (re)crée automatiquement les matières d'une classe MINESEC/APC.
+  const handleConfigureSubjects = async (cls) => {
+    const { created } = await configureClassSubjects(cls);
+    window.alert(created > 0
+      ? t(`${created} matière(s) ajoutée(s).`, `${created} subject(s) added.`)
+      : t('Aucune matière à ajouter (référentiel indisponible ou classe déjà configurée).',
+           'No subject to add (framework unavailable or class already configured).'));
   };
 
   // Navigation contextuelle vers les modules de la classe.
@@ -1151,6 +1237,11 @@ export default function Classes() {
                     onDuplicate={() => handleDuplicate(cls)}
                     onDelete={() => handleDelete(cls)}
                     onGo={onGo}
+                    onConfigureSubjects={
+                      resolveClassEngine(school, cls) !== 'classic'
+                        ? () => handleConfigureSubjects(cls)
+                        : undefined
+                    }
                   />
                 ))}
                 {/* Carte + ajouter */}

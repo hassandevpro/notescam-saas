@@ -1,0 +1,15 @@
+{
+  "version": { "label": "À REMPLIR — ex. MINESEC Premier cycle 2024", "source": "Référence officielle (arrêté n° …)" },
+  "cycle": "premier_cycle",
+  "entries": [
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "francais",
+      "competences": [
+        { "ordre": 1, "intitule": "", "coefficient": null },
+        { "ordre": 2, "intitule": "" }
+      ]
+    }
+  ]
+}

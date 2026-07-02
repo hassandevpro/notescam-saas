@@ -11,6 +11,8 @@ import { useCountry, gradingOpts, geGradeMax, gradeEntryMode } from '../lib/useC
 import { validateGrade, gradeColor } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
+import ApcCompetenceWorkspace from '../components/grades/ApcCompetenceWorkspace';
+import { resolveClassEngine } from '../core/engineResolver';
 
 const TERMS_EN = [
   { value: 1, label: 'Term 1' },
@@ -606,6 +608,30 @@ function LockReviewModal({ review, periodLabel, className, onConfirm, onClose })
 export default function Grades() {
   const role   = useAuthStore((s) => s.role);
   const school = useAuthStore((s) => s.school);
+  const engine = school?.bulletin_engine;
+  const classes  = useSchoolStore((s) => s.classes);
+  const classId  = useUiStore((s) => s.gradesClassId);
+
+  // Moteur APC seul (premier cycle) : saisie par compétences, remplace l'écran classique.
+  if (engine === 'apc_minesec') {
+    return <Layout bleed><ApcCompetenceWorkspace /></Layout>;
+  }
+
+  // 'minesec' : les deux moteurs coexistent dans le même établissement (APC en
+  // 6e–3e, second cycle MINESEC en 2nde–Tle qui réutilise l'écran classique).
+  // Le moteur est déduit AUTOMATIQUEMENT du niveau de la classe sélectionnée
+  // (partagée via uiStore) : aucun bascule manuel « premier / second cycle ».
+  if (engine === 'minesec') {
+    const selectedClass = classes.find((c) => c.id === classId) || null;
+    // Tant qu'aucune classe n'est choisie, on part de l'écran classique (qui
+    // porte le sélecteur de classe) ; il basculera seul dès qu'une classe 6e–3e
+    // sera choisie. Idem dans l'autre sens depuis le sélecteur APC.
+    const classEngine = resolveClassEngine(school, selectedClass);
+    return classEngine === 'apc'
+      ? <Layout bleed><ApcCompetenceWorkspace /></Layout>
+      : <PrincipalGrades />;
+  }
+
   if (role === 'teacher' && gradeEntryMode(school) === 'subject') {
     return <Layout bleed><SubjectTeacherWorkspace /></Layout>;
   }
@@ -1023,7 +1049,7 @@ function PrincipalGrades() {
               `Cette classe n'a pas encore de ${isMaternelle ? 'domaines de compétences' : 'matières'} configurés.`,
               `This class has no ${isMaternelle ? 'competency domains' : 'subjects'} configured yet.`,
             )}{' '}
-            <a href="/app/subjects" className="font-semibold underline">
+            <a href="/app/classes" className="font-semibold underline">
               {t(isMaternelle ? 'Ajouter des domaines' : 'Ajouter des matières', isMaternelle ? 'Add domains' : 'Add subjects')}
             </a>
           </div>

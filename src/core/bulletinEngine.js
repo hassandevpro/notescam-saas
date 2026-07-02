@@ -198,6 +198,18 @@ export const esGrade = (avg, maxScale = 10) => {
   return hit ? { text: hit.mention, col: hit.couleur } : { text: '—', col: '#6b7280' };
 };
 
+// Bande du barème configurable (school.grade_scale, sinon DEFAULT_GRADE_SCALE)
+// correspondant à une moyenne sur /20. Renvoie l'entrée complète
+// { mention, min, max, couleur } — utile quand on a besoin de l'INTERVALLE
+// [Min–Max] en plus du libellé (bulletin APC). Renvoie null si non noté.
+export const gradeScaleBand = (avg, gradeScale) => {
+  if (avg === null || avg === undefined) return null;
+  const scale  = Array.isArray(gradeScale) && gradeScale.length ? gradeScale : DEFAULT_GRADE_SCALE;
+  const sorted = [...scale].sort((a, b) => b.min - a.min);
+  return sorted.find((e) => avg >= e.min && avg <= e.max)
+    || (avg >= sorted[0].min ? sorted[0] : sorted[sorted.length - 1]);
+};
+
 // Utilise le barème personnalisé (school.grade_scale) si disponible,
 // sinon DEFAULT_GRADE_SCALE. Pour EN → enGrade, pour ES → esGrade.
 export const getAppreciation = (avg, gradeScale, sys, maxScale = 10) => {

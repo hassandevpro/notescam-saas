@@ -30,9 +30,17 @@ export async function fetchClasses(schoolId, year) {
 }
 
 export async function upsertClass(classData) {
+  // `serie` (colonne Second Cycle MINESEC) n'existe que si la migration
+  // supabase_sc_minesec.sql a été appliquée. On ne l'envoie jamais vide : ça évite
+  // l'erreur « Could not find the 'serie' column » pour les classes Classique/APC.
+  let payload = classData;
+  if (classData && (classData.serie === '' || classData.serie == null)) {
+    const { serie, ...rest } = classData;
+    payload = rest;
+  }
   const { data, error } = await supabase
     .from('classes')
-    .upsert(classData, { onConflict: 'id' })
+    .upsert(payload, { onConflict: 'id' })
     .select()
     .single();
   if (error) { console.error('upsertClass', error); return null; }

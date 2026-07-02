@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS schools (
   grade_entry_mode   TEXT NOT NULL DEFAULT 'principal', -- 'principal' | 'subject'
   bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic', -- 'synthetic' | 'detailed' (matières composites)
   grade_scale        TEXT,
+  apc_bulletin_cols  TEXT,   -- JSON { cote, minmax, appreciation } — colonnes du bulletin APC (premier cycle)
   logo_url           TEXT,
   stamp_url          TEXT,
   signature_url      TEXT,

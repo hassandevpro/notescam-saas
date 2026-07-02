@@ -1,4 +1,5 @@
 import { useAuthStore } from '../store/authStore';
+import { IS_LAN } from './edition';
 
 export const PLAN_META = {
   starter: { label: 'Starter',  price: 'Gratuit' },
@@ -7,7 +8,24 @@ export const PLAN_META = {
   reseau:  { label: 'Réseau',   price: 'Sur devis' },
 };
 
+// Toutes les fonctionnalités débloquées (équivalent plan « Réseau »).
+const FULL_FEATURES = {
+  maxClasses:      Infinity,
+  maxStudents:     Infinity,
+  watermark:       false,
+  hasFees:         true,
+  hasTeachers:     true,
+  hasAbsences:     true,
+  hasTimetable:    true,
+  hasParentPortal: true,
+};
+
 export function getPlanFeatures(plan) {
+  // Édition LAN (.exe) : produit complet vendu sous licence. L'accès est déjà
+  // verrouillé par l'activation hors-ligne (LanLicenseGate) ; une fois l'app
+  // ouverte, AUCUNE limite « version d'essai » / Starter ne s'applique — tout
+  // est accessible.
+  if (IS_LAN) return { ...FULL_FEATURES };
   const p = plan ?? 'starter';
   const isEcoleOrMore = p === 'ecole' || p === 'pro' || p === 'reseau';
   const isProOrMore   = p === 'pro'   || p === 'reseau';
@@ -25,7 +43,11 @@ export function getPlanFeatures(plan) {
 
 export function usePlan() {
   const school = useAuthStore((s) => s.school);
-  const plan   = school?.plan ?? 'starter';
+  let plan = school?.plan ?? 'starter';
+  // LAN (.exe) : pas de palier « Starter » / version d'essai. Le plan effectif
+  // est au minimum « Pro » pour que toutes les vérifications `plan === 'starter'`
+  // disséminées dans l'app considèrent l'installation comme complète.
+  if (IS_LAN && (!plan || plan === 'starter')) plan = 'pro';
   return { plan, meta: PLAN_META[plan] ?? PLAN_META.starter, f: getPlanFeatures(plan) };
 }
 

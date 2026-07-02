@@ -1,0 +1,26 @@
+{
+  "_avertissement": "EXEMPLE NON-OFFICIEL — contenu fictif destiné UNIQUEMENT à tester le pipeline d'import. NE PAS utiliser en production. Remplacer par le référentiel officiel MINESEC.",
+  "version": { "label": "EXEMPLE NON-OFFICIEL — 6e Français T1", "source": "fictif / test pipeline" },
+  "cycle": "premier_cycle",
+  "entries": [
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "francais",
+      "competences": [
+        { "ordre": 1, "intitule": "[EXEMPLE] Orthographier correctement un dialogue et une lettre privée", "coefficient": 1 },
+        { "ordre": 2, "intitule": "[EXEMPLE] Lire et comprendre un texte narratif court", "coefficient": 1 },
+        { "ordre": 3, "intitule": "[EXEMPLE] Produire un énoncé oral cohérent", "coefficient": 1 }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "mathematiques",
+      "competences": [
+        { "ordre": 1, "intitule": "[EXEMPLE] Effectuer des opérations sur les entiers naturels", "coefficient": 1 },
+        { "ordre": 2, "intitule": "[EXEMPLE] Reconnaître et tracer des figures géométriques simples", "coefficient": 1 }
+      ]
+    }
+  ]
+}

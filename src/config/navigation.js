@@ -51,8 +51,6 @@ export const NAV_GROUPS = [
     items: [
       { to: '/app/classes',   icon: 'classes',   label: ['Classes', 'Classes', 'Clases'],
         roles: ['admin', 'censeur'] },
-      { to: '/app/subjects',  icon: 'subjects',  label: ['Matières', 'Subjects', 'Asignaturas'],
-        roles: ['admin', 'censeur'] },
       { to: '/app/students',  icon: 'students',  label: ['Élèves', 'Students', 'Alumnos'],
         roles: ['admin', 'censeur', 'surveillant'], mobilePrimary: true },
       { to: '/app/timetable', icon: 'timetable', label: ['Emploi du temps', 'Timetable', 'Horario'],

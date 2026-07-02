@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { getDaysUntilLicenseExpires } from '../lib/auth';
+import { IS_LAN } from '../lib/edition';
 import { clsStat } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
@@ -28,7 +29,7 @@ const SETUP_STEPS = [
   { key: 'director',  label: 'Directeur / Proviseur renseigné', check: (s)      => !!s.school?.director,      to: '/app/settings', hint: 'Apparaît sur les bulletins' },
   { key: 'logo',      label: 'Logo de l\'école téléversé',  check: (s)         => !!s.school?.logo_url,      to: '/app/settings', hint: 'PNG ou SVG recommandé' },
   { key: 'class',     label: 'Au moins une classe créée',    check: (s)         => s.classes.length > 0,      to: '/app/classes',  hint: 'Ex : 6ème A, Form 1…' },
-  { key: 'subject',   label: 'Au moins une matière ajoutée', check: (s)         => s.subjects.length > 0,     to: '/app/subjects', hint: 'Ex : Mathématiques' },
+  { key: 'subject',   label: 'Au moins une matière ajoutée', check: (s)         => s.subjects.length > 0,     to: '/app/classes',  hint: 'Ex : Mathématiques' },
   { key: 'student',   label: 'Au moins un élève inscrit',    check: (s)         => s.students.length > 0,     to: '/app/students', hint: 'Importer ou ajouter manuellement' },
 ];
 
@@ -165,7 +166,8 @@ function StatCard({ label, value, sub, accent = 'brand', icon }) {
 function LicenseBadge({ school }) {
   const t = useT();
   const daysLeft = getDaysUntilLicenseExpires(school?.license_expires_at);
-  const status = school?.license_status;
+  // LAN (.exe) : produit sous licence, jamais en « essai » — affiché actif.
+  const status = IS_LAN ? 'active' : school?.license_status;
 
   if (status === 'trial' && daysLeft > 0) {
     return (

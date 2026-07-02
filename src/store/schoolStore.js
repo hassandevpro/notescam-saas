@@ -7,7 +7,12 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB } from '../lib/db';
+import { fetchReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
+import { fetchScReferentiel } from '../lib/scService';
+import { buildSubjectsForClass } from '../lib/scAutoConfig';
+import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
+import { resolveClassEngine } from '../core/engineResolver';
 import { fetchPeriods } from '../lib/academicPeriodsService';
 import { deriveActiveSequence } from '../lib/periodLogic';
 import {
@@ -141,6 +146,14 @@ export const useSchoolStore = create((set, get) => ({
   gradeMap:     {},
   academicPeriods: [],
   activeSequence:  null,
+  // Moteur APC (chargé à la demande par l'écran de saisie quand l'école est en
+  // bulletin_engine='apc_minesec'). `apcReferentiel` = blob officiel (cache IDB
+  // → refresh cloud) ; `apcNotes` = { [nkey]: record }.
+  apcReferentiel: null,
+  apcNotes:     {},
+  // Moteur SECOND CYCLE MINESEC : référentiel séries/coefficients/groupes (cache
+  // IDB → refresh cloud), chargé à la demande par Classes/Grades.
+  scReferentiel: null,
   loading:      false,
   error:        null,
 
@@ -388,6 +401,83 @@ export const useSchoolStore = create((set, get) => ({
     set({ academicPeriods: periods, activeSequence: deriveActiveSequence(periods) });
   },
 
+  // ── Moteur APC (compétences) ───────────────────────────────────────────────
+  // Charge le référentiel officiel + les notes de l'école (IDB d'abord, puis
+  // refresh cloud si online). Appelé par l'écran de saisie APC à son montage.
+  loadApc: async () => {
+    const { schoolId } = get();
+    if (!schoolId) return;
+    await initDB();
+
+    // 1) Cache IDB immédiat
+    const [cachedRef, idbNotes] = await Promise.all([
+      apcRefDB.get().catch(() => null),
+      apcNotesDB.getAll().catch(() => []),
+    ]);
+    const notesMap = {};
+    for (const n of (idbNotes || []).filter((n) => n.school_id === schoolId)) notesMap[n.nkey] = n;
+    set({ apcReferentiel: cachedRef || null, apcNotes: notesMap });
+
+    // 2) Refresh cloud (best-effort)
+    if (!backendOnline()) return;
+    const [ref, notes] = await Promise.all([fetchReferentiel(), fetchApcNotes(schoolId)]);
+    if (ref) {
+      const blob = { ...ref, id: 'referentiel' };
+      await apcRefDB.put(blob).catch(() => {});
+      set({ apcReferentiel: blob });
+    }
+    if (notes) {
+      const fresh = {};
+      const records = notes.map((n) => ({ ...n, nkey: noteNkey(n.eleve_id, n.competence_id, n.sequence_id) }));
+      for (const n of records) fresh[n.nkey] = n;
+      await apcNotesDB.putMany(records).catch(() => {});
+      set({ apcNotes: fresh });
+    }
+  },
+
+  // Enregistre/écrase une note de compétence (write IDB → cloud sinon queue).
+  // Réutilise l'id existant (via nkey) pour rester idempotent online/offline.
+  saveApcNote: async ({ eleveId, competenceId, sequenceId, note, appreciation }) => {
+    const { schoolId, apcNotes } = get();
+    if (!schoolId) return;
+    const teacherId = useAuthStore.getState().teacherId || null;
+    const nkey = noteNkey(eleveId, competenceId, sequenceId);
+    const existing = apcNotes[nkey];
+    const record = buildNoteRecord({
+      id: existing?.id, schoolId, eleveId, competenceId, sequenceId,
+      enseignantId: teacherId, note, appreciation,
+    });
+
+    await apcNotesDB.put(record);
+    set({ apcNotes: { ...get().apcNotes, [nkey]: record } });
+
+    if (backendOnline()) {
+      upsertApcNote(record).then((ok) => {
+        if (!ok) queueOffline({ table: 'apc_notes', operation: 'upsert', payload: record });
+      });
+    } else {
+      queueOffline({ table: 'apc_notes', operation: 'upsert', payload: record });
+    }
+  },
+
+  // ── Moteur SECOND CYCLE MINESEC ────────────────────────────────────────────
+  // Charge le référentiel (séries/coefficients/groupes). IDB d'abord, puis refresh
+  // cloud. Appelé par Classes (auto-config) et le routage des bulletins.
+  loadSc: async () => {
+    await initDB();
+    const cached = await scRefDB.get().catch(() => null);
+    if (cached) set({ scReferentiel: cached });
+    if (!backendOnline()) return cached || null;
+    const ref = await fetchScReferentiel();
+    if (ref) {
+      const blob = { ...ref, id: 'referentiel' };
+      await scRefDB.put(blob).catch(() => {});
+      set({ scReferentiel: blob });
+      return blob;
+    }
+    return get().scReferentiel;
+  },
+
   // ── Academic year promotion ──────────────────────────────────────────────
 
   promoteYear: async () => {
@@ -519,7 +609,10 @@ export const useSchoolStore = create((set, get) => ({
 
   addClass: async (classData) => {
     const { schoolId } = get();
-    const record = { id: uuid(), school_id: schoolId, ...classData };
+    // Année scolaire HÉRITÉE de l'année active de l'établissement — jamais saisie
+    // au formulaire. Un `current_year` explicite (ex. duplication) reste prioritaire.
+    const activeYear = useAuthStore.getState().school?.current_year || null;
+    const record = { id: uuid(), school_id: schoolId, current_year: activeYear, ...classData };
     await classesDB.put(record);
     set((s) => ({ classes: [...s.classes, record] }));
     // Fire-and-forget : la donnée est déjà en IDB + state. On ne bloque jamais
@@ -529,7 +622,71 @@ export const useSchoolStore = create((set, get) => ({
     } else {
       queueOffline({ table: 'classes', operation: 'upsert', payload: record });
     }
+    // Auto-configuration des matières selon le moteur de la classe (no-op si non
+    // concerné) : SECOND CYCLE (série) ou PREMIER CYCLE APC (6e–3e).
+    await get().autoConfigSecondCycle(record);
+    await get().autoConfigApc(record);
     return record;
+  },
+
+  // Crée les `subjects` d'une classe de PREMIER CYCLE APC depuis le référentiel
+  // (matières + coef par classe). No-op si la classe n'est pas résolue 'apc' ou si
+  // elle a déjà des matières. Renvoie { created }.
+  autoConfigApc: async (cls) => {
+    const school = useAuthStore.getState().school;
+    if (resolveClassEngine(school, cls) !== 'apc') return { created: 0 };
+    let ref = get().apcReferentiel;
+    if (!ref) { await get().loadApc(); ref = get().apcReferentiel; }
+    const subs = buildSubjectsForApcClass({ referentiel: ref, school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    // Ne pas dupliquer si la classe a déjà des matières.
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
+  // Crée les `subjects` officiels d'une classe de second cycle depuis le
+  // référentiel MINESEC. No-op si l'école n'est pas en 'minesec' ou si la classe
+  // n'est pas un niveau lycée avec série. Renvoie { created }.
+  autoConfigSecondCycle: async (cls) => {
+    const school = useAuthStore.getState().school;
+    if (school?.bulletin_engine !== 'minesec' || !cls?.serie) return { created: 0 };
+    const ref = get().scReferentiel || await get().loadSc();
+    const subs = buildSubjectsForClass({ referentiel: ref, school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    // Ne pas dupliquer si la classe a déjà des matières.
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
+  // Re-déclenche l'auto-configuration des matières pour une classe existante
+  // (rattrapage si le référentiel n'était pas chargé à la création). Idempotent :
+  // ne fait rien si la classe a déjà des matières. Renvoie { created }.
+  configureClassSubjects: async (cls) => {
+    const r1 = await get().autoConfigSecondCycle(cls);
+    const r2 = await get().autoConfigApc(cls);
+    return { created: (r1?.created || 0) + (r2?.created || 0) };
   },
 
   updateClass: async (id, data) => {

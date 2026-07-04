@@ -5,6 +5,7 @@
 import QRCode from 'qrcode';
 import { getSchoolTheme, shapeToRadius } from './schoolTheme';
 import { resolveCountryCode } from '../countries';
+import { signedUrl } from './storage';
 
 // Drapeaux SVG inline — rendu fiable cross-OS (Windows ne dessine pas les
 // emojis-drapeaux). Dimensions normalisées 30 × 20 (ratio 3:2).
@@ -102,7 +103,10 @@ export function imageToDataUrl(url, { maxDim = 700, quality = 0.85 } = {}) {
       if (url.startsWith('data:')) {
         blob = await (await fetch(url)).blob();
       } else {
-        const res = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+        // Asset `school-assets` → résout une URL SIGNÉE (fonctionne bucket privé) ;
+        // sinon (logo distant…) `signedUrl` renvoie l'URL telle quelle.
+        const fetchUrl = await signedUrl(url);
+        const res = await fetch(fetchUrl, { mode: 'cors', cache: 'force-cache' });
         if (!res.ok) return null;
         blob = await res.blob();
       }

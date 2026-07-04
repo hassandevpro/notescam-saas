@@ -6,6 +6,7 @@ import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
 import LogoMark from '../components/LogoMark';
 import { COUNTRY_OPTIONS, defaultLangForCountry } from '../countries';
+import { CURRENCIES } from '../lib/currency';
 
 function EyeIcon({ open }) {
   return open ? (
@@ -74,6 +75,7 @@ export default function Signup() {
   const [form, setForm] = useState({
     schoolName: '', schoolType: '', region: '',
     countrySystem: '',   // 'cameroon_fr' | 'cameroon_en' | 'guinea_eq'
+    currency: 'XAF',
     director: '',
     fullName: '', email: '', password: '',
   });
@@ -144,7 +146,7 @@ export default function Signup() {
       // Si la colonne `country_system` n'existe pas encore en DB, l'erreur est
       // silencieusement ignorée — la valeur reste inférée depuis `language`.
       try {
-        await useAuthStore.getState().updateSchool({ country_system: country });
+        await useAuthStore.getState().updateSchool({ country_system: country, currency: form.currency || 'XAF' });
       } catch (_) {
         // colonne manquante → no-op
       }
@@ -269,6 +271,18 @@ export default function Signup() {
                     {regionsForCountry(form.countrySystem).map((r) => <option key={r}>{r}</option>)}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="form-label">{t('Devise *', 'Currency *', 'Moneda *')}</label>
+                <select required className="form-input" value={form.currency} onChange={update('currency')}>
+                  {CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  {t('Utilisée pour les frais, paiements et reçus. Modifiable plus tard.', 'Used for fees, payments and receipts. Editable later.', 'Para cuotas, pagos y recibos. Editable después.')}
+                </p>
               </div>
 
               <div>

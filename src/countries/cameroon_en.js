@@ -92,6 +92,8 @@ export const cameroonEn = {
       motto:       'Peace – Work – Fatherland',
       ministry:    'Ministry of Secondary Education (MINESEC)',
       delegations: ['Regional Delegation {region}', 'Divisional Delegation {division}'],
+      ministryBasic:    'Ministry of Basic Education (MINEDUB)',
+      delegationsBasic: ['Regional Delegation of Basic Education {region}', 'Divisional Delegation of Basic Education {division}'],
       estLabel:    'School No.:',
     },
     secondary: {
@@ -99,6 +101,8 @@ export const cameroonEn = {
       motto:       'Paix – Travail – Patrie',
       ministry:    'Ministère des Enseignements Secondaires (MINESEC)',
       delegations: ['Délégation Régionale {region}', 'Délégation Départementale {division}'],
+      ministryBasic:    "Ministère de l'Éducation de Base (MINEDUB)",
+      delegationsBasic: ["Délégation Régionale de l'Éducation de Base {region}", "Délégation Départementale de l'Éducation de Base {division}"],
       estLabel:    'Établissement N° :',
     },
   },

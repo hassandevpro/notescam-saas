@@ -30,7 +30,8 @@ export const cameroonFr = {
       code: 'secondaire', label: 'Secondaire',
       levelGroups: [
         { group: 'Collège',       items: ['6ème', '5ème', '4ème', '3ème'] },
-        { group: 'Lycée général', items: ['2nde', '1ère A', '1ère C', '1ère D', 'Terminale A', 'Terminale C', 'Terminale D'] },
+        // Lycée général : niveaux « nus » — la série (A, C, D, E…) se choisit à part.
+        { group: 'Lycée général', items: ['2nde', '1ère', 'Terminale'] },
         { group: 'Lycée technique', items: ['1ère TI', 'Terminale TI', '1ère TG', 'Terminale TG'] },
       ],
     },
@@ -95,12 +96,17 @@ export const cameroonFr = {
   // En-tête officiel du bulletin, hérité du PAYS choisi à la configuration.
   // {region} / {division} sont remplis depuis les infos de l'établissement.
   // `secondary` présent => en-tête bilingue (FR + EN), propre au Cameroun.
+  // Deux tutelles selon le niveau : MINESEC (secondaire) par défaut, MINEDUB
+  // (fondamental : maternelle & primaire) via les variantes `*Basic`, choisies
+  // par bulletinOfficials(school, { basic:true }).
   officials: {
     primary: {
       republic:    'RÉPUBLIQUE DU CAMEROUN',
       motto:       'Paix – Travail – Patrie',
       ministry:    'Ministère des Enseignements Secondaires (MINESEC)',
       delegations: ['Délégation Régionale {region}', 'Délégation Départementale {division}'],
+      ministryBasic:    "Ministère de l'Éducation de Base (MINEDUB)",
+      delegationsBasic: ["Délégation Régionale de l'Éducation de Base {region}", "Délégation Départementale de l'Éducation de Base {division}"],
       estLabel:    'Établissement N° :',
     },
     secondary: {
@@ -108,6 +114,8 @@ export const cameroonFr = {
       motto:       'Peace – Work – Fatherland',
       ministry:    'Ministry of Secondary Education (MINESEC)',
       delegations: ['Regional Delegation {region}', 'Divisional Delegation {division}'],
+      ministryBasic:    'Ministry of Basic Education (MINEDUB)',
+      delegationsBasic: ['Regional Delegation of Basic Education {region}', 'Divisional Delegation of Basic Education {division}'],
       estLabel:    'School No.:',
     },
   },

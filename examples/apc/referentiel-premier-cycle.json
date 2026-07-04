@@ -1,0 +1,291 @@
+{
+  "version": {
+    "label": "MINESEC Premier cycle — 6e à 3e (Anglais/Français/Informatique)",
+    "source": "Référentiels fournis par l'établissement (2026-06-29)"
+  },
+  "cycle": "premier_cycle",
+  "entries": [
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to talk about national integration and diversity acceptance."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language resources to talk about consumption habits and their impact on society."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "informatique",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Décrire l’architecture d’un microordinateur et effectuer des tâches d’entretien."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire une organisation de données selon une structure spécifique."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to talk about climate change, hygiene and sanitation."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language resources to talk about excellence, gender issues and democracy."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to talk about social integration, traditions and customs of Cameroon, conflict resolution."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language resources to talk about future professional life and leisure activities."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "informatique",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Décrire les composants internes de l’unité centrale et les caractéristiques des mémoires."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Installer un logiciel applicatif et présenter son interface."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to talk about environmental protection and endemic and pandemic diseases."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language resources to talk about gender issues and mutual acceptance."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about interpersonal relationships and talk about the home, habits and routines, home furniture."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about different jobs and professions."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "francais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement une lettre officielle et une description associée au récit ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur une lettre officielle et sur une description associée au récit."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire, dans une langue correcte et usuelle, une lettre officielle et une description associée au récit."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about environmental awareness, interests and hobbies in relation to health."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about citizens of the nation and the world."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "francais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement une description associée à l’expression des sentiments et un dialogue associé au récit ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un texte descriptif intégrant l’expression des sentiments ou sur un dialogue associé au récit."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit, dans une langue correcte et usuelle, une description enrichie de l’expression des sentiments et une narration associée au dialogue."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about the use of modern technology."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "francais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement un texte narratif intégrant des dialogues et un texte narratif intégrant l’expression des sentiments ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un texte narratif intégrant des dialogues et/ou l’expression des sentiments."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit, une narration intégrant des dialogues et un texte narratif associé à l’expression des sentiments."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language skills and resources to talk about oneself, the family, and school community."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language skills and resources to buy, sell, and explore jobs and professions."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "francais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement un dialogue et une lettre privée ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un dialogue et sur une lettre privée."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit, dans une langue correcte et usuelle, un dialogue et une lettre privée."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language skills and resources to talk about the rights and duties of a child and basic civic duties."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "francais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement un texte descriptif ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un texte descriptif."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit un texte descriptif."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "anglais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language skills and resources to talk about audio-visual, print media and modern technology."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "francais",
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement un texte narratif ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un texte narratif."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit un texte narratif."
+        }
+      ]
+    }
+  ]
+}

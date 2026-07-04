@@ -1,11 +1,20 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import { useT } from '../lib/i18n';
 import { useCountry, geGradeMax, gePrimaryUsesCoef } from '../lib/useCountry';
+import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 
+// Famille pédagogique (déduite du nom + catégorie) — pour les filtres rapides.
+function subjectFamily(name = '', catName = '') {
+  const s = (name + ' ' + catName).toLowerCase();
+  if (/techn|informat|ordinat|comput|industri|compta|mécan|mecan|electr|électr|vocational|profession|robot/.test(s)) return 'techniques';
+  if (/math|physi|chimi|svt|biolog|scienc|géolog|geolog|exact/.test(s)) return 'sciences';
+  if (/fran|angl|allem|espagn|langue|lengua|philo|histoir|géograph|geograph|littér|liter|social|human|civi|écm|ecm|religio/.test(s)) return 'litteraires';
+  return 'autres';
+}
 
 function getSubjectCategory(subject, categories) {
   if (subject.category_id) {
@@ -18,7 +27,7 @@ function getSubjectCategory(subject, categories) {
 }
 
 // ── Formulaire matière ────────────────────────────────────────────────────────
-function SubjectForm({ initial, classId, teachers, classes, categories, onSave, onCancel }) {
+function SubjectForm({ initial, classId, teachers, classes, categories, subjects = [], onSave, onCancel }) {
   const t = useT();
   const country = useCountry();
   const school  = useAuthStore((s) => s.school);
@@ -29,6 +38,7 @@ function SubjectForm({ initial, classId, teachers, classes, categories, onSave, 
   const defaultMax = isGE ? geMax : (country.maxGrade || 20);
   const [form, setForm] = useState({
     name: '', coef: 1, max: defaultMax, class_id: classId || '', teacher_id: '', category_id: '',
+    parent_id: '', calc_method: '',
     ...initial,
   });
   const [saving, setSaving] = useState(false);
@@ -38,6 +48,10 @@ function SubjectForm({ initial, classId, teachers, classes, categories, onSave, 
   // Coefficients au primaire (GE) : masqués/forcés à 1 si l'admin les désactive.
   const selectedCls   = classes.find((c) => c.id === form.class_id) || null;
   const coefDisabledGE = isGE && selectedCls?.cycle === 'primaire' && !gePrimaryUsesCoef(school);
+  // Matières principales de la même classe (parents possibles), hors self.
+  const parentOptions = subjects.filter(
+    (s) => s.class_id === form.class_id && s.id !== initial?.id && !s.parent_id,
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -48,6 +62,10 @@ function SubjectForm({ initial, classId, teachers, classes, categories, onSave, 
       max:        Number(form.max),
       teacher_id: form.teacher_id  || null,
       category_id: form.category_id || null,
+      // Matière composite : parent_id = sous-composante d'une autre matière ;
+      // calc_method ne concerne que les matières principales (parent_id vide).
+      parent_id:   form.parent_id || null,
+      calc_method: form.parent_id ? null : (form.calc_method || null),
     });
     setSaving(false);
   };
@@ -104,6 +122,27 @@ function SubjectForm({ initial, classId, teachers, classes, categories, onSave, 
             {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
           </select>
         </div>
+
+        {/* Matières composites : rattacher comme sous-composante, ou définir la
+            méthode de calcul si c'est une matière principale. */}
+        <div>
+          <label className="form-label">{t('Sous-composante de', 'Component of', 'Componente de')}</label>
+          <select className="form-input" value={form.parent_id || ''} onChange={set('parent_id')}>
+            <option value="">— {t('Matière principale', 'Main subject', 'Principal')} —</option>
+            {parentOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        {!form.parent_id && (
+          <div>
+            <label className="form-label">{t('Méthode de calcul', 'Calc. method', 'Cálculo')}</label>
+            <select className="form-input" value={form.calc_method || ''} onChange={set('calc_method')}>
+              <option value="">{t('Simple (sans composantes)', 'Simple (no components)', 'Simple')}</option>
+              <option value="weighted_avg">{t('Moyenne pondérée', 'Weighted average', 'Media ponderada')}</option>
+              <option value="avg">{t('Moyenne simple', 'Simple average', 'Media simple')}</option>
+              <option value="weighted_sum">{t('Somme pondérée', 'Weighted sum', 'Suma ponderada')}</option>
+            </select>
+          </div>
+        )}
       </div>
       <div className="flex gap-3 mt-5">
         <button type="submit" disabled={saving} className="btn-primary"
@@ -214,6 +253,207 @@ function CategoryCard({ category, subjects, classes, teachers, onAddSubject, onE
   );
 }
 
+// ── Assistant de création (3 étapes) ──────────────────────────────────────────
+// Étape 1 Informations · Étape 2 Classes concernées (multi) · Étape 3 Paramètres.
+// Crée une ligne par classe sélectionnée (barème adapté au système de la classe).
+function SubjectWizard({ categories, classes, teachers, school, prefillCatId, onCreate, onClose }) {
+  const t = useT();
+  const geMax = geGradeMax(school);
+  const [step, setStep] = useState(0);
+  const [name, setName] = useState('');
+  const [categoryId, setCategoryId] = useState(prefillCatId || '');
+  const [classIds, setClassIds] = useState([]);
+  const [coef, setCoef] = useState(1);
+  const [max, setMax] = useState(20);
+  const [teacherId, setTeacherId] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const toggleClass = (id) => setClassIds((a) => a.includes(id) ? a.filter((x) => x !== id) : [...a, id]);
+  const maxForClass = (cls) => cls?.system === 'EN' ? 100 : cls?.system === 'ES' ? geMax : (Number(max) || 20);
+
+  const TITLES = [
+    t('Informations générales', 'General information', 'Información general'),
+    t('Classes concernées', 'Classes involved', 'Clases'),
+    t('Paramètres pédagogiques', 'Teaching settings', 'Parámetros'),
+  ];
+  const canNext = step === 0 ? name.trim() !== '' : step === 1 ? classIds.length > 0 : true;
+
+  const finish = async () => {
+    setSaving(true);
+    const rows = classIds.map((cid) => {
+      const cls = classes.find((c) => c.id === cid);
+      return { name: name.trim(), category_id: categoryId || null, coef: Number(coef) || 1, max: maxForClass(cls), class_id: cid, teacher_id: teacherId || null };
+    });
+    await onCreate(rows);
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-md" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl my-8" style={{ animation: 'modal-in .18s ease-out' }}>
+        <style>{`@keyframes modal-in{from{opacity:0;transform:scale(.97) translateY(-8px)}to{opacity:1;transform:scale(1) translateY(0)}}`}</style>
+        <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-slate-100">
+          <div>
+            <p className="text-xs font-semibold text-indigo-600">{t('Étape', 'Step', 'Paso')} {step + 1}/3</p>
+            <h2 className="text-lg font-bold text-slate-900">{TITLES[step]}</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1.5">{[0, 1, 2].map((i) => <span key={i} className={`h-1.5 rounded-full transition-all ${i === step ? 'w-6 bg-indigo-600' : i < step ? 'w-3 bg-indigo-300' : 'w-3 bg-slate-200'}`} />)}</div>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1"><svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 min-h-[260px]">
+          {step === 0 && (
+            <div className="space-y-4">
+              <div>
+                <label className="form-label">{t('Nom de la matière', 'Subject name', 'Nombre')}</label>
+                <input className="form-input" autoFocus placeholder={t('Ex : Mathématiques', 'E.g. Mathematics', 'Ej: Matemáticas')} value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
+              <div>
+                <label className="form-label">{t('Catégorie', 'Category', 'Categoría')}</label>
+                <select className="form-input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                  <option value="">{t('— Auto (selon le nom) —', '— Auto (by name) —', '— Auto —')}</option>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          {step === 1 && (
+            <div>
+              <p className="text-sm text-slate-500 mb-3">{t('Sélectionnez les classes où cette matière est enseignée.', 'Select the classes where this subject is taught.', 'Seleccione las clases.')}</p>
+              {classes.length === 0 ? (
+                <p className="text-sm text-amber-600">{t('Aucune classe. Créez d\'abord une classe.', 'No classes yet.', 'Sin clases.')}</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {classes.map((c) => (
+                    <button key={c.id} type="button" onClick={() => toggleClass(c.id)} aria-pressed={classIds.includes(c.id)}
+                      className={`px-3 py-2 rounded-xl border-2 text-sm font-semibold transition-colors ${classIds.includes(c.id) ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {classIds.length > 0 && <p className="text-xs text-indigo-600 font-semibold mt-3">{classIds.length} {t('classe(s) sélectionnée(s)', 'class(es) selected', 'seleccionadas')}</p>}
+            </div>
+          )}
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">{t('Coefficient', 'Coefficient', 'Coeficiente')}</label>
+                  <input type="number" min="1" max="10" className="form-input" value={coef} onChange={(e) => setCoef(e.target.value)} />
+                </div>
+                <div>
+                  <label className="form-label">{t('Barème (FR)', 'Scale (FR)', 'Escala')}</label>
+                  <input type="number" min="1" max="200" className="form-input" value={max} onChange={(e) => setMax(e.target.value)} />
+                  <p className="text-[11px] text-slate-400 mt-1">{t('Auto /100 pour EN, /' + geMax + ' pour ES.', 'Auto /100 for EN, /' + geMax + ' for ES.', 'Auto según sistema.')}</p>
+                </div>
+              </div>
+              <div>
+                <label className="form-label">{t('Enseignant (appliqué à toutes)', 'Teacher (applied to all)', 'Profesor')}</label>
+                <select className="form-input" value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
+                  <option value="">— {t('Aucun', 'None', 'Ninguno')} —</option>
+                  {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100">
+          <button onClick={() => (step === 0 ? onClose() : setStep((s) => s - 1))} className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold">{step === 0 ? t('Annuler', 'Cancel') : t('← Retour', '← Back')}</button>
+          {step < 2 ? (
+            <button onClick={() => setStep((s) => s + 1)} disabled={!canNext} className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold disabled:opacity-40">{t('Suivant →', 'Next →')}</button>
+          ) : (
+            <button onClick={finish} disabled={saving || classIds.length === 0} className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold disabled:opacity-40">
+              {saving ? t('Création…', 'Creating…') : `${t('Créer', 'Create')} (${classIds.length})`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Carte matière agrégée (par nom, toutes classes) ──────────────────────────
+function AggSubjectCard({ agg, classes, teachers, onEdit, onDelete, onAddClass }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const classNameById = (id) => classes.find((c) => c.id === id)?.name || '—';
+  const teacherNameById = (id) => teachers.find((x) => x.id === id)?.name || null;
+
+  const coefArr = [...agg.coefs];
+  const coefLabel = coefArr.length === 1 ? coefArr[0] : `${Math.min(...coefArr)}–${Math.max(...coefArr)}`;
+  const maxArr = [...agg.maxes];
+  const maxLabel = maxArr.length === 1 ? `/${maxArr[0]}` : t('mixte', 'mixed', 'mixto');
+  const noTeacher = agg.rows.filter((r) => !r.teacher_id).length;
+  const missingCoef = agg.rows.some((r) => !r.coef);
+
+  const status = (!agg.cat || missingCoef) ? 'red' : noTeacher > 0 ? 'yellow' : 'green';
+  const STATUS = {
+    green:  { dot: 'bg-emerald-500', cls: 'bg-emerald-50 text-emerald-700', label: t('Complète', 'Complete', 'Completa') },
+    yellow: { dot: 'bg-amber-500',  cls: 'bg-amber-50 text-amber-700',     label: t('À compléter', 'To complete', 'Por completar') },
+    red:    { dot: 'bg-red-500',    cls: 'bg-red-50 text-red-700',         label: t('Action requise', 'Action required', 'Acción requerida') },
+  }[status];
+
+  const alerts = [];
+  if (!agg.cat) alerts.push(t('Catégorie manquante', 'Missing category', 'Sin categoría'));
+  if (noTeacher > 0) alerts.push(`${noTeacher} ${t('sans enseignant', 'no teacher', 'sin profesor')}`);
+  if (missingCoef) alerts.push(t('Coefficient manquant', 'Missing coefficient', 'Sin coeficiente'));
+
+  const teacherNames = [...agg.teacherIds].map(teacherNameById).filter(Boolean);
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-lg hover:border-indigo-200 transition-all flex flex-col">
+      <div className="px-5 pt-4 pb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-base font-bold text-slate-900 truncate">{agg.name}</h3>
+          <p className="text-xs text-slate-400 mt-0.5">{agg.cat?.name || t('Non catégorisée', 'Uncategorized', 'Sin categoría')}</p>
+        </div>
+        <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded-full shrink-0 ${STATUS.cls}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${STATUS.dot}`} />{STATUS.label}
+        </span>
+      </div>
+
+      <div className="px-5 flex flex-wrap gap-1.5">
+        <span className="text-[11px] font-semibold px-2 py-0.5 rounded border bg-indigo-50 text-indigo-700 border-indigo-100">{t('Coef', 'Coef', 'Coef')} {coefLabel}</span>
+        <span className="text-[11px] font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-100">{t('Barème', 'Scale', 'Escala')} {maxLabel}</span>
+        <span className="text-[11px] font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-100">{agg.classes.size} {t('classe', 'class', 'clase')}{agg.classes.size !== 1 ? 's' : ''}</span>
+      </div>
+
+      <div className="px-5 py-3 text-xs text-slate-500">
+        <span className="font-semibold text-slate-700">👨‍🏫 </span>
+        {teacherNames.length ? teacherNames.join(', ') : <span className="text-amber-600">{t('Aucun enseignant', 'No teacher', 'Sin profesor')}</span>}
+      </div>
+
+      {alerts.length > 0 && (
+        <div className="px-5 pb-2 flex flex-wrap gap-1.5">
+          {alerts.map((a) => <span key={a} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600">⚠ {a}</span>)}
+        </div>
+      )}
+
+      <button onClick={() => setOpen((v) => !v)} className="px-5 py-2 text-xs font-semibold text-indigo-600 hover:text-indigo-700 text-left border-t border-slate-50 mt-auto">
+        {open ? t('▾ Masquer les classes', '▾ Hide classes', '▾ Ocultar') : `▸ ${t('Voir / éditer les classes', 'View / edit classes', 'Ver clases')}`}
+      </button>
+      {open && (
+        <div className="px-5 pb-4 space-y-1.5">
+          {agg.rows.map((r) => (
+            <div key={r.id} className="flex items-center gap-2 text-sm bg-slate-50 rounded-lg px-3 py-2">
+              <span className="flex-1 min-w-0 truncate font-medium text-slate-700">{classNameById(r.class_id)}</span>
+              <span className="text-xs text-slate-400">{r.teacher_id ? teacherNameById(r.teacher_id) : <span className="text-amber-600">{t('—', '—')}</span>}</span>
+              <button onClick={() => onEdit(r)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">{t('Éditer', 'Edit', 'Editar')}</button>
+              <button onClick={() => { if (window.confirm(t('Supprimer ?', 'Delete?', '¿Eliminar?'))) onDelete(r.id); }} className="text-xs font-semibold text-red-500 hover:text-red-700">✕</button>
+            </div>
+          ))}
+          <button onClick={onAddClass} className="text-xs font-semibold text-slate-500 hover:text-indigo-600">+ {t('Ajouter à une classe', 'Add to a class', 'Añadir a clase')}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page principale ───────────────────────────────────────────────────────────
 export default function Subjects() {
   const t = useT();
@@ -280,8 +520,9 @@ export default function Subjects() {
   const updateSubject = useSchoolStore((s) => s.updateSubject);
   const deleteSubject = useSchoolStore((s) => s.deleteSubject);
 
-  const [tab,           setTab]          = useState('actives');
+  const [tab,           setTab]          = useState('matieres');
   const [showForm,      setShowForm]     = useState(false);
+  const [showWizard,    setShowWizard]   = useState(false);
   const [editing,       setEditing]      = useState(null);
   const [prefillCatId,  setPrefillCatId] = useState('');
   const [showAddCat,    setShowAddCat]   = useState(false);
@@ -289,6 +530,10 @@ export default function Subjects() {
   const [savingCat,     setSavingCat]    = useState(false);
   const [search,        setSearch]       = useState('');
   const [classFilter,   setClassFilter]  = useState('');
+  const [sectionF,      setSectionF]     = useState('');
+  // Une matière appartient-elle à la section filtrée (via sa classe) ?
+  const secMatch = (cid) => inSection(classes.find((c) => c.id === cid), sectionF);
+  const [familyF,       setFamilyF]      = useState('all');
 
   // Categories: from school settings, fallback to defaults
   const savedCats = Array.isArray(school?.subject_categories) && school.subject_categories.length > 0
@@ -304,12 +549,12 @@ export default function Subjects() {
   const classesWithSubs = new Set(activeSubjects.map((s) => s.class_id)).size;
 
   // Search + class filter
-  const isFiltering = search.trim() !== '' || classFilter !== '';
+  const isFiltering = search.trim() !== '' || classFilter !== '' || sectionF !== '';
   const filteredSubjects = isFiltering
     ? activeSubjects.filter((s) => {
         const matchName  = search.trim() === '' || s.name.toLowerCase().includes(search.trim().toLowerCase());
         const matchClass = classFilter === '' || s.class_id === classFilter;
-        return matchName && matchClass;
+        return matchName && matchClass && secMatch(s.class_id);
       })
     : activeSubjects;
 
@@ -334,10 +579,16 @@ export default function Subjects() {
     setPrefillCatId('');
   };
 
+  const handleCreateMany = async (rows) => {
+    for (const r of rows) await addSubject(r);
+    setShowWizard(false);
+    setPrefillCatId('');
+  };
+
   const handleAddSubjectInCategory = (catId) => {
     setPrefillCatId(catId);
     setEditing(null);
-    setShowForm(true);
+    setShowWizard(true);
   };
 
   const handleEditSubject = (sub) => {
@@ -363,211 +614,254 @@ export default function Subjects() {
     setSavingCat(false);
   };
 
+  // ── Cockpit : KPIs, familles, agrégation par nom ──────────────────────────
+  const catNameOf = (s) => getSubjectCategory(s, categories)?.name || '';
+  const kpiTeachers  = new Set(subjects.filter((s) => s.teacher_id).map((s) => s.teacher_id)).size;
+  const kpiNoTeacher = subjects.filter((s) => !s.teacher_id).length;
+
+  const cockpitRows = subjects.filter((s) => {
+    const q = search.trim().toLowerCase();
+    if (q && !s.name.toLowerCase().includes(q)) return false;
+    if (classFilter && s.class_id !== classFilter) return false;
+    if (!secMatch(s.class_id)) return false;
+    if (familyF === 'noteacher') return !s.teacher_id;
+    if (familyF !== 'all' && subjectFamily(s.name, catNameOf(s)) !== familyF) return false;
+    return true;
+  });
+
+  const aggregated = (() => {
+    const map = {};
+    cockpitRows.forEach((s) => {
+      const cat = getSubjectCategory(s, categories);
+      const k = s.name.toLowerCase();
+      (map[k] ||= { name: s.name, rows: [], classes: new Set(), teacherIds: new Set(), coefs: new Set(), maxes: new Set(), cat: null });
+      const m = map[k];
+      m.rows.push(s); m.classes.add(s.class_id);
+      if (s.teacher_id) m.teacherIds.add(s.teacher_id);
+      m.coefs.add(s.coef); m.maxes.add(s.max);
+      if (!m.cat && cat) m.cat = cat;
+    });
+    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  const alertRows = subjects.map((s) => {
+    const issues = [];
+    if (!s.teacher_id) issues.push(t('Aucun enseignant', 'No teacher', 'Sin profesor'));
+    if (!s.coef) issues.push(t('Coefficient manquant', 'Missing coefficient', 'Sin coeficiente'));
+    if (!getSubjectCategory(s, categories)) issues.push(t('Catégorie manquante', 'Missing category', 'Sin categoría'));
+    return { s, issues };
+  }).filter((x) => x.issues.length);
+
+  const teacherGroups = teachers.map((tc) => ({ tc, subs: subjects.filter((s) => s.teacher_id === tc.id) }));
+
+  const FAMILIES = [
+    { id: 'all',         label: t('Toutes', 'All', 'Todas') },
+    { id: 'sciences',    label: t('Sciences', 'Sciences', 'Ciencias') },
+    { id: 'litteraires', label: t('Littéraires', 'Humanities', 'Letras') },
+    { id: 'techniques',  label: t('Techniques', 'Technical', 'Técnicas') },
+    { id: 'noteacher',   label: t('Sans enseignant', 'No teacher', 'Sin profesor') },
+  ];
+  const TABS = [
+    { id: 'matieres',    label: t('Matières', 'Subjects', 'Asignaturas') },
+    { id: 'enseignants', label: t('Enseignants', 'Teachers', 'Profesores') },
+    { id: 'categories',  label: t('Catégories', 'Categories', 'Categorías') },
+    { id: 'alertes',     label: `${t('Alertes', 'Alerts', 'Alertas')}${alertRows.length ? ` (${alertRows.length})` : ''}` },
+  ];
+
   return (
     <Layout>
-      <div className="max-w-4xl">
-
-        {/* ── Header ────────────────────────────────────────────── */}
-        <div className="flex justify-between items-start gap-4 mb-6">
+      <div className="max-w-6xl">
+        {/* HEADER */}
+        <div className="flex flex-wrap justify-between items-start gap-4 mb-5">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{t('Gestion des Matières', 'Subjects')}</h1>
-            <p className="text-sm text-gray-500 mt-1">{t('Configuration et gestion des matières enseignées', 'Configure and manage taught subjects')}</p>
+            <h1 className="text-2xl font-bold text-slate-900">{t('Gestion des matières', 'Subjects', 'Asignaturas')}</h1>
+            <p className="text-sm text-slate-500 mt-1">{t("Cockpit pédagogique : matières, enseignants, catégories et alertes.", 'Teaching cockpit: subjects, teachers, categories and alerts.', 'Cabina pedagógica.')}</p>
           </div>
-          <button onClick={() => { setShowForm(true); setEditing(null); }}
-            className="btn-primary" style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
-            + {t('Nouvelle matière', 'New subject')}
+          <button onClick={() => { setPrefillCatId(''); setShowWizard(true); }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm transition-colors">
+            + {t('Nouvelle matière', 'New subject', 'Nueva asignatura')}
           </button>
         </div>
 
-        {/* ── Tabs ──────────────────────────────────────────────── */}
-        <div className="flex gap-1 mb-5 border-b border-gray-200">
-          {['actives', 'supprimees'].map((tabKey) => (
-            <button key={tabKey} onClick={() => setTab(tabKey)}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                tab === tabKey
-                  ? 'border-brand-600 text-brand-700'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}>
-              {tabKey === 'actives' ? t('Actives', 'Active') : t('Supprimées', 'Deleted')}
+        {/* KPI DASHBOARD */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {[
+            { emoji: '📚', tone: 'bg-indigo-50', value: subjects.length, label: t('Total matières', 'Total subjects', 'Asignaturas') },
+            { emoji: '👨‍🏫', tone: 'bg-emerald-50', value: kpiTeachers, label: t('Enseignants assignés', 'Teachers assigned', 'Profesores') },
+            { emoji: '⚠️', tone: kpiNoTeacher ? 'bg-red-50' : 'bg-slate-50', value: kpiNoTeacher, label: t('Sans enseignant', 'Without teacher', 'Sin profesor') },
+            { emoji: '🏫', tone: 'bg-sky-50', value: classesWithSubs, label: t('Classes configurées', 'Classes configured', 'Clases') },
+          ].map((c) => (
+            <div key={c.label} className="bg-white rounded-2xl border border-slate-200/70 p-4 shadow-sm">
+              <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${c.tone}`}>{c.emoji}</span>
+              <div className={`text-2xl font-extrabold mt-2 ${c.label.includes('enseignant') && kpiNoTeacher ? 'text-red-600' : 'text-slate-900'}`}>{c.value}</div>
+              <div className="text-xs text-slate-500">{c.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* TABS */}
+        <div className="flex gap-1 mb-5 border-b border-slate-200 overflow-x-auto no-scrollbar">
+          {TABS.map((tb) => (
+            <button key={tb.id} onClick={() => setTab(tb.id)}
+              className={`px-4 py-2.5 text-sm font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${tab === tb.id ? 'border-indigo-500 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+              {tb.label}
             </button>
           ))}
         </div>
 
-        {tab === 'supprimees' && (
-          <div className="bg-white rounded-xl p-10 text-center shadow-sm border border-gray-100 mb-6">
-            <p className="text-gray-400 text-sm">{t('La suppression définitive est immédiate — aucune matière archivée.', 'Deletion is permanent — no subjects are archived.')}</p>
+        {/* MODALES */}
+        {showWizard && (
+          <SubjectWizard categories={categories} classes={classes} teachers={teachers} school={school}
+            prefillCatId={prefillCatId} onCreate={handleCreateMany} onClose={() => { setShowWizard(false); setPrefillCatId(''); }} />
+        )}
+        {(showForm || editing) && (
+          <Modal title={editing ? t('Modifier la matière', 'Edit subject') : t('Nouvelle matière', 'New subject')}
+            onClose={() => { setShowForm(false); setEditing(null); setPrefillCatId(''); }} size="md">
+            <SubjectForm
+              initial={editing ? editing : { ...(prefillCatId ? { category_id: prefillCatId } : {}), ...(classFilter ? { class_id: classFilter } : {}) }}
+              classId={editing?.class_id || classFilter || ''}
+              teachers={teachers} classes={classes} categories={categories} subjects={subjects}
+              onSave={handleSave}
+              onCancel={() => { setShowForm(false); setEditing(null); setPrefillCatId(''); }}
+            />
+          </Modal>
+        )}
+
+        {classes.length === 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm text-amber-800 mb-5">
+            {t('Aucune classe disponible.', 'No classes available.')} <a href="/app/classes" className="font-semibold underline">{t("Créez d'abord vos classes", 'Create your classes first')}</a> {t("avant d'ajouter des matières.", 'before adding subjects.')}
           </div>
         )}
 
-        {tab === 'actives' && (
+        {/* ── TAB : MATIÈRES ── */}
+        {tab === 'matieres' && (
           <>
-            {/* ── Stats ─────────────────────────────────────────── */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              {[
-                { label: t('Total matières', 'Total subjects'),         value: activeSubjects.length },
-                { label: t('Coefficient moyen', 'Average coefficient'), value: avgCoef },
-                { label: t('Classes utilisatrices', 'Classes using'),   value: classesWithSubs },
-              ].map(({ label, value }) => (
-                <div key={label}
-                  className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 text-center">
-                  <p className="text-3xl font-bold text-gray-900 mb-1">{value}</p>
-                  <p className="text-xs text-gray-500">{label}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* ── Search & filter ───────────────────────────────── */}
-            <div className="flex flex-wrap gap-3 mb-5">
-              <div className="relative flex-1 min-w-[200px]">
-                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
-                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <div className="flex flex-wrap items-center gap-2 mb-5">
+              <div className="relative flex-1 min-w-[180px] max-w-sm">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
                 </svg>
-                <input
-                  type="text"
-                  placeholder={t('Rechercher une matière…', 'Search subjects…')}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="form-input pl-9"
-                />
+                <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Rechercher…', 'Search…', 'Buscar…')}
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
               </div>
-              <select
-                value={classFilter}
-                onChange={(e) => setClassFilter(e.target.value)}
-                className="form-input"
-                style={{ width: 'auto', minWidth: '160px' }}
-              >
-                <option value="">{t('Toutes les classes', 'All classes')}</option>
-                {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <div className="flex gap-1 overflow-x-auto no-scrollbar">
+                {FAMILIES.map((fam) => (
+                  <button key={fam.id} onClick={() => setFamilyF(fam.id)}
+                    className={`px-3 py-2 text-sm font-semibold rounded-xl whitespace-nowrap transition-colors ${familyF === fam.id ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-300'}`}>
+                    {fam.label}
+                  </button>
+                ))}
+              </div>
+              <SectionFilterSelect
+                classes={classes}
+                value={sectionF}
+                onChange={(v) => { setSectionF(v); if (classFilter && !inSection(classes.find((c) => c.id === classFilter), v)) setClassFilter(''); }}
+                className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-indigo-400"
+              />
+              <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-indigo-400">
+                <option value="">{t('Toutes les classes', 'All classes', 'Todas las clases')}</option>
+                {classes.filter((c) => inSection(c, sectionF)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              {isFiltering && (
-                <button
-                  onClick={() => { setSearch(''); setClassFilter(''); }}
-                  className="text-sm text-gray-500 hover:text-gray-700 font-medium px-3 py-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-                >
-                  {t('✕ Effacer', '✕ Clear')}
-                </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {aggregated.length === 0 && (
+                <div className="col-span-full bg-white rounded-xl border border-slate-100 p-10 text-center text-sm text-slate-400">
+                  {t('Aucune matière ne correspond aux filtres.', 'No subject matches the filters.', 'Sin resultados.')}
+                </div>
               )}
+              {aggregated.map((agg) => (
+                <AggSubjectCard key={agg.name} agg={agg} classes={classes} teachers={teachers}
+                  onEdit={handleEditSubject} onDelete={deleteSubject} onAddClass={() => { setPrefillCatId(agg.cat?.id || ''); setShowWizard(true); }} />
+              ))}
             </div>
-            {isFiltering && (
-              <p className="text-xs text-gray-400 mb-4">
-                {filteredSubjects.length} {t(
-                  `résultat${filteredSubjects.length !== 1 ? 's' : ''} trouvé${filteredSubjects.length !== 1 ? 's' : ''}`,
-                  `result${filteredSubjects.length !== 1 ? 's' : ''} found`
-                )}
-              </p>
-            )}
+          </>
+        )}
 
-            {/* ── Modal formulaire matière ───────────────────────── */}
-            {(showForm || editing) && (
-              <Modal
-                title={editing ? t('Modifier la matière', 'Edit subject') : t('Nouvelle matière', 'New subject')}
-                onClose={() => { setShowForm(false); setEditing(null); setPrefillCatId(''); }}
-                size="md"
-              >
-                <SubjectForm
-                  initial={editing
-                    ? editing
-                    : {
-                        ...(prefillCatId ? { category_id: prefillCatId } : {}),
-                        ...(classFilter  ? { class_id: classFilter }     : {}),
-                      }
-                  }
-                  classId={editing?.class_id || classFilter || ''}
-                  teachers={teachers}
-                  classes={classes}
-                  categories={categories}
-                  onSave={handleSave}
-                  onCancel={() => { setShowForm(false); setEditing(null); setPrefillCatId(''); }}
-                />
-              </Modal>
+        {/* ── TAB : ENSEIGNANTS ── */}
+        {tab === 'enseignants' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {kpiNoTeacher > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                <p className="font-bold text-red-700 text-sm">⚠ {kpiNoTeacher} {t('matière(s) sans enseignant', 'subject(s) without teacher', 'sin profesor')}</p>
+                <p className="text-xs text-red-500 mt-1">{t('Assignez-les pour activer le suivi.', 'Assign them to enable monitoring.', 'Asígnelos.')}</p>
+              </div>
             )}
+            {teacherGroups.map(({ tc, subs }) => {
+              const cls = new Set(subs.map((s) => s.class_id));
+              return (
+                <div key={tc.id} className="bg-white rounded-2xl border border-slate-200/70 p-4 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">{tc.name.slice(0, 2).toUpperCase()}</div>
+                    <p className="font-semibold text-slate-900 truncate">{tc.name}</p>
+                  </div>
+                  <p className="text-sm text-slate-500 mt-3"><strong className="text-slate-800">{subs.length}</strong> {t('matière(s)', 'subject(s)', 'asig.')} · <strong className="text-slate-800">{cls.size}</strong> {t('classe(s)', 'class(es)', 'clases')}</p>
+                  {subs.length > 0 && <p className="text-xs text-slate-400 mt-1 truncate">{[...new Set(subs.map((s) => s.name))].join(', ')}</p>}
+                </div>
+              );
+            })}
+            {teachers.length === 0 && <div className="col-span-full text-sm text-slate-400 text-center py-8">{t('Aucun enseignant configuré.', 'No teachers configured.', 'Sin profesores.')}</div>}
+          </div>
+        )}
 
-            {/* ── Category sections ──────────────────────────────── */}
+        {/* ── TAB : CATÉGORIES ── */}
+        {tab === 'categories' && (
+          <>
             <div className="flex justify-between items-center mb-3">
-              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-widest">
-                {t('Catégories des matières', 'Subject categories')}
-              </h2>
-              <button onClick={() => setShowAddCat((v) => !v)}
-                className="text-sm text-brand-600 hover:text-brand-700 font-medium">
-                + {t('Ajouter une catégorie', 'Add category')}
-              </button>
+              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{t('Catégories des matières', 'Subject categories', 'Categorías')}</h2>
+              <button onClick={() => setShowAddCat((v) => !v)} className="text-sm text-indigo-600 hover:text-indigo-700 font-semibold">+ {t('Ajouter une catégorie', 'Add category', 'Añadir')}</button>
             </div>
-
-            {/* Add category form */}
             {showAddCat && (
-              <form onSubmit={handleAddCategory}
-                className="bg-brand-50 border border-brand-100 rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-end">
+              <form onSubmit={handleAddCategory} className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-end">
                 <div className="flex-1 min-w-[200px]">
                   <label className="form-label">{t('Nom *', 'Name *')}</label>
-                  <input type="text" required className="form-input" placeholder={t('Ex : Nouvelles Technologies', 'E.g. New Technologies')}
-                    value={newCat.name} onChange={(e) => setNewCat((f) => ({ ...f, name: e.target.value }))} />
+                  <input type="text" required className="form-input" placeholder={t('Ex : Nouvelles Technologies', 'E.g. New Technologies')} value={newCat.name} onChange={(e) => setNewCat((f) => ({ ...f, name: e.target.value }))} />
                 </div>
                 <div className="flex-[2] min-w-[250px]">
                   <label className="form-label">{t('Description', 'Description')}</label>
-                  <input type="text" className="form-input" placeholder={t('Ex : Informatique, Robotique…', 'E.g. Computer science, Robotics…')}
-                    value={newCat.description}
-                    onChange={(e) => setNewCat((f) => ({ ...f, description: e.target.value }))} />
+                  <input type="text" className="form-input" placeholder={t('Ex : Informatique, Robotique…', 'E.g. Computer science, Robotics…')} value={newCat.description} onChange={(e) => setNewCat((f) => ({ ...f, description: e.target.value }))} />
                 </div>
                 <div className="flex gap-2">
-                  <button type="submit" disabled={savingCat} className="btn-primary"
-                    style={{ width: 'auto', paddingLeft: '1.25rem', paddingRight: '1.25rem' }}>
-                    {savingCat ? '…' : t('Ajouter', 'Add')}
-                  </button>
-                  <button type="button" onClick={() => setShowAddCat(false)} className="btn-secondary">
-                    {t('Annuler', 'Cancel')}
-                  </button>
+                  <button type="submit" disabled={savingCat} className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold">{savingCat ? '…' : t('Ajouter', 'Add')}</button>
+                  <button type="button" onClick={() => setShowAddCat(false)} className="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold">{t('Annuler', 'Cancel')}</button>
                 </div>
               </form>
             )}
-
-            {/* Category cards */}
             <div className="space-y-3">
-              {categories.map((cat) => {
-                const catSubjects = subjectsForCategory(cat.id);
-                if (isFiltering && catSubjects.length === 0) return null;
-                return (
-                  <CategoryCard
-                    key={cat.id}
-                    category={cat}
-                    subjects={catSubjects}
-                    classes={classes}
-                    teachers={teachers}
-                    forceOpen={isFiltering}
-                    onAddSubject={handleAddSubjectInCategory}
-                    onEditSubject={handleEditSubject}
-                    onDeleteSubject={deleteSubject}
-                  />
-                );
-              })}
-
-              {/* Uncategorized */}
+              {categories.map((cat) => (
+                <CategoryCard key={cat.id} category={cat} subjects={subjectsForCategory(cat.id)} classes={classes} teachers={teachers}
+                  onAddSubject={handleAddSubjectInCategory} onEditSubject={handleEditSubject} onDeleteSubject={deleteSubject} />
+              ))}
               {uncategorized.length > 0 && (
-                <CategoryCard
-                  category={{ id: '__none__', name: t('Non catégorisées', 'Uncategorized'), ordre: 99, description: t('Matières sans catégorie assignée', 'Subjects with no assigned category'), keywords: [] }}
-                  subjects={uncategorized}
-                  classes={classes}
-                  teachers={teachers}
-                  forceOpen={isFiltering}
-                  onAddSubject={() => { setShowForm(true); setEditing(null); }}
-                  onEditSubject={handleEditSubject}
-                  onDeleteSubject={deleteSubject}
-                />
-              )}
-
-              {isFiltering && filteredSubjects.length === 0 && (
-                <div className="bg-white rounded-xl border border-gray-100 p-8 text-center text-sm text-gray-400">
-                  {t('Aucune matière ne correspond à votre recherche.', 'No subjects match your search.')}
-                </div>
+                <CategoryCard category={{ id: '__none__', name: t('Non catégorisées', 'Uncategorized'), ordre: 99, description: t('Matières sans catégorie assignée', 'Subjects with no assigned category'), keywords: [] }}
+                  subjects={uncategorized} classes={classes} teachers={teachers}
+                  onAddSubject={() => { setShowWizard(true); }} onEditSubject={handleEditSubject} onDeleteSubject={deleteSubject} />
               )}
             </div>
-
-            {classes.length === 0 && (
-              <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm text-amber-800">
-                {t('Aucune classe disponible.', 'No classes available.')} <a href="/app/classes" className="font-semibold underline">{t('Créez d\'abord vos classes', 'Create your classes first')}</a> {t('avant d\'ajouter des matières.', 'before adding subjects.')}
-              </div>
-            )}
           </>
+        )}
+
+        {/* ── TAB : ALERTES ── */}
+        {tab === 'alertes' && (
+          <div className="space-y-2">
+            {alertRows.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center">
+                <div className="text-3xl mb-2">✅</div>
+                <p className="text-sm text-emerald-600 font-semibold">{t('Aucune alerte. Toutes les matières sont configurées.', 'No alerts. All subjects are configured.', 'Sin alertas.')}</p>
+              </div>
+            ) : alertRows.map(({ s, issues }) => (
+              <div key={s.id} className="bg-white rounded-xl border border-slate-200/70 p-4 flex flex-wrap items-center gap-3 shadow-sm">
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900 truncate">{s.name}</p>
+                  <p className="text-xs text-slate-400">{classes.find((c) => c.id === s.class_id)?.name || '—'}</p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {issues.map((i) => <span key={i} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600">⚠ {i}</span>)}
+                </div>
+                <button onClick={() => handleEditSubject(s)} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100">{t('Configurer', 'Configure', 'Configurar')}</button>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </Layout>

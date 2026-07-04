@@ -44,10 +44,14 @@ CREATE TABLE IF NOT EXISTS schools (
   director           TEXT,
   email              TEXT,
   current_year       TEXT,
+  currency           TEXT NOT NULL DEFAULT 'XAF',  -- devise officielle (affichage)
   language           TEXT DEFAULT 'fr',
   country_system     TEXT,                -- 'cameroon_fr' | 'cameroon_en' | 'guinea_eq'
   ge_primary_coef    INTEGER NOT NULL DEFAULT 0,
+  grade_entry_mode   TEXT NOT NULL DEFAULT 'principal', -- 'principal' | 'subject'
+  bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic', -- 'synthetic' | 'detailed' (matières composites)
   grade_scale        TEXT,
+  apc_bulletin_cols  TEXT,   -- JSON { cote, minmax, appreciation } — colonnes du bulletin APC (premier cycle)
   logo_url           TEXT,
   stamp_url          TEXT,
   signature_url      TEXT,
@@ -103,6 +107,9 @@ CREATE TABLE IF NOT EXISTS subjects (
   max        INTEGER NOT NULL DEFAULT 20,
   position   INTEGER,
   teacher_id TEXT,                  -- enseignant de la matière (pas de FK dure, cf. classes)
+  parent_id   TEXT,                 -- matière composite : matière parente (null = principale)
+  calc_method TEXT,                 -- 'avg' | 'weighted_avg' | 'weighted_sum' | 'formula'
+  formula     TEXT,                 -- formule personnalisée (optionnelle)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -114,6 +121,7 @@ CREATE TABLE IF NOT EXISTS students (
   matricule      TEXT,
   gender         TEXT,
   statut         TEXT,
+  statut_etablissement TEXT,
   date_naissance TEXT,
   parent_token   TEXT,
   photo_url      TEXT,
@@ -182,9 +190,29 @@ CREATE TABLE IF NOT EXISTS student_fees (
   frais_payes           INTEGER NOT NULL DEFAULT 0,
   date_dernier_paiement TEXT,
   notes                 TEXT,
+  tranches              TEXT NOT NULL DEFAULT '[]',  -- instantané [{id,label,amount,due_date}]
+  payment_mode          TEXT,                        -- comptant | echelonne | libre
+  adjustments           TEXT NOT NULL DEFAULT '[]',  -- bourses/remises [{id,type,label,mode,value}]
   created_at            TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(student_id, academic_year)
+);
+
+-- Grilles tarifaires par classe (tarif comptant + échelonné + tranches).
+CREATE TABLE IF NOT EXISTS class_fee_grids (
+  id               TEXT PRIMARY KEY,
+  school_id        TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  class_id         TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  academic_year    TEXT NOT NULL,
+  amount_comptant  INTEGER NOT NULL DEFAULT 0,
+  amount_echelonne INTEGER NOT NULL DEFAULT 0,
+  amount_inscription INTEGER NOT NULL DEFAULT 0,
+  tranches         TEXT NOT NULL DEFAULT '[]',
+  currency         TEXT NOT NULL DEFAULT 'FCFA',
+  notes            TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(class_id, academic_year)
 );
 
 CREATE TABLE IF NOT EXISTS fee_payments (
@@ -288,6 +316,7 @@ CREATE TABLE IF NOT EXISTS timetable_slots (
   start_time    TEXT NOT NULL,
   end_time      TEXT NOT NULL,
   label         TEXT,
+  room          TEXT,                  -- salle du cours (Vue Salle + conflits de salle)
   academic_year TEXT NOT NULL,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -454,6 +483,8 @@ CREATE INDEX IF NOT EXISTS idx_grades_class          ON grades(class_id);
 CREATE INDEX IF NOT EXISTS idx_grades_student        ON grades(student_id);
 CREATE INDEX IF NOT EXISTS idx_fees_student          ON student_fees(student_id);
 CREATE INDEX IF NOT EXISTS idx_payments_student      ON fee_payments(student_id);
+CREATE INDEX IF NOT EXISTS idx_fee_grids_class        ON class_fee_grids(class_id);
+CREATE INDEX IF NOT EXISTS idx_fee_grids_school       ON class_fee_grids(school_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_student    ON attendance(student_id);
 CREATE INDEX IF NOT EXISTS idx_timetable_class       ON timetable_slots(class_id);
 CREATE INDEX IF NOT EXISTS idx_school_users_user     ON school_users(user_id);

@@ -24,16 +24,39 @@ const TOKEN_PATH = join(DATA_DIR, 'server-token.key');
 const EDGE_BASE = (process.env.VITE_SUPABASE_URL || '');
 const CHUNK = 500;
 
+// Garde-fou réseau : aucun appel distant (auth Supabase, fonction edge) ne doit
+// pouvoir bloquer indéfiniment, sinon l'assistant reste figé « 0 % — migration
+// en cours… » sans jamais d'erreur. On borne donc chaque appel ; un dépassement
+// remonte une erreur EXPLICITE que l'assistant affiche au lieu de tourner à vide.
+const NET_TIMEOUT_MS = 30000;
+function withTimeout(promise, label, ms = NET_TIMEOUT_MS) {
+  let timer;
+  const guard = new Promise((_, rej) => {
+    timer = setTimeout(() => rej(new Error(`${label} : délai dépassé (réseau ?).`)), ms);
+  });
+  return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
+}
+
 // Tables de données poussées vers le cloud (ordre FK). On EXCLUT :
 //   - users / school_users  : gérées par la fonction edge (auth + memberships) ;
 //   - country_education_config / evaluation_system : config GLOBALE déjà en cloud ;
 //   - tables locales (license_activation, migration_state, pwd_mirror_queue, …).
 const PUSH_ORDER = [
-  'academic_periods', 'classes', 'subjects', 'students', 'teachers', 'grades',
+  'academic_periods', 'classes', 'subjects', 'students', 'teachers', 'staff', 'grades',
   'student_fees', 'fee_payments', 'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots',
 ];
+
+// Erreur « table absente côté cloud » (ex. staff si la migration Personnel n'a
+// pas été jouée). On la traite comme SKIP (journalisée) plutôt que comme un
+// échec fatal de toute la migration.
+function isMissingTable(error) {
+  const code = error?.code || '';
+  const msg = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`;
+  return code === '42P01' || code === 'PGRST205'
+    || /does not exist|could not find the table|schema cache/i.test(msg);
+}
 
 const log = (cb, phase, detail = {}) => { try { cb?.({ phase, ...detail }); } catch { /* ignore */ } };
 
@@ -68,7 +91,7 @@ async function getClient(clientFactory, url, anonKey, accessToken) {
 export async function signupCloud({ url, anonKey, email, password, clientFactory }) {
   if (!url || !anonKey || !email || !password) throw new Error('Paramètres requis manquants.');
   const supa = await getClient(clientFactory, url, anonKey);
-  const { data, error } = await supa.auth.signUp({ email, password });
+  const { data, error } = await withTimeout(supa.auth.signUp({ email, password }), 'Création du compte cloud');
   if (error && !/already registered/i.test(error.message || '')) throw new Error('Création du compte cloud : ' + error.message);
   setPhase('verify', { email, started_at: new Date().toISOString() });
   appendLog(`Compte cloud demandé pour ${email}. E-mail de vérification envoyé.`);
@@ -79,7 +102,7 @@ export async function signupCloud({ url, anonKey, email, password, clientFactory
 
 export async function verifyCloud({ url, anonKey, email, password, clientFactory }) {
   const supa = await getClient(clientFactory, url, anonKey);
-  const { data, error } = await supa.auth.signInWithPassword({ email, password });
+  const { data, error } = await withTimeout(supa.auth.signInWithPassword({ email, password }), 'Connexion cloud');
   if (error || !data?.session) return { confirmed: false };
   appendLog(`E-mail vérifié, connexion cloud établie pour ${email}.`);
   return { confirmed: true };
@@ -92,7 +115,8 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
   // (3) Connexion (l'e-mail doit être vérifié) + analyse SQLite
   log(onProgress, 'connect');
   const authClient = await getClient(clientFactory, url, anonKey);
-  const { data: auth, error: authErr } = await authClient.auth.signInWithPassword({ email, password });
+  const { data: auth, error: authErr } = await withTimeout(
+    authClient.auth.signInWithPassword({ email, password }), 'Connexion cloud');
   if (authErr || !auth?.session) throw new Error('Connexion cloud impossible (e-mail non vérifié ?).');
   const accessToken = auth.session.access_token;
   const cloudAdminId = auth.user.id;
@@ -119,8 +143,15 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
   //     Crée l'école, les comptes auth manquants et les memberships ; renvoie le
   //     mapping local_user_id → cloud_user_id + un jeton serveur scellé.
   log(onProgress, 'provision');
+  // Une école locale plus ancienne (ex. Cameroun) peut avoir des colonnes à null
+  // que le cloud a depuis passées en NOT NULL DEFAULT (ex. ge_grade_max). Un null
+  // explicite court-circuite le DEFAULT côté Postgres → on retire les clés nulles
+  // pour laisser la base appliquer ses valeurs par défaut.
+  const schoolPayload = Object.fromEntries(
+    Object.entries(school).filter(([, v]) => v !== null && v !== undefined),
+  );
   const provision = await provisionTenant(url, accessToken, {
-    school,
+    school: schoolPayload,
     admin_email: email,
     members: members.map((m) => ({
       local_user_id: m.local_user_id, email: m.email, role: m.role,
@@ -155,7 +186,9 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
 
     let rows = db.prepare(`SELECT * FROM "${table}" WHERE school_id = ?`).all(school.id);
     // Remap des FK pointant vers un utilisateur (id local → id cloud).
-    if (table === 'teachers') rows = rows.map((r) => ({ ...r, auth_user_id: r.auth_user_id ? (cloudByLocal.get(r.auth_user_id) || null) : null }));
+    if (table === 'teachers' || table === 'staff') {
+      rows = rows.map((r) => ({ ...r, auth_user_id: r.auth_user_id ? (cloudByLocal.get(r.auth_user_id) || null) : null }));
+    }
 
     db.prepare(`INSERT INTO cloud_push_state (tablename, pushed, total, done, updated_at)
                 VALUES (?,0,?,0,?)
@@ -163,14 +196,29 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
       .run(table, rows.length, new Date().toISOString());
 
     const onConflict = table === 'grades' ? 'class_id,student_id,subject_id,sequence' : 'id';
+    let pushedThisTable = 0;
+    let skipped = false;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const batch = rows.slice(i, i + CHUNK).map(stripLocalOnly);
       const { error } = await supa.from(table).upsert(batch, { onConflict });
-      if (error) { appendLog(`ÉCHEC ${table} (lot ${i}) : ${error.message}`); throw new Error(`Poussée ${table}: ${error.message}`); }
+      if (error) {
+        // Table absente côté cloud → SKIP journalisé, sans casser le job.
+        if (isMissingTable(error)) { appendLog(`${table} ignorée : table absente côté cloud (${error.message}).`); skipped = true; break; }
+        appendLog(`ÉCHEC ${table} (lot ${i}) : ${error.message}`); throw new Error(`Poussée ${table}: ${error.message}`);
+      }
+      pushedThisTable += batch.length;
       pushedGlobal += batch.length;
       db.prepare('UPDATE cloud_push_state SET pushed = ?, updated_at = ? WHERE tablename = ?')
         .run(Math.min(i + batch.length, rows.length), new Date().toISOString(), table);
       log(onProgress, 'push', { table, pct: Math.round(100 * pushedGlobal / total) });
+    }
+    // Table sautée : on compte son reste comme « traité » pour ne pas figer la
+    // barre, on la marque done (la reprise ne la retentera pas), et on continue.
+    if (skipped) {
+      pushedGlobal += Math.max(0, rows.length - pushedThisTable);
+      db.prepare('UPDATE cloud_push_state SET done = 1, updated_at = ? WHERE tablename = ?')
+        .run(new Date().toISOString(), table);
+      continue;
     }
     db.prepare('UPDATE cloud_push_state SET done = 1, pushed = total, updated_at = ? WHERE tablename = ?')
       .run(new Date().toISOString(), table);
@@ -198,11 +246,23 @@ function localUserByEmail(email) {
 // Appel de la fonction edge `provision-tenant` (auth = JWT admin). Best-effort
 // d'idempotence côté edge (réutilise les comptes existants → reprise sûre).
 async function provisionTenant(url, accessToken, payload) {
-  const res = await fetch(`${url}/functions/v1/provision-tenant`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  // Abandon réel après NET_TIMEOUT_MS : sans cela, une fonction edge bloquée fige
+  // toute l'activation à « 0 % » (c'est l'appel le plus à risque de pendre).
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), NET_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(`${url}/functions/v1/provision-tenant`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    throw new Error('Provision tenant : ' + (e?.name === 'AbortError' ? 'délai dépassé (réseau ?)' : (e?.message || 'échec réseau')));
+  } finally {
+    clearTimeout(timer);
+  }
   const j = await res.json().catch(() => null);
   if (!res.ok || !j || j.error) throw new Error('Provision tenant : ' + (j?.error || `HTTP ${res.status}`));
   return j; // { server_token, map:[{local_user_id, cloud_user_id}] }

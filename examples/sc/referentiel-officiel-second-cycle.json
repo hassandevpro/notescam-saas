@@ -1,0 +1,4842 @@
+{
+  "_source": "Arrêté n°092/22/MINESEC du 07 mars 2022 portant définition de la nature, de la durée et des coefficients des matières dans les séries et classes du second cycle de l'Enseignement Secondaire Général (sous-système francophone). Signé : Pr. NALOVA LYONGA.",
+  "_note": "Dans cet arrêté, la charge horaire hebdomadaire est numériquement égale au coefficient pour chaque cellule. Séries D et TI : pas de classe de Seconde (entrée en Première). Validé par recoupement avec les lignes Total Groupe 1/2 imprimées.",
+  "version": {
+    "label": "Arrêté MINESEC 092/22 du 07/03/2022",
+    "source": "Arrêté n°092/22/MINESEC du 07 mars 2022"
+  },
+  "series": [
+    {
+      "id": "a1",
+      "nom": "A1",
+      "categorie": "litteraire",
+      "description": "Lettres (Latin et Grec)"
+    },
+    {
+      "id": "a2",
+      "nom": "A2",
+      "categorie": "litteraire",
+      "description": "Lettres (Latin et Langue Vivante II)"
+    },
+    {
+      "id": "a3",
+      "nom": "A3",
+      "categorie": "litteraire",
+      "description": "Lettres (Latin)"
+    },
+    {
+      "id": "a4",
+      "nom": "A4",
+      "categorie": "litteraire",
+      "description": "Lettres (Langue Vivante II) et Philosophie"
+    },
+    {
+      "id": "a5",
+      "nom": "A5",
+      "categorie": "litteraire",
+      "description": "Lettres (Langue Vivante II et Langue Vivante III)"
+    },
+    {
+      "id": "abi",
+      "nom": "ABI",
+      "categorie": "litteraire",
+      "description": "A4 Bilingue"
+    },
+    {
+      "id": "c",
+      "nom": "C",
+      "categorie": "scientifique",
+      "description": "Mathématiques, Physique-Chimie"
+    },
+    {
+      "id": "d",
+      "nom": "D",
+      "categorie": "scientifique",
+      "description": "Mathématiques, Sciences de la Vie et de la Terre (SVTEEHB)"
+    },
+    {
+      "id": "e",
+      "nom": "E",
+      "categorie": "scientifique",
+      "description": "Mathématiques et Techniques"
+    },
+    {
+      "id": "ti",
+      "nom": "TI",
+      "categorie": "scientifique",
+      "description": "Technologies de l'Information"
+    },
+    {
+      "id": "sh",
+      "nom": "SH",
+      "categorie": "sciences_humaines",
+      "description": "Sciences Humaines"
+    },
+    {
+      "id": "ac",
+      "nom": "AC",
+      "categorie": "arts",
+      "description": "Arts Cinématographiques"
+    }
+  ],
+  "matieres": [
+    {
+      "id": "latin",
+      "nom": "Latin",
+      "code": "LATIN",
+      "domaine": "Langues et Littératures",
+      "ordre": 1
+    },
+    {
+      "id": "grec",
+      "nom": "Grec",
+      "code": "GREC",
+      "domaine": "Langues et Littératures",
+      "ordre": 2
+    },
+    {
+      "id": "litterature",
+      "nom": "Littérature",
+      "code": "LITT",
+      "domaine": "Langues et Littératures",
+      "ordre": 3
+    },
+    {
+      "id": "langue_francaise",
+      "nom": "Langue française",
+      "code": "LFR",
+      "domaine": "Langues et Littératures",
+      "ordre": 4
+    },
+    {
+      "id": "philosophie",
+      "nom": "Philosophie",
+      "code": "PHILO",
+      "domaine": "Sciences Humaines",
+      "ordre": 5
+    },
+    {
+      "id": "anglais",
+      "nom": "Anglais",
+      "code": "ANG",
+      "domaine": "Langues et Littératures",
+      "ordre": 6
+    },
+    {
+      "id": "informatique",
+      "nom": "Informatique fondamentale et TIC",
+      "code": "INFO",
+      "domaine": "Sciences et Technologies",
+      "ordre": 7
+    },
+    {
+      "id": "ecm",
+      "nom": "Éducation à la Citoyenneté et à la Morale",
+      "code": "ECM",
+      "domaine": "Sciences Humaines",
+      "ordre": 8
+    },
+    {
+      "id": "eps",
+      "nom": "Éducation Physique et Sportive",
+      "code": "EPS",
+      "domaine": "Développement personnel",
+      "ordre": 9
+    },
+    {
+      "id": "histoire",
+      "nom": "Histoire",
+      "code": "HIST",
+      "domaine": "Sciences Humaines",
+      "ordre": 10
+    },
+    {
+      "id": "geographie",
+      "nom": "Géographie",
+      "code": "GEO",
+      "domaine": "Sciences Humaines",
+      "ordre": 11
+    },
+    {
+      "id": "sciences",
+      "nom": "Sciences",
+      "code": "SCI",
+      "domaine": "Sciences et Technologies",
+      "ordre": 12
+    },
+    {
+      "id": "langues_nationales",
+      "nom": "Langues nationales",
+      "code": "LN",
+      "domaine": "Arts et cultures nationales",
+      "ordre": 13
+    },
+    {
+      "id": "cultures_nationales",
+      "nom": "Cultures nationales",
+      "code": "CN",
+      "domaine": "Arts et cultures nationales",
+      "ordre": 14
+    },
+    {
+      "id": "education_artistique",
+      "nom": "Éducation artistique",
+      "code": "EA",
+      "domaine": "Arts et cultures nationales",
+      "ordre": 15
+    },
+    {
+      "id": "travail_manuel",
+      "nom": "Travail manuel",
+      "code": "TM",
+      "domaine": "Développement personnel",
+      "ordre": 16
+    },
+    {
+      "id": "langue_vivante_2",
+      "nom": "Langue vivante II",
+      "code": "LV2",
+      "domaine": "Langues et Littératures",
+      "ordre": 17
+    },
+    {
+      "id": "mathematiques",
+      "nom": "Mathématiques",
+      "code": "MATH",
+      "domaine": "Sciences et Technologies",
+      "ordre": 18
+    },
+    {
+      "id": "langue_vivante_3",
+      "nom": "Langue vivante III",
+      "code": "LV3",
+      "domaine": "Langues et Littératures",
+      "ordre": 19
+    },
+    {
+      "id": "intensive_english",
+      "nom": "Intensive English",
+      "code": "IENG",
+      "domaine": "Langues et Littératures",
+      "ordre": 20
+    },
+    {
+      "id": "citizenship_education",
+      "nom": "Citizenship Education",
+      "code": "CIT",
+      "domaine": "Sciences Humaines",
+      "ordre": 21
+    },
+    {
+      "id": "sport_physical_education",
+      "nom": "Sport and Physical Education",
+      "code": "SPE",
+      "domaine": "Développement personnel",
+      "ordre": 22
+    },
+    {
+      "id": "manual_labor",
+      "nom": "Manual Labor / Handicraft / Drawing",
+      "code": "ML",
+      "domaine": "Développement personnel",
+      "ordre": 23
+    },
+    {
+      "id": "physique",
+      "nom": "Physique",
+      "code": "PHY",
+      "domaine": "Sciences et Technologies",
+      "ordre": 24
+    },
+    {
+      "id": "chimie",
+      "nom": "Chimie",
+      "code": "CHI",
+      "domaine": "Sciences et Technologies",
+      "ordre": 25
+    },
+    {
+      "id": "svteehb",
+      "nom": "SVTEEHB",
+      "code": "SVT",
+      "domaine": "Sciences et Technologies",
+      "ordre": 26
+    },
+    {
+      "id": "dessin_technologie_mecanique",
+      "nom": "Dessin et technologie des systèmes mécaniques",
+      "code": "DTSM",
+      "domaine": "Sciences et Technologies",
+      "ordre": 27
+    },
+    {
+      "id": "fabrication_elements_mecaniques",
+      "nom": "Fabrication des éléments mécaniques",
+      "code": "FEM",
+      "domaine": "Sciences et Technologies",
+      "ordre": 28
+    },
+    {
+      "id": "francais",
+      "nom": "Français",
+      "code": "FRA",
+      "domaine": "Langues et Littératures",
+      "ordre": 29
+    },
+    {
+      "id": "algorithmique_programmation",
+      "nom": "Algorithmique - Programmation",
+      "code": "ALGO",
+      "domaine": "Sciences et Technologies",
+      "ordre": 30
+    },
+    {
+      "id": "systemes_information",
+      "nom": "Systèmes d'information",
+      "code": "SI",
+      "domaine": "Sciences et Technologies",
+      "ordre": 31
+    },
+    {
+      "id": "maintenance_multimedia",
+      "nom": "Maintenance et multimédia",
+      "code": "MM",
+      "domaine": "Sciences et Technologies",
+      "ordre": 32
+    },
+    {
+      "id": "programmation",
+      "nom": "Programmation",
+      "code": "PROG",
+      "domaine": "Sciences et Technologies",
+      "ordre": 33
+    },
+    {
+      "id": "reseau_securite_informatique",
+      "nom": "Réseau, Internet et sécurité informatique",
+      "code": "RSI",
+      "domaine": "Sciences et Technologies",
+      "ordre": 34
+    },
+    {
+      "id": "histoire_cinema",
+      "nom": "Histoire du cinéma",
+      "code": "HCIN",
+      "domaine": "Arts du cinéma",
+      "ordre": 35
+    },
+    {
+      "id": "langage_grammaire_cinema",
+      "nom": "Éléments de langage et de grammaire cinématographiques",
+      "code": "ELGC",
+      "domaine": "Arts du cinéma",
+      "ordre": 36
+    },
+    {
+      "id": "outils_metiers_cinema",
+      "nom": "Outils et métiers du cinéma",
+      "code": "OMC",
+      "domaine": "Arts du cinéma",
+      "ordre": 37
+    },
+    {
+      "id": "genres_cinematographiques",
+      "nom": "Genres cinématographiques",
+      "code": "GCIN",
+      "domaine": "Arts du cinéma",
+      "ordre": 38
+    },
+    {
+      "id": "analyse_filmique",
+      "nom": "Analyse filmique",
+      "code": "AF",
+      "domaine": "Arts du cinéma",
+      "ordre": 39
+    },
+    {
+      "id": "economie_cinema",
+      "nom": "Économie du cinéma",
+      "code": "ECIN",
+      "domaine": "Arts du cinéma",
+      "ordre": 40
+    },
+    {
+      "id": "processus_realisation",
+      "nom": "Processus de réalisation d'un film",
+      "code": "PR",
+      "domaine": "Arts du cinéma",
+      "ordre": 41
+    },
+    {
+      "id": "projet_fin_formation",
+      "nom": "Projet de fin de formation",
+      "code": "PFF",
+      "domaine": "Arts du cinéma",
+      "ordre": 42
+    },
+    {
+      "id": "sociologie_cinema",
+      "nom": "Sociologie du cinéma",
+      "code": "SCIN",
+      "domaine": "Arts du cinéma",
+      "ordre": 43
+    }
+  ],
+  "entries": [
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "latin",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "latin",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "latin",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "grec",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "grec",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "grec",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "2nde",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a1",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "latin",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "latin",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "latin",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "2nde",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a2",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "latin",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "latin",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "latin",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "2nde",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a3",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "2nde",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a4",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "langue_vivante_3",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "langue_vivante_3",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "langue_vivante_3",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "2nde",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "a5",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "intensive_english",
+      "groupe": "g1",
+      "coef": 5,
+      "charge": 5,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "intensive_english",
+      "groupe": "g1",
+      "coef": 5,
+      "charge": 5,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "intensive_english",
+      "groupe": "g1",
+      "coef": 5,
+      "charge": 5,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "langue_vivante_2",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "citizenship_education",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "citizenship_education",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "citizenship_education",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "sport_physical_education",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "sport_physical_education",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "sport_physical_education",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "2nde",
+      "matiere": "manual_labor",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "1ere",
+      "matiere": "manual_labor",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "abi",
+      "classe": "tle",
+      "matiere": "manual_labor",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 5,
+      "charge": 5,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 6,
+      "charge": 6,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 7,
+      "charge": 7,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "physique",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "physique",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "physique",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "svteehb",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "litterature",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "litterature",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "litterature",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "langue_francaise",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "langue_francaise",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "langue_francaise",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "svteehb",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "svteehb",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "2nde",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "c",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "svteehb",
+      "groupe": "g1",
+      "coef": 6,
+      "charge": 6,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "svteehb",
+      "groupe": "g1",
+      "coef": 6,
+      "charge": 6,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "litterature",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "litterature",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "langue_francaise",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "langue_francaise",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "physique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "physique",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "d",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 5,
+      "charge": 5,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 6,
+      "charge": 6,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 6,
+      "charge": 6,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "physique",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "physique",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "physique",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "dessin_technologie_mecanique",
+      "groupe": "g1",
+      "coef": 6,
+      "charge": 6,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "dessin_technologie_mecanique",
+      "groupe": "g1",
+      "coef": 6,
+      "charge": 6,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "dessin_technologie_mecanique",
+      "groupe": "g1",
+      "coef": 6,
+      "charge": 6,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "fabrication_elements_mecaniques",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "fabrication_elements_mecaniques",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "fabrication_elements_mecaniques",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "francais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "francais",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "francais",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "2nde",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "e",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "algorithmique_programmation",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "systemes_information",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "systemes_information",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "maintenance_multimedia",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "programmation",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "reseau_securite_informatique",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "mathematiques",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "physique",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "physique",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "chimie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "francais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "francais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "svteehb",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "svteehb",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ti",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "geographie",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "geographie",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "histoire",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "histoire",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "litterature",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "langue_francaise",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "ecm",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "sciences",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "education_artistique",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "2nde",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "sh",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "histoire_cinema",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "langage_grammaire_cinema",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "outils_metiers_cinema",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "genres_cinematographiques",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "analyse_filmique",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "economie_cinema",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "processus_realisation",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "projet_fin_formation",
+      "groupe": "g1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "sociologie_cinema",
+      "groupe": "g1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "francais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "francais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "francais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "anglais",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "informatique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "mathematiques",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "physique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "physique",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "langues_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "cultures_nationales",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "ecm",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "philosophie",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "histoire",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "geographie",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "eps",
+      "groupe": "g2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "2nde",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "1ere",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "ac",
+      "classe": "tle",
+      "matiere": "travail_manuel",
+      "groupe": "g2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    }
+  ]
+}

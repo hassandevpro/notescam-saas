@@ -3,13 +3,18 @@ import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { downloadCSV } from '../lib/exportCsv';
-import { uuid } from '../lib/uuid';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
-import { resolveCountryCode } from '../countries';
+import { printReceipt } from '../lib/receiptDoc';
+import FeeGridsTab from '../components/fees/FeeGridsTab';
+import FeeDashboard from '../components/fees/FeeDashboard';
+import { studentFeeSituation, inscriptionApplies } from '../lib/feeEngine';
+import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
+import { MODE_LABEL, STATUS_UI, TRANCHE_UI } from '../components/fees/feeUi';
+import { useMoney } from '../lib/useMoney';
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
@@ -46,33 +51,11 @@ function isOverdue(fee) {
   return amountDue > 0 && amountDue > (fee.frais_payes || 0);
 }
 
-function trancheStatus(tranche, fee) {
-  const today = todayISO();
-  const idx = (fee?.tranches ?? []).findIndex((t) => t.id === tranche.id);
-  const amountDueHere = (fee?.tranches ?? [])
-    .slice(0, idx + 1)
-    .reduce((s, t) => s + (t.amount || 0), 0);
-  if ((fee?.frais_payes || 0) >= amountDueHere) return 'covered';
-  if (tranche.due_date && tranche.due_date < today) return 'overdue';
-  return 'upcoming';
-}
-
-function fmt(n) {
-  if (n == null || n === 0) return '0';
-  return Number(n).toLocaleString('fr-FR');
-}
-
 const STATUS_CONFIG = {
   paid:    { label: 'Payé intégral', color: 'bg-emerald-100 text-emerald-700' },
   partial: { label: 'Partiel',       color: 'bg-amber-100 text-amber-700' },
   unpaid:  { label: 'Non payé',      color: 'bg-red-100 text-red-600' },
   none:    { label: 'Non défini',    color: 'bg-gray-100 text-gray-500' },
-};
-
-const TRANCHE_STATUS_CFG = {
-  covered:  { label: 'Couverte',   dot: 'bg-emerald-500', text: 'text-emerald-700' },
-  upcoming: { label: 'À venir',    dot: 'bg-gray-300',    text: 'text-gray-500' },
-  overdue:  { label: 'En retard',  dot: 'bg-red-500',     text: 'text-red-600' },
 };
 
 const PAGE_SIZE = 25;
@@ -93,110 +76,34 @@ function PayProgress({ fee }) {
   );
 }
 
-// ── Modal tarification en masse ────────────────────────────────────────────────
-
-function BulkFeeModal({ classes, students, activeYear, saveFee, onClose }) {
-  const t = useT();
-  const [classId, setClassId] = useState('');
-  const [amount,  setAmount]  = useState('');
-  const [saving,  setSaving]  = useState(false);
-  const [done,    setDone]    = useState(false);
-
-  const affected = classId ? students.filter((s) => s.class_id === classId) : [];
-
-  const handleApply = async () => {
-    if (!amount || !classId || !affected.length) return;
-    setSaving(true);
-    for (const s of affected) {
-      await saveFee(s.id, { frais_annuels: parseInt(amount, 10), academic_year: activeYear });
-    }
-    setSaving(false);
-    setDone(true);
-  };
-
-  if (done) {
-    return (
-      <Modal title={t('Tarification en masse', 'Bulk Fee Setting')} onClose={onClose} size="sm">
-        <div className="text-center py-6">
-          <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <svg className="w-6 h-6 text-emerald-600" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <p className="text-gray-800 font-semibold">{t('Frais appliqués', 'Fees applied')}</p>
-          <p className="text-gray-500 text-sm mt-1">
-            {affected.length} {t('élèves mis à jour avec', 'students updated with')} {fmt(parseInt(amount, 10))} FCFA.
-          </p>
-          <button onClick={onClose} className="btn-primary mt-4" style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}>
-            {t('Fermer', 'Close')}
-          </button>
-        </div>
-      </Modal>
-    );
-  }
-
-  return (
-    <Modal title={t('Tarification en masse', 'Bulk Fee Setting')} onClose={onClose} size="sm">
-      <div className="space-y-4">
-        <p className="text-sm text-gray-500">
-          {t(
-            "Définir le même montant de frais annuels pour tous les élèves d'une classe. Les paiements déjà enregistrés ne sont pas modifiés.",
-            "Set the same annual fee amount for all students in a class. Existing payments are not affected.",
-            "Definir el mismo importe de cuota anual para todos los alumnos de una clase. Los pagos ya registrados no se modifican."
-          )}
-        </p>
-        <div>
-          <label className="form-label">{t('Classe', 'Class')}</label>
-          <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)}>
-            <option value="">{t('Sélectionner une classe…', 'Select a class…')}</option>
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({students.filter((s) => s.class_id === c.id).length} {t('élèves', 'students')})
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="form-label">{t('Frais annuels (FCFA)', 'Annual fees (FCFA)')}</label>
-          <input
-            type="number" min="0" step="500"
-            className="form-input"
-            placeholder={t('Ex : 150 000', 'E.g. 150,000')}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-        </div>
-        {classId && amount && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-            {t('Appliquera', 'Will apply')} <strong>{fmt(parseInt(amount, 10) || 0)} FCFA</strong> {t('à', 'to')}{' '}
-            <strong>{affected.length} {t(`élève${affected.length !== 1 ? 's' : ''}`, `student${affected.length !== 1 ? 's' : ''}`)}</strong>.
-          </div>
-        )}
-        <div className="flex gap-2 justify-end pt-1">
-          <button onClick={onClose} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
-          <button
-            onClick={handleApply}
-            disabled={saving || !classId || !amount || !affected.length}
-            className="btn-primary"
-            style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}
-          >
-            {saving ? t('Application…', 'Applying…') : `${t('Appliquer', 'Apply')} (${affected.length})`}
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 // ── Panneau de gestion étendu ─────────────────────────────────────────────────
 
-function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDeletePayment, onSaveFee, onClose, onPrintReceipt }) {
+function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeletePayment, onClose, onPrintReceipt, onConfigureGrid }) {
   const t = useT();
+  const money = useMoney();
 
-  const [tab,          setTab]          = useState('versements');
-  const [fraisAnnuels, setFraisAnnuels] = useState(String(fee?.frais_annuels ?? ''));
-  const [savingFrais,  setSavingFrais]  = useState(false);
   const [lastPayment,  setLastPayment]  = useState(null);
+
+  const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
+  const setStudentPaymentMode = useSchoolStore((s) => s.setStudentPaymentMode);
+  const grid = getClassFeeGrid(student.class_id);
+  // Frais d'inscription : ajoutés au total pour un élève nouveau dans l'établissement.
+  const applyInscription = inscriptionApplies(student);
+  const inscription = applyInscription ? (grid?.amount_inscription || 0) : 0;
+  const situation = studentFeeSituation(fee, grid, { applyInscription });
+  const mode = fee?.payment_mode || null;
+
+  // Détection AUTOMATIQUE du mode à partir du montant versé : payer la totalité
+  // du tarif comptant en une fois → comptant (tarif réduit) ; sinon → échelonné.
+  // Le comptable n'a donc aucun mode à choisir : le système décide.
+  const detectMode = (amt) => {
+    const comptant  = grid?.amount_comptant  || 0;
+    const echelonne = grid?.amount_echelonne || 0;
+    if (comptant && !echelonne) return 'comptant';
+    if (echelonne && !comptant) return 'echelonne';
+    if (!comptant && !echelonne) return 'libre';
+    return amt >= comptant ? 'comptant' : 'echelonne';
+  };
 
   // Versements
   const [montant,  setMontant]  = useState('');
@@ -205,30 +112,35 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
   const [saving,   setSaving]   = useState(false);
   const [deleting, setDeleting] = useState(null);
 
-  // Tranches
-  const [tranches,      setTranches]      = useState(fee?.tranches ?? []);
-  const [tLabel,        setTLabel]        = useState('');
-  const [tAmount,       setTAmount]       = useState('');
-  const [tDate,         setTDate]         = useState('');
-  const [savingTranche, setSavingTranche] = useState(false);
-
-  const handleSaveFrais = async () => {
-    setSavingFrais(true);
-    await onSaveFee(student.id, { frais_annuels: parseInt(fraisAnnuels, 10) || 0, academic_year: activeYear });
-    setSavingFrais(false);
-  };
+  const typed = parseInt(montant, 10) || 0;
+  // Total dû : si le mode est déjà figé, on le respecte ; sinon on prévisualise
+  // selon le montant en cours de saisie (le système « décide directement »).
+  const previewMode  = mode || detectMode(typed);
+  const previewTotal = mode
+    ? situation.total
+    : (grid
+        ? (previewMode === 'comptant' ? grid.amount_comptant : grid.amount_echelonne) + inscription
+        : (fee?.frais_annuels || 0) + inscription);
 
   const handleAddPayment = async () => {
     const parsed = parseInt(montant, 10) || 0;
     if (!parsed) return;
     setSaving(true);
+    // Fige le mode au 1er versement selon le montant (si une grille existe et
+    // qu'aucun mode n'a encore été déterminé).
+    let appliedMode = mode;
+    if (!mode && grid) {
+      appliedMode = detectMode(parsed);
+      await setStudentPaymentMode(student.id, appliedMode);
+    }
     const rec = await onAddPayment(student.id, { amount: parsed, date, note });
     setSaving(false);
     if (rec) {
       setLastPayment({
         versement: parsed,
         newTotal: (fee?.frais_payes ?? 0) + parsed,
-        fraisAnnuels: parseInt(fraisAnnuels, 10) || (fee?.frais_annuels ?? 0),
+        fraisAnnuels: previewTotal,
+        mode: appliedMode,
         date,
       });
       setMontant(''); setNote('');
@@ -242,32 +154,6 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
     setLastPayment(null);
   };
 
-  const handleAddTranche = async () => {
-    const parsed = parseInt(tAmount, 10) || 0;
-    if (!parsed) return;
-    const newT = {
-      id:       uuid(),
-      label:    tLabel.trim() || `Tranche ${tranches.length + 1}`,
-      amount:   parsed,
-      due_date: tDate || null,
-    };
-    const updated = [...tranches, newT];
-    setTranches(updated);
-    setTLabel(''); setTAmount(''); setTDate('');
-    setSavingTranche(true);
-    await onSaveFee(student.id, { tranches: updated, academic_year: activeYear });
-    setSavingTranche(false);
-  };
-
-  const handleDeleteTranche = async (id) => {
-    const updated = tranches.filter((t) => t.id !== id);
-    setTranches(updated);
-    await onSaveFee(student.id, { tranches: updated, academic_year: activeYear });
-  };
-
-  const feeForTranches = { ...fee, tranches };
-  const totalTranches  = tranches.reduce((s, t) => s + (t.amount || 0), 0);
-
   return (
     <Modal
       title={<>{t('Gestion des frais', 'Fee management')} — <span className="text-brand-700">{student.name}</span></>}
@@ -276,55 +162,134 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
     >
         <div className="space-y-4">
 
-          {/* Frais annuels */}
-          <div className="flex items-end gap-3 bg-white rounded-xl border border-gray-100 p-3">
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-gray-500 mb-1">{t('Frais annuels (FCFA)', 'Annual fees (FCFA)')}</label>
-              <input
-                type="number" min="0" step="500"
-                className="form-input"
-                placeholder={t('Ex : 150 000', 'E.g. 150,000')}
-                value={fraisAnnuels}
-                onChange={(e) => setFraisAnnuels(e.target.value)}
-              />
+          {/* Résumé : le système détecte le montant dû ; le mode est figé au 1er versement */}
+          <div className="bg-white rounded-xl border border-gray-100 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('Frais de scolarité', 'Tuition fees')}</p>
+              {mode ? (
+                <span className="inline-flex items-center gap-1.5 text-xs">
+                  <span className={`px-2 py-0.5 rounded-full font-semibold ${mode === 'comptant' ? 'bg-emerald-100 text-emerald-700' : mode === 'echelonne' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {t(...MODE_LABEL[mode])}
+                  </span>
+                  {isAdmin && (
+                    <button onClick={() => setStudentPaymentMode(student.id, null)} title={t('Réinitialiser le mode (admin)', 'Reset mode (admin)')}
+                      className="text-gray-300 hover:text-brand-600">↺</button>
+                  )}
+                </span>
+              ) : grid ? (
+                <span className="text-[11px] text-gray-400">{t('Mode déterminé au 1er versement', 'Mode set on first payment')}</span>
+              ) : null}
             </div>
-            <button
-              onClick={handleSaveFrais}
-              disabled={savingFrais}
-              className="btn-secondary"
-              style={{ width: 'auto', paddingLeft: '1rem', paddingRight: '1rem', marginBottom: '0' }}
-            >
-              {savingFrais ? '…' : t('Sauvegarder', 'Save')}
-            </button>
+
+            {/* Frais d'inscription (nouveau dans l'établissement) : rappel visuel */}
+            {inscription > 0 && (
+              <div className="mb-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+                <span className="font-semibold text-amber-700">
+                  🎒 {t("Frais d'inscription", 'Registration fee', 'Matrícula')} ({t('nouveau', 'new', 'nuevo')})
+                </span>
+                <span className="font-bold text-amber-800">+ {money(inscription)}</span>
+              </div>
+            )}
+
+            {/* Tarifs de la grille tant que le mode n'est pas figé */}
+            {!mode && grid && (grid.amount_comptant > 0 || grid.amount_echelonne > 0) && (
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className={`rounded-lg border p-2.5 ${previewMode === 'comptant' && typed > 0 ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200'}`}>
+                  <div className="text-[11px] text-emerald-700 font-semibold">{t('Comptant', 'Lump sum')}</div>
+                  <div className="text-sm font-bold text-gray-900">{money(grid.amount_comptant)}</div>
+                </div>
+                <div className={`rounded-lg border p-2.5 ${previewMode === 'echelonne' && typed > 0 ? 'border-brand-400 bg-brand-50' : 'border-gray-200'}`}>
+                  <div className="text-[11px] text-brand-700 font-semibold">{t('Échelonné', 'Installments')}</div>
+                  <div className="text-sm font-bold text-gray-900">{money(grid.amount_echelonne)}</div>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div>
+                <div className="text-[11px] text-gray-400">{t('Dû', 'Due')}</div>
+                <div className="text-sm font-bold text-gray-900">{money(previewTotal)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-gray-400">{t('Payé', 'Paid')}</div>
+                <div className="text-sm font-bold text-emerald-600">{money(fee?.frais_payes ?? 0)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-gray-400">{t('Reste', 'Balance')}</div>
+                <div className={`text-sm font-bold ${Math.max(0, previewTotal - (fee?.frais_payes ?? 0)) > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                  {money(Math.max(0, previewTotal - (fee?.frais_payes ?? 0)))}
+                </div>
+              </div>
+            </div>
+
+            {mode && (() => {
+              const su = STATUS_UI[situation.status] || STATUS_UI.none;
+              if (situation.status === 'none') return null;
+              return (
+                <div className="mt-3 text-center">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${su.chip}`}>
+                    {su.icon} {t(...su.label)}
+                    {situation.status === 'late' && situation.daysLate > 0 && (
+                      <span className="font-normal">· {situation.daysLate} {t('j de retard', 'days late')}</span>
+                    )}
+                  </span>
+                </div>
+              );
+            })()}
+
+            {/* Échéancier : tranches payées / en cours / restantes (paiement échelonné) */}
+            {situation.tranches.length > 1 && (
+              <div className="mt-3 pt-3 border-t border-gray-50 space-y-1.5">
+                {situation.tranches.map((tr) => {
+                  const ui = TRANCHE_UI[tr.status] || TRANCHE_UI.upcoming;
+                  const isCurrent = situation.current && tr.id === situation.current.id;
+                  return (
+                    <div key={tr.id} className={`flex items-center gap-2.5 text-xs ${isCurrent ? 'bg-brand-50/50 -mx-1.5 px-1.5 py-1 rounded-md' : ''}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ui.dot}`} />
+                      <span className="font-medium text-gray-700 truncate flex-1">
+                        {tr.label}
+                        {isCurrent && <span className="ml-1.5 text-[9px] font-bold text-brand-600 uppercase">{t('attendue', 'expected')}</span>}
+                      </span>
+                      {tr.due_date && (
+                        <span className="text-[10px] text-gray-400 shrink-0">{new Date(tr.due_date).toLocaleDateString(localeForLang())}</span>
+                      )}
+                      <span className="font-mono text-gray-700 shrink-0 w-28 text-right">
+                        {tr.status === 'covered'
+                          ? money.amount(tr.amount)
+                          : `${money.amount(tr.allocated)} / ${money.amount(tr.amount)}`}
+                      </span>
+                      <span className={`text-[10px] font-semibold shrink-0 w-16 text-right ${ui.text}`}>{t(...ui.label)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Aucune grille : inviter à configurer la grille tarifaire de la classe */}
+            {!grid && (
+              <div className="mt-3 pt-3 border-t border-gray-50">
+                <div className="flex items-center justify-between gap-3 bg-brand-50/60 border border-brand-100 rounded-lg px-3 py-2.5">
+                  <p className="text-xs text-brand-800/80">
+                    {t('Cette classe n’a pas encore de grille tarifaire.', 'This class has no fee grid yet.', 'Esta clase aún no tiene tarifa.')}
+                  </p>
+                  {onConfigureGrid && (
+                    <button onClick={() => onConfigureGrid(student.class_id)}
+                      className="shrink-0 text-xs font-semibold text-brand-700 hover:text-brand-800 hover:underline underline-offset-2">
+                      {t('Configurer la grille', 'Configure grid', 'Configurar tarifa')} →
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit text-xs">
-            {[
-              { id: 'versements', label: `${t('Versements', 'Payments')} (${payments.length})` },
-              { id: 'tranches',   label: `${t('Tranches', 'Installments')} (${tranches.length})` },
-            ].map(({ id, label }) => (
-              <button
-                key={id}
-                onClick={() => setTab(id)}
-                className={`px-4 py-1.5 rounded-lg font-semibold transition-colors ${
-                  tab === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* ── Tab Versements ── */}
-          {tab === 'versements' && (
-            <div className="space-y-3">
+          <div className="space-y-3">
               {/* Nouveau versement */}
               <div className="bg-white rounded-xl border border-gray-100 p-4">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('Nouveau versement', 'New payment')}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
                   <div>
-                    <label className="form-label">{t('Montant (FCFA)', 'Amount (FCFA)')}</label>
+                    <label className="form-label">{t('Montant', 'Amount')} ({money.code})</label>
                     <input
                       type="number" min="0" step="500"
                       className="form-input"
@@ -351,10 +316,15 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
                 {montant && (
                   <p className="text-xs text-gray-500 mb-3">
                     {t('Total après ce versement', 'Total after this payment')} :&nbsp;
-                    <strong className="text-gray-800">{fmt((fee?.frais_payes ?? 0) + (parseInt(montant, 10) || 0))} FCFA</strong>
-                    {(parseInt(fraisAnnuels, 10) || fee?.frais_annuels) > 0 && (
+                    <strong className="text-gray-800">{money((fee?.frais_payes ?? 0) + typed)}</strong>
+                    {previewTotal > 0 && (
                       <span className="ml-2 text-gray-400">
-                        ({t('reste', 'balance')} {fmt(Math.max(0, (parseInt(fraisAnnuels, 10) || fee?.frais_annuels || 0) - ((fee?.frais_payes ?? 0) + (parseInt(montant, 10) || 0))))} FCFA)
+                        ({t('reste', 'balance')} {money(Math.max(0, previewTotal - ((fee?.frais_payes ?? 0) + typed)))})
+                      </span>
+                    )}
+                    {!mode && grid && (
+                      <span className="ml-2 text-brand-500 font-medium">
+                        → {t(...MODE_LABEL[previewMode])}
                       </span>
                     )}
                   </p>
@@ -376,7 +346,7 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
                   </svg>
                   <span className="text-sm text-emerald-700 font-medium flex-1">
-                    {t('Versement enregistré', 'Payment saved')} — {fmt(lastPayment.versement)} FCFA
+                    {t('Versement enregistré', 'Payment saved')} — {money(lastPayment.versement)}
                   </span>
                   <button
                     onClick={() => onPrintReceipt(lastPayment)}
@@ -404,7 +374,7 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
                           {new Date(p.date).toLocaleDateString(localeForLang())}
                         </span>
                         <span className="font-mono font-semibold text-emerald-700 text-sm">
-                          + {fmt(p.amount)} FCFA
+                          + {money(p.amount)}
                         </span>
                         {p.note && (
                           <span className="text-xs text-gray-400 flex-1 truncate">{p.note}</span>
@@ -422,7 +392,7 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
                   </div>
                   <div className="px-4 py-2.5 border-t border-gray-50 bg-gray-50/40 text-right">
                     <span className="text-xs text-gray-500">
-                      {t('Total versé', 'Total paid')} : <strong className="text-gray-800">{fmt(fee?.frais_payes ?? 0)} FCFA</strong>
+                      {t('Total versé', 'Total paid')} : <strong className="text-gray-800">{money(fee?.frais_payes ?? 0)}</strong>
                     </span>
                   </div>
                 </div>
@@ -432,285 +402,56 @@ function PaymentPanel({ student, fee, payments, activeYear, onAddPayment, onDele
                 <p className="text-xs text-gray-400 text-center py-2">{t('Aucun versement enregistré.', 'No payments recorded.')}</p>
               )}
             </div>
-          )}
-
-          {/* ── Tab Tranches ── */}
-          {tab === 'tranches' && (
-            <div className="space-y-3">
-              {/* Formulaire ajout */}
-              <div className="bg-white rounded-xl border border-gray-100 p-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('Ajouter une tranche', 'Add installment')}</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-                  <div>
-                    <label className="form-label">{t('Libellé', 'Label')}</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder={t('Ex : 1ère tranche', 'E.g. 1st installment')}
-                      value={tLabel}
-                      onChange={(e) => setTLabel(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="form-label">{t('Montant (FCFA)', 'Amount (FCFA)')}</label>
-                    <input
-                      type="number" min="0" step="500"
-                      className="form-input"
-                      placeholder="0"
-                      value={tAmount}
-                      onChange={(e) => setTAmount(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="form-label">{t('Date d\'échéance', 'Due date')}</label>
-                    <input type="date" className="form-input" value={tDate} onChange={(e) => setTDate(e.target.value)} />
-                  </div>
-                </div>
-                <button
-                  onClick={handleAddTranche}
-                  disabled={savingTranche || !tAmount}
-                  className="btn-secondary"
-                  style={{ width: 'auto', paddingLeft: '1rem', paddingRight: '1rem' }}
-                >
-                  {savingTranche ? '…' : `+ ${t('Ajouter', 'Add')}`}
-                </button>
-              </div>
-
-              {/* Liste tranches */}
-              {tranches.length > 0 && (
-                <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-                  <div className="divide-y divide-gray-50">
-                    {tranches.map((tr) => {
-                      const st  = trancheStatus(tr, feeForTranches);
-                      const cfg = TRANCHE_STATUS_CFG[st];
-                      return (
-                        <div key={tr.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50/50 group">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
-                          <span className={`text-xs font-semibold w-20 shrink-0 ${cfg.text}`}>{cfg.label}</span>
-                          <span className="text-sm font-medium text-gray-800 flex-1">{tr.label}</span>
-                          <span className="font-mono text-sm text-gray-700">{fmt(tr.amount)} FCFA</span>
-                          <span className="text-xs text-gray-400 w-24 text-right shrink-0">
-                            {tr.due_date ? new Date(tr.due_date).toLocaleDateString(localeForLang()) : '—'}
-                          </span>
-                          <button
-                            onClick={() => handleDeleteTranche(tr.id)}
-                            title={t('Supprimer', 'Delete')}
-                            className="opacity-0 group-hover:opacity-100 text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 transition-all"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="px-4 py-2.5 border-t border-gray-50 bg-gray-50/40 flex items-center justify-between">
-                    <span className="text-xs text-gray-400">
-                      {t('Total tranches', 'Total installments')} : <strong className="text-gray-700">{fmt(totalTranches)} FCFA</strong>
-                    </span>
-                    {(fee?.frais_annuels ?? 0) > 0 && totalTranches !== (fee?.frais_annuels ?? 0) && (
-                      <span className="text-xs text-amber-600">
-                        ≠ {fmt(fee.frais_annuels)} FCFA {t('frais annuels', 'annual fees')}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {tranches.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-2">{t('Aucune tranche définie.', 'No installments defined.')}</p>
-              )}
-            </div>
-          )}
 
         </div>
     </Modal>
   );
 }
 
-// ── Reçu de paiement ─────────────────────────────────────────────────────────
-
-function receiptNumber(studentMatricule, date) {
-  const d = (date || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
-  const code = (studentMatricule || 'STU').toUpperCase().replace(/\s/g, '').slice(0, 6);
-  return `${d}-${code}`;
-}
-
-function printReceipt({ school, student, className, versement, newTotal, fraisAnnuels, date, lang }) {
-  const isGE   = resolveCountryCode(school) === 'guinea_eq';
-  const isEn   = !isGE && lang === 'anglophone';
-  const t      = (fr, en, es) => isGE ? (es ?? fr) : isEn ? en : fr;
-  const locale = isGE ? 'es-ES' : isEn ? 'en-GB' : 'fr-FR';
-  const fmtNum = (n) => Number(n || 0).toLocaleString(locale);
-  const reste  = Math.max(0, (fraisAnnuels || 0) - (newTotal || 0));
-  const num    = receiptNumber(student.matricule, date);
-  const dateStr = date
-    ? new Date(date).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
-    : new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
-
-  const logoHtml = school?.logo_url
-    ? `<img src="${school.logo_url}" alt="logo" style="height:60px;width:60px;object-fit:contain;border-radius:6px;">`
-    : `<div style="width:60px;height:60px;background:#e0e7ff;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:#6366f1;">${(school?.name || 'E').charAt(0).toUpperCase()}</div>`;
-
-  const stampHtml = school?.stamp_url
-    ? `<img src="${school.stamp_url}" alt="cachet" style="height:70px;opacity:0.85;">`
-    : '';
-
-  const win = window.open('', '_blank');
-  if (!win) return;
-  win.document.write(`<!DOCTYPE html><html><head>
-<meta charset="UTF-8">
-<title>${t('Reçu', 'Receipt', 'Recibo')} — ${student.name}</title>
-<style>
-  @page { size: A5 portrait; margin: 12mm; }
-  * { box-sizing: border-box; }
-  body { font-family: 'Arial', sans-serif; font-size: 11px; color: #111; margin: 0; padding: 0; background: #fff; }
-
-  /* Receipt card wrapper */
-  .receipt { border: 1.5px solid #333; border-radius: 6px; padding: 0; overflow: hidden; }
-
-  /* School header */
-  .header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 2px solid #111; background: #f8f8f8; }
-  .school-name { font-size: 14px; font-weight: 800; letter-spacing: 0.3px; line-height: 1.2; }
-  .school-meta { font-size: 9px; color: #555; margin-top: 2px; }
-
-  /* Receipt title bar */
-  .title-bar { background: #111; color: #fff; text-align: center; padding: 7px 16px; letter-spacing: 2px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
-  .receipt-num { background: #f0f0f0; text-align: center; padding: 4px; font-size: 9px; color: #555; border-bottom: 1px solid #ddd; }
-
-  /* Body */
-  .body { padding: 14px 16px; }
-
-  .section-title { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #888; margin-bottom: 5px; margin-top: 12px; }
-  .section-title:first-child { margin-top: 0; }
-
-  .info-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dashed #e5e5e5; }
-  .info-row:last-child { border-bottom: none; }
-  .info-label { color: #555; }
-  .info-val { font-weight: 600; text-align: right; }
-
-  /* Amount highlight */
-  .amount-box { background: #f0fdf4; border: 1.5px solid #22c55e; border-radius: 6px; padding: 10px 14px; margin: 12px 0; }
-  .amount-main { font-size: 18px; font-weight: 800; color: #16a34a; }
-  .amount-label { font-size: 9px; color: #555; margin-bottom: 3px; }
-  .amount-currency { font-size: 11px; font-weight: 600; color: #16a34a; }
-
-  /* Balance row */
-  .balance-row { display: flex; gap: 8px; margin-top: 8px; }
-  .balance-cell { flex: 1; border: 1px solid #e5e5e5; border-radius: 4px; padding: 6px 8px; text-align: center; }
-  .balance-cell .bc-label { font-size: 8px; color: #777; }
-  .balance-cell .bc-val { font-size: 12px; font-weight: 700; margin-top: 2px; }
-  .bc-paid { color: #16a34a; }
-  .bc-due  { color: #111; }
-  .bc-rest { color: ${reste === 0 ? '#16a34a' : '#dc2626'}; }
-
-  /* Footer */
-  .footer { display: flex; justify-content: space-between; align-items: flex-end; padding: 10px 16px 14px; border-top: 1px solid #ddd; margin-top: 4px; }
-  .sign-area { text-align: center; }
-  .sign-line { border-top: 1px solid #333; width: 110px; margin: 32px auto 4px; }
-  .sign-label { font-size: 8px; color: #555; }
-  .date-area { font-size: 9px; color: #555; }
-  .date-val  { font-weight: 600; font-size: 10px; color: #111; }
-
-  .notice { font-size: 8px; color: #aaa; text-align: center; padding: 6px 16px; border-top: 1px solid #eee; }
-
-  @media print {
-    body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    .receipt { border: 1.5px solid #333 !important; }
-  }
-</style>
-</head><body>
-<div class="receipt">
-
-  <!-- Header -->
-  <div class="header">
-    ${logoHtml}
-    <div>
-      <div class="school-name">${school?.name || '—'}</div>
-      <div class="school-meta">${school?.type || ''} ${school?.region ? '· ' + school.region : ''}</div>
-      <div class="school-meta">${t('Année scolaire', 'Academic Year', 'Año escolar')} : ${school?.current_year || '—'}</div>
-    </div>
-  </div>
-
-  <!-- Title bar -->
-  <div class="title-bar">${t('Reçu de paiement', 'Payment Receipt', 'Recibo de pago')}</div>
-  <div class="receipt-num">${t('N°', 'No.', 'Nº')} ${num}</div>
-
-  <!-- Body -->
-  <div class="body">
-
-    <!-- Élève -->
-    <div class="section-title">${t('Élève', 'Student', 'Alumno')}</div>
-    <div class="info-row"><span class="info-label">${t('Nom complet', 'Full name', 'Apellidos y nombre')}</span><span class="info-val">${student.name}</span></div>
-    ${student.matricule ? `<div class="info-row"><span class="info-label">${t('Matricule', 'Student ID', 'Matrícula')}</span><span class="info-val" style="font-family:monospace">${student.matricule}</span></div>` : ''}
-    <div class="info-row"><span class="info-label">${t('Classe', 'Class', 'Clase')}</span><span class="info-val">${className}</span></div>
-
-    <!-- Versement -->
-    <div class="amount-box">
-      <div class="amount-label">${t('Montant encaissé ce jour', 'Amount received today', 'Importe recibido hoy')}</div>
-      <div><span class="amount-main">${fmtNum(versement)}</span> <span class="amount-currency">FCFA</span></div>
-    </div>
-
-    <!-- Récap -->
-    <div class="balance-row">
-      <div class="balance-cell">
-        <div class="bc-label">${t('Frais annuels', 'Annual fees', 'Tasas anuales')}</div>
-        <div class="bc-val bc-due">${fmtNum(fraisAnnuels)}</div>
-      </div>
-      <div class="balance-cell">
-        <div class="bc-label">${t('Total versé', 'Total paid', 'Total pagado')}</div>
-        <div class="bc-val bc-paid">${fmtNum(newTotal)}</div>
-      </div>
-      <div class="balance-cell">
-        <div class="bc-label">${t('Solde restant', 'Balance due', 'Saldo pendiente')}</div>
-        <div class="bc-val bc-rest">${fmtNum(reste)}</div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Footer -->
-  <div class="footer">
-    <div class="date-area">
-      <div>${t('Date', 'Date', 'Fecha')}</div>
-      <div class="date-val">${dateStr}</div>
-    </div>
-    <div class="sign-area">
-      ${stampHtml}
-      <div class="sign-line"></div>
-      <div class="sign-label">${t('Le Caissier / La Caissière', 'Cashier', 'El Cajero / La Cajera')}</div>
-    </div>
-  </div>
-
-  <div class="notice">${t('Ce reçu fait foi de paiement. Conservez-le précieusement.', 'This receipt is proof of payment. Keep it carefully.', 'Este recibo justifica el pago. Consérvelo.')}</div>
-
-</div>
-</body></html>`);
-  win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 400);
-}
-
 // ── Page principale ───────────────────────────────────────────────────────────
 
 export default function Fees() {
   const t = useT();
+  const money = useMoney();
   const { f } = usePlan();
-  const { school } = useAuthStore();
+  const { school, role, fullName } = useAuthStore();
+  const isAdmin = role === 'admin';
   const classes      = useSchoolStore((s) => s.classes);
   const students     = useSchoolStore((s) => s.students);
   const fees         = useSchoolStore((s) => s.fees);
+  const classFeeGrids = useSchoolStore((s) => s.classFeeGrids);
   const feePayments  = useSchoolStore((s) => s.feePayments);
-  const saveFee      = useSchoolStore((s) => s.saveFee);
   const addPayment   = useSchoolStore((s) => s.addPayment);
   const deletePayment = useSchoolStore((s) => s.deletePayment);
+  const saveFee      = useSchoolStore((s) => s.saveFee);
 
   const activeYear = school?.current_year || '';
+  const [importMsg, setImportMsg] = useState(null);
+  const fileRef = useRef(null);
 
+  const [mainTab,      setMainTab]      = useState('suivi'); // suivi | echeances | grilles
   const [filterClass,  setFilterClass]  = useState('');
+  const [filterSection, setFilterSection] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [search,       setSearch]       = useState('');
   const [openRow,      setOpenRow]      = useState(null);
   const [page,         setPage]         = useState(1);
-  const [showBulk,     setShowBulk]     = useState(false);
+  const [gridFocusClass, setGridFocusClass] = useState(null); // classe à éditer dans l'onglet Grilles
+
+  // Depuis le panneau d'un élève : aller configurer la grille de sa classe.
+  const goConfigureGrid = (classId) => {
+    setOpenRow(null);
+    setGridFocusClass(classId);
+    setMainTab('grilles');
+  };
+
+  // Ouvre le panneau d'un élève depuis le tableau de bord (peut changer d'onglet).
+  const openStudentPanel = (sid) => {
+    const stu = students.find((s) => s.id === sid);
+    setMainTab('suivi');
+    if (stu?.class_id) setFilterClass(stu.class_id);
+    setOpenRow(sid);
+  };
 
   // Arrivée depuis la fiche d'un élève (/app/fees?student=<id>) :
   // ouvrir directement le panneau de paiement de cet élève.
@@ -733,12 +474,34 @@ export default function Fees() {
     return map;
   }, [fees]);
 
+  // Grille tarifaire applicable par classe (année active) : permet d'afficher le
+  // montant dû dès qu'une grille est définie, AVANT tout versement.
+  const gridMap = useMemo(() => {
+    const map = {};
+    classFeeGrids.forEach((g) => {
+      if (!activeYear || g.academic_year === activeYear) map[g.class_id] = g;
+    });
+    return map;
+  }, [classFeeGrids, activeYear]);
+
+  // Montant dû effectif d'un élève : tarif figé (après 1er versement) sinon, à
+  // défaut, l'échelonné de la grille de classe (estimation tant que le mode
+  // n'est pas déterminé).
+  const effectiveDue = (student, fee) => {
+    const grid = gridMap[student.class_id];
+    // Frais d'inscription en plus pour un nouveau dans l'établissement.
+    const inscription = inscriptionApplies(student) ? (grid?.amount_inscription || 0) : 0;
+    const base = fee?.frais_annuels || grid?.amount_echelonne || grid?.amount_comptant || 0;
+    return base + inscription;
+  };
+
   const classNameById = (id) => classes.find((c) => c.id === id)?.name || '—';
 
   const visible = useMemo(() => {
     setPage(1);
     return students
       .filter((s) => !filterClass  || s.class_id === filterClass)
+      .filter((s) => !filterSection || inSection(classes.find((c) => c.id === s.class_id), filterSection))
       .filter((s) => !search        || s.name.toLowerCase().includes(search.toLowerCase()) || (s.matricule || '').toLowerCase().includes(search.toLowerCase()))
       .filter((s) => {
         if (filterStatus === 'all') return true;
@@ -746,7 +509,7 @@ export default function Fees() {
         return feeStatus(feeMap[s.id]) === filterStatus;
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, filterClass, filterStatus, search, feeMap]);
+  }, [students, filterClass, filterSection, filterStatus, search, feeMap, classes]);
 
   const totalPages = Math.ceil(visible.length / PAGE_SIZE);
   const paginated  = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -754,13 +517,14 @@ export default function Fees() {
   // ── Statistiques globales ──
   const stats = useMemo(() => {
     const all      = students.filter((s) => !filterClass || s.class_id === filterClass);
-    const withFees = all.map((s) => feeMap[s.id]).filter(Boolean);
-    const totalDu   = withFees.reduce((n, f) => n + (f.frais_annuels || 0), 0);
-    const totalPaye = withFees.reduce((n, f) => n + (f.frais_payes   || 0), 0);
-    const countPaid = withFees.filter((f) => feeStatus(f) === 'paid').length;
+    // Dû = tarif figé ou, à défaut, échelonné de la grille de classe.
+    const totalDu   = all.reduce((n, s) => n + effectiveDue(s, feeMap[s.id]), 0);
+    const totalPaye = all.reduce((n, s) => n + (feeMap[s.id]?.frais_payes || 0), 0);
+    const countPaid = all.filter((s) => feeStatus(feeMap[s.id]) === 'paid').length;
     const countUnpaid = all.filter((s) => ['unpaid', 'none'].includes(feeStatus(feeMap[s.id]))).length;
     return { totalDu, totalPaye, countPaid, countUnpaid, effectif: all.length };
-  }, [students, filterClass, feeMap]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, filterClass, feeMap, gridMap]);
 
   const statusLabel = (status) => ({
     paid:    t('Payé intégral', 'Paid in full'),
@@ -776,13 +540,14 @@ export default function Fees() {
         t('Statut', 'Status'), t('Dernière date', 'Last date')],
       ...visible.map((s) => {
         const f = feeMap[s.id];
+        const due = effectiveDue(s, f);
         return [
           s.name,
           s.matricule || '',
           classNameById(s.class_id),
-          f?.frais_annuels ?? '',
+          due || '',
           f?.frais_payes ?? '',
-          f ? Math.max(0, f.frais_annuels - f.frais_payes) : '',
+          due ? Math.max(0, due - (f?.frais_payes || 0)) : '',
           statusLabel(feeStatus(f)),
           f?.date_dernier_paiement || '',
         ];
@@ -790,6 +555,81 @@ export default function Fees() {
     ];
     const suffix = filterClass ? classNameById(filterClass).replace(/\s+/g, '_') : 'tous';
     downloadCSV(`frais_${suffix}_${activeYear.replace('/', '-')}.csv`, rows);
+  };
+
+  // Impression de la liste des frais (fenêtre dédiée).
+  const handlePrint = () => {
+    const scope = filterClass ? classNameById(filterClass) : t('Toutes les classes', 'All classes', 'Todas las clases');
+    const rows = visible.map((s) => {
+      const fe = feeMap[s.id];
+      const due = effectiveDue(s, fe);
+      const reste = due ? Math.max(0, due - (fe?.frais_payes || 0)) : '';
+      return `<tr>
+        <td>${s.name}</td><td>${s.matricule || ''}</td><td>${classNameById(s.class_id)}</td>
+        <td style="text-align:right">${due ? money.amount(due) : '—'}</td>
+        <td style="text-align:right">${fe?.frais_payes ? money.amount(fe.frais_payes) : '—'}</td>
+        <td style="text-align:right">${reste !== '' ? money.amount(reste) : '—'}</td>
+        <td>${statusLabel(feeStatus(fe))}</td></tr>`;
+    }).join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${t('Frais scolaires', 'School Fees')} — ${scope}</title>
+      <style>
+        body{font-family:Arial,sans-serif;color:#111;margin:24px}
+        h1{font-size:18px;margin:0}h2{font-size:13px;color:#666;font-weight:normal;margin:2px 0 16px}
+        table{width:100%;border-collapse:collapse;font-size:12px}
+        th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}
+        thead th{background:#f3f4f6}
+        tfoot td{font-weight:bold;background:#f9fafb}
+        @media print{body{margin:0}}
+      </style></head><body>
+      <h1>${school?.name || ''} — ${t('Frais scolaires', 'School Fees')}</h1>
+      <h2>${scope} · ${activeYear}</h2>
+      <table><thead><tr>
+        <th>${t('Élève', 'Student')}</th><th>${t('Matricule', 'ID')}</th><th>${t('Classe', 'Class')}</th>
+        <th>${t('Frais annuels', 'Annual fees')} (${money.code})</th><th>${t('Payé', 'Paid')}</th><th>${t('Reste', 'Remaining')}</th><th>${t('Statut', 'Status')}</th>
+      </tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="3">${t('Total', 'Total')} (${stats.effectif})</td>
+        <td style="text-align:right">${money.amount(stats.totalDu)}</td>
+        <td style="text-align:right">${money.amount(stats.totalPaye)}</td>
+        <td style="text-align:right">${money.amount(Math.max(0, stats.totalDu - stats.totalPaye))}</td><td></td></tr></tfoot>
+      </table></body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { setImportMsg(t('Autorisez les pop-ups pour imprimer.', 'Allow pop-ups to print.', 'Permita las ventanas emergentes.')); return; }
+    w.document.write(html); w.document.close(); w.focus();
+    setTimeout(() => w.print(), 350);
+  };
+
+  // Import des frais annuels depuis un CSV (colonnes : Matricule/Élève + Frais annuels).
+  const handleImportFile = async (file) => {
+    if (!file) return;
+    setImportMsg(t('Importation…', 'Importing…', 'Importando…'));
+    try {
+      const text  = await file.text();
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length < 2) { setImportMsg(t('Fichier vide.', 'Empty file.', 'Archivo vacío.')); return; }
+      const delim = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ',';
+      const header = lines[0].split(delim).map((h) => h.trim().toLowerCase());
+      const idxMat    = header.findIndex((h) => h.includes('matricule') || h === 'id');
+      const idxName   = header.findIndex((h) => h.includes('élève') || h.includes('eleve') || h.includes('nom') || h.includes('student'));
+      const idxAmount = header.findIndex((h) => h.includes('frais') || h.includes('annuel') || h.includes('montant') || h.includes('fees') || h.includes('amount'));
+      if (idxAmount === -1) { setImportMsg(t('Colonne « Frais annuels » introuvable.', '“Annual fees” column not found.', 'Columna no encontrada.')); return; }
+      const norm = (v) => (v || '').toString().trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const byMat  = new Map(students.filter((s) => s.matricule).map((s) => [norm(s.matricule), s]));
+      const byName = new Map(students.map((s) => [norm(s.name), s]));
+      let ok = 0, skip = 0;
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(delim);
+        const stu = (idxMat >= 0 && byMat.get(norm(cols[idxMat]))) || (idxName >= 0 && byName.get(norm(cols[idxName])));
+        const amount = parseInt(String(cols[idxAmount] || '').replace(/[^\d]/g, ''), 10);
+        if (!stu || isNaN(amount)) { skip++; continue; }
+        await saveFee(stu.id, { frais_annuels: amount, payment_mode: 'libre' });
+        ok++;
+      }
+      setImportMsg(t(`${ok} frais importés${skip ? `, ${skip} ignorés` : ''}.`, `${ok} fees imported${skip ? `, ${skip} skipped` : ''}.`, `${ok} importados.`));
+    } catch (e) {
+      setImportMsg(t('Échec de l’import.', 'Import failed.', 'Error de importación.'));
+    } finally {
+      if (fileRef.current) fileRef.current.value = '';
+    }
   };
 
   if (!f.hasFees) {
@@ -806,40 +646,81 @@ export default function Fees() {
             <h1 className="text-2xl font-bold text-gray-900">{t('Frais scolaires', 'School Fees')}</h1>
             <p className="text-sm text-gray-500 mt-1">{t('Suivi des paiements', 'Payment tracking')} — {activeYear}</p>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={() => setShowBulk(true)} className="btn-secondary">
-              {t('Tarification en masse', 'Bulk Fee Setting')}
-            </button>
-            {visible.length > 0 && (
-              <button onClick={handleExport} className="btn-secondary">
-                {t('Exporter CSV', 'Export CSV')}
-              </button>
-            )}
-          </div>
+          {mainTab === 'suivi' && (
+            <div className="flex gap-2 flex-wrap items-center">
+              {importMsg && <span className="text-xs font-medium text-emerald-600">{importMsg}</span>}
+              {visible.length > 0 && (
+                <>
+                  <button onClick={handleExport} className="btn-secondary">{t('Exporter CSV', 'Export CSV')}</button>
+                  <button onClick={handlePrint} className="btn-secondary">{t('Imprimer', 'Print', 'Imprimir')}</button>
+                </>
+              )}
+              {isAdmin && (
+                <>
+                  <button onClick={() => fileRef.current?.click()} className="btn-secondary">{t('Importer', 'Import', 'Importar')}</button>
+                  <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => handleImportFile(e.target.files?.[0])} />
+                </>
+              )}
+            </div>
+          )}
         </div>
 
+        {/* Onglets principaux */}
+        <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit text-sm">
+          {[
+            { id: 'suivi',     label: t('Suivi des paiements', 'Payment tracking', 'Seguimiento') },
+            { id: 'echeances', label: t('Échéances', 'Schedule', 'Vencimientos') },
+            { id: 'grilles',   label: t('Grilles tarifaires', 'Fee grids', 'Tarifas') },
+          ].map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setMainTab(id)}
+              className={`px-4 py-1.5 rounded-lg font-semibold transition-colors ${
+                mainTab === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Onglet Échéances (tableau de bord) ── */}
+        {mainTab === 'echeances' && (
+          <FeeDashboard
+            students={students.filter((s) => !filterClass || s.class_id === filterClass)}
+            feeMap={feeMap}
+            classNameById={classNameById}
+            onOpenStudent={openStudentPanel}
+          />
+        )}
+
+        {/* ── Onglet Grilles tarifaires ── */}
+        {mainTab === 'grilles' && (
+          <FeeGridsTab
+            classes={classes}
+            students={students}
+            focusClassId={gridFocusClass}
+            onFocusHandled={() => setGridFocusClass(null)}
+          />
+        )}
+
+        {mainTab === 'suivi' && (<>
         {/* Stat cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white rounded-xl border-l-4 border-brand-400 p-5 shadow-sm">
-            <div className="text-xl font-bold text-gray-900">
-              {fmt(stats.totalDu)} <span className="text-xs font-normal text-gray-400">FCFA</span>
-            </div>
+            <div className="text-xl font-bold text-gray-900">{money(stats.totalDu)}</div>
             <div className="text-sm font-semibold text-gray-700 mt-1">{t('Total dû', 'Total due')}</div>
             <div className="text-xs text-gray-400 mt-0.5">{stats.effectif} {t('élèves', 'students')}</div>
           </div>
           <div className="bg-white rounded-xl border-l-4 border-emerald-400 p-5 shadow-sm">
-            <div className="text-xl font-bold text-gray-900">
-              {fmt(stats.totalPaye)} <span className="text-xs font-normal text-gray-400">FCFA</span>
-            </div>
+            <div className="text-xl font-bold text-gray-900">{money(stats.totalPaye)}</div>
             <div className="text-sm font-semibold text-gray-700 mt-1">{t('Total encaissé', 'Total collected')}</div>
             <div className="text-xs text-gray-400 mt-0.5">
               {stats.totalDu > 0 ? `${Math.round((stats.totalPaye / stats.totalDu) * 100)}% ${t('recouvré', 'recovered')}` : '—'}
             </div>
           </div>
           <div className="bg-white rounded-xl border-l-4 border-amber-400 p-5 shadow-sm">
-            <div className="text-xl font-bold text-gray-900">
-              {fmt(Math.max(0, stats.totalDu - stats.totalPaye))} <span className="text-xs font-normal text-gray-400">FCFA</span>
-            </div>
+            <div className="text-xl font-bold text-gray-900">{money(Math.max(0, stats.totalDu - stats.totalPaye))}</div>
             <div className="text-sm font-semibold text-gray-700 mt-1">{t('Restant à percevoir', 'Outstanding balance')}</div>
             {stats.totalDu > 0 && (
               <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -859,13 +740,19 @@ export default function Fees() {
 
         {/* Filtres */}
         <div className="flex flex-wrap gap-3">
+          <SectionFilterSelect
+            classes={classes}
+            value={filterSection}
+            onChange={(v) => { setFilterSection(v); if (filterClass && !inSection(classes.find((c) => c.id === filterClass), v)) setFilterClass(''); setPage(1); }}
+            className="form-input max-w-[180px]"
+          />
           <select
             className="form-input max-w-xs"
             value={filterClass}
             onChange={(e) => { setFilterClass(e.target.value); setPage(1); }}
           >
             <option value="">{t('Toutes les classes', 'All classes')}</option>
-            {classes.map((c) => (
+            {classes.filter((c) => inSection(c, filterSection)).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({students.filter((s) => s.class_id === c.id).length})
               </option>
@@ -893,9 +780,9 @@ export default function Fees() {
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
 
-          {(filterClass || filterStatus !== 'all' || search) && (
+          {(filterClass || filterSection || filterStatus !== 'all' || search) && (
             <button
-              onClick={() => { setFilterClass(''); setFilterStatus('all'); setSearch(''); setPage(1); }}
+              onClick={() => { setFilterClass(''); setFilterSection(''); setFilterStatus('all'); setSearch(''); setPage(1); }}
               className="text-xs text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
             >
               {t('Réinitialiser', 'Reset')}
@@ -933,7 +820,7 @@ export default function Fees() {
                   <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     <th className="px-5 py-3 text-left">{t('Élève', 'Student')}</th>
                     <th className="px-4 py-3 text-left">{t('Classe', 'Class')}</th>
-                    <th className="px-4 py-3 text-right">{t('Dû (FCFA)', 'Due (FCFA)')}</th>
+                    <th className="px-4 py-3 text-right">{t('Dû', 'Due')} ({money.code})</th>
                     <th className="px-4 py-3 text-right">{t('Payé', 'Paid')}</th>
                     <th className="px-4 py-3 text-right">{t('Reste', 'Balance')}</th>
                     <th className="px-4 py-3 text-center">{t('Statut', 'Status')}</th>
@@ -946,7 +833,11 @@ export default function Fees() {
                     const fee    = feeMap[student.id];
                     const status = feeStatus(fee);
                     const cfg    = STATUS_CONFIG[status];
-                    const reste  = fee ? Math.max(0, fee.frais_annuels - fee.frais_payes) : null;
+                    const grid   = gridMap[student.class_id];
+                    // Grille définie mais mode pas encore figé → on prévisualise les deux tarifs.
+                    const showGridPreview = !fee?.frais_annuels && grid && (grid.amount_comptant > 0 || grid.amount_echelonne > 0);
+                    const due    = effectiveDue(student, fee);
+                    const reste  = due > 0 ? Math.max(0, due - (fee?.frais_payes || 0)) : null;
                     const isOpen = openRow === student.id;
                     const color  = avatarColor(student.name);
 
@@ -980,19 +871,43 @@ export default function Fees() {
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">{classNameById(student.class_id)}</td>
                         <td className="px-4 py-3 text-right font-mono text-gray-700">
-                          {fee?.frais_annuels ? fmt(fee.frais_annuels) : <span className="text-gray-300">—</span>}
+                          {fee?.frais_annuels ? (
+                            money.amount(fee.frais_annuels)
+                          ) : showGridPreview ? (
+                            <div className="flex flex-col items-end gap-0.5 leading-tight">
+                              {grid.amount_comptant > 0 && (
+                                <span className="text-xs whitespace-nowrap">
+                                  <span className="text-emerald-600 font-semibold">{money.amount(grid.amount_comptant)}</span>
+                                  <span className="text-gray-400 ml-1 font-sans">{t('comptant', 'lump sum')}</span>
+                                </span>
+                              )}
+                              {grid.amount_echelonne > 0 && (
+                                <span className="text-xs whitespace-nowrap">
+                                  <span className="text-brand-600 font-semibold">{money.amount(grid.amount_echelonne)}</span>
+                                  <span className="text-gray-400 ml-1 font-sans">{t('échelonné', 'installments')}</span>
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                          {inscriptionApplies(student) && grid?.amount_inscription > 0 && (
+                            <div className="text-[10px] text-amber-600 font-sans mt-0.5 whitespace-nowrap">
+                              + {money.amount(grid.amount_inscription)} {t('inscription', 'registration', 'matrícula')}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex flex-col items-end">
                             {fee?.frais_payes
-                              ? <span className="font-mono text-emerald-600 font-semibold">{fmt(fee.frais_payes)}</span>
+                              ? <span className="font-mono text-emerald-600 font-semibold">{money.amount(fee.frais_payes)}</span>
                               : <span className="text-gray-300 font-mono">0</span>}
                             <PayProgress fee={fee} />
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right font-mono">
-                          {reste !== null && fee?.frais_annuels > 0
-                            ? <span className={reste === 0 ? 'text-emerald-600' : 'text-red-500 font-semibold'}>{fmt(reste)}</span>
+                          {reste !== null && !showGridPreview
+                            ? <span className={reste === 0 ? 'text-emerald-600' : 'text-red-500 font-semibold'}>{money.amount(reste)}</span>
                             : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-4 py-3 text-center">
@@ -1078,17 +993,7 @@ export default function Fees() {
             )}
           </div>
         )}
-
-        {/* Modal tarification en masse */}
-        {showBulk && (
-          <BulkFeeModal
-            classes={classes}
-            students={students}
-            activeYear={activeYear}
-            saveFee={saveFee}
-            onClose={() => setShowBulk(false)}
-          />
-        )}
+        </>)}
 
         {/* Modal gestion des frais (élève sélectionné) */}
         {openRow && (() => {
@@ -1101,17 +1006,19 @@ export default function Fees() {
               payments={feePayments
                 .filter((p) => p.student_id === student.id && p.academic_year === activeYear)
                 .sort((a, b) => b.date.localeCompare(a.date))}
-              activeYear={activeYear}
+              isAdmin={isAdmin}
               onAddPayment={addPayment}
               onDeletePayment={deletePayment}
-              onSaveFee={saveFee}
               onClose={() => setOpenRow(null)}
+              onConfigureGrid={isAdmin ? goConfigureGrid : null}
               onPrintReceipt={(payment) =>
                 printReceipt({
                   school,
                   student,
                   className: classNameById(student.class_id),
                   lang: school?.language,
+                  mode: feeMap[student.id]?.payment_mode,
+                  cashierName: fullName,
                   ...payment,
                 })
               }

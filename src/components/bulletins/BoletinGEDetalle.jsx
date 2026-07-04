@@ -7,6 +7,7 @@
 
 import { guineaEq } from '../../countries/guinea_eq';
 import BulletinPhoto from './BulletinPhoto';
+import AssetImg from '../AssetImg';
 import { esGrade, geAnnualDecision } from '../../core/bulletinEngine';
 
 // Agrupación de asignaturas por áreas (etiquetas en español).
@@ -119,7 +120,7 @@ export default function BoletinGEDetalle({
             </td>
             <td style={{ width: '32%', textAlign: 'center', padding: '2px' }}>
               {school?.logo_url && (
-                <img src={school.logo_url} alt="Logotipo" style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', margin: '0 auto 3px' }} />
+                <AssetImg src={school.logo_url} alt="Logotipo" style={{ width: 60, height: 60, objectFit: 'contain', display: 'block', margin: '0 auto 3px' }} />
               )}
               <strong style={{ fontSize: '11px', display: 'block' }}>{(school?.name || 'Centro educativo').toUpperCase()}</strong>
               <span style={{ fontSize: '8.5px' }}>Año escolar : <strong>{school?.current_year || '—'}</strong></span>
@@ -274,11 +275,11 @@ export default function BoletinGEDetalle({
               {(school?.signature_url || school?.stamp_url) && (
                 <div style={{ position: 'relative', height: 66, marginTop: 2 }}>
                   {school?.signature_url && (
-                    <img src={school.signature_url} alt="Firma"
+                    <AssetImg src={school.signature_url} alt="Firma"
                       style={{ height: 46, maxWidth: 130, objectFit: 'contain', position: 'absolute', left: '50%', top: 16, transform: 'translateX(-50%)' }} />
                   )}
                   {school?.stamp_url && (
-                    <img src={school.stamp_url} alt="Sello"
+                    <AssetImg src={school.stamp_url} alt="Sello"
                       style={{ height: 64, width: 64, objectFit: 'contain', position: 'absolute', left: '50%', top: 0, transform: 'translateX(-60%) rotate(-8deg)', opacity: 0.85 }} />
                   )}
                 </div>

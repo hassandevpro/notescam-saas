@@ -3,11 +3,18 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { getAvg } from '../core/bulletinEngine';
-import { downloadCSV, parseGradesCSV } from '../lib/exportCsv';
+import { downloadExcel } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT, localeForLang } from '../lib/i18n';
 import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../lib/lockService';
-import { useCountry, gradingOpts, geGradeMax } from '../lib/useCountry';
+import { useCountry, gradingOpts, geGradeMax, gradeEntryMode } from '../lib/useCountry';
+import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
+import GradeImportPanel from '../components/grades/GradeImportPanel';
+import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
+import ApcCompetenceWorkspace from '../components/grades/ApcCompetenceWorkspace';
+import MatObservationWorkspace from '../components/grades/MatObservationWorkspace';
+import PrimCompetenceWorkspace from '../components/grades/PrimCompetenceWorkspace';
+import { resolveClassEngine, SECTIONS, classSectionKey } from '../core/engineResolver';
 
 const TERMS_EN = [
   { value: 1, label: 'Term 1' },
@@ -21,36 +28,18 @@ const COMP_COLORS  = { A: '#059669', EA: '#d97706', NA: '#dc2626' };
 const CONDUITES       = ['TB', 'B', 'AB', 'P', 'M'];
 const CONDUITE_COLORS = { TB: '#7c3aed', B: '#059669', AB: '#0284c7', P: '#d97706', M: '#dc2626' };
 
-function validateGrade(raw, max) {
-  const v = String(raw).trim().toUpperCase();
-  if (v === '' || v === '-') return '';
-  if (v === 'ABS') return 'ABS';
-  const n = parseFloat(v.replace(',', '.'));
-  if (isNaN(n) || n < 0 || n > max) return null;
-  return String(Math.round(n * 100) / 100);
-}
-
-function gradeColor(val, max, sys) {
-  if (!val || val === '') return 'text-gray-300';
-  if (val === 'ABS') return 'text-gray-400 italic';
-  const n = parseFloat(val);
-  // Seuil de réussite : ES = 5/10, FR = 10/20, EN = 50/100.
-  const pass =
-    sys === 'ES' ? (5 / 10) * max
-    : sys === 'FR' ? (10 / 20) * max
-    : 50;
-  return n >= pass ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold';
-}
+// validateGrade / gradeColor sont désormais partagés via ../lib/gradeEntry.
 
 // ── GradeCell ─────────────────────────────────────────────────────────────────
 function GradeCell({ initialValue, max, sys, onCommit }) {
-  const [local, setLocal] = useState(initialValue ?? '');
-  useEffect(() => { setLocal(initialValue ?? ''); }, [initialValue]);
+  const [local, setLocal] = useState(displayGrade(initialValue));
+  useEffect(() => { setLocal(displayGrade(initialValue)); }, [initialValue]);
 
   const handleBlur = () => {
     const validated = validateGrade(local, max);
-    if (validated === null) { setLocal(initialValue ?? ''); return; }
+    if (validated === null) { setLocal(displayGrade(initialValue)); return; }
     if (validated !== (initialValue ?? '')) onCommit(validated);
+    setLocal(displayGrade(validated)); // normalise l'affichage (virgule)
   };
 
   return (
@@ -154,7 +143,7 @@ function ConduiteCell({ value, onCommit }) {
 }
 
 // ── Ligne élève — une matière ─────────────────────────────────────────────────
-function StudentRowSingle({ index, student, subject, scores, sys, onSave }) {
+function StudentRowSingle({ index, student, subject, scores, sys, onSave, showExtras = true }) {
   const t = useT();
   const score = scores[subject.id] ?? '';
 
@@ -186,15 +175,19 @@ function StudentRowSingle({ index, student, subject, scores, sys, onSave }) {
           onCommit={(val) => onSave(student.id, subject.id, val)}
         />
       </td>
-      <td className="px-2 py-2 text-center">
-        <AbsCell value={scores['__abs_j__']} onCommit={(v) => onSave(student.id, '__abs_j__', v)} />
-      </td>
-      <td className="px-2 py-2 text-center">
-        <AbsCell value={scores['__abs_nj__']} onCommit={(v) => onSave(student.id, '__abs_nj__', v)} />
-      </td>
-      <td className="px-2 py-2 text-center">
-        <ConduiteCell value={scores['__conduite__']} onCommit={(v) => onSave(student.id, '__conduite__', v)} />
-      </td>
+      {showExtras && (
+        <>
+          <td className="px-2 py-2 text-center">
+            <AbsCell value={scores['__abs_j__']} onCommit={(v) => onSave(student.id, '__abs_j__', v)} />
+          </td>
+          <td className="px-2 py-2 text-center">
+            <AbsCell value={scores['__abs_nj__']} onCommit={(v) => onSave(student.id, '__abs_nj__', v)} />
+          </td>
+          <td className="px-2 py-2 text-center">
+            <ConduiteCell value={scores['__conduite__']} onCommit={(v) => onSave(student.id, '__conduite__', v)} />
+          </td>
+        </>
+      )}
     </tr>
   );
 }
@@ -309,151 +302,7 @@ function SubjectStatsBar({ students, subject, gradeMap, classId, sequence, sys }
   );
 }
 
-// ── Panneau d'import CSV ──────────────────────────────────────────────────────
-function GradeImportPanel({ classStudents, classSubjects, classId, sequence, sys, saveGrade, onClose }) {
-  const t = useT();
-  const [preview,   setPreview]   = useState(null);
-  const [importing, setImporting] = useState(false);
-  const [done,      setDone]      = useState(null);
-  const fileRef                   = useRef(null);
-
-  const handleFile = async (file) => {
-    if (!file) return;
-    setPreview(await parseGradesCSV(file));
-    setDone(null);
-  };
-
-  const resolveRows = () => {
-    if (!preview || preview.error) return [];
-    const studentMap = new Map(classStudents.map((s) => [s.name.toLowerCase(), s]));
-    const subjectMap = new Map(classSubjects.map((s) => [s.name.toLowerCase(), s]));
-    return preview.rows.map((row) => {
-      const student = studentMap.get(row.studentName.toLowerCase());
-      const gradeEntries = {};
-      for (const [subName, val] of Object.entries(row.grades)) {
-        const subject = subjectMap.get(subName.toLowerCase());
-        if (!subject) continue;
-        const validated = validateGrade(val, subject.max);
-        if (validated !== null) gradeEntries[subject.id] = validated;
-      }
-      return { student, studentName: row.studentName, gradeEntries };
-    });
-  };
-
-  const resolved  = resolveRows();
-  const matched   = resolved.filter((r) => r.student);
-  const unmatched = resolved.filter((r) => !r.student);
-
-  const displaySubjects = preview
-    ? preview.subjectNames
-        .map((n) => classSubjects.find((s) => s.name.toLowerCase() === n.toLowerCase()))
-        .filter(Boolean)
-    : [];
-
-  const handleImport = async () => {
-    setImporting(true);
-    let imported = 0;
-    for (const { student, gradeEntries } of matched) {
-      if (Object.keys(gradeEntries).length > 0) {
-        await saveGrade(classId, student.id, sequence, gradeEntries);
-        imported++;
-      }
-    }
-    setImporting(false);
-    setDone({ imported, skipped: matched.length - imported + unmatched.length });
-  };
-
-  const resetFile = () => {
-    setPreview(null); setDone(null);
-    if (fileRef.current) fileRef.current.value = '';
-  };
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">{t('Importer des notes depuis CSV', 'Import grades from CSV')}</h2>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
-      </div>
-
-      {!preview && (
-        <div className="text-center py-8">
-          <p className="text-sm text-gray-500 mb-4">
-            {t('Sélectionnez un fichier CSV exporté depuis cette page.', 'Select a CSV file exported from this page.')}<br />
-            <span className="text-xs text-gray-400">{t('Format : Élève, Matière /max, …, Moyenne', 'Format: Student, Subject /max, …, Average')}</span>
-          </p>
-          <button onClick={() => fileRef.current?.click()} className="btn-primary">{t('Choisir un fichier CSV', 'Choose a CSV file')}</button>
-          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
-        </div>
-      )}
-
-      {preview?.error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 mb-4">{preview.error}</div>
-      )}
-
-      {preview && !preview.error && !done && (
-        <>
-          <div className="flex flex-wrap gap-4 mb-4 text-sm">
-            <span className="text-gray-600"><strong className="text-gray-900">{matched.length}</strong> {t('élève(s) reconnu(s)', 'student(s) matched')}</span>
-            {unmatched.length > 0 && <span className="text-amber-600"><strong>{unmatched.length}</strong> {t('non trouvé(s)', 'not found')}</span>}
-            <span className="text-gray-600"><strong className="text-gray-900">{displaySubjects.length}</strong> {t('matière(s) correspondante(s)', 'subject(s) matched')}</span>
-          </div>
-
-          {matched.length > 0 && (
-            <div className="overflow-x-auto mb-4 rounded-lg border border-gray-100">
-              <table className="text-sm w-full border-collapse">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
-                    <th className="text-left px-4 py-2 font-semibold text-gray-600">{t('Élève', 'Student')}</th>
-                    {displaySubjects.map((s) => (
-                      <th key={s.id} className="text-center px-2 py-2 font-semibold text-gray-600 text-xs">{s.name}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {matched.map(({ student, gradeEntries }, i) => (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 font-medium text-gray-900 text-sm">{student.name}</td>
-                      {displaySubjects.map((s) => (
-                        <td key={s.id} className="text-center px-2 py-2 text-sm">
-                          {gradeEntries[s.id] !== undefined
-                            ? <span className={gradeColor(gradeEntries[s.id], s.max, sys)}>{gradeEntries[s.id]}</span>
-                            : <span className="text-gray-300">—</span>}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {unmatched.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-700">
-              {t('Élèves non trouvés', 'Students not found')} : {unmatched.map((r) => r.studentName).join(', ')}
-            </div>
-          )}
-
-          <div className="flex gap-3 flex-wrap">
-            <button onClick={handleImport} disabled={importing || matched.length === 0} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
-              {importing ? t('Importation…', 'Importing…') : `${t('Importer', 'Import')} ${matched.length} ${matched.length > 1 ? t('élèves', 'students') : t('élève', 'student')}`}
-            </button>
-            <button onClick={resetFile} className="btn-secondary">{t('Changer de fichier', 'Change file')}</button>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
-          </div>
-        </>
-      )}
-
-      {done && (
-        <div className="flex flex-col items-center py-6 gap-3 text-center">
-          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-2xl font-bold">✓</div>
-          <p className="text-lg font-semibold text-gray-900">{done.imported} {done.imported > 1 ? t('élèves importés avec succès', 'students imported successfully') : t('élève importé avec succès', 'student imported successfully')}</p>
-          {done.skipped > 0 && <p className="text-sm text-gray-400">{done.skipped} {t('ligne(s) ignorée(s)', 'row(s) skipped')}</p>}
-          <button onClick={onClose} className="btn-primary mt-2">{t('Fermer', 'Close')}</button>
-        </div>
-      )}
-    </div>
-  );
-}
+// GradeImportPanel est désormais un composant partagé : ../components/grades/GradeImportPanel.
 
 // ── Conseil de Classe ─────────────────────────────────────────────────────────
 const HONOR_KEYS = ['__th__', '__encouragement__', '__felicitation__'];
@@ -560,7 +409,270 @@ function ConseillDeClasse({ classStudents, gradeMap, classId, sequence, onSaveMu
 }
 
 // ── Page principale ───────────────────────────────────────────────────────────
+// ── Barre de progression de saisie (X/N · % · restants) ───────────────────────
+function ProgressHeader({ entered, total, label }) {
+  const t = useT();
+  const pct = total ? Math.round((entered / total) * 100) : 0;
+  const remaining = Math.max(0, total - entered);
+  return (
+    <div className="flex items-center gap-3 px-1 py-2">
+      <div className="flex-1">
+        <div className="flex items-center justify-between text-xs mb-1">
+          <span className="font-semibold text-gray-600">{label} — {pct}%</span>
+          <span className="text-gray-400">{entered}/{total} {t('saisis', 'entered', 'capturadas')} · {remaining} {t('restant(s)', 'remaining', 'restantes')}</span>
+        </div>
+        <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : pct > 0 ? 'bg-brand-500' : 'bg-gray-200'}`} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Saisie rapide (clavier d'abord) ───────────────────────────────────────────
+// Entrée / ↓ = élève suivant · ↑ = précédent · Échap = annuler · coller Excel =
+// remplir vers le bas · validation inline · sauvegarde auto. Zéro souris requise.
+function FastGradeEntry({ students, subject, scoresFor, onCommit, max, sys, locked }) {
+  const t = useT();
+  const refs = useRef([]);
+  const [errors, setErrors] = useState(() => new Set());
+  const [savedId, setSavedId] = useState(null);
+
+  const focusRow = (i) => {
+    const el = refs.current[i];
+    if (el) { el.focus(); el.select(); }
+  };
+
+  const commit = (student, el) => {
+    const v = validateGrade(el.value, max);
+    setErrors((prev) => {
+      const n = new Set(prev);
+      if (v === null) n.add(student.id); else n.delete(student.id);
+      return n;
+    });
+    if (v === null) return false;
+    if (v !== (scoresFor(student.id) ?? '')) {
+      onCommit(student.id, v);
+      setSavedId(student.id);
+      setTimeout(() => setSavedId((s) => (s === student.id ? null : s)), 1200);
+    }
+    return true;
+  };
+
+  const onKeyDown = (e, i, student) => {
+    if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); commit(student, e.currentTarget); focusRow(i + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); commit(student, e.currentTarget); focusRow(i - 1); }
+    else if (e.key === 'Escape')  { e.currentTarget.value = displayGrade(scoresFor(student.id)); e.currentTarget.blur(); }
+  };
+
+  // Coller une colonne Excel (valeurs séparées par des retours-ligne) remplit
+  // les élèves consécutifs à partir de la ligne active.
+  const onPaste = (e, startIndex) => {
+    const text = e.clipboardData.getData('text');
+    if (!text || !/[\r\n\t]/.test(text)) return; // une seule valeur → collage normal
+    e.preventDefault();
+    const vals = text.split(/\r?\n/).map((l) => l.split('\t')[0].trim());
+    let last = startIndex;
+    vals.forEach((val, k) => {
+      const stu = students[startIndex + k];
+      if (!stu) return;
+      last = startIndex + k;
+      if (val === '') return;
+      const v = validateGrade(val, max);
+      if (v !== null) {
+        onCommit(stu.id, v);
+        const el = refs.current[startIndex + k];
+        if (el) el.value = displayGrade(v);
+      }
+    });
+    focusRow(Math.min(last + 1, students.length - 1));
+  };
+
+  const jumpToEmpty = () => {
+    const idx = students.findIndex((s) => { const v = scoresFor(s.id); return v === undefined || v === '' || v === null; });
+    focusRow(idx >= 0 ? idx : 0);
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden" style={locked ? { pointerEvents: 'none', opacity: 0.72 } : null} aria-disabled={locked || undefined}>
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50/60">
+        <span className="text-xs font-semibold text-gray-500">{subject.name} · /{max}</span>
+        <button type="button" onClick={jumpToEmpty} className="text-xs font-semibold text-brand-600 hover:text-brand-700">
+          {t('↳ Aller au 1er vide', '↳ Go to first empty', '↳ Ir al 1.º vacío')}
+        </button>
+      </div>
+      <div>
+        {students.map((s, i) => {
+          const hasErr = errors.has(s.id);
+          const val = scoresFor(s.id);
+          const isSaved = savedId === s.id;
+          return (
+            <div key={s.id} className="flex items-center gap-3 px-3 py-1.5 border-b border-gray-50 hover:bg-gray-50/40">
+              <span className="w-6 text-xs text-gray-300 text-right shrink-0">{i + 1}</span>
+              <span className="flex-1 min-w-0 text-sm text-gray-800 truncate">
+                {s.name}
+                {s.matricule && <span className="block text-xs text-gray-400 font-mono leading-none">{s.matricule}</span>}
+              </span>
+              <input
+                ref={(el) => { refs.current[i] = el; }}
+                type="text"
+                inputMode="decimal"
+                defaultValue={displayGrade(val)}
+                onBlur={(e) => commit(s, e.currentTarget)}
+                onKeyDown={(e) => onKeyDown(e, i, s)}
+                onPaste={(e) => onPaste(e, i)}
+                placeholder="—"
+                aria-invalid={hasErr || undefined}
+                className={`w-24 text-center rounded-lg px-2 py-2 text-base font-semibold focus:outline-none focus:ring-2 transition-colors ${
+                  hasErr
+                    ? 'border border-red-400 ring-1 ring-red-300 text-red-600'
+                    : `border border-gray-200 focus:border-brand-500 focus:ring-brand-300 ${gradeColor(val, max, sys)}`
+                }`}
+              />
+              <span className="w-5 shrink-0 text-center">
+                {hasErr ? <span title={t(`Note invalide (0–${max})`, `Invalid (0–${max})`)} className="text-red-500 text-xs">⚠</span>
+                  : isSaved ? <span className="text-emerald-500 text-xs">✓</span>
+                  : null}
+              </span>
+            </div>
+          );
+        })}
+        {students.length === 0 && <p className="text-sm text-gray-400 text-center py-8">{t('Aucun élève.', 'No students.', 'Sin alumnos.')}</p>}
+      </div>
+      <div className="px-3 py-2.5 border-t border-gray-100 text-xs text-gray-400 flex flex-wrap gap-3">
+        <span><strong>{t('Entrée', 'Enter')}</strong> / <strong>↓</strong> {t('suivant', 'next', 'siguiente')}</span>
+        <span><strong>↑</strong> {t('précédent', 'previous', 'anterior')}</span>
+        <span className="hidden sm:inline"><strong>{t('Coller', 'Paste')}</strong> {t('une colonne Excel', 'an Excel column', 'columna de Excel')}</span>
+        <span><strong>ABS</strong> = {t('Absent', 'Absent')}</span>
+        <span>{t('Sauvegarde auto', 'Auto-save', 'Guardado auto')}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Modale Valider & verrouiller (Revue → Confirmation) ───────────────────────
+// Empêche le verrouillage accidentel : revue de complétion + case à cocher.
+function LockReviewModal({ review, periodLabel, className, onConfirm, onClose }) {
+  const t = useT();
+  const [checked, setChecked] = useState(false);
+  const incomplete = review.pct < 100;
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-gray-900">{t('Valider et verrouiller', 'Validate & lock', 'Validar y bloquear')}</h3>
+        <p className="text-sm text-gray-500 mt-1">{className} · {periodLabel}</p>
+
+        <div className="mt-4 rounded-xl border border-gray-100 p-4 bg-gray-50/60">
+          <div className="flex items-center justify-between text-sm mb-1">
+            <span className="font-semibold text-gray-700">{t('Complétion', 'Completion', 'Completitud')}</span>
+            <span className={`font-bold ${review.pct === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>{review.pct}%</span>
+          </div>
+          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mb-2">
+            <div className={`h-full ${review.pct === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${review.pct}%` }} />
+          </div>
+          <p className="text-xs text-gray-500">{review.entered}/{review.totalCells} {t('notes saisies', 'grades entered', 'notas capturadas')}</p>
+          {review.perSubject.length > 0 && (
+            <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+              {review.perSubject.map((p) => (
+                <p key={p.name} className="text-xs text-amber-700">⚠ {p.name} — {p.missing} {t('manquante(s)', 'missing', 'faltan')}</p>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {incomplete && (
+          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+            {t('La saisie est incomplète. Vous pourrez demander un déverrouillage à l\'administrateur en cas d\'erreur.', 'Entry is incomplete. You can ask the admin to unlock if needed.', 'La captura está incompleta. Podrá pedir el desbloqueo al administrador.')}
+          </div>
+        )}
+
+        <label className="flex items-center gap-2 mt-4 text-sm text-gray-700 cursor-pointer">
+          <input type="checkbox" className="w-4 h-4 accent-brand-600" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+          {t("J'ai vérifié les notes de cette séquence.", 'I have reviewed the grades for this period.', 'He revisado las notas.')}
+        </label>
+
+        <div className="flex gap-3 mt-5">
+          <button onClick={onConfirm} disabled={!checked}
+            className="btn-primary disabled:opacity-40" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+            🔒 {t('Verrouiller', 'Lock', 'Bloquear')}
+          </button>
+          <button onClick={onClose} className="btn-secondary" style={{ width: 'auto' }}>{t('Annuler', 'Cancel', 'Cancelar')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Aiguillage : en mode « enseignant de matière », l'enseignant bascule sur le
+// poste dédié (plein écran focalisé). Tout le reste — admin, censeur, et mode
+// « enseignant principal » (titulaire) — utilise l'écran historique inchangé.
+// Le branchement est fait AVANT les hooks lourds de PrincipalGrades (règles des
+// hooks respectées : le composant lourd n'est monté que pour la vue historique).
 export default function Grades() {
+  const role   = useAuthStore((s) => s.role);
+  const school = useAuthStore((s) => s.school);
+  const engine = school?.bulletin_engine;
+  const classes  = useSchoolStore((s) => s.classes);
+  const classId  = useUiStore((s) => s.gradesClassId);
+
+  // Moteur APC seul (premier cycle) : saisie par compétences, remplace l'écran classique.
+  if (engine === 'apc_minesec') {
+    return <Layout bleed><ApcCompetenceWorkspace /></Layout>;
+  }
+
+  // 'minesec' : les deux moteurs coexistent dans le même établissement (APC en
+  // 6e–3e, second cycle MINESEC en 2nde–Tle qui réutilise l'écran classique).
+  // Le moteur est déduit AUTOMATIQUEMENT du niveau de la classe sélectionnée
+  // (partagée via uiStore) : aucun bascule manuel « premier / second cycle ».
+  if (engine === 'minesec') {
+    const selectedClass = classes.find((c) => c.id === classId) || null;
+    // Tant qu'aucune classe n'est choisie, on part de l'écran classique (qui
+    // porte le sélecteur de classe) ; il basculera seul dès qu'une classe 6e–3e
+    // sera choisie. Idem dans l'autre sens depuis le sélecteur APC.
+    const classEngine = resolveClassEngine(school, selectedClass);
+    return classEngine === 'apc'
+      ? <Layout bleed><ApcCompetenceWorkspace /></Layout>
+      : <PrincipalGrades />;
+  }
+
+  // Moteurs FONDAMENTAL MINEDUB : maternelle (PS/MS/GS → domaines A/ECA/NA) et
+  // primaire APC (SIL–CM2 → compétences × critères /10). Résolus PAR CLASSE ; tant
+  // qu'aucune classe fondamentale n'est choisie, l'écran classique (avec sélecteur)
+  // sert de point d'entrée et bascule seul.
+  if (engine === 'minedub' || engine === 'maternelle' || engine === 'apc_primaire') {
+    const selectedClass = classes.find((c) => c.id === classId) || null;
+    const classEngine = resolveClassEngine(school, selectedClass);
+    if (classEngine === 'maternelle')   return <Layout bleed><MatObservationWorkspace /></Layout>;
+    if (classEngine === 'apc_primaire') return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
+    // Enseignant en Mode 1 sans classe fondamentale encore résolue : le workspace
+    // primaire auto-sélectionne ses classes affectées (compétences).
+    if (role === 'teacher' && gradeEntryMode(school) === 'subject') {
+      return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
+    }
+    return <PrincipalGrades />;
+  }
+
+  // Mode UNIFIÉ 'officiel' : tous les cycles coexistent. Le poste de saisie est
+  // choisi selon le moteur résolu de la classe (maternelle → domaines, primaire →
+  // compétences, collège → APC ; lycée & classique → écran classique avec sélecteur
+  // section+classe). Tant qu'aucune classe fondamentale/APC n'est résolue, on tombe
+  // sur l'écran classique (ou le poste enseignant de matière) ci-dessous.
+  if (engine === 'officiel') {
+    const selectedClass = classes.find((c) => c.id === classId) || null;
+    const classEngine = resolveClassEngine(school, selectedClass);
+    if (classEngine === 'maternelle')   return <Layout bleed><MatObservationWorkspace /></Layout>;
+    if (classEngine === 'apc_primaire') return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
+    if (classEngine === 'apc')          return <Layout bleed><ApcCompetenceWorkspace /></Layout>;
+    // 'sc' (lycée) et 'classic' : saisie numérique classique — voir tail commun.
+  }
+
+  if (role === 'teacher' && gradeEntryMode(school) === 'subject') {
+    return <Layout bleed><SubjectTeacherWorkspace /></Layout>;
+  }
+  return <PrincipalGrades />;
+}
+
+function PrincipalGrades() {
   const t = useT();
   const classes   = useSchoolStore((s) => s.classes);
   const subjects  = useSchoolStore((s) => s.subjects);
@@ -570,11 +682,16 @@ export default function Grades() {
 
   const role           = useAuthStore((s) => s.role);
   const myClassId      = useAuthStore((s) => s.classId);
+  const teacherId      = useAuthStore((s) => s.teacherId);
   const school         = useAuthStore((s) => s.school);
   const schoolLanguage = school?.language || 'francophone';
   const isTeacher = role === 'teacher';
   const country   = useCountry();
   const isGE      = country.code === 'guinea_eq';
+  // Mode 1 « enseignant de matière » : l'enseignant ne saisit QUE ses matières.
+  // En mode 'principal' (défaut), `isSubjectTeacher` reste false → comportement
+  // historique strictement inchangé.
+  const isSubjectTeacher = isTeacher && gradeEntryMode(school) === 'subject';
 
   const SEQUENCES = [
     { value: 1, label: t('Séquence 1', 'Sequence 1'), term: t('Trimestre 1', 'Quarter 1') },
@@ -606,18 +723,51 @@ export default function Grades() {
   const setSubjectId  = useUiStore((s) => s.setGradesSubjectId);
 
   const [showImport,    setShowImport]    = useState(false);
+  const [sectionFilter, setSectionFilter] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
   const [gradePage,     setGradePage]     = useState(1);
+  const [entryMode,     setEntryMode]     = useState(() => {
+    try { return localStorage.getItem('nc_grades_mode') || 'fast'; } catch { return 'fast'; }
+  });
+  const [showLockModal, setShowLockModal] = useState(false);
+  const chooseMode = (m) => { setEntryMode(m); try { localStorage.setItem('nc_grades_mode', m); } catch {} };
 
   const GRADE_PAGE_SIZE = 20;
 
+  // Mode 1 : classes où l'enseignant a au moins une matière affectée (sert au
+  // sélecteur de classe de la vue enseignant — il peut en avoir plusieurs).
+  const teacherClasses = useMemo(() => {
+    if (!isSubjectTeacher) return classes;
+    const ids = new Set(subjects.filter((s) => s.teacher_id === teacherId).map((s) => s.class_id));
+    return classes.filter((c) => ids.has(c.id));
+  }, [isSubjectTeacher, classes, subjects, teacherId]);
+
   useEffect(() => {
     if (!isTeacher) return;
-    const target = myClassId || classes[0]?.id;
+    // Mode 1 : l'enseignant n'a pas forcément de classe titulaire → on part de
+    // la première classe où il a une matière affectée.
+    const target = isSubjectTeacher ? teacherClasses[0]?.id : (myClassId || classes[0]?.id);
     if (target && !classId) setClassId(target);
-  }, [isTeacher, myClassId, classes, classId]);
+  }, [isTeacher, isSubjectTeacher, teacherClasses, myClassId, classes, classId]);
 
   const selectedClass = classes.find((c) => c.id === classId) || null;
+
+  // ── Filtre par SECTION (raccourcit le sélecteur de classe côté admin) ────────
+  // On ne propose que les sections réellement présentes ; une école mono-section
+  // n'a pas à choisir (auto-sélection). La section peut aussi être déduite de la
+  // classe déjà sélectionnée (persistée), pour rester cohérent au rechargement.
+  const availableSections = useMemo(() => {
+    const present = new Set(classes.map(classSectionKey));
+    return SECTIONS.filter((s) => present.has(s.key));
+  }, [classes]);
+  const effectiveSection = sectionFilter
+    || (selectedClass ? classSectionKey(selectedClass) : '')
+    || (availableSections.length === 1 ? availableSections[0].key : '');
+  const visibleClasses = useMemo(
+    () => (effectiveSection ? classes.filter((c) => classSectionKey(c) === effectiveSection) : []),
+    [classes, effectiveSection],
+  );
+
   const cycle         = selectedClass?.cycle || 'secondaire';
   const isMaternelle  = cycle === 'maternelle';
   const isPrimaire    = cycle === 'primaire';
@@ -633,10 +783,17 @@ export default function Grades() {
     : isEN ? TERMS_EN
     : SEQUENCES;
 
-  const classSubjects = useMemo(() =>
-    subjects.filter((s) => s.class_id === classId).sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name)),
-    [subjects, classId]
-  );
+  const classSubjects = useMemo(() => {
+    let list = subjects.filter((s) => s.class_id === classId);
+    // Mode 1 : on ne montre que les matières affectées à cet enseignant.
+    if (isSubjectTeacher) list = list.filter((s) => s.teacher_id === teacherId);
+    // Matières composites : on saisit les sous-composantes (feuilles), jamais la
+    // matière parente (sa note est calculée). On retire donc les parents.
+    const parentIds = new Set(list.filter((s) => s.parent_id).map((s) => s.parent_id));
+    list = list.filter((s) => !parentIds.has(s.id));
+    return list.sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name));
+  }, [subjects, classId, isSubjectTeacher, teacherId]);
+
   const classStudents = useMemo(() =>
     students.filter((s) => s.class_id === classId).sort((a, b) => a.name.localeCompare(b.name)),
     [students, classId]
@@ -670,15 +827,20 @@ export default function Grades() {
   const lockInfo = classId && schoolId
     ? getLockInfo(schoolId, 'seq', classId, sequence)
     : null;
-  const toggleLock = async () => {
+  // Verrouillage sécurisé : la pose passe par une revue (LockReviewModal) pour
+  // éviter tout verrouillage accidentel ; le déverrouillage reste un confirm simple.
+  const requestLock = () => {
     if (!schoolId || !classId) return;
     if (locked) {
       if (!window.confirm(t('Déverrouiller la saisie de cette séquence ?', 'Unlock entry for this sequence?', '¿Desbloquear la captura?'))) return;
-      await unlockSequence(schoolId, classId, sequence);
+      unlockSequence(schoolId, classId, sequence).then(() => _setLockTick((n) => n + 1));
     } else {
-      if (!window.confirm(t('Valider et verrouiller les notes ? Aucune modification ne sera possible ensuite (sauf déverrouillage admin).', 'Validate and lock the grades? No further edits allowed (admin can unlock).', '¿Validar y bloquear las notas?'))) return;
-      await lockSequence(schoolId, classId, sequence, useAuthStore.getState().fullName);
+      setShowLockModal(true);
     }
+  };
+  const confirmLock = async () => {
+    await lockSequence(schoolId, classId, sequence, useAuthStore.getState().fullName);
+    setShowLockModal(false);
     _setLockTick((n) => n + 1);
   };
 
@@ -706,13 +868,20 @@ export default function Grades() {
 
   const handleSave = useCallback(async (studentId, fieldId, value) => {
     if (locked) return; // sécurité réseau : la séquence est verrouillée
+    // Mode 1 — garde-fou : un enseignant de matière ne peut écrire QUE ses
+    // matières (jamais conduite/absences/conseil ni une matière non affectée).
+    // `classSubjects` est déjà restreint à ses matières en mode 'subject'.
+    if (isSubjectTeacher && !classSubjects.some((s) => s.id === fieldId)) return;
     await saveGrade(classId, studentId, sequence, { [fieldId]: value });
-  }, [classId, sequence, saveGrade, locked]);
+  }, [classId, sequence, saveGrade, locked, isSubjectTeacher, classSubjects]);
 
   const handleSaveMultiple = useCallback(async (studentId, fields) => {
     if (locked) return;
+    // Mode 1 : les champs « multiples » sont conseil/conduite — hors périmètre
+    // de l'enseignant de matière.
+    if (isSubjectTeacher) return;
     await saveGrade(classId, studentId, sequence, fields);
-  }, [classId, sequence, saveGrade, locked]);
+  }, [classId, sequence, saveGrade, locked, isSubjectTeacher]);
 
   const getScores = (studentId) => gradeMap[`${classId}_${studentId}_${sequence}`] || {};
 
@@ -734,6 +903,34 @@ export default function Grades() {
       : null;
   }, [classStudents, gradeMap, classId, sequence, currentSubject]);
 
+  // Progression de la matière courante (saisis / total) — barre + restants.
+  const subjectProgress = useMemo(() => {
+    if (!currentSubject) return { entered: 0, total: 0 };
+    let entered = 0;
+    classStudents.forEach((s) => {
+      const v = (gradeMap[`${classId}_${s.id}_${sequence}`] || {})[currentSubject.id];
+      if (v !== undefined && v !== '' && v !== null) entered++;
+    });
+    return { entered, total: classStudents.length };
+  }, [classStudents, gradeMap, classId, sequence, currentSubject]);
+
+  // Revue de complétion (toutes matières) pour la modale de verrouillage.
+  const lockReview = useMemo(() => {
+    const studs = classStudents, subs = classSubjects;
+    const totalCells = subs.length * studs.length;
+    let entered = 0;
+    const perSubject = subs.map((sub) => {
+      let e = 0;
+      studs.forEach((s) => {
+        const v = (gradeMap[`${classId}_${s.id}_${sequence}`] || {})[sub.id];
+        if (v !== undefined && v !== '' && v !== null) e++;
+      });
+      entered += e;
+      return { name: sub.name, missing: studs.length - e };
+    });
+    return { entered, totalCells, pct: totalCells ? Math.round((entered / totalCells) * 100) : 0, perSubject: perSubject.filter((p) => p.missing > 0) };
+  }, [classSubjects, classStudents, gradeMap, classId, sequence]);
+
   const handleExport = () => {
     if (!classId || !classStudents.length || !classSubjects.length || isMaternelle) return;
     const seqLabel = periods.find((s) => s.value === sequence)?.label || `Seq${sequence}`;
@@ -743,10 +940,11 @@ export default function Grades() {
       ...classStudents.map((student) => {
         const scores = getScores(student.id);
         const avg    = getAvg(scores, classSubjects, sys, gOpts);
-        return [student.name, ...classSubjects.map((sub) => scores[sub.id] ?? ''), avg != null ? avg.toFixed(2) : ''];
+        // Nombres réels → Excel les trie/calcule et affiche la virgule selon la locale.
+        return [student.name, ...classSubjects.map((sub) => gradeCell(scores[sub.id])), avg != null ? Math.round(avg * 100) / 100 : ''];
       }),
     ];
-    downloadCSV(`notes_${selectedClass?.name || 'classe'}_${seqLabel}_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    downloadExcel(`notes_${selectedClass?.name || 'classe'}_${seqLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`, rows, seqLabel);
   };
 
   const selectSubject = (id) => { setSubjectId(id); setStudentSearch(''); setGradePage(1); };
@@ -792,7 +990,7 @@ export default function Grades() {
               {classId && classStudents.length > 0 && classSubjects.length > 0 && !isMaternelle && (
                 <div className="flex flex-wrap gap-2 no-print">
                   <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer CSV', 'Import CSV')}</button>
-                  <button onClick={handleExport} className="btn-secondary">{t('Exporter CSV', 'Export CSV')}</button>
+                  <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
                 </div>
               )}
             </div>
@@ -806,6 +1004,19 @@ export default function Grades() {
 
             {classId && (
               <div className="flex flex-wrap gap-3 mb-6">
+                {/* Mode 1 : l'enseignant de matière peut intervenir dans plusieurs
+                    classes → sélecteur. En mode 'principal' (1 classe titulaire),
+                    le sélecteur est masqué (comportement historique). */}
+                {isSubjectTeacher && teacherClasses.length > 1 && (
+                  <div className="w-full sm:flex-1 sm:max-w-xs">
+                    <label className="form-label">{t('Classe', 'Class')}</label>
+                    <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)}>
+                      {teacherClasses.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="w-full sm:flex-1 sm:max-w-xs">
                   <label className="form-label">{periodLabel}</label>
                   <select className="form-input" value={sequence} onChange={(e) => setSequence(Number(e.target.value))}>
@@ -832,17 +1043,45 @@ export default function Grades() {
               {classId && classStudents.length > 0 && classSubjects.length > 0 && !isMaternelle && (
                 <div className="flex flex-wrap gap-2 no-print">
                   <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer CSV', 'Import CSV')}</button>
-                  <button onClick={handleExport} className="btn-secondary">{t('Exporter CSV', 'Export CSV')}</button>
+                  <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
                 </div>
               )}
             </div>
 
             <div className="flex flex-wrap gap-3 mb-6">
+              {availableSections.length > 1 && (
+                <div className="w-full sm:flex-1 sm:max-w-xs">
+                  <label className="form-label">{t('Section', 'Section')}</label>
+                  <select
+                    className="form-input"
+                    value={effectiveSection}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setSectionFilter(v);
+                      // La classe sélectionnée change de section → on la réinitialise.
+                      if (selectedClass && classSectionKey(selectedClass) !== v) setClassId('');
+                    }}
+                  >
+                    <option value="">{t('Choisir une section…', 'Choose a section…')}</option>
+                    {availableSections.map((s) => (
+                      <option key={s.key} value={s.key}>{t(s.fr, s.en, s.es)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="w-full sm:flex-1 sm:max-w-xs">
                 <label className="form-label">{t('Classe', 'Class')}</label>
-                <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)}>
-                  <option value="">{t('Choisir une classe…', 'Choose a class…')}</option>
-                  {classes.map((c) => (
+                <select
+                  className="form-input"
+                  value={classId}
+                  onChange={(e) => setClassId(e.target.value)}
+                  disabled={!effectiveSection}
+                >
+                  <option value="">
+                    {effectiveSection ? t('Choisir une classe…', 'Choose a class…') : t('Choisissez d’abord une section', 'Choose a section first')}
+                  </option>
+                  {visibleClasses.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}{schoolLanguage === 'bilingue' && !isGE ? ` [${c.system === 'EN' ? 'EN /100' : 'FR /20'}]` : ''}
                     </option>
@@ -891,7 +1130,7 @@ export default function Grades() {
               `Cette classe n'a pas encore de ${isMaternelle ? 'domaines de compétences' : 'matières'} configurés.`,
               `This class has no ${isMaternelle ? 'competency domains' : 'subjects'} configured yet.`,
             )}{' '}
-            <a href="/app/subjects" className="font-semibold underline">
+            <a href="/app/classes" className="font-semibold underline">
               {t(isMaternelle ? 'Ajouter des domaines' : 'Ajouter des matières', isMaternelle ? 'Add domains' : 'Add subjects')}
             </a>
           </div>
@@ -939,7 +1178,7 @@ export default function Grades() {
               </div>
             </div>
             {!isTeacher && (
-              <button onClick={toggleLock} className={`text-sm px-3 py-1.5 rounded-lg font-semibold ${
+              <button onClick={requestLock} className={`text-sm px-3 py-1.5 rounded-lg font-semibold ${
                 locked ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-amber-600 text-white hover:bg-amber-700'
               }`}>
                 {locked
@@ -948,6 +1187,16 @@ export default function Grades() {
               </button>
             )}
           </div>
+        )}
+
+        {showLockModal && (
+          <LockReviewModal
+            review={lockReview}
+            periodLabel={`${periodLabel} ${sequence}`}
+            className={selectedClass?.name || ''}
+            onConfirm={confirmLock}
+            onClose={() => setShowLockModal(false)}
+          />
         )}
 
         {/* ── Contenu principal ─────────────────────────────────────────────── */}
@@ -976,7 +1225,36 @@ export default function Grades() {
               />
             )}
 
-            {/* Tableau — verrou physique des inputs quand séquence verrouillée */}
+            {/* Bascule Saisie rapide / Tableau + progression (matières numériques) */}
+            {!isMaternelle && (
+              <div className="flex flex-wrap items-center gap-3 mb-2">
+                <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold shrink-0">
+                  {[['fast', t('Saisie rapide', 'Fast entry', 'Captura rápida')], ['table', t('Tableau', 'Table', 'Tabla')]].map(([m, label]) => (
+                    <button key={m} onClick={() => chooseMode(m)}
+                      className={`px-3 py-1.5 transition-colors ${entryMode === m ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <ProgressHeader entered={subjectProgress.entered} total={subjectProgress.total} label={currentSubject.name} />
+                </div>
+              </div>
+            )}
+
+            {/* Saisie rapide (clavier d'abord) — matières numériques uniquement */}
+            {entryMode === 'fast' && !isMaternelle ? (
+              <FastGradeEntry
+                students={filteredStudents}
+                subject={currentSubject}
+                scoresFor={(id) => getScores(id)[currentSubject.id]}
+                onCommit={(id, v) => handleSave(id, currentSubject.id, v)}
+                max={currentSubject.max}
+                sys={sys}
+                locked={locked}
+              />
+            ) : (
+            /* Tableau — verrou physique des inputs quand séquence verrouillée */
             <div
               className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
               style={locked ? { pointerEvents: 'none', opacity: 0.72 } : null}
@@ -1031,7 +1309,7 @@ export default function Grades() {
                           </div>
                         )}
                       </th>
-                      {!isMaternelle && (
+                      {!isMaternelle && !isSubjectTeacher && (
                         <>
                           <th className="px-2 py-3 text-center font-semibold text-gray-600 min-w-[52px]">
                             <div className="text-xs leading-tight">Abs.</div>
@@ -1069,6 +1347,7 @@ export default function Grades() {
                           scores={getScores(student.id)}
                           sys={sys}
                           onSave={handleSave}
+                          showExtras={!isSubjectTeacher}
                         />
                       )
                     ))}
@@ -1089,7 +1368,7 @@ export default function Grades() {
                             {subjectClassAvg}/{currentSubject.max}
                           </span>
                         </td>
-                        <td colSpan={3} />
+                        {!isSubjectTeacher && <td colSpan={3} />}
                       </tr>
                     </tfoot>
                   )}
@@ -1135,10 +1414,13 @@ export default function Grades() {
                 )}
               </div>
             </div>
+            )}
 
             {/* Conseil de classe = tableau d'honneur / blâmes (concepts camerounais).
-                Masqué pour la Guinée Équatoriale, qui n'utilise pas ce dispositif. */}
-            {!isMaternelle && !isGE && (
+                Masqué pour la Guinée Équatoriale, qui n'utilise pas ce dispositif.
+                Masqué aussi pour l'enseignant de matière (Mode 1) : domaine du
+                titulaire / de l'administration. */}
+            {!isMaternelle && !isGE && !isSubjectTeacher && (
               <ConseillDeClasse
                 classStudents={classStudents}
                 gradeMap={gradeMap}

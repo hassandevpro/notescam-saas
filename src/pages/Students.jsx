@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate } from '../lib/exportCsv';
+import { officialHeaderHtml, officialSignatureHtml } from '../lib/officialDocHeader';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
 import Layout from '../components/Layout';
@@ -15,6 +16,7 @@ const IdCardModal = lazy(() => import('../components/IdCardModal'));
 import { useT, getLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import { resolveCountryCode } from '../countries';
+import { classSectionKey, SECTIONS } from '../core/engineResolver';
 import { useUiStore } from '../store/uiStore';
 
 // Locale d'affichage des dates selon la langue UI courante.
@@ -34,6 +36,11 @@ function calcAge(dob) {
 // ── Formulaire élève (tous champs) ───────────────────────────────────────────
 // Les libellés sont des chaînes FR canoniques qui passent par t() à l'affichage,
 // donc auto-traduites EN/ES via i18n_es.js.
+// Deux dimensions INDÉPENDANTES du statut de l'élève :
+//  • statut_etablissement (nouveau/ancien dans l'école) → pilote les frais
+//    d'inscription (cf. inscriptionApplies) ;
+//  • statut (dans la classe : nouveau/redoublant/transféré) → purement informatif.
+// Un élève peut donc être « nouveau dans l'établissement » ET « redoublant ».
 const STATUTS = [
   { value: '',           label: '—',          color: '' },
   { value: 'nouveau',    label: 'Nouveau',     color: 'bg-emerald-100 text-emerald-700' },
@@ -41,12 +48,28 @@ const STATUTS = [
   { value: 'transfere',  label: 'Transféré',   color: 'bg-blue-100 text-blue-700' },
 ];
 
+const STATUTS_ETAB = [
+  { value: '',        label: '—',                            color: '' },
+  { value: 'nouveau', label: "Nouveau dans l'établissement", color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'ancien',  label: "Ancien dans l'établissement",  color: 'bg-slate-100 text-slate-600' },
+];
+
 const EMPTY_FORM = {
   name: '', matricule: '', gender: '', date_naissance: '', lieu_naissance: '',
   adresse: '', parent_phone: '', contact_urgence: '',
   nom_pere: '', profession_pere: '', nom_mere: '', profession_mere: '',
-  tuteur: '', class_id: '', statut: '',
+  tuteur: '', class_id: '', statut: '', statut_etablissement: '',
 };
+
+// Score de complétude du dossier élève (matricule, classe, sexe, naissance,
+// photo, contact parent). Renvoie pct + statut vert/orange/rouge.
+function studentCompleteness(s) {
+  const fields = [s.matricule, s.class_id, s.gender, s.date_naissance, s.photo_url, s.parent_phone];
+  const filled = fields.filter(Boolean).length;
+  const pct = Math.round((filled / fields.length) * 100);
+  const status = (!s.class_id || pct < 50) ? 'red' : pct < 100 ? 'yellow' : 'green';
+  return { pct, status };
+}
 
 function StudentForm({ initial, classes, onSave, onCancel }) {
   const t = useT();
@@ -60,6 +83,29 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
   const [saving, setSaving] = useState(false);
   const set = (f) => (e) => setForm((prev) => ({ ...prev, [f]: e.target.value }));
+
+  // Filtre en cascade : on choisit d'abord une SECTION (maternelle / primaire /
+  // 1er cycle / 2nd cycle), puis seules les classes de cette section sont proposées.
+  // La section n'apparaît que si l'établissement en compte au moins deux.
+  const availableSections = useMemo(() => {
+    const present = new Set((classes || []).map(classSectionKey));
+    return SECTIONS.filter((s) => present.has(s.key));
+  }, [classes]);
+  const [section, setSection] = useState(
+    initial?.class_id ? classSectionKey((classes || []).find((c) => c.id === initial.class_id) || null) : ''
+  );
+  const classOptions = useMemo(
+    () => (classes || []).filter((c) => !section || classSectionKey(c) === section),
+    [classes, section]
+  );
+  const onSectionChange = (e) => {
+    const val = e.target.value;
+    setSection(val);
+    // Réinitialise la classe si elle n'appartient plus à la section choisie.
+    if (val && form.class_id && classSectionKey((classes || []).find((c) => c.id === form.class_id) || null) !== val) {
+      setForm((prev) => ({ ...prev, class_id: '' }));
+    }
+  };
 
   // Photo : `photoFile` = blob JPEG redimensionné prêt à uploader ; `photoPreview`
   // = URL d'aperçu (photo existante en édition, ou aperçu local après sélection).
@@ -153,11 +199,20 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
           <input type="text" required className="form-input" placeholder={t('Ex : ELOUNDOU Brigitte', 'E.g. ELOUNDOU Brigitte', 'Ej. : OBIANG NGUEMA María')}
             value={form.name} onChange={set('name')} />
         </div>
+        {availableSections.length > 1 && (
+          <div>
+            <label className="form-label">{t('Section', 'Section', 'Sección')}</label>
+            <select className="form-input" value={section} onChange={onSectionChange}>
+              <option value="">{t('Toutes les sections', 'All sections', 'Todas las secciones')}</option>
+              {availableSections.map((s) => <option key={s.key} value={s.key}>{t(s.fr, s.en, s.es)}</option>)}
+            </select>
+          </div>
+        )}
         <div>
           <label className="form-label">{t('Classe *', 'Class *')}</label>
           <select required className="form-input" value={form.class_id} onChange={set('class_id')}>
-            <option value="">{t('Choisir…', 'Choose…')}</option>
-            {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <option value="">{section ? t('Choisir une classe…', 'Choose a class…') : t('Choisir…', 'Choose…')}</option>
+            {classOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
         <div>
@@ -173,7 +228,14 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
           </select>
         </div>
         <div>
-          <label className="form-label">{t("Statut d'inscription", 'Enrolment status')}</label>
+          <label className="form-label">{t("Statut établissement", 'School status')}</label>
+          <select className="form-input" value={form.statut_etablissement || ''} onChange={set('statut_etablissement')}>
+            {STATUTS_ETAB.map((s) => <option key={s.value} value={s.value}>{t(s.label, s.label)}</option>)}
+          </select>
+          <p className="text-[11px] text-gray-400 mt-1">{t('« Nouveau » ⇒ frais d’inscription dus.', '“New” ⇒ registration fee applies.')}</p>
+        </div>
+        <div>
+          <label className="form-label">{t('Statut classe', 'Class status')}</label>
           <select className="form-input" value={form.statut || ''} onChange={set('statut')}>
             {STATUTS.map((s) => <option key={s.value} value={s.value}>{t(s.label, s.label)}</option>)}
           </select>
@@ -290,7 +352,6 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
   const className = classFilter ? classes.find((c) => c.id === classFilter)?.name : null;
   const today = new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
   const colCount   = 2 + (showMatricule ? 1 : 0) + (showGenre ? 1 : 0) + (showDateNaissance ? 1 : 0) + (showLieuNaissance ? 1 : 0) + (showContact ? 1 : 0);
-  const headTitle  = directorLabel(school);
   const studentWord = (n) => Lp(`élève${n !== 1 ? 's' : ''}`, `alumno${n !== 1 ? 's' : ''}`);
 
   // Tri alphabétique systématique des élèves dans la liste imprimée.
@@ -397,12 +458,8 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
 </head>
 <body>
 <div class="page">
-  <div class="header">
-    <div class="school">${school?.name || Lp('Établissement scolaire', 'Centro educativo')}</div>
-    <div class="subtitle">${[school?.type, school?.region].filter(Boolean).join(' — ') || ''}</div>
-    <div class="doc-title">${Lp('Liste des élèves', 'Lista de alumnos')}${className ? ' — ' + className : ''}</div>
-    <div class="meta">${Lp('Année scolaire', 'Año escolar')} : ${school?.current_year || '—'} &nbsp;·&nbsp; ${Lp('Imprimé le', 'Impreso el')} ${today}</div>
-  </div>
+  ${officialHeaderHtml(school, { sys: isGE ? 'ES' : 'FR', title: Lp('LISTE DES ÉLÈVES', 'LISTA DE ALUMNOS'), subtitle: className || '' })}
+  <div style="text-align:center;font-size:9px;color:#777;margin:-2px 0 12px">${Lp('Imprimé le', 'Impreso el')} ${today}</div>
 
   ${groups.map(classSection).join('')}
 
@@ -411,16 +468,7 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
     <span>${school?.name || ''} — ${today}</span>
   </div>
 
-  <div class="sign-area">
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div class="sign-label">${headTitle}</div>
-    </div>
-    <div class="sign-box">
-      <div class="sign-line"></div>
-      <div class="sign-label">${Lp('Le Censeur / La Censeure', 'El Jefe de Estudios')}</div>
-    </div>
-  </div>
+  ${officialSignatureHtml(school, isGE ? 'ES' : 'FR')}
 </div>
 </body>
 </html>`;
@@ -454,28 +502,35 @@ function ImportPanel({ classes, onImport, onCancel }) {
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .replace(/\s+/g, ' ');
 
+  // Résolution intelligente de la classe de chaque élève :
+  //  • classe présente dans le fichier ET reconnue → on la relie ;
+  //  • classe absente du fichier (ou introuvable) → classe de repli SI l'admin
+  //    en a choisi une, sinon l'élève est importé SANS classe (class_id null).
+  // Aucun élève n'est jamais ignoré.
   const resolveRows = () =>
     (preview?.rows || []).map((row) => {
-      let class_id = fallbackClassId;
+      let class_id = null;
       if (row.class_name) {
         const target = normalizeStr(row.class_name);
         const m = classes.find((c) => normalizeStr(c.name) === target);
         if (m) class_id = m.id;
       }
+      if (!class_id && fallbackClassId) class_id = fallbackClassId;
       const { class_name, ...rest } = row;
-      return { ...rest, class_id };
+      return { ...rest, class_id: class_id || null };
     });
 
   const resolvedRows  = resolveRows();
   const withClass     = resolvedRows.filter((r) => r.class_id);
-  const needsFallback = resolvedRows.some((r) => !r.class_id);
+  const withoutClass  = resolvedRows.length - withClass.length;
+  const needsFallback = withoutClass > 0;
 
   const handleImport = async () => {
-    if (!withClass.length) return;
+    if (!resolvedRows.length) return;
     setImporting(true);
-    for (const row of withClass) await onImport(row);
+    for (const row of resolvedRows) await onImport(row);
     setImporting(false);
-    setDone(withClass.length);
+    setDone(resolvedRows.length);
   };
 
   if (done !== null) {
@@ -544,11 +599,17 @@ function ImportPanel({ classes, onImport, onCancel }) {
           )}
           {preview?.rows?.length > 0 && needsFallback && (
             <div>
-              <label className="form-label">{t('Classe de destination', 'Destination class')} <span className="text-xs font-normal text-slate-400">({t('pour les élèves sans classe dans le fichier', 'for students without a class in the file')})</span></label>
+              <label className="form-label">
+                {t('Classe pour les élèves sans classe', 'Class for students without a class')}{' '}
+                <span className="text-xs font-normal text-slate-400">({t('optionnel', 'optional')})</span>
+              </label>
               <select className="form-input" value={fallbackClassId} onChange={(e) => setFallbackClassId(e.target.value)}>
-                <option value="">{t('— Choisir —', '— Select —', '— Elegir —')}</option>
+                <option value="">{t('— Importer sans classe —', '— Import without a class —', '— Importar sin clase —')}</option>
                 {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              <p className="text-xs text-slate-400 mt-1">
+                {withoutClass} {t('élève(s) sans classe dans le fichier. Laissez vide pour les importer sans classe.', 'student(s) without a class in the file. Leave empty to import them without a class.')}
+              </p>
             </div>
           )}
           {preview?.rows?.length > 0 && (
@@ -591,14 +652,14 @@ function ImportPanel({ classes, onImport, onCancel }) {
           )}
           {preview?.rows?.length > 0 && (
             <div className="flex items-center gap-3 pt-1">
-              <button type="button" onClick={handleImport} disabled={importing || withClass.length === 0}
+              <button type="button" onClick={handleImport} disabled={importing || resolvedRows.length === 0}
                 className="btn-primary" style={{ width: 'auto', paddingInline: '1.75rem' }}>
-                {importing ? t('Import en cours…', 'Importing…') : `${t('Importer', 'Import')} ${withClass.length} ${t('élève', 'student')}${withClass.length > 1 ? 's' : ''}`}
+                {importing ? t('Import en cours…', 'Importing…') : `${t('Importer', 'Import')} ${resolvedRows.length} ${t('élève', 'student')}${resolvedRows.length > 1 ? 's' : ''}`}
               </button>
               <button type="button" onClick={onCancel} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
-              {withClass.length < resolvedRows.length && (
+              {withoutClass > 0 && (
                 <span className="text-xs text-amber-600 font-medium">
-                  {resolvedRows.length - withClass.length} {t('sans classe ignoré', 'without class skipped')}{resolvedRows.length - withClass.length > 1 ? 's' : ''}
+                  {withClass.length} {t('avec classe', 'with class')} · {withoutClass} {t('sans classe', 'without class')}
                 </span>
               )}
             </div>
@@ -700,9 +761,11 @@ export default function Students() {
   // politique RLS Supabase. Le surveillant garde un accès en LECTURE seule.
   const canEdit = role === 'admin' || role === 'censeur';
 
-  const [tab,            setTab]           = useState('actifs');
   const [classFilter,    setClassFilter]   = useState('');
+  const [sectionFilter,  setSectionFilter] = useState('');
   const [genderFilter,   setGenderFilter]  = useState('');
+  const [levelFilter,    setLevelFilter]   = useState('');
+  const [dossierFilter,  setDossierFilter] = useState('');
   const [search,         setSearch]        = useState('');
   const [page,           setPage]          = useState(1);
   const [showForm,       setShowForm]      = useState(false);
@@ -739,7 +802,55 @@ export default function Students() {
   // Stats
   const total  = students.length;
   const boys   = students.filter((s) => s.gender === 'Masculin').length;
-  const girls  = students.filter((s) => s.gender === 'Feminin').length;
+  const girls  = students.filter((s) => s.gender === 'Feminin' || s.gender === 'Féminin').length;
+
+  // Pilotage : complétude des dossiers + alertes intelligentes.
+  const incompleteCount = students.filter((s) => studentCompleteness(s).status !== 'green').length;
+  const cardsReady      = students.filter((s) => s.photo_url && s.class_id).length;
+  const noPhoto   = students.filter((s) => !s.photo_url).length;
+  const noContact = students.filter((s) => !s.parent_phone).length;
+  const noClass   = students.filter((s) => !s.class_id).length;
+  const classCount = new Set(students.map((s) => s.class_id).filter(Boolean)).size;
+  const classLevel = (id) => classes.find((c) => c.id === id)?.level || '';
+  // Section pédagogique d'une classe (par nom → fiable) pour le filtre par cycle.
+  const classSection = (id) => classSectionKey(classes.find((c) => c.id === id) || null);
+  const availableSections = useMemo(() => {
+    const present = new Set(classes.map(classSectionKey));
+    return SECTIONS.filter((s) => present.has(s.key));
+  }, [classes]);
+
+  // Filtres en cascade : section → niveaux → classes. Choisir une section restreint
+  // les niveaux et les classes proposés à cette seule section ; choisir un niveau
+  // restreint encore les classes. On ne montre jamais tout l'établissement quand un
+  // filtre amont est actif.
+  const classesInSection = useMemo(
+    () => classes.filter((c) => !sectionFilter || classSectionKey(c) === sectionFilter),
+    [classes, sectionFilter]
+  );
+  const levelOptions = useMemo(
+    () => [...new Set(classesInSection.map((c) => c.level).filter(Boolean))].sort(),
+    [classesInSection]
+  );
+  const classOptions = useMemo(
+    () => classesInSection.filter((c) => !levelFilter || c.level === levelFilter),
+    [classesInSection, levelFilter]
+  );
+
+  // Changer une section réinitialise le niveau et la classe si ceux-ci n'appartiennent
+  // plus à la nouvelle section ; changer un niveau réinitialise la classe si besoin.
+  const onSectionChange = (val) => {
+    setSectionFilter(val);
+    if (val) {
+      if (levelFilter && !classes.some((c) => classSectionKey(c) === val && c.level === levelFilter)) setLevelFilter('');
+      if (classFilter && classSection(classFilter) !== val) setClassFilter('');
+    }
+    resetPage();
+  };
+  const onLevelChange = (val) => {
+    setLevelFilter(val);
+    if (val && classFilter && classLevel(classFilter) !== val) setClassFilter('');
+    resetPage();
+  };
   const avgAge = useMemo(() => {
     const ages = students.map((s) => calcAge(s.date_naissance)).filter((a) => a !== null);
     return ages.length ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : null;
@@ -757,12 +868,16 @@ export default function Students() {
   const visible = useMemo(() => {
     return students
       .filter((s) => !classFilter  || s.class_id === classFilter)
+      .filter((s) => !sectionFilter || classSection(s.class_id) === sectionFilter)
+      .filter((s) => !levelFilter  || classLevel(s.class_id) === levelFilter)
       .filter((s) => !genderFilter || (s.gender === genderFilter || (genderFilter === 'Feminin' && s.gender === 'Féminin')))
+      .filter((s) => !dossierFilter || studentCompleteness(s).status === dossierFilter)
       .filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()) ||
                                 (s.matricule || '').toLowerCase().includes(search.toLowerCase()))
       // Tri alphabétique par défaut — la liste imprimée (PDF) est toujours en ordre alphabétique.
       .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-  }, [students, classFilter, genderFilter, search]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students, classes, classFilter, sectionFilter, levelFilter, genderFilter, dossierFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const paginated  = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -846,47 +961,25 @@ export default function Students() {
               {visible.length > 0 && (
                 <>
                   <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
-                  <div className="relative">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => { setShowPrintOpts(false); printStudentList(visible, classes, school, classFilter, cols); }}
-                        className="btn-secondary"
-                      >
-                        {t('Imprimer / PDF', 'Print / PDF', 'Imprimir / PDF')}
-                      </button>
-                      <button
-                        onClick={() => setShowCards(true)}
-                        className="btn-secondary inline-flex items-center gap-1.5 !bg-indigo-50 !text-indigo-700 hover:!bg-indigo-100 border-indigo-200"
-                        title={t('Imprimer les cartes scolaires (QR Code)', 'Print ID cards (QR code)', 'Imprimir carnés (QR)')}
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="5" width="18" height="14" rx="2"/>
-                          <circle cx="9" cy="12" r="2.5"/>
-                          <path d="M14 10h4M14 14h4"/>
-                        </svg>
-                        {t('Cartes scolaires', 'ID cards', 'Carnés')}
-                      </button>
-                      <button
-                        onClick={() => setShowScan(true)}
-                        className="btn-secondary inline-flex items-center gap-1.5 !bg-emerald-50 !text-emerald-700 hover:!bg-emerald-100 border-emerald-200"
-                        title={t('Scanner le QR d’une carte', 'Scan a card QR code', 'Escanear el QR de una tarjeta')}
-                      >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
-                          <path d="M3 12h18"/>
-                        </svg>
-                        {t('Scanner', 'Scan', 'Escanear')}
-                      </button>
-                      <button
-                        onClick={() => setShowPrintOpts((v) => !v)}
-                        className={`btn-secondary px-2.5 ${showPrintOpts ? '!bg-gray-100' : ''}`}
-                        title={t('Options impression', 'Print options')}
-                      >
-                        ⚙
-                      </button>
-                    </div>
+                  {/* Groupe Impression : Print / PDF + son engrenage d'options
+                      (colonnes à imprimer) côte à côte. Le panneau s'ancre sous
+                      ce groupe. */}
+                  <div className="relative flex gap-1">
+                    <button
+                      onClick={() => { setShowPrintOpts(false); printStudentList(visible, classes, school, classFilter, cols); }}
+                      className="btn-secondary"
+                    >
+                      {t('Imprimer / PDF', 'Print / PDF', 'Imprimir / PDF')}
+                    </button>
+                    <button
+                      onClick={() => setShowPrintOpts((v) => !v)}
+                      className={`btn-secondary px-2.5 ${showPrintOpts ? '!bg-gray-100' : ''}`}
+                      title={t('Colonnes à imprimer', 'Columns to print')}
+                    >
+                      ⚙
+                    </button>
                     {showPrintOpts && (
-                      <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg p-4 w-52">
+                      <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg p-4 w-52">
                         <p className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
                           {t('Colonnes à imprimer', 'Columns to print')}
                         </p>
@@ -906,6 +999,29 @@ export default function Students() {
                       </div>
                     )}
                   </div>
+                  <button
+                    onClick={() => setShowCards(true)}
+                    className="btn-secondary inline-flex items-center gap-1.5 !bg-indigo-50 !text-indigo-700 hover:!bg-indigo-100 border-indigo-200"
+                    title={t('Imprimer les cartes scolaires (QR Code)', 'Print ID cards (QR code)', 'Imprimir carnés (QR)')}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="5" width="18" height="14" rx="2"/>
+                      <circle cx="9" cy="12" r="2.5"/>
+                      <path d="M14 10h4M14 14h4"/>
+                    </svg>
+                    {t('Cartes scolaires', 'ID cards', 'Carnés')}
+                  </button>
+                  <button
+                    onClick={() => setShowScan(true)}
+                    className="btn-secondary inline-flex items-center gap-1.5 !bg-emerald-50 !text-emerald-700 hover:!bg-emerald-100 border-emerald-200"
+                    title={t('Scanner le QR d’une carte', 'Scan a card QR code', 'Escanear el QR de una tarjeta')}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                      <path d="M3 12h18"/>
+                    </svg>
+                    {t('Scanner', 'Scan', 'Escanear')}
+                  </button>
                 </>
               )}
               {canEdit && (total >= f.maxStudents ? (
@@ -943,47 +1059,51 @@ export default function Students() {
           </div>
         )}
 
-        {/* ── Stats ───────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        {/* ── Dashboard KPI ───────────────────────────────────── */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
           {[
-            { label: t('Total', 'Total'), value: total, color: 'text-gray-900', bg: 'bg-white' },
-            { label: t('Garçons', 'Boys'), value: boys,  color: 'text-blue-700',   bg: 'bg-blue-50',    dot: '♂' },
-            { label: t('Filles', 'Girls'),  value: girls, color: 'text-rose-700',   bg: 'bg-rose-50',    dot: '♀' },
-            { label: t('Âge moyen', 'Avg. age'), value: avgAge !== null ? `${avgAge} ${t('ans', 'yrs')}` : '—', color: 'text-amber-700', bg: 'bg-amber-50' },
-          ].map(({ label, value, color, bg, dot }) => (
-            <div key={label} className={`${bg} rounded-xl border border-gray-100 px-5 py-4 flex items-center gap-4`}>
-              {dot && (
-                <span className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${
-                  dot === '♂' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'
-                }`}>{dot}</span>
-              )}
-              <div>
-                <p className={`text-2xl font-extrabold ${color}`}>{value}</p>
-                <p className="text-xs text-gray-500">{label}</p>
-              </div>
+            { emoji: '👥', tone: 'bg-indigo-50',  value: total,          label: t('Élèves', 'Students', 'Alumnos') },
+            { emoji: '🏫', tone: 'bg-sky-50',     value: classCount,     label: t('Classes', 'Classes', 'Clases') },
+            { emoji: '👦', tone: 'bg-blue-50',    value: boys,           label: t('Garçons', 'Boys', 'Chicos') },
+            { emoji: '👧', tone: 'bg-rose-50',    value: girls,          label: t('Filles', 'Girls', 'Chicas') },
+            { emoji: '⚠️', tone: incompleteCount ? 'bg-red-50' : 'bg-slate-50', value: incompleteCount, label: t('Dossiers incomplets', 'Incomplete files', 'Expedientes'), danger: true },
+            { emoji: '🪪', tone: 'bg-emerald-50', value: cardsReady,     label: t('Cartes prêtes', 'Cards ready', 'Carnés listos') },
+          ].map((c) => (
+            <div key={c.label} className="bg-white rounded-2xl border border-slate-200/70 p-4 shadow-sm">
+              <span className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${c.tone}`}>{c.emoji}</span>
+              <div className={`text-2xl font-extrabold mt-2 ${c.danger && incompleteCount ? 'text-red-600' : 'text-slate-900'}`}>{c.value}</div>
+              <div className="text-xs text-slate-500 leading-tight">{c.label}</div>
             </div>
           ))}
         </div>
 
-        {/* ── Tabs ────────────────────────────────────────────── */}
-        <div className="flex gap-1 mb-5 border-b border-gray-200">
-          {['actifs', 'supprimes'].map((tabVal) => (
-            <button key={tabVal} onClick={() => setTab(tabVal)}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                tab === tabVal ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}>
-              {tabVal === 'actifs' ? t('Actifs', 'Active') : t('Supprimés', 'Deleted')}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'supprimes' && (
-          <div className="bg-white rounded-xl p-10 text-center shadow-sm border border-gray-100">
-            <p className="text-gray-400 text-sm">{t('La suppression est définitive — aucun élève archivé.', 'Deletion is permanent — no archived students.')}</p>
+        {/* ── Alertes intelligentes ───────────────────────────── */}
+        {(noPhoto || noContact || noClass) > 0 && (
+          <div className="flex flex-wrap gap-2 mb-5">
+            {noPhoto > 0 && (
+              <button onClick={() => { setDossierFilter(''); setSearch(''); }} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                📷 {noPhoto} {t('sans photo', 'without photo', 'sin foto')}
+              </button>
+            )}
+            {noContact > 0 && (
+              <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                📞 {noContact} {t('sans contact parent', 'without parent contact', 'sin contacto')}
+              </span>
+            )}
+            {noClass > 0 && (
+              <button onClick={() => setClassFilter('')} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                🏫 {noClass} {t('sans classe', 'without class', 'sin clase')}
+              </button>
+            )}
+            {incompleteCount > 0 && (
+              <button onClick={() => setDossierFilter('red')} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+                ⚠ {incompleteCount} {t('dossier(s) incomplet(s)', 'incomplete file(s)', 'expediente(s)')}
+              </button>
+            )}
           </div>
         )}
 
-        {tab === 'actifs' && (
+        {(
           <>
             {/* ── Modals formulaires ───────────────────────────── */}
             {(showForm || editing) && (
@@ -1039,10 +1159,22 @@ export default function Students() {
             <div className="flex flex-wrap gap-3 mb-4">
               <input type="text" className="form-input max-w-xs" placeholder={t('Rechercher nom ou matricule…', 'Search name or ID…')}
                 value={search} onChange={(e) => { setSearch(e.target.value); resetPage(); }} />
+              {availableSections.length > 1 && (
+                <select className="form-input" style={{ maxWidth: 170 }}
+                  value={sectionFilter} onChange={(e) => onSectionChange(e.target.value)}>
+                  <option value="">{t('Toutes les sections', 'All sections')}</option>
+                  {availableSections.map((s) => <option key={s.key} value={s.key}>{t(s.fr, s.en, s.es)}</option>)}
+                </select>
+              )}
+              <select className="form-input" style={{ maxWidth: 150 }}
+                value={levelFilter} onChange={(e) => onLevelChange(e.target.value)}>
+                <option value="">{t('Tous niveaux', 'All levels')}</option>
+                {levelOptions.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
+              </select>
               <select className="form-input" style={{ maxWidth: 180 }}
                 value={classFilter} onChange={(e) => { setClassFilter(e.target.value); resetPage(); }}>
                 <option value="">{t('Toutes les classes', 'All classes')}</option>
-                {classes.map((c) => (
+                {classOptions.map((c) => (
                   <option key={c.id} value={c.id}>{c.name} ({students.filter((s) => s.class_id === c.id).length})</option>
                 ))}
               </select>
@@ -1052,8 +1184,15 @@ export default function Students() {
                 <option value="Masculin">{t('Garçons', 'Boys')}</option>
                 <option value="Feminin">{t('Filles', 'Girls')}</option>
               </select>
-              {(search || classFilter || genderFilter) && (
-                <button onClick={() => { setSearch(''); setClassFilter(''); setGenderFilter(''); resetPage(); }}
+              <select className="form-input" style={{ maxWidth: 170 }}
+                value={dossierFilter} onChange={(e) => { setDossierFilter(e.target.value); resetPage(); }}>
+                <option value="">{t('Tous les dossiers', 'All files', 'Todos')}</option>
+                <option value="green">🟢 {t('Complets', 'Complete', 'Completos')}</option>
+                <option value="yellow">🟡 {t('Partiels', 'Partial', 'Parciales')}</option>
+                <option value="red">🔴 {t('Incomplets', 'Incomplete', 'Incompletos')}</option>
+              </select>
+              {(search || classFilter || sectionFilter || genderFilter || levelFilter || dossierFilter) && (
+                <button onClick={() => { setSearch(''); setClassFilter(''); setSectionFilter(''); setGenderFilter(''); setLevelFilter(''); setDossierFilter(''); resetPage(); }}
                   className="text-xs text-gray-400 hover:text-gray-600 underline">
                   {t('Effacer les filtres', 'Clear filters')}
                 </button>
@@ -1089,6 +1228,7 @@ export default function Students() {
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Classe', 'Class')}</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Âge', 'Age')}</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Contact', 'Contact')}</th>
+                        <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Dossier', 'File', 'Expediente')}</th>
                         <th className="px-4 py-3 text-right font-semibold text-gray-600">{t('Actions', 'Actions')}</th>
                       </tr>
                     </thead>
@@ -1124,6 +1264,12 @@ export default function Students() {
                                         {student.gender === 'Masculin' ? t('Masculin', 'Male') : t('Féminin', 'Female')}
                                       </span>
                                     )}
+                                    {student.statut_etablissement && (() => {
+                                      const s = STATUTS_ETAB.find((x) => x.value === student.statut_etablissement);
+                                      return s?.color ? (
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${s.color}`}>{t(s.label, s.label)}</span>
+                                      ) : null;
+                                    })()}
                                     {student.statut && (() => {
                                       const s = STATUTS.find((x) => x.value === student.statut);
                                       return s ? (
@@ -1166,6 +1312,25 @@ export default function Students() {
                                   {student.adresse}
                                 </span>
                               )}
+                            </td>
+                            {/* Dossier : score de complétude */}
+                            <td className="px-4 py-3">
+                              {(() => {
+                                const { pct, status } = studentCompleteness(student);
+                                const c = status === 'green' ? { dot: 'bg-emerald-500', bar: 'bg-emerald-500', txt: t('Complet', 'Complete', 'Completo') }
+                                  : status === 'yellow' ? { dot: 'bg-amber-500', bar: 'bg-amber-400', txt: t('Partiel', 'Partial', 'Parcial') }
+                                  : { dot: 'bg-red-500', bar: 'bg-red-500', txt: t('Incomplet', 'Incomplete', 'Incompleto') };
+                                return (
+                                  <div className="w-24">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+                                      <span className="text-[11px] font-semibold text-slate-600">{c.txt}</span>
+                                      <span className="text-[10px] text-slate-400 ml-auto">{pct}%</span>
+                                    </div>
+                                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full ${c.bar}`} style={{ width: `${pct}%` }} /></div>
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="px-4 py-3 text-right">
                               {confirmDel?.id === student.id ? (

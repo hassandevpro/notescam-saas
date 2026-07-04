@@ -4,32 +4,45 @@ import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
-import { computeNextYear, getNextLevel, isRepeater, lastSequenceFor, annualDecisionValue } from '../lib/yearEngine';
+import { computeNextYear, getNextLevel, isRepeater } from '../lib/yearEngine';
 import { fetchDistinctYears } from '../lib/schoolService';
 import { backendOnline } from '../lib/edition';
 import { seedDemoYear, deleteDemoYear, getDemoClassIds } from '../lib/seedDemo';
 import { resolveCountryCode } from '../countries';
+import { isOfficialEngine } from '../core/engineResolver';
 import { initDB, classesDB } from '../lib/db';
-import { useCountry, gradingOpts, geGradeMax } from '../lib/useCountry';
+import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import { buildRanks, clsStat, multiAvg, getAppreciation } from '../core/bulletinEngine';
 import { transcriptColumns } from '../lib/transcriptEngine';
 import { palmaresClassSheet } from '../lib/palmaresDoc';
 import { printSheets } from '../lib/transcriptDoc';
 import { exportTranscriptsPdf } from '../lib/transcriptPdf';
-import { useActivePeriod } from '../lib/useActivePeriod';
-import {
-  seedPeriods, activatePeriod, closePeriod, reopenPeriod, lockPeriod, unlockPeriod,
-} from '../lib/academicPeriodsService';
-import { flushSyncQueue } from '../lib/sync';
 import Layout from '../components/Layout';
+import HubTabs from '../components/hubs/HubTabs';
 import Modal from '../components/Modal';
 import DataImportPanel from '../components/DataImportPanel';
 
-// ── Promotion preview + confirmation modal ─────────────────────────────────
-function PromotionModal({ currentYear, newYear, classes, students, subjects, gradeMap, onConfirm, onClose }) {
+// ── Assistant de promotion sécurisé (étapes + confirmation forte) ───────────
+// Parcours en 5 étapes : Vérifications → Règles → Aperçu → Confirmation forte
+// (saisie du nom de l'établissement) → Exécution. L'action irréversible n'est
+// jamais accessible en un seul clic.
+function StepDots({ step, total }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-5">
+      {Array.from({ length: total }).map((_, i) => (
+        <span key={i} className={`h-1.5 rounded-full transition-all ${i === step ? 'w-6 bg-brand-600' : i < step ? 'w-3 bg-brand-300' : 'w-3 bg-gray-200'}`} />
+      ))}
+    </div>
+  );
+}
+
+function PromotionWizard({ currentYear, newYear, schoolName, classes, students, subjects, gradeMap, onConfirm, onClose }) {
   const t = useT();
+  const TOTAL = 5;
+  const [step,    setStep]    = useState(0);
   const [running, setRunning] = useState(false);
   const [result,  setResult]  = useState(null);
+  const [confirmText, setConfirmText] = useState('');
 
   const rows = classes.map((cls) => {
     const nextLevel    = getNextLevel(cls.level, cls.system);
@@ -39,378 +52,159 @@ function PromotionModal({ currentYear, newYear, classes, students, subjects, gra
     return { cls, nextLevel, isGraduating, studs, repeaters: repeaters.length };
   });
 
-  // Les redoublants ne montent ni ne sont diplômés : ils redoublent leur niveau.
-  const repeatedCount  = rows.reduce((n, r) => n + r.repeaters, 0);
   const promotedCount  = rows.filter((r) => !r.isGraduating).reduce((n, r) => n + (r.studs.length - r.repeaters), 0);
   const graduatedCount = rows.filter((r) =>  r.isGraduating).reduce((n, r) => n + (r.studs.length - r.repeaters), 0);
+  const totalStudents  = students.length;
+
+  // ── Vérifications préalables (bloquantes vs avertissements) ────────────────
+  const emptyClasses    = rows.filter((r) => r.studs.length === 0).map((r) => r.cls.name);
+
+  const blockers = [];
+  if (classes.length === 0) blockers.push(t('Aucune classe dans cette année.', 'No classes in this year.', 'Sin clases.'));
+  if (totalStudents === 0)  blockers.push(t('Aucun élève à promouvoir.', 'No students to promote.', 'Sin alumnos.'));
+  const canProceedChecks = blockers.length === 0;
+
+  // Confirmation forte : saisir exactement le nom de l'établissement.
+  const confirmOk = confirmText.trim().toLowerCase() === (schoolName || '').trim().toLowerCase() && !!schoolName;
 
   const handleConfirm = async () => {
     setRunning(true);
     const res = await onConfirm();
     setRunning(false);
     setResult(res);
+    setStep(TOTAL - 1);
   };
 
+  const title = result
+    ? t('Promotion', 'Promotion', 'Promoción')
+    : `${t('Promotion', 'Promotion', 'Promoción')} ${currentYear} → ${newYear}`;
+
   return (
-    <Modal title={`${t('Clôturer', 'Close year')} ${currentYear} → ${newYear}`} onClose={result ? onClose : onClose} size="lg">
-      {result?.error ? (
-        <div className="space-y-4">
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-            {result.error}
+    <Modal title={title} onClose={onClose} size="lg">
+      {/* Résultat final */}
+      {result ? (
+        result.error ? (
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">{result.error}</div>
+            <button onClick={onClose} className="btn-secondary w-full">{t('Fermer', 'Close')}</button>
           </div>
-          <button onClick={onClose} className="btn-secondary w-full">{t('Fermer', 'Close')}</button>
-        </div>
-      ) : result ? (
-        <div className="space-y-4">
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5">
-            <p className="text-emerald-800 font-semibold text-base mb-3">{t('Promotion effectuée avec succès', 'Year promotion completed successfully')}</p>
-            <ul className="text-sm text-emerald-700 space-y-1.5">
-              <li className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                {result.newClasses} {t('nouvelles classes créées pour', 'new classes created for')} {result.newYear}
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                {result.promoted} {t(`élève${result.promoted !== 1 ? 's' : ''} promu${result.promoted !== 1 ? 's' : ''}`, `student${result.promoted !== 1 ? 's' : ''} promoted`)}
-              </li>
-              {result.repeated > 0 && (
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
-                  {result.repeated} {t(`élève${result.repeated !== 1 ? 's' : ''} redoublant${result.repeated !== 1 ? 's' : ''}`, `student${result.repeated !== 1 ? 's' : ''} repeating`)}
-                </li>
-              )}
-              {result.graduated > 0 && (
-                <li className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                  {result.graduated} {t(`élève${result.graduated !== 1 ? 's' : ''} diplômé${result.graduated !== 1 ? 's' : ''} (archivés)`, `student${result.graduated !== 1 ? 's' : ''} graduated (archived)`)}
-                </li>
-              )}
-            </ul>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5">
+              <p className="text-emerald-800 font-semibold text-base mb-3">{t('Promotion effectuée avec succès', 'Year promotion completed successfully')}</p>
+              <ul className="text-sm text-emerald-700 space-y-1.5">
+                <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />{result.newClasses} {t('nouvelles classes créées pour', 'new classes created for')} {result.newYear}</li>
+                <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />{result.promoted} {t(`élève${result.promoted !== 1 ? 's' : ''} promu${result.promoted !== 1 ? 's' : ''}`, `student${result.promoted !== 1 ? 's' : ''} promoted`)}</li>
+                {result.repeated > 0 && <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />{result.repeated} {t(`élève${result.repeated !== 1 ? 's' : ''} redoublant${result.repeated !== 1 ? 's' : ''}`, `student${result.repeated !== 1 ? 's' : ''} repeating`)}</li>}
+                {result.graduated > 0 && <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />{result.graduated} {t(`élève${result.graduated !== 1 ? 's' : ''} diplômé${result.graduated !== 1 ? 's' : ''} (archivés)`, `student${result.graduated !== 1 ? 's' : ''} graduated (archived)`)}</li>}
+              </ul>
+            </div>
+            <p className="text-xs text-gray-400">{t("L'application affiche maintenant l'année", 'The app now shows year')} {result.newYear}.</p>
+            <button onClick={onClose} className="btn-primary w-full">{t('Fermer', 'Close')}</button>
           </div>
-          <p className="text-xs text-gray-400">{t("L'application affiche maintenant l'année", 'The app now shows year')} {result.newYear}.</p>
-          <button onClick={onClose} className="btn-primary w-full">{t('Fermer', 'Close')}</button>
-        </div>
+        )
       ) : (
-        <div className="space-y-4">
-          {/* Stats summary */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 text-center">
-              <div className="text-2xl font-extrabold text-brand-700">{promotedCount}</div>
-              <div className="text-xs text-brand-500 mt-0.5 font-medium">{t('élèves promus', 'students promoted')}</div>
-            </div>
-            <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 text-center">
-              <div className="text-2xl font-extrabold text-orange-700">{repeatedCount}</div>
-              <div className="text-xs text-orange-500 mt-0.5 font-medium">{t('redoublants', 'repeating')}</div>
-            </div>
-            <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center">
-              <div className="text-2xl font-extrabold text-amber-700">{graduatedCount}</div>
-              <div className="text-xs text-amber-500 mt-0.5 font-medium">{t('diplômés (archivés)', 'graduates (archived)')}</div>
-            </div>
-          </div>
+        <div>
+          <StepDots step={step} total={TOTAL - 1} />
 
-          {/* Class rows */}
-          <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-            {rows.map(({ cls, nextLevel, isGraduating, studs, repeaters }) => (
-              <div
-                key={cls.id}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm border ${
-                  isGraduating
-                    ? 'bg-amber-50 border-amber-100'
-                    : 'bg-gray-50 border-gray-100'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-800 truncate">{cls.name}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    <span className="font-medium">{cls.level || '—'}</span>
-                    {' '}→{' '}
-                    <span className={`font-semibold ${isGraduating ? 'text-amber-700' : 'text-brand-700'}`}>
-                      {isGraduating ? t('Diplômés', 'Graduates') : (nextLevel || cls.level || '—')}
-                    </span>
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <span className="text-xs font-medium text-gray-500">
-                    {studs.length} {t('élève', 'student')}{studs.length !== 1 ? 's' : ''}
-                  </span>
-                  {repeaters > 0 && (
-                    <div className="text-xs text-orange-600 font-semibold mt-0.5">{repeaters} {t('redoublant', 'repeating')}{repeaters !== 1 ? 's' : ''}</div>
-                  )}
-                  {isGraduating && (
-                    <div className="text-xs text-amber-600 font-semibold mt-0.5">{t('Diplômés', 'Graduates')}</div>
-                  )}
-                </div>
+          {/* Étape 1 — Vérifications */}
+          {step === 0 && (
+            <div className="space-y-3">
+              <p className="text-sm font-semibold text-gray-800">{t('Étape 1 — Vérifications', 'Step 1 — Checks', 'Paso 1 — Verificaciones')}</p>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-2"><span className="text-emerald-600">✓</span>{classes.length} {t('classe(s)', 'class(es)', 'clase(s)')} · {totalStudents} {t('élève(s)', 'student(s)', 'alumno(s)')}</div>
+                {emptyClasses.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-amber-800 text-xs">⚠ {emptyClasses.length} {t('classe(s) sans élève', 'empty class(es)', 'clase(s) vacía(s)')} : {emptyClasses.join(', ')}</div>
+                )}
+                {blockers.map((b, i) => (
+                  <div key={i} className="bg-red-50 border border-red-200 rounded-lg p-2.5 text-red-700 text-xs">✕ {b}</div>
+                ))}
               </div>
-            ))}
-            {classes.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-6">
-                {t('Aucune classe dans cette année.', 'No classes in this year.')}
-              </p>
-            )}
-          </div>
+              <p className="text-xs text-gray-400">{t('Pensez à clôturer/verrouiller les périodes avant de promouvoir.', 'Remember to close/lock the periods before promoting.', 'Recuerde cerrar/bloquear los periodos antes de promocionar.')}</p>
+            </div>
+          )}
 
-          {/* Warning */}
-          <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 flex gap-2 items-start">
-            <span className="shrink-0 mt-0.5">⚠</span>
-            <span>
-              {t('Cette action est', 'This action is')} <strong>{t('irréversible', 'irreversible')}</strong>. {t('Les données de', 'Data from')} <strong>{currentYear}</strong> {t('sont archivées et l\'année active deviendra', 'will be archived and the active year will become')} <strong>{newYear}</strong>.{' '}
-              {t('Les matières et le programme de chaque classe sont copiés automatiquement.', 'Subjects and syllabi are automatically copied to new classes.')}
-            </span>
-          </div>
+          {/* Étape 2 — Règles de passage */}
+          {step === 1 && (
+            <div className="space-y-3 text-sm text-gray-700">
+              <p className="text-sm font-semibold text-gray-800">{t('Étape 2 — Règles de passage', 'Step 2 — Promotion rules', 'Paso 2 — Reglas')}</p>
+              <ul className="space-y-2">
+                <li className="flex gap-2"><span className="text-brand-600">→</span>{t('Chaque élève monte au niveau suivant (6ème→5ème, Form 1→Form 2…).', 'Each student moves to the next level (6th→5th, Form 1→Form 2…).', 'Cada alumno sube de nivel.')}</li>
+                <li className="flex gap-2"><span className="text-amber-500">🎓</span>{t('Les niveaux terminaux (Tle, Upper Sixth…) sont archivés comme diplômés.', 'Final levels (Tle, Upper Sixth…) are archived as graduates.', 'Los niveles finales se archivan como graduados.')}</li>
+                <li className="flex gap-2"><span className="text-brand-600">📋</span>{t('Les matières et le programme sont copiés dans les nouvelles classes.', 'Subjects and syllabi are copied to the new classes.', 'Las asignaturas se copian a las nuevas clases.')}</li>
+              </ul>
+            </div>
+          )}
 
-          <div className="flex gap-3 pt-1">
-            <button
-              onClick={handleConfirm}
-              disabled={running || classes.length === 0}
-              className="btn-primary"
-              style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}
-            >
-              {running ? t('Promotion en cours…', 'Promoting…') : `${t('Confirmer', 'Confirm')} → ${newYear}`}
+          {/* Étape 3 — Aperçu */}
+          {step === 2 && (
+            <div className="space-y-4">
+              <p className="text-sm font-semibold text-gray-800">{t('Étape 3 — Aperçu', 'Step 3 — Preview', 'Paso 3 — Vista previa')}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 text-center"><div className="text-2xl font-extrabold text-brand-700">{promotedCount}</div><div className="text-xs text-brand-500 mt-0.5 font-medium">{t('élèves promus', 'students promoted')}</div></div>
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 text-center"><div className="text-2xl font-extrabold text-amber-700">{graduatedCount}</div><div className="text-xs text-amber-500 mt-0.5 font-medium">{t('diplômés (archivés)', 'graduates (archived)')}</div></div>
+              </div>
+              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                {rows.map(({ cls, nextLevel, isGraduating, studs, repeaters }) => (
+                  <div key={cls.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm border ${isGraduating ? 'bg-amber-50 border-amber-100' : 'bg-gray-50 border-gray-100'}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-800 truncate">{cls.name}</p>
+                      <p className="text-xs text-gray-500 mt-0.5"><span className="font-medium">{cls.level || '—'}</span> → <span className={`font-semibold ${isGraduating ? 'text-amber-700' : 'text-brand-700'}`}>{isGraduating ? t('Diplômés', 'Graduates') : (nextLevel || cls.level || '—')}</span></p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-xs font-medium text-gray-500">{studs.length} {t('élève', 'student')}{studs.length !== 1 ? 's' : ''}</span>
+                      {repeaters > 0 && <div className="text-xs text-orange-600 font-semibold mt-0.5">{repeaters} {t('redoublant', 'repeating')}{repeaters !== 1 ? 's' : ''}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Étape 4 — Confirmation forte */}
+          {step === 3 && (
+            <div className="space-y-4">
+              <p className="text-sm font-semibold text-gray-800">{t('Étape 4 — Confirmation', 'Step 4 — Confirmation', 'Paso 4 — Confirmación')}</p>
+              <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 flex gap-2 items-start">
+                <span className="shrink-0 mt-0.5">⚠</span>
+                <span>{t('Cette action est', 'This action is')} <strong>{t('irréversible', 'irreversible')}</strong>. {t('Les données de', 'Data from')} <strong>{currentYear}</strong> {t("sont archivées et l'année active deviendra", 'will be archived and the active year will become')} <strong>{newYear}</strong>.</span>
+              </div>
+              <div>
+                <label className="form-label">{t('Pour confirmer, saisissez le nom de l\'établissement :', 'To confirm, type the school name:', 'Para confirmar, escriba el nombre del centro:')}</label>
+                <p className="text-xs text-gray-400 mb-1.5 font-mono">{schoolName}</p>
+                <input type="text" className="form-input" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder={schoolName} autoFocus />
+              </div>
+            </div>
+          )}
+
+          {/* Navigation */}
+          <div className="flex items-center justify-between gap-3 pt-5 mt-4 border-t border-gray-100">
+            <button onClick={step === 0 ? onClose : () => setStep((s) => s - 1)} disabled={running} className="btn-secondary">
+              {step === 0 ? t('Annuler', 'Cancel') : t('← Retour', '← Back', '← Atrás')}
             </button>
-            <button onClick={onClose} disabled={running} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
+            {step < 3 ? (
+              <button
+                onClick={() => setStep((s) => s + 1)}
+                disabled={step === 0 && !canProceedChecks}
+                className="btn-primary disabled:opacity-40"
+                style={{ width: 'auto', paddingInline: '1.75rem' }}
+              >
+                {t('Suivant →', 'Next →', 'Siguiente →')}
+              </button>
+            ) : (
+              <button
+                onClick={handleConfirm}
+                disabled={running || !confirmOk}
+                className="btn-primary disabled:opacity-40"
+                style={{ width: 'auto', paddingInline: '1.75rem' }}
+              >
+                {running ? t('Promotion en cours…', 'Promoting…') : `${t('Lancer la promotion', 'Run promotion', 'Promocionar')} →`}
+              </button>
+            )}
           </div>
         </div>
       )}
     </Modal>
-  );
-}
-
-// ── Gestion des périodes académiques (admin) ───────────────────────────────
-const STATUS_BADGE = {
-  upcoming: { fr: 'À venir', en: 'Upcoming', cls: 'bg-gray-100 text-gray-500 border-gray-200' },
-  active:   { fr: 'Active',  en: 'Active',   cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-  closed:   { fr: 'Clôturée', en: 'Closed',  cls: 'bg-amber-100 text-amber-700 border-amber-200' },
-};
-
-function PeriodsManager() {
-  const t       = useT();
-  const country = useCountry();
-  const school  = useAuthStore((s) => s.school);
-  const user    = useAuthStore((s) => s.user);
-  const updateSchool = useAuthStore((s) => s.updateSchool);
-  const { periods, trimesters, refresh } = useActivePeriod();
-
-  const [busy,    setBusy]    = useState(false);
-  const [genMsg,  setGenMsg]  = useState(null);
-  const mode = school?.period_mode || 'auto';
-
-  // Exécute une action période puis rafraîchit l'état + vide la file de synchro.
-  const runAction = async (fn) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await fn();
-      await refresh();
-      if (navigator.onLine) await flushSyncQueue();
-    } catch (err) {
-      console.error('period action', err);
-      setGenMsg({ ok: false, text: err.message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleGenerate = async () => {
-    if (busy) return;
-    setBusy(true);
-    setGenMsg(null);
-    try {
-      const res = await seedPeriods({ school, country, userId: user?.id, periodMode: mode });
-      if (res?.error)        setGenMsg({ ok: false, text: res.error });
-      else if (res?.skipped) setGenMsg({ ok: true, text: t('Périodes déjà générées.', 'Periods already generated.') });
-      else                   setGenMsg({ ok: true, text: t(`${res.sequences} séquences + ${res.trimesters} trimestres générés.`, `${res.sequences} sequences + ${res.trimesters} terms generated.`) });
-      await refresh();
-      if (navigator.onLine) await flushSyncQueue();
-    } catch (err) {
-      setGenMsg({ ok: false, text: err.message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const trimName = (parentId) => trimesters.find((tr) => tr.id === parentId)?.name || null;
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-      <div className="flex items-start justify-between gap-4 mb-4">
-        <div>
-          <h3 className="font-semibold text-gray-900 text-base">{t('Périodes académiques', 'Academic periods')}</h3>
-          <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-            {t('Une seule séquence est « active » (affichée par défaut). Le verrou bloque l\'édition — indépendant de l\'état.',
-               'A single sequence is "active" (shown by default). The lock blocks editing — independent of status.')}
-          </p>
-        </div>
-        {/* Toggle mode auto / manual */}
-        <div className="shrink-0 flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
-          {['auto', 'manual'].map((m) => (
-            <button
-              key={m}
-              disabled={busy || mode === m}
-              onClick={() => updateSchool({ period_mode: m })}
-              className={`px-3 py-1.5 transition-colors ${mode === m ? 'bg-brand-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-            >
-              {m === 'auto' ? t('Auto', 'Auto') : t('Manuel', 'Manual')}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {periods.length === 0 ? (
-        <div className="text-center py-6">
-          <p className="text-sm text-gray-400 mb-3">{t('Aucune période générée pour cette année.', 'No periods generated for this year.')}</p>
-          <button onClick={handleGenerate} disabled={busy} className="btn-primary" style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
-            {busy ? t('Génération…', 'Generating…') : t('Générer les périodes', 'Generate periods')}
-          </button>
-          {genMsg && <p className={`text-sm mt-2 ${genMsg.ok ? 'text-emerald-700' : 'text-red-600'}`}>{genMsg.text}</p>}
-        </div>
-      ) : (
-        <>
-          {genMsg && <p className={`text-sm mb-3 ${genMsg.ok ? 'text-emerald-700' : 'text-red-600'}`}>{genMsg.text}</p>}
-          <div className="space-y-1.5">
-            {periods.map((p) => {
-              const badge = STATUS_BADGE[p.status] || STATUS_BADGE.upcoming;
-              return (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-100 bg-gray-50">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-gray-800 truncate">{p.name}</span>
-                      {p.is_locked && <span title={t('Verrouillée', 'Locked')}>🔒</span>}
-                    </div>
-                    {trimName(p.parent_id) && <p className="text-xs text-gray-400 mt-0.5">{trimName(p.parent_id)}</p>}
-                  </div>
-                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${badge.cls}`}>{t(badge.fr, badge.en)}</span>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {p.status !== 'active' && (
-                      <button disabled={busy} onClick={() => runAction(() => (p.status === 'closed' ? reopenPeriod(p, user?.id, periods) : activatePeriod(p, user?.id, periods)))}
-                        className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors">
-                        {p.status === 'closed' ? t('Rouvrir', 'Reopen') : t('Activer', 'Activate')}
-                      </button>
-                    )}
-                    {p.status === 'active' && (
-                      <button disabled={busy} onClick={() => runAction(() => closePeriod(p, user?.id))}
-                        className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors">
-                        {t('Clôturer', 'Close')}
-                      </button>
-                    )}
-                    <button disabled={busy} onClick={() => runAction(() => (p.is_locked ? unlockPeriod(p) : lockPeriod(p, user?.id)))}
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
-                      {p.is_locked ? t('Déverrouiller', 'Unlock') : t('Verrouiller', 'Lock')}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Gestion des redoublements (avant la promotion) ──────────────────────────
-// La décision est durable : écrite dans le slot de notes `__decision__` (même
-// canal que le Conseil de classe), donc relue par la promotion ET affichée sur
-// les relevés / bulletins. Aucun stockage parallèle.
-function RedoublementsManager() {
-  const t        = useT();
-  const school   = useAuthStore((s) => s.school);
-  const classes  = useSchoolStore((s) => s.classes);
-  const students  = useSchoolStore((s) => s.students);
-  const subjects  = useSchoolStore((s) => s.subjects);
-  const gradeMap  = useSchoolStore((s) => s.gradeMap);
-  const saveGrade = useSchoolStore((s) => s.saveGrade);
-
-  const [classId, setClassId] = useState('');
-  const [busy,    setBusy]    = useState(null);
-
-  const cls    = classes.find((c) => c.id === classId) || null;
-  const sys    = cls?.system || 'FR';
-  const cycle  = cls?.cycle || 'secondaire';
-  const cc     = resolveCountryCode(school);
-  const opts   = gradingOpts(school, cycle);
-  const seqs   = transcriptColumns(sys, cycle, cc).seqs;
-  const lastSeq = cls ? lastSequenceFor(cls) : 6;
-  const pass   = sys === 'EN' ? 50 : sys === 'ES' ? geGradeMax(school) / 2 : 10;
-
-  const classSubjects = subjects.filter((s) => s.class_id === classId);
-  const classStudents = students.filter((s) => s.class_id === classId)
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const setDecision = async (sid, value) => {
-    setBusy(sid);
-    try {
-      // Toggle : recliquer sur la même valeur efface la décision.
-      const current = annualDecisionValue({ id: sid, class_id: classId }, classes, gradeMap);
-      const next = current === value ? '' : value;
-      await saveGrade(classId, sid, lastSeq, { __decision__: next });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const redoublantsCount = classStudents.filter((s) => isRepeater(s, classes, gradeMap)).length;
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
-      <h3 className="font-semibold text-gray-900 text-base">{t('Redoublements', 'Repeaters', 'Repetidores')}</h3>
-      <p className="text-sm text-gray-500 mt-1 leading-relaxed mb-4">
-        {t("Marquez les élèves qui redoublent. Ils ne seront pas promus : la promotion les replace dans une classe de leur niveau actuel. La décision est aussi reportée sur le relevé et le bulletin.",
-           'Mark students who repeat the year. They will not be promoted: promotion keeps them at their current level. The decision also appears on the transcript and report card.',
-           'Marque a los alumnos que repiten. No serán promocionados.')}
-      </p>
-
-      <div className="mb-4" style={{ maxWidth: 280 }}>
-        <label className="form-label">{t('Classe', 'Class', 'Clase')}</label>
-        <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)}>
-          <option value="">{t('— Choisir une classe —', '— Select a class —', '— Elegir clase —')}</option>
-          {classes.filter((c) => c.cycle !== 'maternelle').map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-      </div>
-
-      {cls && (
-        <>
-          {redoublantsCount > 0 && (
-            <p className="text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-1.5 inline-block mb-3">
-              {redoublantsCount} {t('redoublant', 'repeater', 'repetidor')}{redoublantsCount !== 1 ? 's' : ''}
-            </p>
-          )}
-          <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
-            {classStudents.map((s) => {
-              const avg = multiAvg(gradeMap, classId, s.id, seqs, classSubjects, sys, opts);
-              const dec = annualDecisionValue(s, classes, gradeMap);
-              const repeats = dec === 'redoublant' || dec === 'redouble';
-              const lowAvg = avg !== null && avg < pass;
-              return (
-                <div key={s.id} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm ${repeats ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-800 truncate">{s.name}</p>
-                    <p className="text-xs text-gray-400">
-                      {t('Moy. annuelle', 'Annual avg', 'Media')} : <span className={lowAvg ? 'text-red-600 font-semibold' : 'font-semibold text-gray-600'}>{avg === null ? '—' : avg}</span>
-                      {lowAvg && !repeats && <span className="ml-2 text-amber-600">{t('· en dessous du seuil', '· below threshold', '· bajo el umbral')}</span>}
-                    </p>
-                  </div>
-                  <div className="flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
-                    <button disabled={busy === s.id} onClick={() => setDecision(s.id, 'admis')}
-                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${dec === 'admis' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                      {t('Admis', 'Pass', 'Aprob.')}
-                    </button>
-                    <button disabled={busy === s.id} onClick={() => setDecision(s.id, 'redoublant')}
-                      className={`px-3 py-1.5 text-xs font-semibold transition-colors ${repeats ? 'bg-orange-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                      {t('Redouble', 'Repeat', 'Repite')}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-            {classStudents.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-6">{t('Aucun élève dans cette classe.', 'No students in this class.', 'Sin alumnos.')}</p>
-            )}
-          </div>
-        </>
-      )}
-    </div>
   );
 }
 
@@ -540,12 +334,17 @@ export default function AcademicYear() {
   // Description de la démo adaptée au pays : Guinée Éq. = 2 classes ES / 3 trimestres,
   // Cameroun = 3 classes FR+EN / 6 séquences.
   const isGE            = resolveCountryCode(school) === 'guinea_eq';
-  const demoClassCount  = isGE ? 2 : 3;
-  const demoClassList   = isGE ? '5º Primaria A, 1º ESBA A' : '6ème A FR, 5ème B FR, Form 1 A EN';
-  const demoPeriodCount = isGE ? 3 : 6;
-  const demoPeriodWord  = isGE
-    ? t('trimestres', 'terms', 'trimestres')
-    : t('séquences', 'sequences', 'secuencias');
+  const isOfficiel      = isOfficialEngine(school?.bulletin_engine);
+  const demoClassCount  = isOfficiel ? 4 : isGE ? 2 : 3;
+  const demoClassList   = isOfficiel
+    ? 'Petite Section, CM2, 6ème A, Terminale C'
+    : isGE ? '5º Primaria A, 1º ESBA A' : '6ème A FR, 5ème B FR, Form 1 A EN';
+  const demoPeriodCount = isOfficiel ? 4 : isGE ? 3 : 6;
+  const demoPeriodWord  = isOfficiel
+    ? t('cycles maternelle→lycée, avec décisions de passage', 'cycles nursery→high school, with promotion decisions', 'ciclos, con decisiones de promoción')
+    : isGE
+      ? t('trimestres', 'terms', 'trimestres')
+      : t('séquences', 'sequences', 'secuencias');
 
   const handleSeedDemo = async () => {
     if (!school?.id) return;
@@ -619,12 +418,21 @@ export default function AcademicYear() {
     return res;
   };
 
+  const tabs = [
+    { id: 'dashboard',  label: t('Tableau de bord', 'Dashboard', 'Panel'),                          render: renderDashboard },
+    { id: 'promotion',  label: t('Promotion', 'Promotion', 'Promoción'), render: renderPromotion,  hidden: !(isAdmin && currentYear) },
+    { id: 'archive',    label: t('Archivage & historique', 'Archive & history', 'Archivo'),          render: renderArchive },
+    { id: 'migration',  label: t('Migration', 'Migration', 'Migración'),                             render: renderMigration,  hidden: !isAdmin },
+    { id: 'tools',      label: t('Outils avancés', 'Advanced tools', 'Herramientas'),                render: renderTools,      hidden: !isAdmin },
+  ];
+
   return (
     <Layout>
       {showModal && (
-        <PromotionModal
+        <PromotionWizard
           currentYear={currentYear}
           newYear={newYear}
+          schoolName={school?.name || ''}
           classes={classes}
           students={students}
           subjects={subjects}
@@ -633,17 +441,19 @@ export default function AcademicYear() {
           onClose={() => setShowModal(false)}
         />
       )}
+      <HubTabs
+        title={t('Année scolaire', 'Academic Year', 'Año escolar')}
+        subtitle={t('Périodes, promotion sécurisée, archives et migration.', 'Periods, secure promotion, archives and migration.', 'Periodos, promoción segura, archivos y migración.')}
+        tabs={tabs}
+        storageKey="nc_year_tab"
+      />
+    </Layout>
+  );
 
+  // ── Render des onglets ─────────────────────────────────────────────────────
+  function renderDashboard() {
+    return (
       <div className="max-w-3xl space-y-6">
-
-        {/* Page header */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('Année scolaire', 'Academic Year')}</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {t('Gestion des années scolaires, promotion automatique et archives.', 'Academic year management, automatic promotion and archives.')}
-          </p>
-        </div>
-
         {/* Active year card */}
         <div className="bg-gradient-to-br from-brand-600 to-brand-800 rounded-2xl px-8 py-7 text-white shadow-card-lg">
           <p className="text-brand-200 text-xs font-semibold uppercase tracking-widest mb-1">{t('Année active', 'Active year')}</p>
@@ -662,9 +472,17 @@ export default function AcademicYear() {
           </div>
         </div>
 
-        {/* Promotion CTA — admin only */}
-        {isAdmin && currentYear && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+        {/* Palmarès — tableau d'honneur imprimable */}
+        {isAdmin && currentYear && <PalmaresPanel />}
+      </div>
+    );
+  }
+
+  function renderPromotion() {
+    return (
+      <div className="max-w-3xl space-y-6">
+        {/* Promotion CTA — assistant sécurisé */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
                 <h3 className="font-semibold text-gray-900 text-base">
@@ -684,19 +502,14 @@ export default function AcademicYear() {
               </button>
             </div>
           </div>
-        )}
+      </div>
+    );
+  }
 
-        {/* Périodes académiques (séquence active + verrous) */}
-        {isAdmin && currentYear && <PeriodsManager />}
-
-        {/* Redoublements — à régler avant de lancer la promotion */}
-        {isAdmin && currentYear && <RedoublementsManager />}
-
-        {/* Palmarès — tableau d'honneur imprimable */}
-        {isAdmin && currentYear && <PalmaresPanel />}
-
+  function renderTools() {
+    return (
+      <div className="max-w-3xl space-y-6">
         {/* Bloc données de démo */}
-        {isAdmin && (
           <div className="bg-white rounded-2xl border border-dashed border-indigo-200 shadow-sm p-6">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
@@ -774,10 +587,13 @@ export default function AcademicYear() {
               </div>
             </div>
           </div>
-        )}
+      </div>
+    );
+  }
 
-        {/* Import de données historiques (migration depuis une autre app) */}
-        {isAdmin && (
+  function renderMigration() {
+    return (
+      <div className="max-w-3xl space-y-6">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
             <h3 className="font-semibold text-gray-900 text-base mb-1">
               {t('Importer des années antérieures', 'Import previous years')}
@@ -788,9 +604,13 @@ export default function AcademicYear() {
             </p>
             <DataImportPanel onImported={loadYears} />
           </div>
-        )}
+      </div>
+    );
+  }
 
-        {/* Archive list */}
+  function renderArchive() {
+    return (
+      <div className="max-w-3xl space-y-6">
         <div>
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
             {t('Années archivées', 'Archived years')}
@@ -838,8 +658,7 @@ export default function AcademicYear() {
             </div>
           )}
         </div>
-
       </div>
-    </Layout>
-  );
+    );
+  }
 }

@@ -29,11 +29,25 @@ export async function getCurrentUserContext() {
   // RLS filtre alors toutes les lignes et `school_users` revient VIDE (pas une
   // erreur), ce qui faisait afficher « Compte non configuré » à la 1re connexion.
   // On retente donc quelques fois tant que les lignes sont vides ET sans erreur.
+  // Sélection des lignes school_users avec les champs de profil. Si la migration
+  // supabase_user_profile.sql n'a pas ENCORE été exécutée sur ce déploiement, les
+  // colonnes phone/photo_url/last_login_at/created_at n'existent pas et PostgREST
+  // renvoie une erreur : on retombe alors sur la sélection historique pour ne
+  // JAMAIS casser la connexion (rétro-compatibilité). Les champs de profil sont
+  // simplement absents (→ null) tant que la migration n'est pas appliquée.
+  const LEGACY_COLS  = 'id, role, full_name, class_id, school_id, schools (*)';
+  const PROFILE_COLS = 'id, role, full_name, phone, photo_url, last_login_at, created_at, class_id, school_id, schools (*)';
+  const selectSchoolUsers = async () => {
+    const rich = await supabase.from('school_users').select(PROFILE_COLS).eq('user_id', user.id).eq('active', true);
+    if (!rich.error) return rich;
+    return supabase.from('school_users').select(LEGACY_COLS).eq('user_id', user.id).eq('active', true);
+  };
+
   let saResult, schoolResult;
   for (let attempt = 0; attempt < 4; attempt++) {
     [saResult, schoolResult] = await Promise.all([
       supabase.from('superadmins').select('user_id').eq('user_id', user.id).maybeSingle(),
-      supabase.from('school_users').select('id, role, full_name, class_id, school_id, schools (*)').eq('user_id', user.id).eq('active', true),
+      selectSchoolUsers(),
     ]);
 
     // Contexte trouvé (superadmin ou au moins une école) → on sort.
@@ -53,6 +67,11 @@ export async function getCurrentUserContext() {
       school:       schoolRow?.schools ?? null,
       role:         'superadmin',
       fullName:     schoolRow?.full_name ?? user.email,
+      phone:        schoolRow?.phone ?? null,
+      photoUrl:     schoolRow?.photo_url ?? null,
+      lastLogin:    schoolRow?.last_login_at ?? null,
+      createdAt:    schoolRow?.created_at ?? null,
+      specialty:    null,
       classId:      null,
       schoolUserId: schoolRow?.id ?? null,
       teacherId:    null,
@@ -74,15 +93,17 @@ export async function getCurrentUserContext() {
   const data = rows.find((r) => r.role === 'admin') ?? rows[0];
 
   // Pour les enseignants, récupère l'ID du record teachers lié au compte auth
+  // + sa matière/spécialité (affichée dans le profil).
   let teacherId = null;
+  let specialty = null;
   if (data.role === 'teacher') {
     const { data: teacherRow } = await supabase
       .from('teachers')
-      .select('id')
+      .select('id, specialty')
       .eq('school_id', data.school_id)
       .eq('auth_user_id', user.id)
       .maybeSingle();
-    if (teacherRow) teacherId = teacherRow.id;
+    if (teacherRow) { teacherId = teacherRow.id; specialty = teacherRow.specialty ?? null; }
   }
 
   return {
@@ -90,6 +111,11 @@ export async function getCurrentUserContext() {
     school:       data.schools,
     role:         data.role,
     fullName:     data.full_name,
+    phone:        data.phone ?? null,
+    photoUrl:     data.photo_url ?? null,
+    lastLogin:    data.last_login_at ?? null,
+    createdAt:    data.created_at ?? null,
+    specialty,
     classId:      data.class_id,
     schoolUserId: data.id,
     teacherId,

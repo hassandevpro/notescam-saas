@@ -55,6 +55,16 @@ export function gradingOpts(school, cycle) {
   return { maxScale: geGradeMax(school), useCoef };
 }
 
+// ── Mode de gestion des notes (réglage école) ───────────────────────────────
+// 'principal' (défaut, historique) : l'enseignant titulaire saisit toutes les
+//   matières de sa classe.
+// 'subject' : chaque enseignant ne saisit que les matières qui lui sont
+//   affectées (subjects.teacher_id). Tout le reste (calculs, bulletins,
+//   classements, conseils…) reste identique.
+export function gradeEntryMode(school) {
+  return school?.grade_entry_mode === 'subject' ? 'subject' : 'principal';
+}
+
 // Barème de sortie effectif d'une classe (moyenne générale + affichages).
 // Champ explicite `classes.grade_max` si défini, sinon défaut système :
 // FR → /20, EN → /100, ES → réglage école (/10 ou /20). Rétrocompatible : une

@@ -7,12 +7,73 @@
 // allGrades = { "classId_studentId_seq": g }
 // excl    = { "classId_studentId": true }  — élèves exclus du classement
 
+// --- Matières composites (sous-composantes) ---------------------------------
+// Une sous-composante = matière `subjects` avec `parent_id`. La note d'une
+// matière parente est CALCULÉE depuis ses enfants selon `calc_method` ; les
+// enfants sont EXCLUS de la moyenne générale (seul le parent y participe).
+// Tout est centralisé ici → moyennes, classements et décisions sont corrects
+// partout sans modifier les appelants. Rétro-compatible : sans `parent_id`,
+// resolveScores renvoie (g, subs) à l'identique.
+
+export const topSubjects = (subs) => subs.filter((s) => !s.parent_id);
+export const hasComposites = (subs) => subs.some((s) => s.parent_id);
+
+// Calcule la note d'une matière parente (sur SON barème parent.max) à partir
+// des notes de ses enfants. method : 'avg' | 'weighted_avg' (défaut) |
+// 'weighted_sum' | 'formula' (repli weighted_avg en attendant l'évaluateur).
+export const composeParent = (g, parent, children, method = 'weighted_avg') => {
+  const pmax = parent.max || 20;
+  const parts = [];
+  for (const c of children) {
+    const v = g?.[c.id];
+    if (v === undefined || v === null || v === '' || v === 'ABS') continue;
+    const n = parseFloat(v);
+    if (isNaN(n)) continue;
+    parts.push({ pct: n / (c.max || pmax), coef: c.coef || 1, raw: n });
+  }
+  if (!parts.length) return null;
+  if (method === 'avg') {
+    const m = parts.reduce((a, p) => a + p.pct, 0) / parts.length;
+    return Math.round(m * pmax * 100) / 100;
+  }
+  if (method === 'weighted_sum') {
+    const s = parts.reduce((a, p) => a + p.raw * p.coef, 0);
+    return Math.round(Math.min(s, pmax) * 100) / 100;
+  }
+  const tc = parts.reduce((a, p) => a + p.coef, 0) || 1;
+  const m = parts.reduce((a, p) => a + p.pct * p.coef, 0) / tc;
+  return Math.round(m * pmax * 100) / 100;
+};
+
+// Remplace, dans la grille de notes, chaque parent par sa note calculée et ne
+// renvoie QUE les matières de premier niveau. Sans composite : passe-plat.
+export const resolveScores = (g, subs) => {
+  if (!subs.some((s) => s.parent_id)) return { g: g || {}, subs };
+  const top = [];
+  const byParent = new Map();
+  for (const s of subs) {
+    if (s.parent_id) {
+      if (!byParent.has(s.parent_id)) byParent.set(s.parent_id, []);
+      byParent.get(s.parent_id).push(s);
+    } else top.push(s);
+  }
+  const gEff = { ...(g || {}) };
+  for (const p of top) {
+    const kids = byParent.get(p.id);
+    if (!kids?.length) continue;
+    const v = composeParent(g, p, kids, p.calc_method);
+    if (v === null) delete gEff[p.id]; else gEff[p.id] = String(v);
+  }
+  return { g: gEff, subs: top };
+};
+
 // --- Calcul de moyenne séquentielle ---
 
 // maxScale = barème de sortie de la classe (défaut /20 FR, /100 EN). Chaque note
 // est normalisée par le barème de sa matière (s.max) puis remise à l'échelle de
 // sortie : un barème /30 n'altère donc pas les classes existantes (défaut conservé).
 export const calcFR = (g, subs, maxScale = 20) => {
+  ({ g, subs } = resolveScores(g, subs));
   let sw = 0, tc = 0;
   for (const s of subs) {
     const v = g?.[s.id];
@@ -24,6 +85,7 @@ export const calcFR = (g, subs, maxScale = 20) => {
 };
 
 export const calcEN = (g, subs, maxScale = 100) => {
+  ({ g, subs } = resolveScores(g, subs));
   let sw = 0, tc = 0;
   for (const s of subs) {
     const v = g?.[s.id];
@@ -39,6 +101,7 @@ export const calcEN = (g, subs, maxScale = 100) => {
 // coefficients (useCoef, ex. désactivés au primaire). Défauts = /10 + coef
 // pour préserver le comportement existant.
 export const calcES = (g, subs, maxScale = 10, useCoef = true) => {
+  ({ g, subs } = resolveScores(g, subs));
   let sw = 0, tc = 0;
   for (const s of subs) {
     const v = g?.[s.id];
@@ -70,7 +133,10 @@ export const multiAvg = (allGrades, classId, studentId, seqs, subs, sys, opts = 
     : null;
 };
 
-// Fusionne les notes de plusieurs séquences en une seule grille (moyenne par matière)
+// Fusionne les notes de plusieurs séquences en une seule grille (moyenne par
+// matière). Les enfants sont fusionnés AUSSI (pour l'affichage détaillé), puis
+// chaque parent est recalculé depuis ses enfants fusionnés. Les moyennes via
+// calc*/getAvg restent correctes (resolveScores exclut les enfants).
 export const fusedG = (allGrades, classId, studentId, seqs, subs) => {
   const out = {};
   subs.forEach((s) => {
@@ -84,6 +150,22 @@ export const fusedG = (allGrades, classId, studentId, seqs, subs) => {
       out[s.id] = String(Math.round((sc.reduce((a, b) => a + b, 0) / sc.length) * 100) / 100);
     }
   });
+  // Recompose les parents à partir des enfants fusionnés.
+  if (subs.some((s) => s.parent_id)) {
+    const byParent = new Map();
+    subs.forEach((s) => {
+      if (!s.parent_id) return;
+      if (!byParent.has(s.parent_id)) byParent.set(s.parent_id, []);
+      byParent.get(s.parent_id).push(s);
+    });
+    for (const p of subs) {
+      if (p.parent_id) continue;
+      const kids = byParent.get(p.id);
+      if (!kids?.length) continue;
+      const v = composeParent(out, p, kids, p.calc_method);
+      if (v === null) delete out[p.id]; else out[p.id] = String(v);
+    }
+  }
   return out;
 };
 
@@ -114,6 +196,18 @@ export const esGrade = (avg, maxScale = 10) => {
   const f = maxScale / 10;
   const hit = ES_GRADE_SCALE.find((s) => avg >= s.min * f && avg <= s.max * f);
   return hit ? { text: hit.mention, col: hit.couleur } : { text: '—', col: '#6b7280' };
+};
+
+// Bande du barème configurable (school.grade_scale, sinon DEFAULT_GRADE_SCALE)
+// correspondant à une moyenne sur /20. Renvoie l'entrée complète
+// { mention, min, max, couleur } — utile quand on a besoin de l'INTERVALLE
+// [Min–Max] en plus du libellé (bulletin APC). Renvoie null si non noté.
+export const gradeScaleBand = (avg, gradeScale) => {
+  if (avg === null || avg === undefined) return null;
+  const scale  = Array.isArray(gradeScale) && gradeScale.length ? gradeScale : DEFAULT_GRADE_SCALE;
+  const sorted = [...scale].sort((a, b) => b.min - a.min);
+  return sorted.find((e) => avg >= e.min && avg <= e.max)
+    || (avg >= sorted[0].min ? sorted[0] : sorted[sorted.length - 1]);
 };
 
 // Utilise le barème personnalisé (school.grade_scale) si disponible,

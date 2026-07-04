@@ -16,11 +16,13 @@ export const A4 = { w: 210, h: 297 }; // mm
  * @param {number} [o.margin=12] marge page (mm)
  * @param {number} [o.gapX=8] espace horizontal (mm)
  * @param {number} [o.gapY=8] espace vertical (mm)
+ * @param {{w:number,h:number}} [o.page=A4] dimensions de page (mm). Permet le paysage
+ *   (ex. { w:297, h:210 }) sans toucher au reste de la géométrie.
  * @returns {{ cardW:number, cardH:number, perPage:number, pages:number, slots:Array }}
  */
-export function buildLayout({ count, ratio, cols = 2, rows = 4, margin = 12, gapX = 8, gapY = 8 }) {
+export function buildLayout({ count, ratio, cols = 2, rows = 4, margin = 12, gapX = 8, gapY = 8, page = A4 }) {
   if (!ratio || ratio <= 0) throw new Error('ratio invalide');
-  const cardW = (A4.w - margin * 2 - gapX * (cols - 1)) / cols;
+  const cardW = (page.w - margin * 2 - gapX * (cols - 1)) / cols;
   const cardH = cardW / ratio;
   const perPage = cols * rows;
   const slots = [];

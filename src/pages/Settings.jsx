@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { useUiStore } from '../store/uiStore';
+import { IS_LAN } from '../lib/edition';
 import { useCountry, geGradeMax } from '../lib/useCountry';
 import { COUNTRY_OPTIONS } from '../countries';
 import { getDaysUntilLicenseExpires } from '../lib/auth';
@@ -8,13 +10,18 @@ import { uploadSchoolAsset } from '../lib/schoolService';
 import { uuid } from '../lib/uuid';
 import { copyText } from '../lib/clipboard';
 import { BULLETIN_FONTS } from '../lib/schoolTheme';
+import { CURRENCIES } from '../lib/currency';
 import { supabase } from '../lib/supabase';
 import { DEFAULT_GRADE_SCALE } from '../core/bulletinEngine';
+import { apcBulletinCols, APC_BULLETIN_COLS_DEFAULT } from '../core/apcEngine';
+import { isOfficialEngine } from '../core/engineResolver';
 import Layout from '../components/Layout';
+import HubTabs from '../components/hubs/HubTabs';
 import SchoolCalendar from '../components/SchoolCalendar';
 import StaffManager from '../components/StaffManager';
 import LicensePanel from '../components/LicensePanel';
 import SwitchToLocalCard from '../components/SwitchToLocalCard';
+import AcademicSetupWizard from '../components/setup/AcademicSetupWizard';
 
 // Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
 function buildGeScale(maxScale = 10) {
@@ -87,7 +94,8 @@ const LANGUAGES = [
 function LicenseBadge({ school }) {
   const t = useT();
   const daysLeft = getDaysUntilLicenseExpires(school?.license_expires_at);
-  const status   = school?.license_status;
+  // LAN (.exe) : produit sous licence, jamais en « essai » — affiché actif.
+  const status   = IS_LAN ? 'active' : school?.license_status;
   if (status === 'active') {
     return (
       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold bg-emerald-100 text-emerald-800">
@@ -183,6 +191,90 @@ function AssetUploader({ label, currentUrl, onUpload, onRemove, uploading, hint 
   );
 }
 
+// ── Changement de mot de passe (toutes éditions) ─────────────────────────────
+// Vérifie l'ancien mot de passe par ré-authentification (même compte), puis met
+// à jour. Fonctionne en cloud (Supabase) comme en LAN (serveur local) car les
+// deux exposent auth.signInWithPassword + auth.updateUser.
+function ChangePassword() {
+  const t = useT();
+  const email = useAuthStore((s) => s.user?.email);
+  const [open, setOpen]       = useState(false);
+  const [oldPwd, setOldPwd]   = useState('');
+  const [newPwd, setNewPwd]   = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [status, setStatus]   = useState(null); // null | 'loading' | 'ok' | 'err'
+  const [msg, setMsg]         = useState('');
+
+  const reset = () => { setOldPwd(''); setNewPwd(''); setConfirm(''); setStatus(null); setMsg(''); };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (newPwd !== confirm) {
+      setStatus('err'); setMsg(t('Les deux mots de passe ne correspondent pas.', 'The two passwords do not match.', 'Las dos contraseñas no coinciden.'));
+      return;
+    }
+    setStatus('loading'); setMsg('');
+    try {
+      // 1. Ré-authentification : valide l'ancien mot de passe (même compte).
+      const { error: authErr } = await supabase.auth.signInWithPassword({ email, password: oldPwd });
+      if (authErr) {
+        setStatus('err');
+        setMsg(t('Ancien mot de passe incorrect.', 'Current password is incorrect.', 'La contraseña actual es incorrecta.'));
+        return;
+      }
+      // 2. Mise à jour.
+      const { error: updErr } = await supabase.auth.updateUser({ password: newPwd });
+      if (updErr) { setStatus('err'); setMsg(updErr.message); return; }
+      setStatus('ok');
+      setMsg(t('Mot de passe mis à jour.', 'Password updated.', 'Contraseña actualizada.'));
+      setOldPwd(''); setNewPwd(''); setConfirm('');
+    } catch (err) {
+      setStatus('err'); setMsg(err.message || t('Erreur inattendue.', 'Unexpected error.', 'Error inesperado.'));
+    }
+  };
+
+  return (
+    <Section title={t('Sécurité — mot de passe', 'Security — password', 'Seguridad — contraseña')}>
+      {!open ? (
+        <button type="button" onClick={() => { reset(); setOpen(true); }} className="btn-secondary" style={{ width: 'auto', paddingInline: '1.25rem' }}>
+          {t('Changer mon mot de passe', 'Change my password', 'Cambiar mi contraseña')}
+        </button>
+      ) : (
+        <form onSubmit={submit} className="grid grid-cols-1 gap-4 max-w-md">
+          {/* Champ email caché : aide les gestionnaires de mots de passe. */}
+          <input type="email" value={email || ''} readOnly hidden autoComplete="username" />
+          <div>
+            <label className="form-label">{t('Ancien mot de passe *', 'Current password *', 'Contraseña actual *')}</label>
+            <input type="password" required className="form-input" autoComplete="current-password"
+              value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} />
+          </div>
+          <div>
+            <label className="form-label">{t('Nouveau mot de passe *', 'New password *', 'Nueva contraseña *')}</label>
+            <input type="password" required minLength={8} className="form-input" autoComplete="new-password"
+              placeholder={t('Min. 8 caractères', 'Min. 8 characters', 'Mín. 8 caracteres')}
+              value={newPwd} onChange={(e) => setNewPwd(e.target.value)} />
+          </div>
+          <div>
+            <label className="form-label">{t('Confirmer le nouveau mot de passe *', 'Confirm new password *', 'Confirmar nueva contraseña *')}</label>
+            <input type="password" required minLength={8} className="form-input" autoComplete="new-password"
+              value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          </div>
+          {status === 'err' && <p className="text-sm text-red-600">⚠️ {msg}</p>}
+          {status === 'ok'  && <p className="text-sm text-emerald-600">✓ {msg}</p>}
+          <div className="flex items-center gap-3">
+            <button type="submit" disabled={status === 'loading'} className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+              {status === 'loading' ? t('Mise à jour…', 'Updating…', 'Actualizando…') : t('Mettre à jour', 'Update', 'Actualizar')}
+            </button>
+            <button type="button" onClick={() => { setOpen(false); reset(); }} className="btn-secondary">
+              {t('Fermer', 'Close', 'Cerrar')}
+            </button>
+          </div>
+        </form>
+      )}
+    </Section>
+  );
+}
+
 export default function Settings() {
   const t = useT();
   const school         = useAuthStore((s) => s.school);
@@ -202,6 +294,7 @@ export default function Settings() {
   const isAdmin = role === 'admin';
 
   const [form,           setForm]           = useState(null);
+  const [showSetup,      setShowSetup]      = useState(false);
   const [saving,         setSaving]         = useState(false);
   const [saved,          setSaved]          = useState(false);
   const [error,          setError]          = useState(null);
@@ -267,6 +360,8 @@ export default function Settings() {
 
   // ── Barème de notation (admin) ───────────────────────────────────────────
   const [gradeScale,  setGradeScale]  = useState(DEFAULT_GRADE_SCALE);
+  // Bascules des colonnes du bulletin APC (premier cycle) : COTE / [Min–Max] / Appréciation.
+  const [apcCols,     setApcCols]     = useState(APC_BULLETIN_COLS_DEFAULT);
   const [scaleSaving, setScaleSaving] = useState(false);
   const [scaleSaved,  setScaleSaved]  = useState(false);
   const [scaleError,  setScaleError]  = useState(null);
@@ -286,7 +381,13 @@ export default function Settings() {
         phone:        school.phone        || '',
         email:        school.email        || '',
         current_year: school.current_year || '',
+        currency:     school.currency     || 'XAF',
         establishment_no: school.establishment_no || '',
+        grade_entry_mode: school.grade_entry_mode === 'subject' ? 'subject' : 'principal',
+        // Deux mondes présentés à l'admin : Classique vs Officiel (unifié). Tout
+        // drapeau officiel « historique » (minesec/minedub…) est remonté sur 'officiel'.
+        bulletin_engine: isOfficialEngine(school.bulletin_engine) ? 'officiel' : 'classic',
+        bulletin_subject_mode: school.bulletin_subject_mode === 'detailed' ? 'detailed' : 'synthetic',
         bulletin_font:    school.bulletin_font    || 'arial',
         censeur_name:     school.censeur_name     || '',
         surveillant_name: school.surveillant_name || '',
@@ -297,6 +398,7 @@ export default function Settings() {
         // Guinée Équatoriale sans barème personnalisé → apreciaciones espagnoles.
         setGradeScale(buildGeScale(geGradeMax(school)));
       }
+      setApcCols(apcBulletinCols(school));
     }
   }, [school, isGE]);
 
@@ -326,6 +428,23 @@ export default function Settings() {
     } else {
       setScaleSaved(true);
       setTimeout(() => setScaleSaved(false), 3500);
+    }
+  };
+
+  // Sauvegarde INDÉPENDANTE des bascules de colonnes APC : ne couple pas la
+  // colonne apc_bulletin_cols (migration récente) à l'enregistrement du barème.
+  const [apcColsSaving, setApcColsSaving] = useState(false);
+  const [apcColsSaved,  setApcColsSaved]  = useState(false);
+  const [apcColsError,  setApcColsError]  = useState(null);
+  const handleApcColsSave = async () => {
+    setApcColsSaving(true); setApcColsError(null); setApcColsSaved(false);
+    const result = await doUpdateSchool({ apc_bulletin_cols: apcCols });
+    setApcColsSaving(false);
+    if (result.error) {
+      setApcColsError(result.error);
+    } else {
+      setApcColsSaved(true);
+      setTimeout(() => setApcColsSaved(false), 3500);
     }
   };
 
@@ -378,29 +497,39 @@ export default function Settings() {
 
   const daysLeft = getDaysUntilLicenseExpires(school?.license_expires_at);
 
+  // ── Onglets modulaires (carte Administration › Paramètres) ─────────────────
+  // Chaque onglet possède sa propre sauvegarde ; handleSave persiste l'objet
+  // `form` complet, donc des formulaires séparés restent cohérents.
+  const tabs = [
+    { id: 'profile',       label: t('Profil & licence', 'Profile & license', 'Perfil y licencia'), render: renderProfile },
+    { id: 'establishment', label: t('Établissement', 'School', 'Centro'),                           render: renderEstablishment },
+    { id: 'appearance',    label: t('Apparence des bulletins', 'Report card look', 'Apariencia'),   render: renderAppearance,  hidden: !isAdmin },
+    { id: 'signatures',    label: t('Signatures officielles', 'Official signatures', 'Firmas'),      render: renderSignatures,  hidden: !isAdmin },
+    { id: 'users',         label: t('Utilisateurs', 'Users', 'Usuarios'),                           render: renderUsers,       hidden: !isAdmin },
+    { id: 'calendar',      label: t('Calendrier scolaire', 'School calendar', 'Calendario'),        render: renderCalendar,    hidden: !isAdmin },
+    { id: 'advanced',      label: t('Paramètres avancés', 'Advanced settings', 'Avanzado'),         render: renderAdvanced,    hidden: !isAdmin },
+  ];
+
   return (
     <Layout>
-      <div className="max-w-5xl">
+      <HubTabs
+        title={t('Paramètres', 'Settings', 'Ajustes')}
+        subtitle={t("Configuration de l'établissement, bulletins et calendrier.", 'School configuration, report cards and calendar.', 'Configuración del centro, boletines y calendario.')}
+        tabs={tabs}
+        storageKey="nc_settings_tab"
+      />
+    </Layout>
+  );
 
-        {/* ── En-tête ─────────────────────────────────────────────────────── */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">{t('Paramètres', 'Settings')}</h1>
-          <p className="text-sm text-gray-500 mt-1">{t("Configuration de l'établissement, bulletins et calendrier.", 'School configuration, report cards and calendar.')}</p>
-        </div>
-
+  // ── Render des onglets ─────────────────────────────────────────────────────
+  function renderProfile() {
+    return (
+      <div className="space-y-6">
         {/* Licence (édition LAN, admin) — auto-masqué en cloud / hors admin */}
         <LicensePanel />
         {/* Passer en local (édition CLOUD, admin) — auto-masqué en LAN / hors admin */}
         <SwitchToLocalCard />
-
-        {!isAdmin && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 mb-6">
-            {t('Seul l\'administrateur peut modifier ces paramètres.', 'Only the administrator can modify these settings.')}
-          </div>
-        )}
-
-        {/* ── 1. Mon profil + Licence ──────────────────────────────────────── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Section title={t('Mon profil', 'My profile')} className="h-full">
             {role === 'teacher' ? (
               <form onSubmit={handleTeacherSave} className="grid grid-cols-1 gap-4">
@@ -433,6 +562,8 @@ export default function Settings() {
             )}
           </Section>
 
+          <ChangePassword />
+
           <Section title={t('Licence & abonnement', 'License & subscription')} className="h-full">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -457,13 +588,40 @@ export default function Settings() {
             </div>
           </Section>
         </div>
+      </div>
+    );
+  }
 
-        {/* ── 2. Formulaire établissement + visuels ───────────────────────── */}
-        <form onSubmit={handleSave} className="mb-4">
-          <div className={`grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-3' : ''} gap-6 mb-4`}>
+  function renderEstablishment() {
+    return (
+      <form onSubmit={handleSave}>
+        {!isAdmin && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 mb-6">
+            {t('Seul l\'administrateur peut modifier ces paramètres.', 'Only the administrator can modify these settings.')}
+          </div>
+        )}
 
-            {/* Infos + Coordonnées (2/3) */}
-            <Section title={t("Informations de l'établissement", 'School information')} className={isAdmin ? 'lg:col-span-2' : ''}>
+        {/* ── Démarrage rapide : génération automatique depuis un modèle ──── */}
+        {isAdmin && (
+          <div className="mb-6 rounded-2xl border border-brand-200 bg-brand-50/60 p-5 flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-gray-900">{t('Démarrage rapide', 'Quick start', 'Inicio rápido')}</h3>
+              <p className="text-xs text-gray-500 mt-1 max-w-md">
+                {t(
+                  "Générez automatiquement classes, matières et coefficients à partir d'un modèle officiel (Cameroun général, technique, primaire, bilingue…).",
+                  'Auto-generate classes, subjects and coefficients from an official template.',
+                  'Genere clases, asignaturas y coeficientes desde una plantilla oficial.',
+                )}
+              </p>
+            </div>
+            <button type="button" onClick={() => setShowSetup(true)} className="btn-primary shrink-0" style={{ width: 'auto', paddingInline: '1.25rem' }}>
+              {t('Générer mon établissement', 'Generate my school', 'Generar mi centro')}
+            </button>
+          </div>
+        )}
+        {showSetup && <AcademicSetupWizard onClose={() => setShowSetup(false)} />}
+
+        <Section title={t("Informations de l'établissement", 'School information')}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="form-label">{t("Nom de l'établissement *", 'School name *')}</label>
@@ -503,61 +661,20 @@ export default function Settings() {
                     </select>
                   )}
                 </div>
-                {/* Guinea Ecuatorial : opciones de calificación decididas por el centro */}
-                {isGE && (
-                  <div className="md:col-span-2 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
-                    <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-3">
-                      Opciones de calificación
-                    </p>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="form-label">Escala de notas</label>
-                        <select
-                          disabled={!isAdmin}
-                          className="form-input disabled:bg-gray-50 disabled:text-gray-500"
-                          value={geMax}
-                          onChange={(e) => setGeMax(Number(e.target.value))}
-                        >
-                          <option value={10}>Sobre 10 (modelo español)</option>
-                          <option value={20}>Sobre 20</option>
-                        </select>
-                      </div>
-                      <div className="flex items-end">
-                        <label className={`flex items-center gap-2 text-sm ${isAdmin ? 'cursor-pointer' : 'opacity-60'}`}>
-                          <input
-                            type="checkbox"
-                            disabled={!isAdmin}
-                            className="w-4 h-4 accent-emerald-600"
-                            checked={gePrimCoef}
-                            onChange={(e) => setGePrimCoef(e.target.checked)}
-                          />
-                          <span className="font-medium text-gray-700">Usar coeficientes en Primaria</span>
-                        </label>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-2">
-                      Por defecto la Primaria pondera todas las asignaturas por igual. La Secundaria y el Bachillerato siempre usan coeficientes.
-                    </p>
-                    {isAdmin && (
-                      <div className="flex items-center gap-3 mt-3">
-                        <button
-                          onClick={handleGeOptSave}
-                          disabled={geOptSaving}
-                          className="btn-primary"
-                          style={{ width: 'auto', paddingInline: '1.5rem' }}
-                        >
-                          {geOptSaving ? 'Guardando…' : 'Guardar opciones'}
-                        </button>
-                        {geOptSaved && <span className="text-sm text-emerald-600 font-medium">✓ Guardado</span>}
-                        {geOptError && <span className="text-sm text-red-600">{geOptError}</span>}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Options de calification GE → onglet « Paramètres avancés » */}
 
                 <div>
                   <label className="form-label">{t('Année scolaire', 'Academic year')}</label>
                   <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : 2025-2026', 'E.g. 2025-2026')} value={form.current_year} onChange={set('current_year')} />
+                </div>
+                <div>
+                  <label className="form-label">{t('Devise', 'Currency', 'Moneda')}</label>
+                  <select disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.currency} onChange={set('currency')}>
+                    {CURRENCIES.map((c) => (
+                      <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">{t("Devise officielle (frais, reçus, rapports). Modifiable à tout moment : n'affecte que l'affichage, jamais les montants enregistrés.", 'Official currency (fees, receipts, reports). Editable anytime: affects display only, never stored amounts.')}</p>
                 </div>
                 <div>
                   <label className="form-label">{t('Directeur / Proviseur', 'Principal / Headmaster')}</label>
@@ -617,18 +734,167 @@ export default function Settings() {
               </div>
             </Section>
 
-            {/* Visuels du bulletin (1/3) — admin seulement */}
-            {isAdmin && (
-              <Section title={t('Visuels du bulletin', 'Report card visuals')}>
-                <div className="mb-6">
-                  <label className="form-label">{t('Police du bulletin', 'Report card font', 'Fuente del boletín')}</label>
-                  <select className="form-input" value={form.bulletin_font} onChange={set('bulletin_font')} style={{ fontFamily: (BULLETIN_FONTS.find((f) => f.value === form.bulletin_font) || BULLETIN_FONTS[0]).stack }}>
-                    {BULLETIN_FONTS.map((f) => (
-                      <option key={f.value} value={f.value} style={{ fontFamily: f.stack }}>{f.label}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-gray-400 mt-1">{t('Police appliquée à tous les bulletins imprimés.', 'Font applied to all printed report cards.')}</p>
+            {/* ── Mode de gestion des notes ───────────────────────────────── */}
+            <Section title={t('Mode de gestion des notes', 'Grade entry mode', 'Modo de captura de notas')} className="mt-6">
+              <p className="text-sm text-gray-500 mb-4">
+                {t(
+                  "Définit qui saisit les notes. Les calculs, bulletins, classements et conseils de classe restent identiques dans les deux modes.",
+                  'Defines who enters grades. Calculations, report cards, rankings and class councils stay identical in both modes.',
+                  'Define quién captura las notas. Cálculos, boletines, clasificaciones y juntas no cambian.',
+                )}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { value: 'principal',
+                    title: t('Enseignant principal', 'Lead teacher', 'Profesor principal'),
+                    desc:  t("L'enseignant titulaire saisit toutes les matières de sa classe.", 'The class teacher enters all subjects of their class.', 'El tutor captura todas las asignaturas de su clase.') },
+                  { value: 'subject',
+                    title: t('Enseignant de matière', 'Subject teacher', 'Profesor de asignatura'),
+                    desc:  t("Chaque enseignant ne saisit que les matières qui lui sont affectées.", 'Each teacher only enters the subjects assigned to them.', 'Cada profesor solo captura sus asignaturas.') },
+                ].map((opt) => {
+                  const active = (form.grade_entry_mode || 'principal') === opt.value;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      disabled={!isAdmin}
+                      onClick={() => setForm((f) => ({ ...f, grade_entry_mode: opt.value }))}
+                      className={`text-left rounded-xl border p-4 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                        active ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-brand-600' : 'border-gray-300'}`}>
+                          {active && <span className="w-2 h-2 rounded-full bg-brand-600" />}
+                        </span>
+                        <span className="font-semibold text-gray-900 text-sm">{opt.title}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1.5 ml-6">{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {(form.grade_entry_mode || 'principal') === 'subject' && (
+                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                  {t(
+                    "Pensez à affecter chaque matière à un enseignant dans Matières. Une matière sans enseignant ne sera saisissable par aucun professeur de matière.",
+                    'Remember to assign each subject to a teacher in Subjects. A subject without a teacher cannot be entered by any subject teacher.',
+                    'Asigne cada asignatura a un profesor en Asignaturas.',
+                  )}
                 </div>
+              )}
+            </Section>
+
+            {/* ── Moteur de bulletin (référentiels MINESEC) ────────────────── */}
+            <Section title={t('Moteur de bulletin', 'Report card engine', 'Motor de boletín')} className="mt-6">
+              <p className="text-sm text-gray-500 mb-4">
+                {t(
+                  "Deux systèmes au choix. « Officiel Cameroun » couvre TOUT automatiquement selon le niveau de chaque classe : maternelle et primaire (MINEDUB), collège APC et lycée par séries (MINESEC). « Classique » conserve les notes et moyennes habituelles, sans référentiel officiel.",
+                  'Two systems to choose from. "Official Cameroon" covers everything automatically per class level: nursery and primary (MINEDUB), lower-secondary APC and high-school streams (MINESEC). "Classic" keeps the usual grades and averages, with no official framework.',
+                  'Dos sistemas. «Oficial» cubre todo automáticamente por nivel; «Clásico» conserva notas y medias habituales.',
+                )}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { value: 'classic',
+                    title: t('Classique', 'Classic', 'Clásico'),
+                    desc:  t('Notes et moyennes habituelles. Aucun référentiel officiel.', 'Usual grades and averages. No official framework.', 'Notas y medias habituales.') },
+                  { value: 'officiel',
+                    title: t('Officiel Cameroun', 'Official Cameroon', 'Oficial Camerún'),
+                    desc:  t('MINEDUB (maternelle + primaire) ET MINESEC (collège APC + lycée par séries). Auto selon le niveau de la classe.', 'MINEDUB (nursery + primary) AND MINESEC (lower-secondary APC + high-school streams). Auto per class level.', 'MINEDUB (preescolar + primaria) Y MINESEC (secundaria).') },
+                ].map((opt) => {
+                  const active = (form.bulletin_engine || 'classic') === opt.value;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      disabled={!isAdmin}
+                      onClick={() => setForm((f) => ({ ...f, bulletin_engine: opt.value }))}
+                      className={`text-left rounded-xl border p-4 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                        active ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-brand-600' : 'border-gray-300'}`}>
+                          {active && <span className="w-2 h-2 rounded-full bg-brand-600" />}
+                        </span>
+                        <span className="font-semibold text-gray-900 text-sm">{opt.title}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1.5 ml-6">{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {(form.bulletin_engine || 'classic') === 'officiel' && (
+                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                  {t(
+                    "Nommez chaque classe avec son niveau (ex. « Petite Section », « CE1 », « 6ème A », « Terminale C ») : le cycle, la série et le bulletin sont déduits, et les matières officielles créées automatiquement à l'ouverture. Les classes de lycée doivent porter une série reconnue (A, C, D…).",
+                    'Name each class with its level (e.g. "Petite Section", "CE1", "6ème A", "Terminale C"): cycle, stream and report card are inferred, and official subjects created automatically. High-school classes must carry a recognized stream (A, C, D…).',
+                    'Nombre cada clase con su nivel; el ciclo, la serie y el boletín se deducen y las asignaturas se crean automáticamente.',
+                  )}
+                </div>
+              )}
+            </Section>
+
+            {/* ── Affichage des matières composites au bulletin ────────────── */}
+            <Section title={t('Affichage des matières au bulletin', 'Subject display on report cards', 'Visualización en boletines')} className="mt-6">
+              <p className="text-sm text-gray-500 mb-4">
+                {t(
+                  "Pour les matières composées (ex. Français = Grammaire, Orthographe…). Seule la matière principale compte dans la moyenne ; les sous-composantes servent au calcul.",
+                  'For composite subjects (e.g. French = Grammar, Spelling…). Only the main subject counts in the average; components are used for the calculation.',
+                  'Para asignaturas compuestas. Solo la principal cuenta en la media.',
+                )}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { value: 'synthetic',
+                    title: t('Synthétique', 'Synthetic', 'Sintético'),
+                    desc:  t('Affiche uniquement la note finale de la matière (Français … 15,25).', 'Shows only the final subject grade.', 'Solo la nota final.') },
+                  { value: 'detailed',
+                    title: t('Détaillé', 'Detailed', 'Detallado'),
+                    desc:  t('Affiche la matière puis ses sous-composantes en retrait.', 'Shows the subject then its components indented.', 'Muestra la asignatura y sus componentes.') },
+                ].map((opt) => {
+                  const active = (form.bulletin_subject_mode || 'synthetic') === opt.value;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      disabled={!isAdmin}
+                      onClick={() => setForm((f) => ({ ...f, bulletin_subject_mode: opt.value }))}
+                      className={`text-left rounded-xl border p-4 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                        active ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-brand-600' : 'border-gray-300'}`}>
+                          {active && <span className="w-2 h-2 rounded-full bg-brand-600" />}
+                        </span>
+                        <span className="font-semibold text-gray-900 text-sm">{opt.title}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1.5 ml-6">{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </Section>
+
+        {isAdmin && (
+          <div className="flex items-center gap-4 mt-6">
+            <button type="submit" disabled={saving} className="btn-primary" style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}>
+              {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer les modifications', 'Save changes')}
+            </button>
+            {saved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Modifications sauvegardées', 'Changes saved')}</span>}
+            {error && <span className="text-sm text-red-600">{error}</span>}
+          </div>
+        )}
+      </form>
+    );
+  }
+
+  function renderSignatures() {
+    return (
+      <form onSubmit={handleSave}>
+        <Section title={t('Signatures officielles', 'Official signatures', 'Firmas oficiales')}>
                 <div className="space-y-6">
                   <AssetUploader
                     label={t("Logo de l'école", 'School logo')}
@@ -691,25 +957,23 @@ export default function Settings() {
                   </div>
                 </div>
                 {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
-              </Section>
-            )}
-
+          <div className="flex items-center gap-4 pt-4 mt-4 border-t border-slate-100">
+            <button type="submit" disabled={saving} className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+              {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer les noms', 'Save names', 'Guardar nombres')}
+            </button>
+            {saved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Modifications sauvegardées', 'Changes saved')}</span>}
           </div>
+        </Section>
+      </form>
+    );
+  }
 
-          {isAdmin && (
-            <div className="flex items-center gap-4 mb-6">
-              <button type="submit" disabled={saving} className="btn-primary" style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}>
-                {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer les modifications', 'Save changes')}
-              </button>
-              {saved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Modifications sauvegardées', 'Changes saved')}</span>}
-              {error && <span className="text-sm text-red-600">{error}</span>}
-            </div>
-          )}
-        </form>
-
-        {/* ── 3. Code établissement ───────────────────────────────────────── */}
-        {isAdmin && school?.id && (
-          <div className="bg-brand-50 border border-brand-100 rounded-xl px-6 py-4 mb-6 flex flex-wrap items-center justify-between gap-4">
+  function renderUsers() {
+    return (
+      <div className="space-y-6">
+        {/* Code établissement */}
+        {school?.id && (
+          <div className="bg-brand-50 border border-brand-100 rounded-xl px-6 py-4 flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="text-xs font-semibold text-brand-700 uppercase tracking-wider mb-0.5">{t('Code établissement', 'School code')}</div>
               <div className="text-xs text-brand-600">{t('À communiquer aux enseignants pour leur inscription sur', 'Share with teachers for their registration on')} <strong>/teacher-signup</strong></div>
@@ -735,10 +999,129 @@ export default function Settings() {
             </div>
           </div>
         )}
+        <Section title={t('Censeur', 'Dean of studies', 'Jefe de estudios')}>
+          <StaffManager role="censeur" />
+        </Section>
+        <Section title={t('Surveillant', 'Supervisor', 'Jefe de disciplina')}>
+          <StaffManager role="surveillant" />
+        </Section>
+      </div>
+    );
+  }
 
-        {/* ── 4. Barème de notation ────────────────────────────────────────── */}
-        {isAdmin && (
-          <Section title={t('Barème de notation', 'Grade scale')} className="mb-6">
+  function renderCalendar() {
+    return (
+      <Section title={t('Calendrier scolaire', 'School calendar', 'Calendario escolar')}>
+        <SchoolCalendar />
+      </Section>
+    );
+  }
+
+  function renderAdvanced() {
+    // Activation Cloud — édition LAN, admin uniquement. Remplace l'ancien bouton flottant.
+    const cloudCard = IS_LAN && isAdmin ? (
+      <Section title={t('Passer au cloud', 'Move to the cloud', 'Pasar a la nube')}>
+        <p className="text-sm text-slate-500 mb-3">
+          {t(
+            "Mettez votre établissement local dans le cloud sans le recréer : vos identifiants et vos données sont conservés.",
+            'Move your local school to the cloud without recreating it: your credentials and data are preserved.',
+            'Lleve su centro local a la nube sin recrearlo: se conservan sus credenciales y datos.',
+          )}
+        </p>
+        <button
+          onClick={() => useUiStore.getState().openCloudActivation()}
+          className="btn-primary"
+          style={{ width: 'auto', paddingInline: '1.5rem' }}
+        >
+          ☁ {t('Activer NotesCam Cloud', 'Activate NotesCam Cloud', 'Activar NotesCam Cloud')}
+        </button>
+      </Section>
+    ) : null;
+
+    if (isGE) {
+      return (
+        <div className="space-y-6">
+        {cloudCard}
+        <Section title="Opciones de calificación (Guinea Ecuatorial)">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Escala de notas</label>
+              <select
+                disabled={!isAdmin}
+                className="form-input disabled:bg-gray-50 disabled:text-gray-500"
+                value={geMax}
+                onChange={(e) => setGeMax(Number(e.target.value))}
+              >
+                <option value={10}>Sobre 10 (modelo español)</option>
+                <option value={20}>Sobre 20</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <label className={`flex items-center gap-2 text-sm ${isAdmin ? 'cursor-pointer' : 'opacity-60'}`}>
+                <input
+                  type="checkbox"
+                  disabled={!isAdmin}
+                  className="w-4 h-4 accent-emerald-600"
+                  checked={gePrimCoef}
+                  onChange={(e) => setGePrimCoef(e.target.checked)}
+                />
+                <span className="font-medium text-gray-700">Usar coeficientes en Primaria</span>
+              </label>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            Por defecto la Primaria pondera todas las asignaturas por igual. La Secundaria y el Bachillerato siempre usan coeficientes.
+          </p>
+          {isAdmin && (
+            <div className="flex items-center gap-3 mt-3">
+              <button onClick={handleGeOptSave} disabled={geOptSaving} className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+                {geOptSaving ? 'Guardando…' : 'Guardar opciones'}
+              </button>
+              {geOptSaved && <span className="text-sm text-emerald-600 font-medium">✓ Guardado</span>}
+              {geOptError && <span className="text-sm text-red-600">{geOptError}</span>}
+            </div>
+          )}
+        </Section>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-6">
+      {cloudCard}
+      <Section title={t('Paramètres avancés', 'Advanced settings', 'Ajustes avanzados')}>
+        <p className="text-sm text-slate-500">
+          {t("Aucun paramètre avancé spécifique à votre pays pour le moment.", 'No advanced settings specific to your country yet.', 'Aún no hay ajustes avanzados específicos para su país.')}
+        </p>
+      </Section>
+      </div>
+    );
+  }
+
+  function renderAppearance() {
+    return (
+      <div className="space-y-6">
+        <form onSubmit={handleSave}>
+          <Section title={t('Apparence des bulletins', 'Report card look', 'Apariencia del boletín')}>
+            <div className="mb-4">
+              <label className="form-label">{t('Police du bulletin', 'Report card font', 'Fuente del boletín')}</label>
+              <select className="form-input" value={form.bulletin_font} onChange={set('bulletin_font')} style={{ fontFamily: (BULLETIN_FONTS.find((f) => f.value === form.bulletin_font) || BULLETIN_FONTS[0]).stack }}>
+                {BULLETIN_FONTS.map((f) => (
+                  <option key={f.value} value={f.value} style={{ fontFamily: f.stack }}>{f.label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">{t('Police appliquée à tous les bulletins imprimés.', 'Font applied to all printed report cards.')}</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <button type="submit" disabled={saving} className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+                {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer', 'Save', 'Guardar')}
+              </button>
+              {saved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Modifications sauvegardées', 'Changes saved')}</span>}
+            </div>
+          </Section>
+        </form>
+
+        {/* Barème de notation */}
+        <Section title={t('Barème de notation', 'Grade scale')}>
             <p className="text-xs text-slate-500 mb-5">
               {t('Définissez les intervalles de notes et leurs mentions. Utilisé sur tous les bulletins.', 'Define grade intervals and their labels. Used on all report cards.')}
             </p>
@@ -821,6 +1204,40 @@ export default function Settings() {
               <p className="text-sm text-slate-400 text-center py-6">{t('Aucun barème configuré.', 'No grade scale configured.')}</p>
             )}
 
+            {isOfficialEngine(school?.bulletin_engine) && (
+              <div className="pt-4 mt-4 border-t border-slate-100">
+                <h4 className="text-sm font-semibold text-slate-700 mb-1">
+                  {t('Bulletin premier cycle (APC) — colonnes affichées', 'First-cycle report card (APC) — displayed columns')}
+                </h4>
+                <p className="text-xs text-slate-400 mb-3">
+                  {t('Activez ou désactivez chaque colonne du bulletin par compétences. La COTE et l\'appréciation suivent ce barème.',
+                     'Enable or disable each column of the competency report card. The grade code and appreciation follow this scale.')}
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  {[
+                    { key: 'cote',         label: t('COTE', 'Grade code') },
+                    { key: 'minmax',       label: t('[Min–Max]', '[Min–Max]') },
+                    { key: 'appreciation', label: t('Appréciation', 'Appreciation') },
+                  ].map((o) => (
+                    <label key={o.key} className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                      <input type="checkbox" checked={apcCols[o.key] !== false}
+                        onChange={(e) => setApcCols((p) => ({ ...p, [o.key]: e.target.checked }))}
+                        className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-brand-400" />
+                      {o.label}
+                    </label>
+                  ))}
+                </div>
+                <div className="flex items-center gap-4 mt-4">
+                  <button type="button" onClick={handleApcColsSave} disabled={apcColsSaving}
+                    className="btn-secondary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+                    {apcColsSaving ? t('Enregistrement…', 'Saving…') : t('Enregistrer les colonnes', 'Save columns')}
+                  </button>
+                  {apcColsSaved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Colonnes sauvegardées', 'Columns saved')}</span>}
+                  {apcColsError && <span className="text-sm text-red-600">{apcColsError}</span>}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center gap-4 pt-4 mt-4 border-t border-slate-100">
               <button type="button" onClick={handleScaleSave} disabled={scaleSaving}
                 className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
@@ -830,28 +1247,7 @@ export default function Settings() {
               {scaleError && <span className="text-sm text-red-600">{scaleError}</span>}
             </div>
           </Section>
-        )}
-
-        {/* ── 5. Personnel de direction (censeur + surveillant) ────────────── */}
-        {isAdmin && (
-          <Section title={t('Censeur', 'Dean of studies', 'Jefe de estudios')} className="mb-6">
-            <StaffManager role="censeur" />
-          </Section>
-        )}
-        {isAdmin && (
-          <Section title={t('Surveillant', 'Supervisor', 'Jefe de disciplina')} className="mb-6">
-            <StaffManager role="surveillant" />
-          </Section>
-        )}
-
-        {/* ── 6. Calendrier scolaire ───────────────────────────────────────── */}
-        {isAdmin && (
-          <Section title={t('Calendrier scolaire', 'School calendar')} className="mb-6">
-            <SchoolCalendar />
-          </Section>
-        )}
-
       </div>
-    </Layout>
-  );
+    );
+  }
 }

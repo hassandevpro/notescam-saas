@@ -1,0 +1,3733 @@
+{
+  "version": {
+    "label": "MINESEC — Référentiel APC Premier cycle (6e–3e)",
+    "source": "Bulletins officiels APC ordinaires (DOCX MINESEC)"
+  },
+  "cycle": "premier_cycle",
+  "entries": [
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language skills and resources to talk about oneself, the family, and school community."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language skills and resources to buy, sell, and explore jobs and professions."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Identifier les éléments matériels, logiciels d’un microordinateur et distinguer les types et rôles des différents utilisateurs."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Décrire les composants externes à l’unité centrale d’un microordinateur et se conformer aux attitudes règlementaires dans un laboratoire informatique."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Utiliser correctement les concepts clés de la diversité culturelle camerounaise"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Présenter et localiser les pratiques culturelles dans les aires auxquelles elles appartiennent."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Déployer son savoir artistique pour utiliser le matériel et le matériau (le crayon, le pinceau, les couleurs, les gouaches etc.) et avoir une position adéquate vis-à-vis du papier ou du support"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Identifier, écrire et utiliser les notes, les figures de notes, la portée et les silences pour parler de la musique"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire des gestes, des mimes, mimiques ou grimaces dans la déclamation des poèmes, la mise en scène des contes et l’exécution des berceuses en situation familiale ou en public"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "francais",
+      "coef": 6,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement un dialogue et une lettre privée ou bien y corriger des erreurs volontairement insérées"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un dialogue et sur une lettre privée"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit, dans une langue correcte et usuelle, un dialogue et une lettre privée"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Parler de la diversité linguistique camerounaise et placer les langues nationales dans les aires linguistiques auxquelles elles appartiennent"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "latin",
+      "coef": 2,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Lire et écrire le latin, Conjuguer et traduire esse et ses composés à l’infectum indicatif ; répondre correctement aux questions en s’appuyant sur un texte latin"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir l’intégration à la vie familiale et scolaire"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "S’adapter aux influences cosmiques"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Utiliser les savoirs historiques"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Découvrir les traits culturels"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives aux nombres (entiers naturels, décimaux arithmétiques, décimaux relatifs), aux droites et segments dans le plan et aux cercles."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "sciences",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations problèmes relatives à l’insuffisance des ressources comestibles et aux propriétés physiques de la matière."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer oralement ou à l’écrit sur ces thèmes à l’aide du langage et des symboles scientifiques adéquats."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Expliquer le rôle de l’Économie Sociale et Familiale dans le cadre du développement personnel"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Faire l’ourlet et fixer le bouton"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Décorer et ranger"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Exécuter une course de vitesse et une course d’endurance-vitesse"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Manipuler et lancer le poids"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Exécuter le saut en hauteur"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t1",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Utiliser le matériel, les matériaux et les techniques pour dessiner le kiosque et autres objets"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Utiliser les outils et le matériel agricole pour produire une pépinière"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Utiliser le matériel et les matériaux pour monter une ferme et y placer les poussins"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language skills and resources to talk about the rights and duties of a child and basic civic duties."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Pratiquer les comportements citoyens en respectant les règles d’éthique face au numérique."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Identifier les actions proscrites et les conséquences en cas d’une utilisation non autorisée."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Présenter les pratiques culturelles relatives aux modes de vie en rapport avec la famille et la société."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Présenter les pratiques culturelles relatives aux modes de vie en rapport avec l’économie"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Saisir le sens global de la représentation, les temps de l’histoire de l’art et les métiers de l’art plastique"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Saisir le sens global de la représentation, les temps de l’histoire de la musique et les métiers correspondants"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Identifier des différents types de communications pour réaliser l’animation d’un public"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "francais",
+      "coef": 6,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement un texte descriptif ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un texte descriptif (portrait/description d’un objet ou d’un lieu)."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit, dans une langue correcte et usuelle, un texte descriptif."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des messages en langues nationales en employant les consonnes simples de l’Alphabet Général des Langues Camerounaises (AGLC) dans diverses situations de vie"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des messages en langues nationales en employant les consonnes complexes de l’AGLC dans diverses situations de vie"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "latin",
+      "coef": 2,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Conjuguer les verbes en –are à l’infectum indicatif ; décliner les noms de la 1ère decl. et ceux de la 2ème decl. en –us ; puis analyser les mots et traduire des phrases simples et répondre correctement aux questions liées à la culture gréco-romaine"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Prévenir et régler les conflits"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Protéger l’environnement"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Découvrir les traits culturels"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives aux fractions, aux proportionnalités, au calcul littéral, aux angles, aux triangles, aux symétries centrales, au parallélogramme, au cube et au pavé droit."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "sciences",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations problèmes relatives à l’utilisation de l’énergie, à l’éducation à la santé de reproduction et à l’hygiène de l’alimentation."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer scientifiquement à l’oral ou à l’écrit sur l’utilisation de l’énergie, l’éducation à la santé de reproduction et l’hygiène de l’alimentation."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Classer et utiliser les aliments"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Faire la propreté"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Exécuter les différentes techniques de gymnastique au sol (déplacement, envol, rotation et renversement)"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Pratiquer les sports collectifs : Football, Basket-ball, Handball et Volley-ball (marquer les buts, conserver le ballon, se démarquer, se positionner)"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t2",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Utiliser le matériel de dessin et les gouaches pour peindre un kiosque et autres objets"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Utiliser les outils et les méthodes pour produire du compost"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Utiliser le matériel avicole pour installer et entretenir une ferme"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language skills and resources to talk about audio-visual, print media and modern technology."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Identifier les données et lister les opérations permettant d’avoir une solution face à un problème donné."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Ordonner une série d’actions pour résoudre un problème donné."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Présenter les pratiques culturelles relatives aux modes de vie en rapport avec la santé"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Présenter les pratiques culturelles relatives aux modes de vie en rapport avec le bien-être et l’environnement."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Adopter les attitudes adéquates sur les représentations graphiques afin de maintenir des bonnes relations familiale, professionnelle et sociale"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Maitriser le solfège et l’utiliser dans l’animation du public"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Conter, raconter ou déclamer un poème et transmettre des messages sur une scène en public"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "francais",
+      "coef": 6,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement un texte narratif ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un texte narratif."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit, dans une langue correcte et usuelle, un texte narratif."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des messages en langues nationales en employant les tons simples de l’AGLC dans diverses situations de vie"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des messages en langues nationales en employant les tons complexes de l’AGLC dans diverses situations de vie"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "latin",
+      "coef": 2,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Décliner les noms de la 2ème decl.; conjuguer les verbes en –ere à l’infectum indicatif ; puis analyser les mots, traduire des phrases simples et répondre correctement aux questions liées à la culture gréco-romaine"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir et protéger les droits de l’homme"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "S’adapter aux perturbations climatiques"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Gérer les catastrophes"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "S’adapter à un environnement multi-religieux"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives au repérage d’un point sur une droite, aux cylindres de révolution et aux symétries orthogonales."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "sciences",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations - problèmes relatives à la gestion durable des ressources naturelles et à la réalisation des projets techniques simples."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer oralement ou à l’écrit sur ces thèmes à l’aide d’un vocabulaire et des symboles scientifiques adéquats."
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Identifier les textiles et entretenir le linge"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Disposer le couvert et assurer le débarrassage"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Confectionner un objet à partir des points de couture et d’ornement"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Pratiquer les sports collectifs : Football, Basket-ball, Handball et Volley-ball (empêcher de marquer, récupérer le ballon, gêner la progression de l’adversaire, servir et réceptionner le ballon et bloquer le ballon)"
+        }
+      ]
+    },
+    {
+      "classe": "6e",
+      "trimestre": "t3",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Entretenir les objets d’art et user des techniques de vente pour écouler ces objets"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Utiliser le compost dans le jardinage et recourir aux techniques de commercialisation/vente pour écouler le compost"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Utiliser les techniques de commercialisation /vente pour écouler les poulets de chair"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about interpersonal relationships and talk about the home/ habits and routines/ home furniture."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about different jobs and professions."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Décrire et classer par types les périphériques et interfaces d’entrée/sortie de l’unité centrale d’un microordinateur et connecter correctement chaque périphérique au port correspondant."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Classer les logiciels en donnant leurs fonctions et Identifier les principaux éléments d’un système d’exploitation"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Présenter les pratiques culturelles relatives aux modes de vie en rapport avec la citoyenneté"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Présenter les pratiques culturelles relatives aux modes de vie en rapport avec les média et la communication"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Déployer son savoir artistique pour utiliser le crayon, le pinceau, les couleurs, les gouaches, et avoir une position adéquate vis-à-vis du papier ou du support"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Identifier la clef du Sol, d’UT et de Fa et faire des montages sur la portée avec les clés et les mesures"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Réciter un poème, une berceuse, une litanie"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "francais",
+      "coef": 6,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement une lettre officielle et une description associée au récit ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur une lettre officielle et sur une description associée au récit."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire, dans une langue correcte et usuelle, une lettre officielle et une description associée au récit."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des messages en langues nationales en employant la forme correcte du nom dans diverses situations de vie"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des messages en langues nationales en employant correctement les déterminants du nom dans diverses situations de vie"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "latin",
+      "coef": 2,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Conjuguer Esse à l’indicatif ; décliner les noms de la 2ème decl.; analyser les mots et traduire les phrases simples ; puis, répondre correctement aux questions liées à la culture gréco-romaine"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir l’intégration nationale : manifestations et entraves"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Contrôler la croissance démographique"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir l’intégration nationale"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives à l’arithmétique, aux fractions, aux nombres décimaux relatifs, aux distances et aux triangles."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "sciences",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations problèmes relatives à l’amélioration de la production alimentaire et la pérennité de l’espèce humaine, aux transformations physiques de la matière et à l’utilisation de l’énergie."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer scientifiquement à l’oral ou à l’écrit sur la production alimentaire et la pérennité de l’espèce humaine, les transformations physiques de la matière et l’utilisation de l’énergie."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Organiser les activités de la vie quotidienne"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Utiliser les formes géométriques et les couleurs pour l’embellissement des espaces de vie"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Assurer la propreté et l’hygiène des appareils génitaux"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Exécuter une course de vitesse et une course d’endurance-vitesse"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Manipuler et lancer le poids"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Exécuter le saut en hauteur"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t1",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Utiliser le matériel, les matériaux et les techniques pour dessiner et peindre un paysage et les plantes"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Utiliser les outils agricoles pour semer/cultiver les légumes à feuilles et les fruits"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Utiliser le matériel d’élevage pour élever les pondeuses pour leurs œufs"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about environmental awareness, interests and hobbies in relation to health."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about citizens of the nation and the world."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Saisir et mettre en forme un texte et distinguer les logiciels utilitaires en donnant leur rôle et fonction"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Pratiquer l’éthique du numérique et protéger les équipements et les données de l’ordinateur"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Présenter les pratiques culturelles en rapport avec la naissance"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire un discours relatif aux pratiques culturelles en rapport avec le mariage"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Reproduire des formes représentant des objets divers, pour décrire les réalités familiales, économiques et environnementales"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Lire les notes et des mesures simples de la musique et exécuter des chants pour l’animation en public"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Raconter un évènement avec les gestes, les mimes les mimiques ou les grimaces"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "francais",
+      "coef": 6,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement une description associée à l’expression des sentiments et un dialogue associé au récit ou bien y corriger des erreurs volontairement insérées."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un texte descriptif intégrant l’expression des sentiments ou sur un dialogue associé au récit."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit, dans une langue correcte et usuelle, une description enrichie de l’expression des sentiments et une narration associée au dialogue."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des messages en langues nationales en employant la forme correcte du verbe dans diverses situations de vie"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des messages en langues nationales en employant correctement les autres constituants du groupe verbal (adverbe et compléments) dans diverses situations de vie"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "latin",
+      "coef": 2,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Décliner les noms de la 3ème decl. ; conjuguer à l’infectum indicatif ; analyser les mots et traduire les phrases simples ; puis, rendre compte des enseignements culturels antiques tirés ou non du texte latin"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir l’intégration nationale : lieux de promotion"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Adopter les comportements écologiques"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir l’esprit de leadership et de bâtisseur"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives au calcul littéral, aux proportionnalités, aux statistiques, aux polygones, aux symétries, aux angles, au cercle et au repérage d’un point sur une droite ou sur un quadrillage."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "sciences",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations - problèmes relatives à l’éducation à la santé de reproduction et la prévalence des intoxications alimentaires."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer scientifiquement à l’oral ou à l’écrit sur l’éducation à la santé de reproduction et la prévalence des intoxications alimentaires."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Identifier et spécifier les rôles de chaque pièce d’une maison d’habitation"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Veiller à une bonne hygiène alimentaire"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Améliorer et protéger l’environnement"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Exécuter les différentes techniques de gymnastique au sol (déplacement, envol, rotation et renversement)"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Pratiquer les sports collectifs : Football, Basket-ball, Handball et Volley-ball (marquer les buts, conserver le ballon, se démarquer, se positionner)"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t2",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Entretenir et conserver le matériel, les matériaux et les objets d’art"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Préparer le sol, semer et entretenir les légumes à feuilles et fruits"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Installer et entretenir les pondeuses pour la production des œufs"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate grammatical structures and vocabulary to discuss, read, and write about the use of modern technology."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Construire une représentation mentale d’un Objet, un son, une situation, une image, une émotion ou une sensation sur le plan et dans l’espace"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Représenter la solution d’un problème à partir d’un schéma 2D et 3D"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Présenter les pratiques culturelles en rapport avec les droits et les devoirs des époux"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Présenter les pratiques culturelles en rapport avec la mort."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Adopter une attitude adéquate dans les représentations graphiques liées au dessin d’observation et d’imagination de la vie réelle et abstraite"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Adopter une attitude adéquate dans la transmission des messages par la musique et la danse"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Réaliser la mise en scène d’un poème, un conte ou un récit pour transmettre des messages sur une scène"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "francais",
+      "coef": 6,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Orthographier correctement un texte narratif intégrant des dialogues et un texte narratif intégrant l’expression des sentiments ou bien y corriger des erreurs volontairement insérées"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement à des questions sur un texte narratif intégrant des dialogues et/ou l’expression des sentiments"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Produire à l’oral comme à l’écrit, une narration intégrant des dialogues et un texte narratif associé à l’expression des sentiments"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des messages en langues nationales en employant correctement les phrases simples dans diverses situations de vie"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des messages en langues nationales en employant correctement les"
+        },
+        {
+          "ordre": 3,
+          "intitule": "phrases complexes dans diverses situations de vie"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "latin",
+      "coef": 2,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Conjuguer au perfectum indicatif ; décliner les noms et adj. de la 1ère classe ; analyser les mots et traduire les phrases simples ; puis, rendre compte des valeurs culturelles antiques tirées ou non du texte latin"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Rechercher la bonne information et le bon usage des TIC"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Limiter les migrations"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Protéger et renforcer l’identité africaine"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives aux prismes droits et à la sphère."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "sciences",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations - problèmes relatives à la gestion durable des ressources naturelles et à la réalisation d’un projet technique simple."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer scientifiquement à l’oral ou à l’écrit sur la gestion durable des ressources naturelles et la réalisation d’un projet technique simple."
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Identifier et utiliser la batterie de cuisine"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Confectionner un objet utilitaire à partir des fronces, des points d’assemblage, de broderie fantaisie et de finitions"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Pratiquer les sports collectifs : Football, Basket-ball, Handball et Volley-ball (empêcher de marquer, récupérer le ballon, gêner la progression de l’adversaire, servir et réceptionner le ballon et bloquer le ballon)"
+        }
+      ]
+    },
+    {
+      "classe": "5e",
+      "trimestre": "t3",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Utiliser les techniques de vente pour commercialiser les objets d’art"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Utiliser les techniques de vente pour commercialiser les légumes et les fruits"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Utiliser les techniques de vente pour commercialiser les pondeuses et les œufs"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to listen, speak, read and write about social integration (traditions and customs of Cameroon and conflict resolution)."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language resources to listen, speak, read and write about future professional life and participating in leisure activities."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Décrire les composants internes de l’unité centrale et mettre en évidence le rôle et les caractéristiques des mémoires."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Installer un logiciel applicatif et présenter son interface d’une part et mettre en évidence le rôle et les fonctions des logiciels systèmes d’autre part."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire un discours sur les pratiques culturelles traditionnelles relatives à la famille"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire un discours sur les pratiques culturelles traditionnelles relatives à la société"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Reproduire une image liée à la famille et à la société."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Dessiner un objet inspiré des foyers artistiques du Cameroun."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Écrire les signes musicaux sur une portée musicale."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Reproduire et lire les gammes ascendantes sur une portée musicale."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "francais",
+      "coef": 4,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire à l’écrit, un texte descriptif et, à l’oral, un commentaire de l’image."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire, à l’écrit, un texte narratif et, à l’oral, un compte rendu oral."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des énoncés dans la langue cible en respectant les règles orthographiques de cette langue"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des énoncés dans la langue cible en respectant les règles grammaticales propres au syntagme nominal"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "latin",
+      "coef": 1,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Lire, écrire, analyser les éléments constitutifs du discours latin et traduire les"
+        },
+        {
+          "ordre": 2,
+          "intitule": "textes d'initiation en faisant appel aux notions de morphologies nominale et verbale."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Rendre compte des enseignements culturels antiques tirés ou non du texte latin."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Lire et écrire le grec ancien."
+        },
+        {
+          "ordre": 5,
+          "intitule": "Manipuler les catégories grammaticales de la langue grecque."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "allemand",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire de courts énoncés/textes écrits d’au moins 40 mots, relatifs à la vie quotidienne et à la vie familiale et sociale."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire de courts énoncés/textes oraux relatifs à la vie quotidienne et à la vie familiale et sociale."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "arabe",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire, dans un langage courant, un message oral relatif à la vie socio familiale et économique"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire, dans un langage courant, un message écrit d’au moins 40 mots, relatif à la vie socio familiale et économique"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "chinois",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) sur la présentation de soi, d’autrui ainsi que sa famille nucléaire."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) écrit et oral en rapport avec le climat, le corps humain (portrait) et la consultation médicale."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "espagnol",
+      "coef": 2,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des messages écrits d’au moins 40 mots, relatifs à la famille et la société, à l’environnement, la santé et le bien-être."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des messages oraux relatifs à la famille et la société, à l’environnement, la santé et le bien-être."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "italien",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples d’au moins 40 mots, relatifs à la vie quotidienne et intégration socioculturelle"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples relatifs à la citoyenneté et immersion culturelle"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Participer à la vie de l’Etat"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Gérer durablement l’environnement"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Protéger les paysages naturels"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Protéger et promouvoir les droits"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 16,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives à l’arithmétique, aux nombres rationnels, à la distance, aux triangles et au cercle."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer à l’aide du langage mathématique dans des situations relatives aux notions précédemment étudiées."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "pct",
+      "coef": 2,
+      "ordre_matiere": 17,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations-problèmes"
+        },
+        {
+          "ordre": 2,
+          "intitule": "relatives aux propriétés de la matière, à l’utilisation des instruments de dessin, à la mise en page et la cotation d’un dessin technique."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Communiquer, en utilisant le langage et les symboles scientifiques, sur les propriétés de la matière, l’utilisation des instruments de dessin, la mise en page et la cotation d’un dessin technique."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "svteehb",
+      "coef": 2,
+      "ordre_matiere": 18,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à la couverture des besoins alimentaires de l’Homme."
+        },
+        {
+          "ordre": 2,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à la gestion durable de la biodiversité et l’amélioration de la santé de l’appareil moteur."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 19,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Confectionner et utiliser correctement les objets d’ornement"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Utiliser et ranger correctement les produits d’entretien"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 20,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Réaliser une course de vitesse et une course d’endurance-vitesse"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Manipuler, coordonner et réaliser l’un des deux types de lancer du poids (lancer en translation ou en rotation) ainsi que les différentes phases"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Exécuter un saut en hauteur en utilisant l’une des deux techniques suivantes (rouleau ventral ou Fosbury flop)"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t1",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 21,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Utiliser les matériaux, les matériels et les techniques pour dessiner et peindre un paysage sous ciel gris ou bleu"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Maîtriser les étapes du semis et d’entretien de la plantation de légumes racines et bulbes"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Installer et entretenir un élevage de lapins"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to listen, speak, read and write about the protection of the environment and the fight against endemic and pandemic diseases."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language resources to listen, speak, read and write about gender issues and mutual acceptance."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Utiliser les outils TIC pour effectuer des recherches et échanger des informations sur Internet."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des contenus numériques en utilisant un texteur ou un tableur."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire un discours sur les pratiques culturelles traditionnelles relatives à l’économie"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire un discours sur les pratiques culturelles traditionnelles relatives à l’environnement, au bien-être et à la santé"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Reproduire et colorier un objet destiné à la vente"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Dessiner et colorier un objet pouvant intervenir dans la protection de l’environnement."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Ecrire et lire les gammes descendantes sur une portée musicale."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Ecrire, lire et chanter les notes sur une portée musicale."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "francais",
+      "coef": 4,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire, à l’écrit, un texte argumentatif et, à l’oral, prononcer un discours."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire, à l’écrit, un texte argumentatif et, à l’oral, exprimer son point de vue dans un débat."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des syntagmes nominaux dans la langue cible en respectant les accords y relatifs"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des phrases en conjuguant correctement les verbes aux temps du présent dans la langue nationale cible"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "latin",
+      "coef": 1,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Analyser les textes d’initiation au latin ; Traduire les textes (Version française et Thème latin)."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Répondre correctement aux questions d’histoire et culture antiques, avec réactualisation des valeurs."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Manipuler correctement les éléments constitutifs du discours grec et traduire les phrases simples."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Rendre compte des enseignements historiques et culturels de la Grèce antique."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "allemand",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire de courts énoncés/textes écrits d’au moins 40 mots, relatifs à l’environnement, à la santé, au bien-être et aux médias et communication."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire à l’oral de courts textes/énoncés relatifs à l’environnement, à la santé, au bien-être et aux médias et communication."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "arabe",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire, dans un langage courant, un message oral relatif au bien être, à la santé, à l’environnement, et à la citoyenneté"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire, dans un langage courant, un message écrit d’au moins 40 mots, relatif au bien être, à la santé, à l’environnement et à la citoyenneté"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "chinois",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) en rapport avec la nationalité, les origines, les fêtes traditionnelles et nationales."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) en rapport avec les professions / métiers, vente et achats."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "espagnol",
+      "coef": 2,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des messages écrits d’au moins 40 mots, relatifs à la citoyenneté et à la vie économique"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des messages oraux relatifs à la citoyenneté et à la vie économique"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "italien",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples d’au moins 40 mots, relatifs à la santé, l’environnement et le bien-être"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples relatifs à l’activité économique et au monde de l’emploi"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Participer à la vie de l’Etat"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des biens et des services"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir l’intégration régionale"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 16,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives au calcul littéral, aux vecteurs, aux équations et inéquations, aux translations, au repérage et aux plans et droites de l’espace."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer à l’aide du langage mathématique dans des situations relatives aux notions précédemment étudiées."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "pct",
+      "coef": 2,
+      "ordre_matiere": 17,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations-problèmes relatives à l’énergie électrique, à l’utilisation des produits chimiques courants et à la notion d’engrais."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer, en utilisant le langage et les symboles scientifiques, sur l’énergie électrique, sur l’utilisation des produits chimiques courants et sur la notion d’engrais."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "svteehb",
+      "coef": 2,
+      "ordre_matiere": 18,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à l’amélioration de la santé de l’appareil moteur, de la sensibilité et de l’alimentation."
+        },
+        {
+          "ordre": 2,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à l’amélioration de la santé de l’alimentation, de la reproduction, ainsi qu’à la récurrence des risques d’origine naturelle."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 19,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Entretenir correctement les revêtements des sols et des murs"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Calculer le cycle menstruel et appréhender l’évolution de la grossesse"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 20,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Réaliser un enchainement sur l’agrès sol à partir d’éléments gymniques appartenant à différentes familles d’éléments gymniques"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Appliquer les stratégies d’attaque dans la pratique des sports collectifs"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t2",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 21,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Entretenir et conserver les œuvres d’art récoltées (tableaux)"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Récolter et conserver la production de légumes racines et bulbes"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Maîtriser le processus d’abattage et de conservation de lapins produits"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to listen, speak, read and write about exploring ICTs."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Adopter des comportements citoyens en garantissant la vie privée, la propriété intellectuelle et une navigation sécurisée sur Internet."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Proposer suivant une approche non formelle une solution algorithmique à un problème en utilisant des structures de contrôle."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire un discours sur les pratiques culturelles traditionnelles relatives à la citoyenneté"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire un discours sur les pratiques culturelles traditionnelles relatives aux média et à la communication"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Dessiner un objet traditionnel relatif aux pratiques citoyennes."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Dessiner et colorier un objet de communication d’un des foyers artistiques du Cameroun."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Ecrire et lire les figures des silences dans une portée musicale."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Battre la mesure."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "francais",
+      "coef": 4,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire, à l’écrit, un texte injonctif et, à l’oral, présenter un exposé."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire, à l’écrit, divers textes informatifs et, à l’oral, s’exprimer dans le cadre d’une interview."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des phrases en conjuguant correctement les verbes aux temps du futur et du passé dans la langue nationale cible"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des phrases comportant des compléments d’objet direct, des compléments d’objet indirect et des compléments circonstanciels dans la langue nationale cible"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "latin",
+      "coef": 1,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Traduire les textes simples après analyse : Version française et Thème latin."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Ressortir les valeurs historiques et culturelles des sociétés romaines antiques, et les réactualiser."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Traduire les textes simples sur la base des notions de morphologies nominale et verbale."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Ressortir les valeurs culturelles et morales des textes et les réactualiser dans la société camerounaise."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "allemand",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire de courts énoncés/textes écrits d’au moins 40 mots, relatifs à la citoyenneté et à la vie économique."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Réception et production de courts énoncés/textes oraux relatifs à la citoyenneté et à la vie économique."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "arabe",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire, dans un langage courant, un message oral relatif aux média et communication"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire, dans un langage courant, un message écrit d’au moins 40 mots, relatif aux media et communication"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "chinois",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) en rapport avec les moyens de transport."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) en rapport avec les outils de communication."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "espagnol",
+      "coef": 2,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des messages écrits d’au moins 40 mots, relatifs aux medias et à la communication"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des messages oraux relatifs aux medias et à la communication"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "italien",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples d’au moins 40 mots, relatifs à la communication et aux médias"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples relatifs à la communication et aux médias"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Lutter contre les fléaux sociaux et les nuisances"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des biens et des services"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Promouvoir la coopération sous régionale"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir l’intégration régionale"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Gérer durablement les ressources naturelles"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 16,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives à la proportionnalité, à la pyramide, aux statistiques et au cône de révolution."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer à l’aide du langage mathématique dans des situations relatives aux notions précédemment étudiées."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "pct",
+      "coef": 2,
+      "ordre_matiere": 17,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations-problèmes relatives à la pollution liée à l’utilisation des engrais, à des projets techniques simples faisant appel à l’exécution de la perspective cavalière et de la projection orthogonale et aux actions mécaniques."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer, en utilisant le langage et les"
+        },
+        {
+          "ordre": 3,
+          "intitule": "symboles scientifiques, sur la pollution liée à l’utilisation des engrais, sur des projets techniques simples faisant appel à l’exécution de la perspective cavalière et de la projection orthogonale et sur des actions mécaniques."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "svteehb",
+      "coef": 2,
+      "ordre_matiere": 18,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à la récurrence des risques d’origine naturelle et la gestion durable des ressources naturelles."
+        },
+        {
+          "ordre": 2,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à la gestion durable des ressources naturelles et des écosystèmes."
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 19,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Epurer l’eau"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Utiliser correctement les boissons"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 20,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Appliquer les stratégies de défense dans la pratique des sports collectifs"
+        }
+      ]
+    },
+    {
+      "classe": "4e",
+      "trimestre": "t3",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 21,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Développer les techniques de vente et de commercialisation des œuvres d’art réalisées"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Développer les techniques de vente et de commercialisation des légumes racines et bulbes récoltés"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Développer les techniques de vente et de commercialisation des lapins produits"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to listen, speak, read and write about national integration; diversity acceptance."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language resources to listen, speak, read and write about consumption habits and how they impact economic and social life."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Décrire l’architecture d’un microordinateur et y effectuer des petites tâches d’entretien."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire une organisation de données selon un format ou une structure de données spécifique."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire un discours portant sur un mets traditionnel spécial ou une cérémonie de mariage"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Décrire une cérémonie funéraire, les métiers ou les jeux traditionnels"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Nommer des artistes plasticiens camerounais et leurs principales œuvres."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Reproduire une œuvre d’art plastique camerounaise en lien avec la vie sociale."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Lire les signes musicaux sur une portée musicale."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Déchiffrer les signes musicaux sur une partition musicale simple."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "francais",
+      "coef": 4,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire à l’écrit, un texte descriptif et, à l’oral, un commentaire de l’image."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire, à l’écrit, un texte narratif et, à l’oral, un compte rendu oral."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des messages dans la langue nationale cible en respectant les tons de cette langue"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des messages comportant des pronoms (possessif, démonstratif, interrogatif ou indéfini) dans la langue nationale cible"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "latin",
+      "coef": 1,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Analyser et traduire les textes simples en faisant appel aux notions de morphologies nominale et verbale : Version française et Thème latin."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Rendre compte des valeurs historiques et"
+        },
+        {
+          "ordre": 3,
+          "intitule": "culturelles des sociétés gréco-romaines antiques, et les réactualiser."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Lire et écrire correctement le grec ancien, puis manipuler correctement les différentes catégories grammaticales de la langue grecque pour traduire les textes simples."
+        },
+        {
+          "ordre": 5,
+          "intitule": "Ressortir les enseignements des textes et les réactualiser dans la société camerounaise."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "allemand",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire de courts textes/énoncés écrits d’au moins 50 mots, relatifs à la vie quotidienne et à la vie familiale et sociale."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire de courts textes/énoncés oraux relatifs à la vie quotidienne et à la vie familiale et sociale."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "arabe",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire, dans un langage courant, un message oral relatif à la vie socio familiale et économique"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire, dans un langage courant, un message écrit d’au moins 50 mots, relatif à la vie socio familiale et économique"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "chinois",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire (écrit/ oral) un dialogue (pinyin et/ou caractères) sur l’indication de l’itinéraire, description d’un lieu et les loisirs."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) en rapport avec les maladies, la prévention, l’hygiène et la salubrité."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "espagnol",
+      "coef": 2,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des messages écrits d’au moins 50 mots, relatifs à la famille et la société, à l’environnement, la santé et le bien-être."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des messages oraux relatifs à la famille et la société, à l’environnement, la santé et le bien-être."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "italien",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples d’au moins 50 mots, relatifs à la vie quotidienne et intégration socioculturelle"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples relatifs à la citoyenneté et l’immersion culturelle"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Eduquer les masses et s’impliquer dans le processus électoral"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Gérer durablement l’environnement"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Gérer les ressources humaines"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Lutter contre la domination étrangère"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Prévenir et régler les conflits"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 16,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives à l’arithmétique, aux nombres réels, aux propriétés de Thalès et à la trigonométrie dans le triangle rectangle."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer à l’aide du langage mathématique dans des situations relatives aux notions précédemment étudiées."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "pct",
+      "coef": 2,
+      "ordre_matiere": 17,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations-problèmes se rapportant aux transformations chimiques de la matière, à la coupe simple et aux systèmes poulies-courroie."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer, en utilisant le langage et les symboles scientifiques, sur les transformations chimiques de la matière, la coupe simple et les systèmes pouliescourroie."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "svteehb",
+      "coef": 2,
+      "ordre_matiere": 18,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à la récurrence des anomalies et/ou des caractères nouveaux dans les familles."
+        },
+        {
+          "ordre": 2,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à la récurrence des anomalies et/ou des caractères nouveaux dans les familles et l’amélioration de la santé individuelle et des collectivités."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 19,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Exécuter une boutonnière et fixer un bouton"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Raccommoder un vêtement"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 20,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Réaliser une course de vitesse et une course d’endurance-vitesse"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Manipuler, coordonner et réaliser l’un des deux types de lancer du poids (lancer en translation ou en rotation) ainsi que les différentes phases"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Exécuter un saut en hauteur en utilisant l’une des deux techniques suivantes (rouleau ventral ou Fosbury flop)"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t1",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 21,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Utiliser les matériaux, les matériels et les techniques pour modeler et mouler un pot en argile"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Maîtriser les étapes du semis et d’entretien de la plantation de légumineuses à grains"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Installer et entretenir un élevage de poissons"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to listen, speak, read and write about climate change and maintaining hygiene and sanitation."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Use appropriate language resources to listen, speak, read and write about the quest for excellence; gender issues and democracy."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des contenus numériques en utilisant un texteur, un tableur ou un logiciel de publication."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Adopter des attitudes citoyennes universelles, distinguer l’information vraie de la fausse en mettant en évidence les sanctions liées à la violation de l’éthique numérique."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Décrire une activité en rapport avec l’économie traditionnelle"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Décrire une pratique culturelle protectrice de l’environnement, du bien-être et de la santé"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Dessiner ou peindre un paysage destiné à la vente."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Créer une œuvre d’art en rapport avec la citoyenneté."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Transcrire et lire les signes musicaux sur une portée."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Décrire des différents types d’instruments de musique."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "francais",
+      "coef": 4,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire, à l’écrit, un texte argumentatif et, à l’oral, exprimer son point de vue."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire, à l’écrit, un texte argumentatif et, à l’oral, s’exprimer dans le cadre d’un entretien d’embauche."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des messages comportant des verbes conjugués aux modes indicatif, impératif et conditionnel dans la langue nationale cible"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des messages comportant des phrases interrogative, négative et impérative dans la langue nationale cible"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "latin",
+      "coef": 1,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Traduire les textes après analyse, en convoquant les notions de syntaxe et de morphologie : Version et Thème."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Ressortir les valeurs historico-civilisationnelles des sociétés grécoromaines antiques, et les contextualiser."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Traduire correctement les textes grecs simples, après manipulation des éléments morphosyntaxiques."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Dégager les valeurs culturelles et morales des textes et les réactualiser."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "allemand",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire de courts dialogues ou énoncés/textes écrits d’au moins 50 mots, relatifs à l’environnement, à la santé, au bien-être et aux médias et communication."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire de courts dialogues ou énoncés/textes oraux relatifs à l’environnement, à la santé, au bien-être et aux médias et communication."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "arabe",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire, dans un langage courant, un message oral relatif au bien être, à la santé, à l’environnement, et à la citoyenneté"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire, dans un langage courant, un message écrit d’au moins 50 mots, relatif au bien être, à la santé, à l’environnement et à la citoyenneté"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "chinois",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Recevoir et produire (écrit/ oral) un texte (pinyin et/ou caractères ) en rapport avec les services publics et les procédures d’inscription."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) en rapport avec la vente/achat et les habitudes alimentaires."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "espagnol",
+      "coef": 2,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des messages écrits d’au moins 50 mots, relatifs à la citoyenneté et à la vie économique"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des messages oraux relatifs à la citoyenneté et à la vie économique"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "italien",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples d’au moins 50 mots, relatifs à la santé, l’environnement et le bien-être"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples relatifs à l’activité économique et au monde de l’emploi"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir la vie associative"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Gérer durablement les ressources naturelles"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Améliorer les conditions de vie"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Prévenir et régler les conflits"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Promouvoir l’intégration nationale"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 16,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives au calcul littéral, à la section d’une pyramide ou d’un cône par un plan parallèle à la base, aux vecteurs, aux équations, inéquations et systèmes et aux équations de droites."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer à l’aide du langage mathématique dans des situations relatives aux notions précédemment étudiées."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "pct",
+      "coef": 2,
+      "ordre_matiere": 17,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, des situations-problèmes se rapportant aux engrenages, aux machines simples, à l’utilisation de l’énergie électrique, à la gestion et l’utilisation des produits pétroliers et des matières plastiques."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer, en utilisant le langage et les symboles scientifiques et techniques, sur les engrenages, sur les machines simples, sur l’utilisation de l’énergie électrique, sur la gestion et l’utilisation des produits pétroliers et des matières plastiques et sur la protection de l’environnement."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "svteehb",
+      "coef": 2,
+      "ordre_matiere": 18,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à l’amélioration de la santé individuelle et des collectivités."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 19,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Entretenir les appareils de confort"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Eviter les grossesses précoces et composer la layette"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 20,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Réaliser un enchainement sur l’agrès sol à partir d’éléments gymniques appartenant à différentes familles d’éléments gymniques"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Appliquer les stratégies d’attaque dans la pratique des sports collectifs"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t2",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 21,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Appliquer les techniques de finition sur les objets fabriqués"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Utiliser les techniques de récolte et de conservation de la production des légumineuses à grains"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Maîtriser les techniques de récolte et de conservation de la production de poissons"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "anglais",
+      "coef": 3,
+      "ordre_matiere": 1,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Use appropriate language resources to listen, speak , read and Write about utilities of modern technology."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "informatique",
+      "coef": 2,
+      "ordre_matiere": 2,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Ecrire un algorithme en utilisant les structures de contrôle."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Choisir une approche de développement logiciel appropriée pour un projet informatique en utilisant les termes indiqués tout en justifiant son choix."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "cultures_nat",
+      "coef": 1,
+      "ordre_matiere": 3,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Décrire une pratique culturelle relative à la citoyenneté"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Interpréter les signes et les symboles issus des produits culturels locaux"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "eac",
+      "coef": 1,
+      "ordre_matiere": 4,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Dessiner le corps humain."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Dessiner un paysage pour présenter le temps qu’il fait."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Chanter une chanson simple sur partition, en battant la mesure."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Composer une chanson de deux vers sur une portée musicale."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "francais",
+      "coef": 4,
+      "ordre_matiere": 5,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire, à l’écrit, un texte injonctif et, à l’oral, présenter un commentaire de l’image."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire, à l’écrit, divers textes informatifs et, à l’oral, un reportage."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "langues_nat",
+      "coef": 1,
+      "ordre_matiere": 6,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Produire des messages comportant des adverbes, des conjonctions de coordination et de subordination dans la langue nationale cible"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Produire des messages comportant des phrases complexes dans la langue nationale cible"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "latin",
+      "coef": 1,
+      "ordre_matiere": 7,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Lire, écrire et traduire les textes après convocation et analyse des notions morphosyntaxiques : Version et Thème."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Dégager les valeurs historico-culturelles et civilisationnelles antiques, puis, les réactualiser et contextualiser."
+        },
+        {
+          "ordre": 3,
+          "intitule": "Analyser les textes et en faire des traductions."
+        },
+        {
+          "ordre": 4,
+          "intitule": "Réactualiser les enseignements historiques et culturels de l’antiquité gréco-romaine dans les sociétés africaines."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "allemand",
+      "coef": 2,
+      "ordre_matiere": 8,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire de courts dialogues et de textes/énoncés narratifs écrits d’au moins 50 mots, relatifs à la citoyenneté et à la vie économique."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire de courts dialogues et de textes/énoncés narratifs oraux relatifs à la citoyenneté et à la vie économique."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "arabe",
+      "coef": 2,
+      "ordre_matiere": 9,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire, dans un langage courant, un message oral relatif aux média et communication"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire, dans un langage courant, un message écrit d’au moins 50 mots, relatif aux medias et communication"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "chinois",
+      "coef": 2,
+      "ordre_matiere": 10,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) en rapport avec les moyens de transport."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire (écrit/ oral) un texte (pinyin et/ou caractères) en rapport avec les outils informatiques"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "espagnol",
+      "coef": 2,
+      "ordre_matiere": 11,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des messages écrits d’au moins 50 mots, relatifs aux medias et à la communication"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des messages oraux relatifs aux medias et à la communication"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "italien",
+      "coef": 2,
+      "ordre_matiere": 12,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples d’au moins 50 mots, relatifs à la communication et aux médias"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Comprendre et produire des énoncés écrits et oraux simples relatifs à la communication et aux médias"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "ecm",
+      "coef": 2,
+      "ordre_matiere": 13,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir l’entrepreneuriat"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "geographie",
+      "coef": 2,
+      "ordre_matiere": 14,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir la bonne gouvernance"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Participer à la mondialisation"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "histoire",
+      "coef": 2,
+      "ordre_matiere": 15,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Promouvoir l’intégration nationale"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "mathematiques",
+      "coef": 4,
+      "ordre_matiere": 16,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre des situations problèmes relatives aux statistiques, aux angles inscrits dans un cercle, aux polygones réguliers, à l’homothétie et aux applications affines."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer à l’aide du langage mathématique dans des situations relatives aux notions précédemment étudiées."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "pct",
+      "coef": 2,
+      "ordre_matiere": 17,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Résoudre, en utilisant la méthode scientifique, une situation-problème se rapportant à des projets techniques simples liés aux moteurs à combustion interne et électriques, et à l’électricité domestique."
+        },
+        {
+          "ordre": 2,
+          "intitule": "Communiquer, en utilisant le langage et les symboles scientifiques et techniques, sur les moteurs à combustion interne, les moteurs électriques, l’électricité domestique, et les dangers du courant électrique."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "svteehb",
+      "coef": 2,
+      "ordre_matiere": 18,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à la récurrence des risques d’origine naturelle."
+        },
+        {
+          "ordre": 2,
+          "intitule": "En utilisant une démarche scientifique, communiquer à l’oral et à l’écrit pour résoudre les situations-problèmes relatives à la récurrence des risques d’origine naturelle et la gestion durable des"
+        },
+        {
+          "ordre": 3,
+          "intitule": "écosystèmes."
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "esf",
+      "coef": 1,
+      "ordre_matiere": 19,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Lutter contre la mortalité maternelle et infantile"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Lutter contre les intoxications alimentaires"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "eps",
+      "coef": 2,
+      "ordre_matiere": 20,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Appliquer les stratégies de défense dans la pratique des sports collectifs"
+        }
+      ]
+    },
+    {
+      "classe": "3e",
+      "trimestre": "t3",
+      "matiere": "travail_manuel",
+      "coef": 1,
+      "ordre_matiere": 21,
+      "competences": [
+        {
+          "ordre": 1,
+          "intitule": "Développer les techniques de vente et de commercialisation des objets produits"
+        },
+        {
+          "ordre": 2,
+          "intitule": "Développer les techniques de vente et de commercialisation des légumineuses à grains produits"
+        },
+        {
+          "ordre": 3,
+          "intitule": "Développer les techniques de vente et de commercialisation des poissons produits"
+        }
+      ]
+    }
+  ]
+}

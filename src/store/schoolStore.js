@@ -7,7 +7,16 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB } from '../lib/db';
+import { fetchReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
+import { fetchScReferentiel } from '../lib/scService';
+import { fetchMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
+import { fetchPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
+import { buildSubjectsForClass } from '../lib/scAutoConfig';
+import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
+import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
+import { buildSubjectsForPrimClass } from '../lib/primAutoConfig';
+import { resolveClassEngine } from '../core/engineResolver';
 import { fetchPeriods } from '../lib/academicPeriodsService';
 import { deriveActiveSequence } from '../lib/periodLogic';
 import {
@@ -19,6 +28,7 @@ import {
   fetchTeachers, upsertTeacher, deleteTeacher as sbDeleteTeacher,
   fetchFees, upsertFee, deleteFee as sbDeleteFee,
   fetchFeePayments, insertFeePayment, deleteFeePayment as sbDeleteFeePayment,
+  fetchClassFeeGrids, upsertClassFeeGrid, deleteClassFeeGrid as sbDeleteClassFeeGrid,
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
 import { moveToTrash, logAction } from '../lib/historyService';
@@ -42,6 +52,23 @@ async function queueOffline(op) {
 
 function gradeKey(classId, studentId, sequence) {
   return `${classId}_${studentId}_${sequence}`;
+}
+
+// Le serveur LAN renvoie les colonnes jsonb comme CHAÎNES JSON (alors que
+// Supabase les renvoie déjà désérialisées). On normalise donc les champs JSON
+// à l'entrée du store pour que le reste de l'app voie TOUJOURS des tableaux.
+function parseJsonArray(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string' && v.trim()) {
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; }
+  }
+  return [];
+}
+function coerceFeeRow(f) {
+  return { ...f, tranches: parseJsonArray(f?.tranches), adjustments: parseJsonArray(f?.adjustments) };
+}
+function coerceGridRow(g) {
+  return { ...g, tranches: parseJsonArray(g?.tranches) };
 }
 
 // Converts empty strings to null for date/nullable columns so Postgres doesn't reject them.
@@ -119,9 +146,24 @@ export const useSchoolStore = create((set, get) => ({
   staff:        [],
   fees:         [],
   feePayments:  [],
+  classFeeGrids: [],
   gradeMap:     {},
   academicPeriods: [],
   activeSequence:  null,
+  // Moteur APC (chargé à la demande par l'écran de saisie quand l'école est en
+  // bulletin_engine='apc_minesec'). `apcReferentiel` = blob officiel (cache IDB
+  // → refresh cloud) ; `apcNotes` = { [nkey]: record }.
+  apcReferentiel: null,
+  apcNotes:     {},
+  // Moteur SECOND CYCLE MINESEC : référentiel séries/coefficients/groupes (cache
+  // IDB → refresh cloud), chargé à la demande par Classes/Grades.
+  scReferentiel: null,
+  // Moteurs FONDAMENTAL MINEDUB : référentiels + transactionnel chargés à la
+  // demande par les écrans de saisie. `matObservations`/`primNotes` = { [nkey]: record }.
+  matReferentiel:  null,
+  matObservations: {},
+  primReferentiel: null,
+  primNotes:       {},
   loading:      false,
   error:        null,
 
@@ -132,13 +174,13 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     // Wipe stale data from any previous session immediately — prevents flash of wrong data
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
-          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], gradeMap: {},
+          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], gradeMap: {},
           academicPeriods: [], activeSequence: null });
 
     try {
       await initDB();
 
-      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbPeriods] = await Promise.all([
+      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbFeeGrids, idbPeriods] = await Promise.all([
         classesDB.getAll(),
         subjectsDB.getAll(),
         studentsDB.getAll(),
@@ -147,6 +189,7 @@ export const useSchoolStore = create((set, get) => ({
         staffDB.getAll().catch(() => []),
         feesDB.getAll(),
         feePaymentsDB.getAll().catch(() => []),
+        classFeeGridsDB.getAll().catch(() => []),
         academicPeriodsDB.getAll().catch(() => []),
       ]);
 
@@ -157,8 +200,9 @@ export const useSchoolStore = create((set, get) => ({
       let allGrades   = idbGrades.filter((g) => g.school_id === schoolId);
       const allTeachers = idbTeachers.filter((t) => t.school_id === schoolId);
       const allStaff    = idbStaff.filter((s) => s.school_id === schoolId);
-      const allFees        = idbFees.filter((f) => f.school_id === schoolId && (!activeYear || f.academic_year === activeYear));
+      const allFees        = idbFees.filter((f) => f.school_id === schoolId && (!activeYear || f.academic_year === activeYear)).map(coerceFeeRow);
       const allFeePayments = idbFeePayments.filter((p) => p.school_id === schoolId && (!activeYear || p.academic_year === activeYear));
+      const allFeeGrids    = idbFeeGrids.filter((g) => g.school_id === schoolId && (!activeYear || g.academic_year === activeYear)).map(coerceGridRow);
       const allPeriods     = idbPeriods.filter((p) => p.school_id === schoolId && (!activeYear || p.school_year === activeYear));
 
       // Filter by active year (classes drive the year scope)
@@ -196,6 +240,7 @@ export const useSchoolStore = create((set, get) => ({
         staff:       allStaff,
         fees:        allFees,
         feePayments: allFeePayments,
+        classFeeGrids: allFeeGrids,
         gradeMap:    buildGradeMap(allGrades),
         academicPeriods: allPeriods,
         activeSequence:  deriveActiveSequence(allPeriods),
@@ -224,7 +269,7 @@ export const useSchoolStore = create((set, get) => ({
     const sbClasses = await fetchClasses(schoolId, year);
     const scopeIds  = (sbClasses ?? get().classes).map((c) => c.id);
 
-    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbPeriods] = await Promise.all([
+    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbFeeGrids, sbPeriods] = await Promise.all([
       fetchSubjects(schoolId, scopeIds),
       fetchStudents(schoolId, scopeIds),
       fetchGrades(schoolId, scopeIds),
@@ -233,6 +278,7 @@ export const useSchoolStore = create((set, get) => ({
       fetchStaff(schoolId).catch(() => null),
       fetchFees(schoolId, year),
       fetchFeePayments(schoolId, year).catch(() => null),
+      fetchClassFeeGrids(schoolId, year).catch(() => null),
       fetchPeriods(schoolId, year).catch(() => null),
     ]);
 
@@ -272,8 +318,9 @@ export const useSchoolStore = create((set, get) => ({
 
     const newTeachers     = sbTeachers     ?? get().teachers;
     const newStaff        = sbStaff        ?? get().staff;
-    const newFees         = sbFees         ?? get().fees;
+    const newFees         = sbFees !== null ? sbFees.map(coerceFeeRow) : get().fees;
     const newFeePayments  = sbFeePayments  ?? get().feePayments;
+    const newFeeGrids     = sbFeeGrids !== null ? sbFeeGrids.map(coerceGridRow) : get().classFeeGrids;
     const newPeriods      = sbPeriods !== null
       ? sbPeriods.filter((p) => !year || p.school_year === year)
       : get().academicPeriods;
@@ -297,8 +344,9 @@ export const useSchoolStore = create((set, get) => ({
     if (normalizedStudents !== null) await studentsDB.putMany(normalizedStudents);
     if (sbTeachers         !== null) await teachersDB.putMany(sbTeachers);
     if (sbStaff            !== null) await staffDB.putMany(sbStaff);
-    if (sbFees             !== null) await feesDB.putMany(sbFees);
+    if (sbFees             !== null) await feesDB.putMany(newFees);
     if (sbFeePayments      !== null) await feePaymentsDB.putMany(sbFeePayments);
+    if (sbFeeGrids         !== null) await classFeeGridsDB.putMany(newFeeGrids);
     if (sbPeriods          !== null) await academicPeriodsDB.putMany(sbPeriods);
 
     // ── Grades ────────────────────────────────────────────────────────────
@@ -347,6 +395,7 @@ export const useSchoolStore = create((set, get) => ({
       ...(sbStaff            !== null && { staff:       newStaff }),
       ...(sbFees             !== null && { fees:        newFees }),
       ...(sbFeePayments      !== null && { feePayments: newFeePayments }),
+      ...(sbFeeGrids         !== null && { classFeeGrids: newFeeGrids }),
       ...(sbPeriods          !== null && { academicPeriods: newPeriods, activeSequence: deriveActiveSequence(newPeriods) }),
       gradeMap: newGradeMap,
     });
@@ -360,6 +409,185 @@ export const useSchoolStore = create((set, get) => ({
     const all = await academicPeriodsDB.getBySchool(schoolId).catch(() => []);
     const periods = all.filter((p) => !activeYear || p.school_year === activeYear);
     set({ academicPeriods: periods, activeSequence: deriveActiveSequence(periods) });
+  },
+
+  // ── Moteur APC (compétences) ───────────────────────────────────────────────
+  // Charge le référentiel officiel + les notes de l'école (IDB d'abord, puis
+  // refresh cloud si online). Appelé par l'écran de saisie APC à son montage.
+  loadApc: async () => {
+    const { schoolId } = get();
+    if (!schoolId) return;
+    await initDB();
+
+    // 1) Cache IDB immédiat
+    const [cachedRef, idbNotes] = await Promise.all([
+      apcRefDB.get().catch(() => null),
+      apcNotesDB.getAll().catch(() => []),
+    ]);
+    const notesMap = {};
+    for (const n of (idbNotes || []).filter((n) => n.school_id === schoolId)) notesMap[n.nkey] = n;
+    set({ apcReferentiel: cachedRef || null, apcNotes: notesMap });
+
+    // 2) Refresh cloud (best-effort)
+    if (!backendOnline()) return;
+    const [ref, notes] = await Promise.all([fetchReferentiel(), fetchApcNotes(schoolId)]);
+    if (ref) {
+      const blob = { ...ref, id: 'referentiel' };
+      await apcRefDB.put(blob).catch(() => {});
+      set({ apcReferentiel: blob });
+    }
+    if (notes) {
+      const fresh = {};
+      const records = notes.map((n) => ({ ...n, nkey: noteNkey(n.eleve_id, n.competence_id, n.sequence_id) }));
+      for (const n of records) fresh[n.nkey] = n;
+      await apcNotesDB.putMany(records).catch(() => {});
+      set({ apcNotes: fresh });
+    }
+  },
+
+  // Enregistre/écrase une note de compétence (write IDB → cloud sinon queue).
+  // Réutilise l'id existant (via nkey) pour rester idempotent online/offline.
+  saveApcNote: async ({ eleveId, competenceId, sequenceId, note, appreciation }) => {
+    const { schoolId, apcNotes } = get();
+    if (!schoolId) return;
+    const teacherId = useAuthStore.getState().teacherId || null;
+    const nkey = noteNkey(eleveId, competenceId, sequenceId);
+    const existing = apcNotes[nkey];
+    const record = buildNoteRecord({
+      id: existing?.id, schoolId, eleveId, competenceId, sequenceId,
+      enseignantId: teacherId, note, appreciation,
+    });
+
+    await apcNotesDB.put(record);
+    set({ apcNotes: { ...get().apcNotes, [nkey]: record } });
+
+    if (backendOnline()) {
+      upsertApcNote(record).then((ok) => {
+        if (!ok) queueOffline({ table: 'apc_notes', operation: 'upsert', payload: record });
+      });
+    } else {
+      queueOffline({ table: 'apc_notes', operation: 'upsert', payload: record });
+    }
+  },
+
+  // ── Moteur SECOND CYCLE MINESEC ────────────────────────────────────────────
+  // Charge le référentiel (séries/coefficients/groupes). IDB d'abord, puis refresh
+  // cloud. Appelé par Classes (auto-config) et le routage des bulletins.
+  loadSc: async () => {
+    await initDB();
+    const cached = await scRefDB.get().catch(() => null);
+    if (cached) set({ scReferentiel: cached });
+    if (!backendOnline()) return cached || null;
+    const ref = await fetchScReferentiel();
+    if (ref) {
+      const blob = { ...ref, id: 'referentiel' };
+      await scRefDB.put(blob).catch(() => {});
+      set({ scReferentiel: blob });
+      return blob;
+    }
+    return get().scReferentiel;
+  },
+
+  // ── Moteur MATERNELLE (domaines / observations A·ECA·NA) ───────────────────
+  loadMat: async () => {
+    const { schoolId } = get();
+    if (!schoolId) return;
+    await initDB();
+    const [cachedRef, idbObs] = await Promise.all([
+      matRefDB.get().catch(() => null),
+      matObsDB.getAll().catch(() => []),
+    ]);
+    const obsMap = {};
+    for (const o of (idbObs || []).filter((o) => o.school_id === schoolId)) obsMap[o.nkey] = o;
+    set({ matReferentiel: cachedRef || null, matObservations: obsMap });
+
+    if (!backendOnline()) return;
+    const [ref, obs] = await Promise.all([fetchMatReferentiel(), fetchMatObservations(schoolId)]);
+    if (ref) {
+      const blob = { ...ref, id: 'referentiel' };
+      await matRefDB.put(blob).catch(() => {});
+      set({ matReferentiel: blob });
+    }
+    if (obs) {
+      const fresh = {};
+      const records = obs.map((o) => ({ ...o, nkey: obsNkey(o.eleve_id, o.domaine_id, o.trimestre_id) }));
+      for (const o of records) fresh[o.nkey] = o;
+      await matObsDB.putMany(records).catch(() => {});
+      set({ matObservations: fresh });
+    }
+  },
+
+  // Enregistre/écrase une observation (niveau A·ECA·NA + texte). IDB → cloud/queue.
+  saveMatObservation: async ({ eleveId, domaineId, trimestreId, niveauAcquis, observation }) => {
+    const { schoolId, matObservations } = get();
+    if (!schoolId) return;
+    const teacherId = useAuthStore.getState().teacherId || null;
+    const nkey = obsNkey(eleveId, domaineId, trimestreId);
+    const existing = matObservations[nkey];
+    const record = buildObsRecord({
+      id: existing?.id, schoolId, eleveId, domaineId, trimestreId,
+      enseignantId: teacherId, niveauAcquis, observation,
+    });
+    await matObsDB.put(record);
+    set({ matObservations: { ...get().matObservations, [nkey]: record } });
+    if (backendOnline()) {
+      upsertMatObservation(record).then((ok) => {
+        if (!ok) queueOffline({ table: 'mat_observations', operation: 'upsert', payload: record });
+      });
+    } else {
+      queueOffline({ table: 'mat_observations', operation: 'upsert', payload: record });
+    }
+  },
+
+  // ── Moteur PRIMAIRE APC (compétences × critères /10) ───────────────────────
+  loadPrim: async () => {
+    const { schoolId } = get();
+    if (!schoolId) return;
+    await initDB();
+    const [cachedRef, idbNotes] = await Promise.all([
+      primRefDB.get().catch(() => null),
+      primNotesDB.getAll().catch(() => []),
+    ]);
+    const notesMap = {};
+    for (const n of (idbNotes || []).filter((n) => n.school_id === schoolId)) notesMap[n.nkey] = n;
+    set({ primReferentiel: cachedRef || null, primNotes: notesMap });
+
+    if (!backendOnline()) return;
+    const [ref, notes] = await Promise.all([fetchPrimReferentiel(), fetchPrimNotes(schoolId)]);
+    if (ref) {
+      const blob = { ...ref, id: 'referentiel' };
+      await primRefDB.put(blob).catch(() => {});
+      set({ primReferentiel: blob });
+    }
+    if (notes) {
+      const fresh = {};
+      const records = notes.map((n) => ({ ...n, nkey: primNkey(n.eleve_id, n.competence_id, n.critere_id, n.trimestre_id) }));
+      for (const n of records) fresh[n.nkey] = n;
+      await primNotesDB.putMany(records).catch(() => {});
+      set({ primNotes: fresh });
+    }
+  },
+
+  // Enregistre/écrase une note (compétence × critère × trimestre). IDB → cloud/queue.
+  savePrimNote: async ({ eleveId, competenceId, critereId, trimestreId, note }) => {
+    const { schoolId, primNotes } = get();
+    if (!schoolId) return;
+    const teacherId = useAuthStore.getState().teacherId || null;
+    const nkey = primNkey(eleveId, competenceId, critereId, trimestreId);
+    const existing = primNotes[nkey];
+    const record = buildPrimNoteRecord({
+      id: existing?.id, schoolId, eleveId, competenceId, critereId, trimestreId,
+      enseignantId: teacherId, note,
+    });
+    await primNotesDB.put(record);
+    set({ primNotes: { ...get().primNotes, [nkey]: record } });
+    if (backendOnline()) {
+      upsertPrimNote(record).then((ok) => {
+        if (!ok) queueOffline({ table: 'prim_notes', operation: 'upsert', payload: record });
+      });
+    } else {
+      queueOffline({ table: 'prim_notes', operation: 'upsert', payload: record });
+    }
   },
 
   // ── Academic year promotion ──────────────────────────────────────────────
@@ -493,7 +721,10 @@ export const useSchoolStore = create((set, get) => ({
 
   addClass: async (classData) => {
     const { schoolId } = get();
-    const record = { id: uuid(), school_id: schoolId, ...classData };
+    // Année scolaire HÉRITÉE de l'année active de l'établissement — jamais saisie
+    // au formulaire. Un `current_year` explicite (ex. duplication) reste prioritaire.
+    const activeYear = useAuthStore.getState().school?.current_year || null;
+    const record = { id: uuid(), school_id: schoolId, current_year: activeYear, ...classData };
     await classesDB.put(record);
     set((s) => ({ classes: [...s.classes, record] }));
     // Fire-and-forget : la donnée est déjà en IDB + state. On ne bloque jamais
@@ -503,7 +734,125 @@ export const useSchoolStore = create((set, get) => ({
     } else {
       queueOffline({ table: 'classes', operation: 'upsert', payload: record });
     }
+    // Auto-configuration des matières selon le moteur de la classe (no-op si non
+    // concerné) : SECOND CYCLE (série), PREMIER CYCLE APC (6e–3e), MATERNELLE
+    // (PS/MS/GS → domaines) ou PRIMAIRE APC (SIL…CM2 → compétences nationales).
+    await get().autoConfigSecondCycle(record);
+    await get().autoConfigApc(record);
+    await get().autoConfigMat(record);
+    await get().autoConfigPrim(record);
     return record;
+  },
+
+  // Crée les `subjects` d'une classe de PREMIER CYCLE APC depuis le référentiel
+  // (matières + coef par classe). No-op si la classe n'est pas résolue 'apc' ou si
+  // elle a déjà des matières. Renvoie { created }.
+  autoConfigApc: async (cls) => {
+    const school = useAuthStore.getState().school;
+    if (resolveClassEngine(school, cls) !== 'apc') return { created: 0 };
+    let ref = get().apcReferentiel;
+    if (!ref) { await get().loadApc(); ref = get().apcReferentiel; }
+    const subs = buildSubjectsForApcClass({ referentiel: ref, school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    // Ne pas dupliquer si la classe a déjà des matières.
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
+  // Crée les `subjects` (domaines) d'une classe MATERNELLE depuis le référentiel
+  // MINEDUB. No-op si la classe n'est pas résolue 'maternelle' ou déjà configurée.
+  autoConfigMat: async (cls) => {
+    const school = useAuthStore.getState().school;
+    if (resolveClassEngine(school, cls) !== 'maternelle') return { created: 0 };
+    let ref = get().matReferentiel;
+    if (!ref) { await get().loadMat(); ref = get().matReferentiel; }
+    const subs = buildSubjectsForMatClass({ referentiel: ref, school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
+  // Crée les `subjects` (compétences nationales) d'une classe PRIMAIRE APC depuis
+  // le référentiel MINEDUB. No-op si non résolue 'apc_primaire' ou déjà configurée.
+  autoConfigPrim: async (cls) => {
+    const school = useAuthStore.getState().school;
+    if (resolveClassEngine(school, cls) !== 'apc_primaire') return { created: 0 };
+    let ref = get().primReferentiel;
+    if (!ref) { await get().loadPrim(); ref = get().primReferentiel; }
+    const subs = buildSubjectsForPrimClass({ referentiel: ref, school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
+  // Crée les `subjects` officiels d'une classe de second cycle depuis le
+  // référentiel MINESEC. No-op si l'école n'est pas en 'minesec' ou si la classe
+  // n'est pas un niveau lycée avec série. Renvoie { created }.
+  autoConfigSecondCycle: async (cls) => {
+    const school = useAuthStore.getState().school;
+    // Résolu PAR CLASSE : marche pour 'minesec' comme pour le mode unifié 'officiel'.
+    if (resolveClassEngine(school, cls) !== 'sc' || !cls?.serie) return { created: 0 };
+    const ref = get().scReferentiel || await get().loadSc();
+    const subs = buildSubjectsForClass({ referentiel: ref, school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    // Ne pas dupliquer si la classe a déjà des matières.
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
+  // Re-déclenche l'auto-configuration des matières pour une classe existante
+  // (rattrapage si le référentiel n'était pas chargé à la création). Idempotent :
+  // ne fait rien si la classe a déjà des matières. Renvoie { created }.
+  configureClassSubjects: async (cls) => {
+    const r1 = await get().autoConfigSecondCycle(cls);
+    const r2 = await get().autoConfigApc(cls);
+    const r3 = await get().autoConfigMat(cls);
+    const r4 = await get().autoConfigPrim(cls);
+    return { created: (r1?.created || 0) + (r2?.created || 0) + (r3?.created || 0) + (r4?.created || 0) };
   },
 
   updateClass: async (id, data) => {
@@ -772,8 +1121,12 @@ export const useSchoolStore = create((set, get) => ({
 
     if (backendOnline()) {
       if (hasGrades) {
-        upsertGradeEntry(classId, studentId, sequence, merged, schoolId).then((ok) => {
-          if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload: record });
+        // On n'écrit QUE les matières modifiées (`scores`, le delta), jamais toute
+        // la ligne (`merged`). En mode « enseignant de matière », la RLS rejette
+        // les notes des matières non affectées : ré-upserter `merged` ferait
+        // échouer la sauvegarde. Le delta est aussi plus correct/rapide en Mode 2.
+        upsertGradeEntry(classId, studentId, sequence, scores, schoolId).then((ok) => {
+          if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload: { ...record, scores } });
         });
       }
       if (hasSpecial) {
@@ -823,6 +1176,8 @@ export const useSchoolStore = create((set, get) => ({
   addTeacher: async (teacherData) => {
     const { schoolId } = get();
     const record = { id: uuid(), school_id: schoolId, ...teacherData };
+    // Une chaîne vide est invalide pour une colonne `date` (Postgres) → null.
+    if (record.hire_date === '') record.hire_date = null;
     await teachersDB.put(record);
     set((s) => ({ teachers: [...s.teachers, record] }));
     if (backendOnline()) {
@@ -836,6 +1191,8 @@ export const useSchoolStore = create((set, get) => ({
   updateTeacher: async (id, data) => {
     const { teachers } = get();
     const record = { ...teachers.find((t) => t.id === id), ...data };
+    // Une chaîne vide est invalide pour une colonne `date` (Postgres) → null.
+    if (record.hire_date === '') record.hire_date = null;
     await teachersDB.put(record);
     set((s) => ({ teachers: s.teachers.map((t) => (t.id === id ? record : t)) }));
     if (backendOnline()) {
@@ -914,6 +1271,8 @@ export const useSchoolStore = create((set, get) => ({
       date_dernier_paiement: feeData.date_dernier_paiement ?? existing?.date_dernier_paiement ?? null,
       notes:         feeData.notes         ?? existing?.notes         ?? null,
       tranches:      feeData.tranches      ?? existing?.tranches      ?? [],
+      payment_mode:  feeData.payment_mode  ?? existing?.payment_mode  ?? null,
+      adjustments:   feeData.adjustments   ?? existing?.adjustments   ?? [],
     };
     await feesDB.put(record);
     set((s) => ({
@@ -999,7 +1358,88 @@ export const useSchoolStore = create((set, get) => ({
     }
   },
 
+  // --- Class fee grids (grilles tarifaires) ---
+
+  // Crée / met à jour la grille tarifaire d'une classe pour l'année active.
+  // gridData : { class_id, amount_comptant, amount_echelonne, amount_inscription, tranches[], notes }
+  saveClassFeeGrid: async (gridData) => {
+    const { schoolId, activeYear, classFeeGrids } = get();
+    const year = activeYear || gridData.academic_year;
+    const existing = classFeeGrids.find(
+      (g) => g.class_id === gridData.class_id && g.academic_year === year
+    );
+    const record = {
+      id:               existing?.id || uuid(),
+      school_id:        schoolId,
+      class_id:         gridData.class_id,
+      academic_year:    year,
+      amount_comptant:   parseInt(gridData.amount_comptant, 10)   || 0,
+      amount_echelonne:  parseInt(gridData.amount_echelonne, 10)  || 0,
+      amount_inscription: parseInt(gridData.amount_inscription, 10) || 0,
+      tranches:         Array.isArray(gridData.tranches) ? gridData.tranches : (existing?.tranches ?? []),
+      currency:         gridData.currency ?? existing?.currency ?? 'XAF',
+      notes:            gridData.notes ?? existing?.notes ?? null,
+    };
+    await classFeeGridsDB.put(record);
+    set((s) => ({
+      classFeeGrids: existing
+        ? s.classFeeGrids.map((g) => (g.id === existing.id ? record : g))
+        : [...s.classFeeGrids, record],
+    }));
+    if (backendOnline()) {
+      upsertClassFeeGrid(record).then((saved) => { if (!saved) queueOffline({ table: 'class_fee_grids', operation: 'upsert', payload: record }); });
+    } else {
+      queueOffline({ table: 'class_fee_grids', operation: 'upsert', payload: record });
+    }
+    return record;
+  },
+
+  deleteClassFeeGrid: async (id) => {
+    await classFeeGridsDB.delete(id);
+    set((s) => ({ classFeeGrids: s.classFeeGrids.filter((g) => g.id !== id) }));
+    if (backendOnline()) {
+      sbDeleteClassFeeGrid(id).then((ok) => { if (!ok) queueOffline({ table: 'class_fee_grids', operation: 'delete', payload: { id } }); });
+    } else {
+      queueOffline({ table: 'class_fee_grids', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // Fige le mode de paiement d'un élève à l'inscription et applique la grille de
+  // sa classe : copie le total dû (comptant ou échelonné) + un INSTANTANÉ des
+  // tranches (pour qu'une modif ultérieure de la grille ne perturbe pas l'élève).
+  // Les paiements déjà saisis (frais_payes) sont PRÉSERVÉS. mode null = repasse
+  // en saisie libre (déblocage admin).
+  setStudentPaymentMode: async (studentId, mode) => {
+    const { classFeeGrids, students, activeYear } = get();
+    const student = students.find((s) => s.id === studentId);
+    const grid = classFeeGrids.find(
+      (g) => g.class_id === student?.class_id && g.academic_year === (activeYear || g.academic_year)
+    );
+
+    const patch = { payment_mode: mode };
+    if (mode === 'comptant') {
+      patch.frais_annuels = grid?.amount_comptant ?? 0;
+      patch.tranches = grid?.amount_comptant
+        ? [{ id: 'comptant', label: 'Paiement comptant', amount: grid.amount_comptant, due_date: grid?.tranches?.[0]?.due_date || null }]
+        : [];
+    } else if (mode === 'echelonne') {
+      patch.frais_annuels = grid?.amount_echelonne ?? 0;
+      // Instantané profond des tranches de la grille.
+      patch.tranches = (grid?.tranches ?? []).map((t) => ({ ...t }));
+    }
+    // mode 'libre' / null : on ne touche ni au total ni aux tranches (saisie manuelle).
+    return get().saveFee(studentId, patch);
+  },
+
   // --- Selectors ---
+
+  // Grille tarifaire applicable à une classe pour l'année active (ou null).
+  getClassFeeGrid: (classId) => {
+    const { classFeeGrids, activeYear } = get();
+    return classFeeGrids.find(
+      (g) => g.class_id === classId && (!activeYear || g.academic_year === activeYear)
+    ) || null;
+  },
 
   getClassSubjects: (classId) => get().subjects.filter((s) => s.class_id === classId),
   getClassStudents: (classId) => get().students.filter((s) => s.class_id === classId),

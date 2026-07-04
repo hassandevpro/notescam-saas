@@ -53,9 +53,14 @@ Deno.serve(async (req) => {
   if (existing?.length && !existing.some((m) => m.user_id === caller.id))
     return json(409, { error: 'school_already_owned' });
 
-  // École (id préservé).
+  // École (id préservé). On retire les clés nulles : une école locale ancienne
+  // peut envoyer null sur des colonnes devenues NOT NULL DEFAULT côté cloud
+  // (ex. ge_grade_max) ; un null explicite court-circuite le DEFAULT de Postgres.
   {
-    const { error } = await admin.from('schools').upsert(school, { onConflict: 'id' });
+    const schoolRow = Object.fromEntries(
+      Object.entries(school).filter(([, v]) => v !== null && v !== undefined),
+    );
+    const { error } = await admin.from('schools').upsert(schoolRow, { onConflict: 'id' });
     if (error) return json(400, { error: 'school: ' + error.message });
   }
 

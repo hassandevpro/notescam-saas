@@ -6,12 +6,15 @@ import { useUiStore } from './store/uiStore';
 import { flushSyncQueue, getQueueCount, pruneExpiredItems } from './lib/sync';
 import { requestPersistentStorage } from './lib/db';
 import { backendOnline, IS_LAN } from './lib/edition';
+import { installDocumentScaleVars } from './lib/documentScaleVars';
+
+// Dimensionnement des éléments graphiques (variables CSS) — installé une fois.
+installDocumentScaleVars();
 import ProtectedRoute from './components/ProtectedRoute';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import OnboardingWizard from './components/OnboardingWizard';
 import LanLicenseGate from './components/LanLicenseGate';
 import CloudActivationWizard from './components/CloudActivationWizard';
-import CloudSyncPanel from './components/CloudSyncPanel';
 import CloudMigrationWizard from './components/CloudMigrationWizard';
 
 // Auth pages — petites, chargées immédiatement
@@ -25,7 +28,6 @@ import VerifyEmail from './pages/VerifyEmail';
 // App pages — lazy-loaded pour réduire le bundle initial
 const Dashboard     = lazy(() => import('./pages/Dashboard'));
 const Classes       = lazy(() => import('./pages/Classes'));
-const Subjects      = lazy(() => import('./pages/Subjects'));
 const Students      = lazy(() => import('./pages/Students'));
 const StudentProfile = lazy(() => import('./pages/StudentProfile'));
 const Grades        = lazy(() => import('./pages/Grades'));
@@ -35,6 +37,7 @@ const VerifyTranscript = lazy(() => import('./pages/VerifyTranscript'));
 const Teachers      = lazy(() => import('./pages/Teachers'));
 const Personnel     = lazy(() => import('./pages/Personnel'));
 const Settings      = lazy(() => import('./pages/Settings'));
+const Profile       = lazy(() => import('./pages/Profile'));
 const AcademicYear  = lazy(() => import('./pages/AcademicYear'));
 const Reports        = lazy(() => import('./pages/Reports'));
 const Fees           = lazy(() => import('./pages/Fees'));
@@ -48,6 +51,7 @@ const Landing           = lazy(() => import('./pages/Landing'));
 const Terms             = lazy(() => import('./pages/Terms'));
 const Help              = lazy(() => import('./pages/Help'));
 const History           = lazy(() => import('./pages/History'));
+const HonorRoll         = lazy(() => import('./pages/HonorRoll'));
 
 function PageLoader() {
   return (
@@ -222,15 +226,16 @@ export default function App() {
           <Route path="/terms" element={<Terms />} />
           <Route path="/app" element={<ProtectedRoute><HomeRoute /></ProtectedRoute>} />
           <Route path="/app/classes"        element={<ProtectedRoute allow={ACADEMIC}><Classes /></ProtectedRoute>} />
-          <Route path="/app/subjects"       element={<ProtectedRoute allow={ACADEMIC}><Subjects /></ProtectedRoute>} />
           <Route path="/app/students"       element={<ProtectedRoute allow={DISCIPLINE}><Students /></ProtectedRoute>} />
           <Route path="/app/students/:id"   element={<ProtectedRoute allow={DISCIPLINE}><StudentProfile /></ProtectedRoute>} />
           <Route path="/app/grades"         element={<ProtectedRoute allow={WITH_TEACHER}><Grades /></ProtectedRoute>} />
           <Route path="/app/bulletins"      element={<ProtectedRoute allow={WITH_TEACHER}><Bulletins /></ProtectedRoute>} />
           <Route path="/app/releves"        element={<ProtectedRoute allow={WITH_TEACHER}><Transcripts /></ProtectedRoute>} />
+          <Route path="/app/palmares"       element={<ProtectedRoute allow={ACADEMIC}><HonorRoll /></ProtectedRoute>} />
           <Route path="/app/teachers"       element={<ProtectedRoute allow={ADMIN_ONLY}><Teachers /></ProtectedRoute>} />
           <Route path="/app/personnel"      element={<ProtectedRoute allow={ADMIN_ONLY}><Personnel /></ProtectedRoute>} />
           <Route path="/app/settings"       element={<ProtectedRoute allow={ALL_STAFF}><Settings /></ProtectedRoute>} />
+          <Route path="/app/profile"        element={<ProtectedRoute allow={ALL_STAFF}><Profile /></ProtectedRoute>} />
           <Route path="/app/year"           element={<ProtectedRoute allow={ADMIN_ONLY}><AcademicYear /></ProtectedRoute>} />
           <Route path="/app/reports"        element={<ProtectedRoute allow={ACADEMIC}><Reports /></ProtectedRoute>} />
           <Route path="/app/fees"            element={<ProtectedRoute allow={ACADEMIC}><Fees /></ProtectedRoute>} />
@@ -249,7 +254,6 @@ export default function App() {
       <PwaUpdatePrompt />
       <OnboardingGate />
       <CloudActivationWizard />
-      <CloudSyncPanel />
       <CloudMigrationWizard />
     </BrowserRouter>
     </LanLicenseGate>

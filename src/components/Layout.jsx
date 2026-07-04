@@ -5,8 +5,32 @@ import { useUiStore }   from '../store/uiStore';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { flushSyncQueue, clearSyncQueue, pruneExpiredItems } from '../lib/sync';
-import Sidebar from './Sidebar';
+import Sidebar from './nav/Sidebar';
+import MobileNav from './nav/MobileNav';
 import NotificationBell from './NotificationBell';
+import UserMenu from './UserMenu';
+import LanguageMenu from './LanguageMenu';
+import { localeForLang } from '../lib/i18n';
+
+// ── Horloge d'en-tête (date + heure du jour) ───────────────────────────────
+// Affichée à côté des notifications. Se met à jour chaque minute.
+function HeaderClock() {
+  const uiLang = useUiStore((s) => s.uiLang);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const locale = localeForLang(uiLang);
+  const date = now.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short' });
+  const time = now.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="hidden sm:flex flex-col items-end leading-tight mr-1" title={now.toLocaleString(locale)}>
+      <span className="text-xs font-semibold text-slate-600 capitalize">{date}</span>
+      <span className="text-[11px] text-slate-400 tabular-nums">{time}</span>
+    </div>
+  );
+}
 
 // ── Indicateur de synchronisation ─────────────────────────────────────────
 function SyncIndicator() {
@@ -147,11 +171,13 @@ function SyncIndicator() {
 }
 
 // ── Layout principal ───────────────────────────────────────────────────────
-export default function Layout({ children }) {
+export default function Layout({ children, bleed = false }) {
   const navigate    = useNavigate();
   const { school, logout } = useAuthStore();
   const viewYear    = useUiStore((s) => s.viewYear);
   const clearViewYear = useUiStore((s) => s.clearViewYear);
+  const sidebarHidden = useUiStore((s) => s.sidebarHidden);
+  const toggleSidebar = useUiStore((s) => s.toggleSidebar);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const role     = useAuthStore((s) => s.role);
@@ -191,7 +217,7 @@ export default function Layout({ children }) {
   const isArchive = viewYear !== null;
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50 font-sans">
+    <div className="h-screen overflow-hidden bg-slate-50 font-sans print:h-auto print:overflow-visible">
 
       {/* Overlay mobile pour fermer la sidebar */}
       {sidebarOpen && (
@@ -203,7 +229,7 @@ export default function Layout({ children }) {
 
       {/* Bandeau année archivée */}
       {isArchive && (
-        <div className="fixed top-0 left-0 md:left-60 right-0 z-[60] bg-amber-400 text-amber-900 flex items-center justify-between px-4 md:px-6 py-1.5 text-sm font-semibold shadow-sm">
+        <div className={`fixed top-0 left-0 ${sidebarHidden ? 'md:left-0' : 'md:left-60'} right-0 z-[60] bg-amber-400 text-amber-900 flex items-center justify-between px-4 md:px-6 py-1.5 text-sm font-semibold shadow-sm transition-all`}>
           <div className="flex items-center gap-2 min-w-0">
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
@@ -220,7 +246,7 @@ export default function Layout({ children }) {
       )}
 
       {/* Header fixe */}
-      <header className={`fixed ${isArchive ? 'top-9' : 'top-0'} left-0 md:left-60 right-0 h-14 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-200/60 flex items-center px-4 md:px-6 gap-3 transition-all shadow-sm`}>
+      <header className={`fixed ${isArchive ? 'top-9' : 'top-0'} left-0 ${sidebarHidden ? 'md:left-0' : 'md:left-60'} right-0 h-14 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-200/60 flex items-center px-4 md:px-6 gap-3 transition-all shadow-sm`}>
         {/* Hamburger — mobile uniquement */}
         <button
           className="md:hidden p-2 -ml-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
@@ -233,6 +259,22 @@ export default function Layout({ children }) {
             <line x1="3" y1="18" x2="21" y2="18"/>
           </svg>
         </button>
+
+        {/* Afficher la barre latérale — desktop, visible quand elle est repliée */}
+        {sidebarHidden && (
+          <button
+            className="hidden md:flex p-2 -ml-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors shrink-0"
+            onClick={toggleSidebar}
+            title="Afficher la barre latérale"
+            aria-label="Afficher la barre latérale"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6"  x2="21" y2="6"/>
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+        )}
 
         {/* School name */}
         <div className="flex-1 min-w-0">
@@ -248,21 +290,33 @@ export default function Layout({ children }) {
         </div>
 
         {/* Right actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <HeaderClock />
+          <LanguageMenu />
           {!isArchive && <SyncIndicator />}
           {!isArchive && <NotificationBell />}
+          <div className="w-px h-6 bg-slate-200 mx-0.5 hidden sm:block" />
+          <UserMenu onLogout={handleLogout} />
         </div>
       </header>
 
-      {/* Sidebar */}
-      <Sidebar onLogout={handleLogout} mobileOpen={sidebarOpen} onClose={closeSidebar} />
+      {/* Sidebar (desktop/tablette) */}
+      <Sidebar mobileOpen={sidebarOpen} onClose={closeSidebar} />
 
       {/* Contenu principal scrollable */}
-      <main className={`ml-0 md:ml-60 ${isArchive ? 'mt-[calc(3.5rem+2.25rem)]' : 'mt-14'} ${isArchive ? 'h-[calc(100vh-3.5rem-2.25rem)]' : 'h-[calc(100vh-3.5rem)]'} overflow-y-auto transition-all`}>
-        <div className="p-4 md:p-8">
-          {children}
-        </div>
+      <main className={`ml-0 ${sidebarHidden ? 'md:ml-0' : 'md:ml-60'} ${isArchive ? 'mt-[calc(3.5rem+2.25rem)]' : 'mt-14'} ${isArchive ? 'h-[calc(100vh-3.5rem-2.25rem)]' : 'h-[calc(100vh-3.5rem)]'} overflow-y-auto transition-all print:ml-0 print:mt-0 print:h-auto print:overflow-visible`}>
+        {/* pb-24 sur mobile : dégage la bottom-nav fixe (h-16). En mode `bleed`
+            (écran plein écran focalisé), la page gère elle-même son padding et
+            occupe toute la hauteur disponible. */}
+        {bleed ? (
+          <div className="h-full pb-16 md:pb-0">{children}</div>
+        ) : (
+          <div className="p-4 pb-24 md:p-8">{children}</div>
+        )}
       </main>
+
+      {/* Bottom-nav (mobile uniquement) */}
+      <MobileNav onLogout={handleLogout} />
     </div>
   );
 }

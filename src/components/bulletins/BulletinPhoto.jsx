@@ -7,11 +7,14 @@
 // @param {number} width   largeur px (défaut 56)
 // @param {number} height  hauteur px (défaut 70)
 // @param {number} radius  arrondi px (défaut 4)
+import { useSignedUrl } from '../AssetImg';
+
 export default function BulletinPhoto({ src, width = 56, height = 70, radius = 4 }) {
   const frame = { width, height, border: '1px solid #9ca3af', borderRadius: radius, flexShrink: 0 };
+  const resolved = useSignedUrl(src); // URL signée (sécurité C2), repli sur l'origine
 
-  if (src) {
-    return <img src={src} alt="" style={{ ...frame, objectFit: 'cover' }} />;
+  if (resolved) {
+    return <img src={resolved} alt="" style={{ ...frame, objectFit: 'cover' }} />;
   }
 
   const icon = Math.round(Math.min(width, height) * 0.62);

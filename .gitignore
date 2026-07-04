@@ -63,4 +63,9 @@ packaging/Output/
 # Claude Code memory
 .claude/
 
+# Collections de skills Claude Code clonées localement (hors app)
+/claude-skills/
+/skills/
+_commitmsg.txt
+
 .vercel

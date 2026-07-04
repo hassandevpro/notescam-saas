@@ -1,10 +1,25 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
-import { clsStat, buildRanks } from '../core/bulletinEngine';
+import { clsStat, buildRanks, resolveScores } from '../core/bulletinEngine';
+
+// Matières composites : rend un gradeMap « effectif » où chaque matière parente
+// porte sa note calculée (depuis ses enfants), pour la classe donnée. Combiné à
+// une liste de matières top-level, les relevés affichent la matière principale
+// et la moyenne reste correcte — sans modifier le moteur de relevés.
+function compositeView(gradeMap, classId, fullSubs) {
+  if (!fullSubs.some((s) => s.parent_id)) return { subs: fullSubs, gm: gradeMap };
+  const subs = fullSubs.filter((s) => !s.parent_id);
+  const gm = {};
+  for (const [k, v] of Object.entries(gradeMap)) {
+    gm[k] = k.startsWith(classId + '_') ? resolveScores(v, fullSubs).g : v;
+  }
+  return { subs, gm };
+}
 import { resolveCountryCode } from '../countries';
 import { gradingOpts } from '../lib/useCountry';
 import { qrDataUrl } from '../lib/idCardService';
@@ -12,30 +27,45 @@ import {
   buildClassTranscripts, buildMultiYearHistory, transcriptColumns, buildVerification,
 } from '../lib/transcriptEngine';
 import {
-  transcriptSheetHtml, multiYearSheetHtml, printSheets,
-} from '../lib/transcriptDoc';
+  classContext, evaluateClass, evaluateSchool, collectAnomalies, buildChecklist,
+} from '../lib/transcriptReadiness';
+import { recordGeneration, recentGenerations } from '../lib/documentLog';
+import { buildParentLinks } from '../lib/parentLinks';
+import { transcriptSheetHtml, multiYearSheetHtml, printSheets } from '../lib/transcriptDoc';
 import { exportTranscriptsPdf } from '../lib/transcriptPdf';
 import { loadYearAcademics, matchStudent, listYears } from '../lib/transcriptHistory';
 import Layout from '../components/Layout';
-
-// Ordre d'affichage des matières : `position` puis (coef, nom) — rétrocompatible.
-function bySubjectOrder(a, b) {
-  const ha = a.position != null, hb = b.position != null;
-  if (ha && hb) return a.position - b.position;
-  if (ha) return -1;
-  if (hb) return 1;
-  return (b.coef || 0) - (a.coef || 0) || a.name.localeCompare(b.name);
-}
+import Modal from '../components/Modal';
+import TranscriptDashboard from '../components/transcripts/TranscriptDashboard';
+import GenerationCards from '../components/transcripts/GenerationCards';
+import TranscriptFilters from '../components/transcripts/TranscriptFilters';
+import ControlPanel from '../components/transcripts/ControlPanel';
+import ValidationChecklist from '../components/transcripts/ValidationChecklist';
+import AnomaliesPanel from '../components/transcripts/AnomaliesPanel';
+import PdfPreviewPanel from '../components/transcripts/PdfPreviewPanel';
+import MassGenerationBar from '../components/transcripts/MassGenerationBar';
+import PdfDiagnostic from '../components/transcripts/PdfDiagnostic';
+import GenerationHistory from '../components/transcripts/GenerationHistory';
+import ParentLinksModal from '../components/transcripts/ParentLinksModal';
+import CertificateWorkspace from '../components/documents/CertificateWorkspace';
 
 const decisionText = (sys, d) => (sys === 'EN' ? d.en : sys === 'ES' ? (d.es || d.fr) : d.fr);
 
-export default function Transcripts() {
+// Types de document proposés par le hub « Documents ».
+const DOC_TYPES = [
+  { key: 'transcript',  icon: '📄', label: ['Relevé de notes', 'Transcript', 'Certificación'],     desc: ['Notes, moyennes, rang', 'Grades, averages, rank', 'Notas y media'] },
+  { key: 'certificate', icon: '📜', label: ['Certificat de scolarité', 'Enrollment certificate', 'Certificado de escolaridad'], desc: ["Attestation d'inscription", 'Proof of enrollment', 'Comprobante de matrícula'] },
+];
+
+function TranscriptWorkspace() {
   const t = useT();
+  const navigate = useNavigate();
   const { plan } = usePlan();
 
   const school    = useAuthStore((s) => s.school);
   const role      = useAuthStore((s) => s.role);
   const teacherId = useAuthStore((s) => s.teacherId);
+  const userName  = useAuthStore((s) => s.fullName || s.user?.email || '—');
   const classes   = useSchoolStore((s) => s.classes);
   const subjects  = useSchoolStore((s) => s.subjects);
   const students  = useSchoolStore((s) => s.students);
@@ -46,292 +76,468 @@ export default function Transcripts() {
   const myTeacher = role === 'teacher' ? teachers.find((tt) => tt.id === teacherId) : null;
   const canPrint  = role !== 'teacher' || (myTeacher?.can_print_bulletin ?? true);
 
-  const [mode,     setMode]     = useState('single'); // single | class | multi
-  const [classId,  setClassId]  = useState('');
-  const [studentId, setStudentId] = useState('');
-  const [sheets,   setSheets]   = useState([]);       // HTML A4 prêtes
-  const [building, setBuilding] = useState(false);
-  const [pdfProg,  setPdfProg]  = useState(null);     // { done, total } | null
-  const [err,      setErr]      = useState(null);
-
-  const buildSeq = useRef(0); // évite les courses entre builds asynchrones
-
-  const schoolYear = viewYear ?? school?.current_year ?? '';
+  const schoolYear  = viewYear ?? school?.current_year ?? '';
   const countryCode = resolveCountryCode(school);
 
-  const selectedClass = classes.find((c) => c.id === classId) || null;
-  const classSubjects = useMemo(
-    () => subjects.filter((s) => s.class_id === classId).sort(bySubjectOrder),
-    [subjects, classId]
+  // Contexte partagé du moteur de préparation.
+  const ctx = useMemo(
+    () => ({ classes, subjects, students, gradeMap, school, countryCode, schoolYear }),
+    [classes, subjects, students, gradeMap, school, countryCode, schoolYear],
   );
+
+  // ── État UI ─────────────────────────────────────────────────────────────────
+  const [mode,      setMode]      = useState('single'); // single|class|level|multi|all
+  const [classId,   setClassId]   = useState('');
+  const [studentId, setStudentId] = useState('');
+  const [level,     setLevel]     = useState('');
+  const [search,    setSearch]    = useState('');
+  const [sheets,    setSheets]    = useState([]);  // aperçu (1 feuille représentative)
+  const [building,  setBuilding]  = useState(false);
+  const [pdfProg,   setPdfProg]   = useState(null);
+  const [err,       setErr]       = useState(null);
+  const [history,   setHistory]   = useState([]);
+  const [parentLinks, setParentLinks] = useState(null);
+
+  const buildSeq = useRef(0);
+
+  // ── Évaluations (état de production) ─────────────────────────────────────────
+  const schoolSummary = useMemo(() => evaluateSchool(ctx), [ctx]);
+
+  const nonMaternelle = useMemo(() => classes.filter((c) => (c.cycle || 'secondaire') !== 'maternelle'), [classes]);
+  const levels = useMemo(
+    () => [...new Set(nonMaternelle.map((c) => c.level).filter(Boolean))].sort(),
+    [nonMaternelle],
+  );
+
+  const selectedClass = classes.find((c) => c.id === classId) || null;
+  const classEval = useMemo(
+    () => (selectedClass ? evaluateClass(selectedClass, ctx) : null),
+    [selectedClass, ctx],
+  );
+
   const classStudents = useMemo(
     () => students.filter((s) => s.class_id === classId).sort((a, b) => a.name.localeCompare(b.name)),
-    [students, classId]
+    [students, classId],
   );
+  const studentOptions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? classStudents.filter((s) => s.name.toLowerCase().includes(q)) : classStudents;
+  }, [classStudents, search]);
   const selectedStudent = classStudents.find((s) => s.id === studentId) || null;
 
-  // Réinitialise l'élève quand la classe change.
-  useEffect(() => { setStudentId(''); setSheets([]); }, [classId]);
-  useEffect(() => { setSheets([]); }, [mode]);
+  const levelClasses = useMemo(
+    () => (level ? nonMaternelle.filter((c) => c.level === level) : []),
+    [level, nonMaternelle],
+  );
 
-  // ── Construction d'une ou plusieurs feuilles (asynchrone : QR + multi-années)
-  const build = useCallback(async () => {
-    setErr(null);
-    if (!selectedClass) return;
-    const cls = selectedClass;
-    const sys = cls.system || 'FR';
-    const cycle = cls.cycle || 'secondaire';
+  // Réinitialisations contextuelles.
+  useEffect(() => { setStudentId(''); setSearch(''); setSheets([]); setErr(null); }, [classId]);
+  useEffect(() => { setSheets([]); setErr(null); }, [mode]);
 
-    if (cycle === 'maternelle') {
-      setErr(t("Les relevés ne s'appliquent pas au cycle maternelle.",
-               'Transcripts do not apply to the kindergarten cycle.',
-               'Las certificaciones no aplican al ciclo infantil.'));
-      return;
+  // Charge l'historique local au montage.
+  useEffect(() => {
+    if (school?.id) recentGenerations(school.id).then(setHistory);
+  }, [school?.id]);
+
+  // ── Cibles du périmètre (élèves générables) ──────────────────────────────────
+  const classEvalById = useMemo(() => {
+    const m = new Map();
+    for (const e of schoolSummary.byClass) m.set(e.cls.id, e);
+    if (classEval) m.set(classEval.cls.id, classEval);
+    return m;
+  }, [schoolSummary, classEval]);
+
+  // [{ cls, studentId }] générables selon le mode.
+  const scopeTargets = useMemo(() => {
+    const fromEval = (e) => (e?.students || []).filter((s) => s.status !== 'blocked').map((s) => ({ cls: e.cls, studentId: s.id }));
+    if (mode === 'single') return selectedClass && selectedStudent ? [{ cls: selectedClass, studentId: selectedStudent.id }] : [];
+    if (mode === 'multi')  return selectedClass && selectedStudent ? [{ cls: selectedClass, studentId: selectedStudent.id }] : [];
+    if (mode === 'class')  return fromEval(classEvalById.get(classId));
+    if (mode === 'level')  return levelClasses.flatMap((c) => fromEval(classEvalById.get(c.id)));
+    if (mode === 'all')    return schoolSummary.byClass.flatMap((e) => fromEval(e));
+    return [];
+  }, [mode, selectedClass, selectedStudent, classId, classEvalById, levelClasses, schoolSummary]);
+
+  // Anomalies du périmètre courant.
+  const scopeAnomalies = useMemo(() => {
+    if (mode === 'single' || mode === 'multi') {
+      const ref = classEval?.students.find((s) => s.id === studentId);
+      return ref && ref.status !== 'ready' ? [ref] : [];
     }
+    if (mode === 'class') return collectAnomalies(classEval ? [classEval] : []);
+    if (mode === 'level') return collectAnomalies(levelClasses.map((c) => classEvalById.get(c.id)).filter(Boolean));
+    if (mode === 'all')   return collectAnomalies(schoolSummary.byClass);
+    return [];
+  }, [mode, classEval, studentId, levelClasses, classEvalById, schoolSummary]);
 
-    const opts = { ...gradingOpts(school, cycle), gradeScale: school?.grade_scale };
+  // Diagnostic du relevé ciblé (mode individuel/multi bloqué).
+  const targetIssues = useMemo(() => {
+    if (mode !== 'single' && mode !== 'multi') return [];
+    const ref = classEval?.students.find((s) => s.id === studentId);
+    return ref && ref.status === 'blocked' ? ref.issues : [];
+  }, [mode, classEval, studentId]);
+
+  // Checklist de validation.
+  const checklist = useMemo(
+    () => buildChecklist({ mode, cls: selectedClass, classEval, student: selectedStudent }, ctx),
+    [mode, selectedClass, classEval, selectedStudent, ctx],
+  );
+
+  // ── Construction d'une feuille à partir des données d'un relevé ──────────────
+  const sheetFromData = useCallback(async (data, cls, sys) => {
     const origin = (typeof window !== 'undefined' && window.location?.origin) || '';
+    const verification = buildVerification({
+      schoolId: school.id, schoolName: school.name, studentName: data.student.name,
+      matricule: data.student.matricule, className: cls.name, year: schoolYear,
+      avg: data.generalAvg, rank: data.rankEntry?.rankD, decision: decisionText(sys, data.decision),
+    }, origin);
+    const qrSrc = await qrDataUrl(verification.qrText);
+    return transcriptSheetHtml(data, { qrSrc, verification, school });
+  }, [school, schoolYear]);
+
+  // Transcripts d'une classe (avec stats + rangs).
+  const classTranscripts = useCallback((cls) => {
+    const { sys, cycle, classSubjects, classStudents: cs, opts } = classContext(cls, ctx);
+    const { seqs } = transcriptColumns(sys, cycle, countryCode);
+    const { subs, gm } = compositeView(gradeMap, cls.id, classSubjects);
+    const stats = clsStat(cs, gm, cls.id, seqs, subs, sys, {}, opts);
+    const data = buildClassTranscripts({
+      classStudents: cs, cls, subjects: subs, gradeMap: gm, sys, cycle,
+      countryCode, schoolYear, stats, opts,
+    });
+    return { sys, data };
+  }, [ctx, countryCode, gradeMap, schoolYear]);
+
+  // Construit le relevé multi-années d'un élève (parcourt les archives).
+  const buildMultiSheet = useCallback(async (refStudent, cls) => {
+    const origin = (typeof window !== 'undefined' && window.location?.origin) || '';
+    const sys = cls.system || 'FR';
+    const years = await listYears(school.id);
+    const entries = [];
+    for (const y of years) {
+      const ac = await loadYearAcademics(school.id, y);
+      const st = matchStudent(refStudent, ac.students);
+      if (!st) continue;
+      const yCls = ac.classes.find((c) => c.id === st.class_id);
+      if (!yCls) continue;
+      const sysY = yCls.system || 'FR', cycleY = yCls.cycle || 'secondaire';
+      const subsAll = ac.subjects.filter((s) => s.class_id === yCls.id);
+      const studsY = ac.students.filter((s) => s.class_id === yCls.id);
+      const optsY = { ...gradingOpts(school, cycleY), gradeScale: school?.grade_scale };
+      const { seqs } = transcriptColumns(sysY, cycleY, countryCode);
+      const { subs: subsY, gm: gmY } = compositeView(ac.gradeMap, yCls.id, subsAll);
+      const ranksY = buildRanks(studsY, gmY, yCls.id, seqs, subsY, sysY, {}, optsY);
+      const statsY = clsStat(studsY, gmY, yCls.id, seqs, subsY, sysY, {}, optsY);
+      entries.push({ year: y, cls: yCls, subjects: subsY, gradeMap: gmY, sys: sysY, cycle: cycleY, countryCode, ranks: ranksY, stats: statsY, opts: optsY, studentId: st.id });
+    }
+    if (!entries.length) throw new Error(t('Aucun historique trouvé pour cet élève.', 'No history found for this student.', 'Sin historial.'));
+    const hist = buildMultiYearHistory(refStudent, entries);
+    const last = hist[hist.length - 1];
+    const verification = buildVerification({
+      schoolId: school.id, schoolName: school.name, studentName: refStudent.name,
+      matricule: refStudent.matricule, className: last?.className,
+      year: `${hist[0]?.year}…${last?.year}`, avg: last?.generalAvg, rank: last?.rank,
+      decision: last?.decision ? decisionText(sys, last.decision) : '',
+    }, origin);
+    const qrSrc = await qrDataUrl(verification.qrText);
+    return multiYearSheetHtml(refStudent, hist, { qrSrc, verification, school, sys });
+  }, [school, countryCode, t]);
+
+  // ── Aperçu : construit UNE feuille représentative (rapide) ───────────────────
+  const buildPreview = useCallback(async () => {
+    setErr(null);
     const seq = ++buildSeq.current;
     setBuilding(true);
-
     try {
-      const newSheets = [];
-
+      let sheet = null;
       if (mode === 'multi') {
-        const ref = selectedStudent;
-        if (!ref) { setErr(t('Choisissez un élève.', 'Select a student.', 'Elija un alumno.')); setBuilding(false); return; }
-
-        const years = await listYears(school.id);
-        const entries = [];
-        for (const y of years) {
-          const ac = await loadYearAcademics(school.id, y);
-          const st = matchStudent(ref, ac.students);
-          if (!st) continue;
-          const yCls = ac.classes.find((c) => c.id === st.class_id);
-          if (!yCls) continue;
-          const sysY   = yCls.system || 'FR';
-          const cycleY = yCls.cycle || 'secondaire';
-          const subsY  = ac.subjects.filter((s) => s.class_id === yCls.id).sort(bySubjectOrder);
-          const studsY = ac.students.filter((s) => s.class_id === yCls.id);
-          const optsY  = { ...gradingOpts(school, cycleY), gradeScale: school?.grade_scale };
-          const { seqs } = transcriptColumns(sysY, cycleY, countryCode);
-          const ranksY = buildRanks(studsY, ac.gradeMap, yCls.id, seqs, subsY, sysY, {}, optsY);
-          const statsY = clsStat(studsY, ac.gradeMap, yCls.id, seqs, subsY, sysY, {}, optsY);
-          entries.push({
-            year: y, cls: yCls, subjects: subsY, gradeMap: ac.gradeMap, sys: sysY,
-            cycle: cycleY, countryCode, ranks: ranksY, stats: statsY, opts: optsY, studentId: st.id,
-          });
-        }
-
-        if (!entries.length) {
-          setErr(t('Aucun historique trouvé pour cet élève.', 'No history found for this student.', 'Sin historial para este alumno.'));
-          setBuilding(false); return;
-        }
-
-        const history = buildMultiYearHistory(ref, entries);
-        const lastAvg = history[history.length - 1]?.generalAvg ?? null;
-        const lastDec = history[history.length - 1]?.decision;
-        const verification = buildVerification({
-          schoolId: school.id, schoolName: school.name, studentName: ref.name,
-          matricule: ref.matricule, className: history[history.length - 1]?.className,
-          year: `${history[0]?.year}…${history[history.length - 1]?.year}`,
-          avg: lastAvg, rank: history[history.length - 1]?.rank,
-          decision: lastDec ? decisionText(sys, lastDec) : '',
-        }, origin);
-        const qrSrc = await qrDataUrl(verification.qrText);
-        newSheets.push(multiYearSheetHtml(ref, history, { qrSrc, verification, school, sys }));
+        if (!selectedClass || !selectedStudent) { setSheets([]); setBuilding(false); return; }
+        sheet = await buildMultiSheet(selectedStudent, selectedClass);
       } else {
-        const stats = clsStat(classStudents, gradeMap, cls.id, transcriptColumns(sys, cycle, countryCode).seqs, classSubjects, sys, {}, opts);
-        const allData = buildClassTranscripts({
-          classStudents, cls, subjects: classSubjects, gradeMap, sys, cycle,
-          countryCode, schoolYear, stats, opts,
-        });
-        const list = mode === 'class' ? allData : allData.filter((d) => d.student.id === studentId);
-        if (!list.length) { setErr(t('Choisissez un élève.', 'Select a student.', 'Elija un alumno.')); setBuilding(false); return; }
-
-        for (const data of list) {
-          const verification = buildVerification({
-            schoolId: school.id, schoolName: school.name, studentName: data.student.name,
-            matricule: data.student.matricule, className: cls.name, year: schoolYear,
-            avg: data.generalAvg, rank: data.rankEntry?.rankD,
-            decision: decisionText(sys, data.decision),
-          }, origin);
-          const qrSrc = await qrDataUrl(verification.qrText);
-          newSheets.push(transcriptSheetHtml(data, { qrSrc, verification, school }));
-        }
+        const target = scopeTargets[0];
+        if (!target) { setSheets([]); setBuilding(false); return; }
+        const { sys, data } = classTranscripts(target.cls);
+        const d = data.find((x) => x.student.id === target.studentId);
+        if (d) sheet = await sheetFromData(d, target.cls, sys);
       }
-
-      if (seq === buildSeq.current) setSheets(newSheets);
+      if (seq === buildSeq.current) setSheets(sheet ? [sheet] : []);
     } catch (e) {
-      console.error('build transcripts', e);
-      setErr(e?.message || String(e));
+      console.error('preview', e);
+      if (seq === buildSeq.current) { setErr(e?.message || String(e)); setSheets([]); }
     } finally {
       if (seq === buildSeq.current) setBuilding(false);
     }
-  }, [selectedClass, selectedStudent, mode, studentId, classStudents, classSubjects, gradeMap, school, schoolYear, countryCode, t]);
+  }, [mode, selectedClass, selectedStudent, scopeTargets, classTranscripts, sheetFromData, buildMultiSheet]);
 
-  // Génération automatique en un clic dès qu'une sélection valide est prête.
+  // Regénère l'aperçu dès qu'une sélection valide change.
   useEffect(() => {
-    if (!selectedClass) { setSheets([]); return; }
-    if ((mode === 'single' || mode === 'multi') && !studentId) { setSheets([]); return; }
-    build();
-  }, [build, selectedClass, mode, studentId]);
+    if (mode === 'single' || mode === 'multi') {
+      if (selectedClass && selectedStudent) buildPreview(); else setSheets([]);
+    } else if (scopeTargets.length) {
+      buildPreview();
+    } else {
+      setSheets([]);
+    }
+  }, [mode, classId, studentId, level, scopeTargets.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handlePrint = () => {
-    if (!sheets.length) return;
-    printSheets(sheets, `${t('Relevés', 'Transcripts', 'Certificaciones')} — ${school?.name || ''}`);
-  };
+  // ── Construit TOUTES les feuilles du périmètre (téléchargement / impression) ──
+  const buildAll = useCallback(async (onProgress) => {
+    if (mode === 'multi') {
+      const s = await buildMultiSheet(selectedStudent, selectedClass);
+      onProgress?.(1, 1);
+      return { sheets: [s], failed: 0 };
+    }
+    const cache = new Map();
+    const out = [];
+    let done = 0, failed = 0;
+    for (const { cls, studentId: sid } of scopeTargets) {
+      try {
+        if (!cache.has(cls.id)) cache.set(cls.id, classTranscripts(cls));
+        const { sys, data } = cache.get(cls.id);
+        const d = data.find((x) => x.student.id === sid);
+        if (d && d.generalAvg !== null) out.push(await sheetFromData(d, cls, sys));
+      } catch (e) {
+        // Un élève en erreur ne doit pas faire échouer tout le lot.
+        console.error('buildAll sheet', sid, e);
+        failed++;
+      }
+      onProgress?.(++done, scopeTargets.length);
+    }
+    return { sheets: out, failed };
+  }, [mode, selectedStudent, selectedClass, scopeTargets, classTranscripts, sheetFromData, buildMultiSheet]);
 
-  const handlePdf = async () => {
-    if (!sheets.length) return;
-    setPdfProg({ done: 0, total: sheets.length });
+  // ── Actions ──────────────────────────────────────────────────────────────────
+  const logAndRefresh = useCallback(async (status, count, detail) => {
+    const scope = mode === 'level' ? level : mode === 'class' ? selectedClass?.name : mode === 'all' ? '' : selectedStudent?.name;
+    await recordGeneration({ schoolId: school.id, userName, type: mode, scope, count, status, detail });
+    recentGenerations(school.id).then(setHistory);
+  }, [mode, level, selectedClass, selectedStudent, school, userName]);
+
+  const handleDownload = async () => {
+    setErr(null);
+    setPdfProg({ done: 0, total: scopeTargets.length || 1 });
     try {
-      const fileBase = mode === 'class'
-        ? `releves-${selectedClass?.name || 'classe'}`
+      const { sheets: all, failed } = await buildAll((done, total) => setPdfProg({ done, total }));
+      if (!all.length) throw new Error(t('Aucun relevé générable — vérifiez les notes et les moyennes.', 'No generable transcript — check grades and averages.', 'Sin certificaciones generables — verifique notas.'));
+      const fileBase = mode === 'class' ? `releves-${selectedClass?.name || 'classe'}`
+        : mode === 'level' ? `releves-niveau-${level}`
+        : mode === 'all' ? 'releves-etablissement'
         : `releve-${(selectedStudent?.name || 'eleve').replace(/\s+/g, '-')}`;
-      await exportTranscriptsPdf(sheets, {
-        fileName: `${fileBase}.pdf`.toLowerCase(),
-        mode: 'save',
+      // Au-delà d'une centaine de pages, on réduit la résolution pour éviter de
+      // saturer la mémoire du navigateur (rasterisation A4 plein écran).
+      const ratio = all.length > 150 ? 1.5 : all.length > 50 ? 2 : 3;
+      await exportTranscriptsPdf(all, {
+        fileName: `${fileBase}.pdf`.toLowerCase(), mode: 'save', pixelRatio: ratio,
         onProgress: (done, total) => setPdfProg({ done, total }),
       });
+      if (failed) setErr(t(`${failed} relevé(s) ignoré(s) (données incomplètes).`, `${failed} transcript(s) skipped (incomplete data).`, `${failed} omitida(s).`));
+      await logAndRefresh('success', all.length, failed ? `${failed} skipped` : '');
     } catch (e) {
-      console.error('pdf', e);
+      console.error('download', e);
+      setErr(e?.message || String(e));
+      await logAndRefresh('error', 0, e?.message || String(e));
+    } finally {
+      setPdfProg(null);
+    }
+  };
+
+  const handlePrintAll = async () => {
+    setErr(null);
+    setPdfProg({ done: 0, total: scopeTargets.length || 1 });
+    try {
+      const { sheets: all } = await buildAll((done, total) => setPdfProg({ done, total }));
+      if (!all.length) throw new Error(t('Aucun relevé générable — vérifiez les notes et les moyennes.', 'No generable transcript — check grades and averages.', 'Sin certificaciones generables — verifique notas.'));
+      printSheets(all, `${t('Relevés', 'Transcripts', 'Certificaciones')} — ${school?.name || ''}`);
+      await logAndRefresh('success', all.length, 'print');
+    } catch (e) {
+      console.error('print', e);
       setErr(e?.message || String(e));
     } finally {
       setPdfProg(null);
     }
   };
 
-  const MODES = [
-    { key: 'single', label: t('Individuel', 'Individual', 'Individual'), icon: '👤' },
-    { key: 'class',  label: t('Par classe', 'By class', 'Por clase'),    icon: '👥' },
-    { key: 'multi',  label: t('Multi-années', 'Multi-year', 'Plurianual'), icon: '📚' },
-  ];
+  const handleParents = () => {
+    const ids = new Set(scopeTargets.map((x) => x.studentId));
+    const gen = students.filter((s) => ids.has(s.id));
+    setParentLinks(buildParentLinks(gen, school, schoolYear));
+  };
 
-  const needsStudent = mode === 'single' || mode === 'multi';
-  const ready = !!selectedClass && (!needsStudent || !!studentId) && sheets.length > 0;
+  // Navigue vers la saisie des notes (correction d'une anomalie).
+  const goCorrect = (target) => {
+    if (target?.classId && target.classId !== classId) setClassId(target.classId);
+    navigate('/app/grades');
+  };
+
+  // KPI → raccourcis.
+  const onKpiClick = (kind) => {
+    if (kind === 'classes') setMode('class');
+    else setMode('all');
+  };
+
+  // Éléments inclus dans le document (aperçu « contenu »).
+  const includes = useMemo(() => {
+    const needsStudent = mode === 'single' || mode === 'multi';
+    return [
+      { id: 'logo',  label: t('Logo établissement', 'School logo', 'Logo'), ok: !!school?.logo_url },
+      { id: 'name',  label: t('Nom établissement', 'School name', 'Nombre'), ok: !!school?.name },
+      { id: 'student', label: t('Nom élève', 'Student name', 'Alumno'), ok: needsStudent ? !!selectedStudent : true },
+      { id: 'class', label: t('Classe', 'Class', 'Clase'), ok: !!selectedClass || mode === 'all' || mode === 'level' },
+      { id: 'year',  label: t('Année scolaire', 'Academic year', 'Año'), ok: !!schoolYear },
+      { id: 'subjects', label: t('Matières & moyennes', 'Subjects & averages', 'Asignaturas'), ok: true },
+      { id: 'rank',  label: t('Rang', 'Rank', 'Puesto'), ok: true },
+      { id: 'mention', label: t('Mention / décision', 'Decision', 'Mención'), ok: true },
+      { id: 'sign',  label: t('Signature', 'Signature', 'Firma'), ok: !!(school?.signature_url || school?.director) },
+      { id: 'stamp', label: t('Tampon', 'Stamp', 'Sello'), ok: !!school?.stamp_url },
+    ];
+  }, [mode, school, selectedStudent, selectedClass, schoolYear, t]);
+
+  const docCount = scopeTargets.length;
+  const canGenerate = docCount > 0 && canPrint;
+  const estimateSeconds = docCount ? Math.max(1, Math.round(docCount * 0.5)) : 0;
+
+  const left = {
+    schoolName: school?.name,
+    className: mode === 'level' ? `${t('Niveau', 'Level', 'Nivel')} ${level || '—'}` : mode === 'all' ? t('Toutes', 'All', 'Todas') : selectedClass?.name,
+    studentName: (mode === 'single' || mode === 'multi') ? selectedStudent?.name : `${docCount} ${t('élève(s)', 'student(s)', 'alumno(s)')}`,
+    year: schoolYear,
+  };
 
   return (
-    <Layout>
-      <div className="max-w-5xl">
-        {/* En-tête */}
-        <div className="flex flex-wrap justify-between items-center mb-4 gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{t('Relevés de notes', 'Transcripts', 'Certificaciones')}</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              {t('Production automatique des relevés scolaires de fin d’année — en un clic.',
-                 'Automatic end-of-year transcript production — one click.',
-                 'Producción automática de certificaciones de fin de curso — un clic.')}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {canPrint ? (
-              <>
-                <button onClick={handlePrint} disabled={!ready || building} className="btn-secondary disabled:opacity-50">
-                  🖨 {mode === 'class' ? t('Imprimer la classe', 'Print class') : t('Imprimer', 'Print')}
-                  {mode === 'class' && sheets.length ? ` (${sheets.length})` : ''}
-                </button>
-                <button onClick={handlePdf} disabled={!ready || building || !!pdfProg}
-                  className="btn-primary disabled:opacity-50" style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}>
-                  {pdfProg ? `PDF ${pdfProg.done}/${pdfProg.total}…` : `📄 ${t('Télécharger PDF', 'Download PDF', 'Descargar PDF')}`}
-                </button>
-              </>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-sm border border-amber-200">
-                🔒 {t("Impression non autorisée", 'Printing not authorized', 'Impresión no autorizada')}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Mode */}
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <span className="text-sm font-medium text-gray-500">{t('Type de relevé :', 'Transcript type:', 'Tipo:')}</span>
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-            {MODES.map(({ key, label, icon }) => (
-              <button key={key} onClick={() => setMode(key)}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${mode === key ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-                {icon} {label}
-              </button>
-            ))}
-          </div>
-          {mode === 'multi' && (
-            <span className="text-xs text-gray-400 italic">
-              {t('Historique complet : 6ème → Terminale (toutes les archives).',
-                 'Full history: across all archived years.',
-                 'Historial completo de todos los años.')}
+    <>
+        {!canPrint && (
+          <div className="flex justify-end">
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-700">
+              🔒 {t('Impression non autorisée', 'Printing not authorized', 'Impresión no autorizada')}
             </span>
-          )}
-        </div>
-
-        {/* Sélecteurs */}
-        <div className="flex flex-wrap gap-4 mb-5">
-          <div>
-            <label className="form-label">{t('Classe', 'Class', 'Clase')}</label>
-            <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)} style={{ minWidth: 220 }}>
-              <option value="">{t('— Choisir une classe —', '— Select a class —', '— Elegir clase —')}</option>
-              {classes.filter((c) => c.cycle !== 'maternelle').map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
           </div>
-          {needsStudent && (
-            <div>
-              <label className="form-label">{t('Élève', 'Student', 'Alumno')}</label>
-              <select className="form-input" value={studentId} onChange={(e) => setStudentId(e.target.value)} style={{ minWidth: 240 }} disabled={!selectedClass}>
-                <option value="">{t('— Choisir un élève —', '— Select a student —', '— Elegir alumno —')}</option>
-                {classStudents.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-
-        {err && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 mb-4">{err}</div>
         )}
 
-        {/* Aperçu */}
-        <div className="bg-gray-100 rounded-2xl border border-gray-200 p-4 min-h-[300px]">
-          {building ? (
-            <div className="text-center py-16 text-gray-400 text-sm animate-pulse">
-              {t('Génération du relevé…', 'Generating transcript…', 'Generando…')}
-            </div>
-          ) : sheets.length ? (
-            <>
-              {mode === 'class' && (
-                <p className="text-xs text-gray-500 mb-3 text-center">
-                  {t('Aperçu du 1er relevé', 'Preview of 1st transcript', 'Vista del 1º')} · {sheets.length} {t('relevés au total', 'transcripts total', 'en total')}
-                </p>
-              )}
-              <div className="overflow-auto flex justify-center">
-                {/* Aperçu de la 1re feuille (même HTML que l'impression / le PDF). */}
-                <div style={{ transform: 'scale(0.92)', transformOrigin: 'top center' }}
-                     dangerouslySetInnerHTML={{ __html: sheets[0] }} />
-              </div>
-            </>
-          ) : (
-            <div className="text-center py-16">
-              <div className="text-4xl mb-3">📜</div>
-              <p className="text-gray-500 text-sm font-medium">
-                {!selectedClass
-                  ? t('Choisissez une classe pour commencer.', 'Select a class to begin.', 'Elija una clase.')
-                  : needsStudent
-                    ? t('Choisissez un élève — le relevé se génère automatiquement.', 'Select a student — the transcript generates automatically.', 'Elija un alumno.')
-                    : t('Le relevé de chaque élève sera généré.', 'Each student transcript will be generated.', 'Se generará cada certificación.')}
-              </p>
-            </div>
-          )}
+        {/* Bandeau d'erreur global (toujours visible) */}
+        {err && (
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <span className="flex items-start gap-2">
+              <span className="mt-0.5">⚠</span>
+              <span>{err}</span>
+            </span>
+            <button type="button" onClick={() => setErr(null)} className="shrink-0 text-red-400 hover:text-red-600" aria-label={t('Fermer', 'Close', 'Cerrar')}>✕</button>
+          </div>
+        )}
+
+        {/* SECTION 2 — Dashboard */}
+        <TranscriptDashboard summary={schoolSummary} onKpiClick={onKpiClick} t={t} />
+
+        {/* SECTION 3 — Cartes de génération */}
+        <GenerationCards mode={mode} onChange={setMode} t={t} />
+
+        {/* SECTION 4 — Filtres */}
+        <TranscriptFilters
+          mode={mode}
+          levels={levels} level={level} onLevelChange={setLevel}
+          classOptions={nonMaternelle} classId={classId} onClassChange={setClassId}
+          studentOptions={studentOptions} studentId={studentId} onStudentChange={setStudentId}
+          search={search} onSearch={setSearch}
+          year={schoolYear} t={t}
+        />
+
+        {/* SECTION 5 — Panneau de contrôle (classe) */}
+        {(mode === 'single' || mode === 'class' || mode === 'multi') && classEval && (
+          <ControlPanel classEval={classEval} onCorrect={goCorrect} t={t} />
+        )}
+
+        {/* SECTION 6 — Validation automatique */}
+        <ValidationChecklist items={checklist} t={t} />
+
+        {/* SECTION 7 — Alertes */}
+        <AnomaliesPanel anomalies={scopeAnomalies} onCorrect={goCorrect} t={t} />
+
+        {/* SECTION 8 — Prévisualisation PDF */}
+        <PdfPreviewPanel
+          left={left}
+          includes={includes}
+          building={building}
+          sheets={sheets}
+          multiCount={docCount}
+          blockedNode={targetIssues.length ? (
+            <PdfDiagnostic issues={targetIssues} onCorrect={() => goCorrect(selectedStudent ? { classId, studentId } : null)} t={t} />
+          ) : null}
+          t={t}
+        />
+
+        {/* SECTION 9 — Génération de masse */}
+        <MassGenerationBar
+          count={docCount}
+          progress={pdfProg}
+          estimateSeconds={estimateSeconds}
+          canGenerate={canGenerate}
+          canPrint={canPrint}
+          onDownload={handleDownload}
+          onPrint={handlePrintAll}
+          onParentLinks={handleParents}
+          t={t}
+        />
+
+        {/* SECTION 11 — Historique */}
+        <div>
+          <h2 className="mb-2 text-sm font-bold text-slate-800">{t('Historique des générations', 'Generation history', 'Historial')}</h2>
+          <GenerationHistory entries={history} t={t} />
         </div>
 
         {plan === 'starter' && (
-          <p className="text-xs text-gray-400 mt-3">
-            {t('Astuce : passez au plan supérieur pour la génération en masse illimitée.',
-               'Tip: upgrade for unlimited batch generation.',
-               'Consejo: actualice para generación masiva ilimitada.')}
+          <p className="text-xs text-gray-400">
+            {t('Astuce : passez au plan supérieur pour la génération en masse illimitée.', 'Tip: upgrade for unlimited batch generation.', 'Consejo: actualice para generación masiva ilimitada.')}
           </p>
         )}
+
+      {/* Modale liens parents */}
+      {parentLinks && (
+        <Modal title={t('Envoyer aux parents', 'Send to parents', 'Enviar a padres')} onClose={() => setParentLinks(null)}>
+          <ParentLinksModal links={parentLinks} t={t} />
+        </Modal>
+      )}
+    </>
+  );
+}
+
+// ── Hub Documents : relevé de notes + certificat de scolarité ─────────────────
+// Un seul écran regroupe les documents scolaires. Un sélecteur en haut bascule
+// entre les ateliers ; chacun garde son propre état et sa propre logique.
+export default function Documents() {
+  const t = useT();
+  const [docType, setDocType] = useState('transcript');
+
+  return (
+    <Layout>
+      <div className="max-w-6xl space-y-5">
+        {/* En-tête */}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">📂 {t('Documents', 'Documents', 'Documentos')}</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {t('Produisez les documents scolaires officiels de vos élèves.', 'Produce official school documents for your students.', 'Genere los documentos escolares oficiales de sus alumnos.')}
+          </p>
+        </div>
+
+        {/* Sélecteur de type de document */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {DOC_TYPES.map((d) => {
+            const active = docType === d.key;
+            return (
+              <button key={d.key} type="button" onClick={() => setDocType(d.key)} aria-pressed={active}
+                className={`relative flex items-center gap-3 rounded-2xl border p-4 text-left shadow-sm transition-all hover:shadow-md ${
+                  active ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-300' : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}>
+                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl ${active ? 'bg-brand-100' : 'bg-slate-100'}`}>{d.icon}</span>
+                <span className="min-w-0">
+                  <span className={`block text-sm font-bold leading-tight ${active ? 'text-brand-800' : 'text-slate-800'}`}>{t(...d.label)}</span>
+                  <span className="block text-[12px] text-slate-400 leading-tight">{t(...d.desc)}</span>
+                </span>
+                {active && <span className="absolute right-3 top-3 flex h-4 w-4 items-center justify-center rounded-full bg-brand-600 text-[10px] text-white">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {docType === 'transcript' ? <TranscriptWorkspace /> : <CertificateWorkspace t={t} />}
       </div>
     </Layout>
   );

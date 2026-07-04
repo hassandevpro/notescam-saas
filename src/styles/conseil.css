@@ -9,6 +9,29 @@
 /* Le papier PV est invisible à l'écran : il n'existe que pour l'impression. */
 .pv-paper { display: none; }
 
+/* ----------------------------------------------------------------
+   APERÇU À L'ÉCRAN — quand le papier est encadré par .pv-preview-frame
+   (bouton « Aperçu PV »), on l'affiche tel quel, posé sur un fond gris
+   comme un véritable document A4. Reste display:none hors aperçu, et
+   l'impression continue d'imprimer le papier indépendamment du cadre.
+   ---------------------------------------------------------------- */
+.pv-preview-frame {
+  background: #e2e8f0;
+  padding: 28px 16px;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  margin-top: 8px;
+  overflow-x: auto;
+}
+.pv-preview-frame .pv-paper {
+  display: block;
+  background: #fff;
+  padding: 12mm 10mm;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.12);
+  border: 1px solid #cbd5e1;
+  border-radius: 2px;
+}
+
 /* ================================================================
    IMPRESSION
    ================================================================ */
@@ -34,6 +57,21 @@
   /* N'imprimer QUE le papier institutionnel, jamais l'UI colorée. */
   .pv-screen { display: none !important; }
   .pv-paper  { display: block !important; }
+
+  /* Le cadre d'aperçu écran (fond gris, ombre) ne doit rien ajouter au PDF. */
+  .pv-preview-frame {
+    background: none !important;
+    padding: 0 !important;
+    border: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+  }
+  .pv-preview-frame .pv-paper {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 4px !important;
+    border-radius: 0 !important;
+  }
 }
 
 /* ================================================================

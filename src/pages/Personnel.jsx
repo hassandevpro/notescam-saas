@@ -14,6 +14,7 @@ import { STAFF_DEPARTMENTS, uploadStaffPhoto, uploadStaffDocument, parseDocs } f
 import { exportStaff, downloadStaffTemplate, parseStaffSpreadsheet, printStaffList } from '../lib/staffExport';
 import { resizeImageToSquare } from '../lib/image';
 import { TeachersPanel } from './Teachers';
+import StaffManager from '../components/StaffManager';
 
 // Libellés + icônes des départements.
 function useDepartmentMeta() {
@@ -382,6 +383,37 @@ function StaffDepartmentPanel({ department, label }) {
   );
 }
 
+// ── Onglet « Rôles & accès » ─────────────────────────────────────────────────
+// Création de comptes applicatifs pour le personnel de direction. Réutilise
+// StaffManager (provisioning auth + RPC) — seuls censeur et surveillant sont
+// autorisés côté serveur ; les enseignants ont leurs propres comptes.
+function RolesPanel() {
+  const t = useT();
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">
+        {t(
+          "Créez des comptes pour donner accès à l’application au personnel de direction. Vous définissez leurs identifiants et pouvez les désactiver à tout moment.",
+          'Create accounts to give school leadership access to the app. You set their credentials and can disable them at any time.',
+          'Cree cuentas para dar acceso a la aplicación al personal de dirección. Usted define sus credenciales y puede desactivarlas en cualquier momento.',
+        )}
+      </p>
+      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+        <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <span>🎓</span>{t('Censeurs', 'Deans of studies', 'Jefes de estudios')}
+        </h3>
+        <StaffManager role="censeur" />
+      </section>
+      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+        <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <span>🛡️</span>{t('Surveillants', 'Supervisors', 'Jefes de disciplina')}
+        </h3>
+        <StaffManager role="surveillant" />
+      </section>
+    </div>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function Personnel() {
   const t = useT();
@@ -390,6 +422,7 @@ export default function Personnel() {
   const teachers = useSchoolStore((s) => s.teachers);
   const [dep, setDep] = useState('enseignants');
 
+  const ROLES_TAB = 'roles';
   const countFor = (d) => d === 'enseignants' ? teachers.length : staff.filter((m) => m.department === d).length;
 
   return (
@@ -414,9 +447,19 @@ export default function Personnel() {
             <span className="text-xs bg-gray-100 text-gray-600 px-1.5 rounded-full">{countFor(d)}</span>
           </button>
         ))}
+        <button onClick={() => setDep(ROLES_TAB)}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
+            dep === ROLES_TAB ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <span>🔑</span>
+          {t('Rôles & accès', 'Roles & access', 'Roles y acceso')}
+        </button>
       </div>
 
-      {dep === 'enseignants' ? <TeachersPanel /> : <StaffDepartmentPanel key={dep} department={dep} label={meta[dep].label} />}
+      {dep === ROLES_TAB
+        ? <RolesPanel />
+        : dep === 'enseignants'
+          ? <TeachersPanel />
+          : <StaffDepartmentPanel key={dep} department={dep} label={meta[dep].label} />}
     </Layout>
   );
 }

@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
-import { getAvg, frApp, enGrade } from '../core/bulletinEngine';
+import { getAvg, frApp, enGrade, resolveScores } from '../core/bulletinEngine';
 import Modal from '../components/Modal';
 import Layout from '../components/Layout';
 import StudentAvatar from '../components/StudentAvatar';
@@ -14,6 +14,9 @@ import { backendOnline } from '../lib/edition';
 import { copyText } from '../lib/clipboard';
 import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
+import { studentFeeSituation, FEE_STATUS, inscriptionApplies } from '../lib/feeEngine';
+import { STATUS_UI, MODE_LABEL } from '../components/fees/feeUi';
+import { useMoney } from '../lib/useMoney';
 
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
 
@@ -27,9 +30,6 @@ function calcAge(dob) {
 function fmtDate(d) {
   if (!d) return null;
   return new Date(d).toLocaleDateString(localeForLang(), { day: 'numeric', month: 'long', year: 'numeric' });
-}
-function fmt(n) {
-  return new Intl.NumberFormat('fr-FR').format(n) + ' FCFA';
 }
 
 const EMPTY_EDIT = {
@@ -224,6 +224,7 @@ export default function StudentProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
   const t = useT();
+  const money = useMoney();
   const { f } = usePlan();
 
   const SEQ_LABELS = [
@@ -236,6 +237,7 @@ export default function StudentProfile() {
   const subjects      = useSchoolStore((s) => s.subjects);
   const gradeMap      = useSchoolStore((s) => s.gradeMap);
   const fees          = useSchoolStore((s) => s.fees);
+  const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
   const updateStudent = useSchoolStore((s) => s.updateStudent);
   const deleteStudent = useSchoolStore((s) => s.deleteStudent);
   const role          = useAuthStore((s) => s.role);
@@ -270,13 +272,23 @@ export default function StudentProfile() {
   const pass     = sys === 'FR' ? 10 : 50;
 
   const fee = useMemo(() => fees.find((f) => f.student_id === id), [fees, id]);
-  const feeStatus = !fee ? 'none' : fee.frais_payes >= fee.frais_annuels ? 'paid' : fee.frais_payes > 0 ? 'partial' : 'unpaid';
+  // Situation des frais via le moteur tarifaire (grille de classe + mode + échéances).
+  const feeSituation = useMemo(
+    () => studentFeeSituation(fee, student ? getClassFeeGrid(student.class_id) : null,
+      { applyInscription: inscriptionApplies(student) }),
+    [fee, student, getClassFeeGrid]
+  );
 
   const matrix = useMemo(() => {
     if (!student || !cls) return [];
-    return subs.map((sub) => {
+    // Matières composites : on affiche les matières principales (note calculée
+    // depuis les enfants par séquence) ; les enfants ne sont pas listés ici.
+    const hasComp = subs.some((s) => s.parent_id);
+    const display = hasComp ? subs.filter((s) => !s.parent_id) : subs;
+    return display.map((sub) => {
       const seqGrades = [1, 2, 3, 4, 5, 6].map((seq) => {
-        const v = (gradeMap[`${cls.id}_${student.id}_${seq}`] || {})[sub.id];
+        const raw = gradeMap[`${cls.id}_${student.id}_${seq}`] || {};
+        const v = hasComp ? resolveScores(raw, subs).g[sub.id] : raw[sub.id];
         return !v || v === 'ABS' || v === '' ? null : parseFloat(v);
       });
       const terms = TERM_SEQS.map((pair) => {
@@ -500,10 +512,27 @@ export default function StudentProfile() {
               },
               {
                 label: t('Frais de Scolarité', 'Tuition fees'),
-                value: feeStatus === 'none'    ? <span className="text-gray-400">{t('Non configuré', 'Not set')}</span>
-                  : feeStatus === 'paid'        ? <span className="text-emerald-600 font-semibold">{t('Payé', 'Paid')}</span>
-                  : feeStatus === 'partial'     ? <span className="text-amber-600 font-semibold">{t('Partiel', 'Partial')} — {fmt(fee.frais_payes)}</span>
-                  : <span className="text-red-500 font-semibold">{t('Non payé', 'Unpaid')}</span>,
+                value: (() => {
+                  const su = STATUS_UI[feeSituation.status] || STATUS_UI[FEE_STATUS.NONE];
+                  if (feeSituation.status === FEE_STATUS.NONE) {
+                    return <span className="text-gray-400">{t('Non configuré', 'Not set')}</span>;
+                  }
+                  const colorByStatus = {
+                    [FEE_STATUS.PAID]:       'text-emerald-600',
+                    [FEE_STATUS.UP_TO_DATE]: 'text-emerald-600',
+                    [FEE_STATUS.DUE_SOON]:   'text-amber-600',
+                    [FEE_STATUS.LATE]:       'text-red-500',
+                  };
+                  return (
+                    <span className={`font-semibold ${colorByStatus[feeSituation.status] || 'text-gray-700'}`}>
+                      {su.icon} {t(...su.label)}
+                      {feeSituation.balance > 0 && <span className="font-normal text-gray-500"> — {t('reste', 'balance')} {money(feeSituation.balance)}</span>}
+                      {feeSituation.status === FEE_STATUS.LATE && feeSituation.daysLate > 0 && (
+                        <span className="font-normal text-red-400"> · {feeSituation.daysLate} {t('j', 'd')}</span>
+                      )}
+                    </span>
+                  );
+                })(),
               },
             ].map(({ label, value }) => (
               <div key={label}>

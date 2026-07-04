@@ -12,7 +12,7 @@
 import { syncQueueDB, studentsDB, initDB } from './db';
 import { uuid } from './uuid';
 import { supabase } from './supabase';
-import { gradeEntryToRows } from './schoolService';
+import { gradeEntryToRows, upsertAbsenceEntry } from './schoolService';
 import { useUiStore } from '../store/uiStore';
 
 // Nombre d'opérations en attente (lecture IDB, sans dépendance React)
@@ -46,11 +46,48 @@ async function replayItem(item) {
       .from('grades')
       .upsert(rows, { onConflict: 'class_id,student_id,subject_id,sequence' });
     if (error) throw error;
+  } else if (table === 'apc_notes') {
+    // payload = record IDB { id, school_id, eleve_id, competence_id,
+    //   sequence_id, …, nkey }. `nkey` est local : on le retire et on upsert
+    //   sur le triplet officiel (anti-doublon, comme le chemin online direct).
+    const { nkey, ...row } = payload;
+    const { error } = await supabase
+      .from('apc_notes')
+      .upsert(row, { onConflict: 'eleve_id,competence_id,sequence_id' });
+    if (error) throw error;
+  } else if (table === 'student_absences') {
+    // payload = record IDB { key, class_id, student_id, sequence, school_id, scores }
+    // → mappe les clés spéciales (__abs_j__, __conduite__, …) vers les vraies
+    //   colonnes. Upserter le record brut écrirait `key`/`scores` (inexistants).
+    const ok = await upsertAbsenceEntry(
+      payload.class_id,
+      payload.student_id,
+      payload.sequence,
+      payload.scores,
+      payload.school_id
+    );
+    if (!ok) throw new Error('upsertAbsenceEntry failed');
   } else {
-    // classes | subjects | students
+    // classes | subjects | students | teachers | staff …
     let p = payload;
-    if (table === 'students') {
+    if (table === 'classes' && (p.serie === '' || p.serie == null)) {
+      // `serie` (Second Cycle MINESEC) n'existe en base qu'après la migration ;
+      // ne jamais l'envoyer vide → évite « Could not find the 'serie' column ».
+      const { serie, ...rest } = p;
+      p = rest;
+    } else if (table === 'students') {
       p = { ...p, gender: p.gender || null, statut: p.statut || null };
+    } else if (table === 'teachers' || table === 'staff') {
+      // Une chaîne vide est invalide pour la colonne `date` (hire_date) côté
+      // Postgres → null. Auto-réparation des anciens éléments mis en file avant
+      // l'assainissement (sinon ils échouent indéfiniment à chaque sync).
+      p = { ...p };
+      if (p.hire_date === '') p.hire_date = null;
+    } else if (table === 'subjects' && p.max == null) {
+      // `subjects.max` est NOT NULL côté base. La maternelle (évaluée par cotes
+      // A/ECA/NA, sans note numérique) matérialisait ses domaines avec max=null →
+      // upsert rejeté et bloqué en file. Placeholder /20 jamais lu en maternelle.
+      p = { ...p, max: 20 };
     }
     let { error } = await supabase
       .from(table)

@@ -8,6 +8,8 @@ import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { resolveCountryCode } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
+import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
+import { resolveClassEngine, SECTIONS } from '../core/engineResolver';
 
 const PERIODS_EN = [
   { value: 'term_1', label: 'Term 1', seqs: [1], group: 'terms' },
@@ -37,7 +39,7 @@ function subjectAvgForStudent(subjectId, studentId, classId, seqs, gradeMap) {
 
 // ── Impression dans une nouvelle fenêtre (propre, sans sidebar) ───────────────
 // cols : { matricule, appreciation, decision, subjectTable, distribution }
-function printReport({ school, selectedClass, period, stats, studentResults, subjectStats,
+function reportBodyHtml({ school, selectedClass, period, stats, studentResults, subjectStats,
                        classStudents, maxScale, passThreshold, sys, cols = {}, isGE = false }) {
   const {
     matricule    = true,
@@ -94,54 +96,7 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
     ? `<img src="${school.logo_url}" alt="Logo" class="rc-logo" />`
     : '';
 
-  const html = `<!DOCTYPE html>
-<html lang="${isGE ? 'es' : 'fr'}">
-<head>
-  <meta charset="UTF-8"/>
-  <title>${Lp('Rapport', 'Informe')} — ${selectedClass?.name} — ${period.label}</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:Arial,sans-serif;font-size:11px;color:#000;background:#fff}
-    .page{padding:8px}
-    /* ── En-tête République (3 colonnes), façon bulletin APC ── */
-    .rc-head{width:100%;border-collapse:collapse;margin-bottom:5px}
-    .rc-head td{padding:2px;vertical-align:top;text-align:center}
-    .rc-side{width:33%;font-size:9px;line-height:1.5}
-    .rc-center{width:34%}
-    .rc-logo{width:64px;height:64px;object-fit:contain;display:block;margin:0 auto 3px}
-    .rc-school{font-size:12px;font-weight:bold;display:block}
-    .rc-meta{font-size:8.5px}
-    /* ── Barre titre ── */
-    .title-bar{background:#1e3a5f;color:#fff;text-align:center;padding:5px 8px;font-weight:bold;font-size:12px;letter-spacing:.5px;margin-bottom:5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    /* ── Ligne info ── */
-    .doc-info{width:100%;border-collapse:collapse;margin-bottom:8px}
-    .doc-info td{border:1px solid #374151;padding:3px 6px;font-size:9.5px;background:#f8fafc;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    /* ── Stats ── */
-    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
-    .stat{border:1px solid #374151;padding:7px 6px;text-align:center}
-    .stat-val{font-size:18px;font-weight:800}
-    .stat-lbl{font-size:9px;color:#374151;margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
-    /* ── Sections + tableaux ── */
-    h3{font-size:10.5px;font-weight:bold;text-transform:uppercase;letter-spacing:.04em;background:#1e3a5f;color:#fff;padding:3px 8px;margin:10px 0 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px}
-    thead th{background:#1e3a5f;color:#fff;border:1px solid #374151;padding:4px 6px;text-align:center;font-size:9px;text-transform:uppercase;letter-spacing:.03em;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    tbody td{border:1px solid #374151;padding:3px 6px}
-    tbody tr:nth-child(even) td{background:#f4f6f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    /* ── Pied signatures bordées ── */
-    .foot{width:100%;border-collapse:collapse;margin-top:16px}
-    .foot td{border:1px solid #374151;width:33.33%;text-align:center;font-size:9px;font-weight:bold;height:62px;vertical-align:bottom;padding:4px 4px 6px}
-    .foot td.foot-head{vertical-align:top;padding-top:5px}
-    .foot td.foot-head img{height:34px;display:block;margin:2px auto;object-fit:contain;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .notice{font-size:7.5px;color:#9ca3af;text-align:center;font-style:italic;margin-top:6px}
-    @media print{
-      @page{margin:10mm;size:A4 portrait}
-      body{padding:0}
-      .page{padding:0}
-    }
-  </style>
-</head>
-<body>
-<div class="page">
+  const body = `<div class="page">
   <table class="rc-head"><tbody><tr>
     <td class="rc-side">${isGE
       ? `<strong>REPÚBLICA DE GUINEA ECUATORIAL</strong><br/>Unidad – Paz – Justicia<br/>———————<br/>Ministerio de Educación<br/>y Enseñanza Universitaria<br/>${school?.region || '—'}`
@@ -214,9 +169,8 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
   </table>` : ''}
 
   <table class="foot"><tbody><tr>
-    <td>${Lp('Le Professeur Principal', 'El Tutor / La Tutora')}</td>
-    <td>${Lp('Le Censeur / DSCE', 'El Jefe de Estudios')}</td>
-    <td class="foot-head">
+    <td style="border:none;width:55%"></td>
+    <td class="foot-head" style="width:45%">
       ${Lp('Le Proviseur / Directeur', 'El Director / La Directora')}
       ${school?.signature_url ? `<img src="${school.signature_url}" alt="Signature" />` : ''}
       ${school?.stamp_url ? `<img src="${school.stamp_url}" alt="Cachet" />` : ''}
@@ -227,15 +181,136 @@ function printReport({ school, selectedClass, period, stats, studentResults, sub
     "Ce rapport n'est valable qu'avec la signature et le cachet du chef d'établissement.",
     'Este informe solo es válido con la firma y el sello del director del centro.'
   )}</div>
-</div>
+</div>`;
+
+  return body;
+}
+
+// Enveloppe HTML commune (styles) : un ou plusieurs corps de rapport concaténés,
+// chaque classe sur sa propre page (`.page + .page` → saut de page).
+function reportDocShell({ isGE, title, bodies }) {
+  return `<!DOCTYPE html>
+<html lang="${isGE ? 'es' : 'fr'}">
+<head>
+  <meta charset="UTF-8"/>
+  <title>${title}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;font-size:11px;color:#000;background:#fff}
+    .page{padding:8px}
+    .page + .page{page-break-before:always}
+    /* ── En-tête République (3 colonnes), façon bulletin APC ── */
+    .rc-head{width:100%;border-collapse:collapse;margin-bottom:5px}
+    .rc-head td{padding:2px;vertical-align:top;text-align:center}
+    .rc-side{width:33%;font-size:9px;line-height:1.5}
+    .rc-center{width:34%}
+    .rc-logo{width:64px;height:64px;object-fit:contain;display:block;margin:0 auto 3px}
+    .rc-school{font-size:12px;font-weight:bold;display:block}
+    .rc-meta{font-size:8.5px}
+    /* ── Barre titre ── */
+    .title-bar{background:#1e3a5f;color:#fff;text-align:center;padding:5px 8px;font-weight:bold;font-size:12px;letter-spacing:.5px;margin-bottom:5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    /* ── Ligne info ── */
+    .doc-info{width:100%;border-collapse:collapse;margin-bottom:8px}
+    .doc-info td{border:1px solid #374151;padding:3px 6px;font-size:9.5px;background:#f8fafc;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    /* ── Stats ── */
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+    .stat{border:1px solid #374151;padding:7px 6px;text-align:center}
+    .stat-val{font-size:18px;font-weight:800}
+    .stat-lbl{font-size:9px;color:#374151;margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+    /* ── Sections + tableaux ── */
+    h3{font-size:10.5px;font-weight:bold;text-transform:uppercase;letter-spacing:.04em;background:#1e3a5f;color:#fff;padding:3px 8px;margin:10px 0 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px}
+    thead th{background:#1e3a5f;color:#fff;border:1px solid #374151;padding:4px 6px;text-align:center;font-size:9px;text-transform:uppercase;letter-spacing:.03em;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    tbody td{border:1px solid #374151;padding:3px 6px}
+    tbody tr:nth-child(even) td{background:#f4f6f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    /* ── Pied signatures bordées ── */
+    .foot{width:100%;border-collapse:collapse;margin-top:16px}
+    .foot td{border:1px solid #374151;width:33.33%;text-align:center;font-size:9px;font-weight:bold;height:62px;vertical-align:bottom;padding:4px 4px 6px}
+    .foot td.foot-head{vertical-align:top;padding-top:5px}
+    .foot td.foot-head img{height:34px;display:block;margin:2px auto;object-fit:contain;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .notice{font-size:7.5px;color:#9ca3af;text-align:center;font-style:italic;margin-top:6px}
+    @media print{
+      @page{margin:10mm;size:A4 portrait}
+      body{padding:0}
+      .page{padding:0}
+    }
+  </style>
+</head>
+<body>
+${bodies.join('\n')}
 </body>
 </html>`;
+}
 
+function openPrintWindow(html) {
   const win = window.open('', '_blank', 'width=960,height=720');
   win.document.open();
   win.document.write(html);
   win.document.close();
   setTimeout(() => { win.focus(); win.print(); }, 400);
+}
+
+// Impression d'UN rapport de classe (enveloppe + un seul corps).
+function printReport(args) {
+  const title = `${args.isGE ? 'Informe' : 'Rapport'} — ${args.selectedClass?.name || ''} — ${args.period?.label || ''}`;
+  openPrintWindow(reportDocShell({ isGE: args.isGE, title, bodies: [reportBodyHtml(args)] }));
+}
+
+// Calcule le payload de rapport d'UNE classe pour une période (pur, réutilisable
+// en lot). Renvoie null si la classe n'a ni élèves ni matières exploitables.
+function computeClassReport(cls, period, { school, students, subjects, gradeMap }) {
+  const classId = cls.id;
+  const sys  = cls?.system || 'FR';
+  const isGE = resolveCountryCode(school) === 'guinea_eq';
+  const gOpts = gradingOpts(school, cls?.cycle);
+  const passThreshold = isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
+  const maxScale      = isGE ? geGradeMax(school) : sys === 'FR' ? 20 : 100;
+  const classSubjects = subjects.filter((s) => s.class_id === classId)
+    .sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name));
+  const classStudents = students.filter((s) => s.class_id === classId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!classSubjects.length || !classStudents.length) return null;
+
+  const ranks = buildRanks(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
+  const stats = clsStat(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
+  const studentResults = classStudents.map((student) => {
+    const scores = {};
+    classSubjects.forEach((sub) => {
+      const avg = subjectAvgForStudent(sub.id, student.id, classId, period.seqs, gradeMap);
+      if (avg !== null) scores[sub.id] = String(avg);
+    });
+    const avg  = getAvg(scores, classSubjects, sys, gOpts);
+    const rank = ranks.find((r) => r.id === student.id) || null;
+    const appr = avg !== null ? (sys === 'ES' ? esGrade(avg, maxScale) : sys === 'FR' ? frApp(avg) : enGrade(avg)) : null;
+    return { student, avg, rank, appr };
+  }).sort((a, b) => (a.avg === null && b.avg === null) ? 0 : a.avg === null ? 1 : b.avg === null ? -1 : b.avg - a.avg);
+  const subjectStats = classSubjects.map((sub) => {
+    const vals = classStudents
+      .map((s) => subjectAvgForStudent(sub.id, s.id, classId, period.seqs, gradeMap))
+      .filter((x) => x !== null);
+    if (!vals.length) return { sub, avg: null, min: null, max: null, passCount: 0, total: 0 };
+    const avg  = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+    const pass = sys === 'FR' ? (passThreshold / maxScale) * sub.max : passThreshold;
+    return { sub, avg, min: Math.min(...vals), max: Math.max(...vals),
+      passCount: vals.filter((v) => v >= pass).length, total: vals.length };
+  });
+  return { stats, studentResults, subjectStats, classStudents, maxScale, passThreshold, sys, isGE };
+}
+
+// Impression EN LOT : un rapport par classe (période courante), une page chacun.
+// Ignore les classes sans données. Renvoie le nombre de classes imprimées.
+function printReportsBatch({ title, classesToPrint, period, cols, ctx }) {
+  const isGE = resolveCountryCode(ctx.school) === 'guinea_eq';
+  const bodies = classesToPrint
+    .map((cls) => {
+      const rep = computeClassReport(cls, period, ctx);
+      if (!rep) return null;
+      return reportBodyHtml({ school: ctx.school, selectedClass: cls, period, cols, ...rep });
+    })
+    .filter(Boolean);
+  if (!bodies.length) return 0;
+  openPrintWindow(reportDocShell({ isGE, title, bodies }));
+  return bodies.length;
 }
 
 // ── Stat badge ────────────────────────────────────────────────────────────────
@@ -259,8 +334,40 @@ function StatBadge({ value, total, label, accent = 'brand' }) {
 }
 
 // ── Sélecteur de période en pills groupés ─────────────────────────────────────
-function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isEN, isGE }) {
+function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isEN, isGE, isFund }) {
   const t = useT();
+  // Fondamental (maternelle / primaire) : 3 trimestres + Annuel, sans séquences.
+  if (isFund) {
+    const terms  = periodsForClass.filter((p) => p.group === 'terms');
+    const annual = periodsForClass.find((p) => p.group === 'annual');
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {terms.map((p) => (
+          <button key={p.value} onClick={() => setPeriodKey(p.value)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              periodKey === p.value
+                ? 'bg-brand-600 text-white shadow-sm'
+                : 'bg-white border border-gray-200 text-gray-600 hover:border-brand-300'
+            }`}>
+            {p.label}
+          </button>
+        ))}
+        {annual && (
+          <>
+            <span className="text-gray-200 mx-1">|</span>
+            <button onClick={() => setPeriodKey(annual.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                periodKey === annual.value
+                  ? 'bg-gray-800 text-white shadow-sm'
+                  : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'
+              }`}>
+              {annual.label}
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
   if (isGE) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
@@ -379,7 +486,17 @@ export default function Reports() {
     { value: 'annual', label: t('Annuel',      'Annual'),      seqs: [1, 2, 3, 4, 5, 6] },
   ];
 
+  // Fondamental (maternelle / primaire APC MINEDUB) : évaluation par TRIMESTRE
+  // uniquement — pas de séquences. Aligné sur la saisie (Prim/Mat workspaces).
+  const PERIODS_FUND = [
+    { value: 't1',     label: t('Trimestre 1', 'Term 1'), seqs: [1],       group: 'terms' },
+    { value: 't2',     label: t('Trimestre 2', 'Term 2'), seqs: [2],       group: 'terms' },
+    { value: 't3',     label: t('Trimestre 3', 'Term 3'), seqs: [3],       group: 'terms' },
+    { value: 'annual', label: t('Annuel',      'Annual'), seqs: [1, 2, 3], group: 'annual' },
+  ];
+
   const [classId,     setClassId]     = useState('');
+  const [sectionF,    setSectionF]    = useState('');
   const [periodKey,   setPeriodKey]   = useState('seq_1');
   const [showPrintOpts, setShowPrintOpts] = useState(false);
 
@@ -411,12 +528,17 @@ export default function Reports() {
   const gOpts           = gradingOpts(school, selectedClass?.cycle);
   const passThreshold   = isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
   const maxScale        = isGE ? geGradeMax(school) : sys === 'FR' ? 20 : 100;
-  const periodsForClass = isGE ? PERIODS_GE : isEN ? PERIODS_EN : PERIODS_FR;
+  // Moteur de la classe : maternelle / primaire APC → périodes par trimestre.
+  const classEngine     = selectedClass ? resolveClassEngine(school, selectedClass) : 'classic';
+  const isFund          = classEngine === 'maternelle' || classEngine === 'apc_primaire';
+  const periodsForClass = isFund ? PERIODS_FUND : isGE ? PERIODS_GE : isEN ? PERIODS_EN : PERIODS_FR;
   const period          = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0];
 
   useEffect(() => {
     const cls = classes.find((c) => c.id === classId);
-    if (resolveCountryCode(school) === 'guinea_eq') setPeriodKey('trim_1');
+    const eng = cls ? resolveClassEngine(school, cls) : 'classic';
+    if (eng === 'maternelle' || eng === 'apc_primaire') setPeriodKey('t1');
+    else if (resolveCountryCode(school) === 'guinea_eq') setPeriodKey('trim_1');
     else if (cls?.system === 'EN') setPeriodKey('term_1');
     else setPeriodKey('seq_1');
   }, [classId, classes, school]);
@@ -478,6 +600,29 @@ export default function Reports() {
   }, [classSubjects, classStudents, classId, period.seqs, gradeMap, sys, passThreshold, maxScale]);
 
   const hasData = classSubjects.length > 0 && classStudents.length > 0;
+
+  // ── Impression EN LOT (par section / tout l'établissement) ──────────────────
+  // Contexte pur transmis au moteur de calcul ; utilise la période courante.
+  const batchCtx = { school, students, subjects, gradeMap };
+  const sectionLabel = (key) => {
+    const s = SECTIONS.find((x) => x.key === key);
+    return s ? t(s.fr, s.en, s.es) : t('Toutes les sections', 'All sections');
+  };
+  const runBatch = (classesToPrint, title) => {
+    if (!classesToPrint.length) {
+      alert(t('Aucune classe à imprimer.', 'No class to print.', 'Ninguna clase para imprimir.'));
+      return;
+    }
+    const n = printReportsBatch({ title, classesToPrint, period, cols, ctx: batchCtx });
+    if (!n) alert(t('Aucune classe avec des notes à imprimer.', 'No class with grades to print.', 'Ninguna clase con notas.'));
+  };
+  const handlePrintSection = () => {
+    const target = classes.filter((c) => inSection(c, sectionF));
+    const label  = sectionF ? sectionLabel(sectionF) : t('Toutes les classes', 'All classes');
+    runBatch(target, `${isGE ? 'Informe' : 'Rapport'} — ${label} — ${period.label}`);
+  };
+  const handlePrintAll = () =>
+    runBatch(classes, `${isGE ? 'Informe' : 'Rapport'} — ${school?.name || ''} — ${period.label}`);
 
   const distribution = useMemo(() => {
     if (!hasData) return [];
@@ -543,11 +688,17 @@ export default function Reports() {
 
         {/* ── Barre de filtres ── */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-wrap items-end gap-4">
+          <SectionFilterSelect
+            classes={classes}
+            value={sectionF}
+            onChange={(v) => { setSectionF(v); if (classId && !inSection(classes.find((c) => c.id === classId), v)) setClassId(''); }}
+            style={{ maxWidth: 170 }}
+          />
           <div className="min-w-[200px]">
             <label className="form-label">{t('Classe', 'Class')}</label>
             <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)}>
               <option value="">{t('— Choisir une classe', '— Choose a class')}</option>
-              {classes.map((c) => (
+              {classes.filter((c) => inSection(c, sectionF)).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}{schoolLanguage === 'bilingue' ? ` [${c.system === 'EN' ? '/100' : '/20'}]` : ''} — {students.filter((s) => s.class_id === c.id).length} {t('élèves', 'students')}
                 </option>
@@ -564,12 +715,35 @@ export default function Reports() {
                 periodsForClass={periodsForClass}
                 isEN={isEN}
                 isGE={isGE}
+                isFund={isFund}
               />
             </div>
           )}
 
-          {hasData && (
+          {/* Impression en lot — toujours disponible dès qu'il y a des classes. */}
+          {classes.length > 0 && (
             <div className="flex gap-2 flex-wrap ml-auto items-end">
+              <button
+                onClick={handlePrintSection}
+                className="btn-secondary text-xs"
+                style={{ width: 'auto' }}
+                title={t('Imprimer le rapport de toutes les classes de la section', 'Print the report of every class in the section')}
+              >
+                🖨 {sectionF ? t('Section', 'Section') : t('Toutes les classes', 'All classes')}
+              </button>
+              <button
+                onClick={handlePrintAll}
+                className="btn-secondary text-xs"
+                style={{ width: 'auto' }}
+                title={t('Imprimer le rapport de toutes les classes de l\'établissement', 'Print the report of every class in the school')}
+              >
+                🏫 {t('Tout l\'établissement', 'Whole school')}
+              </button>
+            </div>
+          )}
+
+          {hasData && (
+            <div className="flex gap-2 flex-wrap items-end">
               <button onClick={handleExportResults} className="btn-secondary text-xs">
                 CSV {t('résultats', 'results')}
               </button>
@@ -638,7 +812,7 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {classes.map((cls) => {
+                  {classes.filter((c) => inSection(c, sectionF)).map((cls) => {
                     const studs = students.filter((s) => s.class_id === cls.id);
                     const subs  = subjects.filter((s) => s.class_id === cls.id);
                     return (

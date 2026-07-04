@@ -20,7 +20,12 @@
 param(
   [string] $SetupExe = '',
   [int]    $Port = 8080,
-  [switch] $NoBackup
+  [switch] $NoBackup,
+  [int]    $IdleMinutes = 5,    # serveur considéré « inactif » si aucune écriture
+                                # de données depuis ce délai ET aucun poste connecté.
+  [int]    $WaitForIdle = 0,    # minutes à patienter (sondage) que le serveur devienne
+                                # inactif avant d'abandonner. 0 = un seul contrôle.
+  [switch] $Force              # passe outre le contrôle d'activité (à éviter en plein cours).
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +37,37 @@ function Step($m) { Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 function Ok($m)   { Write-Host "[OK] $m"   -ForegroundColor Green }
 function Warn($m) { Write-Host "[!]  $m"   -ForegroundColor Yellow }
 
+# --- Détection d'activité (sans toucher au serveur, fonctionne sur l'ancien) -----
+# Signal 1 : la base SQLite est en mode WAL → la date de modif de notescam.db-wal
+#            reflète la DERNIÈRE écriture (sauvegarde de notes, frais, etc.).
+# Signal 2 : connexions TCP ÉTABLIES vers le port depuis un AUTRE poste = clients
+#            actuellement connectés.
+function Get-LastDataWrite {
+  # La base SQLite est sous <DataDir>\data (NOTESCAM_DATA_DIR=...\NotesCam\data).
+  $dbDir = Join-Path $DataDir 'data'
+  $candidates = @('notescam.db-wal','notescam.db','notescam.db-shm') |
+    ForEach-Object { Join-Path $dbDir $_ }
+  $times = $candidates | Where-Object { Test-Path $_ } | ForEach-Object { (Get-Item $_).LastWriteTime }
+  if ($times) { ($times | Measure-Object -Maximum).Maximum } else { $null }
+}
+function Get-RemoteClients {
+  $conns = Get-NetTCPConnection -LocalPort $Port -State Established -ErrorAction SilentlyContinue
+  if (-not $conns) { return @() }
+  @($conns | Where-Object { $_.RemoteAddress -notin @('127.0.0.1','::1','0.0.0.0','::') } |
+    Select-Object -ExpandProperty RemoteAddress -Unique)
+}
+function Get-ServerActivity {
+  $lastWrite = Get-LastDataWrite
+  $clients   = @(Get-RemoteClients)
+  $writeAge  = if ($lastWrite) { (New-TimeSpan -Start $lastWrite -End (Get-Date)).TotalMinutes } else { 99999 }
+  [PSCustomObject]@{
+    Idle        = (($writeAge -ge $IdleMinutes) -and ($clients.Count -eq 0))
+    WriteAgeMin = [math]::Round($writeAge, 1)
+    Clients     = $clients
+    LastWrite   = $lastWrite
+  }
+}
+
 # --- 0. Élévation administrateur -------------------------------------
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
   [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -41,8 +77,9 @@ if (-not $isAdmin) {
   Warn "Élévation administrateur requise — relance en admin…"
   $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$PSCommandPath`"")
   if ($SetupExe) { $argList += @('-SetupExe', "`"$SetupExe`"") }
-  $argList += @('-Port', $Port)
+  $argList += @('-Port', $Port, '-IdleMinutes', $IdleMinutes, '-WaitForIdle', $WaitForIdle)
   if ($NoBackup) { $argList += '-NoBackup' }
+  if ($Force)    { $argList += '-Force' }
   Start-Process powershell.exe -Verb RunAs -ArgumentList $argList
   return
 }
@@ -60,6 +97,39 @@ if (-not (Test-Path $SetupExe)) {
 }
 $exeInfo = Get-Item $SetupExe
 Write-Host ("Installateur : {0}  ({1:N1} Mo, {2})" -f $exeInfo.FullName, ($exeInfo.Length/1MB), $exeInfo.LastWriteTime)
+
+# --- 1b. Contrôle d'activité (ne JAMAIS interrompre une saisie en cours) ------
+# Avant tout arrêt du serveur, on vérifie qu'aucune donnée n'a été écrite
+# récemment et qu'aucun poste n'est connecté. Sinon on annule (ou on attend).
+Step "Contrôle d'activité du serveur"
+if ($Force) {
+  Warn "Contrôle d'activité ignoré (-Force) — arrêt immédiat même si des postes saisissent."
+} else {
+  $deadline = (Get-Date).AddMinutes($WaitForIdle)
+  $act = Get-ServerActivity
+  while (-not $act.Idle -and (Get-Date) -lt $deadline) {
+    Warn ("Serveur ACTIF — écriture il y a {0} min ; {1} poste(s) connecté(s). Attente d'inactivité jusqu'à {2}…" -f `
+      $act.WriteAgeMin, $act.Clients.Count, $deadline.ToString('HH:mm:ss'))
+    Start-Sleep -Seconds 30
+    $act = Get-ServerActivity
+  }
+  if ($act.Idle) {
+    Ok ("Serveur inactif (aucune écriture depuis {0} min, aucun poste connecté) — mise à jour autorisée." -f $act.WriteAgeMin)
+  } else {
+    Write-Host ''
+    Warn 'MISE À JOUR ANNULÉE — le serveur est en cours d''utilisation :'
+    Write-Host ("   - derniere ecriture de donnees il y a {0} min (seuil d'inactivite : {1} min)" -f $act.WriteAgeMin, $IdleMinutes) -ForegroundColor Yellow
+    if ($act.Clients.Count) { Write-Host ("   - poste(s) connecte(s) : {0}" -f ($act.Clients -join ', ')) -ForegroundColor Yellow }
+    Write-Host ''
+    Write-Host 'Pour ne pas interrompre une saisie de notes, relance :' -ForegroundColor Cyan
+    Write-Host '   - plus tard (hors cours), ou' -ForegroundColor Cyan
+    Write-Host '   - en attendant l''inactivite :  -WaitForIdle 30   (patiente jusqu''a 30 min)' -ForegroundColor Cyan
+    Write-Host '   - en forcant (deconseille)   :  -Force' -ForegroundColor Cyan
+    Write-Host "`nAppuie sur Entree pour fermer…"
+    [void](Read-Host)
+    return
+  }
+}
 
 # --- 2. Sauvegarde des données ---------------------------------------
 if (-not $NoBackup) {

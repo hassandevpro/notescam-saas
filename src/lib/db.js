@@ -5,8 +5,10 @@
 // This matches bulletinEngine's allGrades key convention exactly.
 
 const DB_NAME = 'NotesCamDB';
-// Bump à 8 : ajout du store `staff` (module Personnel — tous départements).
-const DB_VERSION = 8;
+// Bump à 12 : moteur SECOND CYCLE MINESEC — cache du référentiel (`sc_ref`).
+// Bump à 13 : moteurs FONDAMENTAL MINEDUB — maternelle (`mat_ref`, `mat_obs`) +
+//             primaire APC (`prim_ref`, `prim_notes`).
+const DB_VERSION = 13;
 
 let _db = null;
 
@@ -111,6 +113,84 @@ export async function initDB() {
         const s = db.createObjectStore('staff', { keyPath: 'id' });
         s.createIndex('by_school',     'school_id');
         s.createIndex('by_department', 'department');
+      }
+
+      // --- v9 ---
+      // Historique des générations de relevés (centre de production documentaire).
+      // Local par poste (aucune table cloud) — suffit pour le suivi direction.
+      // Schema : { id, school_id, at, user_name, type, scope, count, status, detail }
+      if (!db.objectStoreNames.contains('document_log')) {
+        const s = db.createObjectStore('document_log', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('by_school', 'school_id');
+      }
+
+      // --- v10 ---
+      // Grilles tarifaires par classe (frais comptant + échelonné + tranches).
+      // Schema : { id, school_id, class_id, academic_year, amount_comptant,
+      //            amount_echelonne, tranches:[{id,label,amount,due_date}],
+      //            currency, notes, created_at, updated_at }
+      if (!db.objectStoreNames.contains('class_fee_grids')) {
+        const s = db.createObjectStore('class_fee_grids', { keyPath: 'id' });
+        s.createIndex('by_school', 'school_id');
+        s.createIndex('by_class',  'class_id');
+      }
+
+      // --- v11 (moteur APC_MINISTERIEL_MINESEC) ---
+      // Cache du référentiel officiel (lecture seule pour l'école). Un seul
+      // enregistrement-blob keyé 'referentiel' :
+      //   { id:'referentiel', cycles, classes, trimestres, sequences, matieres,
+      //     competences, version }
+      if (!db.objectStoreNames.contains('apc_ref')) {
+        db.createObjectStore('apc_ref', { keyPath: 'id' });
+      }
+
+      // Notes par compétence. keyPath 'id' (uuid) ; `nkey` =
+      // `${eleve_id}_${competence_id}_${sequence_id}` pour retrouver/écraser
+      // une note existante. Schéma aligné sur les colonnes de la table cloud.
+      if (!db.objectStoreNames.contains('apc_notes')) {
+        const s = db.createObjectStore('apc_notes', { keyPath: 'id' });
+        s.createIndex('by_school',  'school_id');
+        s.createIndex('by_student', 'eleve_id');
+        s.createIndex('by_nkey',    'nkey', { unique: true });
+      }
+
+      // Bulletins APC consolidés (par élève × trimestre).
+      if (!db.objectStoreNames.contains('apc_bulletins')) {
+        const s = db.createObjectStore('apc_bulletins', { keyPath: 'id' });
+        s.createIndex('by_school',  'school_id');
+        s.createIndex('by_student', 'eleve_id');
+      }
+
+      // --- v12 (moteur SECOND CYCLE MINESEC) ---
+      // Cache du référentiel second cycle (séries/groupes/matières/serie_matieres).
+      // Un seul blob keyé 'referentiel'.
+      if (!db.objectStoreNames.contains('sc_ref')) {
+        db.createObjectStore('sc_ref', { keyPath: 'id' });
+      }
+
+      // --- v13 (moteurs FONDAMENTAL MINEDUB) ---
+      // Cache des référentiels fondamentaux (un blob keyé 'referentiel' chacun).
+      if (!db.objectStoreNames.contains('mat_ref')) {
+        db.createObjectStore('mat_ref', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('prim_ref')) {
+        db.createObjectStore('prim_ref', { keyPath: 'id' });
+      }
+      // Observations maternelle. keyPath 'id' (uuid) ; `nkey` =
+      // `${eleve_id}_${domaine_id}_${trimestre_id}` (retrouve/écrase une obs.).
+      if (!db.objectStoreNames.contains('mat_obs')) {
+        const s = db.createObjectStore('mat_obs', { keyPath: 'id' });
+        s.createIndex('by_school',  'school_id');
+        s.createIndex('by_student', 'eleve_id');
+        s.createIndex('by_nkey',    'nkey', { unique: true });
+      }
+      // Notes primaire APC. keyPath 'id' (uuid) ; `nkey` =
+      // `${eleve_id}_${competence_id}_${critere_id}_${trimestre_id}`.
+      if (!db.objectStoreNames.contains('prim_notes')) {
+        const s = db.createObjectStore('prim_notes', { keyPath: 'id' });
+        s.createIndex('by_school',  'school_id');
+        s.createIndex('by_student', 'eleve_id');
+        s.createIndex('by_nkey',    'nkey', { unique: true });
       }
     };
 
@@ -280,6 +360,14 @@ export const feePaymentsDB = {
   delete: (id) => idbDelete('fee_payments', id),
 };
 
+export const classFeeGridsDB = {
+  getAll: () => idbGetAll('class_fee_grids'),
+  getByClass: (classId) => idbGetByIndex('class_fee_grids', 'by_class', classId),
+  put: (r) => idbPut('class_fee_grids', r),
+  putMany: (rs) => idbPutMany('class_fee_grids', rs),
+  delete: (id) => idbDelete('class_fee_grids', id),
+};
+
 export const trashDB = {
   getAll: () => idbGetAll('trash'),
   getByTable: (table) => idbGetByIndex('trash', 'by_table', table),
@@ -307,4 +395,67 @@ export const staffDB = {
   put: (r) => idbPut('staff', r),
   putMany: (rs) => idbPutMany('staff', rs),
   delete: (id) => idbDelete('staff', id),
+};
+
+// --- Moteur APC ---
+export const apcRefDB = {
+  // Un seul blob de référentiel keyé 'referentiel'.
+  get: () => idbGet('apc_ref', 'referentiel'),
+  put: (record) => idbPut('apc_ref', { ...record, id: 'referentiel' }),
+};
+
+export const apcNotesDB = {
+  getAll: () => idbGetAll('apc_notes'),
+  getByStudent: (eleveId) => idbGetByIndex('apc_notes', 'by_student', eleveId),
+  getByNkey: (nkey) => idbGetByIndex('apc_notes', 'by_nkey', nkey),
+  put: (r) => idbPut('apc_notes', r),
+  putMany: (rs) => idbPutMany('apc_notes', rs),
+  delete: (id) => idbDelete('apc_notes', id),
+};
+
+export const apcBulletinsDB = {
+  getAll: () => idbGetAll('apc_bulletins'),
+  getByStudent: (eleveId) => idbGetByIndex('apc_bulletins', 'by_student', eleveId),
+  put: (r) => idbPut('apc_bulletins', r),
+  putMany: (rs) => idbPutMany('apc_bulletins', rs),
+  delete: (id) => idbDelete('apc_bulletins', id),
+};
+
+// --- Moteur SECOND CYCLE MINESEC ---
+export const scRefDB = {
+  get: () => idbGet('sc_ref', 'referentiel'),
+  put: (record) => idbPut('sc_ref', { ...record, id: 'referentiel' }),
+};
+
+// --- Moteurs FONDAMENTAL MINEDUB (maternelle + primaire APC) ---
+export const matRefDB = {
+  get: () => idbGet('mat_ref', 'referentiel'),
+  put: (record) => idbPut('mat_ref', { ...record, id: 'referentiel' }),
+};
+export const matObsDB = {
+  getAll: () => idbGetAll('mat_obs'),
+  getByStudent: (eleveId) => idbGetByIndex('mat_obs', 'by_student', eleveId),
+  getByNkey: (nkey) => idbGetByIndex('mat_obs', 'by_nkey', nkey),
+  put: (r) => idbPut('mat_obs', r),
+  putMany: (rs) => idbPutMany('mat_obs', rs),
+  delete: (id) => idbDelete('mat_obs', id),
+};
+export const primRefDB = {
+  get: () => idbGet('prim_ref', 'referentiel'),
+  put: (record) => idbPut('prim_ref', { ...record, id: 'referentiel' }),
+};
+export const primNotesDB = {
+  getAll: () => idbGetAll('prim_notes'),
+  getByStudent: (eleveId) => idbGetByIndex('prim_notes', 'by_student', eleveId),
+  getByNkey: (nkey) => idbGetByIndex('prim_notes', 'by_nkey', nkey),
+  put: (r) => idbPut('prim_notes', r),
+  putMany: (rs) => idbPutMany('prim_notes', rs),
+  delete: (id) => idbDelete('prim_notes', id),
+};
+
+export const documentLogDB = {
+  getBySchool: (schoolId) => idbGetByIndex('document_log', 'by_school', schoolId),
+  // entry = { school_id, user_name, type, scope, count, status, detail }
+  log: (entry) => idbAdd('document_log', { ...entry, at: entry.at || Date.now() }),
+  delete: (id) => idbDelete('document_log', id),
 };

@@ -4,16 +4,11 @@ import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { getDaysUntilLicenseExpires } from '../lib/auth';
+import { IS_LAN } from '../lib/edition';
 import { clsStat } from '../core/bulletinEngine';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
-
-function feeStatus(fee) {
-  if (!fee || fee.frais_annuels === 0) return 'none';
-  if (fee.frais_payes >= fee.frais_annuels) return 'paid';
-  if (fee.frais_payes > 0) return 'partial';
-  return 'unpaid';
-}
+import { feeDashboard } from '../lib/feeEngine';
 
 const SEQ_LABELS_FR = { 1: 'Séq 1', 2: 'Séq 2', 3: 'Séq 3', 4: 'Séq 4', 5: 'Séq 5', 6: 'Séq 6' };
 const SEQ_LABELS_EN = { 1: 'Term 1', 2: 'Term 2', 3: 'Term 3' };
@@ -34,7 +29,7 @@ const SETUP_STEPS = [
   { key: 'director',  label: 'Directeur / Proviseur renseigné', check: (s)      => !!s.school?.director,      to: '/app/settings', hint: 'Apparaît sur les bulletins' },
   { key: 'logo',      label: 'Logo de l\'école téléversé',  check: (s)         => !!s.school?.logo_url,      to: '/app/settings', hint: 'PNG ou SVG recommandé' },
   { key: 'class',     label: 'Au moins une classe créée',    check: (s)         => s.classes.length > 0,      to: '/app/classes',  hint: 'Ex : 6ème A, Form 1…' },
-  { key: 'subject',   label: 'Au moins une matière ajoutée', check: (s)         => s.subjects.length > 0,     to: '/app/subjects', hint: 'Ex : Mathématiques' },
+  { key: 'subject',   label: 'Au moins une matière ajoutée', check: (s)         => s.subjects.length > 0,     to: '/app/classes',  hint: 'Ex : Mathématiques' },
   { key: 'student',   label: 'Au moins un élève inscrit',    check: (s)         => s.students.length > 0,     to: '/app/students', hint: 'Importer ou ajouter manuellement' },
 ];
 
@@ -171,7 +166,8 @@ function StatCard({ label, value, sub, accent = 'brand', icon }) {
 function LicenseBadge({ school }) {
   const t = useT();
   const daysLeft = getDaysUntilLicenseExpires(school?.license_expires_at);
-  const status = school?.license_status;
+  // LAN (.exe) : produit sous licence, jamais en « essai » — affiché actif.
+  const status = IS_LAN ? 'active' : school?.license_status;
 
   if (status === 'trial' && daysLeft > 0) {
     return (
@@ -210,6 +206,7 @@ export default function Dashboard() {
   const students    = useSchoolStore((s) => s.students);
   const gradeMap    = useSchoolStore((s) => s.gradeMap);
   const fees        = useSchoolStore((s) => s.fees);
+  const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
   const loading     = useSchoolStore((s) => s.loading);
 
   const gradeCount = useMemo(() => {
@@ -234,13 +231,13 @@ export default function Dashboard() {
   const feesStats = useMemo(() => {
     const feeMap = {};
     fees.forEach((f) => { feeMap[f.student_id] = f; });
-    const withFees = students.map((s) => feeMap[s.id]).filter(Boolean);
-    const totalDu  = withFees.reduce((n, f) => n + (f.frais_annuels || 0), 0);
-    const totalPaye= withFees.reduce((n, f) => n + (f.frais_payes   || 0), 0);
-    const rate     = totalDu > 0 ? Math.round((totalPaye / totalDu) * 100) : null;
-    const unpaid   = students.filter((s) => ['unpaid', 'none'].includes(feeStatus(feeMap[s.id]))).length;
-    return { rate, unpaid };
-  }, [fees, students]);
+    // Moteur tarifaire : taux de recouvrement + nombre d'élèves en retard
+    // (échéances passées non couvertes), grille de classe prise en compte.
+    const entries = students.map((s) => ({ student: s, fee: feeMap[s.id], grid: getClassFeeGrid(s.class_id) }));
+    const dash = feeDashboard(entries);
+    const rate = dash.expected > 0 ? Math.round((dash.collected / dash.expected) * 100) : null;
+    return { rate, late: dash.lateTotal };
+  }, [fees, students, getClassFeeGrid]);
 
   const globalPassRate = useMemo(() => {
     const all = classStats.filter((c) => c.stats !== null);
@@ -577,7 +574,7 @@ export default function Dashboard() {
             icon="fees"
             label={t('Recouvrement frais', 'Fee collection')}
             value={loading ? '—' : feesStats.rate !== null ? `${feesStats.rate}%` : '—'}
-            sub={feesStats.unpaid > 0 ? `${feesStats.unpaid} ${t('impayé', 'unpaid')}${feesStats.unpaid > 1 ? 's' : ''}` : t('À jour', 'Up to date')}
+            sub={feesStats.late > 0 ? `${feesStats.late} ${t('en retard', 'overdue')}` : t('À jour', 'Up to date')}
             accent="amber"
           />
         </div>

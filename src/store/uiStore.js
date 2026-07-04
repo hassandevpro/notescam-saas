@@ -3,7 +3,7 @@
 
 import { create } from 'zustand';
 
-const _SUPPORTED_LANGS = ['fr', 'en', 'es'];
+const _SUPPORTED_LANGS = ['fr', 'en', 'es', 'tr'];
 const _stored = localStorage.getItem('notescam_ui_lang') || 'fr';
 const _savedLang = _SUPPORTED_LANGS.includes(_stored) ? _stored : 'fr';
 
@@ -15,6 +15,24 @@ export const useUiStore = create((set) => ({
   failedItems: [],
 
   viewYear: null,
+
+  // Assistant « Activer NotesCam Cloud » (édition LAN) — déclenché depuis
+  // Paramètres › Paramètres avancés (le bouton flottant a été retiré).
+  cloudActivationOpen: false,
+  openCloudActivation:  () => set({ cloudActivationOpen: true }),
+  closeCloudActivation: () => set({ cloudActivationOpen: false }),
+
+  // Barre latérale repliée (desktop) — persistée pour gagner de l'espace écran
+  sidebarHidden: localStorage.getItem('notescam_sidebar_hidden') === 'true',
+  toggleSidebar: () => set((s) => {
+    const next = !s.sidebarHidden;
+    localStorage.setItem('notescam_sidebar_hidden', String(next));
+    return { sidebarHidden: next };
+  }),
+  // Masque/affiche la barre latérale SANS toucher à la préférence persistée
+  // (utilisé par les écrans « plein écran focalisé » qui rétablissent l'état
+  // d'origine en quittant).
+  setSidebarHidden: (v) => set({ sidebarHidden: !!v }),
 
   // 'fr' | 'en' | 'es'
   uiLang: _savedLang,
@@ -64,11 +82,11 @@ export const useUiStore = create((set) => ({
   setViewYear:   (year) => set({ viewYear: year }),
   clearViewYear: ()     => set({ viewYear: null }),
 
-  // toggleLang : cycle fr → en → es → fr.
+  // toggleLang : cycle fr → en → es → tr → fr.
   // Marque la préférence comme "choisie manuellement" pour ne plus la réécraser
   // par la valeur par défaut du pays de l'école.
   toggleLang: () => set((s) => {
-    const order = ['fr', 'en', 'es'];
+    const order = ['fr', 'en', 'es', 'tr'];
     const idx = order.indexOf(s.uiLang);
     const next = order[(idx + 1) % order.length] || 'fr';
     localStorage.setItem('notescam_ui_lang', next);

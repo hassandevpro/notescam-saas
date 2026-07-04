@@ -3,12 +3,15 @@ import { supabase } from '../lib/supabase';
 import { getCurrentUserContext } from '../lib/auth';
 import { cacheUserContext, loadCachedContext, clearCachedContext } from '../lib/authContextCache';
 import { resolveCountryCode, defaultLangForCountry } from '../countries';
+import { touchLastLogin } from '../lib/userProfileService';
 
 // Extrait du state les champs qui composent le contexte utilisateur, pour
 // les remettre en cache (ex. après mise à jour de l'école hors-ligne).
 function ctxFromState(s) {
   return {
     user: s.user, school: s.school, role: s.role, fullName: s.fullName,
+    phone: s.phone, photoUrl: s.photoUrl, lastLogin: s.lastLogin,
+    createdAt: s.createdAt, specialty: s.specialty,
     classId: s.classId, schoolUserId: s.schoolUserId, teacherId: s.teacherId,
   };
 }
@@ -50,6 +53,11 @@ export const useAuthStore = create((set, get) => ({
   school: null,
   role: null,
   fullName: null,
+  phone: null,
+  photoUrl: null,
+  lastLogin: null,
+  createdAt: null,
+  specialty: null,   // matière enseignée (role=teacher uniquement)
   classId: null,
   schoolUserId: null,
   teacherId: null,   // UUID du record teachers lié à ce compte (role=teacher uniquement)
@@ -83,6 +91,11 @@ export const useAuthStore = create((set, get) => ({
           school: ctx?.school || null,
           role: ctx?.role || null,
           fullName: ctx?.fullName || null,
+          phone: ctx?.phone || null,
+          photoUrl: ctx?.photoUrl || null,
+          lastLogin: ctx?.lastLogin || null,
+          createdAt: ctx?.createdAt || null,
+          specialty: ctx?.specialty || null,
           classId: ctx?.classId || null,
           schoolUserId: ctx?.schoolUserId || null,
           teacherId: ctx?.teacherId || null,
@@ -129,6 +142,11 @@ export const useAuthStore = create((set, get) => ({
         school: null,
         role: null,
         fullName: null,
+        phone: null,
+        photoUrl: null,
+        lastLogin: null,
+        createdAt: null,
+        specialty: null,
         classId: null,
         schoolUserId: null,
         teacherId: null,
@@ -162,12 +180,32 @@ export const useAuthStore = create((set, get) => ({
       school: ctx?.school || null,
       role: ctx?.role || null,
       fullName: ctx?.fullName || null,
+      phone: ctx?.phone || null,
+      photoUrl: ctx?.photoUrl || null,
+      lastLogin: ctx?.lastLogin || null,
+      createdAt: ctx?.createdAt || null,
+      specialty: ctx?.specialty || null,
       classId: ctx?.classId || null,
       schoolUserId: ctx?.schoolUserId || null,
       teacherId: ctx?.teacherId || null,
       loading: false,
     });
     syncUiLangToSchool(ctx?.school);
+    // Horodate la dernière connexion (best-effort, sans bloquer ni faire échouer
+    // le login). Ne s'exécute que sur une connexion réelle : les re-fire de
+    // SIGNED_IN au retour d'onglet court-circuitent setSession en amont.
+    touchLastLogin();
+  },
+
+  /**
+   * Met à jour localement le profil du compte connecté (après un appel RPC
+   * réussi côté UI) et rafraîchit le cache hors-ligne. N'effectue AUCUN appel
+   * réseau : la persistance est déjà faite par userProfileService.
+   */
+  applyProfile: (patch) => {
+    set((s) => ({ ...s, ...patch }));
+    const uid = get().user?.id;
+    if (uid) cacheUserContext(uid, ctxFromState(get()));
   },
 
   /**
@@ -207,6 +245,11 @@ export const useAuthStore = create((set, get) => ({
       school: null,
       role: null,
       fullName: null,
+      phone: null,
+      photoUrl: null,
+      lastLogin: null,
+      createdAt: null,
+      specialty: null,
       classId: null,
       schoolUserId: null,
       teacherId: null,

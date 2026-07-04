@@ -1,4 +1,5 @@
 import { usePlan, PLAN_META } from '../lib/plan';
+import { IS_LAN } from '../lib/edition';
 import { useT } from '../lib/i18n';
 
 const WA = 'https://wa.me/237670894721?text=Bonjour%2C%20je%20souhaite%20passer%20au%20plan%20';
@@ -16,6 +17,9 @@ function LockIcon() {
 export default function UpgradeBanner({ requiredPlan, featureName }) {
   const { plan } = usePlan();
   const t = useT();
+
+  // LAN (.exe) : tout est débloqué, aucun écran « passer au plan ».
+  if (IS_LAN) return null;
 
   const currentMeta  = PLAN_META[plan]          ?? PLAN_META.starter;
   const requiredMeta = PLAN_META[requiredPlan]   ?? PLAN_META.ecole;

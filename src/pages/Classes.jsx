@@ -128,11 +128,16 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
   const country = useCountry();
   const school = useAuthStore((s) => s.school);
   // Modèle de bulletin choisi pour l'établissement (Réglages) — pilote le formulaire.
-  const engine = school?.bulletin_engine || 'classic';   // 'classic' | 'apc_minesec' | 'minesec'
+  const engine = school?.bulletin_engine || 'classic';   // 'classic' | 'officiel' | (héritage)
   const MODEL_INFO = {
-    classic:     { icon: '📄', label: t('Classique', 'Classic'),               desc: t('Notes et moyennes habituelles. Aucun référentiel officiel.', 'Usual marks and averages. No official framework.') },
-    apc_minesec: { icon: '🎯', label: t('APC (1er cycle)', 'APC (lower secondary)'), desc: t('Bulletin par compétences MINESEC sur le collège (6e–3e).', 'MINESEC competency report card for lower secondary (6e–3e).') },
-    minesec:     { icon: '🏛️', label: t('APC + Second Cycle', 'APC + Upper secondary'), desc: t('APC au collège ET Second Cycle MINESEC au lycée (par séries).', 'APC in lower secondary AND MINESEC upper secondary (by streams).') },
+    classic:      { icon: '📄', label: t('Classique', 'Classic'),               desc: t('Notes et moyennes habituelles. Aucun référentiel officiel.', 'Usual marks and averages. No official framework.') },
+    officiel:     { icon: '🏛️', label: t('Officiel Cameroun', 'Official Cameroon'), desc: t('MINEDUB (préscolaire + primaire) ET MINESEC (collège APC + lycée par séries) — auto par niveau.', 'MINEDUB (pre-primary + primary) AND MINESEC (lower secondary APC + high school by streams) — auto per level.') },
+    // Héritage (drapeaux fragmentés encore acceptés) :
+    apc_minesec:  { icon: '🎯', label: t('APC (1er cycle)', 'APC (lower secondary)'), desc: t('Bulletin par compétences MINESEC sur le collège (6e–3e).', 'MINESEC competency report card for lower secondary (6e–3e).') },
+    minesec:      { icon: '🏛️', label: t('APC + Second Cycle', 'APC + Upper secondary'), desc: t('APC au collège ET Second Cycle MINESEC au lycée (par séries).', 'APC in lower secondary AND MINESEC upper secondary (by streams).') },
+    minedub:      { icon: '🧸', label: t('Fondamental MINEDUB', 'MINEDUB fundamental'), desc: t('Maternelle (domaines) et primaire APC (compétences).', 'Nursery (domains) and primary APC (competencies).') },
+    maternelle:   { icon: '🧸', label: t('Maternelle', 'Nursery'), desc: t('Bulletin maternelle par domaines (A / ECA / NA).', 'Nursery report card by domains.') },
+    apc_primaire: { icon: '✏️', label: t('Primaire APC', 'Primary APC'), desc: t('Compétences nationales du primaire (SIL–CM2).', 'National primary competencies.') },
   };
   const model = MODEL_INFO[engine] || MODEL_INFO.classic;
   const CYCLES = country.cycles.map((c) => ({ value: c.code, label: c.label }));
@@ -955,16 +960,20 @@ export default function Classes() {
   const deleteClass = useSchoolStore((s) => s.deleteClass);
   const loadSc      = useSchoolStore((s) => s.loadSc);
   const loadApc     = useSchoolStore((s) => s.loadApc);
+  const loadMat     = useSchoolStore((s) => s.loadMat);
+  const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const configureClassSubjects = useSchoolStore((s) => s.configureClassSubjects);
 
   // Préchauffe les référentiels (cache IDB + refresh cloud) pour l'auto-config des
-  // matières à la création : second cycle (minesec) ET premier cycle APC
-  // (apc_minesec | minesec). Garantit que le référentiel est prêt avant addClass.
+  // matières à la création. Le mode unifié 'officiel' couvre TOUS les cycles, donc
+  // on précharge fondamental (maternelle/primaire) ET secondaire (APC/Second Cycle).
   useEffect(() => {
     const eng = school?.bulletin_engine;
-    if (eng === 'minesec') loadSc();
-    if (eng === 'minesec' || eng === 'apc_minesec') loadApc();
-  }, [school?.bulletin_engine, loadSc, loadApc]);
+    if (eng === 'minesec' || eng === 'officiel') loadSc();
+    if (eng === 'minesec' || eng === 'apc_minesec' || eng === 'officiel') loadApc();
+    if (eng === 'minedub' || eng === 'maternelle' || eng === 'officiel') loadMat();
+    if (eng === 'minedub' || eng === 'apc_primaire' || eng === 'officiel') loadPrim();
+  }, [school?.bulletin_engine, loadSc, loadApc, loadMat, loadPrim]);
 
   const navigate            = useNavigate();
   const setGradesClassId    = useUiStore((s) => s.setGradesClassId);

@@ -48,8 +48,12 @@ export function OfficialWatermark({ src }) {
 // ── En-tête officiel (blocs pays + nom établissement + barre de titre) ─────────
 // Le logo n'apparaît plus ici : il est en filigrane au fond. Tailles lisibles
 // (titre ~13pt, ministères ~9pt, nom ~11pt) — l'en-tête ne figure qu'en page 1.
-export function OfficialHeader({ school, sys, title }) {
-  const officials = bulletinOfficials(school);
+// `accent` : couleur de la barre de titre. Défaut = bleu marine MINESEC (collège /
+// lycée). Le fondamental MINEDUB passe sa propre teinte (maternelle violet,
+// primaire vert) pour une identité visuelle distincte. `rounded` adoucit les coins
+// (bulletins des tout-petits) sans changer le format officiel.
+export function OfficialHeader({ school, sys, title, accent = '#1e3a5f', rounded = false, basic = false }) {
+  const officials = bulletinOfficials(school, { basic });
   const blocks    = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
   const centerW   = bilingual ? '34%' : '50%';
@@ -90,7 +94,7 @@ export function OfficialHeader({ school, sys, title }) {
         </tbody>
       </table>
       {title && (
-        <div className="apc-title-bar" style={{ background: '#1e3a5f', color: '#fff', textAlign: 'center', padding: '4px 8px', fontWeight: 'bold', fontSize: '13pt', letterSpacing: '.4px', marginBottom: 5 }}>
+        <div className="apc-title-bar" style={{ background: accent, color: '#fff', textAlign: 'center', padding: '4px 8px', fontWeight: 'bold', fontSize: '13pt', letterSpacing: '.4px', marginBottom: 5, borderRadius: rounded ? 6 : 0 }}>
           {title}
         </div>
       )}
@@ -139,6 +143,51 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
         <tr><td colSpan={2} style={CELL}>Noms et contacts des Parents / Tuteurs : {parents}{phone}</td></tr>
       </tbody>
     </table>
+  );
+}
+
+// ── Identité « bandeau coloré » (fondamental : maternelle / primaire) ──────────
+// Variante illustrée de OfficialIdentity : photo + nom de l'élève sur une bande
+// teintée (accent), puis les détails d'état civil sur fond clair. Conserve TOUS
+// les champs officiels (naissance, genre, matricule, redoublant, parents, P.
+// principal) — seule la présentation change. `accent` = bande, `tint` = détails.
+export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, accent = '#1e3a5f', tint = '#eef2f7' }) {
+  const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
+  const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
+  const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
+  const classTxt = [classLabel, serieLabel].filter(Boolean).join(' · ');
+  const pcx = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
+  const Chk = ({ on }) => (
+    <span style={{ display: 'inline-block', width: 9, height: 9, border: B, margin: '0 2px', verticalAlign: 'middle', background: on ? '#374151' : '#fff' }} />
+  );
+  return (
+    <div style={{ marginBottom: 4 }}>
+      {/* Bande colorée : photo + nom + classe */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: accent, color: '#fff', borderRadius: '6px 6px 0 0', padding: '5px 10px', ...pcx }}>
+        <div style={{ background: '#fff', borderRadius: 4, padding: 2, lineHeight: 0, flexShrink: 0 }}>
+          <BulletinPhoto src={student?.photo_url} width={46} height={56} radius={2} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '13pt', fontWeight: 'bold', lineHeight: 1.15 }}>{student?.name || ''}</div>
+          <div style={{ fontSize: '9pt', opacity: 0.95 }}>
+            Classe : <strong>{classTxt}</strong>{effectif != null ? ` · Effectif : ${effectif}` : ''}
+          </div>
+        </div>
+      </div>
+      {/* Détails d'état civil (fond clair teinté) */}
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <tbody>
+          <tr>
+            <td style={{ ...CELL, background: tint, ...pcx }}>Né(e) le : {student?.date_naissance || ''} {student?.lieu_naissance ? `à ${student.lieu_naissance}` : ''}</td>
+            <td style={{ ...CELL, background: tint, ...pcx }}>Genre : {student?.gender || ''} · Identifiant : {student?.matricule || ''}</td>
+          </tr>
+          <tr>
+            <td style={CELL}>Parents / Tuteurs : {parents}{phone}</td>
+            <td style={CELL}>Redoublant : Oui <Chk on={redoublant} /> Non <Chk on={!redoublant} /> · P. principal : {profPrincipal || ''}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 

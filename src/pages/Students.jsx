@@ -16,6 +16,7 @@ const IdCardModal = lazy(() => import('../components/IdCardModal'));
 import { useT, getLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import { resolveCountryCode } from '../countries';
+import { classSectionKey, SECTIONS } from '../core/engineResolver';
 import { useUiStore } from '../store/uiStore';
 
 // Locale d'affichage des dates selon la langue UI courante.
@@ -35,6 +36,11 @@ function calcAge(dob) {
 // ── Formulaire élève (tous champs) ───────────────────────────────────────────
 // Les libellés sont des chaînes FR canoniques qui passent par t() à l'affichage,
 // donc auto-traduites EN/ES via i18n_es.js.
+// Deux dimensions INDÉPENDANTES du statut de l'élève :
+//  • statut_etablissement (nouveau/ancien dans l'école) → pilote les frais
+//    d'inscription (cf. inscriptionApplies) ;
+//  • statut (dans la classe : nouveau/redoublant/transféré) → purement informatif.
+// Un élève peut donc être « nouveau dans l'établissement » ET « redoublant ».
 const STATUTS = [
   { value: '',           label: '—',          color: '' },
   { value: 'nouveau',    label: 'Nouveau',     color: 'bg-emerald-100 text-emerald-700' },
@@ -42,11 +48,17 @@ const STATUTS = [
   { value: 'transfere',  label: 'Transféré',   color: 'bg-blue-100 text-blue-700' },
 ];
 
+const STATUTS_ETAB = [
+  { value: '',        label: '—',                            color: '' },
+  { value: 'nouveau', label: "Nouveau dans l'établissement", color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'ancien',  label: "Ancien dans l'établissement",  color: 'bg-slate-100 text-slate-600' },
+];
+
 const EMPTY_FORM = {
   name: '', matricule: '', gender: '', date_naissance: '', lieu_naissance: '',
   adresse: '', parent_phone: '', contact_urgence: '',
   nom_pere: '', profession_pere: '', nom_mere: '', profession_mere: '',
-  tuteur: '', class_id: '', statut: '',
+  tuteur: '', class_id: '', statut: '', statut_etablissement: '',
 };
 
 // Score de complétude du dossier élève (matricule, classe, sexe, naissance,
@@ -71,6 +83,29 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
   const [saving, setSaving] = useState(false);
   const set = (f) => (e) => setForm((prev) => ({ ...prev, [f]: e.target.value }));
+
+  // Filtre en cascade : on choisit d'abord une SECTION (maternelle / primaire /
+  // 1er cycle / 2nd cycle), puis seules les classes de cette section sont proposées.
+  // La section n'apparaît que si l'établissement en compte au moins deux.
+  const availableSections = useMemo(() => {
+    const present = new Set((classes || []).map(classSectionKey));
+    return SECTIONS.filter((s) => present.has(s.key));
+  }, [classes]);
+  const [section, setSection] = useState(
+    initial?.class_id ? classSectionKey((classes || []).find((c) => c.id === initial.class_id) || null) : ''
+  );
+  const classOptions = useMemo(
+    () => (classes || []).filter((c) => !section || classSectionKey(c) === section),
+    [classes, section]
+  );
+  const onSectionChange = (e) => {
+    const val = e.target.value;
+    setSection(val);
+    // Réinitialise la classe si elle n'appartient plus à la section choisie.
+    if (val && form.class_id && classSectionKey((classes || []).find((c) => c.id === form.class_id) || null) !== val) {
+      setForm((prev) => ({ ...prev, class_id: '' }));
+    }
+  };
 
   // Photo : `photoFile` = blob JPEG redimensionné prêt à uploader ; `photoPreview`
   // = URL d'aperçu (photo existante en édition, ou aperçu local après sélection).
@@ -164,11 +199,20 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
           <input type="text" required className="form-input" placeholder={t('Ex : ELOUNDOU Brigitte', 'E.g. ELOUNDOU Brigitte', 'Ej. : OBIANG NGUEMA María')}
             value={form.name} onChange={set('name')} />
         </div>
+        {availableSections.length > 1 && (
+          <div>
+            <label className="form-label">{t('Section', 'Section', 'Sección')}</label>
+            <select className="form-input" value={section} onChange={onSectionChange}>
+              <option value="">{t('Toutes les sections', 'All sections', 'Todas las secciones')}</option>
+              {availableSections.map((s) => <option key={s.key} value={s.key}>{t(s.fr, s.en, s.es)}</option>)}
+            </select>
+          </div>
+        )}
         <div>
           <label className="form-label">{t('Classe *', 'Class *')}</label>
           <select required className="form-input" value={form.class_id} onChange={set('class_id')}>
-            <option value="">{t('Choisir…', 'Choose…')}</option>
-            {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <option value="">{section ? t('Choisir une classe…', 'Choose a class…') : t('Choisir…', 'Choose…')}</option>
+            {classOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
         <div>
@@ -184,7 +228,14 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
           </select>
         </div>
         <div>
-          <label className="form-label">{t("Statut d'inscription", 'Enrolment status')}</label>
+          <label className="form-label">{t("Statut établissement", 'School status')}</label>
+          <select className="form-input" value={form.statut_etablissement || ''} onChange={set('statut_etablissement')}>
+            {STATUTS_ETAB.map((s) => <option key={s.value} value={s.value}>{t(s.label, s.label)}</option>)}
+          </select>
+          <p className="text-[11px] text-gray-400 mt-1">{t('« Nouveau » ⇒ frais d’inscription dus.', '“New” ⇒ registration fee applies.')}</p>
+        </div>
+        <div>
+          <label className="form-label">{t('Statut classe', 'Class status')}</label>
           <select className="form-input" value={form.statut || ''} onChange={set('statut')}>
             {STATUTS.map((s) => <option key={s.value} value={s.value}>{t(s.label, s.label)}</option>)}
           </select>
@@ -711,6 +762,7 @@ export default function Students() {
   const canEdit = role === 'admin' || role === 'censeur';
 
   const [classFilter,    setClassFilter]   = useState('');
+  const [sectionFilter,  setSectionFilter] = useState('');
   const [genderFilter,   setGenderFilter]  = useState('');
   const [levelFilter,    setLevelFilter]   = useState('');
   const [dossierFilter,  setDossierFilter] = useState('');
@@ -759,8 +811,46 @@ export default function Students() {
   const noContact = students.filter((s) => !s.parent_phone).length;
   const noClass   = students.filter((s) => !s.class_id).length;
   const classCount = new Set(students.map((s) => s.class_id).filter(Boolean)).size;
-  const levelOptions = useMemo(() => [...new Set(classes.map((c) => c.level).filter(Boolean))].sort(), [classes]);
   const classLevel = (id) => classes.find((c) => c.id === id)?.level || '';
+  // Section pédagogique d'une classe (par nom → fiable) pour le filtre par cycle.
+  const classSection = (id) => classSectionKey(classes.find((c) => c.id === id) || null);
+  const availableSections = useMemo(() => {
+    const present = new Set(classes.map(classSectionKey));
+    return SECTIONS.filter((s) => present.has(s.key));
+  }, [classes]);
+
+  // Filtres en cascade : section → niveaux → classes. Choisir une section restreint
+  // les niveaux et les classes proposés à cette seule section ; choisir un niveau
+  // restreint encore les classes. On ne montre jamais tout l'établissement quand un
+  // filtre amont est actif.
+  const classesInSection = useMemo(
+    () => classes.filter((c) => !sectionFilter || classSectionKey(c) === sectionFilter),
+    [classes, sectionFilter]
+  );
+  const levelOptions = useMemo(
+    () => [...new Set(classesInSection.map((c) => c.level).filter(Boolean))].sort(),
+    [classesInSection]
+  );
+  const classOptions = useMemo(
+    () => classesInSection.filter((c) => !levelFilter || c.level === levelFilter),
+    [classesInSection, levelFilter]
+  );
+
+  // Changer une section réinitialise le niveau et la classe si ceux-ci n'appartiennent
+  // plus à la nouvelle section ; changer un niveau réinitialise la classe si besoin.
+  const onSectionChange = (val) => {
+    setSectionFilter(val);
+    if (val) {
+      if (levelFilter && !classes.some((c) => classSectionKey(c) === val && c.level === levelFilter)) setLevelFilter('');
+      if (classFilter && classSection(classFilter) !== val) setClassFilter('');
+    }
+    resetPage();
+  };
+  const onLevelChange = (val) => {
+    setLevelFilter(val);
+    if (val && classFilter && classLevel(classFilter) !== val) setClassFilter('');
+    resetPage();
+  };
   const avgAge = useMemo(() => {
     const ages = students.map((s) => calcAge(s.date_naissance)).filter((a) => a !== null);
     return ages.length ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : null;
@@ -778,6 +868,7 @@ export default function Students() {
   const visible = useMemo(() => {
     return students
       .filter((s) => !classFilter  || s.class_id === classFilter)
+      .filter((s) => !sectionFilter || classSection(s.class_id) === sectionFilter)
       .filter((s) => !levelFilter  || classLevel(s.class_id) === levelFilter)
       .filter((s) => !genderFilter || (s.gender === genderFilter || (genderFilter === 'Feminin' && s.gender === 'Féminin')))
       .filter((s) => !dossierFilter || studentCompleteness(s).status === dossierFilter)
@@ -786,7 +877,7 @@ export default function Students() {
       // Tri alphabétique par défaut — la liste imprimée (PDF) est toujours en ordre alphabétique.
       .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, classes, classFilter, levelFilter, genderFilter, dossierFilter, search]);
+  }, [students, classes, classFilter, sectionFilter, levelFilter, genderFilter, dossierFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const paginated  = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -1068,17 +1159,24 @@ export default function Students() {
             <div className="flex flex-wrap gap-3 mb-4">
               <input type="text" className="form-input max-w-xs" placeholder={t('Rechercher nom ou matricule…', 'Search name or ID…')}
                 value={search} onChange={(e) => { setSearch(e.target.value); resetPage(); }} />
+              {availableSections.length > 1 && (
+                <select className="form-input" style={{ maxWidth: 170 }}
+                  value={sectionFilter} onChange={(e) => onSectionChange(e.target.value)}>
+                  <option value="">{t('Toutes les sections', 'All sections')}</option>
+                  {availableSections.map((s) => <option key={s.key} value={s.key}>{t(s.fr, s.en, s.es)}</option>)}
+                </select>
+              )}
+              <select className="form-input" style={{ maxWidth: 150 }}
+                value={levelFilter} onChange={(e) => onLevelChange(e.target.value)}>
+                <option value="">{t('Tous niveaux', 'All levels')}</option>
+                {levelOptions.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
+              </select>
               <select className="form-input" style={{ maxWidth: 180 }}
                 value={classFilter} onChange={(e) => { setClassFilter(e.target.value); resetPage(); }}>
                 <option value="">{t('Toutes les classes', 'All classes')}</option>
-                {classes.map((c) => (
+                {classOptions.map((c) => (
                   <option key={c.id} value={c.id}>{c.name} ({students.filter((s) => s.class_id === c.id).length})</option>
                 ))}
-              </select>
-              <select className="form-input" style={{ maxWidth: 150 }}
-                value={levelFilter} onChange={(e) => { setLevelFilter(e.target.value); resetPage(); }}>
-                <option value="">{t('Tous niveaux', 'All levels')}</option>
-                {levelOptions.map((lv) => <option key={lv} value={lv}>{lv}</option>)}
               </select>
               <select className="form-input" style={{ maxWidth: 160 }}
                 value={genderFilter} onChange={(e) => { setGenderFilter(e.target.value); resetPage(); }}>
@@ -1093,8 +1191,8 @@ export default function Students() {
                 <option value="yellow">🟡 {t('Partiels', 'Partial', 'Parciales')}</option>
                 <option value="red">🔴 {t('Incomplets', 'Incomplete', 'Incompletos')}</option>
               </select>
-              {(search || classFilter || genderFilter || levelFilter || dossierFilter) && (
-                <button onClick={() => { setSearch(''); setClassFilter(''); setGenderFilter(''); setLevelFilter(''); setDossierFilter(''); resetPage(); }}
+              {(search || classFilter || sectionFilter || genderFilter || levelFilter || dossierFilter) && (
+                <button onClick={() => { setSearch(''); setClassFilter(''); setSectionFilter(''); setGenderFilter(''); setLevelFilter(''); setDossierFilter(''); resetPage(); }}
                   className="text-xs text-gray-400 hover:text-gray-600 underline">
                   {t('Effacer les filtres', 'Clear filters')}
                 </button>
@@ -1166,6 +1264,12 @@ export default function Students() {
                                         {student.gender === 'Masculin' ? t('Masculin', 'Male') : t('Féminin', 'Female')}
                                       </span>
                                     )}
+                                    {student.statut_etablissement && (() => {
+                                      const s = STATUTS_ETAB.find((x) => x.value === student.statut_etablissement);
+                                      return s?.color ? (
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${s.color}`}>{t(s.label, s.label)}</span>
+                                      ) : null;
+                                    })()}
                                     {student.statut && (() => {
                                       const s = STATUTS.find((x) => x.value === student.statut);
                                       return s ? (

@@ -6,7 +6,9 @@
 
 const DB_NAME = 'NotesCamDB';
 // Bump à 12 : moteur SECOND CYCLE MINESEC — cache du référentiel (`sc_ref`).
-const DB_VERSION = 12;
+// Bump à 13 : moteurs FONDAMENTAL MINEDUB — maternelle (`mat_ref`, `mat_obs`) +
+//             primaire APC (`prim_ref`, `prim_notes`).
+const DB_VERSION = 13;
 
 let _db = null;
 
@@ -164,6 +166,31 @@ export async function initDB() {
       // Un seul blob keyé 'referentiel'.
       if (!db.objectStoreNames.contains('sc_ref')) {
         db.createObjectStore('sc_ref', { keyPath: 'id' });
+      }
+
+      // --- v13 (moteurs FONDAMENTAL MINEDUB) ---
+      // Cache des référentiels fondamentaux (un blob keyé 'referentiel' chacun).
+      if (!db.objectStoreNames.contains('mat_ref')) {
+        db.createObjectStore('mat_ref', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('prim_ref')) {
+        db.createObjectStore('prim_ref', { keyPath: 'id' });
+      }
+      // Observations maternelle. keyPath 'id' (uuid) ; `nkey` =
+      // `${eleve_id}_${domaine_id}_${trimestre_id}` (retrouve/écrase une obs.).
+      if (!db.objectStoreNames.contains('mat_obs')) {
+        const s = db.createObjectStore('mat_obs', { keyPath: 'id' });
+        s.createIndex('by_school',  'school_id');
+        s.createIndex('by_student', 'eleve_id');
+        s.createIndex('by_nkey',    'nkey', { unique: true });
+      }
+      // Notes primaire APC. keyPath 'id' (uuid) ; `nkey` =
+      // `${eleve_id}_${competence_id}_${critere_id}_${trimestre_id}`.
+      if (!db.objectStoreNames.contains('prim_notes')) {
+        const s = db.createObjectStore('prim_notes', { keyPath: 'id' });
+        s.createIndex('by_school',  'school_id');
+        s.createIndex('by_student', 'eleve_id');
+        s.createIndex('by_nkey',    'nkey', { unique: true });
       }
     };
 
@@ -398,6 +425,32 @@ export const apcBulletinsDB = {
 export const scRefDB = {
   get: () => idbGet('sc_ref', 'referentiel'),
   put: (record) => idbPut('sc_ref', { ...record, id: 'referentiel' }),
+};
+
+// --- Moteurs FONDAMENTAL MINEDUB (maternelle + primaire APC) ---
+export const matRefDB = {
+  get: () => idbGet('mat_ref', 'referentiel'),
+  put: (record) => idbPut('mat_ref', { ...record, id: 'referentiel' }),
+};
+export const matObsDB = {
+  getAll: () => idbGetAll('mat_obs'),
+  getByStudent: (eleveId) => idbGetByIndex('mat_obs', 'by_student', eleveId),
+  getByNkey: (nkey) => idbGetByIndex('mat_obs', 'by_nkey', nkey),
+  put: (r) => idbPut('mat_obs', r),
+  putMany: (rs) => idbPutMany('mat_obs', rs),
+  delete: (id) => idbDelete('mat_obs', id),
+};
+export const primRefDB = {
+  get: () => idbGet('prim_ref', 'referentiel'),
+  put: (record) => idbPut('prim_ref', { ...record, id: 'referentiel' }),
+};
+export const primNotesDB = {
+  getAll: () => idbGetAll('prim_notes'),
+  getByStudent: (eleveId) => idbGetByIndex('prim_notes', 'by_student', eleveId),
+  getByNkey: (nkey) => idbGetByIndex('prim_notes', 'by_nkey', nkey),
+  put: (r) => idbPut('prim_notes', r),
+  putMany: (rs) => idbPutMany('prim_notes', rs),
+  delete: (id) => idbDelete('prim_notes', id),
 };
 
 export const documentLogDB = {

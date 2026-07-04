@@ -14,7 +14,7 @@ import { backendOnline } from '../lib/edition';
 import { copyText } from '../lib/clipboard';
 import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
-import { studentFeeSituation, FEE_STATUS } from '../lib/feeEngine';
+import { studentFeeSituation, FEE_STATUS, inscriptionApplies } from '../lib/feeEngine';
 import { STATUS_UI, MODE_LABEL } from '../components/fees/feeUi';
 import { useMoney } from '../lib/useMoney';
 
@@ -274,7 +274,8 @@ export default function StudentProfile() {
   const fee = useMemo(() => fees.find((f) => f.student_id === id), [fees, id]);
   // Situation des frais via le moteur tarifaire (grille de classe + mode + échéances).
   const feeSituation = useMemo(
-    () => studentFeeSituation(fee, student ? getClassFeeGrid(student.class_id) : null),
+    () => studentFeeSituation(fee, student ? getClassFeeGrid(student.class_id) : null,
+      { applyInscription: inscriptionApplies(student) }),
     [fee, student, getClassFeeGrid]
   );
 

@@ -7,6 +7,7 @@ import { useT } from '../lib/i18n';
 import { resolveCountryCode } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import { createDocumentScale, pageDimsPx } from '../lib/documentScale';
+import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import '../styles/conseil.css';
 
 // Dimensionnement « standard » du procès-verbal (A4 portrait) — aucune taille fixe.
@@ -152,6 +153,7 @@ export default function ConseilDeClasse() {
   const saveGrade = useSchoolStore((s) => s.saveGrade);
 
   const [classId, setClassId] = useState('');
+  const [sectionF, setSectionF] = useState('');
   const [seq,     setSeq]     = useState(1);
   const [filter,  setFilter]  = useState('issues');   // all | issues | success | watch | risk | honors
   const [view,    setView]    = useState('cards');    // cards | table
@@ -321,11 +323,16 @@ export default function ConseilDeClasse() {
           {/* Sélecteurs + barre méta */}
           <div className="mt-5 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 flex flex-wrap items-end gap-4 border-b border-slate-100">
+              <SectionFilterSelect
+                classes={classes}
+                value={sectionF}
+                onChange={(v) => { setSectionF(v); if (classId && !inSection(classes.find((c) => c.id === classId), v)) { setClassId(''); setSeq(1); setFilter('issues'); setAssistId(null); } }}
+              />
               <div className="min-w-[200px]">
                 <label className="block text-xs font-semibold text-slate-500 mb-1.5">{t('Classe', 'Class')}</label>
                 <select className="form-input" value={classId} onChange={(e) => { setClassId(e.target.value); setSeq(1); setFilter('issues'); setAssistId(null); }}>
                   <option value="">— {t('Sélectionner', 'Select')} —</option>
-                  {classes.map((c) => (
+                  {classes.filter((c) => inSection(c, sectionF)).map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}{schoolLanguage === 'bilingue' ? ` [${c.system === 'EN' ? 'EN' : 'FR'}]` : ''}
                     </option>

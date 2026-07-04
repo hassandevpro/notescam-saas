@@ -8,8 +8,9 @@ import { useMoney } from '../../lib/useMoney';
 
 // ── Hook : état d'un formulaire de grille (partagé mono-classe / multi-classes) ─
 function useGridForm(grid) {
-  const [comptant,  setComptant]  = useState(String(grid?.amount_comptant  ?? ''));
-  const [echelonne, setEchelonne] = useState(String(grid?.amount_echelonne ?? ''));
+  const [comptant,    setComptant]    = useState(String(grid?.amount_comptant    ?? ''));
+  const [echelonne,   setEchelonne]   = useState(String(grid?.amount_echelonne   ?? ''));
+  const [inscription, setInscription] = useState(String(grid?.amount_inscription ?? ''));
   const [tranches,  setTranches]  = useState(
     (grid?.tranches ?? []).map((x) => ({ ...x, id: x.id || uuid() }))
   );
@@ -21,34 +22,35 @@ function useGridForm(grid) {
   const updateTranche = (id, field, value) =>
     setTranches((arr) => arr.map((x) => (x.id === id ? { ...x, [field]: value } : x)));
   const addTranche = () =>
-    setTranches((arr) => [...arr, { id: uuid(), label: arr.length === 0 ? 'Inscription' : `Tranche ${arr.length}`, amount: 0, due_date: '' }]);
+    setTranches((arr) => [...arr, { id: uuid(), label: `Tranche ${arr.length + 1}`, amount: 0, due_date: '' }]);
   const removeTranche = (id) => setTranches((arr) => arr.filter((x) => x.id !== id));
 
+  // L'échelonné = SCOLARITÉ pure, répartie en tranches égales. Les frais
+  // d'inscription ont désormais leur champ dédié (amount_inscription) : on ne crée
+  // donc plus de tranche « Inscription » ici (évite le doublon dans l'échéancier).
   const quickFill = () => {
     const total = echelonneNum || parseInt(comptant, 10) || 0;
     if (!total) return;
-    const insc = Math.round(total * 0.2);
-    const rest = total - insc;
-    const t1 = Math.round(rest / 3);
+    const t1 = Math.round(total / 3);
     setTranches([
-      { id: uuid(), label: 'Inscription', amount: insc, due_date: '' },
-      { id: uuid(), label: 'Tranche 1',   amount: t1,   due_date: '' },
-      { id: uuid(), label: 'Tranche 2',   amount: t1,   due_date: '' },
-      { id: uuid(), label: 'Tranche 3',   amount: rest - 2 * t1, due_date: '' },
+      { id: uuid(), label: 'Tranche 1', amount: t1,             due_date: '' },
+      { id: uuid(), label: 'Tranche 2', amount: t1,             due_date: '' },
+      { id: uuid(), label: 'Tranche 3', amount: total - 2 * t1, due_date: '' },
     ]);
   };
 
   // Payload normalisé prêt à enregistrer.
   const toPayload = () => ({
-    amount_comptant:  parseInt(comptant, 10)  || 0,
-    amount_echelonne: echelonneNum,
+    amount_comptant:    parseInt(comptant, 10)    || 0,
+    amount_echelonne:   echelonneNum,
+    amount_inscription: parseInt(inscription, 10) || 0,
     tranches: tranches
       .map((x) => ({ id: x.id, label: x.label?.trim() || 'Tranche', amount: parseInt(x.amount, 10) || 0, due_date: x.due_date || null }))
       .filter((x) => x.amount > 0 || x.label),
   });
 
   return {
-    comptant, setComptant, echelonne, setEchelonne, tranches,
+    comptant, setComptant, echelonne, setEchelonne, inscription, setInscription, tranches,
     echelonneNum, totalTranches, mismatch,
     updateTranche, addTranche, removeTranche, quickFill, toPayload,
   };
@@ -83,6 +85,24 @@ function GridFormFields({ form }) {
               value={form.echelonne} onChange={(e) => form.setEchelonne(e.target.value)} />
             <span className="text-sm text-gray-400">{money.code}</span>
           </div>
+        </div>
+      </div>
+
+      {/* Frais d'inscription : facturés en PLUS de la scolarité, uniquement aux
+          élèves « nouveaux dans l'établissement » (cf. statut d'inscription). */}
+      <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-4">
+        <label className="block text-xs font-semibold text-amber-700 uppercase tracking-wider mb-1">
+          {t("Frais d'inscription", 'Registration fee', 'Matrícula')}
+        </label>
+        <p className="text-[11px] text-amber-700/70 mb-2">
+          {t("Facturés en plus, une seule fois, aux nouveaux dans l'établissement",
+             'Charged once, on top, to students new to the school',
+             'Se cobra una vez, aparte, a los nuevos en el centro')}
+        </p>
+        <div className="flex items-center gap-2 max-w-[240px]">
+          <input type="number" min="0" step="500" className="form-input" placeholder="Ex : 25 000"
+            value={form.inscription} onChange={(e) => form.setInscription(e.target.value)} />
+          <span className="text-sm text-gray-400">{money.code}</span>
         </div>
       </div>
 
@@ -317,6 +337,7 @@ export default function FeeGridsTab({ classes, students, focusClassId, onFocusHa
                 <th className="px-5 py-3 text-left">{t('Classe', 'Class', 'Clase')}</th>
                 <th className="px-4 py-3 text-right">{t('Comptant', 'Lump sum', 'Contado')}</th>
                 <th className="px-4 py-3 text-right">{t('Échelonné', 'Installments', 'A plazos')}</th>
+                <th className="px-4 py-3 text-right">{t('Inscription', 'Registration', 'Matrícula')}</th>
                 <th className="px-4 py-3 text-center">{t('Tranches', 'Installments', 'Plazos')}</th>
                 <th className="px-4 py-3 text-center">{t('Action', 'Action', 'Acción')}</th>
               </tr>
@@ -336,6 +357,9 @@ export default function FeeGridsTab({ classes, students, focusClassId, onFocusHa
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-brand-700">
                       {grid?.amount_echelonne ? money(grid.amount_echelonne) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-amber-700">
+                      {grid?.amount_inscription ? money(grid.amount_inscription) : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3 text-center text-gray-500">
                       {grid?.tranches?.length ? grid.tranches.length : <span className="text-gray-300">—</span>}

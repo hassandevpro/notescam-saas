@@ -37,12 +37,15 @@ function ensureColumn(table, column, ddl) {
 }
 ensureColumn('subjects', 'position', 'position INTEGER');   // ordre des matières sur le bulletin
 ensureColumn('students', 'photo_url', 'photo_url TEXT');    // photo de l'élève
+ensureColumn('students', 'statut_etablissement', 'statut_etablissement TEXT'); // nouveau/ancien dans l'établissement → frais d'inscription
 // Frais flexibles : instantané des tranches + mode de paiement figé + ajustements
 // (bourses/remises). Sur bases LAN déjà installées, ces colonnes manquaient et
 // pickColumns avalait silencieusement les tranches (donnée perdue au rechargement).
 ensureColumn('student_fees', 'tranches',     "tranches TEXT NOT NULL DEFAULT '[]'");
 ensureColumn('student_fees', 'payment_mode', 'payment_mode TEXT');
 ensureColumn('student_fees', 'adjustments',  "adjustments TEXT NOT NULL DEFAULT '[]'");
+// Frais d'inscription par classe (facturés en plus aux nouveaux dans l'établissement).
+ensureColumn('class_fee_grids', 'amount_inscription', 'amount_inscription INTEGER NOT NULL DEFAULT 0');
 ensureColumn('timetable_slots', 'room', 'room TEXT');       // salle du cours (Vue Salle + conflits de salle)
 // Affectation des enseignants (titulaire de classe + prof par matière). Absentes
 // du 1er schéma LAN -> sans elles, pickColumns avalait teacher_id en silence et

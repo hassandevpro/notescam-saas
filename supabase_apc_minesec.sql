@@ -207,7 +207,8 @@ ALTER TABLE public.schools
 ALTER TABLE public.schools DROP CONSTRAINT IF EXISTS schools_bulletin_engine_chk;
 ALTER TABLE public.schools
   ADD CONSTRAINT schools_bulletin_engine_chk
-  CHECK (bulletin_engine IN ('classic', 'apc_minesec', 'minesec'));
+  CHECK (bulletin_engine IN
+    ('classic','officiel','apc_minesec','minesec','minedub','maternelle','apc_primaire'));
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 5) RLS

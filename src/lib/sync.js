@@ -83,6 +83,11 @@ async function replayItem(item) {
       // l'assainissement (sinon ils échouent indéfiniment à chaque sync).
       p = { ...p };
       if (p.hire_date === '') p.hire_date = null;
+    } else if (table === 'subjects' && p.max == null) {
+      // `subjects.max` est NOT NULL côté base. La maternelle (évaluée par cotes
+      // A/ECA/NA, sans note numérique) matérialisait ses domaines avec max=null →
+      // upsert rejeté et bloqué en file. Placeholder /20 jamais lu en maternelle.
+      p = { ...p, max: 20 };
     }
     let { error } = await supabase
       .from(table)

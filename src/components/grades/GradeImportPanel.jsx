@@ -68,18 +68,18 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">{t('Importer des notes depuis CSV', 'Import grades from CSV')}</h2>
+        <h2 className="text-lg font-semibold text-gray-900">{t('Importer des notes (Excel/CSV)', 'Import grades (Excel/CSV)')}</h2>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
       </div>
 
       {!preview && (
         <div className="text-center py-8">
           <p className="text-sm text-gray-500 mb-4">
-            {t('Sélectionnez un fichier CSV exporté depuis cette page.', 'Select a CSV file exported from this page.')}<br />
+            {t('Sélectionnez un fichier Excel ou CSV exporté depuis cette page.', 'Select an Excel or CSV file exported from this page.')}<br />
             <span className="text-xs text-gray-400">{t('Format : Élève, Matière /max, …, Moyenne', 'Format: Student, Subject /max, …, Average')}</span>
           </p>
-          <button onClick={() => fileRef.current?.click()} className="btn-primary">{t('Choisir un fichier CSV', 'Choose a CSV file')}</button>
-          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+          <button onClick={() => fileRef.current?.click()} className="btn-primary">{t('Choisir un fichier', 'Choose a file')}</button>
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
         </div>
       )}
 
@@ -135,7 +135,7 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
               {importing ? t('Importation…', 'Importing…') : `${t('Importer', 'Import')} ${matched.length} ${matched.length > 1 ? t('élèves', 'students') : t('élève', 'student')}`}
             </button>
             <button onClick={resetFile} className="btn-secondary">{t('Changer de fichier', 'Change file')}</button>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
           </div>
         </>
       )}

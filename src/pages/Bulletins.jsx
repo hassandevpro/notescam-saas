@@ -18,7 +18,13 @@ import BulletinTheme from '../components/bulletins/BulletinTheme';
 import BulletinApcOfficial from '../components/bulletins/BulletinApcOfficial';
 import BulletinApcAnnual from '../components/bulletins/BulletinApcAnnual';
 import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
-import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug } from '../core/engineResolver';
+import BulletinPrimOfficial from '../components/bulletins/BulletinPrimOfficial';
+import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
+import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
+import { competencesForNiveau, bulletinRows as primBulletinRows, competenceAverage as primCompetenceAverage, generalAverage as primGeneralAverage, primCote, buildPrimRanks, PRIM_COTE_DEFAULT } from '../core/primEngine';
+import { domainesForMaternelle } from '../core/matEngine';
+import { obsNkey } from '../lib/matService';
+import { primNkey } from '../lib/primService';
 import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
 import { buildApcRanks, sequencesOfTrimestre, SEQ_TO_TRIM } from '../core/apcEngine';
 import { assembleScBulletin, scDisciplineConseil, matieresForSerieClasse } from '../core/scEngine';
@@ -1532,6 +1538,12 @@ export default function Bulletins() {
   const loadApc        = useSchoolStore((s) => s.loadApc);
   const scReferentiel  = useSchoolStore((s) => s.scReferentiel);
   const loadSc         = useSchoolStore((s) => s.loadSc);
+  const matReferentiel  = useSchoolStore((s) => s.matReferentiel);
+  const matObservations = useSchoolStore((s) => s.matObservations);
+  const loadMat         = useSchoolStore((s) => s.loadMat);
+  const primReferentiel = useSchoolStore((s) => s.primReferentiel);
+  const primNotes       = useSchoolStore((s) => s.primNotes);
+  const loadPrim        = useSchoolStore((s) => s.loadPrim);
 
   const myTeacher       = role === 'teacher' ? teachers.find((t) => t.id === teacherId) : null;
 
@@ -1558,6 +1570,7 @@ export default function Bulletins() {
   const setFormat    = useUiStore((s) => s.setBulletinsFormat);
 
   const [printAll,        setPrintAll]        = useState(false);
+  const [sectionFilter,   setSectionFilter]   = useState('');
   const [showOrderModal,  setShowOrderModal]  = useState(false);
   const [sidebarSearch,   setSidebarSearch]   = useState('');
   const [screenshotBlur,  setScreenshotBlur]  = useState(false);
@@ -1572,6 +1585,22 @@ export default function Bulletins() {
   });
 
   const selectedClass = classes.find((c) => c.id === classId) || null;
+
+  // ── Filtre par SECTION (raccourcit le sélecteur de classe) ───────────────────
+  // On choisit d'abord la section (maternelle / primaire / 1er cycle / 2nd cycle)
+  // puis la classe filtrée. École mono-section → auto-sélectionnée.
+  const availableSections = useMemo(() => {
+    const present = new Set(classes.map(classSectionKey));
+    return SECTIONS.filter((s) => present.has(s.key));
+  }, [classes]);
+  const effectiveSection = sectionFilter
+    || (selectedClass ? classSectionKey(selectedClass) : '')
+    || (availableSections.length === 1 ? availableSections[0].key : '');
+  const visibleClasses = useMemo(
+    () => (effectiveSection ? classes.filter((c) => classSectionKey(c) === effectiveSection) : []),
+    [classes, effectiveSection],
+  );
+
   const cycle         = selectedClass?.cycle || 'secondaire';
   const sys           = selectedClass?.system || 'FR';
   // Moteur pédagogique résolu PAR CLASSE : 'classic' | 'apc' | 'sc'. Les bulletins
@@ -1582,16 +1611,24 @@ export default function Bulletins() {
   // imprimables (window.print), comme les autres bulletins — plus d'export PDF lourd.
   const isApc         = classEngine === 'apc';
   const isSc          = classEngine === 'sc';
+  const isPrim        = classEngine === 'apc_primaire';   // primaire APC (compétences /10)
+  const isMat         = classEngine === 'maternelle';     // maternelle (domaines A/ECA/NA)
   // Les bulletins officiels MINESEC sont des FORMATS de plus (à côté de Classique/
   // Moderne/APC), pas un remplacement : affichés seulement si l'utilisateur les
   // choisit. APC (1er cycle) → 'apc_officiel' ; Second Cycle (lycée) → 'sc_officiel'.
   const showApcOfficial = isApc && format === 'apc_officiel';
   const showScOfficial  = isSc  && format === 'sc_officiel';
+  const showPrimOfficial = isPrim && format === 'prim_officiel';
+  const showMatOfficial  = isMat  && format === 'mat_officiel';
   // On ajoute l'option officielle adaptée à la classe sans retirer les autres.
   const formatsForClass = isApc
     ? [...FORMATS, { key: 'apc_officiel', label: t('APC officiel', 'Official APC'), icon: '🏛️' }]
     : isSc
       ? [...FORMATS, { key: 'sc_officiel', label: t('2nd cycle officiel', 'Official 2nd cycle'), icon: '🏛️' }]
+    : isPrim
+      ? [...FORMATS, { key: 'prim_officiel', label: t('Primaire APC officiel', 'Official Primary APC'), icon: '🏛️' }]
+    : isMat
+      ? [...FORMATS, { key: 'mat_officiel', label: t('Maternelle officiel', 'Official Nursery'), icon: '🏛️' }]
       : FORMATS;
   // Options de notation GE (échelle /10 ou /20, coef primaire) — {} hors GE.
   const gOpts         = gradingOpts(school, cycle);
@@ -1607,6 +1644,13 @@ export default function Bulletins() {
   // Résolution du pays — pilote la liste des périodes au-delà de FR/EN.
   const schoolCountryCode = resolveCountryCode(school);
 
+  // Nature de la classe résolue par la SECTION (détectée par le nom → fiable même si
+  // le champ `cycle` en base est erroné) + les moteurs résolus. Maternelle & primaire
+  // fonctionnent par TRIMESTRE ; collège/lycée par séquences (ou terms en anglais).
+  const selClassSection  = classSectionKey(selectedClass);
+  const isFundamentalClass = isMat || isPrim || selClassSection === 'maternelle' || selClassSection === 'primaire';
+  const isSecondaryClass   = !isFundamentalClass && (isApc || isSc || cycle === 'secondaire' || selClassSection === 'premier_cycle' || selClassSection === 'second_cycle');
+
   const periodsForClass =
     // APC officiel : 6 séquences + 3 trimestres + annuel, quel que soit le système
     // (le référentiel MINESEC est trimestriel à 2 séquences ; l'annuel agrège T1/T2/T3).
@@ -1614,7 +1658,7 @@ export default function Bulletins() {
       ? PERIODS
       : schoolCountryCode === 'guinea_eq'
         ? PERIODS_GE
-        : cycle !== 'secondaire'
+        : isFundamentalClass
           ? PERIODS_PRIMAIRE
           : sys === 'EN' ? PERIODS_EN : PERIODS;
   const period = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0];
@@ -1723,6 +1767,108 @@ export default function Bulletins() {
   // Prêt à afficher : référentiel chargé + classe reconnue 1er cycle + des élèves.
   const apcReady = isApc && !!apcReferentiel && !!apcClasseSlug && classStudents.length > 0;
 
+  // ── PRIMAIRE APC (SIL–CM2) — données du bulletin officiel (aperçu écran) ─────
+  useEffect(() => { if (isPrim) loadPrim(); }, [isPrim, loadPrim]);
+  const primNiveauSlug = isPrim ? primaireNiveauSlug(selectedClass?.level, selectedClass?.name) : null;
+  const PRIM_GRADE_MAX = 10;
+  const primAnnual = isPrim && period.value === 'annuel'; // moyenne annuelle = T1·T2·T3
+  // Trimestre(s) couvert(s) par la période courante.
+  const primTrimIds = primAnnual ? ['t1', 't2', 't3'] : [`t${period.seqs?.[0] || 1}`];
+  const primCriteres = useMemo(
+    () => (primReferentiel?.criteres || []).slice().sort((a, b) => (a.ordre || 0) - (b.ordre || 0)),
+    [primReferentiel],
+  );
+  const primBareme = primReferentiel?.bareme?.length ? primReferentiel.bareme : PRIM_COTE_DEFAULT;
+
+  // Notes { [critere_id]: note } d'un élève, pour une compétence × un trimestre.
+  const primNotesForComp = (eleveId, compId, trimId) => {
+    const out = {};
+    for (const cr of primCriteres) {
+      const r = primNotes[primNkey(eleveId, compId, cr.id, trimId)];
+      if (r?.note != null && r.note !== '') out[cr.id] = r.note;
+    }
+    return out;
+  };
+
+  // Moyenne d'une compétence sur la période : trimestre unique OU moyenne des
+  // moyennes trimestrielles notées (annuel).
+  const primCompAvg = (eleveId, compId) => {
+    const perTrim = primTrimIds
+      .map((tid) => primCompetenceAverage(primNotesForComp(eleveId, compId, tid), primCriteres))
+      .filter((v) => v != null);
+    if (!perTrim.length) return null;
+    return Math.round((perTrim.reduce((a, b) => a + b, 0) / perTrim.length) * 100) / 100;
+  };
+
+  const primDataById = useMemo(() => {
+    if (!isPrim || !primReferentiel || !primNiveauSlug) return {};
+    const comps = competencesForNiveau(primReferentiel, primNiveauSlug);
+    const out = {};
+    for (const s of classStudents) {
+      const rows = comps.map((c) => {
+        const moyenne = primCompAvg(s.id, c.id);
+        const coef = c.coefficient == null ? 1 : Number(c.coefficient) || 1;
+        const cote = primCote(moyenne, PRIM_GRADE_MAX, primBareme);
+        return { code: c.code, intitule: c.intitule, moyenne, coef, cote: cote ? cote.cote : null };
+      });
+      const moyenneGenerale = primGeneralAverage(rows.map((r) => ({ moyenne: r.moyenne, coef: r.coef })));
+      const cg = primCote(moyenneGenerale, PRIM_GRADE_MAX, primBareme);
+      out[s.id] = { rows, moyenneGenerale, coteGenerale: cg ? cg.cote : null };
+    }
+    return out;
+  }, [isPrim, primReferentiel, primNiveauSlug, primCriteres, classStudents, primNotes, primTrimIds.join(',')]);
+
+  const primRanks = useMemo(() => {
+    if (!isPrim) return {};
+    const avgById = {};
+    Object.entries(primDataById).forEach(([id, d]) => { avgById[id] = d?.moyenneGenerale ?? null; });
+    return Object.fromEntries(buildPrimRanks(classStudents, avgById).map((r) => [r.id, r.rang]));
+  }, [isPrim, primDataById, classStudents]);
+
+  const primClassStats = useMemo(() => {
+    if (!isPrim) return null;
+    const avgs = Object.values(primDataById).map((d) => d?.moyenneGenerale).filter((v) => v != null);
+    if (!avgs.length) return null;
+    const sum = avgs.reduce((a, b) => a + b, 0);
+    return {
+      min: Math.min(...avgs), max: Math.max(...avgs),
+      avg: Math.round((sum / avgs.length) * 100) / 100, count: avgs.length,
+      rate: Math.round((avgs.filter((a) => a >= PRIM_GRADE_MAX / 2).length / avgs.length) * 100),
+    };
+  }, [isPrim, primDataById]);
+
+  const primTitle = (() => {
+    const n = period.seqs?.[0] || 1;
+    if (period.value === 'annuel') return 'BULLETIN ANNUEL — PRIMAIRE APC';
+    return `BULLETIN DU ${['PREMIER', 'DEUXIÈME', 'TROISIÈME'][n - 1] || ''} TRIMESTRE — PRIMAIRE APC`;
+  })();
+  const primReady = isPrim && !!primReferentiel && !!primNiveauSlug && classStudents.length > 0;
+
+  // ── MATERNELLE (PS/MS/GS) — données du bulletin officiel (aperçu écran) ──────
+  useEffect(() => { if (isMat) loadMat(); }, [isMat, loadMat]);
+  const matTrimId = `t${period.seqs?.[0] || 1}`;
+  const matDomaines = useMemo(() => domainesForMaternelle(matReferentiel), [matReferentiel]);
+
+  const matDataById = useMemo(() => {
+    if (!isMat || !matReferentiel) return {};
+    const out = {};
+    for (const s of classStudents) {
+      out[s.id] = {
+        rows: matDomaines.map((d) => {
+          const r = matObservations[obsNkey(s.id, d.id, matTrimId)];
+          return { code: d.code, intitule: d.intitule, niveau: r?.niveau_acquis || '', observation: r?.observation || '' };
+        }),
+      };
+    }
+    return out;
+  }, [isMat, matReferentiel, matDomaines, classStudents, matObservations, matTrimId]);
+
+  const matTitle = (() => {
+    const n = period.seqs?.[0] || 1;
+    return `BULLETIN DU ${['PREMIER', 'DEUXIÈME', 'TROISIÈME'][n - 1] || ''} TRIMESTRE — MATERNELLE`;
+  })();
+  const matReady = isMat && !!matReferentiel && classStudents.length > 0;
+
   // ── Second Cycle (lycée) — données du bulletin officiel pour l'aperçu écran ──
   // SC réutilise le moteur de NOTES classique (subjects + gradeMap). On charge le
   // référentiel pour RÉSOUDRE le groupe (Groupe 1/2) et la charge horaire des
@@ -1819,10 +1965,13 @@ export default function Bulletins() {
     setStudentId('');
     setSidebarSearch('');
     const cls = classes.find((c) => c.id === classId);
-    const newCycle = cls?.cycle || 'secondaire';
     const newSys   = cls?.system || 'FR';
+    // Section détectée par le nom → trimestres pour maternelle/primaire, séquences
+    // (ou terms) pour collège/lycée. Robuste même si `cycle` en base est erroné.
+    const newSection = classSectionKey(cls);
+    const newFundamental = newSection === 'maternelle' || newSection === 'primaire' || (cls?.cycle && cls.cycle !== 'secondaire');
     if (schoolCountryCode === 'guinea_eq') setPeriodKey('trim_1');
-    else if (newCycle !== 'secondaire')    setPeriodKey('tri_1');
+    else if (newFundamental)               setPeriodKey('tri_1');
     else if (newSys === 'EN')              setPeriodKey('term_1');
     else                                   setPeriodKey('seq_1');
     // Format par défaut selon la classe (les autres formats restent disponibles) :
@@ -1831,7 +1980,9 @@ export default function Bulletins() {
     const newEngine = resolveClassEngine(school, cls);
     if (newEngine === 'apc')                                     setFormat('apc_officiel');
     else if (newEngine === 'sc')                                 setFormat('sc_officiel');
-    else if (format === 'apc_officiel' || format === 'sc_officiel') setFormat('classic');
+    else if (newEngine === 'apc_primaire')                       setFormat('prim_officiel');
+    else if (newEngine === 'maternelle')                         setFormat('mat_officiel');
+    else if (['apc_officiel', 'sc_officiel', 'prim_officiel', 'mat_officiel'].includes(format)) setFormat('classic');
   }, [classId, classes]);
 
   const ranks = useMemo(() => {
@@ -1848,7 +1999,24 @@ export default function Bulletins() {
   const passThreshold = showApcOfficial ? 10 : sys === 'ES' ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
 
   const admisCount = useMemo(() => {
-    if (cycle === 'maternelle' || !classStudents.length || !classSubjects.length) return null;
+    // Maternelle : pas de réussite/échec (évaluation par domaines, non chiffrée).
+    if (isMat || cycle === 'maternelle' || !classStudents.length) return null;
+    // Primaire APC : moyenne générale /10 issue du référentiel (seuil 5), PAS de gradeMap.
+    if (isPrim) {
+      return classStudents.filter((s) => {
+        const avg = primDataById[s.id]?.moyenneGenerale;
+        return avg != null && avg >= 5;
+      }).length;
+    }
+    // APC premier cycle : moyenne générale /20 issue du référentiel (seuil 10).
+    if (isApc) {
+      return classStudents.filter((s) => {
+        const avg = apcDataById[s.id]?.moyenneGenerale;
+        return avg != null && avg >= 10;
+      }).length;
+    }
+    // Classique / Second Cycle : moyenne calculée depuis les notes (gradeMap).
+    if (!classSubjects.length) return null;
     return classStudents.filter((s) => {
       const subjectGrades = {};
       classSubjects.forEach((sub) => {
@@ -1859,7 +2027,7 @@ export default function Bulletins() {
       const avg = getAvg(scores, classSubjects, sys, gOpts);
       return avg !== null && avg >= passThreshold;
     }).length;
-  }, [classStudents, classSubjects, classId, period.seqs, gradeMap, sys, cycle, passThreshold, gOpts.maxScale, gOpts.useCoef]);
+  }, [classStudents, classSubjects, classId, period.seqs, gradeMap, sys, cycle, passThreshold, gOpts.maxScale, gOpts.useCoef, isMat, isPrim, isApc, primDataById, apcDataById]);
 
   const bulletinDataFor = useCallback((student) => {
     const thisCycle = classes.find((c) => c.id === classId)?.cycle || 'secondaire';
@@ -1932,7 +2100,10 @@ export default function Bulletins() {
   const hasData = classSubjects.length > 0 && classStudents.length > 0;
   // Disponibilité de l'aperçu/impression : l'APC officiel s'appuie sur le référentiel
   // (pas sur classSubjects) ; les autres bulletins sur matières + élèves.
-  const canShow = showApcOfficial ? apcReady : hasData;
+  const canShow = showApcOfficial ? apcReady
+    : showPrimOfficial ? primReady
+    : showMatOfficial  ? matReady
+    : hasData;
 
   const countryCode = resolveCountryCode(school);
 
@@ -1972,6 +2143,41 @@ export default function Bulletins() {
         {apcAnnual
           ? <BulletinApcAnnual {...common} decision={apcDecisionLabel(student.id)} />
           : <BulletinApcOfficial {...common} />}
+      </WatermarkWrap>
+    );
+  };
+
+  // Rend le bulletin PRIMAIRE APC officiel d'un élève.
+  const renderPrimBulletin = (student) => {
+    const d = primDataById[student.id];
+    if (!d) return null;
+    return (
+      <WatermarkWrap key={student.id} active={f.watermark}>
+        <BulletinPrimOfficial
+          school={school} sys={sys} title={primTitle}
+          student={student} classLabel={selectedClass?.name || ''}
+          effectif={classStudents.length} profPrincipal={apcProfPrincipal}
+          rows={d.rows} moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
+          rang={primRanks[student.id]} classStats={primClassStats}
+          decision={period?.seqs?.length >= 3 ? apcDecisionLabel(student.id) : ''}
+        />
+      </WatermarkWrap>
+    );
+  };
+
+  // Rend le bulletin MATERNELLE officiel d'un élève.
+  const renderMatBulletin = (student) => {
+    const d = matDataById[student.id];
+    if (!d) return null;
+    return (
+      <WatermarkWrap key={student.id} active={f.watermark}>
+        <BulletinMatOfficial
+          school={school} sys={sys} title={matTitle}
+          student={student} classLabel={selectedClass?.name || ''}
+          effectif={classStudents.length} profPrincipal={apcProfPrincipal}
+          rows={d.rows}
+          decision={period?.seqs?.length >= 3 ? apcDecisionLabel(student.id) : ''}
+        />
       </WatermarkWrap>
     );
   };
@@ -2098,13 +2304,35 @@ export default function Bulletins() {
           </div>
         )}
 
-        {/* Sélecteurs classe + période */}
+        {/* Sélecteurs section + classe + période */}
         <div className="flex flex-wrap gap-4 mb-5 no-print">
+          {availableSections.length > 1 && (
+            <div className="flex-1 min-w-[180px] max-w-xs">
+              <label className="form-label">{t('Section', 'Section')}</label>
+              <select
+                className="form-input"
+                value={effectiveSection}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSectionFilter(v);
+                  if (selectedClass && classSectionKey(selectedClass) !== v) setClassId('');
+                }}
+              >
+                <option value="">{t('Choisir une section…', 'Choose a section…')}</option>
+                {availableSections.map((s) => (
+                  <option key={s.key} value={s.key}>{t(s.fr, s.en, s.es)}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="flex-1 min-w-[180px] max-w-xs">
             <label className="form-label">{t('Classe', 'Class')}</label>
-            <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)}>
-              <option value="">{t('Choisir…', 'Choose…')}</option>
-              {classes.map((c) => (
+            <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)} disabled={!effectiveSection}>
+              <option value="">
+                {effectiveSection ? t('Choisir…', 'Choose…') : t('Choisissez d’abord une section', 'Choose a section first')}
+              </option>
+              {visibleClasses.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}{schoolLanguage === 'bilingue' ? ` [${c.system === 'EN' ? 'EN /100' : 'FR /20'}]` : ''}
                 </option>
@@ -2112,9 +2340,9 @@ export default function Bulletins() {
             </select>
           </div>
 
-          {/* Période — cachée pour maternelle camerounaise (bulletin toujours annuel).
-              Guinea Ecuatorial : afficher même pour preescolar (3 trimestres officiels). */}
-          {classId && (cycle !== 'maternelle' || schoolCountryCode === 'guinea_eq') && (
+          {/* Période — affichée pour TOUTES les classes. Maternelle & primaire sont
+              par trimestre (le bulletin par domaines/compétences est trimestriel). */}
+          {classId && (
             <div className="flex-1 min-w-[180px] max-w-xs">
               <label className="form-label">{t('Période', 'Period')}</label>
               <select className="form-input" value={periodKey} onChange={(e) => setPeriodKey(e.target.value)}>
@@ -2145,7 +2373,7 @@ export default function Bulletins() {
                       <option value="anual">Anual (1T + 2T + 3T)</option>
                     </optgroup>
                   </>
-                ) : cycle === 'secondaire' && sys === 'EN' ? (
+                ) : isSecondaryClass && sys === 'EN' ? (
                   <>
                     <optgroup label="Terms">
                       {PERIODS_EN.filter((p) => p.value !== 'annuel').map((p) => (
@@ -2156,7 +2384,7 @@ export default function Bulletins() {
                       <option value="annuel">Annual (Term 1 + Term 2 + Term 3)</option>
                     </optgroup>
                   </>
-                ) : cycle === 'secondaire' ? (
+                ) : isSecondaryClass ? (
                   <>
                     <optgroup label={t('Séquences', 'Sequences')}>
                       {PERIODS.filter((p) => p.seqs.length === 1).map((p) => (
@@ -2181,10 +2409,10 @@ export default function Bulletins() {
             </div>
           )}
 
-          {cycle === 'maternelle' && classId && schoolCountryCode !== 'guinea_eq' && (
+          {isMat && classId && schoolCountryCode !== 'guinea_eq' && (
             <div className="flex items-end">
               <span className="px-3 py-2 rounded-lg text-xs font-semibold bg-rose-100 text-rose-700">
-                {t('Maternelle — bulletin compétences annuel', 'Pre-Primary — annual competency report')}
+                {t('Maternelle — bulletin par domaines (par trimestre)', 'Nursery — report by domains (per term)')}
               </span>
             </div>
           )}
@@ -2212,7 +2440,7 @@ export default function Bulletins() {
             <p className="text-gray-500 text-sm">{t('Sélectionnez une classe pour générer les bulletins.', 'Select a class to generate report cards.')}</p>
           </div>
         )}
-        {classId && !showApcOfficial && !hasData && (
+        {classId && !showApcOfficial && !showPrimOfficial && !showMatOfficial && !hasData && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
             {t('Cette classe manque de données. Vérifiez que des', 'This class has no data. Make sure')}{' '}
             <a href="/app/classes" className="font-semibold underline">
@@ -2230,6 +2458,27 @@ export default function Bulletins() {
               : classStudents.length === 0
                 ? t('Aucun élève dans cette classe.', 'No student in this class.')
                 : t('Référentiel APC en cours de chargement…', 'APC framework still loading…')}
+          </div>
+        )}
+
+        {/* Primaire APC officiel — le bulletin s'appuie sur le référentiel (compétences),
+            pas sur des matières classiques : on ne réclame donc pas classSubjects. */}
+        {classId && showPrimOfficial && !primReady && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
+            {!primNiveauSlug
+              ? t('Classe non reconnue comme primaire (SIL–CM2). Renommez la classe ou choisissez son niveau.', 'Class not recognized as primary (SIL–CM2). Rename the class or set its level.')
+              : classStudents.length === 0
+                ? t('Aucun élève dans cette classe.', 'No student in this class.')
+                : t('Référentiel primaire en cours de chargement…', 'Primary framework still loading…')}
+          </div>
+        )}
+
+        {/* Maternelle officiel — bulletin par domaines (référentiel), pas de matières classiques. */}
+        {classId && showMatOfficial && !matReady && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-sm text-amber-800">
+            {classStudents.length === 0
+              ? t('Aucun élève dans cette classe.', 'No student in this class.')
+              : t('Référentiel maternelle en cours de chargement…', 'Nursery framework still loading…')}
           </div>
         )}
 
@@ -2268,10 +2517,24 @@ export default function Bulletins() {
                 {classStudents
                   .filter((s) => !sidebarSearch || s.name.toLowerCase().includes(sidebarSearch.toLowerCase()))
                   .map((s) => {
-                    // APC officiel : moyenne/rang issus du moteur référentiel ; sinon moteur générique.
-                    const studentAvg = showApcOfficial ? (apcDataById[s.id]?.moyenneGenerale ?? null) : bulletinDataFor(s).studentAvg;
-                    const rankN      = showApcOfficial ? (apcRanks[s.id] === '—' ? null : apcRanks[s.id]) : bulletinDataFor(s).rank?.rankN;
-                    const isPassed = studentAvg !== null && studentAvg >= passThreshold;
+                    // Moyenne/rang lus dans la BONNE source selon le moteur : référentiel
+                    // pour maternelle/primaire/APC, gradeMap classique pour SC/classique.
+                    let studentAvg, rankN, passT = passThreshold;
+                    if (isMat) {
+                      studentAvg = null; rankN = null;
+                    } else if (isPrim) {
+                      studentAvg = primDataById[s.id]?.moyenneGenerale ?? null;
+                      rankN = primRanks[s.id] === '—' ? null : primRanks[s.id];
+                      passT = 5; // moyenne /10
+                    } else if (isApc || showApcOfficial) {
+                      studentAvg = apcDataById[s.id]?.moyenneGenerale ?? null;
+                      rankN = apcRanks[s.id] === '—' ? null : apcRanks[s.id];
+                      passT = 10; // moyenne /20
+                    } else {
+                      studentAvg = bulletinDataFor(s).studentAvg;
+                      rankN = bulletinDataFor(s).rank?.rankN;
+                    }
+                    const isPassed = studentAvg !== null && studentAvg >= passT;
                     const color    = avatarColor(s.name);
                     return (
                       <button
@@ -2380,7 +2643,27 @@ export default function Bulletins() {
 
               {showApcOfficial && printAll && classStudents.map((student) => renderApcBulletin(student))}
 
-              {!showApcOfficial && !showScOfficial && !printAll && selectedStudent && (() => {
+              {/* Primaire APC officiel (SIL–CM2) — aperçu écran imprimable. */}
+              {showPrimOfficial && !printAll && selectedStudent && renderPrimBulletin(selectedStudent)}
+              {showPrimOfficial && !printAll && !selectedStudent && (
+                <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100 no-print">
+                  <div className="text-4xl mb-3">🏛️</div>
+                  <p className="text-gray-500 text-sm">{t('Cliquez sur un élève pour afficher son bulletin primaire APC.', 'Click a student to view their primary APC report card.')}</p>
+                </div>
+              )}
+              {showPrimOfficial && printAll && classStudents.map((student) => renderPrimBulletin(student))}
+
+              {/* Maternelle officiel (PS/MS/GS) — aperçu écran imprimable. */}
+              {showMatOfficial && !printAll && selectedStudent && renderMatBulletin(selectedStudent)}
+              {showMatOfficial && !printAll && !selectedStudent && (
+                <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100 no-print">
+                  <div className="text-4xl mb-3">🏛️</div>
+                  <p className="text-gray-500 text-sm">{t('Cliquez sur un élève pour afficher son bulletin maternelle.', 'Click a student to view their nursery report card.')}</p>
+                </div>
+              )}
+              {showMatOfficial && printAll && classStudents.map((student) => renderMatBulletin(student))}
+
+              {!showApcOfficial && !showScOfficial && !showPrimOfficial && !showMatOfficial && !printAll && selectedStudent && (() => {
                 const data = bulletinDataFor(selectedStudent);
                 return (
                   <WatermarkWrap active={f.watermark}>
@@ -2401,14 +2684,14 @@ export default function Bulletins() {
                 );
               })()}
 
-              {!showApcOfficial && !showScOfficial && !printAll && !selectedStudent && (
+              {!showApcOfficial && !showScOfficial && !showPrimOfficial && !showMatOfficial && !printAll && !selectedStudent && (
                 <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100 no-print">
                   <div className="text-4xl mb-3">👤</div>
                   <p className="text-gray-500 text-sm">{t('Cliquez sur un élève dans la liste pour afficher son bulletin.', 'Click on a student in the list to view their report card.')}</p>
                 </div>
               )}
 
-              {!showApcOfficial && !showScOfficial && printAll && classStudents.map((student) => {
+              {!showApcOfficial && !showScOfficial && !showPrimOfficial && !showMatOfficial && printAll && classStudents.map((student) => {
                 const data = bulletinDataFor(student);
                 return (
                   <WatermarkWrap key={student.id} active={f.watermark}>

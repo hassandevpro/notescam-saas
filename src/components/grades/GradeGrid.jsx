@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useT } from '../../lib/i18n';
-import { validateGrade, gradeColor, observationFor } from '../../lib/gradeEntry';
+import { validateGrade, gradeColor, observationFor, displayGrade } from '../../lib/gradeEntry';
 
 // ── Tableau de saisie « enseignant de matière » ──────────────────────────────
 // Colonnes : N° · Matricule · Élève · Note · Observation (auto) · état.
@@ -50,7 +50,7 @@ export default function GradeGrid({
   const onKeyDown = (e, i, student) => {
     if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); commit(student, e.currentTarget); focusRow(i + 1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); commit(student, e.currentTarget); focusRow(i - 1); }
-    else if (e.key === 'Escape')  { e.currentTarget.value = scoresFor(student.id) ?? ''; markDirty(student.id, false); e.currentTarget.blur(); }
+    else if (e.key === 'Escape')  { e.currentTarget.value = displayGrade(scoresFor(student.id)); markDirty(student.id, false); e.currentTarget.blur(); }
   };
 
   // Coller une colonne Excel (valeurs séparées par des retours-ligne) remplit
@@ -70,7 +70,7 @@ export default function GradeGrid({
       if (v !== null) {
         onCommit(stu.id, v);
         const el = refs.current[startIndex + k];
-        if (el) el.value = v;
+        if (el) el.value = displayGrade(v);
         markDirty(stu.id, false);
       }
     });
@@ -124,8 +124,8 @@ export default function GradeGrid({
                         ref={(el) => { refs.current[i] = el; }}
                         type="text"
                         inputMode="decimal"
-                        defaultValue={val ?? ''}
-                        onChange={(e) => markDirty(s.id, (e.target.value ?? '') !== (scoresFor(s.id) ?? ''))}
+                        defaultValue={displayGrade(val)}
+                        onChange={(e) => markDirty(s.id, (e.target.value ?? '').replace('.', ',') !== displayGrade(scoresFor(s.id)))}
                         onBlur={(e) => commit(s, e.currentTarget)}
                         onKeyDown={(e) => onKeyDown(e, i, s)}
                         onPaste={(e) => onPaste(e, i)}

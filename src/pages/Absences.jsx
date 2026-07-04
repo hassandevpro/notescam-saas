@@ -7,6 +7,7 @@ import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
+import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,7 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
 
   const classId    = useUiStore((s) => s.absencesClassId);
   const setClassId    = useUiStore((s) => s.setAbsencesClassId);
+  const [sectionF, setSectionF] = useState('');
   const subjectId  = useUiStore((s) => s.absencesSubjectId);
   const setSubjectId  = useUiStore((s) => s.setAbsencesSubjectId);
   const date       = useUiStore((s) => s.absencesDate) || todayISO();
@@ -149,6 +151,13 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
       {/* Filtres */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <SectionFilterSelect
+            classes={classes}
+            value={sectionF}
+            onChange={(v) => { setSectionF(v); if (classId && !inSection(classes.find((c) => c.id === classId), v)) { setClassId(''); setSubjectId(''); setMarks({}); setExisting({}); } }}
+            label={t('Section', 'Section')}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+          />
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">{t('Classe *', 'Class *', 'Clase *')}</label>
             <select
@@ -157,7 +166,7 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
             >
               <option value="">{t('— Choisir —', '— Select —', '— Elegir —')}</option>
-              {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {classes.filter((c) => inSection(c, sectionF)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
@@ -280,6 +289,7 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
   const t              = useT();
   const filterClass    = useUiStore((s) => s.absencesStatsClassId);
   const setFilterClass = useUiStore((s) => s.setAbsencesStatsClassId);
+  const [sectionF, setSectionF] = useState('');
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo,   setDateTo]   = useState('');
@@ -337,6 +347,13 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
       {/* Filtres */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <SectionFilterSelect
+            classes={classes}
+            value={sectionF}
+            onChange={(v) => { setSectionF(v); if (filterClass && !inSection(classes.find((c) => c.id === filterClass), v)) setFilterClass(''); }}
+            label={t('Section', 'Section')}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+          />
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1.5">{t('Classe', 'Class', 'Clase')}</label>
             <select
@@ -345,7 +362,7 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
             >
               <option value="">{t('Toutes les classes', 'All classes', 'Todas las clases')}</option>
-              {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {classes.filter((c) => inSection(c, sectionF)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>

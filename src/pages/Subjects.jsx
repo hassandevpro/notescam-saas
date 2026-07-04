@@ -5,6 +5,7 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import { useT } from '../lib/i18n';
 import { useCountry, geGradeMax, gePrimaryUsesCoef } from '../lib/useCountry';
+import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 
 // Famille pédagogique (déduite du nom + catégorie) — pour les filtres rapides.
 function subjectFamily(name = '', catName = '') {
@@ -529,6 +530,9 @@ export default function Subjects() {
   const [savingCat,     setSavingCat]    = useState(false);
   const [search,        setSearch]       = useState('');
   const [classFilter,   setClassFilter]  = useState('');
+  const [sectionF,      setSectionF]     = useState('');
+  // Une matière appartient-elle à la section filtrée (via sa classe) ?
+  const secMatch = (cid) => inSection(classes.find((c) => c.id === cid), sectionF);
   const [familyF,       setFamilyF]      = useState('all');
 
   // Categories: from school settings, fallback to defaults
@@ -545,12 +549,12 @@ export default function Subjects() {
   const classesWithSubs = new Set(activeSubjects.map((s) => s.class_id)).size;
 
   // Search + class filter
-  const isFiltering = search.trim() !== '' || classFilter !== '';
+  const isFiltering = search.trim() !== '' || classFilter !== '' || sectionF !== '';
   const filteredSubjects = isFiltering
     ? activeSubjects.filter((s) => {
         const matchName  = search.trim() === '' || s.name.toLowerCase().includes(search.trim().toLowerCase());
         const matchClass = classFilter === '' || s.class_id === classFilter;
-        return matchName && matchClass;
+        return matchName && matchClass && secMatch(s.class_id);
       })
     : activeSubjects;
 
@@ -619,6 +623,7 @@ export default function Subjects() {
     const q = search.trim().toLowerCase();
     if (q && !s.name.toLowerCase().includes(q)) return false;
     if (classFilter && s.class_id !== classFilter) return false;
+    if (!secMatch(s.class_id)) return false;
     if (familyF === 'noteacher') return !s.teacher_id;
     if (familyF !== 'all' && subjectFamily(s.name, catNameOf(s)) !== familyF) return false;
     return true;
@@ -747,9 +752,15 @@ export default function Subjects() {
                   </button>
                 ))}
               </div>
+              <SectionFilterSelect
+                classes={classes}
+                value={sectionF}
+                onChange={(v) => { setSectionF(v); if (classFilter && !inSection(classes.find((c) => c.id === classFilter), v)) setClassFilter(''); }}
+                className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-indigo-400"
+              />
               <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-indigo-400">
                 <option value="">{t('Toutes les classes', 'All classes', 'Todas las clases')}</option>
-                {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {classes.filter((c) => inSection(c, sectionF)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
 

@@ -9,6 +9,7 @@ import { fetchDistinctYears } from '../lib/schoolService';
 import { backendOnline } from '../lib/edition';
 import { seedDemoYear, deleteDemoYear, getDemoClassIds } from '../lib/seedDemo';
 import { resolveCountryCode } from '../countries';
+import { isOfficialEngine } from '../core/engineResolver';
 import { initDB, classesDB } from '../lib/db';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import { buildRanks, clsStat, multiAvg, getAppreciation } from '../core/bulletinEngine';
@@ -333,12 +334,17 @@ export default function AcademicYear() {
   // Description de la démo adaptée au pays : Guinée Éq. = 2 classes ES / 3 trimestres,
   // Cameroun = 3 classes FR+EN / 6 séquences.
   const isGE            = resolveCountryCode(school) === 'guinea_eq';
-  const demoClassCount  = isGE ? 2 : 3;
-  const demoClassList   = isGE ? '5º Primaria A, 1º ESBA A' : '6ème A FR, 5ème B FR, Form 1 A EN';
-  const demoPeriodCount = isGE ? 3 : 6;
-  const demoPeriodWord  = isGE
-    ? t('trimestres', 'terms', 'trimestres')
-    : t('séquences', 'sequences', 'secuencias');
+  const isOfficiel      = isOfficialEngine(school?.bulletin_engine);
+  const demoClassCount  = isOfficiel ? 4 : isGE ? 2 : 3;
+  const demoClassList   = isOfficiel
+    ? 'Petite Section, CM2, 6ème A, Terminale C'
+    : isGE ? '5º Primaria A, 1º ESBA A' : '6ème A FR, 5ème B FR, Form 1 A EN';
+  const demoPeriodCount = isOfficiel ? 4 : isGE ? 3 : 6;
+  const demoPeriodWord  = isOfficiel
+    ? t('cycles maternelle→lycée, avec décisions de passage', 'cycles nursery→high school, with promotion decisions', 'ciclos, con decisiones de promoción')
+    : isGE
+      ? t('trimestres', 'terms', 'trimestres')
+      : t('séquences', 'sequences', 'secuencias');
 
   const handleSeedDemo = async () => {
     if (!school?.id) return;

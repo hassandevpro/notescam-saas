@@ -17,6 +17,7 @@ import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { isSequenceLocked } from '../../lib/lockService';
 import { noteNkey } from '../../lib/apcService';
 import { firstCycleClasseSlug } from '../../core/engineResolver';
+import SectionSelect from './SectionSelect';
 import {
   competencesFor, trimestreOfSequence, matiereAverage, apcCote, coefFor,
 } from '../../core/apcEngine';
@@ -214,6 +215,7 @@ export default function ApcCompetenceWorkspace() {
 
       {/* Sélecteurs */}
       <div className="flex flex-wrap items-end gap-3">
+        <SectionSelect classes={classes} classId={classId} setClassId={setClassId} />
         <label className="text-sm">
           <span className="block text-gray-500 mb-1">{t('Classe', 'Class')}</span>
           {renderClassPicker()}

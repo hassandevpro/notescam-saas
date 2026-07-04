@@ -3,16 +3,18 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { getAvg } from '../core/bulletinEngine';
-import { downloadCSV } from '../lib/exportCsv';
+import { downloadExcel } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT, localeForLang } from '../lib/i18n';
 import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../lib/lockService';
 import { useCountry, gradingOpts, geGradeMax, gradeEntryMode } from '../lib/useCountry';
-import { validateGrade, gradeColor } from '../lib/gradeEntry';
+import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
 import ApcCompetenceWorkspace from '../components/grades/ApcCompetenceWorkspace';
-import { resolveClassEngine } from '../core/engineResolver';
+import MatObservationWorkspace from '../components/grades/MatObservationWorkspace';
+import PrimCompetenceWorkspace from '../components/grades/PrimCompetenceWorkspace';
+import { resolveClassEngine, SECTIONS, classSectionKey } from '../core/engineResolver';
 
 const TERMS_EN = [
   { value: 1, label: 'Term 1' },
@@ -30,13 +32,14 @@ const CONDUITE_COLORS = { TB: '#7c3aed', B: '#059669', AB: '#0284c7', P: '#d9770
 
 // ── GradeCell ─────────────────────────────────────────────────────────────────
 function GradeCell({ initialValue, max, sys, onCommit }) {
-  const [local, setLocal] = useState(initialValue ?? '');
-  useEffect(() => { setLocal(initialValue ?? ''); }, [initialValue]);
+  const [local, setLocal] = useState(displayGrade(initialValue));
+  useEffect(() => { setLocal(displayGrade(initialValue)); }, [initialValue]);
 
   const handleBlur = () => {
     const validated = validateGrade(local, max);
-    if (validated === null) { setLocal(initialValue ?? ''); return; }
+    if (validated === null) { setLocal(displayGrade(initialValue)); return; }
     if (validated !== (initialValue ?? '')) onCommit(validated);
+    setLocal(displayGrade(validated)); // normalise l'affichage (virgule)
   };
 
   return (
@@ -459,7 +462,7 @@ function FastGradeEntry({ students, subject, scoresFor, onCommit, max, sys, lock
   const onKeyDown = (e, i, student) => {
     if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); commit(student, e.currentTarget); focusRow(i + 1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); commit(student, e.currentTarget); focusRow(i - 1); }
-    else if (e.key === 'Escape')  { e.currentTarget.value = scoresFor(student.id) ?? ''; e.currentTarget.blur(); }
+    else if (e.key === 'Escape')  { e.currentTarget.value = displayGrade(scoresFor(student.id)); e.currentTarget.blur(); }
   };
 
   // Coller une colonne Excel (valeurs séparées par des retours-ligne) remplit
@@ -479,7 +482,7 @@ function FastGradeEntry({ students, subject, scoresFor, onCommit, max, sys, lock
       if (v !== null) {
         onCommit(stu.id, v);
         const el = refs.current[startIndex + k];
-        if (el) el.value = v;
+        if (el) el.value = displayGrade(v);
       }
     });
     focusRow(Math.min(last + 1, students.length - 1));
@@ -514,7 +517,7 @@ function FastGradeEntry({ students, subject, scoresFor, onCommit, max, sys, lock
                 ref={(el) => { refs.current[i] = el; }}
                 type="text"
                 inputMode="decimal"
-                defaultValue={val ?? ''}
+                defaultValue={displayGrade(val)}
                 onBlur={(e) => commit(s, e.currentTarget)}
                 onKeyDown={(e) => onKeyDown(e, i, s)}
                 onPaste={(e) => onPaste(e, i)}
@@ -632,6 +635,37 @@ export default function Grades() {
       : <PrincipalGrades />;
   }
 
+  // Moteurs FONDAMENTAL MINEDUB : maternelle (PS/MS/GS → domaines A/ECA/NA) et
+  // primaire APC (SIL–CM2 → compétences × critères /10). Résolus PAR CLASSE ; tant
+  // qu'aucune classe fondamentale n'est choisie, l'écran classique (avec sélecteur)
+  // sert de point d'entrée et bascule seul.
+  if (engine === 'minedub' || engine === 'maternelle' || engine === 'apc_primaire') {
+    const selectedClass = classes.find((c) => c.id === classId) || null;
+    const classEngine = resolveClassEngine(school, selectedClass);
+    if (classEngine === 'maternelle')   return <Layout bleed><MatObservationWorkspace /></Layout>;
+    if (classEngine === 'apc_primaire') return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
+    // Enseignant en Mode 1 sans classe fondamentale encore résolue : le workspace
+    // primaire auto-sélectionne ses classes affectées (compétences).
+    if (role === 'teacher' && gradeEntryMode(school) === 'subject') {
+      return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
+    }
+    return <PrincipalGrades />;
+  }
+
+  // Mode UNIFIÉ 'officiel' : tous les cycles coexistent. Le poste de saisie est
+  // choisi selon le moteur résolu de la classe (maternelle → domaines, primaire →
+  // compétences, collège → APC ; lycée & classique → écran classique avec sélecteur
+  // section+classe). Tant qu'aucune classe fondamentale/APC n'est résolue, on tombe
+  // sur l'écran classique (ou le poste enseignant de matière) ci-dessous.
+  if (engine === 'officiel') {
+    const selectedClass = classes.find((c) => c.id === classId) || null;
+    const classEngine = resolveClassEngine(school, selectedClass);
+    if (classEngine === 'maternelle')   return <Layout bleed><MatObservationWorkspace /></Layout>;
+    if (classEngine === 'apc_primaire') return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
+    if (classEngine === 'apc')          return <Layout bleed><ApcCompetenceWorkspace /></Layout>;
+    // 'sc' (lycée) et 'classic' : saisie numérique classique — voir tail commun.
+  }
+
   if (role === 'teacher' && gradeEntryMode(school) === 'subject') {
     return <Layout bleed><SubjectTeacherWorkspace /></Layout>;
   }
@@ -689,6 +723,7 @@ function PrincipalGrades() {
   const setSubjectId  = useUiStore((s) => s.setGradesSubjectId);
 
   const [showImport,    setShowImport]    = useState(false);
+  const [sectionFilter, setSectionFilter] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
   const [gradePage,     setGradePage]     = useState(1);
   const [entryMode,     setEntryMode]     = useState(() => {
@@ -716,6 +751,23 @@ function PrincipalGrades() {
   }, [isTeacher, isSubjectTeacher, teacherClasses, myClassId, classes, classId]);
 
   const selectedClass = classes.find((c) => c.id === classId) || null;
+
+  // ── Filtre par SECTION (raccourcit le sélecteur de classe côté admin) ────────
+  // On ne propose que les sections réellement présentes ; une école mono-section
+  // n'a pas à choisir (auto-sélection). La section peut aussi être déduite de la
+  // classe déjà sélectionnée (persistée), pour rester cohérent au rechargement.
+  const availableSections = useMemo(() => {
+    const present = new Set(classes.map(classSectionKey));
+    return SECTIONS.filter((s) => present.has(s.key));
+  }, [classes]);
+  const effectiveSection = sectionFilter
+    || (selectedClass ? classSectionKey(selectedClass) : '')
+    || (availableSections.length === 1 ? availableSections[0].key : '');
+  const visibleClasses = useMemo(
+    () => (effectiveSection ? classes.filter((c) => classSectionKey(c) === effectiveSection) : []),
+    [classes, effectiveSection],
+  );
+
   const cycle         = selectedClass?.cycle || 'secondaire';
   const isMaternelle  = cycle === 'maternelle';
   const isPrimaire    = cycle === 'primaire';
@@ -888,10 +940,11 @@ function PrincipalGrades() {
       ...classStudents.map((student) => {
         const scores = getScores(student.id);
         const avg    = getAvg(scores, classSubjects, sys, gOpts);
-        return [student.name, ...classSubjects.map((sub) => scores[sub.id] ?? ''), avg != null ? avg.toFixed(2) : ''];
+        // Nombres réels → Excel les trie/calcule et affiche la virgule selon la locale.
+        return [student.name, ...classSubjects.map((sub) => gradeCell(scores[sub.id])), avg != null ? Math.round(avg * 100) / 100 : ''];
       }),
     ];
-    downloadCSV(`notes_${selectedClass?.name || 'classe'}_${seqLabel}_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    downloadExcel(`notes_${selectedClass?.name || 'classe'}_${seqLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`, rows, seqLabel);
   };
 
   const selectSubject = (id) => { setSubjectId(id); setStudentSearch(''); setGradePage(1); };
@@ -937,7 +990,7 @@ function PrincipalGrades() {
               {classId && classStudents.length > 0 && classSubjects.length > 0 && !isMaternelle && (
                 <div className="flex flex-wrap gap-2 no-print">
                   <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer CSV', 'Import CSV')}</button>
-                  <button onClick={handleExport} className="btn-secondary">{t('Exporter CSV', 'Export CSV')}</button>
+                  <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
                 </div>
               )}
             </div>
@@ -990,17 +1043,45 @@ function PrincipalGrades() {
               {classId && classStudents.length > 0 && classSubjects.length > 0 && !isMaternelle && (
                 <div className="flex flex-wrap gap-2 no-print">
                   <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer CSV', 'Import CSV')}</button>
-                  <button onClick={handleExport} className="btn-secondary">{t('Exporter CSV', 'Export CSV')}</button>
+                  <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
                 </div>
               )}
             </div>
 
             <div className="flex flex-wrap gap-3 mb-6">
+              {availableSections.length > 1 && (
+                <div className="w-full sm:flex-1 sm:max-w-xs">
+                  <label className="form-label">{t('Section', 'Section')}</label>
+                  <select
+                    className="form-input"
+                    value={effectiveSection}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setSectionFilter(v);
+                      // La classe sélectionnée change de section → on la réinitialise.
+                      if (selectedClass && classSectionKey(selectedClass) !== v) setClassId('');
+                    }}
+                  >
+                    <option value="">{t('Choisir une section…', 'Choose a section…')}</option>
+                    {availableSections.map((s) => (
+                      <option key={s.key} value={s.key}>{t(s.fr, s.en, s.es)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="w-full sm:flex-1 sm:max-w-xs">
                 <label className="form-label">{t('Classe', 'Class')}</label>
-                <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)}>
-                  <option value="">{t('Choisir une classe…', 'Choose a class…')}</option>
-                  {classes.map((c) => (
+                <select
+                  className="form-input"
+                  value={classId}
+                  onChange={(e) => setClassId(e.target.value)}
+                  disabled={!effectiveSection}
+                >
+                  <option value="">
+                    {effectiveSection ? t('Choisir une classe…', 'Choose a class…') : t('Choisissez d’abord une section', 'Choose a section first')}
+                  </option>
+                  {visibleClasses.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}{schoolLanguage === 'bilingue' && !isGE ? ` [${c.system === 'EN' ? 'EN /100' : 'FR /20'}]` : ''}
                     </option>

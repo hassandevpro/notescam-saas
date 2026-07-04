@@ -4,7 +4,8 @@ import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 import { useT, localeForLang } from '../../lib/i18n';
 import { useCountry, geGradeMax } from '../../lib/useCountry';
-import { downloadCSV } from '../../lib/exportCsv';
+import { downloadExcel } from '../../lib/exportCsv';
+import { gradeCell } from '../../lib/gradeEntry';
 import { isSequenceLocked, getLockInfo } from '../../lib/lockService';
 import GradeGrid from './GradeGrid';
 import GradeImportPanel from './GradeImportPanel';
@@ -152,9 +153,9 @@ export default function SubjectTeacherWorkspace() {
     const seqLabel = periods.find((p) => p.value === sequence)?.label || `Seq${sequence}`;
     const header = [t('Matricule', 'ID'), t('Élève', 'Student'), `${currentSubject.name} /${currentSubject.max}`];
     const rows = [header, ...classStudents.map((s) => [
-      s.matricule || '', s.name, (gradeMap[`${classId}_${s.id}_${sequence}`] || {})[currentSubject.id] ?? '',
+      s.matricule || '', s.name, gradeCell((gradeMap[`${classId}_${s.id}_${sequence}`] || {})[currentSubject.id]),
     ])];
-    downloadCSV(`notes_${currentSubject.name}_${selectedClass?.name || ''}_${seqLabel}.csv`, rows);
+    downloadExcel(`notes_${currentSubject.name}_${selectedClass?.name || ''}_${seqLabel}.xlsx`, rows, seqLabel);
   };
 
   // ── Rail des classes (réutilisé desktop + mobile) ──────────────────────────

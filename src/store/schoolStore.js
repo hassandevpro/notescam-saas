@@ -7,11 +7,15 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB } from '../lib/db';
 import { fetchReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
 import { fetchScReferentiel } from '../lib/scService';
+import { fetchMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
+import { fetchPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
+import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
+import { buildSubjectsForPrimClass } from '../lib/primAutoConfig';
 import { resolveClassEngine } from '../core/engineResolver';
 import { fetchPeriods } from '../lib/academicPeriodsService';
 import { deriveActiveSequence } from '../lib/periodLogic';
@@ -154,6 +158,12 @@ export const useSchoolStore = create((set, get) => ({
   // Moteur SECOND CYCLE MINESEC : référentiel séries/coefficients/groupes (cache
   // IDB → refresh cloud), chargé à la demande par Classes/Grades.
   scReferentiel: null,
+  // Moteurs FONDAMENTAL MINEDUB : référentiels + transactionnel chargés à la
+  // demande par les écrans de saisie. `matObservations`/`primNotes` = { [nkey]: record }.
+  matReferentiel:  null,
+  matObservations: {},
+  primReferentiel: null,
+  primNotes:       {},
   loading:      false,
   error:        null,
 
@@ -478,6 +488,108 @@ export const useSchoolStore = create((set, get) => ({
     return get().scReferentiel;
   },
 
+  // ── Moteur MATERNELLE (domaines / observations A·ECA·NA) ───────────────────
+  loadMat: async () => {
+    const { schoolId } = get();
+    if (!schoolId) return;
+    await initDB();
+    const [cachedRef, idbObs] = await Promise.all([
+      matRefDB.get().catch(() => null),
+      matObsDB.getAll().catch(() => []),
+    ]);
+    const obsMap = {};
+    for (const o of (idbObs || []).filter((o) => o.school_id === schoolId)) obsMap[o.nkey] = o;
+    set({ matReferentiel: cachedRef || null, matObservations: obsMap });
+
+    if (!backendOnline()) return;
+    const [ref, obs] = await Promise.all([fetchMatReferentiel(), fetchMatObservations(schoolId)]);
+    if (ref) {
+      const blob = { ...ref, id: 'referentiel' };
+      await matRefDB.put(blob).catch(() => {});
+      set({ matReferentiel: blob });
+    }
+    if (obs) {
+      const fresh = {};
+      const records = obs.map((o) => ({ ...o, nkey: obsNkey(o.eleve_id, o.domaine_id, o.trimestre_id) }));
+      for (const o of records) fresh[o.nkey] = o;
+      await matObsDB.putMany(records).catch(() => {});
+      set({ matObservations: fresh });
+    }
+  },
+
+  // Enregistre/écrase une observation (niveau A·ECA·NA + texte). IDB → cloud/queue.
+  saveMatObservation: async ({ eleveId, domaineId, trimestreId, niveauAcquis, observation }) => {
+    const { schoolId, matObservations } = get();
+    if (!schoolId) return;
+    const teacherId = useAuthStore.getState().teacherId || null;
+    const nkey = obsNkey(eleveId, domaineId, trimestreId);
+    const existing = matObservations[nkey];
+    const record = buildObsRecord({
+      id: existing?.id, schoolId, eleveId, domaineId, trimestreId,
+      enseignantId: teacherId, niveauAcquis, observation,
+    });
+    await matObsDB.put(record);
+    set({ matObservations: { ...get().matObservations, [nkey]: record } });
+    if (backendOnline()) {
+      upsertMatObservation(record).then((ok) => {
+        if (!ok) queueOffline({ table: 'mat_observations', operation: 'upsert', payload: record });
+      });
+    } else {
+      queueOffline({ table: 'mat_observations', operation: 'upsert', payload: record });
+    }
+  },
+
+  // ── Moteur PRIMAIRE APC (compétences × critères /10) ───────────────────────
+  loadPrim: async () => {
+    const { schoolId } = get();
+    if (!schoolId) return;
+    await initDB();
+    const [cachedRef, idbNotes] = await Promise.all([
+      primRefDB.get().catch(() => null),
+      primNotesDB.getAll().catch(() => []),
+    ]);
+    const notesMap = {};
+    for (const n of (idbNotes || []).filter((n) => n.school_id === schoolId)) notesMap[n.nkey] = n;
+    set({ primReferentiel: cachedRef || null, primNotes: notesMap });
+
+    if (!backendOnline()) return;
+    const [ref, notes] = await Promise.all([fetchPrimReferentiel(), fetchPrimNotes(schoolId)]);
+    if (ref) {
+      const blob = { ...ref, id: 'referentiel' };
+      await primRefDB.put(blob).catch(() => {});
+      set({ primReferentiel: blob });
+    }
+    if (notes) {
+      const fresh = {};
+      const records = notes.map((n) => ({ ...n, nkey: primNkey(n.eleve_id, n.competence_id, n.critere_id, n.trimestre_id) }));
+      for (const n of records) fresh[n.nkey] = n;
+      await primNotesDB.putMany(records).catch(() => {});
+      set({ primNotes: fresh });
+    }
+  },
+
+  // Enregistre/écrase une note (compétence × critère × trimestre). IDB → cloud/queue.
+  savePrimNote: async ({ eleveId, competenceId, critereId, trimestreId, note }) => {
+    const { schoolId, primNotes } = get();
+    if (!schoolId) return;
+    const teacherId = useAuthStore.getState().teacherId || null;
+    const nkey = primNkey(eleveId, competenceId, critereId, trimestreId);
+    const existing = primNotes[nkey];
+    const record = buildPrimNoteRecord({
+      id: existing?.id, schoolId, eleveId, competenceId, critereId, trimestreId,
+      enseignantId: teacherId, note,
+    });
+    await primNotesDB.put(record);
+    set({ primNotes: { ...get().primNotes, [nkey]: record } });
+    if (backendOnline()) {
+      upsertPrimNote(record).then((ok) => {
+        if (!ok) queueOffline({ table: 'prim_notes', operation: 'upsert', payload: record });
+      });
+    } else {
+      queueOffline({ table: 'prim_notes', operation: 'upsert', payload: record });
+    }
+  },
+
   // ── Academic year promotion ──────────────────────────────────────────────
 
   promoteYear: async () => {
@@ -623,9 +735,12 @@ export const useSchoolStore = create((set, get) => ({
       queueOffline({ table: 'classes', operation: 'upsert', payload: record });
     }
     // Auto-configuration des matières selon le moteur de la classe (no-op si non
-    // concerné) : SECOND CYCLE (série) ou PREMIER CYCLE APC (6e–3e).
+    // concerné) : SECOND CYCLE (série), PREMIER CYCLE APC (6e–3e), MATERNELLE
+    // (PS/MS/GS → domaines) ou PRIMAIRE APC (SIL…CM2 → compétences nationales).
     await get().autoConfigSecondCycle(record);
     await get().autoConfigApc(record);
+    await get().autoConfigMat(record);
+    await get().autoConfigPrim(record);
     return record;
   },
 
@@ -655,12 +770,61 @@ export const useSchoolStore = create((set, get) => ({
     return { created: subs.length };
   },
 
+  // Crée les `subjects` (domaines) d'une classe MATERNELLE depuis le référentiel
+  // MINEDUB. No-op si la classe n'est pas résolue 'maternelle' ou déjà configurée.
+  autoConfigMat: async (cls) => {
+    const school = useAuthStore.getState().school;
+    if (resolveClassEngine(school, cls) !== 'maternelle') return { created: 0 };
+    let ref = get().matReferentiel;
+    if (!ref) { await get().loadMat(); ref = get().matReferentiel; }
+    const subs = buildSubjectsForMatClass({ referentiel: ref, school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
+  // Crée les `subjects` (compétences nationales) d'une classe PRIMAIRE APC depuis
+  // le référentiel MINEDUB. No-op si non résolue 'apc_primaire' ou déjà configurée.
+  autoConfigPrim: async (cls) => {
+    const school = useAuthStore.getState().school;
+    if (resolveClassEngine(school, cls) !== 'apc_primaire') return { created: 0 };
+    let ref = get().primReferentiel;
+    if (!ref) { await get().loadPrim(); ref = get().primReferentiel; }
+    const subs = buildSubjectsForPrimClass({ referentiel: ref, school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
   // Crée les `subjects` officiels d'une classe de second cycle depuis le
   // référentiel MINESEC. No-op si l'école n'est pas en 'minesec' ou si la classe
   // n'est pas un niveau lycée avec série. Renvoie { created }.
   autoConfigSecondCycle: async (cls) => {
     const school = useAuthStore.getState().school;
-    if (school?.bulletin_engine !== 'minesec' || !cls?.serie) return { created: 0 };
+    // Résolu PAR CLASSE : marche pour 'minesec' comme pour le mode unifié 'officiel'.
+    if (resolveClassEngine(school, cls) !== 'sc' || !cls?.serie) return { created: 0 };
     const ref = get().scReferentiel || await get().loadSc();
     const subs = buildSubjectsForClass({ referentiel: ref, school, cls, makeId: uuid });
     if (!subs.length) return { created: 0 };
@@ -686,7 +850,9 @@ export const useSchoolStore = create((set, get) => ({
   configureClassSubjects: async (cls) => {
     const r1 = await get().autoConfigSecondCycle(cls);
     const r2 = await get().autoConfigApc(cls);
-    return { created: (r1?.created || 0) + (r2?.created || 0) };
+    const r3 = await get().autoConfigMat(cls);
+    const r4 = await get().autoConfigPrim(cls);
+    return { created: (r1?.created || 0) + (r2?.created || 0) + (r3?.created || 0) + (r4?.created || 0) };
   },
 
   updateClass: async (id, data) => {
@@ -1195,7 +1361,7 @@ export const useSchoolStore = create((set, get) => ({
   // --- Class fee grids (grilles tarifaires) ---
 
   // Crée / met à jour la grille tarifaire d'une classe pour l'année active.
-  // gridData : { class_id, amount_comptant, amount_echelonne, tranches[], notes }
+  // gridData : { class_id, amount_comptant, amount_echelonne, amount_inscription, tranches[], notes }
   saveClassFeeGrid: async (gridData) => {
     const { schoolId, activeYear, classFeeGrids } = get();
     const year = activeYear || gridData.academic_year;
@@ -1207,8 +1373,9 @@ export const useSchoolStore = create((set, get) => ({
       school_id:        schoolId,
       class_id:         gridData.class_id,
       academic_year:    year,
-      amount_comptant:  parseInt(gridData.amount_comptant, 10)  || 0,
-      amount_echelonne: parseInt(gridData.amount_echelonne, 10) || 0,
+      amount_comptant:   parseInt(gridData.amount_comptant, 10)   || 0,
+      amount_echelonne:  parseInt(gridData.amount_echelonne, 10)  || 0,
+      amount_inscription: parseInt(gridData.amount_inscription, 10) || 0,
       tranches:         Array.isArray(gridData.tranches) ? gridData.tranches : (existing?.tranches ?? []),
       currency:         gridData.currency ?? existing?.currency ?? 'XAF',
       notes:            gridData.notes ?? existing?.notes ?? null,

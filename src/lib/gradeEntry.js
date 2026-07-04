@@ -18,6 +18,25 @@ export function validateGrade(raw, max) {
   return String(Math.round(n * 100) / 100);
 }
 
+// Formate une note stockée (point décimal interne) pour l'AFFICHAGE avec la
+// virgule décimale attendue au Cameroun : "12.5" → "12,5". Le stockage garde
+// le point (compatible parseFloat / calculs) ; seule la vue utilise la virgule.
+// '', null, 'ABS' passent tels quels.
+export function displayGrade(val) {
+  if (val === undefined || val === null || val === '') return '';
+  return String(val).replace('.', ',');
+}
+
+// Convertit une note stockée en cellule de tableur « prête à l'emploi » :
+// nombre réel si numérique (Excel la trie/somme et l'affiche selon la locale),
+// 'ABS' conservé en texte, vide sinon.
+export function gradeCell(val) {
+  if (val === undefined || val === null || val === '') return '';
+  if (String(val).toUpperCase() === 'ABS') return 'ABS';
+  const n = parseFloat(String(val).replace(',', '.'));
+  return isNaN(n) ? val : n;
+}
+
 // Classe Tailwind de couleur selon la réussite (seuil = moitié du barème).
 export function gradeColor(val, max, sys) {
   if (!val || val === '') return 'text-gray-300';

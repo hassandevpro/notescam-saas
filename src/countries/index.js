@@ -70,9 +70,13 @@ export function defaultLangForCountry(countryCode) {
 // chaque block = { republic, motto, ministry, lines: [string], establishment }.
 // {region}/{division} sont remplis depuis l'établissement ; le numéro de
 // l'établissement (school.establishment_no) est ajouté SOUS les délégations.
-export function bulletinOfficials(school) {
+// opts.basic : bulletin du FONDAMENTAL (maternelle / primaire) → tutelle MINEDUB
+// (Ministère de l'Éducation de Base) au lieu du MINESEC par défaut, si le pays
+// fournit des variantes `ministryBasic`/`delegationsBasic`.
+export function bulletinOfficials(school, opts = {}) {
   const off = getCountry(school)?.officials;
   if (!off) return null;
+  const basic = !!opts.basic;
 
   const fill = (s) => String(s ?? '')
     .replace(/\{region\}/g,   school?.region   || '—')
@@ -80,14 +84,16 @@ export function bulletinOfficials(school) {
 
   const buildBlock = (b) => {
     if (!b) return null;
-    const lines = (b.delegations || []).map(fill);
+    const delegations = basic && b.delegationsBasic ? b.delegationsBasic : b.delegations;
+    const ministry    = basic && b.ministryBasic    ? b.ministryBasic    : b.ministry;
+    const lines = (delegations || []).map(fill);
     const establishment = school?.establishment_no
       ? `${b.estLabel || 'N° :'} ${school.establishment_no}`
       : null;
     return {
       republic: b.republic,
       motto:    b.motto,
-      ministry: b.ministry,
+      ministry,
       lines,
       establishment,
     };

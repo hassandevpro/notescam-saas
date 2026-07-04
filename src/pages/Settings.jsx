@@ -14,6 +14,7 @@ import { CURRENCIES } from '../lib/currency';
 import { supabase } from '../lib/supabase';
 import { DEFAULT_GRADE_SCALE } from '../core/bulletinEngine';
 import { apcBulletinCols, APC_BULLETIN_COLS_DEFAULT } from '../core/apcEngine';
+import { isOfficialEngine } from '../core/engineResolver';
 import Layout from '../components/Layout';
 import HubTabs from '../components/hubs/HubTabs';
 import SchoolCalendar from '../components/SchoolCalendar';
@@ -383,7 +384,9 @@ export default function Settings() {
         currency:     school.currency     || 'XAF',
         establishment_no: school.establishment_no || '',
         grade_entry_mode: school.grade_entry_mode === 'subject' ? 'subject' : 'principal',
-        bulletin_engine: ['apc_minesec', 'minesec'].includes(school.bulletin_engine) ? school.bulletin_engine : 'classic',
+        // Deux mondes présentés à l'admin : Classique vs Officiel (unifié). Tout
+        // drapeau officiel « historique » (minesec/minedub…) est remonté sur 'officiel'.
+        bulletin_engine: isOfficialEngine(school.bulletin_engine) ? 'officiel' : 'classic',
         bulletin_subject_mode: school.bulletin_subject_mode === 'detailed' ? 'detailed' : 'synthetic',
         bulletin_font:    school.bulletin_font    || 'arial',
         censeur_name:     school.censeur_name     || '',
@@ -786,22 +789,19 @@ export default function Settings() {
             <Section title={t('Moteur de bulletin', 'Report card engine', 'Motor de boletín')} className="mt-6">
               <p className="text-sm text-gray-500 mb-4">
                 {t(
-                  "Choisit le système d'évaluation officiel. Le moteur est résolu par classe : APC s'applique au premier cycle (6e–3e), le Second Cycle MINESEC au lycée (2nde–Tle). Le mode classique conserve le comportement historique.",
-                  'Selects the official evaluation system. The engine is resolved per class: APC applies to the first cycle (forms 1–4), MINESEC Second Cycle to high school. Classic keeps the historical behavior.',
-                  'Selecciona el sistema de evaluación oficial. El motor se resuelve por clase.',
+                  "Deux systèmes au choix. « Officiel Cameroun » couvre TOUT automatiquement selon le niveau de chaque classe : maternelle et primaire (MINEDUB), collège APC et lycée par séries (MINESEC). « Classique » conserve les notes et moyennes habituelles, sans référentiel officiel.",
+                  'Two systems to choose from. "Official Cameroon" covers everything automatically per class level: nursery and primary (MINEDUB), lower-secondary APC and high-school streams (MINESEC). "Classic" keeps the usual grades and averages, with no official framework.',
+                  'Dos sistemas. «Oficial» cubre todo automáticamente por nivel; «Clásico» conserva notas y medias habituales.',
                 )}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
                   { value: 'classic',
                     title: t('Classique', 'Classic', 'Clásico'),
                     desc:  t('Notes et moyennes habituelles. Aucun référentiel officiel.', 'Usual grades and averages. No official framework.', 'Notas y medias habituales.') },
-                  { value: 'apc_minesec',
-                    title: t('APC (1er cycle)', 'APC (first cycle)', 'APC (primer ciclo)'),
-                    desc:  t('Bulletin par compétences MINESEC sur le collège (6e–3e).', 'MINESEC competency report card for the first cycle.', 'Boletín por competencias MINESEC.') },
-                  { value: 'minesec',
-                    title: t('APC + Second Cycle', 'APC + Second cycle', 'APC + Segundo ciclo'),
-                    desc:  t('APC au collège ET Second Cycle MINESEC au lycée (par séries).', 'APC for the first cycle AND MINESEC second cycle for high school.', 'APC primer ciclo Y segundo ciclo MINESEC.') },
+                  { value: 'officiel',
+                    title: t('Officiel Cameroun', 'Official Cameroon', 'Oficial Camerún'),
+                    desc:  t('MINEDUB (maternelle + primaire) ET MINESEC (collège APC + lycée par séries). Auto selon le niveau de la classe.', 'MINEDUB (nursery + primary) AND MINESEC (lower-secondary APC + high-school streams). Auto per class level.', 'MINEDUB (preescolar + primaria) Y MINESEC (secundaria).') },
                 ].map((opt) => {
                   const active = (form.bulletin_engine || 'classic') === opt.value;
                   return (
@@ -825,12 +825,12 @@ export default function Settings() {
                   );
                 })}
               </div>
-              {(form.bulletin_engine || 'classic') === 'minesec' && (
+              {(form.bulletin_engine || 'classic') === 'officiel' && (
                 <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
                   {t(
-                    "Les classes de lycée doivent porter une série reconnue (A, C, D…) pour être auto-configurées. Les matières officielles (coefficients, groupes) sont alors créées automatiquement à l'ouverture de la classe.",
-                    'High school classes must carry a recognized stream (A, C, D…) to be auto-configured. Official subjects (coefficients, groups) are then created automatically.',
-                    'Las clases de bachillerato deben tener una serie reconocida (A, C, D…).',
+                    "Nommez chaque classe avec son niveau (ex. « Petite Section », « CE1 », « 6ème A », « Terminale C ») : le cycle, la série et le bulletin sont déduits, et les matières officielles créées automatiquement à l'ouverture. Les classes de lycée doivent porter une série reconnue (A, C, D…).",
+                    'Name each class with its level (e.g. "Petite Section", "CE1", "6ème A", "Terminale C"): cycle, stream and report card are inferred, and official subjects created automatically. High-school classes must carry a recognized stream (A, C, D…).',
+                    'Nombre cada clase con su nivel; el ciclo, la serie y el boletín se deducen y las asignaturas se crean automáticamente.',
                   )}
                 </div>
               )}
@@ -1204,7 +1204,7 @@ export default function Settings() {
               <p className="text-sm text-slate-400 text-center py-6">{t('Aucun barème configuré.', 'No grade scale configured.')}</p>
             )}
 
-            {['apc_minesec', 'minesec'].includes(school?.bulletin_engine) && (
+            {isOfficialEngine(school?.bulletin_engine) && (
               <div className="pt-4 mt-4 border-t border-slate-100">
                 <h4 className="text-sm font-semibold text-slate-700 mb-1">
                   {t('Bulletin premier cycle (APC) — colonnes affichées', 'First-cycle report card (APC) — displayed columns')}

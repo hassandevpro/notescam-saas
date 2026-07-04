@@ -11,7 +11,8 @@ import UpgradeBanner from '../components/UpgradeBanner';
 import { printReceipt } from '../lib/receiptDoc';
 import FeeGridsTab from '../components/fees/FeeGridsTab';
 import FeeDashboard from '../components/fees/FeeDashboard';
-import { studentFeeSituation } from '../lib/feeEngine';
+import { studentFeeSituation, inscriptionApplies } from '../lib/feeEngine';
+import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import { MODE_LABEL, STATUS_UI, TRANCHE_UI } from '../components/fees/feeUi';
 import { useMoney } from '../lib/useMoney';
 
@@ -86,7 +87,10 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
   const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
   const setStudentPaymentMode = useSchoolStore((s) => s.setStudentPaymentMode);
   const grid = getClassFeeGrid(student.class_id);
-  const situation = studentFeeSituation(fee, grid);
+  // Frais d'inscription : ajoutés au total pour un élève nouveau dans l'établissement.
+  const applyInscription = inscriptionApplies(student);
+  const inscription = applyInscription ? (grid?.amount_inscription || 0) : 0;
+  const situation = studentFeeSituation(fee, grid, { applyInscription });
   const mode = fee?.payment_mode || null;
 
   // Détection AUTOMATIQUE du mode à partir du montant versé : payer la totalité
@@ -115,8 +119,8 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
   const previewTotal = mode
     ? situation.total
     : (grid
-        ? (previewMode === 'comptant' ? grid.amount_comptant : grid.amount_echelonne)
-        : (fee?.frais_annuels || 0));
+        ? (previewMode === 'comptant' ? grid.amount_comptant : grid.amount_echelonne) + inscription
+        : (fee?.frais_annuels || 0) + inscription);
 
   const handleAddPayment = async () => {
     const parsed = parseInt(montant, 10) || 0;
@@ -176,6 +180,16 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
                 <span className="text-[11px] text-gray-400">{t('Mode déterminé au 1er versement', 'Mode set on first payment')}</span>
               ) : null}
             </div>
+
+            {/* Frais d'inscription (nouveau dans l'établissement) : rappel visuel */}
+            {inscription > 0 && (
+              <div className="mb-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+                <span className="font-semibold text-amber-700">
+                  🎒 {t("Frais d'inscription", 'Registration fee', 'Matrícula')} ({t('nouveau', 'new', 'nuevo')})
+                </span>
+                <span className="font-bold text-amber-800">+ {money(inscription)}</span>
+              </div>
+            )}
 
             {/* Tarifs de la grille tant que le mode n'est pas figé */}
             {!mode && grid && (grid.amount_comptant > 0 || grid.amount_echelonne > 0) && (
@@ -417,6 +431,7 @@ export default function Fees() {
 
   const [mainTab,      setMainTab]      = useState('suivi'); // suivi | echeances | grilles
   const [filterClass,  setFilterClass]  = useState('');
+  const [filterSection, setFilterSection] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [search,       setSearch]       = useState('');
   const [openRow,      setOpenRow]      = useState(null);
@@ -473,9 +488,11 @@ export default function Fees() {
   // défaut, l'échelonné de la grille de classe (estimation tant que le mode
   // n'est pas déterminé).
   const effectiveDue = (student, fee) => {
-    if (fee?.frais_annuels) return fee.frais_annuels;
     const grid = gridMap[student.class_id];
-    return grid?.amount_echelonne || grid?.amount_comptant || 0;
+    // Frais d'inscription en plus pour un nouveau dans l'établissement.
+    const inscription = inscriptionApplies(student) ? (grid?.amount_inscription || 0) : 0;
+    const base = fee?.frais_annuels || grid?.amount_echelonne || grid?.amount_comptant || 0;
+    return base + inscription;
   };
 
   const classNameById = (id) => classes.find((c) => c.id === id)?.name || '—';
@@ -484,6 +501,7 @@ export default function Fees() {
     setPage(1);
     return students
       .filter((s) => !filterClass  || s.class_id === filterClass)
+      .filter((s) => !filterSection || inSection(classes.find((c) => c.id === s.class_id), filterSection))
       .filter((s) => !search        || s.name.toLowerCase().includes(search.toLowerCase()) || (s.matricule || '').toLowerCase().includes(search.toLowerCase()))
       .filter((s) => {
         if (filterStatus === 'all') return true;
@@ -491,7 +509,7 @@ export default function Fees() {
         return feeStatus(feeMap[s.id]) === filterStatus;
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, filterClass, filterStatus, search, feeMap]);
+  }, [students, filterClass, filterSection, filterStatus, search, feeMap, classes]);
 
   const totalPages = Math.ceil(visible.length / PAGE_SIZE);
   const paginated  = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -722,13 +740,19 @@ export default function Fees() {
 
         {/* Filtres */}
         <div className="flex flex-wrap gap-3">
+          <SectionFilterSelect
+            classes={classes}
+            value={filterSection}
+            onChange={(v) => { setFilterSection(v); if (filterClass && !inSection(classes.find((c) => c.id === filterClass), v)) setFilterClass(''); setPage(1); }}
+            className="form-input max-w-[180px]"
+          />
           <select
             className="form-input max-w-xs"
             value={filterClass}
             onChange={(e) => { setFilterClass(e.target.value); setPage(1); }}
           >
             <option value="">{t('Toutes les classes', 'All classes')}</option>
-            {classes.map((c) => (
+            {classes.filter((c) => inSection(c, filterSection)).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({students.filter((s) => s.class_id === c.id).length})
               </option>
@@ -756,9 +780,9 @@ export default function Fees() {
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
 
-          {(filterClass || filterStatus !== 'all' || search) && (
+          {(filterClass || filterSection || filterStatus !== 'all' || search) && (
             <button
-              onClick={() => { setFilterClass(''); setFilterStatus('all'); setSearch(''); setPage(1); }}
+              onClick={() => { setFilterClass(''); setFilterSection(''); setFilterStatus('all'); setSearch(''); setPage(1); }}
               className="text-xs text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
             >
               {t('Réinitialiser', 'Reset')}
@@ -866,6 +890,11 @@ export default function Fees() {
                             </div>
                           ) : (
                             <span className="text-gray-300">—</span>
+                          )}
+                          {inscriptionApplies(student) && grid?.amount_inscription > 0 && (
+                            <div className="text-[10px] text-amber-600 font-sans mt-0.5 whitespace-nowrap">
+                              + {money.amount(grid.amount_inscription)} {t('inscription', 'registration', 'matrícula')}
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">

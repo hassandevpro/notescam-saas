@@ -225,47 +225,64 @@ function triggerDownload(blob, filename) {
 export function parseGradesCSV(file) {
   return new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    const isExcel = /\.(xlsx|xls|ods)$/i.test(file.name);
+
+    reader.onload = async (e) => {
       try {
-        const lines = e.target.result.split(/\r?\n/).filter((l) => l.trim());
-        if (lines.length < 2) { resolve({ rows: [], subjectNames: [], error: 'Fichier vide.' }); return; }
-
-        const delim = lines[0].includes(';') ? ';' : ',';
-        const headers = lines[0].split(delim).map((h) => h.trim());
-
-        // Middle columns = subjects (skip col 0 = Élève, skip Moyenne/Moy columns)
-        const subjectCols = [];
-        for (let i = 1; i < headers.length; i++) {
-          const h = headers[i];
-          if (/^moy/i.test(h.replace(/[^a-z]/gi, ''))) continue;
-          const name = h.replace(/\s*\/\d+\s*$/, '').trim();
-          if (name) subjectCols.push({ index: i, name });
+        let raw; // tableau de lignes (chaque ligne = tableau de cellules)
+        if (isExcel) {
+          const XLSX = await loadXLSX();
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+            .map((r) => r.map((c) => String(c ?? '').trim()));
+        } else {
+          const lines = e.target.result.split(/\r?\n/).filter((l) => l.trim());
+          if (lines.length < 2) { resolve({ rows: [], subjectNames: [], error: 'Fichier vide.' }); return; }
+          const delim = lines[0].includes(';') ? ';' : ',';
+          raw = lines.map((l) => splitCSVLine(l, delim).map((c) => c.trim()));
         }
-
-        if (subjectCols.length === 0) {
-          resolve({ rows: [], subjectNames: [], error: 'Aucune colonne de matière trouvée.' });
-          return;
-        }
-
-        const rows = lines.slice(1).map((line) => {
-          const cols = splitCSVLine(line, delim);
-          const studentName = (cols[0] || '').trim();
-          const grades = {};
-          subjectCols.forEach(({ index, name }) => {
-            const v = (cols[index] || '').trim();
-            if (v) grades[name] = v;
-          });
-          return { studentName, grades };
-        }).filter((r) => r.studentName);
-
-        resolve({ rows, subjectNames: subjectCols.map((c) => c.name), error: null });
+        resolve(rawRowsToGrades(raw));
       } catch (err) {
         resolve({ rows: [], subjectNames: [], error: `Erreur : ${err.message}` });
       }
     };
     reader.onerror = () => resolve({ rows: [], subjectNames: [], error: 'Impossible de lire le fichier.' });
-    reader.readAsText(file, 'UTF-8');
+    if (isExcel) reader.readAsArrayBuffer(file);
+    else         reader.readAsText(file, 'UTF-8');
   });
+}
+
+// Transforme un tableau de lignes brutes (en-tête « Élève, Mat /20…, Moyenne »)
+// en { rows, subjectNames }. La virgule décimale d'Excel FR (« 12,5 ») est
+// conservée telle quelle : validateGrade la normalise à l'import.
+function rawRowsToGrades(raw) {
+  if (!raw || raw.length < 2) return { rows: [], subjectNames: [], error: 'Fichier vide.' };
+  const headers = raw[0].map((h) => String(h).trim());
+
+  // Colonnes du milieu = matières (col 0 = Élève, on saute Moyenne/Moy)
+  const subjectCols = [];
+  for (let i = 1; i < headers.length; i++) {
+    const h = headers[i];
+    if (/^moy/i.test(h.replace(/[^a-z]/gi, ''))) continue;
+    const name = h.replace(/\s*\/\d+\s*$/, '').trim();
+    if (name) subjectCols.push({ index: i, name });
+  }
+  if (subjectCols.length === 0) {
+    return { rows: [], subjectNames: [], error: 'Aucune colonne de matière trouvée.' };
+  }
+
+  const rows = raw.slice(1).map((cols) => {
+    const studentName = String(cols[0] || '').trim();
+    const grades = {};
+    subjectCols.forEach(({ index, name }) => {
+      const v = String(cols[index] ?? '').trim();
+      if (v) grades[name] = v;
+    });
+    return { studentName, grades };
+  }).filter((r) => r.studentName);
+
+  return { rows, subjectNames: subjectCols.map((c) => c.name), error: null };
 }
 
 function splitCSVLine(line, delim) {

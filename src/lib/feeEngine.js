@@ -160,27 +160,50 @@ function scaleTranches(tranches, gross, net) {
 // Renvoie : { mode, gross, reduction, net, total, adjustments, tranches:[{ id,
 //   label, amount, due_date, cumulative }] } où `cumulative` est le total
 //   attendu cumulé jusqu'à cette tranche incluse (sert à la répartition).
-export function resolveSchedule(fee, grid) {
+// opts.applyInscription : ajoute les frais d'inscription (grid.amount_inscription)
+// en TÊTE de l'échéancier, pour les élèves nouveaux dans l'établissement. Cette
+// ligne fixe n'est PAS soumise aux ajustements (bourses/remises), qui ne portent
+// que sur la scolarité.
+export function resolveSchedule(fee, grid, opts = {}) {
   const mode = fee?.payment_mode || PAYMENT_MODES.LIBRE;
   const base = baseSchedule(mode, grid, fee);
   const { gross, reduction, net, applied } = applyAdjustments(base.total, fee?.adjustments);
-  const tranches = scaleTranches(base.tranches, base.total, net);
+  const tuition = scaleTranches(base.tranches, base.total, net);
+
+  const inscription = opts.applyInscription ? clampPos(toInt(grid?.amount_inscription)) : 0;
+  const inscriptionTranches = inscription > 0
+    ? [{
+        id: 'inscription',
+        label: "Frais d'inscription",
+        amount: inscription,
+        due_date: fee?.tranches?.[0]?.due_date || grid?.tranches?.[0]?.due_date || null,
+        inscription: true,
+      }]
+    : [];
 
   let running = 0;
-  const withCumul = tranches.map((t) => {
+  const withCumul = [...inscriptionTranches, ...tuition].map((t) => {
     running += t.amount;
     return { ...t, cumulative: running };
   });
 
   return {
     mode,
-    gross,
+    gross: gross + inscription,
     reduction,
-    net,
-    total: net,
+    net: net + inscription,
+    total: net + inscription,
+    inscription,
     adjustments: applied,
     tranches: withCumul,
   };
+}
+
+// Un élève « nouveau dans l'établissement » règle des frais d'inscription en plus
+// de la scolarité. C'est une dimension INDÉPENDANTE du statut de classe (un élève
+// peut être nouveau dans l'établissement ET redoublant). Champ : statut_etablissement.
+export function inscriptionApplies(student) {
+  return student?.statut_etablissement === 'nouveau';
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -218,8 +241,11 @@ export function trancheBreakdown(schedule, paidTotal, today = todayISO(), soonDa
 // ════════════════════════════════════════════════════════════════════════════
 // Renvoie tout ce qu'il faut afficher : total, payé, solde, statut global,
 // tranche attendue, prochaine échéance, jours de retard, détail des tranches.
-export function studentFeeSituation(fee, grid, today = todayISO(), soonDays = 7) {
-  const schedule = resolveSchedule(fee, grid);
+// opts : { today, soonDays, applyInscription }. applyInscription ajoute les frais
+// d'inscription au total (élève nouveau dans l'établissement).
+export function studentFeeSituation(fee, grid, opts = {}) {
+  const { today = todayISO(), soonDays = 7 } = opts;
+  const schedule = resolveSchedule(fee, grid, opts);
   const paid = clampPos(toInt(fee?.frais_payes));
   const total = schedule.total;
   const balance = clampPos(total - paid);
@@ -254,6 +280,7 @@ export function studentFeeSituation(fee, grid, today = todayISO(), soonDays = 7)
   return {
     mode: schedule.mode,
     total,
+    inscription: schedule.inscription,
     gross: schedule.gross,
     reduction: schedule.reduction,
     adjustments: schedule.adjustments,
@@ -281,7 +308,7 @@ export function feeDashboard(entries, today = todayISO(), soonDays = 7) {
   const dueSoon = [];
 
   for (const { student, fee, grid } of entries) {
-    const s = studentFeeSituation(fee, grid, today, soonDays);
+    const s = studentFeeSituation(fee, grid, { today, soonDays, applyInscription: inscriptionApplies(student) });
     expected  += s.total;
     collected += Math.min(s.paid, s.total);
     remaining += s.balance;

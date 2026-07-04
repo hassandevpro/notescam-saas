@@ -109,6 +109,7 @@ function sanitizeStudent(d) {
     ...d,
     gender: d.gender || null,
     statut: d.statut || null,
+    statut_etablissement: d.statut_etablissement || null,
   };
 }
 

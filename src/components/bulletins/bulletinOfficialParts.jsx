@@ -151,7 +151,7 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
 // teintée (accent), puis les détails d'état civil sur fond clair. Conserve TOUS
 // les champs officiels (naissance, genre, matricule, redoublant, parents, P.
 // principal) — seule la présentation change. `accent` = bande, `tint` = détails.
-export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, accent = '#1e3a5f', tint = '#eef2f7' }) {
+export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, ppLabel = 'P. principal', accent = '#1e3a5f', tint = '#eef2f7' }) {
   const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
   const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
   const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
@@ -183,7 +183,7 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
           </tr>
           <tr>
             <td style={CELL}>Parents / Tuteurs : {parents}{phone}</td>
-            <td style={CELL}>Redoublant : Oui <Chk on={redoublant} /> Non <Chk on={!redoublant} /> · P. principal : {profPrincipal || ''}</td>
+            <td style={CELL}>Redoublant : Oui <Chk on={redoublant} /> Non <Chk on={!redoublant} /> · {ppLabel} : {profPrincipal || ''}</td>
           </tr>
         </tbody>
       </table>
@@ -218,10 +218,13 @@ export function OfficialSheet({ school, pageNo, total, pt = 10, children }) {
 // Parent/Tuteur · Professeur Principal · Chef d'établissement (avec signature +
 // cachet). Partagé par tous les bulletins officiels — évite que les signatures
 // soient collées les unes aux autres.
-export function OfficialSignatures({ school, sys, profPrincipal }) {
-  const chef   = sys === 'EN' ? 'The Principal' : sys === 'ES' ? 'El Director' : "Le Chef d'établissement";
+// `headLabel`/`teacherLabel` : surcharges optionnelles (ex. fondamental MINEDUB —
+// « Le Directeur / La Directrice » et « L'Enseignant(e) » au lieu de Proviseur /
+// Professeur Principal, propres au secondaire).
+export function OfficialSignatures({ school, sys, profPrincipal, headLabel, teacherLabel }) {
+  const chef   = headLabel    || (sys === 'EN' ? 'The Principal' : sys === 'ES' ? 'El Director' : "Le Chef d'établissement");
   const parent = sys === 'EN' ? 'Parent / Guardian' : sys === 'ES' ? 'Padre / Tutor' : 'Visa du Parent / Tuteur';
-  const pp     = sys === 'EN' ? 'The Form Master' : sys === 'ES' ? 'El Tutor' : 'Le Professeur Principal';
+  const pp     = teacherLabel || (sys === 'EN' ? 'The Form Master' : sys === 'ES' ? 'El Tutor' : 'Le Professeur Principal');
   const colTop = { textAlign: 'center', verticalAlign: 'top', height: 72 };
   return (
     <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>

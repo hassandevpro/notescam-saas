@@ -17,6 +17,7 @@ import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
 import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
 import { buildSubjectsForPrimClass } from '../lib/primAutoConfig';
 import { resolveClassEngine } from '../core/engineResolver';
+import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { fetchPeriods } from '../lib/academicPeriodsService';
 import { deriveActiveSequence } from '../lib/periodLogic';
 import {
@@ -232,6 +233,17 @@ export const useSchoolStore = create((set, get) => ({
         allGrades   = allGrades.filter((g) => teacherClassIds.has(g.class_id));
       }
 
+      // Surveillant scope: restrict to the sections/cycles/classes assigned to
+      // this supervisor (empty scope = whole establishment). Admin/censeur keep all.
+      const { role: _role, scope: _scope } = useAuthStore.getState();
+      if (_role === 'surveillant' && !isGlobalScope(_scope)) {
+        const scopeIds = new Set(filterClassesByScope(_scope, allClasses).map((c) => c.id));
+        allClasses  = allClasses.filter((c) => scopeIds.has(c.id));
+        allSubjects = allSubjects.filter((s) => scopeIds.has(s.class_id));
+        allStudents = allStudents.filter((s) => scopeIds.has(s.class_id));
+        allGrades   = allGrades.filter((g) => scopeIds.has(g.class_id));
+      }
+
       set({
         classes:     allClasses,
         subjects:    allSubjects,
@@ -336,6 +348,16 @@ export const useSchoolStore = create((set, get) => ({
       newClasses  = newClasses.filter((c) => teacherClassIds.has(c.id));
       newSubjects = newSubjects.filter((s) => teacherClassIds.has(s.class_id));
       newStudents = newStudents.filter((s) => teacherClassIds.has(s.class_id));
+    }
+
+    // ── Surveillant scope (mirrors init) ─────────────────────────────────
+    const svRole  = useAuthStore.getState().role;
+    const svScope = useAuthStore.getState().scope;
+    if (svRole === 'surveillant' && !isGlobalScope(svScope)) {
+      const scopeIds = new Set(filterClassesByScope(svScope, newClasses).map((c) => c.id));
+      newClasses  = newClasses.filter((c) => scopeIds.has(c.id));
+      newSubjects = newSubjects.filter((s) => scopeIds.has(s.class_id));
+      newStudents = newStudents.filter((s) => scopeIds.has(s.class_id));
     }
 
     // ── Persist full (unfiltered) data to IDB ────────────────────────────

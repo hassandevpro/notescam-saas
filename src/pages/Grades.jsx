@@ -940,8 +940,9 @@ function PrincipalGrades() {
       ...classStudents.map((student) => {
         const scores = getScores(student.id);
         const avg    = getAvg(scores, classSubjects, sys, gOpts);
-        // Nombres réels → Excel les trie/calcule et affiche la virgule selon la locale.
-        return [student.name, ...classSubjects.map((sub) => gradeCell(scores[sub.id])), avg != null ? Math.round(avg * 100) / 100 : ''];
+        // Notes et moyenne écrites en texte à virgule ("13,75") via gradeCell —
+        // virgule garantie quelle que soit la locale du poste.
+        return [student.name, ...classSubjects.map((sub) => gradeCell(scores[sub.id])), gradeCell(avg != null ? Math.round(avg * 100) / 100 : '')];
       }),
     ];
     downloadExcel(`notes_${selectedClass?.name || 'classe'}_${seqLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`, rows, seqLabel);

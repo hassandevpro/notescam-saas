@@ -32,6 +32,8 @@ export const ROLES = {
 };
 
 const ALL = ['admin', 'censeur', 'surveillant', 'teacher'];
+// Périmètre « vie scolaire / discipline » : direction + surveillant (jamais prof).
+const DISCIPLINE = ['admin', 'censeur', 'surveillant'];
 
 // Groupes ordonnés. `id` sert de clé d'état (repli) et de dépliage auto.
 export const NAV_GROUPS = [
@@ -79,9 +81,23 @@ export const NAV_GROUPS = [
     label: ['Vie scolaire', 'School Life', 'Vida escolar'],
     icon: 'absences',
     items: [
+      { to: '/app/vie-scolaire', icon: 'monitor', label: ['Tableau Vie scolaire', 'School-life board', 'Panel de vida escolar'],
+        roles: DISCIPLINE, mobilePrimary: true },
       { to: '/app/absences', icon: 'absences', label: ['Absences', 'Attendance', 'Ausencias'],
         roles: ALL, feature: 'hasAbsences' },
-      { to: '/app/monitor',  icon: 'monitor',  label: ['Surveillance', 'Monitoring', 'Supervisión'],
+      { to: '/app/retards',  icon: 'timetable', label: ['Retards', 'Late arrivals', 'Retrasos'],
+        roles: DISCIPLINE },
+      { to: '/app/incidents', icon: 'history', label: ['Incidents', 'Incidents', 'Incidentes'],
+        roles: DISCIPLINE },
+      { to: '/app/sanctions', icon: 'conseil', label: ['Sanctions', 'Sanctions', 'Sanciones'],
+        roles: DISCIPLINE },
+      { to: '/app/convocations', icon: 'transcript', label: ['Convocations', 'Summons', 'Citaciones'],
+        roles: DISCIPLINE },
+      { to: '/app/sorties', icon: 'students', label: ['Autorisations de sortie', 'Exit permissions', 'Permisos de salida'],
+        roles: DISCIPLINE },
+      { to: '/app/conseil-discipline', icon: 'conseil', label: ['Conseil de discipline', 'Discipline board', 'Consejo de disciplina'],
+        roles: DISCIPLINE },
+      { to: '/app/monitor',  icon: 'monitor',  label: ['Surveillance profs', 'Teacher monitoring', 'Supervisión docentes'],
         roles: ['admin', 'censeur'], badge: true },
     ],
   },

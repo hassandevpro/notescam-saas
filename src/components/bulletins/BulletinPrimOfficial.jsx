@@ -29,10 +29,17 @@ export default function BulletinPrimOfficial({
   const th   = { ...mkTH(11), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
   const noted = rows.filter((r) => r.moyenne != null);
 
+  // Fondamental MINEDUB : l'enseignant titulaire n'est pas un « professeur
+  // principal » et le chef d'établissement est un directeur/directrice (jamais
+  // proviseur, propre au lycée).
+  const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
+  const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
+  const ppLabel      = sys === 'EN' ? 'Class teacher'     : sys === 'ES' ? 'Maestro/a' : 'Enseignant(e)';
+
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1}>
       <OfficialHeader school={school} sys={sys} title={title} accent={PRIM_ACCENT} basic />
-      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} accent={PRIM_ACCENT} tint={PRIM_TH_BG} />
+      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} accent={PRIM_ACCENT} tint={PRIM_TH_BG} />
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
@@ -107,7 +114,7 @@ export default function BulletinPrimOfficial({
         </tbody>
       </table>
 
-      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />
+      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} />
     </OfficialSheet>
   );
 }

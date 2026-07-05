@@ -13,9 +13,10 @@ import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { obsNkey } from '../../lib/matService';
 import { resolveClassEngine, maternelleNiveauSlug } from '../../core/engineResolver';
-import { domainesForMaternelle, MAT_ACQUIS, MAT_ACQUIS_COLORS } from '../../core/matEngine';
+import { domainesForMaternelle, MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_CODES } from '../../core/matEngine';
 import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
+import CompetenceGradeIO from './CompetenceGradeIO';
 
 // ── Cellule niveau d'acquisition (A / ECA / NA) ─────────────────────────────────
 function NiveauCell({ value, onCommit }) {
@@ -174,6 +175,19 @@ export default function MatObservationWorkspace() {
           {t('Niveau non reconnu (attendu PS/MS/GS) — les domaines restent saisissables.',
              'Level not recognized (expected PS/MS/GS) — domains remain editable.')}
         </div>
+      )}
+
+      {classStudents.length > 0 && domaines.length > 0 && (
+        <CompetenceGradeIO
+          filename={`evaluation_maternelle_${selectedClass?.name || ''}_T${trimestre}`}
+          sheetName={`${t('Trimestre', 'Term')} ${trimestre}`}
+          students={classStudents}
+          columns={domaines.map((d) => ({ id: d.id, label: d.intitule }))}
+          getCell={(sid, did) => recordFor(sid, did)?.niveau_acquis || ''}
+          normalize={(raw) => { const v = String(raw).trim().toUpperCase(); return MAT_ACQUIS_CODES.includes(v) ? v : null; }}
+          onImport={(sid, did, v) => saveCell(sid, did, { niveauAcquis: v })}
+          valueHint="A / ECA / NA"
+        />
       )}
 
       {classStudents.length === 0 ? (

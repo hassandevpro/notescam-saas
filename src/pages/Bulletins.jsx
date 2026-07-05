@@ -1809,11 +1809,13 @@ export default function Bulletins() {
         const moyenne = primCompAvg(s.id, c.id);
         const coef = c.coefficient == null ? 1 : Number(c.coefficient) || 1;
         const cote = primCote(moyenne, PRIM_GRADE_MAX, primBareme);
-        return { code: c.code, intitule: c.intitule, moyenne, coef, cote: cote ? cote.cote : null };
+        // L'appréciation APC = le libellé de la cote (« Acquis », « En cours
+        // d'acquisition »…) — dérivée, jamais saisie. Absente sur compétence non notée.
+        return { code: c.code, intitule: c.intitule, moyenne, coef, cote: cote ? cote.cote : null, appreciation: cote ? cote.libelle : '' };
       });
       const moyenneGenerale = primGeneralAverage(rows.map((r) => ({ moyenne: r.moyenne, coef: r.coef })));
       const cg = primCote(moyenneGenerale, PRIM_GRADE_MAX, primBareme);
-      out[s.id] = { rows, moyenneGenerale, coteGenerale: cg ? cg.cote : null };
+      out[s.id] = { rows, moyenneGenerale, coteGenerale: cg ? cg.cote : null, appreciationGenerale: cg ? cg.libelle : '' };
     }
     return out;
   }, [isPrim, primReferentiel, primNiveauSlug, primCriteres, classStudents, primNotes, primTrimIds.join(',')]);
@@ -2159,6 +2161,7 @@ export default function Bulletins() {
           effectif={classStudents.length} profPrincipal={apcProfPrincipal}
           rows={d.rows} moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
           rang={primRanks[student.id]} classStats={primClassStats}
+          appreciation={d.appreciationGenerale}
           decision={period?.seqs?.length >= 3 ? apcDecisionLabel(student.id) : ''}
         />
       </WatermarkWrap>

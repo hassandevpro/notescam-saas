@@ -19,6 +19,7 @@ import { primNkey } from '../../lib/primService';
 import { resolveClassEngine, primaireNiveauSlug } from '../../core/engineResolver';
 import { competencesForNiveau, competenceAverage, primCote, PRIM_COTE_DEFAULT } from '../../core/primEngine';
 import SectionSelect from './SectionSelect';
+import CompetenceGradeIO from './CompetenceGradeIO';
 
 const PRIM_MAX = 10; // barème officiel de saisie du primaire APC (/10)
 
@@ -191,6 +192,19 @@ export default function PrimCompetenceWorkspace() {
         {t('Barème /10 · la note saisie porte sur le critère choisi · la moyenne agrège tous les critères du trimestre.',
            'Scale /10 · the entered mark applies to the chosen criterion · the average aggregates all criteria of the term.')}
       </div>
+
+      {niveauSlug && competences.length > 0 && classStudents.length > 0 && (
+        <CompetenceGradeIO
+          filename={`notes_primaire_${selectedClass?.name || ''}_${(criteres.find((c) => c.id === critereId)?.nom || 'critere').replace(/[\\/:*?"<>|]/g, '-')}_T${trimestre}`}
+          sheetName={criteres.find((c) => c.id === critereId)?.nom || `T${trimestre}`}
+          students={classStudents}
+          columns={competences.map((c) => ({ id: c.id, label: c.intitule }))}
+          getCell={(sid, cid) => noteFor(sid, cid)}
+          normalize={(raw) => validateGrade(raw, PRIM_MAX)}
+          onImport={(sid, cid, v) => savePrimNote({ eleveId: sid, competenceId: cid, critereId, trimestreId, note: v })}
+          valueHint={`/10 · ${criteres.find((c) => c.id === critereId)?.nom || ''}`}
+        />
+      )}
 
       {!niveauSlug ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">

@@ -49,10 +49,16 @@ export default function BulletinMatOfficial({
   const cell = mkCell(10);
   const th   = { ...mkTH(11), background: MAT_TH_BG, color: MAT_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 
+  // Fondamental MINEDUB : enseignant(e) titulaire + directeur/directrice (jamais
+  // professeur principal / proviseur, propres au secondaire).
+  const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
+  const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
+  const ppLabel      = sys === 'EN' ? 'Class teacher'     : sys === 'ES' ? 'Maestro/a' : 'Enseignant(e)';
+
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1}>
       <OfficialHeader school={school} sys={sys} title={title} accent={MAT_ACCENT} rounded basic />
-      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} accent={MAT_ACCENT} tint={MAT_TH_BG} />
+      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} accent={MAT_ACCENT} tint={MAT_TH_BG} />
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
@@ -94,7 +100,7 @@ export default function BulletinMatOfficial({
         </tbody>
       </table>
 
-      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />
+      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} />
     </OfficialSheet>
   );
 }

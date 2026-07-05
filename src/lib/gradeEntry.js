@@ -27,14 +27,19 @@ export function displayGrade(val) {
   return String(val).replace('.', ',');
 }
 
-// Convertit une note stockée en cellule de tableur « prête à l'emploi » :
-// nombre réel si numérique (Excel la trie/somme et l'affiche selon la locale),
-// 'ABS' conservé en texte, vide sinon.
+// Convertit une note stockée en cellule de tableur « prête à l'emploi ».
+// La note numérique est écrite en TEXTE avec la virgule décimale attendue au
+// Cameroun ("13.75" → "13,75") : la virgule est ainsi garantie quelle que soit
+// la locale Windows du poste (l'écriture d'un nombre réel s'afficherait "13.75"
+// en locale anglaise). L'import relit cette virgule sans souci (validateGrade la
+// normalise). 'ABS' et les valeurs non numériques (cotes A/ECA/NA…) passent tels
+// quels ; vide sinon.
 export function gradeCell(val) {
   if (val === undefined || val === null || val === '') return '';
-  if (String(val).toUpperCase() === 'ABS') return 'ABS';
-  const n = parseFloat(String(val).replace(',', '.'));
-  return isNaN(n) ? val : n;
+  const s = String(val).trim();
+  if (s.toUpperCase() === 'ABS') return 'ABS';
+  const n = parseFloat(s.replace(',', '.'));
+  return isNaN(n) ? s : String(Math.round(n * 100) / 100).replace('.', ',');
 }
 
 // Classe Tailwind de couleur selon la réussite (seuil = moitié du barème).

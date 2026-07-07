@@ -54,6 +54,12 @@ ensureColumn('classes',  'cycle',        'cycle TEXT');
 ensureColumn('classes',  'teacher_id',   'teacher_id TEXT');
 ensureColumn('classes',  'max_students', 'max_students INTEGER');
 ensureColumn('classes',  'grade_max',    'grade_max INTEGER'); // barème de classe (/10, /20, /30…)
+ensureColumn('classes',  'unit_id',      'unit_id TEXT');       // rattachement à une unité pédagogique (complexe scolaire)
+// Moteur « officiel » (MINEDUB + MINESEC). Sans ces colonnes, la bascule du moteur
+// et la série lycée étaient avalées par pickColumns en LAN : le choix « Officiel
+// Cameroun » ne persistait pas et le bulletin ne basculait jamais (bug vécu).
+ensureColumn('classes',  'serie',           'serie TEXT');           // série lycée (A, C, D…) — résolution second cycle
+ensureColumn('classes',  'bulletin_engine', 'bulletin_engine TEXT'); // surcharge de moteur PAR CLASSE (null = hérite de l'école)
 ensureColumn('subjects', 'teacher_id',   'teacher_id TEXT');
 // Matières composites (modèles académiques) — parent + méthode de calcul.
 ensureColumn('subjects', 'parent_id',   'parent_id TEXT');
@@ -64,6 +70,11 @@ ensureColumn('schools',  'ge_grade_max', 'ge_grade_max INTEGER');  // barème GE
 ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // pilotage des périodes : 'auto' | 'manual'
 ensureColumn('schools',  'grade_entry_mode', "grade_entry_mode TEXT NOT NULL DEFAULT 'principal'"); // 'principal' | 'subject' (enseignant de matière)
 ensureColumn('schools',  'bulletin_subject_mode', "bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic'"); // 'synthetic' | 'detailed'
+// Moteur de bulletin de l'établissement : 'classic' | 'officiel' (+ anciens drapeaux
+// minesec/minedub/apc… rétro-compatibles). Absente du schéma LAN d'origine → le
+// choix « Officiel Cameroun » n'était jamais persisté (avalé par pickColumns).
+ensureColumn('schools',  'bulletin_engine', "bulletin_engine TEXT NOT NULL DEFAULT 'classic'");
+ensureColumn('schools',  'apc_bulletin_cols', 'apc_bulletin_cols TEXT'); // colonnes du bulletin APC premier cycle (JSON)
 ensureColumn('schools',  'establishment_no', 'establishment_no TEXT'); // N° officiel établissement (en-tête bulletin)
 ensureColumn('schools',  'bulletin_font',    'bulletin_font TEXT');    // police choisie pour le bulletin
 // Relevés de notes — signatures + noms des 2 autorités additionnelles (le chef
@@ -86,7 +97,7 @@ for (const [col, ddl] of [
 // Tables dont les changements sont répliqués vers/depuis le cloud. Chacune
 // reçoit updated_at / version / device_id pour la résolution LWW + l'outbox.
 export const SYNCED_TABLES = new Set([
-  'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
+  'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'class_fee_grids',
   'attendance', 'student_absences', 'student_class_assignments',
@@ -124,7 +135,7 @@ export function tableColumns(table) {
 
 // Liste blanche des tables exposées par l'API générique.
 export const ALLOWED_TABLES = new Set([
-  'schools', 'school_users', 'classes', 'subjects', 'students', 'grades',
+  'schools', 'school_units', 'school_users', 'classes', 'subjects', 'students', 'grades',
   'teachers', 'staff', 'student_fees', 'fee_payments', 'class_fee_grids',
   'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS schools (
   country_system     TEXT,                -- 'cameroon_fr' | 'cameroon_en' | 'guinea_eq'
   ge_primary_coef    INTEGER NOT NULL DEFAULT 0,
   grade_entry_mode   TEXT NOT NULL DEFAULT 'principal', -- 'principal' | 'subject'
+  bulletin_engine    TEXT NOT NULL DEFAULT 'classic', -- 'classic' | 'officiel' (+ anciens: minesec/minedub/apc…)
   bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic', -- 'synthetic' | 'detailed' (matières composites)
   grade_scale        TEXT,
   apc_bulletin_cols  TEXT,   -- JSON { cote, minmax, appreciation } — colonnes du bulletin APC (premier cycle)
@@ -80,6 +81,32 @@ CREATE TABLE IF NOT EXISTS superadmins (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- --- Unités pédagogiques du complexe scolaire ----------------
+-- Une école (complexe) contient 0..N unités (maternelle/primaire/collège/lycée…),
+-- chacune avec sa propre identité (nom, logo, cachet, signature, directeur,
+-- adresse, contacts, devise, couleurs). Cf. src/lib/schoolIdentity.js.
+CREATE TABLE IF NOT EXISTS school_units (
+  id               TEXT PRIMARY KEY,
+  school_id        TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  section_key      TEXT,   -- 'maternelle'|'primaire'|'premier_cycle'|'second_cycle'|'autre'
+  name             TEXT NOT NULL,
+  short_name       TEXT,
+  logo_url         TEXT,
+  stamp_url        TEXT,
+  signature_url    TEXT,
+  director         TEXT,
+  address          TEXT,
+  phone            TEXT,
+  email            TEXT,
+  motto            TEXT,
+  establishment_no TEXT,
+  color_primary    TEXT,
+  color_secondary  TEXT,
+  position         INTEGER NOT NULL DEFAULT 0,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_school_units_school ON school_units(school_id);
+
 -- --- Classes / matières / élèves -----------------------------
 CREATE TABLE IF NOT EXISTS classes (
   id           TEXT PRIMARY KEY,
@@ -87,14 +114,19 @@ CREATE TABLE IF NOT EXISTS classes (
   name         TEXT NOT NULL,
   level        TEXT,
   section      TEXT,
+  serie        TEXT,   -- série lycée (A, C, D…) — résolution du second cycle MINESEC
   system       TEXT NOT NULL DEFAULT 'FR',
   cycle        TEXT,
   current_year TEXT,
+  -- Surcharge de moteur PAR CLASSE (null = hérite de schools.bulletin_engine).
+  bulletin_engine TEXT,
   -- Enseignant titulaire. Pas de FK dure : la sync hors-ligne peut envoyer la
   -- classe avant l'enseignant -> on garde l'id même si la ligne teacher n'est
   -- pas (encore) là, au lieu de rejeter tout l'upsert (FK ON globalement).
   teacher_id   TEXT,
   max_students INTEGER,
+  -- Rattachement explicite à une unité pédagogique (repli auto par section sinon).
+  unit_id      TEXT REFERENCES school_units(id) ON DELETE SET NULL,
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

@@ -218,6 +218,7 @@ export async function upsertAbsenceEntry(classId, studentId, sequence, absData, 
     aver_conduite:  Number(absData.__aver_conduite__  ?? 0),
     blame_conduite: Number(absData.__blame_conduite__ ?? 0),
     decision:       absData.__decision__               || null,
+    appreciation:   absData.__appreciation__           || null,
   };
   const { error } = await supabase
     .from('student_absences')

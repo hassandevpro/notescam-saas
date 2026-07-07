@@ -13,6 +13,10 @@ import { bulletinFontFamily } from '../../lib/schoolTheme';
 
 export const B = '1px solid #374151';
 
+// Helper i18n des bulletins officiels : rendu selon le SYSTÈME de la classe
+// (FR/EN/ES), indépendant de la langue de l'interface. `es` optionnel → repli FR.
+export const L = (sys, fr, en, es) => (sys === 'EN' ? en : (sys === 'ES' && es != null ? es : fr));
+
 // Fabriques de styles paramétrées par la taille de police (pt) — l'auto-fit APC
 // fait varier la densité du corps du tableau (10–11pt) en gardant la lisibilité.
 export const mkCell = (pt = 10, lineH = 1.18, padV = 1) => ({ border: B, padding: `${padV}px 3px`, fontSize: `${pt}pt`, lineHeight: lineH, verticalAlign: 'top' });
@@ -53,7 +57,7 @@ export function OfficialWatermark({ src }) {
 // primaire vert) pour une identité visuelle distincte. `rounded` adoucit les coins
 // (bulletins des tout-petits) sans changer le format officiel.
 export function OfficialHeader({ school, sys, title, accent = '#1e3a5f', rounded = false, basic = false }) {
-  const officials = bulletinOfficials(school, { basic });
+  const officials = bulletinOfficials(school, { basic, sys });
   const blocks    = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
   const centerW   = bilingual ? '34%' : '50%';
@@ -103,22 +107,24 @@ export function OfficialHeader({ school, sys, title, accent = '#1e3a5f', rounded
 }
 
 // ── Bandeau de continuation (pages 2+) ────────────────────────────────────────
-export function ContinuationHeader({ title, student, classLabel, serieLabel }) {
+export function ContinuationHeader({ title, student, classLabel, serieLabel, sys }) {
   const who = [student?.name, [classLabel, serieLabel].filter(Boolean).join(' · ')].filter(Boolean).join(' — ');
   return (
     <div style={{ borderBottom: B, marginBottom: 5, paddingBottom: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, fontSize: '10pt' }}>
       <strong style={{ whiteSpace: 'nowrap' }}>{title}</strong>
-      <span style={{ color: '#374151', textAlign: 'right' }}>{who} <em style={{ color: '#6b7280' }}>(suite)</em></span>
+      <span style={{ color: '#374151', textAlign: 'right' }}>{who} <em style={{ color: '#6b7280' }}>{L(sys, '(suite)', '(cont.)', '(cont.)')}</em></span>
     </div>
   );
 }
 
 // ── Identité de l'élève (avec série optionnelle pour le second cycle) ──────────
-export function OfficialIdentity({ student, classLabel, serieLabel, effectif, profPrincipal }) {
+export function OfficialIdentity({ student, classLabel, serieLabel, effectif, profPrincipal, sys }) {
   const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
   const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
   const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
   const classTxt = [classLabel, serieLabel].filter(Boolean).join(' · ');
+  const yes = L(sys, 'Oui', 'Yes', 'Sí');
+  const no  = L(sys, 'Non', 'No', 'No');
   const Chk = ({ on }) => (
     <span style={{ display: 'inline-block', width: 9, height: 9, border: B, margin: '0 2px', verticalAlign: 'middle', background: on ? '#374151' : '#fff' }} />
   );
@@ -129,18 +135,18 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
           <td rowSpan={4} style={{ ...CELL, width: 64, textAlign: 'center', verticalAlign: 'middle' }}>
             <BulletinPhoto src={student?.photo_url} width={52} height={64} radius={2} />
           </td>
-          <td style={CELL}>Nom et Prénoms de l'élève : <strong>{student?.name || ''}</strong></td>
-          <td style={{ ...CELL, whiteSpace: 'nowrap' }}>Classe : <strong>{classTxt}</strong></td>
+          <td style={CELL}>{L(sys, "Nom et Prénoms de l'élève", "Student's full name", 'Nombre y apellidos')} : <strong>{student?.name || ''}</strong></td>
+          <td style={{ ...CELL, whiteSpace: 'nowrap' }}>{L(sys, 'Classe', 'Class', 'Clase')} : <strong>{classTxt}</strong></td>
         </tr>
         <tr>
-          <td style={CELL}>Date et lieu de naissance : {student?.date_naissance || ''} {student?.lieu_naissance ? `à ${student.lieu_naissance}` : ''}</td>
-          <td style={CELL}>Genre : {student?.gender || ''} · Effectif : {effectif ?? ''}</td>
+          <td style={CELL}>{L(sys, 'Date et lieu de naissance', 'Date and place of birth', 'Fecha y lugar de nacimiento')} : {student?.date_naissance || ''} {student?.lieu_naissance ? `${L(sys, 'à', 'in', 'en')} ${student.lieu_naissance}` : ''}</td>
+          <td style={CELL}>{L(sys, 'Genre', 'Gender', 'Género')} : {student?.gender || ''} · {L(sys, 'Effectif', 'Class size', 'Total')} : {effectif ?? ''}</td>
         </tr>
         <tr>
-          <td style={CELL}>Identifiant Unique : {student?.matricule || ''}</td>
-          <td style={CELL}>Redoublant : Oui <Chk on={redoublant} /> Non <Chk on={!redoublant} /> · P. principal : {profPrincipal || ''}</td>
+          <td style={CELL}>{L(sys, 'Identifiant Unique', 'Unique ID', 'Identificador único')} : {student?.matricule || ''}</td>
+          <td style={CELL}>{L(sys, 'Redoublant', 'Repeater', 'Repetidor')} : {yes} <Chk on={redoublant} /> {no} <Chk on={!redoublant} /> · {L(sys, 'P. principal', 'Form master', 'Tutor')} : {profPrincipal || ''}</td>
         </tr>
-        <tr><td colSpan={2} style={CELL}>Noms et contacts des Parents / Tuteurs : {parents}{phone}</td></tr>
+        <tr><td colSpan={2} style={CELL}>{L(sys, 'Noms et contacts des Parents / Tuteurs', 'Parents / Guardians names and contacts', 'Nombres y contactos de los padres / tutores')} : {parents}{phone}</td></tr>
       </tbody>
     </table>
   );
@@ -151,12 +157,13 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
 // teintée (accent), puis les détails d'état civil sur fond clair. Conserve TOUS
 // les champs officiels (naissance, genre, matricule, redoublant, parents, P.
 // principal) — seule la présentation change. `accent` = bande, `tint` = détails.
-export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, ppLabel = 'P. principal', accent = '#1e3a5f', tint = '#eef2f7' }) {
+export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, ppLabel, sys, accent = '#1e3a5f', tint = '#eef2f7' }) {
   const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
   const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
   const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
   const classTxt = [classLabel, serieLabel].filter(Boolean).join(' · ');
   const pcx = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
+  const ppLbl = ppLabel || L(sys, 'P. principal', 'Class teacher', 'Tutor');
   const Chk = ({ on }) => (
     <span style={{ display: 'inline-block', width: 9, height: 9, border: B, margin: '0 2px', verticalAlign: 'middle', background: on ? '#374151' : '#fff' }} />
   );
@@ -170,7 +177,7 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: '13pt', fontWeight: 'bold', lineHeight: 1.15 }}>{student?.name || ''}</div>
           <div style={{ fontSize: '9pt', opacity: 0.95 }}>
-            Classe : <strong>{classTxt}</strong>{effectif != null ? ` · Effectif : ${effectif}` : ''}
+            {L(sys, 'Classe', 'Class', 'Clase')} : <strong>{classTxt}</strong>{effectif != null ? ` · ${L(sys, 'Effectif', 'Class size', 'Total')} : ${effectif}` : ''}
           </div>
         </div>
       </div>
@@ -178,12 +185,12 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <tbody>
           <tr>
-            <td style={{ ...CELL, background: tint, ...pcx }}>Né(e) le : {student?.date_naissance || ''} {student?.lieu_naissance ? `à ${student.lieu_naissance}` : ''}</td>
-            <td style={{ ...CELL, background: tint, ...pcx }}>Genre : {student?.gender || ''} · Identifiant : {student?.matricule || ''}</td>
+            <td style={{ ...CELL, background: tint, ...pcx }}>{L(sys, 'Né(e) le', 'Born on', 'Nacido/a el')} : {student?.date_naissance || ''} {student?.lieu_naissance ? `${L(sys, 'à', 'in', 'en')} ${student.lieu_naissance}` : ''}</td>
+            <td style={{ ...CELL, background: tint, ...pcx }}>{L(sys, 'Genre', 'Gender', 'Género')} : {student?.gender || ''} · {L(sys, 'Identifiant', 'ID', 'Identificador')} : {student?.matricule || ''}</td>
           </tr>
           <tr>
-            <td style={CELL}>Parents / Tuteurs : {parents}{phone}</td>
-            <td style={CELL}>Redoublant : Oui <Chk on={redoublant} /> Non <Chk on={!redoublant} /> · {ppLabel} : {profPrincipal || ''}</td>
+            <td style={CELL}>{L(sys, 'Parents / Tuteurs', 'Parents / Guardians', 'Padres / Tutores')} : {parents}{phone}</td>
+            <td style={CELL}>{L(sys, 'Redoublant', 'Repeater', 'Repetidor')} : {L(sys, 'Oui', 'Yes', 'Sí')} <Chk on={redoublant} /> {L(sys, 'Non', 'No', 'No')} <Chk on={!redoublant} /> · {ppLbl} : {profPrincipal || ''}</td>
           </tr>
         </tbody>
       </table>

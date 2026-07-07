@@ -3,7 +3,7 @@ import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { IS_LAN } from '../lib/edition';
 import { useCountry, geGradeMax } from '../lib/useCountry';
-import { COUNTRY_OPTIONS } from '../countries';
+import { COUNTRY_OPTIONS, countryIsBilingual } from '../countries';
 import { getDaysUntilLicenseExpires } from '../lib/auth';
 import { useT, localeForLang } from '../lib/i18n';
 import { uploadSchoolAsset } from '../lib/schoolService';
@@ -389,6 +389,9 @@ export default function Settings() {
         // drapeau officiel « historique » (minesec/minedub…) est remonté sur 'officiel'.
         bulletin_engine: isOfficialEngine(school.bulletin_engine) ? 'officiel' : 'classic',
         bulletin_subject_mode: school.bulletin_subject_mode === 'detailed' ? 'detailed' : 'synthetic',
+        // En-tête officiel bilingue (2 blocs pays) ou mono-langue. Défaut = bilingue
+        // (comportement historique) pour les pays qui le proposent (Cameroun).
+        bulletin_bilingual: !(school.bulletin_bilingual === false || school.bulletin_bilingual === 0 || school.bulletin_bilingual === '0'),
         bulletin_font:    school.bulletin_font    || 'arial',
         censeur_name:     school.censeur_name     || '',
         surveillant_name: school.surveillant_name || '',
@@ -1121,6 +1124,30 @@ export default function Settings() {
               </select>
               <p className="text-xs text-gray-400 mt-1">{t('Police appliquée à tous les bulletins imprimés.', 'Font applied to all printed report cards.')}</p>
             </div>
+
+            {/* En-tête officiel bilingue / mono-langue — visible seulement pour les
+                pays officiellement bilingues (Cameroun). */}
+            {countryIsBilingual(school) && (
+              <div className="mb-4">
+                <label className="form-label">{t('En-tête du bulletin', 'Report card header', 'Encabezado del boletín')}</label>
+                <label className="flex items-center gap-3 cursor-pointer select-none py-1">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    checked={form.bulletin_bilingual !== false}
+                    onChange={(e) => setForm((f) => ({ ...f, bulletin_bilingual: e.target.checked }))}
+                  />
+                  <span className="text-sm text-gray-700">
+                    {t('En-tête bilingue (français + anglais)', 'Bilingual header (French + English)', 'Encabezado bilingüe (francés + inglés)')}
+                  </span>
+                </label>
+                <p className="text-xs text-gray-400 mt-1">
+                  {t("Décochez pour un en-tête officiel dans la seule langue de la classe (le système anglophone affiche l'en-tête anglais, le francophone l'en-tête français).",
+                     "Uncheck for an official header in the class language only (English classes show the English header, French classes the French one).")}
+                </p>
+              </div>
+            )}
+
             <div className="flex items-center gap-4">
               <button type="submit" disabled={saving} className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
                 {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer', 'Save', 'Guardar')}

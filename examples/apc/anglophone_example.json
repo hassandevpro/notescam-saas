@@ -1,0 +1,36 @@
+{
+  "_notice": "NON-OFFICIAL EXAMPLE — fictitious content, for testing the import pipeline of the ANGLOPHONE (CBA) first-cycle referential ONLY. Replace with the official competencies before production.",
+  "_prerequisite": "Run supabase_apc_minesec.sql THEN supabase_apc_anglophone.sql (seeds form1..form5 + English subject slugs) before importing this file.",
+  "_slugs": {
+    "classe": ["form1", "form2", "form3", "form4", "form5"],
+    "trimestre": ["t1", "t2", "t3"],
+    "matiere": ["english", "french", "mathematics", "biology", "chemistry", "physics", "computer_science", "history", "geography", "citizenship", "physical_education", "literature", "economics", "commerce", "food_science", "manual_labour", "religious_studies", "national_languages", "german", "spanish"]
+  },
+  "version": { "label": "NON-OFFICIAL EXAMPLE — Form 1 English & Maths T1", "source": "fictitious / pipeline test" },
+  "cycle": "premier_cycle",
+  "entries": [
+    {
+      "classe": "form1",
+      "trimestre": "t1",
+      "matiere": "english",
+      "coef": 4,
+      "ordre_matiere": 10,
+      "competences": [
+        { "ordre": 1, "intitule": "[EXAMPLE] Read and understand a short narrative text", "coefficient": 1 },
+        { "ordre": 2, "intitule": "[EXAMPLE] Write a coherent paragraph on a familiar topic", "coefficient": 1 },
+        { "ordre": 3, "intitule": "[EXAMPLE] Use present and past tenses accurately", "coefficient": 1 }
+      ]
+    },
+    {
+      "classe": "form1",
+      "trimestre": "t1",
+      "matiere": "mathematics",
+      "coef": 4,
+      "ordre_matiere": 30,
+      "competences": [
+        { "ordre": 1, "intitule": "[EXAMPLE] Perform the four operations on whole numbers", "coefficient": 1 },
+        { "ordre": 2, "intitule": "[EXAMPLE] Identify and construct simple geometric shapes", "coefficient": 1 }
+      ]
+    }
+  ]
+}

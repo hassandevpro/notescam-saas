@@ -17,6 +17,7 @@ import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
 import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
 import { buildSubjectsForPrimClass } from '../lib/primAutoConfig';
+import { buildSubjectsForClassicClass } from '../core/classicSubjects';
 import { resolveClassEngine } from '../core/engineResolver';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { fetchPeriods } from '../lib/academicPeriodsService';
@@ -405,6 +406,7 @@ export const useSchoolStore = create((set, get) => ({
           if (row.aver_conduite)          gMap[key]['__aver_conduite__'] = String(row.aver_conduite);
           if (row.blame_conduite)         gMap[key]['__blame_conduite__']= String(row.blame_conduite);
           if (row.decision)               gMap[key]['__decision__']      = String(row.decision);
+          if (row.appreciation)           gMap[key]['__appreciation__']  = String(row.appreciation);
         }
       }
 
@@ -823,6 +825,9 @@ export const useSchoolStore = create((set, get) => ({
     await get().autoConfigApc(record);
     await get().autoConfigMat(record);
     await get().autoConfigPrim(record);
+    // Monde CLASSIQUE : tronc commun par niveau/section (no-op si un moteur
+    // officiel a déjà configuré la classe, ou si elle a déjà des matières).
+    await get().autoConfigClassic(record);
     return record;
   },
 
@@ -926,6 +931,31 @@ export const useSchoolStore = create((set, get) => ({
     return { created: subs.length };
   },
 
+  // Crée un tronc commun de `subjects` pour une classe du MONDE CLASSIQUE
+  // (notes/20 FR, /100 EN). No-op si la classe n'est pas résolue 'classic' (un
+  // moteur officiel s'en charge), si le système est ES (Guinée Éq.), ou si la
+  // classe a déjà des matières. Renvoie { created }.
+  autoConfigClassic: async (cls) => {
+    const school = useAuthStore.getState().school;
+    if (resolveClassEngine(school, cls) !== 'classic') return { created: 0 };
+    const subs = buildSubjectsForClassicClass({ school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    // Ne pas dupliquer si la classe a déjà des matières.
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
   // Re-déclenche l'auto-configuration des matières pour une classe existante
   // (rattrapage si le référentiel n'était pas chargé à la création). Idempotent :
   // ne fait rien si la classe a déjà des matières. Renvoie { created }.
@@ -934,7 +964,8 @@ export const useSchoolStore = create((set, get) => ({
     const r2 = await get().autoConfigApc(cls);
     const r3 = await get().autoConfigMat(cls);
     const r4 = await get().autoConfigPrim(cls);
-    return { created: (r1?.created || 0) + (r2?.created || 0) + (r3?.created || 0) + (r4?.created || 0) };
+    const r5 = await get().autoConfigClassic(cls);
+    return { created: (r1?.created || 0) + (r2?.created || 0) + (r3?.created || 0) + (r4?.created || 0) + (r5?.created || 0) };
   },
 
   updateClass: async (id, data) => {

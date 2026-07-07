@@ -10,7 +10,7 @@
 // En-tête institutionnel / filigrane / identité / signature mutualisés (parts).
 
 import {
-  mkCell, mkTH, fix2,
+  mkCell, mkTH, fix2, L,
   OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet, ContinuationHeader,
 } from './bulletinOfficialParts';
 import { planApcLayout, apcHeaderPt } from '../../core/apcLayout';
@@ -18,22 +18,22 @@ import { APC_COTE_CODES, APC_COTE_COLORS, apcBulletinCols } from '../../core/apc
 
 // Colonnes fixes (toujours affichées) + colonnes de fin optionnelles pilotées par
 // les bascules de l'établissement (COTE / [Min–Max] / Appréciation).
-const FIXED_COLS = [
-  { key: 'mat',  w: '19%', label: "MATIÈRES ET NOM DE L'ENSEIGNANT", left: true },
-  { key: 'comp', w: '42%', label: 'COMPÉTENCES ÉVALUÉES', left: true },
+const FIXED_COLS = (sys) => [
+  { key: 'mat',  w: '19%', label: L(sys, "MATIÈRES ET NOM DE L'ENSEIGNANT", "SUBJECTS & TEACHER'S NAME", 'ASIGNATURAS Y DOCENTE'), left: true },
+  { key: 'comp', w: '42%', label: L(sys, 'COMPÉTENCES ÉVALUÉES', 'COMPETENCIES ASSESSED', 'COMPETENCIAS EVALUADAS'), left: true },
   { key: 'n',    w: '6%',  label: 'N/20' },
   { key: 'm',    w: '6%',  label: 'M/20' },
   { key: 'coef', w: '5%',  label: 'Coef' },
   { key: 'mc',   w: '7%',  label: 'M×coef' },
 ];
-const TRAILING_DEF = [
-  { key: 'cote', opt: 'cote',         w: '6%', label: 'COTE' },
+const TRAILING_DEF = (sys) => [
+  { key: 'cote', opt: 'cote',         w: '6%', label: L(sys, 'COTE', 'GRADE', 'NOTA') },
   { key: 'mm',   opt: 'minmax',       w: '4%', label: '[Min–Max]' },
-  { key: 'app',  opt: 'appreciation', w: '5%', label: 'Appréciations et Visa' },
+  { key: 'app',  opt: 'appreciation', w: '5%', label: L(sys, 'Appréciations et Visa', 'Remarks & Signature', 'Apreciación y Visa') },
 ];
 // Colonnes de fin visibles selon les bascules — au moins une (héberge « MOYENNE »).
-const visibleTrailing = (cols) => {
-  const t = TRAILING_DEF.filter((c) => cols[c.opt]);
+const visibleTrailing = (cols, sys) => {
+  const t = TRAILING_DEF(sys).filter((c) => cols[c.opt]);
   return t.length ? t : [{ key: 'ph', w: '10%', label: '' }];
 };
 
@@ -50,7 +50,7 @@ function TableHead({ th, cols }) {
 }
 
 // Un « chunk » de matière = la part de ses compétences présente sur une page.
-function MatiereChunk({ chunk, cell, trailing }) {
+function MatiereChunk({ chunk, cell, trailing, sys }) {
   const m = chunk.m;
   const rs = chunk.comps.length || 1;
   const span = (first, content, extra) => (first
@@ -70,8 +70,8 @@ function MatiereChunk({ chunk, cell, trailing }) {
           <tr key={i}>
             {first && (
               <td rowSpan={rs} style={cell}>
-                <strong>{m.nom}{chunk.contFromPrev ? ' (suite)' : ''}</strong><br />
-                <span style={{ color: '#666' }}>{m.enseignant || 'M/Mme'}</span>
+                <strong>{m.nom}{chunk.contFromPrev ? L(sys, ' (suite)', ' (cont.)', ' (cont.)') : ''}</strong><br />
+                <span style={{ color: '#666' }}>{m.enseignant || L(sys, 'M/Mme', 'Mr/Mrs', 'Sr/Sra')}</span>
               </td>
             )}
             <td style={cell}>{c.intitule}</td>
@@ -89,25 +89,25 @@ function MatiereChunk({ chunk, cell, trailing }) {
   );
 }
 
-function TotalRow({ data, cell, empty, colCount, trailCount }) {
+function TotalRow({ data, cell, empty, colCount, trailCount, sys }) {
   return (
     <tbody>
       {empty && (
-        <tr><td colSpan={colCount} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>Aucune compétence évaluée pour cette période.</td></tr>
+        <tr><td colSpan={colCount} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>{L(sys, 'Aucune compétence évaluée pour cette période.', 'No competency assessed for this period.', 'Ninguna competencia evaluada en este periodo.')}</td></tr>
       )}
       <tr>
         <td colSpan={3} style={{ ...cell, textAlign: 'right', fontWeight: 'bold' }}>TOTAL</td>
         <td style={cell} />
         <td style={{ ...cell, textAlign: 'center', fontWeight: 'bold' }}>{fix2(data.coefSum)}</td>
         <td style={{ ...cell, textAlign: 'center', fontWeight: 'bold' }}>{fix2(data.mxSum)}</td>
-        <td colSpan={trailCount} style={{ ...cell, textAlign: 'right', fontWeight: 'bold' }}>MOYENNE : {fix2(data.moyenneGenerale)}</td>
+        <td colSpan={trailCount} style={{ ...cell, textAlign: 'right', fontWeight: 'bold' }}>{L(sys, 'MOYENNE', 'AVERAGE', 'PROMEDIO')} : {fix2(data.moyenneGenerale)}</td>
       </tr>
     </tbody>
   );
 }
 
 // Pieds : Discipline | Travail de l'élève | Profil de la classe + appréciation.
-function FooterBlocks({ data, classStats, rang, effectif, cell, head }) {
+function FooterBlocks({ data, classStats, rang, effectif, cell, head, sys, appreciation }) {
   const coteCounts = APC_COTE_CODES.reduce((o, code) => {
     o[code] = data.matieres.filter((m) => m.moyenne != null && m.cote === code).length; return o;
   }, {});
@@ -125,29 +125,29 @@ function FooterBlocks({ data, classStats, rang, effectif, cell, head }) {
         <tbody>
           <tr>
             <td style={{ width: '34%', verticalAlign: 'top', paddingRight: 4 }}>
-              <Mini title="Discipline">
-                <KV k="Abs. non just. (h)" v="" /><KV k="Abs. just. (h)" v="" />
-                <KV k="Retards (nombre)" v="" /><KV k="Consignes (h)" v="" />
-                <KV k="Avertissement" v="" /><KV k="Blâme de conduite" v="" />
-                <KV k="Exclusions (jours)" v="" /><KV k="Exclusion définitive" v="" />
+              <Mini title={L(sys, 'Discipline', 'Discipline', 'Disciplina')}>
+                <KV k={L(sys, 'Abs. non just. (h)', 'Unjust. abs. (h)', 'Faltas injust. (h)')} v="" /><KV k={L(sys, 'Abs. just. (h)', 'Just. abs. (h)', 'Faltas just. (h)')} v="" />
+                <KV k={L(sys, 'Retards (nombre)', 'Lateness (count)', 'Retrasos (n.º)')} v="" /><KV k={L(sys, 'Consignes (h)', 'Detention (h)', 'Sanciones (h)')} v="" />
+                <KV k={L(sys, 'Avertissement', 'Warning', 'Amonestación')} v="" /><KV k={L(sys, 'Blâme de conduite', 'Conduct reprimand', 'Censura de conducta')} v="" />
+                <KV k={L(sys, 'Exclusions (jours)', 'Exclusions (days)', 'Expulsiones (días)')} v="" /><KV k={L(sys, 'Exclusion définitive', 'Permanent exclusion', 'Expulsión definitiva')} v="" />
               </Mini>
             </td>
             <td style={{ width: '34%', verticalAlign: 'top', paddingRight: 4 }}>
-              <Mini title="Travail de l'élève">
-                <KV k="Total général" v={fix2(data.mxSum)} />
+              <Mini title={L(sys, "Travail de l'élève", "Student's work", 'Trabajo del alumno')}>
+                <KV k={L(sys, 'Total général', 'Grand total', 'Total general')} v={fix2(data.mxSum)} />
                 <KV k="Coef" v={fix2(data.coefSum)} />
-                <KV k="MOYENNE" v={fix2(data.moyenneGenerale)} strong />
-                <KV k="Cote" v={data.moyenneGenerale != null ? data.cote : ''} strong />
-                <KV k="Rang" v={rang ? `${rang} / ${effectif ?? ''}` : ''} strong />
+                <KV k={L(sys, 'MOYENNE', 'AVERAGE', 'PROMEDIO')} v={fix2(data.moyenneGenerale)} strong />
+                <KV k={L(sys, 'Cote', 'Grade', 'Nota')} v={data.moyenneGenerale != null ? data.cote : ''} strong />
+                <KV k={L(sys, 'Rang', 'Rank', 'Puesto')} v={rang ? `${rang} / ${effectif ?? ''}` : ''} strong />
                 {APC_COTE_CODES.map((c) => <KV key={c} k={c} v={coteCounts[c]} />)}
               </Mini>
             </td>
             <td style={{ width: '32%', verticalAlign: 'top' }}>
-              <Mini title="Profil de la classe">
-                <KV k="Moyenne générale" v={fix2(classStats?.avg)} />
+              <Mini title={L(sys, 'Profil de la classe', 'Class profile', 'Perfil de la clase')}>
+                <KV k={L(sys, 'Moyenne générale', 'General average', 'Promedio general')} v={fix2(classStats?.avg)} />
                 <KV k="[Min – Max]" v={classStats ? `${fix2(classStats.min)} – ${fix2(classStats.max)}` : ''} />
-                <KV k="Nombre de moyennes" v={classStats?.count ?? ''} />
-                <KV k="Taux de réussite" v={classStats?.rate != null ? `${classStats.rate}%` : ''} />
+                <KV k={L(sys, 'Nombre de moyennes', 'Number of averages', 'N.º de promedios')} v={classStats?.count ?? ''} />
+                <KV k={L(sys, 'Taux de réussite', 'Pass rate', 'Tasa de aprobados')} v={classStats?.rate != null ? `${classStats.rate}%` : ''} />
               </Mini>
             </td>
           </tr>
@@ -156,7 +156,10 @@ function FooterBlocks({ data, classStats, rang, effectif, cell, head }) {
       <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
         <tbody>
           <tr>
-            <td style={{ ...cell, height: 32 }}>Appréciation du travail de l'élève (points forts et points à améliorer)</td>
+            <td style={{ ...cell, height: 32, verticalAlign: 'top' }}>
+              <div style={{ fontWeight: 'bold' }}>{L(sys, "Appréciation du travail de l'élève (points forts et points à améliorer)", "Remarks on the student's work (strengths and areas to improve)", 'Apreciación del trabajo del alumno (puntos fuertes y a mejorar)')}</div>
+              {appreciation ? <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{appreciation}</div> : null}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -167,15 +170,15 @@ function FooterBlocks({ data, classStats, rang, effectif, cell, head }) {
 // ── Bulletin APC officiel (auto-fit, 1–2 pages numérotées par élève) ──────────
 export default function BulletinApcOfficial({
   school, sys = 'FR', title, student, classLabel, effectif,
-  profPrincipal = '', rang, classStats, data,
+  profPrincipal = '', rang, classStats, data, appreciation = '',
 }) {
   const { fontPt, lineH, cellPadV, pages, footerPageIndex, totalPages } = planApcLayout(data.matieres);
   const cell = mkCell(fontPt, lineH, cellPadV);
   const th   = mkTH(apcHeaderPt(fontPt), lineH, cellPadV);   // en-tête de colonnes +1pt (11–12pt)
-  const idProps = { student, classLabel, effectif, profPrincipal };
+  const idProps = { student, classLabel, effectif, profPrincipal, sys };
   // Colonnes de fin selon les bascules de l'établissement.
-  const trailing = visibleTrailing(apcBulletinCols(school));
-  const allCols  = [...FIXED_COLS, ...trailing];
+  const trailing = visibleTrailing(apcBulletinCols(school), sys);
+  const allCols  = [...FIXED_COLS(sys), ...trailing];
 
   return (
     <>
@@ -187,17 +190,17 @@ export default function BulletinApcOfficial({
               <OfficialIdentity {...idProps} />
             </>
           ) : (
-            <ContinuationHeader title={title} student={student} classLabel={classLabel} />
+            <ContinuationHeader title={title} student={student} classLabel={classLabel} sys={sys} />
           )}
 
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <TableHead th={th} cols={allCols} />
-            {chunks.map((chunk, j) => <MatiereChunk key={j} chunk={chunk} cell={cell} trailing={trailing} />)}
-            {i === footerPageIndex && <TotalRow data={data} cell={cell} empty={data.matieres.length === 0} colCount={allCols.length} trailCount={trailing.length} />}
+            {chunks.map((chunk, j) => <MatiereChunk key={j} chunk={chunk} cell={cell} trailing={trailing} sys={sys} />)}
+            {i === footerPageIndex && <TotalRow data={data} cell={cell} empty={data.matieres.length === 0} colCount={allCols.length} trailCount={trailing.length} sys={sys} />}
           </table>
 
           {i === footerPageIndex && (
-            <FooterBlocks data={data} classStats={classStats} rang={rang} effectif={effectif} cell={cell} head={th} />
+            <FooterBlocks data={data} classStats={classStats} rang={rang} effectif={effectif} cell={cell} head={th} sys={sys} appreciation={appreciation} />
           )}
           {i === footerPageIndex && <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />}
         </OfficialSheet>

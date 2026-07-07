@@ -60,6 +60,22 @@ ensureColumn('classes',  'unit_id',      'unit_id TEXT');       // rattachement 
 // Cameroun » ne persistait pas et le bulletin ne basculait jamais (bug vécu).
 ensureColumn('classes',  'serie',           'serie TEXT');           // série lycée (A, C, D…) — résolution second cycle
 ensureColumn('classes',  'bulletin_engine', 'bulletin_engine TEXT'); // surcharge de moteur PAR CLASSE (null = hérite de l'école)
+// En-tête officiel bilingue (Cameroun) ou mono-langue selon le choix de l'école.
+ensureColumn('schools',  'bulletin_bilingual', 'bulletin_bilingual INTEGER'); // 1/0 (null = bilingue par défaut)
+// Conseil de classe (champs spéciaux `__…__`) : le schéma LAN d'origine ne gardait
+// qu'abs_j/abs_nj/conduite → décision, tableau d'honneur, avertissements ET
+// l'appréciation libre du travail de l'élève étaient avalés en LAN. On ajoute les
+// colonnes pour que ces champs persistent hors-ligne comme dans le cloud.
+ensureColumn('student_absences', 'th',             'th INTEGER');
+ensureColumn('student_absences', 'encouragement',  'encouragement INTEGER');
+ensureColumn('student_absences', 'felicitation',   'felicitation INTEGER');
+ensureColumn('student_absences', 'aver_travail',   'aver_travail INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'blame_travail',  'blame_travail INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'exclusions',     'exclusions INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'aver_conduite',  'aver_conduite INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'blame_conduite', 'blame_conduite INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'decision',       'decision TEXT');
+ensureColumn('student_absences', 'appreciation',   'appreciation TEXT'); // appréciation libre du travail de l'élève
 ensureColumn('subjects', 'teacher_id',   'teacher_id TEXT');
 // Matières composites (modèles académiques) — parent + méthode de calcul.
 ensureColumn('subjects', 'parent_id',   'parent_id TEXT');

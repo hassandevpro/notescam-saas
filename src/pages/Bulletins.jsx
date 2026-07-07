@@ -20,6 +20,7 @@ import BulletinApcAnnual from '../components/bulletins/BulletinApcAnnual';
 import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
 import BulletinPrimOfficial from '../components/bulletins/BulletinPrimOfficial';
 import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
+import { mkCell, mkTH, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
 import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
 import { classIdentity } from '../lib/schoolIdentity';
 import { competencesForNiveau, bulletinRows as primBulletinRows, competenceAverage as primCompetenceAverage, generalAverage as primGeneralAverage, primCote, buildPrimRanks, PRIM_COTE_DEFAULT } from '../core/primEngine';
@@ -277,7 +278,7 @@ function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period, 
   // En-tête officiel hérité du PAYS choisi à la configuration (Cameroun bilingue,
   // Côte d'Ivoire / Gabon / Congo mono-langue…). Le N° d'établissement apparaît
   // sous les délégations. Repli Cameroun si la config pays n'expose rien.
-  const officials = bulletinOfficials(school);
+  const officials = bulletinOfficials(school, { sys });
   const blocks    = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
   const leftW     = bilingual ? '33%' : '50%';
@@ -715,6 +716,10 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   const decision   = isEnSys ? (passed ? 'PASSED' : 'FAILED') : (passed ? 'ADMIS(E)' : 'AJOURNÉ(E)');
   const apprGlobal = getAppreciation(studentAvg, school?.grade_scale, sys);
   const abs = getAbsCond(gradeMap, classId, student.id, period.seqs);
+  // Appréciation libre du travail de l'élève (saisie via l'éditeur du panneau,
+  // stockée sous `__appreciation__` au dernier slot de séquence de la période).
+  const lastSeq = period.seqs[period.seqs.length - 1];
+  const workAppreciation = (gradeMap[`${classId}_${student.id}_${lastSeq}`] || {})['__appreciation__'] || '';
   const isAnnuel    = period.value === 'annuel';
   const isEN        = sys === 'EN';
   const isTrimestre = !isAnnuel && period.seqs.length > 1;
@@ -772,19 +777,46 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
 
   const totalCols = isAnnuel ? 9 : isTrimestre ? 8 : 6;
 
-  const border = '1px solid #374151';
-  const cell   = { border, padding: '3px 5px', fontSize: '10px', verticalAlign: 'middle' };
-  const thS    = { ...cell, backgroundColor: '#1e3a5f', color: '#fff', textAlign: 'center', fontWeight: 'bold', fontSize: '9px' };
-  const ghdr   = { ...cell, backgroundColor: '#2d3748', color: '#fff', fontWeight: 'bold', textAlign: 'center', fontSize: '9px', padding: '2px 5px' };
-  const gtot   = { ...cell, backgroundColor: '#e8edf2', fontWeight: 'bold', fontSize: '9px' };
+  // Styles officiels MINESEC : en-têtes de colonnes gris clair, cellules fines.
+  const cell = mkCell(9.5);
+  const thS  = mkTH(9);
+  const pcx  = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
+  const ghdr = { ...cell, background: '#dbe3ec', fontWeight: 'bold', textAlign: 'center', ...pcx };
+  const gtot = { ...cell, background: '#eef2f7', fontWeight: 'bold', ...pcx };
+
+  // Titre, prof principal et synthèse « Travail » (total pondéré, coef cumulé).
+  const title = `${isEnSys ? 'APC REPORT CARD' : 'BULLETIN APC'} – ${period.label.toUpperCase()}`;
+  const profPrincipal = teachers?.find((tt) => tt.id === cls?.teacher_id)?.name || '';
+  let gPts = 0, gCoef = 0;
+  subjects.forEach((sub) => {
+    const rawG = subjectGrades[sub.id];
+    if (rawG !== null && rawG !== undefined) {
+      const on20 = sys === 'FR' ? rawG : Math.round((rawG / (sub.max || 100)) * maxScale * 100) / 100;
+      gPts += on20 * sub.coef; gCoef += sub.coef;
+    }
+  });
+  gPts = Math.round(gPts * 100) / 100;
+
+  // Petites tables du pied officiel (Discipline / Travail / Profil de la classe).
+  const KV = ({ k, v, strong }) => (
+    <tr><td style={cell}>{k}</td><td style={{ ...cell, textAlign: 'center' }}>{strong ? <strong>{v}</strong> : v}</td></tr>
+  );
+  const Mini = ({ title: mt, children }) => (
+    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <tbody><tr><td colSpan={2} style={thS}>{mt}</td></tr>{children}</tbody>
+    </table>
+  );
 
   return (
-    <div className="bulletin-paper" style={cmPaper(school)}>
+    <OfficialSheet school={school}>
+      {/* En-tête officiel MINESEC : logo en filigrane au fond + barre de titre */}
+      <OfficialHeader school={school} sys={sys} title={title} />
+      <OfficialIdentity
+        student={student} classLabel={cls?.name || ''}
+        effectif={stats?.total} profPrincipal={profPrincipal}
+      />
 
-      {/* En-tête institutionnel mutualisé (partagé avec le Bulletin Classique) */}
-      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} qrSrc={qrSrc} />
-
-      {/* SUBJECT TABLE */}
+      {/* SUBJECT TABLE — matières groupées (monde Classique), en-têtes gris officiels */}
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
         <thead>
           <tr>
@@ -900,13 +932,55 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
         })}
       </table>
 
-      {/* Bas de page institutionnel mutualisé (partagé avec le Bulletin Classique) */}
-      <BulletinCMFooter
-        school={school} sys={sys} studentAvg={studentAvg} maxScale={maxScale}
-        passed={passed} decision={decision} apprGlobal={apprGlobal}
-        rank={rank} stats={stats} abs={abs}
-      />
-    </div>
+      {/* Pied officiel à 3 blocs : Discipline · Travail de l'élève · Profil de la classe */}
+      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 5 }}>
+        <tbody>
+          <tr>
+            <td style={{ width: '34%', verticalAlign: 'top', paddingRight: 4 }}>
+              <Mini title={L(sys, 'Discipline', 'Discipline')}>
+                <KV k={L(sys, 'Abs. non just. (h)', 'Unjust. abs. (h)')} v={abs.absNJ || 0} />
+                <KV k={L(sys, 'Abs. just. (h)', 'Just. abs. (h)')} v={abs.absJ || 0} />
+                <KV k={L(sys, 'Avert. travail', 'Work warning')} v={abs.averTravail || 0} />
+                <KV k={L(sys, 'Blâme travail', 'Work reprimand')} v={abs.blameTravail || 0} />
+                <KV k={L(sys, 'Avert. conduite', 'Conduct warning')} v={abs.averConduite || 0} />
+                <KV k={L(sys, 'Blâme conduite', 'Conduct reprimand')} v={abs.blameConduite || 0} />
+                <KV k={L(sys, 'Exclusions (jours)', 'Exclusions (days)')} v={abs.exclusions || 0} />
+                <KV k={L(sys, 'Conduite', 'Conduct')} v={abs.conduite ? conduiteLabel(sys, abs.conduite) : '—'} />
+              </Mini>
+            </td>
+            <td style={{ width: '34%', verticalAlign: 'top', paddingRight: 4 }}>
+              <Mini title={L(sys, "Travail de l'élève", "Student's work")}>
+                <KV k={L(sys, 'Total général', 'Grand total')} v={gPts || '—'} />
+                <KV k="Coef" v={gCoef || '—'} />
+                <KV k={L(sys, 'Moyenne', 'Average')} v={studentAvg !== null ? `${studentAvg}/${maxScale}` : '—'} strong />
+                <KV k={L(sys, 'Rang', 'Rank')} v={`${rank?.rankD || '—'} / ${stats?.total ?? '—'}`} strong />
+                <KV k={L(sys, 'Appréciation', 'Grade')} v={isEnSys ? (apprGlobal?.g || '—') : (apprGlobal?.text || '—')} />
+                <KV k={L(sys, "Tableau d'honneur", 'Honor roll')} v={(abs.th || abs.encouragement || abs.felicitation) ? L(sys, 'Oui', 'Yes') : L(sys, 'Non', 'No')} />
+                <KV k={L(sys, 'Décision', 'Decision')} v={studentAvg !== null ? decision : '—'} strong />
+              </Mini>
+            </td>
+            <td style={{ width: '32%', verticalAlign: 'top' }}>
+              <Mini title={L(sys, 'Profil de la classe', 'Class profile')}>
+                <KV k={L(sys, 'Moyenne générale', 'General average')} v={stats?.avg != null ? `${stats.avg}/${maxScale}` : '—'} />
+                <KV k="[Min – Max]" v={stats?.min != null && stats?.max != null ? `${stats.min} – ${stats.max}` : '—'} />
+                <KV k={L(sys, 'Nombre de moyennes', 'Number of averages')} v={stats?.total ?? '—'} />
+                <KV k={L(sys, 'Taux de réussite', 'Pass rate')} v={stats?.above != null && stats?.total ? `${Math.round((stats.above / stats.total) * 100)}%` : '—'} />
+              </Mini>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
+        <tbody><tr><td style={{ ...cell, height: 30, verticalAlign: 'top' }}>
+          <strong>{L(sys, "Appréciation du travail de l'élève (points forts et points à améliorer)",
+                  "Remarks on the student's work (strengths and areas to improve)")}</strong>
+          {workAppreciation ? <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{workAppreciation}</div> : null}
+        </td></tr></tbody>
+      </table>
+
+      {/* Signatures officielles à 3 colonnes (Parent · Prof principal · Chef d'établissement) */}
+      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />
+    </OfficialSheet>
   );
 }
 
@@ -1472,6 +1546,38 @@ function AnnualDecisionPicker({ classId, studentId, lastSeq, current, countryCod
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
+    </div>
+  );
+}
+
+// ── Éditeur d'appréciation du travail de l'élève (par élève & par période) ────
+// Persiste sous gradeMap[<class>_<student>_<lastSeq>]['__appreciation__'] — même
+// mécanisme que la décision annuelle. Écriture au blur (pas à chaque frappe).
+function AppreciationEditor({ classId, studentId, lastSeq, current, sys }) {
+  const saveGrade = useSchoolStore((s) => s.saveGrade);
+  const t = useT();
+  const [val, setVal] = useState(current || '');
+  useEffect(() => { setVal(current || ''); }, [current, studentId, lastSeq]);
+  const commit = async () => {
+    if ((current || '') === (val || '')) return;
+    await saveGrade(classId, studentId, lastSeq, { __appreciation__: val });
+  };
+  return (
+    <div className="mb-4 p-3 rounded-xl border border-sky-200 bg-sky-50 no-print">
+      <label className="text-xs font-semibold text-sky-900 uppercase tracking-wider block mb-1.5">
+        {L(sys, "Appréciation du travail de l'élève", "Remarks on the student's work", 'Apreciación del trabajo del alumno')}
+      </label>
+      <textarea
+        className="form-input bg-white"
+        rows={2}
+        placeholder={L(sys, 'Points forts et points à améliorer…', 'Strengths and areas to improve…', 'Puntos fuertes y a mejorar…')}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={commit}
+      />
+      <p className="text-xs text-sky-700/70 mt-1">
+        {t('Saisie par élève et par période — apparaît sur le bulletin.', 'Per student and period — shown on the report card.')}
+      </p>
     </div>
   );
 }
@@ -2130,6 +2236,16 @@ export default function Bulletins() {
     return slot['__decision__'] || null;
   };
 
+  // Appréciation LIBRE du travail de l'élève (points forts / à améliorer),
+  // saisie par période et par élève. Stockée comme un champ spécial du conseil
+  // (`__appreciation__`) sur le dernier slot de séquence de la période — même
+  // mécanisme que la décision annuelle.
+  const apcAppreciationFor = (sid) => {
+    const lastSeq = period?.seqs?.[period.seqs.length - 1];
+    if (!lastSeq) return '';
+    return (gradeMap?.[`${classId}_${sid}_${lastSeq}`] || {})['__appreciation__'] || '';
+  };
+
   // Libellé de la décision du conseil (bulletin APC annuel).
   const APC_DECISION_LABELS = {
     admis:      t('Admis(e) en classe supérieure', 'Promoted to next class'),
@@ -2151,6 +2267,7 @@ export default function Bulletins() {
       student, classLabel: selectedClass?.name || '',
       effectif: classStudents.length, profPrincipal: apcProfPrincipal,
       rang: apcRanks[student.id], classStats: apcClassStats, data,
+      appreciation: apcAppreciationFor(student.id),
     };
     return (
       <WatermarkWrap key={student.id} active={f.watermark}>
@@ -2606,6 +2723,18 @@ export default function Bulletins() {
                   lastSeq={period.seqs[period.seqs.length - 1]}
                   current={annualDecisionFor(selectedStudent.id)}
                   countryCode={countryCode}
+                />
+              )}
+
+              {/* Appréciation du travail de l'élève — bulletins APC (officiel 1er
+                  cycle + APC classique). Saisie par élève et par période. */}
+              {selectedStudent && !printAll && (showApcOfficial || format === 'apc') && period?.seqs?.length > 0 && (
+                <AppreciationEditor
+                  classId={classId}
+                  studentId={selectedStudent.id}
+                  lastSeq={period.seqs[period.seqs.length - 1]}
+                  current={apcAppreciationFor(selectedStudent.id)}
+                  sys={sys}
                 />
               )}
 

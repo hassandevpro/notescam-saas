@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS schools (
   grade_entry_mode   TEXT NOT NULL DEFAULT 'principal', -- 'principal' | 'subject'
   bulletin_engine    TEXT NOT NULL DEFAULT 'classic', -- 'classic' | 'officiel' (+ anciens: minesec/minedub/apc…)
   bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic', -- 'synthetic' | 'detailed' (matières composites)
+  bulletin_bilingual INTEGER,           -- en-tête officiel bilingue (1/0 ; null = bilingue par défaut)
   grade_scale        TEXT,
   apc_bulletin_cols  TEXT,   -- JSON { cote, minmax, appreciation } — colonnes du bulletin APC (premier cycle)
   logo_url           TEXT,
@@ -283,6 +284,18 @@ CREATE TABLE IF NOT EXISTS student_absences (
   abs_j      INTEGER NOT NULL DEFAULT 0,
   abs_nj     INTEGER NOT NULL DEFAULT 0,
   conduite   TEXT,
+  -- Conseil de classe (champs spéciaux `__…__`) : décision, distinctions,
+  -- avertissements/blâmes, exclusions + appréciation libre du travail.
+  th             INTEGER,
+  encouragement  INTEGER,
+  felicitation   INTEGER,
+  aver_travail   INTEGER NOT NULL DEFAULT 0,
+  blame_travail  INTEGER NOT NULL DEFAULT 0,
+  exclusions     INTEGER NOT NULL DEFAULT 0,
+  aver_conduite  INTEGER NOT NULL DEFAULT 0,
+  blame_conduite INTEGER NOT NULL DEFAULT 0,
+  decision       TEXT,
+  appreciation   TEXT,
   UNIQUE(student_id, sequence)
 );
 

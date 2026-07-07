@@ -7,7 +7,8 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB } from '../lib/db';
+import { fetchSchoolUnits, upsertSchoolUnit, deleteSchoolUnit as sbDeleteSchoolUnit } from '../lib/schoolUnitService';
 import { fetchReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
 import { fetchScReferentiel } from '../lib/scService';
 import { fetchMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
@@ -148,6 +149,7 @@ export const useSchoolStore = create((set, get) => ({
   fees:         [],
   feePayments:  [],
   classFeeGrids: [],
+  schoolUnits:  [],
   gradeMap:     {},
   academicPeriods: [],
   activeSequence:  null,
@@ -175,13 +177,13 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     // Wipe stale data from any previous session immediately — prevents flash of wrong data
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
-          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], gradeMap: {},
+          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], schoolUnits: [], gradeMap: {},
           academicPeriods: [], activeSequence: null });
 
     try {
       await initDB();
 
-      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbFeeGrids, idbPeriods] = await Promise.all([
+      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbFeeGrids, idbPeriods, idbUnits] = await Promise.all([
         classesDB.getAll(),
         subjectsDB.getAll(),
         studentsDB.getAll(),
@@ -192,6 +194,7 @@ export const useSchoolStore = create((set, get) => ({
         feePaymentsDB.getAll().catch(() => []),
         classFeeGridsDB.getAll().catch(() => []),
         academicPeriodsDB.getAll().catch(() => []),
+        schoolUnitsDB.getAll().catch(() => []),
       ]);
 
       // Filter by school
@@ -205,6 +208,9 @@ export const useSchoolStore = create((set, get) => ({
       const allFeePayments = idbFeePayments.filter((p) => p.school_id === schoolId && (!activeYear || p.academic_year === activeYear));
       const allFeeGrids    = idbFeeGrids.filter((g) => g.school_id === schoolId && (!activeYear || g.academic_year === activeYear)).map(coerceGridRow);
       const allPeriods     = idbPeriods.filter((p) => p.school_id === schoolId && (!activeYear || p.school_year === activeYear));
+      // Unités pédagogiques : périmètre ÉCOLE (jamais filtrées par année ni par
+      // rôle) — elles définissent l'identité des documents pour tout le monde.
+      const allUnits       = (idbUnits || []).filter((u) => u.school_id === schoolId);
 
       // Filter by active year (classes drive the year scope)
       if (activeYear) {
@@ -253,6 +259,7 @@ export const useSchoolStore = create((set, get) => ({
         fees:        allFees,
         feePayments: allFeePayments,
         classFeeGrids: allFeeGrids,
+        schoolUnits: allUnits,
         gradeMap:    buildGradeMap(allGrades),
         academicPeriods: allPeriods,
         activeSequence:  deriveActiveSequence(allPeriods),
@@ -281,7 +288,7 @@ export const useSchoolStore = create((set, get) => ({
     const sbClasses = await fetchClasses(schoolId, year);
     const scopeIds  = (sbClasses ?? get().classes).map((c) => c.id);
 
-    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbFeeGrids, sbPeriods] = await Promise.all([
+    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbFeeGrids, sbPeriods, sbUnits] = await Promise.all([
       fetchSubjects(schoolId, scopeIds),
       fetchStudents(schoolId, scopeIds),
       fetchGrades(schoolId, scopeIds),
@@ -292,6 +299,7 @@ export const useSchoolStore = create((set, get) => ({
       fetchFeePayments(schoolId, year).catch(() => null),
       fetchClassFeeGrids(schoolId, year).catch(() => null),
       fetchPeriods(schoolId, year).catch(() => null),
+      fetchSchoolUnits(schoolId).catch(() => null),
     ]);
 
     // ── Normalize student genders ────────────────────────────────────────
@@ -336,6 +344,7 @@ export const useSchoolStore = create((set, get) => ({
     const newPeriods      = sbPeriods !== null
       ? sbPeriods.filter((p) => !year || p.school_year === year)
       : get().academicPeriods;
+    const newUnits        = sbUnits ?? get().schoolUnits;
 
     // ── Teacher scope: filter BEFORE touching state ──────────────────────
     // Build class set from both class.teacher_id and subject.teacher_id
@@ -370,6 +379,7 @@ export const useSchoolStore = create((set, get) => ({
     if (sbFeePayments      !== null) await feePaymentsDB.putMany(sbFeePayments);
     if (sbFeeGrids         !== null) await classFeeGridsDB.putMany(newFeeGrids);
     if (sbPeriods          !== null) await academicPeriodsDB.putMany(sbPeriods);
+    if (sbUnits            !== null) await schoolUnitsDB.putMany(sbUnits);
 
     // ── Grades ────────────────────────────────────────────────────────────
     const { gradeMap } = get();
@@ -419,6 +429,7 @@ export const useSchoolStore = create((set, get) => ({
       ...(sbFeePayments      !== null && { feePayments: newFeePayments }),
       ...(sbFeeGrids         !== null && { classFeeGrids: newFeeGrids }),
       ...(sbPeriods          !== null && { academicPeriods: newPeriods, activeSequence: deriveActiveSequence(newPeriods) }),
+      ...(sbUnits            !== null && { schoolUnits: newUnits }),
       gradeMap: newGradeMap,
     });
   },
@@ -737,6 +748,55 @@ export const useSchoolStore = create((set, get) => ({
       repeated:    repeatedCount,
       graduated:   graduatedCount,
     };
+  },
+
+  // --- Unités pédagogiques (complexe scolaire) ---
+  // Offline-first, même patron que les classes : IDB + state immédiats, puis
+  // cloud (ou file de sync). Périmètre ÉCOLE, hors année.
+
+  addUnit: async (unitData) => {
+    const { schoolId, schoolUnits } = get();
+    const record = {
+      id: uuid(), school_id: schoolId,
+      position: unitData.position ?? schoolUnits.length,
+      ...unitData,
+    };
+    await schoolUnitsDB.put(record);
+    set((s) => ({ schoolUnits: [...s.schoolUnits, record] }));
+    if (backendOnline()) {
+      upsertSchoolUnit(record).then((saved) => { if (!saved) queueOffline({ table: 'school_units', operation: 'upsert', payload: record }); });
+    } else {
+      queueOffline({ table: 'school_units', operation: 'upsert', payload: record });
+    }
+    return record;
+  },
+
+  updateUnit: async (id, data) => {
+    const { schoolUnits } = get();
+    const record = { ...schoolUnits.find((u) => u.id === id), ...data };
+    await schoolUnitsDB.put(record);
+    set((s) => ({ schoolUnits: s.schoolUnits.map((u) => (u.id === id ? record : u)) }));
+    if (backendOnline()) {
+      upsertSchoolUnit(record).then((saved) => { if (!saved) queueOffline({ table: 'school_units', operation: 'upsert', payload: record }); });
+    } else {
+      queueOffline({ table: 'school_units', operation: 'upsert', payload: record });
+    }
+  },
+
+  deleteUnit: async (id) => {
+    const snapshot = get().schoolUnits.find((u) => u.id === id);
+    if (snapshot) await moveToTrash({ table: 'school_units', payload: snapshot });
+    await schoolUnitsDB.delete(id);
+    set((s) => ({ schoolUnits: s.schoolUnits.filter((u) => u.id !== id) }));
+    // Les classes rattachées gardent leur unit_id (FK ON DELETE SET NULL côté
+    // cloud). En local, on nettoie la référence pour rester cohérent.
+    const orphans = get().classes.filter((c) => c.unit_id === id);
+    for (const c of orphans) await get().updateClass(c.id, { unit_id: null });
+    if (backendOnline()) {
+      sbDeleteSchoolUnit(id).then((ok) => { if (!ok) queueOffline({ table: 'school_units', operation: 'delete', payload: { id } }); });
+    } else {
+      queueOffline({ table: 'school_units', operation: 'delete', payload: { id } });
+    }
   },
 
   // --- Classes ---

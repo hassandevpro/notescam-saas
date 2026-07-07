@@ -21,6 +21,7 @@ import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
 import BulletinPrimOfficial from '../components/bulletins/BulletinPrimOfficial';
 import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
 import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
+import { classIdentity } from '../lib/schoolIdentity';
 import { competencesForNiveau, bulletinRows as primBulletinRows, competenceAverage as primCompetenceAverage, generalAverage as primGeneralAverage, primCote, buildPrimRanks, PRIM_COTE_DEFAULT } from '../core/primEngine';
 import { domainesForMaternelle } from '../core/matEngine';
 import { obsNkey } from '../lib/matService';
@@ -1524,11 +1525,12 @@ export default function Bulletins() {
     { value: 'annuel', label: t('Annuel',       'Annual'),    short: 'Ann.', seqs: [1, 2, 3] },
   ];
 
-  const school         = useAuthStore((s) => s.school);
+  const rawSchool      = useAuthStore((s) => s.school);
   const role           = useAuthStore((s) => s.role);
   const teacherId      = useAuthStore((s) => s.teacherId);
-  const schoolLanguage = school?.language || 'francophone';
+  const schoolLanguage = rawSchool?.language || 'francophone';
   const classes        = useSchoolStore((s) => s.classes);
+  const schoolUnits    = useSchoolStore((s) => s.schoolUnits);
   const subjects = useSchoolStore((s) => s.subjects);
   const students = useSchoolStore((s) => s.students);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
@@ -1585,6 +1587,16 @@ export default function Bulletins() {
   });
 
   const selectedClass = classes.find((c) => c.id === classId) || null;
+
+  // Identité effective des documents = école SURCHARGÉE par l'unité pédagogique
+  // de la classe sélectionnée (logo/cachet/directeur/adresse/devise du primaire,
+  // du collège…). Sans unité, `school` reste l'objet école (zéro régression).
+  // Les champs non-identité (country_system, bulletin_engine, ge_grade_max, année,
+  // police…) sont préservés → moteurs et officiels du pays inchangés.
+  const school = useMemo(
+    () => classIdentity(rawSchool, selectedClass, schoolUnits),
+    [rawSchool, selectedClass, schoolUnits],
+  );
 
   // ── Filtre par SECTION (raccourcit le sélecteur de classe) ───────────────────
   // On choisit d'abord la section (maternelle / primaire / 1er cycle / 2nd cycle)

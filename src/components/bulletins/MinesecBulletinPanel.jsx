@@ -15,6 +15,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { resolveClassEngine, firstCycleClasseSlug } from '../../core/engineResolver';
+import { classIdentity } from '../../lib/schoolIdentity';
 import { exportApcTrimesterBulletins } from '../../lib/apcBulletinPdf';
 import { exportScTrimesterBulletins } from '../../lib/scBulletinPdf';
 import { teacherByMatiere } from '../../lib/teacherNames';
@@ -34,6 +35,7 @@ export default function MinesecBulletinPanel() {
   const students = useSchoolStore((s) => s.students);
   const teachers = useSchoolStore((s) => s.teachers);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
+  const schoolUnits  = useSchoolStore((s) => s.schoolUnits);
   const referentiel  = useSchoolStore((s) => s.apcReferentiel);
   const apcNotes     = useSchoolStore((s) => s.apcNotes);
   const loadApc      = useSchoolStore((s) => s.loadApc);
@@ -80,9 +82,10 @@ export default function MinesecBulletinPanel() {
     if (!classeSlug)  { flash('err', t("Classe non reconnue comme premier cycle (6e–3e).", 'Class not recognized as first cycle (6e–3e).')); return; }
     const classSubjects = subjects.filter((s) => s.class_id === classId);
     const teacherMap = teacherByMatiere(referentiel?.matieres, classSubjects, teachers);
+    const docSchool = classIdentity(school, cls, schoolUnits);
     await exportApcTrimesterBulletins(referentiel, apcNotes, {
       classeSlug, trimestreId: trim, // APC : t1/t2/t3 uniquement (pas d'annuel)
-      classLabel: cls.name, school, sys,
+      classLabel: cls.name, school: docSchool, sys,
       students: classStudents, effectif: classStudents.length, mode: 'open',
       teacherByMatiere: teacherMap,
       fileName: `bulletins_apc_${cls.name || classId}_${trim}.pdf`,
@@ -92,9 +95,10 @@ export default function MinesecBulletinPanel() {
   const exportSc = async () => {
     const classSubjects = subjects.filter((s) => s.class_id === classId);
     const serieLabel = cls.serie ? `Série ${String(cls.serie).toUpperCase()}` : '';
+    const docSchool = classIdentity(school, cls, schoolUnits);
     await exportScTrimesterBulletins({
       subjects: classSubjects, allGrades: gradeMap, classId, seqs: trimDef.seqs,
-      students: classStudents, teachers, school, sys, trimestreId: trim,
+      students: classStudents, teachers, school: docSchool, sys, trimestreId: trim,
       classLabel: cls.name, serieLabel, gradeScale: school?.grade_scale,
       fileName: `bulletins_${cls.name || classId}_${trim}.pdf`,
     });

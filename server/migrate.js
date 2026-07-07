@@ -25,6 +25,7 @@ const PAGE = 1000;
 // Ordre d'insertion = ordre des FK (parents avant enfants). users/school_users
 // sont (re)créés à part : auth.users n'est pas lisible (mots de passe).
 const TABLE_ORDER = [
+  'school_units',
   'classes', 'subjects', 'students', 'teachers', 'grades',
   'student_fees', 'fee_payments', 'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',

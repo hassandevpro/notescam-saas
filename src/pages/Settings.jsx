@@ -7,6 +7,7 @@ import { COUNTRY_OPTIONS } from '../countries';
 import { getDaysUntilLicenseExpires } from '../lib/auth';
 import { useT, localeForLang } from '../lib/i18n';
 import { uploadSchoolAsset } from '../lib/schoolService';
+import SchoolUnitsManager from '../components/SchoolUnitsManager';
 import { uuid } from '../lib/uuid';
 import { copyText } from '../lib/clipboard';
 import { BULLETIN_FONTS } from '../lib/schoolTheme';
@@ -505,6 +506,7 @@ export default function Settings() {
     { id: 'establishment', label: t('Établissement', 'School', 'Centro'),                           render: renderEstablishment },
     { id: 'appearance',    label: t('Apparence des bulletins', 'Report card look', 'Apariencia'),   render: renderAppearance,  hidden: !isAdmin },
     { id: 'signatures',    label: t('Signatures officielles', 'Official signatures', 'Firmas'),      render: renderSignatures,  hidden: !isAdmin },
+    { id: 'units',         label: t('Complexe scolaire', 'School complex', 'Complejo'),              render: renderUnits,       hidden: !isAdmin },
     { id: 'users',         label: t('Utilisateurs', 'Users', 'Usuarios'),                           render: renderUsers,       hidden: !isAdmin },
     { id: 'calendar',      label: t('Calendrier scolaire', 'School calendar', 'Calendario'),        render: renderCalendar,    hidden: !isAdmin },
     { id: 'advanced',      label: t('Paramètres avancés', 'Advanced settings', 'Avanzado'),         render: renderAdvanced,    hidden: !isAdmin },
@@ -888,6 +890,14 @@ export default function Settings() {
           </div>
         )}
       </form>
+    );
+  }
+
+  function renderUnits() {
+    return (
+      <Section title={t('Unités pédagogiques', 'Teaching units', 'Unidades pedagógicas')}>
+        <SchoolUnitsManager />
+      </Section>
     );
   }
 

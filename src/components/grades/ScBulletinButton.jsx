@@ -7,6 +7,7 @@ import { useSchoolStore } from '../../store/schoolStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 import { resolveClassEngine } from '../../core/engineResolver';
+import { classIdentity } from '../../lib/schoolIdentity';
 import { exportScTrimesterBulletins } from '../../lib/scBulletinPdf';
 
 const TRIMS = [
@@ -22,6 +23,7 @@ export default function ScBulletinButton() {
   const students = useSchoolStore((s) => s.students);
   const teachers = useSchoolStore((s) => s.teachers);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
+  const schoolUnits = useSchoolStore((s) => s.schoolUnits);
   const school   = useAuthStore((s) => s.school);
   const classId  = useUiStore((s) => s.gradesClassId);
 
@@ -47,11 +49,13 @@ export default function ScBulletinButton() {
       return;
     }
     const t = TRIMS.find((x) => x.id === trim);
+    // Identité effective = unité pédagogique de la classe (logo/cachet/directeur).
+    const docSchool = classIdentity(school, cls, schoolUnits);
     setBusy(true); setMsg('');
     try {
       await exportScTrimesterBulletins({
         subjects: classSubjects, allGrades: gradeMap, classId, seqs: t.seqs,
-        students: classStudents, teachers, school, sys, trimestreId: t.id,
+        students: classStudents, teachers, school: docSchool, sys, trimestreId: t.id,
         classLabel: cls.name, serieLabel, gradeScale: school?.grade_scale,
         fileName: `bulletins_${cls.name || classId}_${t.id}.pdf`,
       });

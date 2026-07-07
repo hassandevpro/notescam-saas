@@ -750,6 +750,7 @@ export default function Students() {
   const { f } = usePlan();
   const school              = useAuthStore((s) => s.school);
   const classes             = useSchoolStore((s) => s.classes);
+  const schoolUnits         = useSchoolStore((s) => s.schoolUnits);
   const students            = useSchoolStore((s) => s.students);
   const addStudent          = useSchoolStore((s) => s.addStudent);
   const updateStudent       = useSchoolStore((s) => s.updateStudent);
@@ -1133,6 +1134,8 @@ export default function Students() {
                   onClose={() => setShowCards(false)}
                   students={visible}
                   school={school}
+                  units={schoolUnits}
+                  classes={classes}
                   classNameById={classNameById}
                   classSystemById={(id) => classes.find((c) => c.id === id)?.system}
                 />

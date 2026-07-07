@@ -8,6 +8,7 @@ import { buildCardId, qrDataUrl, imageToDataUrl } from '../lib/idCardService';
 import { exportIdCardsPdf } from '../lib/idCardPdf';
 import { getSchoolTheme } from '../lib/schoolTheme';
 import { resolveCountryCode } from '../countries';
+import { studentIdentity } from '../lib/schoolIdentity';
 import { useT } from '../lib/i18n';
 
 const MODELS = [
@@ -17,12 +18,16 @@ const MODELS = [
   { key: 'minimaliste', fr: 'Minimaliste',  en: 'Minimalist' },
 ];
 
-export default function IdCardModal({ open, onClose, students = [], school, classNameById, classSystemById }) {
+export default function IdCardModal({ open, onClose, students = [], school, units = [], classes = [], classNameById, classSystemById }) {
   const t = useT();
   const [variant, setVariant] = useState('premium'); // Premium = défaut
   const [qrMap, setQrMap] = useState({});
   const [photoMap, setPhotoMap] = useState({});   // student.id → photo data-URL
-  const [schoolImgs, setSchoolImgs] = useState(null); // logo/signature/cachet en data-URL
+  // Assets (logo/cachet/signature) convertis en data-URL, indexés par URL source.
+  // Chaque élève peut relever d'une UNITÉ pédagogique différente (logo propre),
+  // donc on résout l'identité PAR ÉLÈVE (cf. lib/schoolIdentity) et on ne convertit
+  // chaque URL distincte qu'une seule fois.
+  const [imgMap, setImgMap] = useState(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
 
@@ -39,22 +44,21 @@ export default function IdCardModal({ open, onClose, students = [], school, clas
     if (!open || !students.length) return;
     let cancelled = false;
     (async () => {
-      // Images de l'école : identiques pour toutes les cartes → résolues une fois.
-      // Images de l'école : petites à l'affichage (logo ~60 px, cachet/signature
-      // ~50 px) → maxDim modeste suffit et allège fortement chaque capture.
-      const [logo, signature, stamp] = await Promise.all([
-        imageToDataUrl(school?.logo_url,      { maxDim: 400 }),
-        imageToDataUrl(school?.signature_url, { maxDim: 400 }),
-        imageToDataUrl(school?.stamp_url,     { maxDim: 400 }),
-      ]);
+      // URLs d'assets DISTINCTES à travers toutes les identités par élève (l'unité
+      // pédagogique surcharge le logo/cachet/signature). Converties une seule fois.
+      const urls = new Set();
+      for (const s of students) {
+        const id = studentIdentity(school, s, classes, units);
+        [id?.logo_url, id?.signature_url, id?.stamp_url].forEach((u) => { if (u) urls.add(u); });
+      }
+      const urlList = [...urls];
+      const converted = await Promise.all(urlList.map((u) => imageToDataUrl(u, { maxDim: 400 })));
       if (cancelled) return;
       // En cas d'échec de conversion (URL cassée / hôte sans CORS) on conserve
       // l'URL d'origine : l'image reste affichable, sans régression visuelle.
-      setSchoolImgs({
-        logo_url: logo ?? school?.logo_url ?? null,
-        signature_url: signature ?? school?.signature_url ?? null,
-        stamp_url: stamp ?? school?.stamp_url ?? null,
-      });
+      const map = {};
+      urlList.forEach((u, i) => { map[u] = converted[i] ?? u; });
+      setImgMap(map);
 
       // QR + photos des élèves (en parallèle, mais bornés pour ne pas saturer
       // le navigateur sur de très grands effectifs).
@@ -75,7 +79,7 @@ export default function IdCardModal({ open, onClose, students = [], school, clas
       setPhotoMap(photos);
     })();
     return () => { cancelled = true; };
-  }, [open, students, school?.id, school?.logo_url, school?.signature_url, school?.stamp_url]);
+  }, [open, students, school, classes, units]);
 
   // Refs sur chaque carte rendue (zone cachée) pour la capture PDF.
   const cardRefs = useRef([]);
@@ -84,14 +88,22 @@ export default function IdCardModal({ open, onClose, students = [], school, clas
 
   const ready =
     students.length > 0 &&
-    schoolImgs !== null &&
+    imgMap !== null &&
     Object.keys(qrMap).length === students.length;
 
-  // École avec ses images déjà en data-URL (capture sans fetch ni risque CORS).
-  const resolvedSchool = useMemo(
-    () => (schoolImgs ? { ...school, ...schoolImgs } : school),
-    [school, schoolImgs]
-  );
+  // Identité effective d'un élève (unité pédagogique de sa classe) avec ses
+  // assets déjà convertis en data-URL (capture sans fetch ni risque CORS).
+  const resolvedSchoolFor = (s) => {
+    const id = studentIdentity(school, s, classes, units);
+    if (!imgMap) return id;
+    const swap = (u) => (u ? (imgMap[u] ?? u) : (u ?? null));
+    return {
+      ...id,
+      logo_url:      swap(id?.logo_url),
+      signature_url: swap(id?.signature_url),
+      stamp_url:     swap(id?.stamp_url),
+    };
+  };
 
   const handleExport = async (mode) => {
     if (!ready || busy) return;
@@ -124,7 +136,7 @@ export default function IdCardModal({ open, onClose, students = [], school, clas
   const cardProps = (s) => ({
     // Photo déjà convertie en data-URL (ou null → placeholder de la carte).
     student: { ...s, photo_url: photoMap[s.id] ?? null },
-    school: resolvedSchool,
+    school: resolvedSchoolFor(s),
     className: classNameById?.(s.class_id) || '',
     cardId: buildCardId(school?.id, s.id),
     qrSrc: qrMap[s.id],

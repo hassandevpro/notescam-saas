@@ -31,6 +31,22 @@ Les blocs référencent la structure par **slug** (déjà seedés en base) :
 
 Un slug inconnu **arrête l'import** (on n'invente jamais de matière ni de classe).
 
+### Sous-système ANGLOPHONE (CBA — Forms 1–5)
+
+Le premier cycle anglophone (Competency-Based Approach) a ses compétences PROPRES,
+rangées sous des clés de classe distinctes pour coexister avec le référentiel
+francophone. Pré-requis : exécuter `supabase_apc_anglophone.sql` (seed structure).
+
+| Entité     | Slugs valides (anglophone) |
+|------------|----------------------------|
+| `classe`   | `form1`, `form2`, `form3`, `form4`, `form5` |
+| `trimestre`| `t1`, `t2`, `t3` (identiques) |
+| `matiere`  | `english`, `french`, `mathematics`, `biology`, `chemistry`, `physics`, `computer_science`, `history`, `geography`, `citizenship`, `physical_education`, `literature`, `economics`, `commerce`, `food_science`, `manual_labour`, `religious_studies`, `national_languages`, `german`, `spanish` |
+
+Format du pivot identique — seuls les slugs changent (voir
+`examples/apc/anglophone_example.json`). La résolution est automatique : une classe
+« Form 3 » (Système = EN) résout vers `form3` et lit ces compétences.
+
 ## Héritage trimestre → séquences
 
 Une compétence est attachée à un **trimestre**, pas à une séquence. Elle est

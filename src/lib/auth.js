@@ -37,7 +37,11 @@ export async function getCurrentUserContext() {
   // simplement absents (→ null) tant que la migration n'est pas appliquée.
   const LEGACY_COLS  = 'id, role, full_name, class_id, school_id, schools (*)';
   const PROFILE_COLS = 'id, role, full_name, phone, photo_url, last_login_at, created_at, class_id, school_id, schools (*)';
+  // Le plus riche : ajoute le PÉRIMÈTRE du surveillant (migration supabase_vie_scolaire.sql).
+  const SCOPE_COLS   = 'id, role, full_name, phone, photo_url, last_login_at, created_at, class_id, school_id, scope_sections, scope_cycles, scope_class_ids, schools (*)';
   const selectSchoolUsers = async () => {
+    const withScope = await supabase.from('school_users').select(SCOPE_COLS).eq('user_id', user.id).eq('active', true);
+    if (!withScope.error) return withScope;
     const rich = await supabase.from('school_users').select(PROFILE_COLS).eq('user_id', user.id).eq('active', true);
     if (!rich.error) return rich;
     return supabase.from('school_users').select(LEGACY_COLS).eq('user_id', user.id).eq('active', true);
@@ -119,6 +123,12 @@ export async function getCurrentUserContext() {
     classId:      data.class_id,
     schoolUserId: data.id,
     teacherId,
+    // Périmètre vie scolaire (null si migration non appliquée → accès global).
+    scope: {
+      sections: data.scope_sections  ?? null,
+      cycles:   data.scope_cycles    ?? null,
+      classIds: data.scope_class_ids ?? null,
+    },
   };
 }
 

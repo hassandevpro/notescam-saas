@@ -14,14 +14,20 @@ import { imageToDataUrl } from '../lib/idCardService';
 import { exportIdCardsPdf } from '../lib/idCardPdf';
 import { getSchoolTheme } from '../lib/schoolTheme';
 import { resolveCountryCode } from '../countries';
+import { classIdentity } from '../lib/schoolIdentity';
 import { useT } from '../lib/i18n';
 
-export default function HonorAwardModal({ open, onClose, rows = [], school, template, year, onGenerated }) {
+export default function HonorAwardModal({ open, onClose, rows = [], school, units = [], classes = [], template, year, onGenerated }) {
   const t = useT();
   const [photoMap, setPhotoMap] = useState({});
-  const [schoolImgs, setSchoolImgs] = useState(null);
+  // Assets convertis en data-URL, indexés par URL source (une conversion par URL
+  // distincte). Chaque diplôme prend l'identité de l'UNITÉ de la classe du lauréat.
+  const [imgMap, setImgMap] = useState(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+
+  // Identité effective (unité pédagogique) d'une ligne palmarès via sa classe.
+  const identityForRow = (r) => classIdentity(school, classes.find((c) => c.id === r.classId), units);
 
   // Diplôme : PAYSAGE UNIQUEMENT.
   const orientation = 'landscape';
@@ -35,17 +41,18 @@ export default function HonorAwardModal({ open, onClose, rows = [], school, temp
     if (!open || !rows.length) return;
     let cancelled = false;
     (async () => {
-      const [logo, signature, stamp] = await Promise.all([
-        imageToDataUrl(school?.logo_url,      { maxDim: 600 }),
-        imageToDataUrl(school?.signature_url, { maxDim: 500 }),
-        imageToDataUrl(school?.stamp_url,     { maxDim: 500 }),
-      ]);
+      // URLs d'assets distinctes à travers les identités par ligne (unité du lauréat).
+      const urls = new Set();
+      for (const r of rows) {
+        const id = identityForRow(r);
+        [id?.logo_url, id?.signature_url, id?.stamp_url].forEach((u) => { if (u) urls.add(u); });
+      }
+      const urlList = [...urls];
+      const converted = await Promise.all(urlList.map((u) => imageToDataUrl(u, { maxDim: 600 })));
       if (cancelled) return;
-      setSchoolImgs({
-        logo_url: logo ?? school?.logo_url ?? null,
-        signature_url: signature ?? school?.signature_url ?? null,
-        stamp_url: stamp ?? school?.stamp_url ?? null,
-      });
+      const map = {};
+      urlList.forEach((u, i) => { map[u] = converted[i] ?? u; });
+      setImgMap(map);
 
       const photos = {};
       for (const r of rows) {
@@ -58,22 +65,30 @@ export default function HonorAwardModal({ open, onClose, rows = [], school, temp
       setPhotoMap(photos);
     })();
     return () => { cancelled = true; };
-  }, [open, rows, school?.id, school?.logo_url, school?.signature_url, school?.stamp_url]);
+  }, [open, rows, school, classes, units]);
 
   const cardRefs = useRef([]);
   cardRefs.current = [];
   const registerRef = (el) => { if (el) cardRefs.current.push(el); };
 
-  const ready = rows.length > 0 && schoolImgs !== null && Object.keys(photoMap).length === rows.length;
+  const ready = rows.length > 0 && imgMap !== null && Object.keys(photoMap).length === rows.length;
 
-  const resolvedSchool = useMemo(
-    () => (schoolImgs ? { ...school, ...schoolImgs } : school),
-    [school, schoolImgs],
-  );
+  // Identité (unité) de la ligne, assets déjà convertis en data-URL.
+  const resolvedSchoolFor = (r) => {
+    const id = identityForRow(r);
+    if (!imgMap) return id;
+    const swap = (u) => (u ? (imgMap[u] ?? u) : (u ?? null));
+    return {
+      ...id,
+      logo_url:      swap(id?.logo_url),
+      signature_url: swap(id?.signature_url),
+      stamp_url:     swap(id?.stamp_url),
+    };
+  };
 
   const awardProps = (r) => ({
     award: { ...r, photo_url: photoMap[r.id] ?? null },
-    school: resolvedSchool,
+    school: resolvedSchoolFor(r),
     style,
     countryCode,
     year: year || school?.current_year || '',

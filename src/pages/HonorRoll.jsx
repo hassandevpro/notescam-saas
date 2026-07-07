@@ -34,6 +34,7 @@ export default function HonorRoll() {
   const school   = useAuthStore((s) => s.school);
   const schoolId = school?.id;
   const classes  = useSchoolStore((s) => s.classes);
+  const schoolUnits = useSchoolStore((s) => s.schoolUnits);
   const subjects = useSchoolStore((s) => s.subjects);
   const students = useSchoolStore((s) => s.students);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
@@ -322,6 +323,8 @@ export default function HonorRoll() {
           onClose={() => setAwardModal(null)}
           rows={awardModal.rows}
           school={school}
+          units={schoolUnits}
+          classes={classes}
           template={awardModal.tpl}
           year={year}
           onGenerated={() => { bumpPdf(); markGen(awardModal.tpl.id); }}

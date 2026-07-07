@@ -8,7 +8,7 @@
 //   rows = [{ code, intitule, moyenne, coef, cote, appreciation? }]
 
 import {
-  mkCell, mkTH, fix2,
+  mkCell, mkTH, fix2, L,
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
 
@@ -29,26 +29,33 @@ export default function BulletinPrimOfficial({
   const th   = { ...mkTH(11), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
   const noted = rows.filter((r) => r.moyenne != null);
 
+  // Fondamental MINEDUB : l'enseignant titulaire n'est pas un « professeur
+  // principal » et le chef d'établissement est un directeur/directrice (jamais
+  // proviseur, propre au lycée).
+  const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
+  const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
+  const ppLabel      = sys === 'EN' ? 'Class teacher'     : sys === 'ES' ? 'Maestro/a' : 'Enseignant(e)';
+
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1}>
       <OfficialHeader school={school} sys={sys} title={title} accent={PRIM_ACCENT} basic />
-      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} accent={PRIM_ACCENT} tint={PRIM_TH_BG} />
+      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={PRIM_ACCENT} tint={PRIM_TH_BG} />
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
             <th style={{ ...th, width: '6%' }}>N°</th>
-            <th style={{ ...th, width: '55%', textAlign: 'left' }}>COMPÉTENCES NATIONALES</th>
-            <th style={{ ...th, width: '11%' }}>Moy. /10</th>
+            <th style={{ ...th, width: '55%', textAlign: 'left' }}>{L(sys, 'COMPÉTENCES NATIONALES', 'NATIONAL COMPETENCIES', 'COMPETENCIAS NACIONALES')}</th>
+            <th style={{ ...th, width: '11%' }}>{L(sys, 'Moy. /10', 'Avg. /10', 'Prom. /10')}</th>
             <th style={{ ...th, width: '7%' }}>Coef</th>
-            <th style={{ ...th, width: '9%' }}>COTE</th>
-            <th style={{ ...th, width: '12%' }}>Appréciation</th>
+            <th style={{ ...th, width: '9%' }}>{L(sys, 'COTE', 'GRADE', 'NOTA')}</th>
+            <th style={{ ...th, width: '12%' }}>{L(sys, 'Appréciation', 'Remarks', 'Apreciación')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 && (
             <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>
-              Aucune compétence évaluée pour cette période.
+              {L(sys, 'Aucune compétence évaluée pour cette période.', 'No competency assessed for this period.', 'Ninguna competencia evaluada en este periodo.')}
             </td></tr>
           )}
           {rows.map((r) => (
@@ -73,13 +80,13 @@ export default function BulletinPrimOfficial({
             <td style={{ width: '50%', verticalAlign: 'top', paddingRight: 4 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <tbody>
-                  <tr><td colSpan={2} style={th}>Bilan de l'élève</td></tr>
-                  <tr><td style={cell}>Moyenne générale /10</td><td style={{ ...cell, textAlign: 'center' }}><strong>{fix2(moyenneGenerale)}</strong></td></tr>
-                  <tr><td style={cell}>Cote générale</td><td style={{ ...cell, textAlign: 'center' }}>
+                  <tr><td colSpan={2} style={th}>{L(sys, "Bilan de l'élève", "Student's summary", 'Balance del alumno')}</td></tr>
+                  <tr><td style={cell}>{L(sys, 'Moyenne générale /10', 'General average /10', 'Promedio general /10')}</td><td style={{ ...cell, textAlign: 'center' }}><strong>{fix2(moyenneGenerale)}</strong></td></tr>
+                  <tr><td style={cell}>{L(sys, 'Cote générale', 'General grade', 'Nota general')}</td><td style={{ ...cell, textAlign: 'center' }}>
                     <strong style={{ color: moyenneGenerale != null ? PRIM_COTE_COLORS[coteGenerale] : undefined }}>{moyenneGenerale != null ? coteGenerale : ''}</strong>
                   </td></tr>
-                  <tr><td style={cell}>Rang</td><td style={{ ...cell, textAlign: 'center' }}><strong>{rang ? `${rang} / ${effectif ?? ''}` : ''}</strong></td></tr>
-                  <tr><td style={cell}>Compétences acquises (A+/A)</td><td style={{ ...cell, textAlign: 'center' }}>
+                  <tr><td style={cell}>{L(sys, 'Rang', 'Rank', 'Puesto')}</td><td style={{ ...cell, textAlign: 'center' }}><strong>{rang ? `${rang} / ${effectif ?? ''}` : ''}</strong></td></tr>
+                  <tr><td style={cell}>{L(sys, 'Compétences acquises (A+/A)', 'Competencies achieved (A+/A)', 'Competencias logradas (A+/A)')}</td><td style={{ ...cell, textAlign: 'center' }}>
                     {noted.filter((r) => r.cote === 'A+' || r.cote === 'A').length} / {noted.length}
                   </td></tr>
                 </tbody>
@@ -88,11 +95,11 @@ export default function BulletinPrimOfficial({
             <td style={{ width: '50%', verticalAlign: 'top' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <tbody>
-                  <tr><td colSpan={2} style={th}>Profil de la classe</td></tr>
-                  <tr><td style={cell}>Moyenne générale</td><td style={{ ...cell, textAlign: 'center' }}>{fix2(classStats?.avg)}</td></tr>
+                  <tr><td colSpan={2} style={th}>{L(sys, 'Profil de la classe', 'Class profile', 'Perfil de la clase')}</td></tr>
+                  <tr><td style={cell}>{L(sys, 'Moyenne générale', 'General average', 'Promedio general')}</td><td style={{ ...cell, textAlign: 'center' }}>{fix2(classStats?.avg)}</td></tr>
                   <tr><td style={cell}>[Min – Max]</td><td style={{ ...cell, textAlign: 'center' }}>{classStats ? `${fix2(classStats.min)} – ${fix2(classStats.max)}` : ''}</td></tr>
-                  <tr><td style={cell}>Nombre de moyennes</td><td style={{ ...cell, textAlign: 'center' }}>{classStats?.count ?? ''}</td></tr>
-                  <tr><td style={cell}>Taux de réussite</td><td style={{ ...cell, textAlign: 'center' }}>{classStats?.rate != null ? `${classStats.rate}%` : ''}</td></tr>
+                  <tr><td style={cell}>{L(sys, 'Nombre de moyennes', 'Number of averages', 'N.º de promedios')}</td><td style={{ ...cell, textAlign: 'center' }}>{classStats?.count ?? ''}</td></tr>
+                  <tr><td style={cell}>{L(sys, 'Taux de réussite', 'Pass rate', 'Tasa de aprobados')}</td><td style={{ ...cell, textAlign: 'center' }}>{classStats?.rate != null ? `${classStats.rate}%` : ''}</td></tr>
                 </tbody>
               </table>
             </td>
@@ -102,12 +109,12 @@ export default function BulletinPrimOfficial({
 
       <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
         <tbody>
-          <tr><td style={{ ...cell, height: 30 }}>Appréciation générale du Conseil des maîtres : {appreciation}</td></tr>
-          {decision ? <tr><td style={cell}>Décision du conseil : <strong>{decision}</strong></td></tr> : null}
+          <tr><td style={{ ...cell, height: 30 }}>{L(sys, 'Appréciation générale du Conseil des maîtres', "Teachers' council general remarks", 'Apreciación general del consejo de maestros')} : {appreciation}</td></tr>
+          {decision ? <tr><td style={cell}>{L(sys, 'Décision du conseil', 'Council decision', 'Decisión del consejo')} : <strong>{decision}</strong></td></tr> : null}
         </tbody>
       </table>
 
-      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />
+      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} />
     </OfficialSheet>
   );
 }

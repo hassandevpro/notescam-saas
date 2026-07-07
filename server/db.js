@@ -54,16 +54,51 @@ ensureColumn('classes',  'cycle',        'cycle TEXT');
 ensureColumn('classes',  'teacher_id',   'teacher_id TEXT');
 ensureColumn('classes',  'max_students', 'max_students INTEGER');
 ensureColumn('classes',  'grade_max',    'grade_max INTEGER'); // barème de classe (/10, /20, /30…)
+ensureColumn('classes',  'unit_id',      'unit_id TEXT');       // rattachement à une unité pédagogique (complexe scolaire)
+// Moteur « officiel » (MINEDUB + MINESEC). Sans ces colonnes, la bascule du moteur
+// et la série lycée étaient avalées par pickColumns en LAN : le choix « Officiel
+// Cameroun » ne persistait pas et le bulletin ne basculait jamais (bug vécu).
+ensureColumn('classes',  'serie',           'serie TEXT');           // série lycée (A, C, D…) — résolution second cycle
+ensureColumn('classes',  'bulletin_engine', 'bulletin_engine TEXT'); // surcharge de moteur PAR CLASSE (null = hérite de l'école)
+// En-tête officiel bilingue (Cameroun) ou mono-langue selon le choix de l'école.
+ensureColumn('schools',  'bulletin_bilingual', 'bulletin_bilingual INTEGER'); // 1/0 (null = bilingue par défaut)
+// Conseil de classe (champs spéciaux `__…__`) : le schéma LAN d'origine ne gardait
+// qu'abs_j/abs_nj/conduite → décision, tableau d'honneur, avertissements ET
+// l'appréciation libre du travail de l'élève étaient avalés en LAN. On ajoute les
+// colonnes pour que ces champs persistent hors-ligne comme dans le cloud.
+ensureColumn('student_absences', 'th',             'th INTEGER');
+ensureColumn('student_absences', 'encouragement',  'encouragement INTEGER');
+ensureColumn('student_absences', 'felicitation',   'felicitation INTEGER');
+ensureColumn('student_absences', 'aver_travail',   'aver_travail INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'blame_travail',  'blame_travail INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'exclusions',     'exclusions INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'aver_conduite',  'aver_conduite INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'blame_conduite', 'blame_conduite INTEGER NOT NULL DEFAULT 0');
+ensureColumn('student_absences', 'decision',       'decision TEXT');
+ensureColumn('student_absences', 'appreciation',   'appreciation TEXT'); // appréciation libre du travail de l'élève
 ensureColumn('subjects', 'teacher_id',   'teacher_id TEXT');
 // Matières composites (modèles académiques) — parent + méthode de calcul.
 ensureColumn('subjects', 'parent_id',   'parent_id TEXT');
 ensureColumn('subjects', 'calc_method', 'calc_method TEXT');
 ensureColumn('subjects', 'formula',     'formula TEXT');
+// Métadonnées du moteur officiel posées sur les matières auto-configurées
+// (NULL = comportement classique inchangé). Sans elles, pickColumns avalerait
+// le groupe/charge SC et les liens domaine/compétence au fondamental.
+ensureColumn('subjects', 'sc_groupe',          'sc_groupe TEXT');        // 'g1' | 'g2' (bulletin lycée)
+ensureColumn('subjects', 'sc_groupe_ordre',    'sc_groupe_ordre INTEGER');
+ensureColumn('subjects', 'charge_horaire',     'charge_horaire NUMERIC');
+ensureColumn('subjects', 'mat_domaine_id',     'mat_domaine_id TEXT');   // lien matière↔domaine maternelle
+ensureColumn('subjects', 'prim_competence_id', 'prim_competence_id TEXT'); // lien matière↔compétence primaire
 ensureColumn('schools',  'currency',     "currency TEXT NOT NULL DEFAULT 'XAF'"); // devise officielle (affichage multi-devises)
 ensureColumn('schools',  'ge_grade_max', 'ge_grade_max INTEGER');  // barème GE (/10 ou /20) — lu par geGradeMax()
 ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // pilotage des périodes : 'auto' | 'manual'
 ensureColumn('schools',  'grade_entry_mode', "grade_entry_mode TEXT NOT NULL DEFAULT 'principal'"); // 'principal' | 'subject' (enseignant de matière)
 ensureColumn('schools',  'bulletin_subject_mode', "bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic'"); // 'synthetic' | 'detailed'
+// Moteur de bulletin de l'établissement : 'classic' | 'officiel' (+ anciens drapeaux
+// minesec/minedub/apc… rétro-compatibles). Absente du schéma LAN d'origine → le
+// choix « Officiel Cameroun » n'était jamais persisté (avalé par pickColumns).
+ensureColumn('schools',  'bulletin_engine', "bulletin_engine TEXT NOT NULL DEFAULT 'classic'");
+ensureColumn('schools',  'apc_bulletin_cols', 'apc_bulletin_cols TEXT'); // colonnes du bulletin APC premier cycle (JSON)
 ensureColumn('schools',  'establishment_no', 'establishment_no TEXT'); // N° officiel établissement (en-tête bulletin)
 ensureColumn('schools',  'bulletin_font',    'bulletin_font TEXT');    // police choisie pour le bulletin
 // Relevés de notes — signatures + noms des 2 autorités additionnelles (le chef
@@ -82,15 +117,31 @@ for (const [col, ddl] of [
   ['status', 'status TEXT'], ['documents', 'documents TEXT'],
 ]) ensureColumn('teachers', col, ddl);
 
+// --- Seed du référentiel officiel (MINEDUB + MINESEC) -----------------
+// Peuple les tables « référentiel » (cycles/classes/matières/compétences APC,
+// séries/coef SC, domaines maternelle, compétences primaire) pour que le moteur
+// « Officiel Cameroun » génère les matières et affiche les compétences EN LOCAL,
+// sans cloud. Généré par scripts/build-officiel-seed.mjs, rejouable (ON CONFLICT).
+try {
+  const seed = readFileSync(join(__dirname, 'officiel-seed.sql'), 'utf8');
+  db.exec(seed);
+} catch (e) {
+  console.warn('[seed] référentiel officiel non chargé :', e.message);
+}
+
 // --- Synchronisation continue LAN ↔ Cloud (Phase 2) -------------------
 // Tables dont les changements sont répliqués vers/depuis le cloud. Chacune
 // reçoit updated_at / version / device_id pour la résolution LWW + l'outbox.
 export const SYNCED_TABLES = new Set([
-  'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
+  'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'class_fee_grids',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
+  // Notes du moteur officiel (compétences/observations). Synchro LAN↔LAN OK (même
+  // seed = mêmes ids référentiel) ; la synchro LAN↔Cloud des notes reste un
+  // chantier à part (les ids de compétences cloud diffèrent du seed local).
+  'apc_notes', 'mat_observations', 'prim_notes',
 ]);
 for (const t of SYNCED_TABLES) {
   ensureColumn(t, 'updated_at', 'updated_at TEXT');                  // horodatage du dernier changement (LWW)
@@ -124,12 +175,19 @@ export function tableColumns(table) {
 
 // Liste blanche des tables exposées par l'API générique.
 export const ALLOWED_TABLES = new Set([
-  'schools', 'school_users', 'classes', 'subjects', 'students', 'grades',
+  'schools', 'school_units', 'school_users', 'classes', 'subjects', 'students', 'grades',
   'teachers', 'staff', 'student_fees', 'fee_payments', 'class_fee_grids',
   'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots', 'country_education_config',
   'evaluation_system', 'superadmins', 'academic_periods',
+  // Moteur officiel — référentiel (lecture) + notes (lecture/écriture) :
+  'apc_referentiel_versions', 'apc_cycles', 'apc_classes', 'apc_trimestres',
+  'apc_sequences', 'apc_matieres', 'apc_competences', 'apc_classe_matieres', 'apc_notes',
+  'sc_referentiel_versions', 'sc_series', 'sc_groupes', 'sc_matieres', 'sc_serie_matieres',
+  'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines', 'mat_observations',
+  'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
+  'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_notes',
 ]);
 
 // Quote sûr d'un identifiant SQLite (table / colonne) : double les guillemets.

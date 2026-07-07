@@ -1047,7 +1047,8 @@ export default function Classes() {
     await addClass({ ...rest, name: `${cls.name} (copie)` });
   };
 
-  // Rattrapage : (re)crée automatiquement les matières d'une classe MINESEC/APC.
+  // Rattrapage : (re)crée automatiquement les matières d'une classe — officielle
+  // (MINESEC/APC/MINEDUB) ou classique (tronc commun FR/EN).
   const handleConfigureSubjects = async (cls) => {
     const { created } = await configureClassSubjects(cls);
     window.alert(created > 0
@@ -1248,9 +1249,12 @@ export default function Classes() {
                     onDelete={() => handleDelete(cls)}
                     onGo={onGo}
                     onConfigureSubjects={
-                      resolveClassEngine(school, cls) !== 'classic'
-                        ? () => handleConfigureSubjects(cls)
-                        : undefined
+                      // Officiel (MINESEC/APC/MINEDUB) OU classique FR/EN (tronc
+                      // commun). Masqué seulement pour le classique ES (Guinée Éq.,
+                      // système propre → pas de tronc commun classique).
+                      resolveClassEngine(school, cls) === 'classic' && (cls.system || 'FR') === 'ES'
+                        ? undefined
+                        : () => handleConfigureSubjects(cls)
                     }
                   />
                 ))}

@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS schools (
   country_system     TEXT,                -- 'cameroon_fr' | 'cameroon_en' | 'guinea_eq'
   ge_primary_coef    INTEGER NOT NULL DEFAULT 0,
   grade_entry_mode   TEXT NOT NULL DEFAULT 'principal', -- 'principal' | 'subject'
+  bulletin_engine    TEXT NOT NULL DEFAULT 'classic', -- 'classic' | 'officiel' (+ anciens: minesec/minedub/apc…)
   bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic', -- 'synthetic' | 'detailed' (matières composites)
+  bulletin_bilingual INTEGER,           -- en-tête officiel bilingue (1/0 ; null = bilingue par défaut)
   grade_scale        TEXT,
   apc_bulletin_cols  TEXT,   -- JSON { cote, minmax, appreciation } — colonnes du bulletin APC (premier cycle)
   logo_url           TEXT,
@@ -80,6 +82,32 @@ CREATE TABLE IF NOT EXISTS superadmins (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- --- Unités pédagogiques du complexe scolaire ----------------
+-- Une école (complexe) contient 0..N unités (maternelle/primaire/collège/lycée…),
+-- chacune avec sa propre identité (nom, logo, cachet, signature, directeur,
+-- adresse, contacts, devise, couleurs). Cf. src/lib/schoolIdentity.js.
+CREATE TABLE IF NOT EXISTS school_units (
+  id               TEXT PRIMARY KEY,
+  school_id        TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  section_key      TEXT,   -- 'maternelle'|'primaire'|'premier_cycle'|'second_cycle'|'autre'
+  name             TEXT NOT NULL,
+  short_name       TEXT,
+  logo_url         TEXT,
+  stamp_url        TEXT,
+  signature_url    TEXT,
+  director         TEXT,
+  address          TEXT,
+  phone            TEXT,
+  email            TEXT,
+  motto            TEXT,
+  establishment_no TEXT,
+  color_primary    TEXT,
+  color_secondary  TEXT,
+  position         INTEGER NOT NULL DEFAULT 0,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_school_units_school ON school_units(school_id);
+
 -- --- Classes / matières / élèves -----------------------------
 CREATE TABLE IF NOT EXISTS classes (
   id           TEXT PRIMARY KEY,
@@ -87,14 +115,19 @@ CREATE TABLE IF NOT EXISTS classes (
   name         TEXT NOT NULL,
   level        TEXT,
   section      TEXT,
+  serie        TEXT,   -- série lycée (A, C, D…) — résolution du second cycle MINESEC
   system       TEXT NOT NULL DEFAULT 'FR',
   cycle        TEXT,
   current_year TEXT,
+  -- Surcharge de moteur PAR CLASSE (null = hérite de schools.bulletin_engine).
+  bulletin_engine TEXT,
   -- Enseignant titulaire. Pas de FK dure : la sync hors-ligne peut envoyer la
   -- classe avant l'enseignant -> on garde l'id même si la ligne teacher n'est
   -- pas (encore) là, au lieu de rejeter tout l'upsert (FK ON globalement).
   teacher_id   TEXT,
   max_students INTEGER,
+  -- Rattachement explicite à une unité pédagogique (repli auto par section sinon).
+  unit_id      TEXT REFERENCES school_units(id) ON DELETE SET NULL,
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -251,6 +284,18 @@ CREATE TABLE IF NOT EXISTS student_absences (
   abs_j      INTEGER NOT NULL DEFAULT 0,
   abs_nj     INTEGER NOT NULL DEFAULT 0,
   conduite   TEXT,
+  -- Conseil de classe (champs spéciaux `__…__`) : décision, distinctions,
+  -- avertissements/blâmes, exclusions + appréciation libre du travail.
+  th             INTEGER,
+  encouragement  INTEGER,
+  felicitation   INTEGER,
+  aver_travail   INTEGER NOT NULL DEFAULT 0,
+  blame_travail  INTEGER NOT NULL DEFAULT 0,
+  exclusions     INTEGER NOT NULL DEFAULT 0,
+  aver_conduite  INTEGER NOT NULL DEFAULT 0,
+  blame_conduite INTEGER NOT NULL DEFAULT 0,
+  decision       TEXT,
+  appreciation   TEXT,
   UNIQUE(student_id, sequence)
 );
 
@@ -490,3 +535,244 @@ CREATE INDEX IF NOT EXISTS idx_timetable_class       ON timetable_slots(class_id
 CREATE INDEX IF NOT EXISTS idx_school_users_user     ON school_users(user_id);
 CREATE INDEX IF NOT EXISTS idx_staff_school          ON staff(school_id);
 CREATE INDEX IF NOT EXISTS idx_staff_department      ON staff(department);
+
+-- ============================================================
+-- MOTEUR OFFICIEL CAMEROUN (MINEDUB + MINESEC) — portage LAN
+-- ============================================================
+-- Réplique en SQLite les tables « référentiel » (globales, lecture seule,
+-- peuplées par server/officiel-seed.sql) et « transactionnelles » (par école,
+-- synchronisées) du moteur officiel. Le cloud est la source de vérité du schéma :
+-- uuid → TEXT, boolean → INTEGER (0/1, compris par SQLite via true/false),
+-- numeric → NUMERIC, timestamptz → TEXT. Les colonnes de sync (updated_at,
+-- version, device_id) sont ajoutées aux tables transactionnelles comme ailleurs.
+
+-- ── APC premier cycle (collège 6e–3e) : structure + compétences ──────────────
+CREATE TABLE IF NOT EXISTS apc_referentiel_versions (
+  id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  label       TEXT NOT NULL,
+  source      TEXT,
+  imported_at TEXT,
+  actif       INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS apc_cycles (
+  id  TEXT PRIMARY KEY,
+  nom TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS apc_classes (
+  id       TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL REFERENCES apc_cycles(id) ON DELETE CASCADE,
+  nom      TEXT NOT NULL,
+  niveau   INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS apc_trimestres (
+  id     TEXT PRIMARY KEY,
+  numero INTEGER NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS apc_sequences (
+  id           TEXT PRIMARY KEY,
+  numero       INTEGER NOT NULL UNIQUE,
+  trimestre_id TEXT NOT NULL REFERENCES apc_trimestres(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS apc_matieres (
+  id          TEXT PRIMARY KEY,
+  nom         TEXT NOT NULL,
+  coefficient NUMERIC NOT NULL DEFAULT 1,
+  optionnelle INTEGER NOT NULL DEFAULT 0,
+  ordre       INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS apc_competences (
+  id                     TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  cycle_id               TEXT NOT NULL REFERENCES apc_cycles(id)     ON DELETE CASCADE,
+  classe_id              TEXT NOT NULL REFERENCES apc_classes(id)    ON DELETE CASCADE,
+  trimestre_id           TEXT NOT NULL REFERENCES apc_trimestres(id) ON DELETE CASCADE,
+  matiere_id             TEXT NOT NULL REFERENCES apc_matieres(id)   ON DELETE CASCADE,
+  ordre                  INTEGER NOT NULL DEFAULT 1,
+  intitule               TEXT NOT NULL,
+  coefficient            NUMERIC,
+  actif                  INTEGER NOT NULL DEFAULT 1,
+  referentiel_version_id TEXT REFERENCES apc_referentiel_versions(id) ON DELETE SET NULL,
+  CONSTRAINT apc_competences_uniq UNIQUE (classe_id, trimestre_id, matiere_id, ordre)
+);
+CREATE TABLE IF NOT EXISTS apc_classe_matieres (
+  classe_id   TEXT NOT NULL REFERENCES apc_classes(id)  ON DELETE CASCADE,
+  matiere_id  TEXT NOT NULL REFERENCES apc_matieres(id) ON DELETE CASCADE,
+  coefficient NUMERIC NOT NULL DEFAULT 1,
+  ordre       INTEGER NOT NULL DEFAULT 0,
+  optionnelle INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (classe_id, matiere_id)
+);
+
+-- ── Second cycle MINESEC (lycée 2nde–Tle par séries) ─────────────────────────
+CREATE TABLE IF NOT EXISTS sc_referentiel_versions (
+  id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  label       TEXT NOT NULL,
+  source      TEXT,
+  imported_at TEXT,
+  actif       INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS sc_series (
+  id          TEXT PRIMARY KEY,
+  nom         TEXT NOT NULL,
+  categorie   TEXT NOT NULL,
+  description TEXT,
+  ordre       INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS sc_groupes (
+  id    TEXT PRIMARY KEY,
+  nom   TEXT NOT NULL,
+  ordre INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS sc_matieres (
+  id                    TEXT PRIMARY KEY,
+  nom                   TEXT NOT NULL,
+  code                  TEXT,
+  domaine_apprentissage TEXT,
+  ordre                 INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS sc_serie_matieres (
+  id                     TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  serie_id               TEXT NOT NULL REFERENCES sc_series(id)   ON DELETE CASCADE,
+  classe_id              TEXT NOT NULL,
+  matiere_id             TEXT NOT NULL REFERENCES sc_matieres(id) ON DELETE CASCADE,
+  groupe_id              TEXT NOT NULL REFERENCES sc_groupes(id),
+  coefficient            NUMERIC NOT NULL,
+  charge_horaire         NUMERIC,
+  obligatoire            INTEGER NOT NULL DEFAULT 1,
+  actif                  INTEGER NOT NULL DEFAULT 1,
+  referentiel_version_id TEXT REFERENCES sc_referentiel_versions(id) ON DELETE SET NULL,
+  CONSTRAINT sc_serie_matieres_uniq UNIQUE (serie_id, classe_id, matiere_id)
+);
+
+-- ── Maternelle (domaines / observations A·ECA·NA) ────────────────────────────
+CREATE TABLE IF NOT EXISTS mat_referentiel_versions (
+  id           TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  country_code TEXT NOT NULL DEFAULT 'CM',
+  label        TEXT NOT NULL,
+  source       TEXT,
+  imported_at  TEXT,
+  actif        INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS mat_niveaux (
+  id           TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL DEFAULT 'CM',
+  nom          TEXT NOT NULL,
+  ordre        INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mat_domaines (
+  id           TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL DEFAULT 'CM',
+  code         TEXT,
+  intitule     TEXT NOT NULL,
+  ordre        INTEGER NOT NULL,
+  actif        INTEGER NOT NULL DEFAULT 1
+);
+
+-- ── Primaire APC (compétences 1A–6B × critères /10) ──────────────────────────
+CREATE TABLE IF NOT EXISTS prim_referentiel_versions (
+  id           TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  country_code TEXT NOT NULL DEFAULT 'CM',
+  label        TEXT NOT NULL,
+  source       TEXT,
+  imported_at  TEXT,
+  actif        INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS prim_cycles (
+  id           TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL DEFAULT 'CM',
+  nom          TEXT NOT NULL,
+  ordre        INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prim_niveaux (
+  id           TEXT PRIMARY KEY,
+  cycle_id     TEXT NOT NULL REFERENCES prim_cycles(id) ON DELETE CASCADE,
+  country_code TEXT NOT NULL DEFAULT 'CM',
+  nom          TEXT NOT NULL,
+  ordre        INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prim_competences (
+  id           TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL DEFAULT 'CM',
+  code         TEXT NOT NULL,
+  intitule     TEXT NOT NULL,
+  domaine      TEXT,
+  coefficient  NUMERIC NOT NULL DEFAULT 1,
+  ordre        INTEGER NOT NULL,
+  actif        INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS prim_niveau_competences (
+  niveau_id     TEXT NOT NULL REFERENCES prim_niveaux(id)     ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES prim_competences(id) ON DELETE CASCADE,
+  coefficient   NUMERIC,
+  actif         INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (niveau_id, competence_id)
+);
+CREATE TABLE IF NOT EXISTS prim_criteres (
+  id           TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL DEFAULT 'CM',
+  nom          TEXT NOT NULL,
+  poids        NUMERIC NOT NULL DEFAULT 1,
+  ordre        INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prim_cote_bareme (
+  id           TEXT PRIMARY KEY,
+  country_code TEXT NOT NULL DEFAULT 'CM',
+  cote         TEXT NOT NULL,
+  libelle      TEXT NOT NULL,
+  seuil_min    NUMERIC NOT NULL,
+  ordre        INTEGER NOT NULL
+);
+
+-- ── Transactionnel officiel (par école, synchronisé LAN↔Cloud) ───────────────
+CREATE TABLE IF NOT EXISTS apc_notes (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  eleve_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES apc_competences(id) ON DELETE CASCADE,
+  sequence_id   TEXT NOT NULL REFERENCES apc_sequences(id),
+  enseignant_id TEXT,
+  note          NUMERIC,
+  appreciation  TEXT,
+  date_saisie   TEXT,
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT,
+  CONSTRAINT apc_notes_uniq UNIQUE (eleve_id, competence_id, sequence_id)
+);
+CREATE INDEX IF NOT EXISTS idx_apc_notes_school  ON apc_notes(school_id);
+CREATE INDEX IF NOT EXISTS idx_apc_notes_student ON apc_notes(eleve_id);
+
+CREATE TABLE IF NOT EXISTS mat_observations (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  eleve_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  domaine_id    TEXT NOT NULL REFERENCES mat_domaines(id),
+  trimestre_id  TEXT NOT NULL REFERENCES apc_trimestres(id),
+  niveau_acquis TEXT NOT NULL,
+  observation   TEXT,
+  enseignant_id TEXT,
+  date_saisie   TEXT,
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT,
+  CONSTRAINT mat_observations_uniq UNIQUE (eleve_id, domaine_id, trimestre_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mat_obs_school  ON mat_observations(school_id);
+CREATE INDEX IF NOT EXISTS idx_mat_obs_student ON mat_observations(eleve_id);
+
+CREATE TABLE IF NOT EXISTS prim_notes (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  eleve_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES prim_competences(id),
+  critere_id    TEXT NOT NULL REFERENCES prim_criteres(id),
+  trimestre_id  TEXT NOT NULL REFERENCES apc_trimestres(id),
+  note          NUMERIC,
+  enseignant_id TEXT,
+  date_saisie   TEXT,
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT,
+  CONSTRAINT prim_notes_uniq UNIQUE (eleve_id, competence_id, critere_id, trimestre_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prim_notes_school  ON prim_notes(school_id);
+CREATE INDEX IF NOT EXISTS idx_prim_notes_student ON prim_notes(eleve_id);

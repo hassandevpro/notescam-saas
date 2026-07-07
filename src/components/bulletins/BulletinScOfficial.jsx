@@ -9,30 +9,30 @@
 // chaque page ; synthèse + signature sur la dernière.
 
 import {
-  CELL, TH, HEAD, fix2,
+  CELL, TH, HEAD, fix2, L,
   OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet, ContinuationHeader,
 } from './bulletinOfficialParts';
 import { paginateScGroups } from '../../lib/scBulletinDoc';
 
-function TableHead() {
+function TableHead({ sys }) {
   return (
     <thead>
       <tr>
-        <th style={{ ...TH, width: '30%' }}>MATIÈRES ET NOM DE L'ENSEIGNANT</th>
+        <th style={{ ...TH, width: '30%' }}>{L(sys, "MATIÈRES ET NOM DE L'ENSEIGNANT", "SUBJECTS & TEACHER'S NAME", 'ASIGNATURAS Y DOCENTE')}</th>
         <th style={{ ...TH, width: '6%' }}>Coef</th>
-        <th style={{ ...TH, width: '7%' }}>Charge h</th>
-        <th style={{ ...TH, width: '8%' }}>Moy/20</th>
-        <th style={{ ...TH, width: '9%' }}>Moy×Coef</th>
-        <th style={{ ...TH, width: '7%' }}>Rang</th>
+        <th style={{ ...TH, width: '7%' }}>{L(sys, 'Charge h', 'Periods', 'Horas')}</th>
+        <th style={{ ...TH, width: '8%' }}>{L(sys, 'Moy/20', 'Avg/20', 'Prom/20')}</th>
+        <th style={{ ...TH, width: '9%' }}>{L(sys, 'Moy×Coef', 'Avg×Coef', 'Prom×Coef')}</th>
+        <th style={{ ...TH, width: '7%' }}>{L(sys, 'Rang', 'Rank', 'Puesto')}</th>
         <th style={{ ...TH, width: '10%' }}>[Min–Max]</th>
-        <th style={{ ...TH, width: '13%' }}>Appréciation et Visa</th>
+        <th style={{ ...TH, width: '13%' }}>{L(sys, 'Appréciation et Visa', 'Remarks & Signature', 'Apreciación y Visa')}</th>
       </tr>
     </thead>
   );
 }
 
 // Un groupe de matières (en-tête de groupe + lignes + sous-total).
-function GroupBlock({ g }) {
+function GroupBlock({ g, sys }) {
   return (
     <tbody className="apc-mat">
       <tr><td colSpan={8} style={{ ...CELL, background: '#dde7f3', fontWeight: 'bold' }}>{g.nom}</td></tr>
@@ -40,7 +40,7 @@ function GroupBlock({ g }) {
         <tr key={r.id}>
           <td style={CELL}>
             <strong>{r.nom}</strong><br />
-            <span style={{ color: '#666' }}>{r.enseignant || 'M/Mme'}</span>
+            <span style={{ color: '#666' }}>{r.enseignant || L(sys, 'M/Mme', 'Mr/Mrs', 'Sr/Sra')}</span>
           </td>
           <td style={{ ...CELL, textAlign: 'center' }}>{r.coef}</td>
           <td style={{ ...CELL, textAlign: 'center' }}>{r.charge ?? ''}</td>
@@ -52,7 +52,7 @@ function GroupBlock({ g }) {
         </tr>
       ))}
       <tr style={{ background: '#f4f7fb' }}>
-        <td style={{ ...CELL, textAlign: 'right', fontWeight: 'bold' }}>Total {g.nom}</td>
+        <td style={{ ...CELL, textAlign: 'right', fontWeight: 'bold' }}>{L(sys, 'Total', 'Total', 'Total')} {g.nom}</td>
         <td style={{ ...CELL, textAlign: 'center', fontWeight: 'bold' }}>{fix2(g.coefSum)}</td>
         <td style={{ ...CELL, textAlign: 'center', fontWeight: 'bold' }}>{fix2(g.chargeSum)}</td>
         <td style={{ ...CELL, textAlign: 'center', fontWeight: 'bold' }}>{fix2(g.moyenne)}</td>
@@ -64,7 +64,7 @@ function GroupBlock({ g }) {
 }
 
 // Synthèse : Travail | Discipline/conduite | Profil de la classe + décision.
-function Synthesis({ data, discipline, decision }) {
+function Synthesis({ data, discipline, decision, sys }) {
   const d = discipline || {};
   const KV = ({ k, v, strong }) => (
     <tr><td style={CELL}>{k}</td><td style={{ ...CELL, textAlign: 'center' }}>{strong ? <strong>{v}</strong> : v}</td></tr>
@@ -80,28 +80,28 @@ function Synthesis({ data, discipline, decision }) {
         <tbody>
           <tr>
             <td style={{ width: '34%', verticalAlign: 'top', paddingRight: 4 }}>
-              <Mini title="Travail de l'élève">
-                <KV k="Total général (M×coef)" v={fix2(data.mxSum)} />
-                <KV k="Total coefficients" v={fix2(data.coefSum)} />
-                <KV k="MOYENNE GÉNÉRALE" v={`${fix2(data.moyenneGenerale)}/20`} strong />
-                <KV k="Rang" v={data.generalRank || ''} strong />
-                <KV k="Appréciation" v={data.appreciation} />
+              <Mini title={L(sys, "Travail de l'élève", "Student's work", 'Trabajo del alumno')}>
+                <KV k={L(sys, 'Total général (M×coef)', 'Grand total (M×coef)', 'Total general (M×coef)')} v={fix2(data.mxSum)} />
+                <KV k={L(sys, 'Total coefficients', 'Total coefficients', 'Total coeficientes')} v={fix2(data.coefSum)} />
+                <KV k={L(sys, 'MOYENNE GÉNÉRALE', 'GENERAL AVERAGE', 'PROMEDIO GENERAL')} v={`${fix2(data.moyenneGenerale)}/20`} strong />
+                <KV k={L(sys, 'Rang', 'Rank', 'Puesto')} v={data.generalRank || ''} strong />
+                <KV k={L(sys, 'Appréciation', 'Remarks', 'Apreciación')} v={data.appreciation} />
               </Mini>
             </td>
             <td style={{ width: '34%', verticalAlign: 'top', paddingRight: 4 }}>
-              <Mini title="Discipline et conduite">
-                <KV k="Abs. non just. (h)" v={d.absNJ ?? ''} />
-                <KV k="Abs. just. (h)" v={d.absJ ?? ''} />
-                <KV k="Conduite" v={d.conduite || ''} />
-                <KV k="Exclusion (jours)" v={d.exclusions || ''} />
+              <Mini title={L(sys, 'Discipline et conduite', 'Discipline and conduct', 'Disciplina y conducta')}>
+                <KV k={L(sys, 'Abs. non just. (h)', 'Unjust. abs. (h)', 'Faltas injust. (h)')} v={d.absNJ ?? ''} />
+                <KV k={L(sys, 'Abs. just. (h)', 'Just. abs. (h)', 'Faltas just. (h)')} v={d.absJ ?? ''} />
+                <KV k={L(sys, 'Conduite', 'Conduct', 'Conducta')} v={d.conduite || ''} />
+                <KV k={L(sys, 'Exclusion (jours)', 'Exclusion (days)', 'Expulsión (días)')} v={d.exclusions || ''} />
               </Mini>
             </td>
             <td style={{ width: '32%', verticalAlign: 'top' }}>
-              <Mini title="Profil de la classe">
-                <KV k="Moyenne de la classe" v={fix2(data.classStats?.avg)} />
+              <Mini title={L(sys, 'Profil de la classe', 'Class profile', 'Perfil de la clase')}>
+                <KV k={L(sys, 'Moyenne de la classe', 'Class average', 'Promedio de la clase')} v={fix2(data.classStats?.avg)} />
                 <KV k="[Min – Max]" v={data.classStats ? `${fix2(data.classStats.min)} – ${fix2(data.classStats.max)}` : ''} />
-                <KV k="Nombre de moyennes" v={data.classStats?.count ?? ''} />
-                <KV k="Taux de réussite" v={data.classStats?.rate != null ? `${data.classStats.rate}%` : ''} />
+                <KV k={L(sys, 'Nombre de moyennes', 'Number of averages', 'N.º de promedios')} v={data.classStats?.count ?? ''} />
+                <KV k={L(sys, 'Taux de réussite', 'Pass rate', 'Tasa de aprobados')} v={data.classStats?.rate != null ? `${data.classStats.rate}%` : ''} />
               </Mini>
             </td>
           </tr>
@@ -111,9 +111,9 @@ function Synthesis({ data, discipline, decision }) {
         <tbody>
           <tr>
             <td style={{ ...CELL, verticalAlign: 'top' }}>
-              Décision du conseil de classe : <strong>{decision || d.decision || ''}</strong>
+              {L(sys, 'Décision du conseil de classe', 'Class council decision', 'Decisión del consejo de clase')} : <strong>{decision || d.decision || ''}</strong>
               {d.mentions?.length > 0 && (
-                <><br /><span style={{ color: '#444' }}>Mentions : {d.mentions.join(' · ')}</span></>
+                <><br /><span style={{ color: '#444' }}>{L(sys, 'Mentions', 'Distinctions', 'Menciones')} : {d.mentions.join(' · ')}</span></>
               )}
             </td>
           </tr>
@@ -130,7 +130,7 @@ export default function BulletinScOfficial({
 }) {
   const { pages, footerOwnPage } = paginateScGroups(data.groups);
   const total = pages.length + (footerOwnPage ? 1 : 0);
-  const idProps = { student, classLabel, serieLabel, effectif, profPrincipal };
+  const idProps = { student, classLabel, serieLabel, effectif, profPrincipal, sys };
 
   const sheets = pages.map((slice, i) => {
     const withFooter = i === pages.length - 1 && !footerOwnPage;
@@ -142,16 +142,16 @@ export default function BulletinScOfficial({
             <OfficialIdentity {...idProps} />
           </>
         ) : (
-          <ContinuationHeader title={title} student={student} classLabel={classLabel} serieLabel={serieLabel} />
+          <ContinuationHeader title={title} student={student} classLabel={classLabel} serieLabel={serieLabel} sys={sys} />
         )}
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <TableHead />
-          {slice.map((g) => <GroupBlock key={g.ordre} g={g} />)}
+          <TableHead sys={sys} />
+          {slice.map((g) => <GroupBlock key={g.ordre} g={g} sys={sys} />)}
           {data.groups.length === 0 && (
-            <tbody><tr><td colSpan={8} style={{ ...CELL, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>Aucune matière notée pour cette période.</td></tr></tbody>
+            <tbody><tr><td colSpan={8} style={{ ...CELL, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>{L(sys, 'Aucune matière notée pour cette période.', 'No subject graded for this period.', 'Ninguna asignatura calificada en este periodo.')}</td></tr></tbody>
           )}
         </table>
-        {withFooter && <Synthesis data={data} discipline={discipline} decision={decision} />}
+        {withFooter && <Synthesis data={data} discipline={discipline} decision={decision} sys={sys} />}
         {withFooter && <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />}
       </OfficialSheet>
     );
@@ -160,8 +160,8 @@ export default function BulletinScOfficial({
   if (footerOwnPage) {
     sheets.push(
       <OfficialSheet key="pf" school={school} pageNo={total} total={total}>
-        <ContinuationHeader title={title} student={student} classLabel={classLabel} serieLabel={serieLabel} />
-        <Synthesis data={data} discipline={discipline} decision={decision} />
+        <ContinuationHeader title={title} student={student} classLabel={classLabel} serieLabel={serieLabel} sys={sys} />
+        <Synthesis data={data} discipline={discipline} decision={decision} sys={sys} />
         <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />
       </OfficialSheet>
     );

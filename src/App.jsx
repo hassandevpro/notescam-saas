@@ -52,6 +52,15 @@ const Terms             = lazy(() => import('./pages/Terms'));
 const Help              = lazy(() => import('./pages/Help'));
 const History           = lazy(() => import('./pages/History'));
 const HonorRoll         = lazy(() => import('./pages/HonorRoll'));
+// Module Vie scolaire (surveillant / discipline)
+const VieScolaire       = lazy(() => import('./pages/VieScolaire'));
+const LateArrivals      = lazy(() => import('./pages/LateArrivals'));
+const Incidents         = lazy(() => import('./pages/Incidents'));
+const Sanctions         = lazy(() => import('./pages/Sanctions'));
+const ParentMeetings    = lazy(() => import('./pages/ParentMeetings'));
+const ExitPermissions   = lazy(() => import('./pages/ExitPermissions'));
+const DisciplineCouncil = lazy(() => import('./pages/DisciplineCouncil'));
+const StudentDisciplineFile = lazy(() => import('./pages/StudentDisciplineFile'));
 
 function PageLoader() {
   return (
@@ -242,6 +251,14 @@ export default function App() {
           <Route path="/app/absences"         element={<ProtectedRoute allow={ALL_STAFF}><Absences /></ProtectedRoute>} />
           <Route path="/app/monitor"          element={<ProtectedRoute allow={ACADEMIC}><TeacherMonitor /></ProtectedRoute>} />
           <Route path="/app/conseil"          element={<ProtectedRoute allow={DISCIPLINE}><ConseilDeClasse /></ProtectedRoute>} />
+          <Route path="/app/vie-scolaire"       element={<ProtectedRoute allow={DISCIPLINE}><VieScolaire /></ProtectedRoute>} />
+          <Route path="/app/retards"            element={<ProtectedRoute allow={DISCIPLINE}><LateArrivals /></ProtectedRoute>} />
+          <Route path="/app/incidents"          element={<ProtectedRoute allow={DISCIPLINE}><Incidents /></ProtectedRoute>} />
+          <Route path="/app/sanctions"          element={<ProtectedRoute allow={DISCIPLINE}><Sanctions /></ProtectedRoute>} />
+          <Route path="/app/convocations"       element={<ProtectedRoute allow={DISCIPLINE}><ParentMeetings /></ProtectedRoute>} />
+          <Route path="/app/sorties"            element={<ProtectedRoute allow={DISCIPLINE}><ExitPermissions /></ProtectedRoute>} />
+          <Route path="/app/conseil-discipline" element={<ProtectedRoute allow={DISCIPLINE}><DisciplineCouncil /></ProtectedRoute>} />
+          <Route path="/app/discipline/:studentId" element={<ProtectedRoute allow={DISCIPLINE}><StudentDisciplineFile /></ProtectedRoute>} />
           <Route path="/app/timetable"        element={<ProtectedRoute allow={WITH_TEACHER}><Timetable /></ProtectedRoute>} />
           <Route path="/app/aide"             element={<ProtectedRoute allow={ALL_STAFF}><Help /></ProtectedRoute>} />
           <Route path="/app/historique"       element={<ProtectedRoute allow={ADMIN_ONLY}><History /></ProtectedRoute>} />

@@ -42,7 +42,7 @@ function withTimeout(promise, label, ms = NET_TIMEOUT_MS) {
 //   - country_education_config / evaluation_system : config GLOBALE déjà en cloud ;
 //   - tables locales (license_activation, migration_state, pwd_mirror_queue, …).
 const PUSH_ORDER = [
-  'academic_periods', 'classes', 'subjects', 'students', 'teachers', 'staff', 'grades',
+  'academic_periods', 'school_units', 'classes', 'subjects', 'students', 'teachers', 'staff', 'grades',
   'student_fees', 'fee_payments', 'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots',

@@ -285,6 +285,42 @@ function rawRowsToGrades(raw) {
   return { rows, subjectNames: subjectCols.map((c) => c.name), error: null };
 }
 
+// ── Lecture brute d'une feuille (grilles compétences) ─────────────────────────
+// Retourne { raw: string[][], error }. Contrairement à parseGradesCSV, aucune
+// hypothèse sur les colonnes (les intitulés de compétences contiennent chiffres,
+// « / » et accents) : l'appelant fait lui-même la correspondance en-tête→colonne.
+export function readSheetAoa(file) {
+  return new Promise((resolve) => {
+    const reader  = new FileReader();
+    const isExcel = /\.(xlsx|xls|ods)$/i.test(file.name);
+
+    reader.onload = async (e) => {
+      try {
+        let raw;
+        if (isExcel) {
+          const XLSX = await loadXLSX();
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+            .map((r) => r.map((c) => String(c ?? '').trim()));
+        } else {
+          const lines = e.target.result.split(/\r?\n/).filter((l) => l.trim());
+          if (lines.length < 2) { resolve({ raw: [], error: msg('emptyData') }); return; }
+          const delim = lines[0].includes(';') ? ';' : ',';
+          raw = lines.map((l) => splitCSVLine(l, delim).map((c) => c.trim()));
+        }
+        if (!raw || raw.length < 2) { resolve({ raw: [], error: msg('emptyData') }); return; }
+        resolve({ raw, error: null });
+      } catch (err) {
+        resolve({ raw: [], error: msg('readErr') + err.message });
+      }
+    };
+    reader.onerror = () => resolve({ raw: [], error: msg('cantRead') });
+    if (isExcel) reader.readAsArrayBuffer(file);
+    else         reader.readAsText(file, 'UTF-8');
+  });
+}
+
 function splitCSVLine(line, delim) {
   const result = [];
   let cur = '', inQ = false;

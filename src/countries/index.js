@@ -59,6 +59,13 @@ export function getCountry(school) {
   return COUNTRIES[resolveCountryCode(school)];
 }
 
+// Le PAYS de l'école propose-t-il un en-tête officiel bilingue (2 blocs) ?
+// (Cameroun : oui. Pays mono-langue : non.) Sert à n'afficher le réglage
+// « Bulletin bilingue » que là où il a un sens.
+export function countryIsBilingual(school) {
+  return !!getCountry(school)?.officials?.secondary;
+}
+
 // Convenience: which UI language a country defaults to.
 export function defaultLangForCountry(countryCode) {
   const c = COUNTRIES[countryCode];
@@ -99,6 +106,33 @@ export function bulletinOfficials(school, opts = {}) {
     };
   };
 
-  const blocks = [buildBlock(off.primary), buildBlock(off.secondary)].filter(Boolean);
-  return { bilingual: !!off.secondary, blocks };
+  const countryBilingual = !!off.secondary;
+  const primBlock = buildBlock(off.primary);
+  // Pays mono-langue (Gabon, Congo, Côte d'Ivoire…) : un seul bloc, tel quel.
+  if (!countryBilingual) return { bilingual: false, blocks: [primBlock].filter(Boolean) };
+
+  // Pays bilingue (Cameroun). On identifie le bloc ANGLAIS et le bloc FRANÇAIS
+  // (cameroon_fr → primary=FR ; cameroon_en → primary=EN) pour faire porter en
+  // TÊTE le bloc de la langue de la CLASSE (sys), et non celle de l'école : une
+  // classe anglophone d'une école francophone obtient ainsi un en-tête anglophone.
+  const secBlock    = buildBlock(off.secondary);
+  const primaryIsEn = /_en$/.test(resolveCountryCode(school));
+  const enBlock = primaryIsEn ? primBlock : secBlock;
+  const frBlock = primaryIsEn ? secBlock : primBlock;
+  // Langue en tête = celle de la CLASSE si `sys` est fourni ; sinon la langue
+  // PRIMAIRE du pays (préserve l'ordre historique des documents qui n'ont pas de
+  // notion de classe : relevés, palmarès, discipline… en école anglophone).
+  const classEn = opts.sys ? (opts.sys === 'EN') : primaryIsEn;
+  const lead    = (classEn ? enBlock : frBlock) || primBlock;
+  const other   =  classEn ? frBlock : enBlock;
+
+  // Choix de l'établissement : `bulletin_bilingual === false` (ou 0/'0') force un
+  // en-tête MONO-langue = uniquement le bloc de la langue de la classe. Non défini
+  // ⇒ bilingue (historique), mais RÉORDONNÉ pour porter la langue de classe en tête.
+  // Robuste cloud (booléen) ET LAN (INTEGER 0/1).
+  const bl = school?.bulletin_bilingual;
+  const wantBilingual = !(bl === false || bl === 0 || bl === '0');
+  if (!wantBilingual) return { bilingual: false, blocks: [lead].filter(Boolean) };
+
+  return { bilingual: true, blocks: [lead, other].filter(Boolean) };
 }

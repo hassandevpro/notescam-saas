@@ -10,6 +10,7 @@ import { useUiStore } from '../../store/uiStore';
 import { qrDataUrl } from '../../lib/idCardService';
 import { buildVerification } from '../../lib/transcriptEngine';
 import { certificateSheetHtml, printSheets } from '../../lib/transcriptDoc';
+import { classIdentity } from '../../lib/schoolIdentity';
 import { exportTranscriptsPdf } from '../../lib/transcriptPdf';
 import { recordGeneration, recentGenerations } from '../../lib/documentLog';
 import TranscriptFilters from '../transcripts/TranscriptFilters';
@@ -34,6 +35,7 @@ export default function CertificateWorkspace({ t }) {
   const teacherId = useAuthStore((s) => s.teacherId);
   const userName  = useAuthStore((s) => s.fullName || s.user?.email || '—');
   const classes   = useSchoolStore((s) => s.classes);
+  const schoolUnits = useSchoolStore((s) => s.schoolUnits);
   const students  = useSchoolStore((s) => s.students);
   const teachers  = useSchoolStore((s) => s.teachers);
   const viewYear  = useUiStore((s) => s.viewYear);
@@ -102,8 +104,11 @@ export default function CertificateWorkspace({ t }) {
       matricule: student.matricule, className: cls.name, year: schoolYear,
     }, origin);
     const qrSrc = await qrDataUrl(verification.qrText);
-    return certificateSheetHtml(student, cls, { qrSrc, verification, school, sys, schoolYear, place, date });
-  }, [school, schoolYear, place, date]);
+    // Identité effective = celle de l'unité pédagogique de la classe (logo/cachet
+    // /directeur du primaire, du collège…), à défaut celle du groupe scolaire.
+    const docSchool = classIdentity(school, cls, schoolUnits);
+    return certificateSheetHtml(student, cls, { qrSrc, verification, school: docSchool, sys, schoolYear, place, date });
+  }, [school, schoolUnits, schoolYear, place, date]);
 
   // Aperçu : 1re cible.
   const buildPreview = useCallback(async () => {

@@ -3,8 +3,9 @@
 // L'enseignant choisit Séquence + Classe + Matière. Le système charge
 // AUTOMATIQUEMENT les compétences officielles du trimestre correspondant
 // (S1/S2→T1, S3/S4→T2, S5/S6→T3). L'enseignant ne peut NI ajouter, NI supprimer,
-// NI modifier les compétences : il saisit uniquement la NOTE et l'APPRÉCIATION
-// (A / EA / NA) de chaque élève pour chaque compétence.
+// NI modifier les compétences : il saisit uniquement la NOTE /20 de chaque élève
+// pour chaque compétence. L'appréciation (cote A+/A/ECA/NA) est DÉRIVÉE, jamais
+// saisie — d'où l'absence de bouton « Appréciations ».
 //
 // Monté à la place de l'écran classique quand school.bulletin_engine='apc_minesec'.
 
@@ -16,8 +17,9 @@ import { useT } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { isSequenceLocked } from '../../lib/lockService';
 import { noteNkey } from '../../lib/apcService';
-import { firstCycleClasseSlug } from '../../core/engineResolver';
+import { firstCycleClasseSlug, resolveClassEngine } from '../../core/engineResolver';
 import SectionSelect from './SectionSelect';
+import CompetenceGradeIO from './CompetenceGradeIO';
 import {
   competencesFor, trimestreOfSequence, matiereAverage, apcCote, coefFor,
 } from '../../core/apcEngine';
@@ -50,27 +52,6 @@ function NoteCell({ value, disabled, onCommit }) {
   );
 }
 
-// ── Cellule appréciation (texte libre — « Appréciations et Visa de l'enseignant »)
-function ApprCell({ value, disabled, onCommit }) {
-  const [local, setLocal] = useState(value ?? '');
-  useEffect(() => { setLocal(value ?? ''); }, [value]);
-  const commit = () => { if (local !== (value ?? '')) onCommit(local); };
-  return (
-    <input
-      type="text"
-      value={local}
-      disabled={disabled}
-      onChange={(e) => setLocal(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-      placeholder="—"
-      className="w-44 rounded border border-gray-200 px-2 py-1 text-sm
-        focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
-        disabled:bg-gray-50 placeholder:text-gray-300"
-    />
-  );
-}
-
 export default function ApcCompetenceWorkspace() {
   const t = useT();
   const school   = useAuthStore((s) => s.school);
@@ -89,7 +70,6 @@ export default function ApcCompetenceWorkspace() {
   const setClassId = useUiStore((s) => s.setGradesClassId);
   const [sequence, setSequence] = useState(1);
   const [matiereId, setMatiereId] = useState('');
-  const [view, setView] = useState('notes'); // 'notes' | 'appreciations'
 
   useEffect(() => { loadApc(); }, [loadApc]);
 
@@ -97,13 +77,17 @@ export default function ApcCompetenceWorkspace() {
   const sequenceId = `s${sequence}`;
   const trimestreId = trimestreOfSequence(referentiel?.sequences, sequenceId);
 
-  // Classe sélectionnée + slug référentiel
+  // Classe sélectionnée + slug référentiel. On ne liste QUE les classes du premier
+  // cycle (moteur 'apc') : l'établissement peut aussi contenir du fondamental ou du
+  // second cycle, qui n'ont rien à faire dans ce sélecteur.
   const sortedClasses = useMemo(
-    () => [...classes].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true })),
-    [classes],
+    () => classes
+      .filter((c) => resolveClassEngine(school, c) === 'apc')
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true })),
+    [classes, school],
   );
   useEffect(() => {
-    if (!classId && sortedClasses.length) setClassId(sortedClasses[0].id);
+    if (sortedClasses.length && !sortedClasses.some((c) => c.id === classId)) setClassId(sortedClasses[0].id);
   }, [sortedClasses, classId]);
 
   const selectedClass = sortedClasses.find((c) => c.id === classId) || null;
@@ -235,18 +219,6 @@ export default function ApcCompetenceWorkspace() {
             {matieres.map((m) => <option key={m.id} value={m.id}>{m.nom} (coef {m.coef})</option>)}
           </select>
         </label>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-sm">
-            <button onClick={() => setView('notes')}
-              className={`px-3 py-2 ${view === 'notes' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600'}`}>
-              {t('Notes', 'Marks')}
-            </button>
-            <button onClick={() => setView('appreciations')}
-              className={`px-3 py-2 ${view === 'appreciations' ? 'bg-brand-500 text-white' : 'bg-white text-gray-600'}`}>
-              {t('Appréciations', 'Appreciations')}
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* Bandeau trimestre / héritage */}
@@ -255,6 +227,24 @@ export default function ApcCompetenceWorkspace() {
         {t('compétences héritées par les deux séquences du trimestre', 'competencies shared by both sequences of the term')}
         {locked && <span className="ml-2 text-amber-600 font-medium">· {t('Séquence verrouillée (lecture seule)', 'Sequence locked (read-only)')}</span>}
       </div>
+
+      {competences.length > 0 && classStudents.length > 0 && (
+        <CompetenceGradeIO
+          filename={`notes_${(matieres.find((m) => m.id === matiereId)?.nom || 'matiere').replace(/[\\/:*?"<>|]/g, '-')}_${selectedClass?.name || ''}_S${sequence}`}
+          sheetName={`${t('Séquence', 'Sequence')} ${sequence}`}
+          students={classStudents}
+          columns={competences.map((c) => ({ id: c.id, label: c.intitule }))}
+          getCell={(sid, cid) => { const r = recordFor(sid, cid); return r?.note != null ? String(r.note) : ''; }}
+          computed={[
+            { label: 'M/20', get: (sid) => studentAvg(sid) ?? '' },
+            { label: t('Cote', 'Grade'), get: (sid) => apcCote(studentAvg(sid)).code },
+          ]}
+          normalize={(raw) => validateGrade(raw, APC_MAX)}
+          onImport={(sid, cid, v) => saveCell(sid, cid, { note: v })}
+          disabled={locked}
+          valueHint="/20"
+        />
+      )}
 
       {matieres.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
@@ -285,12 +275,8 @@ export default function ApcCompetenceWorkspace() {
                     <span className="block truncate">{c.intitule}</span>
                   </th>
                 ))}
-                {view === 'notes' && (
-                  <>
-                    <th className="px-3 py-2 text-center font-medium text-gray-600">{t('M/20', 'M/20')}</th>
-                    <th className="px-3 py-2 text-center font-medium text-gray-600">{t('Cote', 'Grade')}</th>
-                  </>
-                )}
+                <th className="px-3 py-2 text-center font-medium text-gray-600">{t('M/20', 'M/20')}</th>
+                <th className="px-3 py-2 text-center font-medium text-gray-600">{t('Cote', 'Grade')}</th>
               </tr>
             </thead>
             <tbody>
@@ -303,17 +289,12 @@ export default function ApcCompetenceWorkspace() {
                     const rec = recordFor(stu.id, c.id);
                     return (
                       <td key={c.id} className="px-3 py-1.5">
-                        {view === 'notes' ? (
-                          <NoteCell value={rec?.note != null ? String(rec.note) : ''} disabled={locked}
-                            onCommit={(v) => saveCell(stu.id, c.id, { note: v })} />
-                        ) : (
-                          <ApprCell value={rec?.appreciation || ''} disabled={locked}
-                            onCommit={(v) => saveCell(stu.id, c.id, { appreciation: v })} />
-                        )}
+                        <NoteCell value={rec?.note != null ? String(rec.note) : ''} disabled={locked}
+                          onCommit={(v) => saveCell(stu.id, c.id, { note: v })} />
                       </td>
                     );
                   })}
-                  {view === 'notes' && (() => {
+                  {(() => {
                     const avg = studentAvg(stu.id);
                     const cote = apcCote(avg);
                     return (

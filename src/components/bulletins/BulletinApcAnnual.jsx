@@ -7,19 +7,19 @@
 // filigrane / identité / signature mutualisés (bulletinOfficialParts).
 
 import {
-  mkCell, mkTH, fix2,
+  mkCell, mkTH, fix2, L,
   OfficialHeader, OfficialIdentity, OfficialSheet, OfficialSignatures,
 } from './bulletinOfficialParts';
 import { APC_COTE_CODES, APC_COTE_COLORS, apcBulletinCols } from '../../core/apcEngine';
 
 // Colonnes de fin optionnelles du bulletin annuel : COTE / Appréciation (pas de
 // [Min–Max] en annuel). Au moins une reste affichée pour héberger « MOYENNE ».
-const ANNUAL_TRAILING = [
-  { key: 'cote', opt: 'cote',         w: '7%',  label: 'COTE' },
-  { key: 'app',  opt: 'appreciation', w: '13%', label: 'Appréciation' },
+const ANNUAL_TRAILING = (sys) => [
+  { key: 'cote', opt: 'cote',         w: '7%',  label: L(sys, 'COTE', 'GRADE', 'NOTA') },
+  { key: 'app',  opt: 'appreciation', w: '13%', label: L(sys, 'Appréciation', 'Remarks', 'Apreciación') },
 ];
-const annualTrailing = (cols) => {
-  const t = ANNUAL_TRAILING.filter((c) => cols[c.opt]);
+const annualTrailing = (cols, sys) => {
+  const t = ANNUAL_TRAILING(sys).filter((c) => cols[c.opt]);
   return t.length ? t : [{ key: 'ph', w: '13%', label: '' }];
 };
 
@@ -42,14 +42,14 @@ function fitAnnualPt(nMatieres) {
 
 export default function BulletinApcAnnual({
   school, sys = 'FR', title = 'BULLETIN ANNUEL', student, classLabel, effectif,
-  profPrincipal = '', rang, classStats, data, decision,
+  profPrincipal = '', rang, classStats, data, decision, appreciation = '',
 }) {
   const pt   = fitAnnualPt(data.matieres.length);
   const cell = mkCell(pt);
   const th   = mkTH(pt);
   const num  = (v) => (v == null ? <span style={{ color: '#9ca3af' }}>—</span> : fix2(v));
   // Colonnes de fin selon les bascules de l'établissement (COTE / Appréciation).
-  const trailing = annualTrailing(apcBulletinCols(school));
+  const trailing = annualTrailing(apcBulletinCols(school), sys);
   const trailCell = (key, m) => {
     if (key === 'cote') return <td key={key} style={{ ...cell, textAlign: 'center', fontWeight: 'bold', color: m.moyenne != null ? APC_COTE_COLORS[m.cote] : undefined }}>{m.moyenne != null ? m.cote : ''}</td>;
     if (key === 'app')  return <td key={key} style={cell}>{m.appreciation || ''}</td>;
@@ -70,16 +70,16 @@ export default function BulletinApcAnnual({
   return (
     <OfficialSheet school={school} pt={pt} pageNo={1} total={1}>
       <OfficialHeader school={school} sys={sys} title={title} />
-      <OfficialIdentity student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} />
+      <OfficialIdentity student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} sys={sys} />
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            <th style={{ ...th, width: '30%', textAlign: 'left' }}>MATIÈRES ET NOM DE L'ENSEIGNANT</th>
+            <th style={{ ...th, width: '30%', textAlign: 'left' }}>{L(sys, "MATIÈRES ET NOM DE L'ENSEIGNANT", "SUBJECTS & TEACHER'S NAME", 'ASIGNATURAS Y DOCENTE')}</th>
             <th style={{ ...th, width: '8%' }}>T1/20</th>
             <th style={{ ...th, width: '8%' }}>T2/20</th>
             <th style={{ ...th, width: '8%' }}>T3/20</th>
-            <th style={{ ...th, width: '10%' }}>Moy.An/20</th>
+            <th style={{ ...th, width: '10%' }}>{L(sys, 'Moy.An/20', 'Ann.Avg/20', 'Prom.An/20')}</th>
             <th style={{ ...th, width: '7%' }}>Coef</th>
             <th style={{ ...th, width: '9%' }}>M×coef</th>
             {trailing.map((c) => <th key={c.key} style={{ ...th, width: c.w }}>{c.label}</th>)}
@@ -102,14 +102,14 @@ export default function BulletinApcAnnual({
             </tr>
           ))}
           {data.matieres.length === 0 && (
-            <tr><td colSpan={colCount} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>Aucune note pour cette année.</td></tr>
+            <tr><td colSpan={colCount} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>{L(sys, 'Aucune note pour cette année.', 'No marks for this year.', 'Ninguna nota para este año.')}</td></tr>
           )}
           <tr>
             <td colSpan={4} style={{ ...cell, textAlign: 'right', fontWeight: 'bold' }}>TOTAL</td>
             <td style={cell} />
             <td style={{ ...cell, textAlign: 'center', fontWeight: 'bold' }}>{fix2(data.coefSum)}</td>
             <td style={{ ...cell, textAlign: 'center', fontWeight: 'bold' }}>{fix2(data.mxSum)}</td>
-            <td colSpan={trailing.length} style={{ ...cell, textAlign: 'right', fontWeight: 'bold' }}>MOYENNE : {fix2(data.moyenneGenerale)}</td>
+            <td colSpan={trailing.length} style={{ ...cell, textAlign: 'right', fontWeight: 'bold' }}>{L(sys, 'MOYENNE', 'AVERAGE', 'PROMEDIO')} : {fix2(data.moyenneGenerale)}</td>
           </tr>
         </tbody>
       </table>
@@ -119,35 +119,45 @@ export default function BulletinApcAnnual({
         <tbody>
           <tr>
             <td style={{ width: '34%', verticalAlign: 'top', paddingRight: 4 }}>
-              <Mini t="Discipline">
-                <KV k="Abs. non just. (h)" v="" /><KV k="Abs. just. (h)" v="" />
-                <KV k="Retards (nombre)" v="" /><KV k="Exclusions (jours)" v="" />
+              <Mini t={L(sys, 'Discipline', 'Discipline', 'Disciplina')}>
+                <KV k={L(sys, 'Abs. non just. (h)', 'Unjust. abs. (h)', 'Faltas injust. (h)')} v="" /><KV k={L(sys, 'Abs. just. (h)', 'Just. abs. (h)', 'Faltas just. (h)')} v="" />
+                <KV k={L(sys, 'Retards (nombre)', 'Lateness (count)', 'Retrasos (n.º)')} v="" /><KV k={L(sys, 'Exclusions (jours)', 'Exclusions (days)', 'Expulsiones (días)')} v="" />
               </Mini>
             </td>
             <td style={{ width: '34%', verticalAlign: 'top', paddingRight: 4 }}>
-              <Mini t="Travail de l'élève">
-                <KV k="Moyenne annuelle" v={`${fix2(data.moyenneGenerale)}/20`} strong />
-                <KV k="Cote" v={data.moyenneGenerale != null ? data.cote : ''} strong />
-                <KV k="Rang" v={rang ? `${rang} / ${effectif ?? ''}` : ''} strong />
+              <Mini t={L(sys, "Travail de l'élève", "Student's work", 'Trabajo del alumno')}>
+                <KV k={L(sys, 'Moyenne annuelle', 'Annual average', 'Promedio anual')} v={`${fix2(data.moyenneGenerale)}/20`} strong />
+                <KV k={L(sys, 'Cote', 'Grade', 'Nota')} v={data.moyenneGenerale != null ? data.cote : ''} strong />
+                <KV k={L(sys, 'Rang', 'Rank', 'Puesto')} v={rang ? `${rang} / ${effectif ?? ''}` : ''} strong />
                 {APC_COTE_CODES.map((c) => <KV key={c} k={c} v={coteCounts[c]} />)}
               </Mini>
             </td>
             <td style={{ width: '32%', verticalAlign: 'top' }}>
-              <Mini t="Profil de la classe">
-                <KV k="Moyenne générale" v={fix2(classStats?.avg)} />
+              <Mini t={L(sys, 'Profil de la classe', 'Class profile', 'Perfil de la clase')}>
+                <KV k={L(sys, 'Moyenne générale', 'General average', 'Promedio general')} v={fix2(classStats?.avg)} />
                 <KV k="[Min – Max]" v={classStats ? `${fix2(classStats.min)} – ${fix2(classStats.max)}` : ''} />
-                <KV k="Nombre de moyennes" v={classStats?.count ?? ''} />
-                <KV k="Taux de réussite" v={classStats?.rate != null ? `${classStats.rate}%` : ''} />
+                <KV k={L(sys, 'Nombre de moyennes', 'Number of averages', 'N.º de promedios')} v={classStats?.count ?? ''} />
+                <KV k={L(sys, 'Taux de réussite', 'Pass rate', 'Tasa de aprobados')} v={classStats?.rate != null ? `${classStats.rate}%` : ''} />
               </Mini>
             </td>
           </tr>
         </tbody>
       </table>
 
+      {/* Appréciation libre du travail de l'élève (points forts / à améliorer) */}
+      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
+        <tbody>
+          <tr><td style={{ ...cell, height: 28, verticalAlign: 'top' }}>
+            <strong>{L(sys, "Appréciation du travail de l'élève (points forts et points à améliorer)", "Remarks on the student's work (strengths and areas to improve)", 'Apreciación del trabajo del alumno (puntos fuertes y a mejorar)')}</strong>
+            {appreciation ? <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{appreciation}</div> : null}
+          </td></tr>
+        </tbody>
+      </table>
+
       {/* Décision du conseil de classe (ligne pleine largeur) */}
       <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
         <tbody>
-          <tr><td style={cell}><strong>Décision du conseil de classe :</strong> {decision || '—'}</td></tr>
+          <tr><td style={cell}><strong>{L(sys, 'Décision du conseil de classe :', 'Class council decision:', 'Decisión del consejo de clase:')}</strong> {decision || '—'}</td></tr>
         </tbody>
       </table>
 

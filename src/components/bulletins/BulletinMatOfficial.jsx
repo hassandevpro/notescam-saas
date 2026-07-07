@@ -8,7 +8,7 @@
 //   rows = [{ code, intitule, niveau ('A'|'ECA'|'NA'|''), observation }]
 
 import {
-  mkCell, mkTH,
+  mkCell, mkTH, L,
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
 
@@ -49,24 +49,30 @@ export default function BulletinMatOfficial({
   const cell = mkCell(10);
   const th   = { ...mkTH(11), background: MAT_TH_BG, color: MAT_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 
+  // Fondamental MINEDUB : enseignant(e) titulaire + directeur/directrice (jamais
+  // professeur principal / proviseur, propres au secondaire).
+  const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
+  const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
+  const ppLabel      = sys === 'EN' ? 'Class teacher'     : sys === 'ES' ? 'Maestro/a' : 'Enseignant(e)';
+
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1}>
       <OfficialHeader school={school} sys={sys} title={title} accent={MAT_ACCENT} rounded basic />
-      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} accent={MAT_ACCENT} tint={MAT_TH_BG} />
+      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={MAT_ACCENT} tint={MAT_TH_BG} />
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
             <th style={{ ...th, width: '6%' }}>N°</th>
-            <th style={{ ...th, width: '38%', textAlign: 'left' }}>DOMAINES PÉDAGOGIQUES</th>
-            <th style={{ ...th, width: '16%' }}>Niveau</th>
-            <th style={{ ...th, width: '40%', textAlign: 'left' }}>Observations</th>
+            <th style={{ ...th, width: '38%', textAlign: 'left' }}>{L(sys, 'DOMAINES PÉDAGOGIQUES', 'LEARNING AREAS', 'ÁMBITOS PEDAGÓGICOS')}</th>
+            <th style={{ ...th, width: '16%' }}>{L(sys, 'Niveau', 'Level', 'Nivel')}</th>
+            <th style={{ ...th, width: '40%', textAlign: 'left' }}>{L(sys, 'Observations', 'Observations', 'Observaciones')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 && (
             <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>
-              Aucun domaine évalué pour cette période.
+              {L(sys, 'Aucun domaine évalué pour cette période.', 'No learning area assessed for this period.', 'Ningún ámbito evaluado en este periodo.')}
             </td></tr>
           )}
           {rows.map((r) => (
@@ -84,17 +90,20 @@ export default function BulletinMatOfficial({
 
       {/* Légende — bandeau violet doux (identité maternelle) */}
       <div style={{ fontSize: '8.5pt', color: MAT_TH_TXT, background: MAT_TH_BG, border: `1px solid ${MAT_ACCENT}22`, borderRadius: 6, padding: '3px 8px', marginTop: 4, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-        😀 A = Acquis · 😐 ECA = En cours d'acquisition · ☹️ NA = Non acquis
+        {L(sys,
+          "😀 A = Acquis · 😐 ECA = En cours d'acquisition · ☹️ NA = Non acquis",
+          '😀 A = Achieved · 😐 ECA = In progress · ☹️ NA = Not achieved',
+          '😀 A = Logrado · 😐 ECA = En proceso · ☹️ NA = No logrado')}
       </div>
 
       <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
         <tbody>
-          <tr><td style={{ ...cell, height: 34 }}>Appréciation générale de l'enseignant(e) : {appreciation}</td></tr>
-          {decision ? <tr><td style={cell}>Décision : <strong>{decision}</strong></td></tr> : null}
+          <tr><td style={{ ...cell, height: 34 }}>{L(sys, "Appréciation générale de l'enseignant(e)", "Class teacher's general remarks", 'Apreciación general del maestro/a')} : {appreciation}</td></tr>
+          {decision ? <tr><td style={cell}>{L(sys, 'Décision', 'Decision', 'Decisión')} : <strong>{decision}</strong></td></tr> : null}
         </tbody>
       </table>
 
-      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />
+      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} />
     </OfficialSheet>
   );
 }

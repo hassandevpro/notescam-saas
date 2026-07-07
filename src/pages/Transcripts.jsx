@@ -32,6 +32,7 @@ import {
 import { recordGeneration, recentGenerations } from '../lib/documentLog';
 import { buildParentLinks } from '../lib/parentLinks';
 import { transcriptSheetHtml, multiYearSheetHtml, printSheets } from '../lib/transcriptDoc';
+import { classIdentity } from '../lib/schoolIdentity';
 import { exportTranscriptsPdf } from '../lib/transcriptPdf';
 import { loadYearAcademics, matchStudent, listYears } from '../lib/transcriptHistory';
 import Layout from '../components/Layout';
@@ -67,6 +68,7 @@ function TranscriptWorkspace() {
   const teacherId = useAuthStore((s) => s.teacherId);
   const userName  = useAuthStore((s) => s.fullName || s.user?.email || '—');
   const classes   = useSchoolStore((s) => s.classes);
+  const schoolUnits = useSchoolStore((s) => s.schoolUnits);
   const subjects  = useSchoolStore((s) => s.subjects);
   const students  = useSchoolStore((s) => s.students);
   const gradeMap  = useSchoolStore((s) => s.gradeMap);
@@ -192,8 +194,9 @@ function TranscriptWorkspace() {
       avg: data.generalAvg, rank: data.rankEntry?.rankD, decision: decisionText(sys, data.decision),
     }, origin);
     const qrSrc = await qrDataUrl(verification.qrText);
-    return transcriptSheetHtml(data, { qrSrc, verification, school });
-  }, [school, schoolYear]);
+    const docSchool = classIdentity(school, cls, schoolUnits);
+    return transcriptSheetHtml(data, { qrSrc, verification, school: docSchool });
+  }, [school, schoolUnits, schoolYear]);
 
   // Transcripts d'une classe (avec stats + rangs).
   const classTranscripts = useCallback((cls) => {
@@ -240,8 +243,9 @@ function TranscriptWorkspace() {
       decision: last?.decision ? decisionText(sys, last.decision) : '',
     }, origin);
     const qrSrc = await qrDataUrl(verification.qrText);
-    return multiYearSheetHtml(refStudent, hist, { qrSrc, verification, school, sys });
-  }, [school, countryCode, t]);
+    const docSchool = classIdentity(school, cls, schoolUnits);
+    return multiYearSheetHtml(refStudent, hist, { qrSrc, verification, school: docSchool, sys });
+  }, [school, schoolUnits, countryCode, t]);
 
   // ── Aperçu : construit UNE feuille représentative (rapide) ───────────────────
   const buildPreview = useCallback(async () => {

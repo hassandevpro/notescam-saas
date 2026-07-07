@@ -8,7 +8,8 @@ const DB_NAME = 'NotesCamDB';
 // Bump à 12 : moteur SECOND CYCLE MINESEC — cache du référentiel (`sc_ref`).
 // Bump à 13 : moteurs FONDAMENTAL MINEDUB — maternelle (`mat_ref`, `mat_obs`) +
 //             primaire APC (`prim_ref`, `prim_notes`).
-const DB_VERSION = 13;
+// Bump à 14 : unités pédagogiques du complexe scolaire (`school_units`).
+const DB_VERSION = 14;
 
 let _db = null;
 
@@ -191,6 +192,15 @@ export async function initDB() {
         s.createIndex('by_school',  'school_id');
         s.createIndex('by_student', 'eleve_id');
         s.createIndex('by_nkey',    'nkey', { unique: true });
+      }
+
+      // --- v14 (complexe scolaire) ---
+      // Unités pédagogiques (maternelle/primaire/collège/lycée…) : chacune porte
+      // sa propre identité (nom, logo, cachet, signature, directeur, adresse,
+      // contacts, devise, couleurs). Schema aligné sur la table cloud school_units.
+      if (!db.objectStoreNames.contains('school_units')) {
+        const s = db.createObjectStore('school_units', { keyPath: 'id' });
+        s.createIndex('by_school', 'school_id');
       }
     };
 
@@ -451,6 +461,14 @@ export const primNotesDB = {
   put: (r) => idbPut('prim_notes', r),
   putMany: (rs) => idbPutMany('prim_notes', rs),
   delete: (id) => idbDelete('prim_notes', id),
+};
+
+export const schoolUnitsDB = {
+  getAll: () => idbGetAll('school_units'),
+  getBySchool: (schoolId) => idbGetByIndex('school_units', 'by_school', schoolId),
+  put: (r) => idbPut('school_units', r),
+  putMany: (rs) => idbPutMany('school_units', rs),
+  delete: (id) => idbDelete('school_units', id),
 };
 
 export const documentLogDB = {

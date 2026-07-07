@@ -55,6 +55,19 @@ export async function setStaffActive(schoolUserId, active) {
   return { error };
 }
 
+// L'admin définit le PÉRIMÈTRE vie scolaire d'un surveillant/censeur : sections,
+// cycles et/ou classes accessibles (tableaux vides = tout l'établissement).
+// RPC admin_set_staff_scope (migration supabase_vie_scolaire.sql).
+export async function setStaffScope(schoolUserId, { sections = [], cycles = [], classIds = [] }) {
+  const { error } = await supabase.rpc('admin_set_staff_scope', {
+    p_school_user_id: schoolUserId,
+    p_sections:       sections,
+    p_cycles:         cycles,
+    p_class_ids:      classIds,
+  });
+  return { error };
+}
+
 // L'admin redéfinit le mot de passe d'un compte de direction (censeur/surveillant)
 // de SON école. RPC SECURITY DEFINER (cloud) / handler local (LAN).
 export async function setStaffPassword(schoolUserId, newPassword) {

@@ -4,7 +4,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useT } from '../lib/i18n';
 import Modal from './Modal';
-import { createStaffAccount, fetchStaff, setStaffActive, setStaffPassword } from '../lib/staffAccounts';
+import { createStaffAccount, fetchStaff, setStaffActive, setStaffPassword, setStaffScope } from '../lib/staffAccounts';
+import { useSchoolStore } from '../store/schoolStore';
+import { SECTIONS, classSectionKey } from '../core/engineResolver';
+import { CYCLES } from '../core/surveillantScope';
 
 // Libellés localisés par rôle.
 function useRoleLabels(role) {
@@ -49,6 +52,7 @@ export default function StaffManager({ role }) {
   const [showForm, setShowForm] = useState(false);
   const [busyId,  setBusyId]  = useState(null);
   const [pwdRow,  setPwdRow]  = useState(null);
+  const [scopeRow, setScopeRow] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -95,6 +99,15 @@ export default function StaffManager({ role }) {
                 )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {role === 'surveillant' && (
+                  <button
+                    onClick={() => setScopeRow(row)}
+                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-brand-600 hover:bg-brand-50 transition-colors"
+                    title={t('Définir le périmètre (sections / cycles / classes)', 'Set scope (sections / cycles / classes)', 'Definir el ámbito')}
+                  >
+                    🎯 {t('Périmètre', 'Scope', 'Ámbito')}
+                  </button>
+                )}
                 <button
                   onClick={() => setPwdRow(row)}
                   className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-brand-600 hover:bg-brand-50 transition-colors"
@@ -119,6 +132,10 @@ export default function StaffManager({ role }) {
 
       {pwdRow && (
         <SetPasswordModal row={pwdRow} onClose={() => setPwdRow(null)} />
+      )}
+
+      {scopeRow && (
+        <ScopeModal row={scopeRow} onClose={() => setScopeRow(null)} onSaved={() => { setScopeRow(null); refresh(); }} />
       )}
 
       {showForm && (
@@ -216,6 +233,101 @@ function CreateStaffModal({ role, labels: L, onClose, onCreated }) {
           </div>
         </form>
       )}
+    </Modal>
+  );
+}
+
+// Définition du PÉRIMÈTRE vie scolaire d'un surveillant : sections, cycles et/ou
+// classes accessibles. Tout laisser décoché = accès à TOUT l'établissement.
+function ScopeModal({ row, onClose, onSaved }) {
+  const t = useT();
+  const classes = useSchoolStore((s) => s.classes);
+  const [sections, setSections] = useState(row.scope_sections || []);
+  const [cycles,   setCycles]   = useState(row.scope_cycles   || []);
+  const [classIds, setClassIds] = useState(row.scope_class_ids || []);
+  const [status,   setStatus]   = useState(null);
+  const [msg,      setMsg]      = useState('');
+
+  const toggle = (list, setList, value) =>
+    setList(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
+
+  // Ne proposer que les sections/cycles réellement présents dans l'établissement.
+  const presentSections = new Set(classes.map(classSectionKey));
+  const availSections = SECTIONS.filter((s) => presentSections.has(s.key));
+  const sortedClasses = [...classes].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  const isGlobal = sections.length === 0 && cycles.length === 0 && classIds.length === 0;
+
+  const handleSave = async () => {
+    setStatus('loading'); setMsg('');
+    const { error } = await setStaffScope(row.id, { sections, cycles, classIds });
+    if (error) { setMsg(error.message || t('Erreur', 'Error', 'Error')); setStatus('error'); return; }
+    onSaved();
+  };
+
+  return (
+    <Modal title={t('Périmètre du surveillant', 'Supervisor scope', 'Ámbito del vigilante')} onClose={onClose} size="md">
+      <div className="space-y-4">
+        <p className="text-xs text-gray-500">
+          {t(
+            'Choisissez les sections, cycles et/ou classes dont ce surveillant est responsable. Tout laisser vide = tout l’établissement.',
+            'Pick the sections, cycles and/or classes this supervisor is responsible for. Leave everything empty = whole school.',
+            'Elija las secciones, ciclos y/o clases de este vigilante. Dejar todo vacío = toda la escuela.',
+          )}
+        </p>
+
+        <div>
+          <div className="text-xs font-semibold text-gray-600 mb-1.5">{t('Cycles', 'Cycles', 'Ciclos')}</div>
+          <div className="flex flex-wrap gap-2">
+            {CYCLES.map((c) => (
+              <button key={c.key} type="button" onClick={() => toggle(cycles, setCycles, c.key)}
+                className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${cycles.includes(c.key) ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}>
+                {t(c.fr, c.en, c.es)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {availSections.length > 0 && (
+          <div>
+            <div className="text-xs font-semibold text-gray-600 mb-1.5">{t('Sections', 'Sections', 'Secciones')}</div>
+            <div className="flex flex-wrap gap-2">
+              {availSections.map((s) => (
+                <button key={s.key} type="button" onClick={() => toggle(sections, setSections, s.key)}
+                  className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${sections.includes(s.key) ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}>
+                  {t(s.fr, s.en, s.es)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <div className="text-xs font-semibold text-gray-600 mb-1.5">{t('Classes précises (optionnel)', 'Specific classes (optional)', 'Clases concretas (opcional)')}</div>
+          <div className="max-h-40 overflow-auto flex flex-wrap gap-2 border border-gray-100 rounded-lg p-2">
+            {sortedClasses.map((c) => (
+              <button key={c.id} type="button" onClick={() => toggle(classIds, setClassIds, c.id)}
+                className={`px-2.5 py-1 rounded-md text-xs border transition-colors ${classIds.includes(c.id) ? 'bg-brand-100 text-brand-700 border-brand-300' : 'bg-white text-gray-500 border-gray-200 hover:border-brand-300'}`}>
+                {c.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className={`text-xs rounded-lg px-3 py-2 ${isGlobal ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+          {isGlobal
+            ? t('Périmètre : tout l’établissement.', 'Scope: whole establishment.', 'Ámbito: toda la escuela.')
+            : t('Périmètre restreint enregistré ci-dessous.', 'Restricted scope will be saved below.', 'Ámbito restringido.')}
+        </div>
+
+        {status === 'error' && <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{msg}</div>}
+
+        <div className="flex gap-3 pt-1">
+          <button onClick={handleSave} disabled={status === 'loading'} className="btn-primary flex-1">
+            {status === 'loading' ? t('Enregistrement…', 'Saving…', 'Guardando…') : t('Enregistrer le périmètre', 'Save scope', 'Guardar ámbito')}
+          </button>
+          <button type="button" onClick={onClose} className="btn-secondary">{t('Annuler', 'Cancel', 'Cancelar')}</button>
+        </div>
+      </div>
     </Modal>
   );
 }

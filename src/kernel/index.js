@@ -13,6 +13,10 @@ import { attachAudit } from './auditSubscriber.js';
 import { createOutboxRelay } from './outboxRelay.js';
 import { createRbac } from './rbac.js';
 import { GRANTS } from './permissions.js';
+// Gouvernance du complexe scolaire : grants ADDITIFS (rôles de direction).
+// Fusionnés ici, au composition root — le kernel pur reste agnostique. Inertes
+// tant qu'aucun flux ne les consomme (workflows de validation à venir).
+import { GOVERNANCE_GRANTS } from '../governance/permissions.js';
 
 const driver = createPgDriver(supabase);
 
@@ -42,7 +46,7 @@ if (!driver.emit) {
   attachAudit(bus, { store: { append: (e) => auditRepo.upsert(e) } });
 }
 
-export const rbac = createRbac({ grants: GRANTS });
+export const rbac = createRbac({ grants: { ...GRANTS, ...GOVERNANCE_GRANTS } });
 
 // Nouvelle Unit of Work par cas d'usage (usage unique).
 export function uow() {

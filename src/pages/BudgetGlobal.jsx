@@ -1,5 +1,5 @@
-// Budget GLOBAL — consultation consolidée + PRÉVISIONS + STATISTIQUES avancées.
-// Lecture seule ; agrège tous les budgets/chapitres/dépenses (moteurs existants).
+// Budget GLOBAL — dashboard moderne (consultation consolidée + prévisions +
+// statistiques avancées). Réservé à la direction. Graphiques SVG maison.
 import { useEffect, useMemo, useState } from 'react';
 import Layout from '../components/Layout';
 import { useSchoolStore } from '../store/schoolStore';
@@ -11,6 +11,9 @@ import {
   elapsedFraction, globalBudget, forecast, feeForecast, topExpenseChapters,
 } from '../lib/budgetAnalyticsEngine';
 import { SECTOR_LABELS } from '../components/budgets/budgetUi';
+import { Donut, RadialGauge, Legend, ProgressBar } from '../components/charts/Charts';
+
+const PALETTE = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#14b8a6', '#ef4444'];
 
 export default function BudgetGlobal() {
   const t = useT();
@@ -25,8 +28,7 @@ export default function BudgetGlobal() {
 
   useEffect(() => {
     if (!schoolId) return;
-    let alive = true;
-    setLoading(true);
+    let alive = true; setLoading(true);
     fetchGroupData(schoolId, { yearLabel: year }).then((d) => { if (alive) { setData(d); setLoading(false); } });
     return () => { alive = false; };
   }, [schoolId, year]);
@@ -38,76 +40,87 @@ export default function BudgetGlobal() {
   const top = useMemo(() => data ? topExpenseChapters(data.chapters, data.expenses) : [], [data]);
 
   if (loading || !g) {
-    return <Layout><div className="text-gray-400 text-sm py-20 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;
+    return <Layout><div className="text-gray-400 text-sm py-24 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;
   }
 
   const secLabel = (s) => t(...(SECTOR_LABELS[s] || [s]));
+  const sectorDonut = g.bySector.map((s, i) => ({ label: secLabel(s.sector), value: s.engage, color: PALETTE[i % PALETTE.length] }));
 
   return (
     <Layout>
       <div className="max-w-6xl mx-auto">
         <div className="mb-5">
-          <h1 className="text-xl font-bold text-gray-900">{t('Budget global', 'Global budget', 'Presupuesto global')}</h1>
-          <p className="text-sm text-gray-500 mt-1">{school?.name || ''} · {year || '—'} · {t('année écoulée à', 'year elapsed', 'año transcurrido')} {fc.elapsed}%</p>
+          <h1 className="text-2xl font-bold text-gray-900">{t('Budget global', 'Global budget', 'Presupuesto global')}</h1>
+          <p className="text-sm text-gray-500 mt-1">{school?.name || ''} · {year || '—'} · <span className="text-indigo-600 font-semibold">{fc.elapsed}% {t('de l’année écoulée', 'of year elapsed', 'del año')}</span></p>
         </div>
 
-        {/* KPIs globaux */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
-          <Kpi label={t('Recettes prévues', 'Planned revenue', 'Ingresos previstos')} value={money(g.recettes)} tone="text-emerald-700" />
-          <Kpi label={t('Dépenses prévues', 'Planned expenses', 'Gastos previstos')} value={money(g.depensesPrevues)} />
-          <Kpi label={t('Engagé', 'Committed', 'Comprometido')} value={money(g.engage)} tone="text-amber-600" />
-          <Kpi label={t('Reste', 'Remaining', 'Restante')} value={money(g.reste)} tone={g.reste < 0 ? 'text-rose-600' : 'text-emerald-700'} />
-          <Kpi label={t('Exécution', 'Execution', 'Ejecución')} value={`${g.executionRate}%`} />
-          <Kpi label={t('Solde prévisionnel', 'Forecast balance', 'Saldo previsional')} value={money(g.solde)} tone={g.solde < 0 ? 'text-rose-600' : 'text-emerald-700'} />
+        {/* Tuiles en dégradé */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          <Tile grad="from-emerald-500 to-teal-600" label={t('Recettes prévues', 'Planned revenue', 'Ingresos')} value={money(g.recettes)} />
+          <Tile grad="from-indigo-500 to-violet-600" label={t('Dépenses prévues', 'Planned expenses', 'Gastos')} value={money(g.depensesPrevues)} />
+          <Tile grad="from-amber-500 to-orange-600" label={t('Engagé', 'Committed', 'Comprometido')} value={money(g.engage)} />
+          <Tile grad={g.solde < 0 ? 'from-rose-500 to-red-600' : 'from-sky-500 to-blue-600'} label={t('Solde prévisionnel', 'Forecast balance', 'Saldo')} value={money(g.solde)} />
         </div>
 
-        {/* PRÉVISIONS */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-gray-800">{t('Prévision dépenses (fin d’année)', 'Expense forecast (year end)', 'Previsión de gastos')}</h3>
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${fc.overspendRisk ? 'bg-rose-100 text-rose-700' : fc.onTrack ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                {fc.overspendRisk ? t('Risque de dépassement', 'Overspend risk', 'Riesgo de exceso') : fc.onTrack ? t('Dans les clous', 'On track', 'En línea') : t('À surveiller', 'Watch', 'Vigilar')}
-              </span>
+        {/* Hero : jauge d'exécution + donut secteurs + prévision */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
+          <div className="bg-white rounded-2xl border border-gray-200 p-5 flex flex-col items-center justify-center">
+            <RadialGauge value={g.executionRate} label={t('Exécution', 'Execution', 'Ejecución')} size={150} />
+            <div className="mt-3 w-full">
+              <div className="flex justify-between text-xs text-gray-500 mb-1"><span>{t('Reste', 'Remaining', 'Restante')}</span><span className="font-semibold text-gray-800">{money(g.reste)}</span></div>
+              <ProgressBar value={g.executionRate} marker={fc.elapsed} danger={fc.overspendRisk} />
+              <div className="text-[10px] text-gray-400 mt-1">{t('Repère : temps écoulé', 'Marker: time elapsed', 'Marca: tiempo')} ({fc.elapsed}%)</div>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <Kpi label={t('Projection annuelle', 'Projected annual', 'Proyección anual')} value={money(fc.projectedSpend)} tone={fc.overspendRisk ? 'text-rose-600' : 'text-gray-800'} />
-              <Kpi label={t('Solde projeté', 'Projected balance', 'Saldo proyectado')} value={money(fc.projectedBalance)} tone={fc.projectedBalance < 0 ? 'text-rose-600' : 'text-emerald-700'} />
-              <Kpi label={t('Rythme mensuel', 'Monthly burn', 'Ritmo mensual')} value={money(fc.burnMonthly)} />
-            </div>
-            <DualBar label={t('Consommation vs temps', 'Usage vs time', 'Consumo vs tiempo')} a={g.executionRate} b={fc.elapsed}
-              aLabel={t('consommé', 'used', 'usado')} bLabel={t('écoulé', 'elapsed', 'transcurrido')} />
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h3 className="text-sm font-bold text-gray-800 mb-3">{t('Prévision recouvrement des frais', 'Fee collection forecast', 'Previsión de cobros')}</h3>
-            <div className="grid grid-cols-2 gap-3 text-center">
-              <Kpi label={t('Encaissé', 'Collected', 'Cobrado')} value={money(ff.collected)} tone="text-emerald-700" />
-              <Kpi label={t('Attendu', 'Expected', 'Esperado')} value={money(ff.expected)} />
-              <Kpi label={t('Recouvrement projeté', 'Projected collection', 'Cobro proyectado')} value={money(ff.projectedCollection)} />
-              <Kpi label={t('Manque à gagner projeté', 'Projected shortfall', 'Déficit proyectado')} value={money(ff.projectedShortfall)} tone={ff.projectedShortfall > 0 ? 'text-rose-600' : 'text-emerald-700'} />
+          <div className="bg-white rounded-2xl border border-gray-200 p-5 flex items-center gap-4">
+            <Donut data={sectorDonut.length ? sectorDonut : [{ label: '—', value: 1, color: '#e5e7eb' }]}
+              center={money.amount(g.engage)} sub={t('engagé', 'committed', 'comprometido')} size={150} />
+            <div className="flex-1 min-w-0">
+              <h3 className="text-xs font-bold text-gray-400 uppercase mb-2">{t('Engagé par secteur', 'Committed by sector', 'Por sector')}</h3>
+              <Legend data={sectorDonut} format={(v) => money.amount(v)} />
             </div>
-            <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
-              <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${ff.rate}%` }} />
+          </div>
+
+          <div className={`rounded-2xl p-5 text-white bg-gradient-to-br ${fc.overspendRisk ? 'from-rose-500 to-red-600' : fc.onTrack ? 'from-emerald-500 to-teal-600' : 'from-amber-500 to-orange-600'}`}>
+            <h3 className="text-xs font-bold uppercase tracking-wide opacity-90 mb-1">{t('Prévision fin d’année', 'Year-end forecast', 'Previsión')}</h3>
+            <div className="text-2xl font-bold">{money(fc.projectedSpend)}</div>
+            <div className="text-xs opacity-90 mb-3">{t('dépense projetée', 'projected spend', 'gasto proyectado')}</div>
+            <Row2 label={t('Solde projeté', 'Projected balance', 'Saldo proy.')} value={money(fc.projectedBalance)} />
+            <Row2 label={t('Rythme mensuel', 'Monthly burn', 'Ritmo mensual')} value={money(fc.burnMonthly)} />
+            <div className="mt-3 text-xs font-semibold bg-white/20 rounded-lg px-2 py-1 inline-block">
+              {fc.overspendRisk ? '⚠ ' + t('Risque de dépassement', 'Overspend risk', 'Riesgo de exceso') : fc.onTrack ? '✓ ' + t('Dans les clous', 'On track', 'En línea') : '● ' + t('À surveiller', 'Watch', 'Vigilar')}
             </div>
-            <div className="text-xs text-gray-400 mt-1">{ff.rate}% {t('recouvré', 'collected', 'cobrado')}</div>
           </div>
         </div>
 
-        {/* Par secteur */}
+        {/* Recouvrement des frais */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-gray-800">{t('Recouvrement des frais scolaires', 'Fee collection', 'Cobro de tasas')}</h3>
+            <span className="text-xs font-semibold text-gray-500">{ff.rate}% {t('recouvré', 'collected', 'cobrado')}</span>
+          </div>
+          <ProgressBar value={ff.rate} marker={fc.elapsed} color="bg-emerald-500" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-center">
+            <Mini label={t('Encaissé', 'Collected', 'Cobrado')} value={money(ff.collected)} tone="text-emerald-700" />
+            <Mini label={t('Attendu', 'Expected', 'Esperado')} value={money(ff.expected)} />
+            <Mini label={t('Recouvrement projeté', 'Projected', 'Proyectado')} value={money(ff.projectedCollection)} />
+            <Mini label={t('Manque à gagner', 'Shortfall', 'Déficit')} value={money(ff.projectedShortfall)} tone={ff.projectedShortfall > 0 ? 'text-rose-600' : 'text-emerald-700'} />
+          </div>
+        </div>
+
+        {/* Exécution par secteur */}
         {g.bySector.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
+          <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-5">
             <h3 className="text-sm font-bold text-gray-800 mb-3">{t('Exécution par secteur', 'Execution by sector', 'Ejecución por sector')}</h3>
-            <div className="space-y-2">
-              {g.bySector.map((s) => (
+            <div className="space-y-3">
+              {g.bySector.map((s, i) => (
                 <div key={s.sector}>
-                  <div className="flex justify-between text-xs text-gray-600 mb-0.5">
-                    <span>{secLabel(s.sector)}</span>
-                    <span className="tabular-nums">{money(s.engage)} / {money(s.depensesPrevues)} · {s.rate}%</span>
+                  <div className="flex justify-between text-xs text-gray-600 mb-1">
+                    <span className="font-medium">{secLabel(s.sector)}</span>
+                    <span className="tabular-nums">{money(s.engage)} / {money(s.depensesPrevues)} · <b className={s.rate > 100 ? 'text-rose-600' : 'text-gray-700'}>{s.rate}%</b></span>
                   </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${s.rate > 100 ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${Math.min(100, s.rate)}%` }} />
-                  </div>
+                  <ProgressBar value={s.rate} marker={fc.elapsed} danger={s.rate > 100} />
                 </div>
               ))}
             </div>
@@ -116,23 +129,23 @@ export default function BudgetGlobal() {
 
         {/* Top postes de dépense */}
         {top.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 text-sm font-bold text-gray-800 border-b border-gray-100">{t('Top postes de dépense', 'Top expense lines', 'Principales partidas')}</div>
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-3 text-sm font-bold text-gray-800 border-b border-gray-100">{t('Top postes de dépense', 'Top expense lines', 'Principales partidas')}</div>
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-xs"><tr>
-                <th className="text-left px-4 py-2">{t('Chapitre', 'Chapter', 'Capítulo')}</th>
-                <th className="text-right px-4 py-2">{t('Prévu', 'Planned', 'Previsto')}</th>
-                <th className="text-right px-4 py-2">{t('Engagé', 'Committed', 'Comprometido')}</th>
-                <th className="text-right px-4 py-2">{t('Variance', 'Variance', 'Variación')}</th>
-                <th className="text-right px-4 py-2">{t('Taux', 'Rate', 'Tasa')}</th>
+              <thead className="bg-gray-50 text-gray-400 text-xs"><tr>
+                <th className="text-left px-5 py-2 font-semibold">{t('Chapitre', 'Chapter', 'Capítulo')}</th>
+                <th className="text-right px-4 py-2 font-semibold">{t('Prévu', 'Planned', 'Previsto')}</th>
+                <th className="text-right px-4 py-2 font-semibold">{t('Engagé', 'Committed', 'Comprom.')}</th>
+                <th className="text-right px-4 py-2 font-semibold">{t('Variance', 'Variance', 'Variación')}</th>
+                <th className="text-left px-4 py-2 font-semibold w-32">{t('Taux', 'Rate', 'Tasa')}</th>
               </tr></thead>
               <tbody>{top.map((r) => (
-                <tr key={r.id} className="border-t border-gray-100">
-                  <td className="px-4 py-2 text-gray-800">{r.label}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{money(r.planned)}</td>
+                <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50/50">
+                  <td className="px-5 py-2 font-medium text-gray-800">{r.label}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-gray-600">{money(r.planned)}</td>
                   <td className="px-4 py-2 text-right tabular-nums text-amber-600">{money(r.engage)}</td>
                   <td className={`px-4 py-2 text-right tabular-nums ${r.variance < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{money(r.variance)}</td>
-                  <td className={`px-4 py-2 text-right tabular-nums ${r.rate > 100 ? 'text-rose-600' : 'text-gray-600'}`}>{r.rate}%</td>
+                  <td className="px-4 py-2"><div className="flex items-center gap-2"><ProgressBar value={r.rate} danger={r.rate > 100} /><span className="text-xs text-gray-500 w-9 text-right">{r.rate}%</span></div></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -143,23 +156,17 @@ export default function BudgetGlobal() {
   );
 }
 
-function Kpi({ label, value, tone = 'text-gray-800' }) {
+function Tile({ grad, label, value }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-3 text-center">
-      <div className={`text-base font-bold ${tone}`}>{value}</div>
-      <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mt-0.5">{label}</div>
+    <div className={`rounded-2xl p-4 text-white bg-gradient-to-br ${grad} shadow-sm`}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide opacity-90">{label}</div>
+      <div className="text-xl font-bold mt-1 truncate">{value}</div>
     </div>
   );
 }
-function DualBar({ label, a, b, aLabel, bLabel }) {
-  return (
-    <div className="mt-3">
-      <div className="text-[11px] text-gray-400 mb-1">{label}</div>
-      <div className="relative h-3 bg-gray-100 rounded-full overflow-hidden">
-        <div className="absolute inset-y-0 left-0 bg-indigo-500/70" style={{ width: `${Math.min(100, a)}%` }} title={`${a}% ${aLabel}`} />
-        <div className="absolute inset-y-0 w-0.5 bg-gray-800" style={{ left: `${Math.min(100, b)}%` }} title={`${b}% ${bLabel}`} />
-      </div>
-      <div className="flex justify-between text-[10px] text-gray-400 mt-0.5"><span>{a}% {aLabel}</span><span>{b}% {bLabel}</span></div>
-    </div>
-  );
+function Row2({ label, value }) {
+  return <div className="flex justify-between text-sm py-0.5"><span className="opacity-90">{label}</span><span className="font-semibold">{value}</span></div>;
+}
+function Mini({ label, value, tone = 'text-gray-800' }) {
+  return <div><div className={`text-base font-bold ${tone}`}>{value}</div><div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</div></div>;
 }

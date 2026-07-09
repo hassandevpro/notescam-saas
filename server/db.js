@@ -99,6 +99,10 @@ ensureColumn('schools',  'ge_grade_max', 'ge_grade_max INTEGER');  // barème GE
 ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // pilotage des périodes : 'auto' | 'manual'
 ensureColumn('schools',  'grade_entry_mode', "grade_entry_mode TEXT NOT NULL DEFAULT 'principal'"); // 'principal' | 'subject' (enseignant de matière)
 ensureColumn('schools',  'bulletin_subject_mode', "bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic'"); // 'synthetic' | 'detailed'
+ensureColumn('schools',  'budget_validation', 'budget_validation INTEGER NOT NULL DEFAULT 0'); // workflows de validation budgétaire (0=off, comportement Budgets inchangé)
+ensureColumn('schools',  'validation_rules',  'validation_rules TEXT'); // barème seuils->rôle validateur (JSON ; null = défaut moteur)
+ensureColumn('signalements', 'assigned_department', 'assigned_department TEXT'); // affectation auto du module Reports (dérivée de la catégorie)
+ensureColumn('fee_payments', 'student_fee_item_id', 'student_fee_item_id TEXT'); // lien paiement->frais précis (null = paiement global hérité)
 // Moteur de bulletin de l'établissement : 'classic' | 'officiel' (+ anciens drapeaux
 // minesec/minedub/apc… rétro-compatibles). Absente du schéma LAN d'origine → le
 // choix « Officiel Cameroun » n'était jamais persisté (avalé par pickColumns).
@@ -141,6 +145,24 @@ export const SYNCED_TABLES = new Set([
   'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'class_fee_grids',
+  // Module Budgets (prévisionnel) — enveloppe + chapitres/sous-chapitres.
+  'budgets', 'budget_chapters',
+  // Module Dépenses — exécution budgétaire (rattachée à un budget).
+  'budget_expenses',
+  // Déblocage de lignes épuisées (demandes + décisions historisées).
+  'budget_unlock_requests',
+  // Ressources Humaines (satellites du dossier staff ; pas de paie).
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  // Reports (Signalements) — commentaires + historique.
+  'signalement_comments', 'signalement_history',
+  // Notifications (moteur multi-canaux ; interne + file d'envoi externe prévue).
+  'notifications', 'notification_outbox',
+  // Immobilisations (patrimoine) — registre + pannes/réparations/dépenses.
+  'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
+  // Catalogue de frais (obligatoires/optionnels) + liste par élève.
+  'fee_catalog', 'student_fee_items',
+  // Gouvernance du complexe — attribution des rôles de direction.
+  'user_governance_roles',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
   // Notes du moteur officiel (compétences/observations). Synchro LAN↔LAN OK (même
@@ -186,6 +208,12 @@ export function tableColumns(table) {
 export const ALLOWED_TABLES = new Set([
   'schools', 'school_units', 'school_users', 'classes', 'subjects', 'students', 'grades',
   'teachers', 'staff', 'student_fees', 'fee_payments', 'class_fee_grids',
+  'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests', 'user_governance_roles',
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  'signalement_comments', 'signalement_history',
+  'notifications', 'notification_outbox',
+  'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
+  'fee_catalog', 'student_fee_items',
   'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots', 'country_education_config',

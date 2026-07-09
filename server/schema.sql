@@ -259,6 +259,172 @@ CREATE TABLE IF NOT EXISTS fee_payments (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- --- Budgets (prévisionnel) ----------------------------------
+-- Enveloppe prévisionnelle : période (annuel/trimestriel/mensuel) + secteur +
+-- statut (draft/active/closed). Les chapitres/sous-chapitres portent les montants
+-- PRÉVUS. Dépenses réelles & validations = itérations suivantes (modèle extensible).
+CREATE TABLE IF NOT EXISTS budgets (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  academic_year  TEXT NOT NULL,
+  period_type    TEXT NOT NULL DEFAULT 'annuel',   -- annuel|trimestriel|mensuel
+  period_ref     INTEGER,                          -- trimestre 1..3 / mois 1..12 ; NULL en annuel
+  sector         TEXT NOT NULL DEFAULT 'general',
+  label          TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'draft',    -- draft|active|closed
+  notes          TEXT,
+  closed_at      TEXT,
+  closed_by      TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_budgets_school ON budgets(school_id, academic_year);
+
+CREATE TABLE IF NOT EXISTS budget_chapters (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  budget_id      TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+  parent_id      TEXT REFERENCES budget_chapters(id) ON DELETE CASCADE, -- sous-chapitre (NULL = racine)
+  code           TEXT,
+  label          TEXT NOT NULL,
+  kind           TEXT NOT NULL DEFAULT 'depense',  -- recette|depense (prévisionnel)
+  planned_amount INTEGER NOT NULL DEFAULT 0,
+  position       INTEGER NOT NULL DEFAULT 0,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_budget_chapters_budget ON budget_chapters(budget_id);
+CREATE INDEX IF NOT EXISTS idx_budget_chapters_parent ON budget_chapters(parent_id);
+
+-- --- Dépenses (exécution budgétaire) -------------------------
+-- Toujours rattachée à un budget (budget_id dérivé du chapitre). Le « restant »
+-- n'est pas stocké : recalculé (planifié − engagé) — lib/expenseEngine.js.
+CREATE TABLE IF NOT EXISTS budget_expenses (
+  id                TEXT PRIMARY KEY,
+  school_id         TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  budget_id         TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+  budget_chapter_id TEXT REFERENCES budget_chapters(id) ON DELETE SET NULL,
+  category          TEXT,
+  subcategory       TEXT,
+  sector            TEXT,
+  supplier          TEXT,
+  amount            INTEGER NOT NULL DEFAULT 0,
+  requester         TEXT,
+  receipt           TEXT,
+  status            TEXT NOT NULL DEFAULT 'draft',  -- draft|submitted|approved|paid|rejected
+  expense_date      TEXT,
+  notes             TEXT,
+  created_by        TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_budget_expenses_budget  ON budget_expenses(budget_id);
+CREATE INDEX IF NOT EXISTS idx_budget_expenses_chapter ON budget_expenses(budget_chapter_id);
+
+-- --- Déblocage de lignes épuisées (demandes + décisions) -----
+CREATE TABLE IF NOT EXISTS budget_unlock_requests (
+  id                TEXT PRIMARY KEY,
+  school_id         TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  budget_id         TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+  budget_chapter_id TEXT REFERENCES budget_chapters(id) ON DELETE SET NULL,
+  requested_amount  INTEGER NOT NULL DEFAULT 0,
+  reason            TEXT,
+  requester         TEXT,
+  requested_by      TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending',  -- pending|refused|authorized|increased
+  granted_amount    INTEGER,
+  decision_note     TEXT,
+  decided_by        TEXT,
+  decided_by_id     TEXT,
+  decided_role      TEXT,
+  decided_at        TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_budget_unlocks_budget ON budget_unlock_requests(budget_id);
+
+-- --- Ressources Humaines (satellites du dossier `staff`) -----
+-- Pas de paie. Chaque entité est rattachée à un agent (staff_id).
+CREATE TABLE IF NOT EXISTS hr_contracts (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  staff_id TEXT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  type TEXT NOT NULL DEFAULT 'cdi', reference TEXT, title TEXT,
+  start_date TEXT, end_date TEXT, salary INTEGER, status TEXT NOT NULL DEFAULT 'active',
+  document TEXT, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS hr_leaves (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  staff_id TEXT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  type TEXT NOT NULL DEFAULT 'annuel', start_date TEXT, end_date TEXT, days INTEGER,
+  reason TEXT, status TEXT NOT NULL DEFAULT 'pending', decided_by TEXT, decided_at TEXT, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS hr_evaluations (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  staff_id TEXT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  eval_date TEXT, period TEXT, evaluator TEXT, score REAL, rating TEXT,
+  strengths TEXT, improvements TEXT, comments TEXT, status TEXT NOT NULL DEFAULT 'draft',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS hr_attendance (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  staff_id TEXT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  att_date TEXT, status TEXT NOT NULL DEFAULT 'present', check_in TEXT, check_out TEXT, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS hr_career_events (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  staff_id TEXT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  event_date TEXT, type TEXT NOT NULL DEFAULT 'autre', title TEXT, description TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_hr_contracts_staff ON hr_contracts(staff_id);
+CREATE INDEX IF NOT EXISTS idx_hr_leaves_staff ON hr_leaves(staff_id);
+CREATE INDEX IF NOT EXISTS idx_hr_evaluations_staff ON hr_evaluations(staff_id);
+CREATE INDEX IF NOT EXISTS idx_hr_attendance_staff ON hr_attendance(staff_id);
+CREATE INDEX IF NOT EXISTS idx_hr_career_staff ON hr_career_events(staff_id);
+
+-- --- Gouvernance du complexe (rôles de direction) ------------
+-- Rôles cumulables au rôle de base (school_users.role INCHANGÉ). Servent aux
+-- workflows de validation à venir. En LAN, l'autorisation d'attribution est
+-- portée par le serveur (pas de RLS/RPC SECURITY DEFINER hors-ligne).
+CREATE TABLE IF NOT EXISTS user_governance_roles (
+  id          TEXT PRIMARY KEY,
+  school_id   TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL,
+  role        TEXT NOT NULL,
+  sector      TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (school_id, user_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_ugr_user ON user_governance_roles(school_id, user_id);
+
+-- --- Catalogue de frais (obligatoires / optionnels) ----------
+-- Configurable par établissement. student_fee_items = liste de frais par élève.
+CREATE TABLE IF NOT EXISTS fee_catalog (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'autre', amount INTEGER NOT NULL DEFAULT 0,
+  academic_year TEXT, level TEXT, class_id TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  mandatory INTEGER NOT NULL DEFAULT 0, optional INTEGER NOT NULL DEFAULT 1,
+  payment_type TEXT NOT NULL DEFAULT 'unique', start_date TEXT, end_date TEXT,
+  active INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL DEFAULT 0, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS student_fee_items (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  fee_catalog_id TEXT REFERENCES fee_catalog(id) ON DELETE SET NULL,
+  academic_year TEXT, name TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'autre',
+  amount INTEGER NOT NULL DEFAULT 0, mandatory INTEGER NOT NULL DEFAULT 0,
+  payment_type TEXT NOT NULL DEFAULT 'unique', status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (student_id, fee_catalog_id, academic_year)
+);
+CREATE INDEX IF NOT EXISTS idx_fee_catalog_school ON fee_catalog(school_id, academic_year);
+CREATE INDEX IF NOT EXISTS idx_student_fee_items_student ON student_fee_items(student_id, academic_year);
+
 -- --- Assiduité / absences ------------------------------------
 CREATE TABLE IF NOT EXISTS attendance (
   id          TEXT PRIMARY KEY,
@@ -832,3 +998,67 @@ CREATE TABLE IF NOT EXISTS signalements (
 );
 CREATE INDEX IF NOT EXISTS idx_signalements_school ON signalements(school_id, status);
 CREATE INDEX IF NOT EXISTS idx_signalements_domain ON signalements(school_id, domain);
+
+-- --- Immobilisations (patrimoine) : registre + journaux -------
+CREATE TABLE IF NOT EXISTS assets (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  category TEXT NOT NULL DEFAULT 'mobilier', asset_number TEXT, name TEXT NOT NULL, value INTEGER,
+  acquisition_date TEXT, status TEXT NOT NULL DEFAULT 'active', location TEXT, serial_number TEXT,
+  unit_id TEXT REFERENCES school_units(id) ON DELETE SET NULL, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS asset_breakdowns (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  date TEXT, description TEXT, severity TEXT, status TEXT NOT NULL DEFAULT 'open', reported_by TEXT, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS asset_repairs (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  date TEXT, description TEXT, provider TEXT, cost INTEGER, status TEXT NOT NULL DEFAULT 'done', notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS asset_expenses (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  date TEXT, category TEXT, amount INTEGER, supplier TEXT, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_asset_breakdowns ON asset_breakdowns(asset_id);
+CREATE INDEX IF NOT EXISTS idx_asset_repairs ON asset_repairs(asset_id);
+CREATE INDEX IF NOT EXISTS idx_asset_expenses ON asset_expenses(asset_id);
+
+-- --- Notifications (moteur multi-canaux ; interne implémenté) -
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  recipient_id TEXT, recipient_role TEXT, type TEXT NOT NULL DEFAULT 'info',
+  title TEXT NOT NULL, body TEXT, link TEXT, read INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS notification_outbox (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  notification_id TEXT REFERENCES notifications(id) ON DELETE CASCADE,
+  channel TEXT NOT NULL, address TEXT, status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT, attempts INTEGER NOT NULL DEFAULT 0, payload TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_school ON notifications(school_id, recipient_id);
+CREATE INDEX IF NOT EXISTS idx_notif_outbox ON notification_outbox(school_id, status);
+
+-- --- Reports (Signalements) : commentaires + historique ------
+CREATE TABLE IF NOT EXISTS signalement_comments (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  signalement_id TEXT NOT NULL REFERENCES signalements(id) ON DELETE CASCADE,
+  author TEXT, author_id TEXT, body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS signalement_history (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  signalement_id TEXT NOT NULL REFERENCES signalements(id) ON DELETE CASCADE,
+  action TEXT NOT NULL, from_status TEXT, to_status TEXT, detail TEXT, actor TEXT, actor_id TEXT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sig_comments ON signalement_comments(signalement_id);
+CREATE INDEX IF NOT EXISTS idx_sig_history ON signalement_history(signalement_id);

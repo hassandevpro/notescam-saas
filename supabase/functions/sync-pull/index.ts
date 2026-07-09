@@ -13,6 +13,12 @@ async function sha256(s: string) { const h = await crypto.subtle.digest('SHA-256
 const TABLES = [
   'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
+  'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests', 'user_governance_roles',
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  'signalement_comments', 'signalement_history',
+  'notifications', 'notification_outbox',
+  'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
+  'fee_catalog', 'student_fee_items',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ];

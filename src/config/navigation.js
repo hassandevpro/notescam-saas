@@ -99,6 +99,10 @@ export const NAV_GROUPS = [
         roles: DISCIPLINE },
       { to: '/app/monitor',  icon: 'monitor',  label: ['Surveillance profs', 'Teacher monitoring', 'Supervisión docentes'],
         roles: ['admin', 'censeur'], badge: true },
+      { to: '/app/signalements', icon: 'history', label: ['Signalements', 'Reports', 'Reportes'],
+        roles: ALL },
+      { to: '/app/notifications', icon: 'monitor', label: ['Notifications', 'Notifications', 'Notificaciones'],
+        roles: ALL },
     ],
   },
   {
@@ -108,6 +112,12 @@ export const NAV_GROUPS = [
     items: [
       { to: '/app/fees', icon: 'fees', label: ['Frais scolaires', 'School Fees', 'Tasas escolares'],
         roles: ['admin', 'censeur'], feature: 'hasFees' },
+      { to: '/app/frais-catalogue', icon: 'fees', label: ['Catalogue des frais', 'Fee catalog', 'Catálogo de tasas'],
+        roles: ['admin', 'censeur'] },
+      { to: '/app/budgets', icon: 'reports', label: ['Budgets', 'Budgets', 'Presupuestos'],
+        roles: ['admin'] },
+      { to: '/app/depenses', icon: 'fees', label: ['Dépenses', 'Expenses', 'Gastos'],
+        roles: ['admin'] },
     ],
   },
   {
@@ -119,6 +129,10 @@ export const NAV_GROUPS = [
         roles: ['admin'], feature: 'hasTeachers' },
       { to: '/app/personnel', icon: 'students', label: ['Personnel & rôles', 'Staff & roles', 'Personal y roles'],
         roles: ['admin'], feature: 'hasTeachers' },
+      { to: '/app/rh', icon: 'teachers', label: ['Ressources Humaines', 'Human Resources', 'Recursos Humanos'],
+        roles: ['admin'] },
+      { to: '/app/immobilisations', icon: 'settings', label: ['Immobilisations', 'Fixed assets', 'Inmovilizado'],
+        roles: ['admin'] },
     ],
   },
   {
@@ -128,6 +142,8 @@ export const NAV_GROUPS = [
     items: [
       { to: '/app/reports', icon: 'reports', label: ['Rapports', 'Reports', 'Informes'],
         roles: ['admin', 'censeur'], mobilePrimary: true },
+      { to: '/app/groupe', icon: 'home', label: ['Tableau de bord du groupe', 'Group dashboard', 'Panel del grupo'],
+        roles: ['admin'] },
     ],
   },
   {

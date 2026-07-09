@@ -420,15 +420,9 @@ function RolesPanel() {
       </p>
       <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
         <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-          <span>🎓</span>{t('Censeurs', 'Deans of studies', 'Jefes de estudios')}
+          <span>👥</span>{t('Comptes & accès', 'Accounts & access', 'Cuentas y accesos')}
         </h3>
-        <StaffManager role="censeur" />
-      </section>
-      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-        <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-          <span>🛡️</span>{t('Surveillants', 'Supervisors', 'Jefes de disciplina')}
-        </h3>
-        <StaffManager role="surveillant" />
+        <StaffManager roles={['censeur', 'surveillant']} />
       </section>
     </div>
   );

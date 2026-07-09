@@ -1012,11 +1012,8 @@ export default function Settings() {
             </div>
           </div>
         )}
-        <Section title={t('Censeur', 'Dean of studies', 'Jefe de estudios')}>
-          <StaffManager role="censeur" />
-        </Section>
-        <Section title={t('Surveillant', 'Supervisor', 'Jefe de disciplina')}>
-          <StaffManager role="surveillant" />
+        <Section title={t('Comptes & accès', 'Accounts & access', 'Cuentas y accesos')}>
+          <StaffManager roles={['censeur', 'surveillant']} />
         </Section>
       </div>
     );

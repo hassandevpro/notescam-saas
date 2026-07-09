@@ -133,6 +133,8 @@ export const NAV_GROUPS = [
         roles: ['admin'] },
       { to: '/app/immobilisations', icon: 'settings', label: ['Immobilisations', 'Fixed assets', 'Inmovilizado'],
         roles: ['admin'] },
+      // Seed Data — visible UNIQUEMENT en développement (retiré du bundle en prod).
+      ...(import.meta.env.DEV ? [{ to: '/app/seed-data', icon: 'settings', label: ['Données de démo (DEV)', 'Seed Data (DEV)', 'Datos demo (DEV)'], roles: ['admin'] }] : []),
     ],
   },
   {

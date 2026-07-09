@@ -43,6 +43,8 @@ const GroupDashboard = lazy(() => import('./pages/GroupDashboard'));
 const Assets        = lazy(() => import('./pages/Assets'));
 const Settings      = lazy(() => import('./pages/Settings'));
 const Profile       = lazy(() => import('./pages/Profile'));
+// Module « Seed Data » — chargé UNIQUEMENT en mode Développement (tree-shaké en prod).
+const SeedData      = import.meta.env.DEV ? lazy(() => import('./pages/SeedData')) : null;
 const AcademicYear  = lazy(() => import('./pages/AcademicYear'));
 const Reports        = lazy(() => import('./pages/Reports'));
 const Fees           = lazy(() => import('./pages/Fees'));
@@ -256,6 +258,9 @@ export default function App() {
           <Route path="/app/notifications"  element={<ProtectedRoute allow={ALL_STAFF}><Notifications /></ProtectedRoute>} />
           <Route path="/app/groupe"          element={<ProtectedRoute allow={ADMIN_ONLY}><GroupDashboard /></ProtectedRoute>} />
           <Route path="/app/immobilisations" element={<ProtectedRoute allow={ADMIN_ONLY}><Assets /></ProtectedRoute>} />
+          {import.meta.env.DEV && SeedData && (
+            <Route path="/app/seed-data"   element={<ProtectedRoute allow={ADMIN_ONLY}><SeedData /></ProtectedRoute>} />
+          )}
           <Route path="/app/settings"       element={<ProtectedRoute allow={ALL_STAFF}><Settings /></ProtectedRoute>} />
           <Route path="/app/profile"        element={<ProtectedRoute allow={ALL_STAFF}><Profile /></ProtectedRoute>} />
           <Route path="/app/year"           element={<ProtectedRoute allow={ADMIN_ONLY}><AcademicYear /></ProtectedRoute>} />

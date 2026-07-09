@@ -1401,7 +1401,7 @@ export const useSchoolStore = create((set, get) => ({
     return record;
   },
 
-  addPayment: async (studentId, { amount, date, note }) => {
+  addPayment: async (studentId, { amount, date, note, student_fee_item_id = null }) => {
     const { schoolId, activeYear, fees, feePayments } = get();
     const userId = useAuthStore.getState().userId;
     const parsedAmount = parseInt(amount, 10) || 0;
@@ -1416,6 +1416,8 @@ export const useSchoolStore = create((set, get) => ({
       date:          date,
       note:          note || '',
       recorded_by:   userId,
+      // Lien optionnel vers un frais précis du catalogue (null = paiement global).
+      student_fee_item_id: student_fee_item_id || null,
       created_at:    new Date().toISOString(),
     };
 

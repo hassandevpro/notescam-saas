@@ -4,7 +4,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useT } from '../lib/i18n';
 import Modal from './Modal';
-import { createStaffAccount, fetchStaff, setStaffActive, setStaffPassword, setStaffScope } from '../lib/staffAccounts';
+import { createStaffAccount, fetchStaff, setStaffActive, setStaffPassword, setStaffScope, setStaffPermissions, parsePermissions } from '../lib/staffAccounts';
+import CapabilityPicker from './CapabilityPicker';
+import { ACCESS_PRESETS, presetByKey } from '../config/capabilities';
 import { useSchoolStore } from '../store/schoolStore';
 import { SECTIONS, classSectionKey } from '../core/engineResolver';
 import { CYCLES } from '../core/surveillantScope';
@@ -53,6 +55,7 @@ export default function StaffManager({ role }) {
   const [busyId,  setBusyId]  = useState(null);
   const [pwdRow,  setPwdRow]  = useState(null);
   const [scopeRow, setScopeRow] = useState(null);
+  const [permRow, setPermRow] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -109,6 +112,13 @@ export default function StaffManager({ role }) {
                   </button>
                 )}
                 <button
+                  onClick={() => setPermRow(row)}
+                  className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors"
+                  title={t('Modifier ce que la personne peut faire', 'Edit what the person can do', 'Editar permisos')}
+                >
+                  🛡️ {t('Autorisations', 'Permissions', 'Permisos')}
+                </button>
+                <button
                   onClick={() => setPwdRow(row)}
                   className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-brand-600 hover:bg-brand-50 transition-colors"
                   title={t('Changer le mot de passe', 'Change password', 'Cambiar contraseña')}
@@ -136,6 +146,10 @@ export default function StaffManager({ role }) {
 
       {scopeRow && (
         <ScopeModal row={scopeRow} onClose={() => setScopeRow(null)} onSaved={() => { setScopeRow(null); refresh(); }} />
+      )}
+
+      {permRow && (
+        <PermissionsModal row={permRow} onClose={() => setPermRow(null)} onSaved={() => { setPermRow(null); refresh(); }} />
       )}
 
       {showForm && (
@@ -333,6 +347,55 @@ function ScopeModal({ row, onClose, onSaved }) {
 }
 
 // Redéfinition du mot de passe d'un compte de direction par l'admin.
+// Édition des CAPACITÉS (permissions granulaires) d'un compte existant.
+function PermissionsModal({ row, onClose, onSaved }) {
+  const t = useT();
+  const [caps, setCaps] = useState(() => new Set(parsePermissions(row.permissions)));
+  const [presetKey, setPresetKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const toggle = (to) => setCaps((s) => { const n = new Set(s); n.has(to) ? n.delete(to) : n.add(to); return n; });
+  const toggleGroup = (group, on) => setCaps((s) => { const n = new Set(s); group.caps.forEach((c) => on ? n.add(c.to) : n.delete(c.to)); return n; });
+  const applyPreset = (key) => { setPresetKey(key); if (key) setCaps(new Set(presetByKey(key).caps)); };
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true); setErr('');
+    const { error } = await setStaffPermissions(row.id, [...caps]);
+    setBusy(false);
+    if (error) { setErr(error.message || t('Erreur', 'Error', 'Error')); return; }
+    onSaved();
+  };
+
+  return (
+    <Modal title={`${t('Autorisations', 'Permissions', 'Permisos')} — ${row.full_name}`} onClose={onClose} size="lg">
+      <div className="space-y-3">
+        <p className="text-xs text-gray-500">{t('Cochez exactement ce que la personne peut faire. Vide = accès par rôle par défaut.', 'Check exactly what the person can do. Empty = default role access.', 'Marque lo que puede hacer. Vacío = acceso por rol.')}</p>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 mb-1">{t('Appliquer un profil', 'Apply a profile', 'Aplicar un perfil')}</label>
+          <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" value={presetKey} onChange={(e) => applyPreset(e.target.value)}>
+            <option value="">{t('— garder la sélection —', '— keep selection —', '— mantener —')}</option>
+            {ACCESS_PRESETS.map((p) => <option key={p.key} value={p.key}>{t(...p.label)}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-semibold text-gray-500">{t('Ce que la personne peut faire', 'What the person can do', 'Lo que puede hacer')}</label>
+          <span className="text-[11px] text-gray-400">{caps.size} {t('autorisation(s)', 'permission(s)', 'permisos')}</span>
+        </div>
+        <CapabilityPicker value={caps} onToggle={toggle} onToggleGroup={toggleGroup} />
+        {err && <p className="text-xs text-rose-600">{err}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">{t('Annuler', 'Cancel', 'Cancelar')}</button>
+          <button onClick={save} disabled={busy} className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            {busy ? t('Enregistrement…', 'Saving…', 'Guardando…') : t('Enregistrer', 'Save', 'Guardar')}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function SetPasswordModal({ row, onClose }) {
   const t = useT();
   const [password, setPassword] = useState('');

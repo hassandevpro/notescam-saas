@@ -54,3 +54,23 @@ BEGIN
 END $$;
 
 GRANT EXECUTE ON FUNCTION public.admin_set_staff_permissions(uuid, text) TO authenticated;
+
+-- admin_list_staff renvoie désormais aussi le rôle et les permissions (pour
+-- pré-remplir l'éditeur de capacités des comptes existants).
+CREATE OR REPLACE FUNCTION public.admin_list_staff(p_role text)
+RETURNS TABLE (id uuid, user_id uuid, full_name text, active boolean, role text, permissions text)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_school_id uuid;
+BEGIN
+  SELECT su.school_id INTO v_school_id FROM school_users su
+  WHERE su.user_id = auth.uid() AND su.active = true AND su.role = 'admin';
+  IF v_school_id IS NULL THEN RAISE EXCEPTION 'Non autorisé'; END IF;
+
+  RETURN QUERY
+    SELECT su.id, su.user_id, su.full_name, su.active, su.role, su.permissions
+    FROM school_users su
+    WHERE su.school_id = v_school_id AND su.role = p_role
+    ORDER BY su.full_name;
+END $$;
+
+GRANT EXECUTE ON FUNCTION public.admin_list_staff(text) TO authenticated;

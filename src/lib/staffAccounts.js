@@ -61,6 +61,22 @@ export async function fetchStaff(role) {
   return data || [];
 }
 
+// Met à jour les capacités (permissions granulaires) d'un compte délégué existant.
+export async function setStaffPermissions(schoolUserId, permissions) {
+  const permJson = permissions && permissions.length ? JSON.stringify(permissions) : null;
+  const { error } = await supabase.rpc('admin_set_staff_permissions', {
+    p_school_user_id: schoolUserId, p_permissions: permJson,
+  });
+  return { error };
+}
+
+// Parse le champ permissions (JSON texte) d'une ligne de compte -> tableau (ou []).
+export function parsePermissions(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; }
+}
+
 export async function setStaffActive(schoolUserId, active) {
   const { error } = await supabase.rpc('admin_set_staff_active', {
     p_school_user_id: schoolUserId,

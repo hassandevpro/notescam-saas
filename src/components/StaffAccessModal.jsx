@@ -2,7 +2,8 @@ import { useState } from 'react';
 import Modal from './Modal';
 import { useT } from '../lib/i18n';
 import { createStaffAccount, generatePassword } from '../lib/staffAccounts';
-import { CAP_GROUPS, ACCESS_PRESETS, presetByKey } from '../config/capabilities';
+import { ACCESS_PRESETS, presetByKey } from '../config/capabilities';
+import CapabilityPicker from './CapabilityPicker';
 
 // Crée un compte de connexion pour un membre du personnel, avec un PROFIL
 // (préréglage) et un choix GRANULAIRE de ce que la personne peut faire.
@@ -83,27 +84,7 @@ export default function StaffAccessModal({ staff, onClose, onCreated }) {
               <label className="text-xs font-semibold text-gray-500">{t('Ce que la personne peut faire', 'What the person can do', 'Lo que puede hacer')}</label>
               <span className="text-[11px] text-gray-400">{caps.size} {t('autorisation(s)', 'permission(s)', 'permisos')}</span>
             </div>
-            <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
-              {CAP_GROUPS.map((group) => {
-                const all = group.caps.every((c) => caps.has(c.to));
-                return (
-                  <div key={group.module[0]} className="p-2">
-                    <label className="flex items-center gap-2 text-xs font-bold text-gray-600 mb-1">
-                      <input type="checkbox" checked={all} onChange={(e) => toggleGroup(group, e.target.checked)} className="w-3.5 h-3.5" />
-                      {t(...group.module)}
-                    </label>
-                    <div className="grid grid-cols-2 gap-1 pl-5">
-                      {group.caps.map((c) => (
-                        <label key={c.to} className="flex items-center gap-2 text-sm text-gray-700">
-                          <input type="checkbox" checked={caps.has(c.to)} onChange={() => toggle(c.to)} className="w-3.5 h-3.5" />
-                          {t(...c.label)}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <CapabilityPicker value={caps} onToggle={toggle} onToggleGroup={toggleGroup} />
           </div>
 
           {err && <p className="text-xs text-rose-600">{err}</p>}

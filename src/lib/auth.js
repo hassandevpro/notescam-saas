@@ -39,7 +39,11 @@ export async function getCurrentUserContext() {
   const PROFILE_COLS = 'id, role, full_name, phone, photo_url, last_login_at, created_at, class_id, school_id, schools (*)';
   // Le plus riche : ajoute le PÉRIMÈTRE du surveillant (migration supabase_vie_scolaire.sql).
   const SCOPE_COLS   = 'id, role, full_name, phone, photo_url, last_login_at, created_at, class_id, school_id, scope_sections, scope_cycles, scope_class_ids, schools (*)';
+  // Le plus riche : ajoute les PERMISSIONS granulaires (migration supabase_staff_permissions.sql).
+  const PERM_COLS    = SCOPE_COLS.replace('schools (*)', 'permissions, schools (*)');
   const selectSchoolUsers = async () => {
+    const withPerm = await supabase.from('school_users').select(PERM_COLS).eq('user_id', user.id).eq('active', true);
+    if (!withPerm.error) return withPerm;
     const withScope = await supabase.from('school_users').select(SCOPE_COLS).eq('user_id', user.id).eq('active', true);
     if (!withScope.error) return withScope;
     const rich = await supabase.from('school_users').select(PROFILE_COLS).eq('user_id', user.id).eq('active', true);
@@ -129,7 +133,16 @@ export async function getCurrentUserContext() {
       cycles:   data.scope_cycles    ?? null,
       classIds: data.scope_class_ids ?? null,
     },
+    // Permissions granulaires du compte délégué (null = accès par rôle, inchangé).
+    permissions: parsePermissions(data.permissions),
   };
+}
+
+// permissions stocké en JSON (texte). null/invalide → null (accès par rôle).
+function parsePermissions(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw)) return raw.length ? raw : null;
+  try { const p = JSON.parse(raw); return Array.isArray(p) && p.length ? p : null; } catch { return null; }
 }
 
 /**

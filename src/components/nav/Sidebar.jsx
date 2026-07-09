@@ -79,6 +79,7 @@ function NavGroup({ group, t, unreadCount, open, onToggle, forcedOpen }) {
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 export default function Sidebar({ mobileOpen, onClose }) {
   const role     = useAuthStore((s) => s.role);
+  const permissions = useAuthStore((s) => s.permissions);
   const { pathname } = useLocation();
   const unreadCount  = useNotificationsStore((s) => s.unreadCount);
   const sidebarHidden  = useUiStore((s) => s.sidebarHidden);
@@ -91,7 +92,7 @@ export default function Sidebar({ mobileOpen, onClose }) {
   // Ferme la sidebar mobile à chaque changement de route
   useEffect(() => { if (onClose) onClose(); /* eslint-disable-next-line */ }, [pathname]);
 
-  const groups = getNavGroups(role, f);
+  const groups = getNavGroups(role, f, permissions);
 
   // Groupe contenant la route active → toujours déplié (l'utilisateur ne perd
   // jamais de vue où il se trouve).

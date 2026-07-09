@@ -13,12 +13,13 @@ import MoreSheet from './MoreSheet';
 // mobile, le tiroir de 18 liens. Caché ≥ md (la sidebar prend le relais).
 export default function MobileNav({ onLogout }) {
   const role = useAuthStore((s) => s.role);
+  const permissions = useAuthStore((s) => s.permissions);
   const unreadCount = useNotificationsStore((s) => s.unreadCount);
   const t = useT();
   const { f } = usePlan();
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const primary = getMobilePrimary(role, f, 4);
+  const primary = getMobilePrimary(role, f, 4, permissions);
 
   const cell = 'flex flex-col items-center justify-center gap-0.5 flex-1 h-full text-[10px] font-medium transition-colors';
 

@@ -14,7 +14,7 @@ const anonClient = createClient(
 
 // Crée (ou réutilise) un compte auth et le lie à l'école avec le rôle donné.
 // Lève new Error('EMAIL_IN_USE') si l'email existe avec un autre mot de passe.
-export async function createStaffAccount({ email, password, fullName, role }) {
+export async function createStaffAccount({ email, password, fullName, role, permissions = null }) {
   const mail = email.trim();
   const { data: signUpData, error: signUpError } = await anonClient.auth.signUp({ email: mail, password });
 
@@ -32,11 +32,18 @@ export async function createStaffAccount({ email, password, fullName, role }) {
     targetUserId = signUpData.user.id;
   }
 
-  const { error: rpcError } = await supabase.rpc('admin_create_staff_account', {
-    p_target_user_id: targetUserId,
-    p_full_name:      fullName,
-    p_role:           role,
-  });
+  const permJson = permissions && permissions.length ? JSON.stringify(permissions) : null;
+  // Appel avec permissions ; repli sans si la RPC ne connaît pas encore le param
+  // (migration supabase_staff_permissions.sql non exécutée).
+  let rpcError = null;
+  ({ error: rpcError } = await supabase.rpc('admin_create_staff_account', {
+    p_target_user_id: targetUserId, p_full_name: fullName, p_role: role, p_permissions: permJson,
+  }));
+  if (rpcError && /p_permissions|does not exist|function/i.test(rpcError.message || '')) {
+    ({ error: rpcError } = await supabase.rpc('admin_create_staff_account', {
+      p_target_user_id: targetUserId, p_full_name: fullName, p_role: role,
+    }));
+  }
   if (rpcError) throw rpcError;
   return { email: mail, userId: targetUserId };
 }

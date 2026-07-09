@@ -23,6 +23,7 @@
 //   - Conseil de classe : Scolarité → Évaluations
 //   - Surveillance      : Analyses  → Vie scolaire
 // ─────────────────────────────────────────────────────────────────────────────
+import { isPathPermitted } from './capabilities';
 
 export const ROLES = {
   ADMIN: 'admin',
@@ -181,12 +182,16 @@ function visibleForRole(item, role) {
  * @param {string} role
  * @param {object} f  features de plan (usePlan().f)
  */
-export function getNavGroups(role, f = {}) {
+export function getNavGroups(role, f = {}, permissions = null) {
+  // Compte délégué : la navigation reflète EXACTEMENT ses capacités (les
+  // permissions font autorité, le rôle de base n'entre plus en jeu).
+  const delegated = permissions && permissions.length;
+  const visible = (it) => delegated ? isPathPermitted(it.to, permissions) : visibleForRole(it, role);
   return NAV_GROUPS
     .map((group) => ({
       ...group,
       items: group.items
-        .filter((it) => visibleForRole(it, role))
+        .filter(visible)
         .map((it) => ({ ...it, locked: it.feature ? !f[it.feature] : false })),
     }))
     .filter((group) => group.items.length > 0);
@@ -197,8 +202,8 @@ export function getNavGroups(role, f = {}) {
  * On prend les items `mobilePrimary` visibles ; on complète si le rôle en a
  * moins de 4 (ex. teacher) avec ses premiers items disponibles.
  */
-export function getMobilePrimary(role, f = {}, max = 4) {
-  const groups = getNavGroups(role, f);
+export function getMobilePrimary(role, f = {}, max = 4, permissions = null) {
+  const groups = getNavGroups(role, f, permissions);
   const flat = groups.flatMap((g) => g.items);
   const primary = flat.filter((it) => it.mobilePrimary);
   const result = [...primary];

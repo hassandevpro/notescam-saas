@@ -13,7 +13,7 @@ function ctxFromState(s) {
     phone: s.phone, photoUrl: s.photoUrl, lastLogin: s.lastLogin,
     createdAt: s.createdAt, specialty: s.specialty,
     classId: s.classId, schoolUserId: s.schoolUserId, teacherId: s.teacherId,
-    scope: s.scope,
+    scope: s.scope, permissions: s.permissions,
   };
 }
 
@@ -63,6 +63,7 @@ export const useAuthStore = create((set, get) => ({
   schoolUserId: null,
   teacherId: null,   // UUID du record teachers lié à ce compte (role=teacher uniquement)
   scope: null,       // périmètre vie scolaire (surveillant) : { sections, cycles, classIds }
+  permissions: null, // capacités granulaires d'un compte délégué (null = accès par rôle)
   loading: true,
   error: null,
   _pendingSignup: false, // true pendant le flux signup pour bloquer onAuthStateChange
@@ -102,6 +103,7 @@ export const useAuthStore = create((set, get) => ({
           schoolUserId: ctx?.schoolUserId || null,
           teacherId: ctx?.teacherId || null,
           scope: ctx?.scope || null,
+          permissions: ctx?.permissions ?? null,
           loading: false,
         });
         syncUiLangToSchool(ctx?.school);
@@ -192,6 +194,7 @@ export const useAuthStore = create((set, get) => ({
       schoolUserId: ctx?.schoolUserId || null,
       teacherId: ctx?.teacherId || null,
       scope: ctx?.scope || null,
+      permissions: ctx?.permissions ?? null,
       loading: false,
     });
     syncUiLangToSchool(ctx?.school);
@@ -258,6 +261,7 @@ export const useAuthStore = create((set, get) => ({
       schoolUserId: null,
       teacherId: null,
       scope: null,
+      permissions: null,
     });
   },
 }));

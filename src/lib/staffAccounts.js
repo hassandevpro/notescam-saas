@@ -38,7 +38,14 @@ export async function createStaffAccount({ email, password, fullName, role }) {
     p_role:           role,
   });
   if (rpcError) throw rpcError;
-  return { email: mail };
+  return { email: mail, userId: targetUserId };
+}
+
+// Mot de passe lisible à remettre au membre (3 lettres + 4 chiffres + symbole).
+export function generatePassword() {
+  const U = 'ABCDEFGHJKLMNPQRSTUVWXYZ', l = 'abcdefghijkmnpqrstuvwxyz', D = '23456789', S = '@#!$';
+  const p = (s) => s[Math.floor(Math.random() * s.length)];
+  return `${p(U)}${p(l)}${p(l)}${p(D)}${p(D)}${p(D)}${p(D)}${p(S)}`;
 }
 
 export async function fetchStaff(role) {

@@ -8,11 +8,13 @@ function nn(v) { return v === '' || v === undefined ? null : v; }
 
 // ── Catalogue (configurable par établissement) ────────────────────────────────
 export async function fetchCatalog(schoolId, { yearLabel } = {}) {
-  let q = supabase.from('fee_catalog').select('*').eq('school_id', schoolId);
-  if (yearLabel) q = q.or(`academic_year.eq.${yearLabel},academic_year.is.null`);
-  const { data, error } = await q.order('position', { ascending: true });
+  // NB : pas de `.or()` (non supporté par le client LAN/localClient) — on tire
+  // tout le catalogue de l'école puis on filtre l'année côté client.
+  const { data, error } = await supabase
+    .from('fee_catalog').select('*').eq('school_id', schoolId).order('position', { ascending: true });
   if (error) { console.error('fetchCatalog', error); return null; }
-  return data;
+  const rows = data || [];
+  return yearLabel ? rows.filter((r) => !r.academic_year || r.academic_year === yearLabel) : rows;
 }
 export async function upsertCatalogItem(row) {
   const payload = {

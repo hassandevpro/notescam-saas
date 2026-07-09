@@ -1,0 +1,17 @@
+-- ============================================================
+-- NotesCam — Barème de VALIDATION par établissement (moteur générique)
+-- À coller dans : Supabase → SQL Editor → New query → Run. Idempotent.
+-- ============================================================
+--
+-- Seuils de montant -> rôle validateur, CONFIGURABLES PAR ÉTABLISSEMENT.
+-- Stockés en TEXT (JSON sérialisé) pour rester identiques Cloud/LAN — comme
+-- schools.apc_bulletin_cols. NULL = l'app applique DEFAULT_VALIDATION_RULES
+-- (lib governance/validationEngine.js). Aucun montant n'est figé en base.
+--
+-- Format attendu (exemple = barème par défaut) :
+--   { "expense": [
+--       { "under": 25000,  "role": "raf" },
+--       { "under": 250000, "role": "coordonnateur_general" },
+--       { "under": null,   "role": "fondatrice" }
+--   ] }
+ALTER TABLE schools ADD COLUMN IF NOT EXISTS validation_rules text;

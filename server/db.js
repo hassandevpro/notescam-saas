@@ -18,7 +18,12 @@ mkdirSync(DATA_DIR, { recursive: true });
 export const DB_PATH = join(DATA_DIR, 'notescam.db');
 
 export const db = new DatabaseSync(DB_PATH);
-db.exec('PRAGMA journal_mode = WAL');   // lecteurs concurrents + écriture sûre
+db.exec('PRAGMA journal_mode = WAL');    // lecteurs concurrents + écriture sûre
+db.exec('PRAGMA synchronous = FULL');    // durabilité sur COUPURE SECTEUR (poste LAN
+                                         // rural sans onduleur) : une transaction validée
+                                         // a bien atteint le disque → l'outbox transactionnel
+                                         // du kernel ne peut pas être perdu après un commit.
+db.exec('PRAGMA wal_autocheckpoint = 400'); // borne la taille du WAL (checkpoints réguliers)
 db.exec('PRAGMA foreign_keys = ON');
 db.exec('PRAGMA busy_timeout = 5000');  // attend si un autre process écrit
 
@@ -142,6 +147,10 @@ export const SYNCED_TABLES = new Set([
   // seed = mêmes ids référentiel) ; la synchro LAN↔Cloud des notes reste un
   // chantier à part (les ids de compétences cloud diffèrent du seed local).
   'apc_notes', 'mat_observations', 'prim_notes',
+  // Socle P0 — le domaine transverse Signalement suit le même sync LWW Phase 2.
+  // (domain_events/audit_events sont append-only : réplication par curseur `seq`,
+  //  chantier de sync-pull dédié — cf. docs/ARCHITECTURE_KERNEL.md.)
+  'signalements',
 ]);
 for (const t of SYNCED_TABLES) {
   ensureColumn(t, 'updated_at', 'updated_at TEXT');                  // horodatage du dernier changement (LWW)
@@ -188,6 +197,8 @@ export const ALLOWED_TABLES = new Set([
   'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines', 'mat_observations',
   'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
   'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_notes',
+  // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
+  'domain_events', 'audit_events', 'signalements',
 ]);
 
 // Quote sûr d'un identifiant SQLite (table / colonne) : double les guillemets.

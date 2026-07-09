@@ -776,3 +776,59 @@ CREATE TABLE IF NOT EXISTS prim_notes (
 );
 CREATE INDEX IF NOT EXISTS idx_prim_notes_school  ON prim_notes(school_id);
 CREATE INDEX IF NOT EXISTS idx_prim_notes_student ON prim_notes(eleve_id);
+
+-- ============================================================
+-- Socle P0 — Event Store (outbox), Audit Log, domaine Signalement
+-- ============================================================
+CREATE TABLE IF NOT EXISTS domain_events (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  aggregate_type TEXT NOT NULL,
+  aggregate_id   TEXT,
+  event_type     TEXT NOT NULL,
+  payload        TEXT NOT NULL DEFAULT '{}',   -- JSON sérialisé
+  actor_id       TEXT,
+  actor_name     TEXT,
+  correlation_id TEXT,
+  occurred_at    TEXT,
+  seq            INTEGER,
+  device_id      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_domain_events_school ON domain_events(school_id, seq);
+CREATE INDEX IF NOT EXISTS idx_domain_events_agg    ON domain_events(school_id, aggregate_type, aggregate_id);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  action         TEXT NOT NULL,
+  aggregate_type TEXT,
+  target_id      TEXT,
+  actor_id       TEXT,
+  actor_name     TEXT,
+  payload        TEXT NOT NULL DEFAULT '{}',
+  correlation_id TEXT,
+  event_id       TEXT,
+  at             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_school ON audit_events(school_id, at);
+
+CREATE TABLE IF NOT EXISTS signalements (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  reporter_id    TEXT,
+  reporter_name  TEXT,
+  domain         TEXT NOT NULL,
+  title          TEXT NOT NULL,
+  description    TEXT DEFAULT '',
+  priority       TEXT NOT NULL DEFAULT 'normal',
+  status         TEXT NOT NULL DEFAULT 'new',
+  assignee_id    TEXT,
+  resolution     TEXT,
+  correlation_id TEXT,
+  created_at     TEXT,
+  updated_at     TEXT,
+  version        INTEGER NOT NULL DEFAULT 1,
+  device_id      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_signalements_school ON signalements(school_id, status);
+CREATE INDEX IF NOT EXISTS idx_signalements_domain ON signalements(school_id, domain);

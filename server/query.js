@@ -87,14 +87,33 @@ function resolveEmbeds(rows, embeds) {
   return rows;
 }
 
+// --- Non-répudiation + immuabilité de la traçabilité (revue P0 #8) ------
+// domain_events / audit_events sont APPEND-ONLY (update/delete refusés) et
+// l'acteur (actor_id) est estampillé depuis la SESSION authentifiée (ctx.userId),
+// jamais depuis le payload client → un utilisateur ne peut pas forger un event
+// au nom d'un autre. Le serveur LAN (JWT) est ici la frontière de confiance, à
+// l'image de la fonction SECURITY DEFINER kernel_emit côté Cloud.
+const APPEND_ONLY = new Set(['domain_events', 'audit_events']);
+function guardAppendOnly(op, ctx) {
+  if (!APPEND_ONLY.has(op.table)) return;
+  if (op.action === 'update' || op.action === 'delete') {
+    throw new Error(`${op.table} est append-only (${op.action} interdit)`);
+  }
+  if (ctx?.userId && op.values) {
+    const stamp = (v) => { if (v && typeof v === 'object') v.actor_id = ctx.userId; };
+    if (Array.isArray(op.values)) op.values.forEach(stamp); else stamp(op.values);
+  }
+}
+
 // --- Opération principale ---------------------------------------------
-export function runQuery(op) {
+export function runQuery(op, ctx = null) {
   const { table } = op;
   if (!ALLOWED_TABLES.has(table)) {
     return { error: { message: `Table non autorisée : ${table}` }, data: null };
   }
 
   try {
+    guardAppendOnly(op, ctx);
     switch (op.action) {
       case 'select': return doSelect(op);
       case 'insert': return doInsertOrUpsert(op, false);
@@ -148,12 +167,12 @@ function doSelect(op) {
   return { data: rows, error: null };
 }
 
-function doInsertOrUpsert(op, isUpsert) {
+// Cœur insert/upsert SANS transaction propre (réutilisable dans un batch : SQLite
+// n'imbrique pas les BEGIN). doInsertOrUpsert l'enveloppe dans tx() pour l'op isolée.
+function insertOrUpsertCore(op, isUpsert, inserted = []) {
   const { table } = op;
   const rows = Array.isArray(op.values) ? op.values : [op.values];
-  const inserted = [];
-
-  tx(() => {
+  {
     for (const raw of rows) {
       const rec = pickColumns(table, raw);
       if (!('id' in rec) && tableColumns(table).has('id')) rec.id = randomUUID();
@@ -165,7 +184,11 @@ function doInsertOrUpsert(op, isUpsert) {
       const colSql = cols.map(quoteIdent).join(', ');
       let sql = `INSERT INTO ${quoteIdent(table)} (${colSql}) VALUES (${placeholders})`;
 
-      if (isUpsert) {
+      if (APPEND_ONLY.has(table)) {
+        // Immuabilité stricte : un event/audit déjà présent n'est JAMAIS écrasé
+        // (ni par insert ni par upsert) → idempotence du rejeu sans réécriture.
+        sql += ` ON CONFLICT(id) DO NOTHING`;
+      } else if (isUpsert) {
         const conflict = (op.onConflict || 'id').split(',').map((c) => c.trim());
         const updates = cols
           .filter((c) => !conflict.includes(c))
@@ -181,8 +204,13 @@ function doInsertOrUpsert(op, isUpsert) {
       }
       recordOutbox(table, rec.id, 'upsert');
     }
-  });
+  }
+  return inserted;
+}
 
+function doInsertOrUpsert(op, isUpsert) {
+  const inserted = [];
+  tx(() => insertOrUpsertCore(op, isUpsert, inserted));
   if (op.single) return { data: inserted[0] ?? null, error: null };
   return { data: op.returning ? inserted : null, error: null };
 }
@@ -195,7 +223,14 @@ function doUpdate(op) {
   if (!cols.length) return { data: null, error: { message: 'Aucune colonne à mettre à jour' } };
 
   const where = buildWhere(op.filters);
-  const setSql = cols.map((c) => `${quoteIdent(c)} = ?`).join(', ');
+  let setSql = cols.map((c) => `${quoteIdent(c)} = ?`).join(', ');
+  // Rend `version` réellement MONOTONE (revue P0 #4) : chaque modif locale
+  // incrémente le compteur, ce qui donne un départage LWW fiable même à
+  // horodatage égal (ou en cas d'horloge décalée). Non touché si le payload
+  // fixe déjà `version` explicitement.
+  if (SYNCED_TABLES.has(table) && tableColumns(table).has('version') && !cols.includes('version')) {
+    setSql += `, ${quoteIdent('version')} = COALESCE(${quoteIdent('version')}, 0) + 1`;
+  }
   const sql = `UPDATE ${quoteIdent(table)} SET ${setSql}${where.sql}`;
   db.prepare(sql).run(...cols.map((c) => rec[c]), ...where.params);
 
@@ -223,4 +258,34 @@ function doDelete(op) {
   db.prepare(`DELETE FROM ${quoteIdent(table)}${where.sql}`).run(...where.params);
   for (const id of deletedIds) recordOutbox(table, id, 'delete');
   return { data: null, error: null };
+}
+
+// --- Batch atomique (Unit of Work / transactional outbox) -------------
+// Applique une LISTE d'ops d'écriture dans UNE SEULE transaction : tout est
+// validé, ou rien (rollback). C'est ce qui permet au kernel d'écrire une donnée
+// métier ET l'event d'outbox `domain_events` de façon indissociable → un crash
+// (coupure secteur) ne peut plus laisser la donnée sans son event. Aucune op de
+// lecture ici. Toute erreur d'une op fait échouer et annuler tout le lot.
+export function runBatch(ops = [], ctx = null) {
+  if (!Array.isArray(ops) || !ops.length) return { data: { applied: 0 }, error: null };
+  try {
+    tx(() => {
+      for (const op of ops) {
+        if (!ALLOWED_TABLES.has(op.table)) throw new Error(`Table non autorisée : ${op.table}`);
+        guardAppendOnly(op, ctx);
+        let res;
+        switch (op.action) {
+          case 'insert': insertOrUpsertCore(op, false); break;
+          case 'upsert': insertOrUpsertCore(op, true); break;
+          case 'update': res = doUpdate(op); break;   // pas de tx interne
+          case 'delete': res = doDelete(op); break;    // pas de tx interne
+          default: throw new Error(`Action inconnue : ${op.action}`);
+        }
+        if (res?.error) throw new Error(res.error.message); // → rollback du lot
+      }
+    });
+    return { data: { applied: ops.length }, error: null };
+  } catch (e) {
+    return { data: null, error: { message: e.message } };
+  }
 }

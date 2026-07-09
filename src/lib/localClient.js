@@ -270,6 +270,10 @@ function makeClient(persist = true) {
   return {
     from: (table) => new QueryBuilder(table),
     rpc: (name, params) => apiJson(`/api/rpc/${name}`, { body: params || {} }),
+    // batch(ops) — commit ATOMIQUE d'une liste d'ops d'écriture (Unit of Work du
+    // kernel). Absent du client Cloud supabase-js : c'est ce qui active
+    // driver.commit côté LAN uniquement (cf. kernel/drivers/pgDriver.js).
+    batch: (ops) => apiJson('/api/db/batch', { body: { ops: ops || [] } }),
     auth: makeAuth(persist),
     storage: { from: storageFrom },
     channel: () => makeChannel(),

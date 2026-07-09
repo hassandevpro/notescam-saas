@@ -9,7 +9,10 @@ const DB_NAME = 'NotesCamDB';
 // Bump à 13 : moteurs FONDAMENTAL MINEDUB — maternelle (`mat_ref`, `mat_obs`) +
 //             primaire APC (`prim_ref`, `prim_notes`).
 // Bump à 14 : unités pédagogiques du complexe scolaire (`school_units`).
-const DB_VERSION = 14;
+// Bump à 15 : socle P0 — outbox d'events (`domain_events`), journal d'audit
+//             (`audit_events`) et domaine transverse `signalements`. Offline-first :
+//             les events/signalements créés hors-ligne survivent et se synchronisent.
+const DB_VERSION = 15;
 
 let _db = null;
 
@@ -201,6 +204,25 @@ export async function initDB() {
       if (!db.objectStoreNames.contains('school_units')) {
         const s = db.createObjectStore('school_units', { keyPath: 'id' });
         s.createIndex('by_school', 'school_id');
+      }
+
+      // --- v15 (socle P0) ---
+      // Outbox durable des Domain Events (append-only). Rejoué + synchronisé.
+      if (!db.objectStoreNames.contains('domain_events')) {
+        const s = db.createObjectStore('domain_events', { keyPath: 'id' });
+        s.createIndex('by_school', 'school_id');
+        s.createIndex('by_agg', ['aggregate_type', 'aggregate_id']);
+      }
+      // Journal d'audit dérivé des events (alimenté par l'abonné « * »).
+      if (!db.objectStoreNames.contains('audit_events')) {
+        const s = db.createObjectStore('audit_events', { keyPath: 'id' });
+        s.createIndex('by_school', 'school_id');
+      }
+      // Domaine transverse Signalement (PoC socle P0).
+      if (!db.objectStoreNames.contains('signalements')) {
+        const s = db.createObjectStore('signalements', { keyPath: 'id' });
+        s.createIndex('by_school', 'school_id');
+        s.createIndex('by_domain', 'domain');
       }
     };
 
@@ -476,4 +498,24 @@ export const documentLogDB = {
   // entry = { school_id, user_name, type, scope, count, status, detail }
   log: (entry) => idbAdd('document_log', { ...entry, at: entry.at || Date.now() }),
   delete: (id) => idbDelete('document_log', id),
+};
+
+// --- Socle P0 (offline-first) ---------------------------------------------
+// Ces stores respectent le contrat de driver du kernel ; ils permettent au
+// LocalDriver IndexedDB de faire tourner le même code métier hors-ligne.
+export const domainEventsDB = {
+  getAll: () => idbGetAll('domain_events'),
+  getBySchool: (schoolId) => idbGetByIndex('domain_events', 'by_school', schoolId),
+  append: (e) => idbPut('domain_events', e),   // append-only
+};
+export const auditEventsDB = {
+  getBySchool: (schoolId) => idbGetByIndex('audit_events', 'by_school', schoolId),
+  append: (e) => idbPut('audit_events', e),
+};
+export const signalementsDB = {
+  getAll: () => idbGetAll('signalements'),
+  get: (id) => idbGet('signalements', id),
+  getBySchool: (schoolId) => idbGetByIndex('signalements', 'by_school', schoolId),
+  put: (r) => idbPut('signalements', r),
+  delete: (id) => idbDelete('signalements', id),
 };

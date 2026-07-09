@@ -69,3 +69,6 @@ packaging/Output/
 _commitmsg.txt
 
 .vercel
+
+# Clones de référence externes (ERPNext / Frappe) — lecture seule, hors app
+/reference/

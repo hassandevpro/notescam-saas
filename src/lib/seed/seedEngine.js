@@ -16,21 +16,20 @@ function uidGen(rng) {
   };
 }
 
-export function generateSeed(scenarioKey = 'medium', { seed = 42, year = '2025-2026' } = {}) {
+// IMPORTANT : les données sont générées SOUS L'ÉCOLE COURANTE (`schoolId` fourni
+// par l'appelant). On ne crée PAS de nouvelle école : un school_id inconnu serait
+// rejeté par le scoping (RLS cloud / tenant LAN), et rien ne s'insérerait. Les
+// unités pédagogiques (Maternelle/Primaire/Collège/Lycée) matérialisent le complexe.
+export function generateSeed(scenarioKey = 'medium', { seed = 42, year = '2025-2026', schoolId } = {}) {
   const cfg = SCENARIOS[scenarioKey] || SCENARIOS.medium;
   const rng = makeRng(seed);
   const uid = uidGen(rng);
   const rec = {};
   const push = (t, row) => { (rec[t] || (rec[t] = [])).push(row); return row; };
   const nowIso = new Date().toISOString();
-  const dateISO = (d) => d.toISOString().slice(0, 10);
+  if (!schoolId) schoolId = uid(); // repli (tests) ; en prod l'appelant fournit l'école courante
 
-  // — Établissement (complexe) + unités —
-  const schoolId = uid();
-  push('schools', {
-    id: schoolId, name: `[DÉMO] Complexe scolaire ${scenarioKey}`, type: 'complexe',
-    current_year: year, currency: 'XAF', country_system: 'cameroon_fr',
-  });
+  // — Unités pédagogiques du complexe (école courante) —
   const units = UNITS.filter((u) => cfg.units.includes(u.key)).map((u) =>
     push('school_units', { id: uid(), school_id: schoolId, section_key: u.section_key, name: `[DÉMO] ${u.name}`, director: fullName(rng, 'F') }));
   const unitByKey = {};
@@ -158,7 +157,7 @@ export function generateSeed(scenarioKey = 'medium', { seed = 42, year = '2025-2
 
   // Ordre d'insertion (respect des dépendances FK).
   const order = [
-    'schools', 'school_units', 'teachers', 'staff', 'user_governance_roles',
+    'school_units', 'teachers', 'staff', 'user_governance_roles',
     'classes', 'subjects', 'students', 'grades', 'student_absences',
     'fee_catalog', 'student_fee_items', 'fee_payments',
     'budgets', 'budget_chapters', 'budget_expenses',

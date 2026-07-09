@@ -5,6 +5,7 @@
 import { useMemo, useState } from 'react';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
+import { useAuthStore } from '../store/authStore';
 import { SCENARIOS } from '../lib/seed/seedData';
 import { generateSeed } from '../lib/seed/seedEngine';
 import { writeSeed, deleteAllDemo, demoCount } from '../lib/seed/seedService';
@@ -13,6 +14,7 @@ const IS_DEV = (() => { try { return !!import.meta.env?.DEV; } catch { return fa
 
 export default function SeedData() {
   const t = useT();
+  const school = useAuthStore((s) => s.school);
   const [scenario, setScenario] = useState('medium');
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState([]);
@@ -31,12 +33,13 @@ export default function SeedData() {
 
   const create = async () => {
     if (busy) return;
+    if (!school?.id) { addLog('❌ ' + t('Aucune école courante.', 'No current school.', 'Sin escuela actual.')); return; }
     setBusy(true); setLog([]);
     try {
-      const dataset = generateSeed(scenario, { seed: Date.now() & 0xffff });
-      addLog(t('Génération…', 'Generating…', 'Generando…'));
-      await writeSeed(dataset, (table, ok, total) => addLog(`${table}: ${ok}/${total}`));
-      addLog('✅ ' + t('Données de démonstration créées.', 'Demo data created.', 'Datos de demostración creados.'));
+      const dataset = generateSeed(scenario, { seed: Date.now() & 0xffff, schoolId: school.id, year: school.current_year || '2025-2026' });
+      addLog(`${t('École', 'School', 'Escuela')} : ${school.name} · ${school.current_year || ''}`);
+      await writeSeed(dataset, (table, ok, total, errMsg) => addLog(`${ok === total ? '✅' : '⚠️'} ${table}: ${ok}/${total}${errMsg ? ` — ${errMsg}` : ''}`));
+      addLog('✅ ' + t('Terminé.', 'Done.', 'Listo.'));
     } catch (e) { addLog('❌ ' + (e?.message || String(e))); }
     setCount(demoCount()); setBusy(false);
   };

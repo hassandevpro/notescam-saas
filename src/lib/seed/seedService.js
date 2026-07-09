@@ -15,34 +15,39 @@ export function hasDemoData() { return loadReg().length > 0; }
 export function demoCount() { return loadReg().length; }
 
 // Insère un lot ; en cas d'échec (ex. localClient sans insert-tableau), repli
-// ligne à ligne pour n'ignorer que les lignes fautives.
-async function insertChunk(table, chunk, reg) {
-  let n = 0;
+// ligne à ligne pour n'ignorer que les lignes fautives. `err` collecte le 1er
+// message d'erreur rencontré (pour diagnostic).
+async function insertChunk(table, chunk, reg, err) {
   try {
     const { error } = await supabase.from(table).insert(chunk);
     if (!error) { for (const row of chunk) reg.push({ t: table, id: row.id }); return chunk.length; }
-  } catch { /* repli ci-dessous */ }
+    if (!err.msg) err.msg = error.message || String(error);
+  } catch (e) { if (!err.msg) err.msg = e?.message || String(e); }
+  // Repli ligne à ligne.
+  let n = 0;
   for (const row of chunk) {
     try {
       const { error } = await supabase.from(table).insert(row);
       if (!error) { reg.push({ t: table, id: row.id }); n++; }
-    } catch { /* ligne ignorée */ }
+      else if (!err.msg) err.msg = error.message || String(error);
+    } catch (e) { if (!err.msg) err.msg = e?.message || String(e); }
   }
   return n;
 }
 
-// Écrit un dataset généré (ordre FK respecté). onProgress(table, ok, total).
+// Écrit un dataset généré (ordre FK respecté). onProgress(table, ok, total, errMsg).
 export async function writeSeed({ records, order }, onProgress) {
   if (!isDev()) throw new Error('Seed Data est réservé au mode Développement.');
   const reg = loadReg();
   const results = {};
   for (const table of order) {
     const rows = records[table] || [];
+    const err = {};
     let ok = 0;
-    for (let i = 0; i < rows.length; i += 200) ok += await insertChunk(table, rows.slice(i, i + 200), reg);
+    for (let i = 0; i < rows.length; i += 200) ok += await insertChunk(table, rows.slice(i, i + 200), reg, err);
     results[table] = ok;
     saveReg(reg);              // persistance incrémentale (résiste à une interruption)
-    onProgress?.(table, ok, rows.length);
+    onProgress?.(table, ok, rows.length, ok < rows.length ? err.msg : null);
   }
   return results;
 }

@@ -16,7 +16,9 @@ for (const scenario of ['small', 'medium', 'large']) {
   for (const c of r.budget_chapters || []) (chaptersByBudget[c.budget_id] || (chaptersByBudget[c.budget_id] = new Set())).add(c.id);
 
   console.log(`\n— Scénario ${scenario} —`);
-  ok(demoSchoolIds.length === 1 && r.schools[0].name.startsWith('[DÉMO]'), 'école de démo préfixée [DÉMO]');
+  ok(!r.schools, 'aucune école créée (données sous l’école courante)');
+  ok((r.school_units || []).length >= 1 && r.school_units.every((u) => u.school_id === demoSchoolIds[0]), 'unités rattachées à l’école courante');
+  ok((r.students || []).every((s) => s.school_id === demoSchoolIds[0]), 'tous les enregistrements sous le même school_id');
 
   // Cohérence structurelle.
   ok((r.students || []).every((s) => classes.has(s.class_id)), 'chaque élève appartient à une classe existante');

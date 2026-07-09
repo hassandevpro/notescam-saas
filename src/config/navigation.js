@@ -116,6 +116,8 @@ export const NAV_GROUPS = [
         roles: ['admin', 'censeur'] },
       { to: '/app/budgets', icon: 'reports', label: ['Budgets', 'Budgets', 'Presupuestos'],
         roles: ['admin'] },
+      { to: '/app/budget-global', icon: 'reports', label: ['Budget global & prévisions', 'Global budget & forecast', 'Presupuesto global'],
+        roles: ['admin'] },
       { to: '/app/depenses', icon: 'fees', label: ['Dépenses', 'Expenses', 'Gastos'],
         roles: ['admin'] },
     ],

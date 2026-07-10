@@ -3,6 +3,7 @@ import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
 import { FEE_CATEGORIES, FEE_PAYMENT_TYPES } from '../../lib/feeCatalogEngine';
 import { FEE_CATEGORY_LABELS, PAYMENT_TYPE_LABELS } from './feeCatalogUi';
+import { SECTIONS } from '../../core/engineResolver';
 
 // Édition d'un article du catalogue de frais. Champs = spécification complète.
 export default function FeeCatalogItemModal({ item, classes = [], academicYear, onSave, onClose }) {
@@ -58,8 +59,13 @@ export default function FeeCatalogItemModal({ item, classes = [], academicYear, 
           <input className={fld} value={f.academic_year} onChange={(e) => set('academic_year', e.target.value)} placeholder="2025-2026" />
         </div>
         <div>
-          <label className={lbl}>{t('Niveau concerné', 'Level', 'Nivel')}</label>
-          <input className={fld} value={f.level} onChange={(e) => set('level', e.target.value)} placeholder={t('tous', 'all', 'todos')} />
+          <label className={lbl}>{t('Section concernée', 'Section', 'Sección')}</label>
+          <select className={fld} value={f.level} onChange={(e) => set('level', e.target.value)}>
+            <option value="">{t('— toutes les sections —', '— all sections —', '— todas —')}</option>
+            {SECTIONS.filter((s) => s.key !== 'autre').map((s) => (
+              <option key={s.key} value={s.key}>{t(s.fr, s.en, s.es)}</option>
+            ))}
+          </select>
         </div>
         <div className="col-span-2">
           <label className={lbl}>{t('Classe concernée', 'Class', 'Clase')}</label>

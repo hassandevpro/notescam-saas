@@ -18,6 +18,7 @@ import {
 import { FEE_CATEGORY_LABELS } from '../components/fees/feeCatalogUi';
 import FeeCatalogItemModal from '../components/fees/FeeCatalogItemModal';
 import { loadWithCache } from '../lib/offlineCache';
+import { classSectionKey } from '../core/engineResolver';
 import { uuid } from '../lib/uuid';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -52,9 +53,11 @@ export default function FeeCatalog() {
   }, [schoolId, year]);
   useEffect(() => { loadCatalog(); }, [loadCatalog]);
 
-  // Contexte d'un élève (année / niveau / classe) pour l'applicabilité des frais.
+  // Contexte d'un élève (année / SECTION / classe) pour l'applicabilité des frais.
+  // `level` porte la SECTION de la classe (maternelle/primaire/…) pour matcher le
+  // champ « Section concernée » du catalogue.
   const ctxFor = useCallback((stu) => ({
-    academicYear: year, level: classById[stu?.class_id]?.level || null, classId: stu?.class_id || null,
+    academicYear: year, level: classSectionKey(classById[stu?.class_id]), classId: stu?.class_id || null,
   }), [year, classById]);
 
   // Charge la liste d'un élève + ATTRIBUE AUTOMATIQUEMENT les frais obligatoires manquants.

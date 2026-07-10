@@ -8,8 +8,9 @@ import { useT } from '../lib/i18n';
 import { useMoney } from '../lib/useMoney';
 import { fetchGroupData } from '../lib/groupDashboardService';
 import {
-  elapsedFraction, globalBudget, forecast, feeForecast, topExpenseChapters,
+  globalBudget, forecast, feeForecast, topExpenseChapters, exercisePosition,
 } from '../lib/budgetAnalyticsEngine';
+import { budgetPeriodBounds, periodDatesLabel, DEFAULT_SCHOOL_YEAR_START_MONTH } from '../lib/budgetEngine';
 import { SECTOR_LABELS } from '../components/budgets/budgetUi';
 import { Donut, RadialGauge, Legend, ProgressBar } from '../components/charts/Charts';
 
@@ -54,7 +55,10 @@ export default function BudgetGlobal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId, year]);
 
-  const f = useMemo(() => elapsedFraction(year), [year]);
+  const startMonth = school?.school_year_start_month || DEFAULT_SCHOOL_YEAR_START_MONTH;
+  const bounds = useMemo(() => budgetPeriodBounds({ academic_year: year, period_type: 'annuel' }, startMonth), [year, startMonth]);
+  const pos = useMemo(() => exercisePosition(bounds, new Date()), [bounds]);
+  const f = pos.fraction;
   const g = useMemo(() => data ? globalBudget(data.budgets, data.chapters, data.expenses) : null, [data]);
   const fc = useMemo(() => g ? forecast(g, f) : null, [g, f]);
   const ff = useMemo(() => feeForecast(fees, f), [fees, f]);
@@ -79,7 +83,14 @@ export default function BudgetGlobal() {
       <div className="max-w-6xl mx-auto">
         <div className="mb-5">
           <h1 className="text-2xl font-bold text-gray-900">{t('Budget global', 'Global budget', 'Presupuesto global')}</h1>
-          <p className="text-sm text-gray-500 mt-1">{school?.name || ''} · {year || '—'} · <span className="text-indigo-600 font-semibold">{fc.elapsed}% {t('de l’année écoulée', 'of year elapsed', 'del año')}</span></p>
+          <p className="text-sm text-gray-500 mt-1">
+            {school?.name || ''} · {periodDatesLabel({ academic_year: year, period_type: 'annuel' }, startMonth) || year || '—'} ·{' '}
+            {pos.state === 'before'
+              ? <span className="text-amber-600 font-semibold">{t('Exercice à venir', 'Upcoming exercise', 'Ejercicio por comenzar')}</span>
+              : pos.state === 'ended'
+                ? <span className="text-rose-600 font-semibold">{t('Exercice terminé — en attente de clôture', 'Exercise ended — awaiting closure', 'Ejercicio terminado — pendiente de cierre')}</span>
+                : <span className="text-indigo-600 font-semibold">{fc.elapsed}% {t('de l’année écoulée', 'of year elapsed', 'del año')}</span>}
+          </p>
           {offline && (
             <span className="inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
               📡 {t('Hors-ligne — dernières données connues', 'Offline — last known data', 'Sin conexión — últimos datos')}
@@ -93,6 +104,20 @@ export default function BudgetGlobal() {
           <Tile grad="from-indigo-500 to-violet-600" label={t('Dépenses prévues', 'Planned expenses', 'Gastos')} value={money(g.depensesPrevues)} />
           <Tile grad="from-amber-500 to-orange-600" label={t('Engagé', 'Committed', 'Comprometido')} value={money(g.engage)} />
           <Tile grad={g.solde < 0 ? 'from-rose-500 to-red-600' : 'from-sky-500 to-blue-600'} label={t('Solde prévisionnel', 'Forecast balance', 'Saldo')} value={money(g.solde)} />
+        </div>
+
+        {/* Trésorerie : distinguer l'ENGAGÉ (validé, va sortir) du PAYÉ (déjà décaissé). */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-5">
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <Mini label={t('Engagé (validé)', 'Committed (approved)', 'Comprometido (validado)')} value={money(g.engage)} tone="text-amber-600" />
+            <Mini label={t('Payé (décaissé)', 'Paid (disbursed)', 'Pagado (desembolsado)')} value={money(g.paid)} tone="text-emerald-700" />
+            <Mini label={t('À payer', 'To pay', 'Por pagar')} value={money(g.aPayer)} tone="text-gray-800" />
+          </div>
+          <p className="text-[10px] text-gray-400 text-center mt-2">
+            {t('« Engagé » inclut les dépenses validées non encore payées ; « À payer » = engagé − payé.',
+               '“Committed” includes approved expenses not yet paid; “To pay” = committed − paid.',
+               '«Comprometido» incluye gastos validados aún no pagados; «Por pagar» = comprometido − pagado.')}
+          </p>
         </div>
 
         {/* Hero : jauge d'exécution + donut secteurs + prévision */}

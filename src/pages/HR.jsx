@@ -13,13 +13,18 @@ import {
 } from '../lib/hrEngine';
 import { HR_TABS, HR_TAB_BY_KEY, OPTION_LABELS } from '../components/hr/hrEntities';
 import HrRecordModal from '../components/hr/HrRecordModal';
+import { useConfirm } from '../components/ConfirmDialog';
+import { toast } from '../store/toastStore';
+import { printStaffFile, printWorkCertificate } from '../lib/hrDoc';
 
 const EMPTY = { contracts: [], leaves: [], evaluations: [], attendance: [], career: [] };
 
 export default function HR() {
   const t = useT();
   const money = useMoney();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const staff = useSchoolStore((s) => s.staff);
+  const storeLoading = useSchoolStore((s) => s.loading);
   const school = useAuthStore((s) => s.school);
   const role = useAuthStore((s) => s.role);
   const schoolId = school?.id;
@@ -35,7 +40,8 @@ export default function HR() {
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
     const rows = [...staff].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-    return q ? rows.filter((s) => String(s.name || '').toLowerCase().includes(q)) : rows;
+    // Recherche élargie : nom, fonction, département.
+    return q ? rows.filter((s) => [s.name, s.fonction, s.department].some((v) => String(v || '').toLowerCase().includes(q))) : rows;
   }, [staff, query]);
 
   useEffect(() => { if (!staffId && list.length) setStaffId(list[0].id); }, [list, staffId]);
@@ -68,16 +74,25 @@ export default function HR() {
   const tab = HR_TAB_BY_KEY[tabKey];
   const rows = data[tabKey] || [];
 
+  const failToast = () => toast.error(t('Échec de l’opération — vérifiez votre connexion.', 'Operation failed — check your connection.', 'Error — verifique su conexión.'));
+
   const saveRecord = async (rec) => {
     const saved = await HR_ENTITIES[tabKey].upsert({
       ...rec, school_id: schoolId, staff_id: staffId,
     });
     setModal(null);
-    if (saved) await load(staffId);
+    if (saved) { await load(staffId); toast.success(t('Enregistré', 'Saved', 'Guardado')); }
+    else failToast();
   };
   const removeRecord = async (rec) => {
-    if (!window.confirm(t('Supprimer cet enregistrement ?', 'Delete this record?', '¿Eliminar este registro?'))) return;
-    if (await HR_ENTITIES[tabKey].remove(rec.id)) await load(staffId);
+    if (!(await confirm({
+      tone: 'danger',
+      title: t('Supprimer l’enregistrement', 'Delete record', 'Eliminar registro'),
+      message: t('Supprimer cet enregistrement ?', 'Delete this record?', '¿Eliminar este registro?'),
+      confirmLabel: t('Supprimer', 'Delete', 'Eliminar'),
+    }))) return;
+    if (await HR_ENTITIES[tabKey].remove(rec.id)) { await load(staffId); toast.success(t('Enregistrement supprimé', 'Record deleted', 'Registro eliminado')); }
+    else failToast();
   };
 
   const cell = (f, r) => {
@@ -85,6 +100,20 @@ export default function HR() {
     if (v == null || v === '') return '—';
     if (OPTION_LABELS[v]) return t(...OPTION_LABELS[v]);
     return String(v);
+  };
+
+  // ── Impression (Phase C) ──
+  const popupError = () => toast.error(t('Autorisez les pop-ups pour imprimer.', 'Allow pop-ups to print.', 'Permita las ventanas emergentes para imprimir.'));
+  const optionLabel = (v) => (OPTION_LABELS[v] ? t(...OPTION_LABELS[v]) : (v || ''));
+  const printFile = () => {
+    if (!selected) return;
+    const ok = printStaffFile({ school, t, money, staff: selected, summary, data, optionLabel });
+    if (!ok) popupError();
+  };
+  const printCertificate = () => {
+    if (!selected) return;
+    const ok = printWorkCertificate({ school, t, staff: selected, contract: summary.contract, optionLabel });
+    if (!ok) popupError();
   };
 
   return (
@@ -101,7 +130,7 @@ export default function HR() {
           {/* Liste du personnel */}
           <div className="lg:col-span-1">
             <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-2"
-              placeholder={t('Rechercher…', 'Search…', 'Buscar…')} value={query} onChange={(e) => setQuery(e.target.value)} />
+              placeholder={t('Rechercher (nom, fonction, département)…', 'Search (name, role, dept.)…', 'Buscar (nombre, función, dpto.)…')} value={query} onChange={(e) => setQuery(e.target.value)} />
             <div className="space-y-1 max-h-[70vh] overflow-y-auto">
               {list.map((s) => (
                 <button key={s.id} onClick={() => setStaffId(s.id)}
@@ -111,7 +140,15 @@ export default function HR() {
                   <div className="text-xs text-gray-400">{s.fonction || s.department || ''}</div>
                 </button>
               ))}
-              {list.length === 0 && <p className="text-xs text-gray-400 py-4 text-center">{t('Aucun personnel.', 'No staff.', 'Sin personal.')}</p>}
+              {list.length === 0 && (
+                <p className="text-xs text-gray-400 py-4 text-center">
+                  {storeLoading && staff.length === 0
+                    ? t('Chargement…', 'Loading…', 'Cargando…')
+                    : query.trim()
+                      ? t('Aucun résultat.', 'No match.', 'Sin resultados.')
+                      : t('Aucun personnel.', 'No staff.', 'Sin personal.')}
+                </p>
+              )}
             </div>
           </div>
 
@@ -125,14 +162,18 @@ export default function HR() {
               <>
                 {/* Synthèse */}
                 <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div>
                       <h2 className="font-bold text-gray-900">{selected.name}</h2>
                       <p className="text-xs text-gray-500">{selected.fonction || ''}{selected.department ? ` · ${selected.department}` : ''}</p>
                     </div>
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${summary.active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {summary.active ? t('Contrat actif', 'Active contract', 'Contrato activo') : t('Sans contrat actif', 'No active contract', 'Sin contrato activo')}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={printFile} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">🖨 {t('Fiche', 'Sheet', 'Ficha')}</button>
+                      <button onClick={printCertificate} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">🖨 {t('Attestation', 'Certificate', 'Certificado')}</button>
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${summary.active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {summary.active ? t('Contrat actif', 'Active contract', 'Contrato activo') : t('Sans contrat actif', 'No active contract', 'Sin contrato activo')}
+                      </span>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-center">
                     <Stat label={t('Contrat', 'Contract', 'Contrato')} value={summary.contract ? (OPTION_LABELS[summary.contract.type] ? t(...OPTION_LABELS[summary.contract.type]) : summary.contract.type) : '—'} />
@@ -166,6 +207,7 @@ export default function HR() {
                   {rows.length === 0 ? (
                     <p className="text-sm text-gray-400 py-8 text-center">{t('Aucun enregistrement.', 'No record.', 'Sin registros.')}</p>
                   ) : (
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 text-gray-500 text-xs">
                         <tr>
@@ -196,6 +238,7 @@ export default function HR() {
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   )}
                 </div>
               </>
@@ -207,6 +250,7 @@ export default function HR() {
       {modal && selected && (
         <HrRecordModal tab={tab} record={modal.record} onSave={saveRecord} onClose={() => setModal(null)} />
       )}
+      {confirmDialog}
     </Layout>
   );
 }

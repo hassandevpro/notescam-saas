@@ -382,6 +382,7 @@ export default function Settings() {
         phone:        school.phone        || '',
         email:        school.email        || '',
         current_year: school.current_year || '',
+        school_year_start_month: school.school_year_start_month || 9,
         currency:     school.currency     || 'XAF',
         establishment_no: school.establishment_no || '',
         grade_entry_mode: school.grade_entry_mode === 'subject' ? 'subject' : 'principal',
@@ -671,6 +672,17 @@ export default function Settings() {
                 <div>
                   <label className="form-label">{t('Année scolaire', 'Academic year')}</label>
                   <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t('Ex : 2025-2026', 'E.g. 2025-2026')} value={form.current_year} onChange={set('current_year')} />
+                </div>
+                <div>
+                  <label className="form-label">{t('Début d’année scolaire', 'School year start', 'Inicio del año escolar')}</label>
+                  <select disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500"
+                    value={form.school_year_start_month || 9}
+                    onChange={(e) => setForm((f) => ({ ...f, school_year_start_month: Number(e.target.value) }))}>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={m}>{m} — {new Date(2000, m - 1, 1).toLocaleDateString(undefined, { month: 'long' })}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">{t('Base des prévisions budgétaires (temps écoulé, fin d’année). Défaut : septembre.', 'Basis for budget forecasts (time elapsed, year-end). Default: September.', 'Base de las previsiones presupuestarias. Predeterminado: septiembre.')}</p>
                 </div>
                 <div>
                   <label className="form-label">{t('Devise', 'Currency', 'Moneda')}</label>

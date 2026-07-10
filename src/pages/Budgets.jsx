@@ -15,10 +15,12 @@ import {
 } from '../lib/budgetService';
 import {
   buildBudgetTree, computeBudgetTotals, chapterRollup,
-  canTransition, isBudgetLocked,
+  canTransition, isBudgetLocked, periodDatesLabel, DEFAULT_SCHOOL_YEAR_START_MONTH,
 } from '../lib/budgetEngine';
 import BudgetFormModal from '../components/budgets/BudgetFormModal';
 import ChapterFormModal from '../components/budgets/ChapterFormModal';
+import { useConfirm } from '../components/ConfirmDialog';
+import { toast } from '../store/toastStore';
 import { STATUS_UI, SECTOR_LABELS, periodLabel } from '../components/budgets/budgetUi';
 import { loadWithCache } from '../lib/offlineCache';
 
@@ -34,15 +36,18 @@ function StatusBadge({ status, t }) {
 export default function Budgets() {
   const t = useT();
   const money = useMoney();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const school = useAuthStore((s) => s.school);
   const role = useAuthStore((s) => s.role);
   const fullName = useAuthStore((s) => s.fullName);
   const schoolId = school?.id;
   const activeYear = school?.current_year || '';
+  const startMonth = school?.school_year_start_month || DEFAULT_SCHOOL_YEAR_START_MONTH;
   const canManage = role === 'admin';
 
   const [budgets, setBudgets]   = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+  const [sectorFilter, setSectorFilter] = useState('all');
   const [chapters, setChapters] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [budgetModal, setBudgetModal]   = useState(null); // { budget } | { budget: null }
@@ -50,6 +55,17 @@ export default function Budgets() {
 
   const selected = budgets.find((b) => b.id === selectedId) || null;
   const locked = isBudgetLocked(selected);
+
+  // Secteurs réellement présents → filtre « par section » (n'apparaît que s'il y
+  // a de quoi filtrer). Le détail reste affiché même si le budget est masqué.
+  const sectorsPresent = useMemo(
+    () => [...new Set(budgets.map((b) => b.sector).filter(Boolean))],
+    [budgets],
+  );
+  const visibleBudgets = useMemo(
+    () => (sectorFilter === 'all' ? budgets : budgets.filter((b) => b.sector === sectorFilter)),
+    [budgets, sectorFilter],
+  );
 
   // — Chargement des budgets de l'année active —
   const loadBudgets = useCallback(async () => {
@@ -77,10 +93,13 @@ export default function Budgets() {
   const { amountOf } = useMemo(() => chapterRollup(chapters), [chapters]);
 
   // — Actions budget —
+  const failToast = () => toast.error(t('Échec de l’opération — vérifiez votre connexion.', 'Operation failed — check your connection.', 'Error — verifique su conexión.'));
+
   const saveBudget = async (data) => {
     const saved = await upsertBudget({ ...data, school_id: schoolId });
     setBudgetModal(null);
-    if (saved) { await loadBudgets(); setSelectedId(saved.id); }
+    if (saved) { await loadBudgets(); setSelectedId(saved.id); toast.success(t('Budget enregistré', 'Budget saved', 'Presupuesto guardado')); }
+    else failToast();
   };
 
   const changeStatus = async (budget, to) => {
@@ -89,15 +108,22 @@ export default function Budgets() {
     if (to === 'closed') { patch.closed_at = new Date().toISOString(); patch.closed_by = fullName || ''; }
     if (to === 'active') { patch.closed_at = null; patch.closed_by = null; }
     const saved = await upsertBudget(patch);
-    if (saved) await loadBudgets();
+    if (saved) { await loadBudgets(); toast.success(t('Statut mis à jour', 'Status updated', 'Estado actualizado')); }
+    else failToast();
   };
 
   const removeBudget = async (budget) => {
-    if (!window.confirm(t('Supprimer ce budget et tous ses chapitres ?', 'Delete this budget and all its chapters?', '¿Eliminar este presupuesto y todos sus capítulos?'))) return;
+    if (!(await confirm({
+      tone: 'danger',
+      title: t('Supprimer le budget', 'Delete budget', 'Eliminar presupuesto'),
+      message: t('Supprimer ce budget et tous ses chapitres ?', 'Delete this budget and all its chapters?', '¿Eliminar este presupuesto y todos sus capítulos?'),
+      confirmLabel: t('Supprimer', 'Delete', 'Eliminar'),
+    }))) return;
     if (await deleteBudget(budget.id)) {
       setSelectedId(null);
       await loadBudgets();
-    }
+      toast.success(t('Budget supprimé', 'Budget deleted', 'Presupuesto eliminado'));
+    } else failToast();
   };
 
   // — Actions chapitre —
@@ -105,17 +131,29 @@ export default function Budgets() {
     const position = data.position ?? chapters.filter((c) => (c.parent_id || null) === (data.parent_id || null)).length;
     const saved = await upsertBudgetChapter({ ...data, position, school_id: schoolId, budget_id: selectedId });
     setChapterModal(null);
-    if (saved) await loadChapters(selectedId);
+    if (saved) { await loadChapters(selectedId); toast.success(t('Élément enregistré', 'Item saved', 'Elemento guardado')); }
+    else failToast();
   };
 
   const removeChapter = async (chapter) => {
-    if (!window.confirm(t('Supprimer cet élément (et tout ce qu’il contient) ?', 'Delete this item (and everything under it)?', '¿Eliminar este elemento y su contenido?'))) return;
-    if (await deleteBudgetChapter(chapter.id)) await loadChapters(selectedId);
+    if (!(await confirm({
+      tone: 'danger',
+      title: t('Supprimer l’élément', 'Delete item', 'Eliminar elemento'),
+      message: t('Supprimer cet élément (et tout ce qu’il contient) ?', 'Delete this item (and everything under it)?', '¿Eliminar este elemento y su contenido?'),
+      confirmLabel: t('Supprimer', 'Delete', 'Eliminar'),
+    }))) return;
+    if (await deleteBudgetChapter(chapter.id)) { await loadChapters(selectedId); toast.success(t('Élément supprimé', 'Item deleted', 'Elemento eliminado')); }
+    else failToast();
   };
 
   const genDefault = async () => {
-    if (!window.confirm(t('Générer la structure budgétaire par défaut (5 catégories) ?', 'Generate the default budget structure (5 categories)?', '¿Generar la estructura por defecto?'))) return;
-    if (await applyDefaultStructure(schoolId, selectedId)) await loadChapters(selectedId);
+    if (!(await confirm({
+      title: t('Structure par défaut', 'Default structure', 'Estructura por defecto'),
+      message: t('Générer la structure budgétaire par défaut (5 catégories) ?', 'Generate the default budget structure (5 categories)?', '¿Generar la estructura por defecto?'),
+      confirmLabel: t('Générer', 'Generate', 'Generar'),
+    }))) return;
+    if (await applyDefaultStructure(schoolId, selectedId)) { await loadChapters(selectedId); toast.success(t('Structure générée', 'Structure generated', 'Estructura generada')); }
+    else failToast();
   };
 
   const recettes = tree.filter((c) => c.kind === 'recette');
@@ -153,7 +191,24 @@ export default function Budgets() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             {/* Liste des budgets */}
             <div className="space-y-2">
-              {budgets.map((b) => {
+              {sectorsPresent.length > 1 && (
+                <select
+                  value={sectorFilter}
+                  onChange={(e) => setSectorFilter(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-1 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                >
+                  <option value="all">{t('Tous les secteurs', 'All sectors', 'Todos los sectores')}</option>
+                  {sectorsPresent.map((s) => (
+                    <option key={s} value={s}>{t(...(SECTOR_LABELS[s] || [s]))}</option>
+                  ))}
+                </select>
+              )}
+              {visibleBudgets.length === 0 && (
+                <p className="text-xs text-gray-400 py-6 text-center">
+                  {t('Aucun budget pour ce secteur.', 'No budget for this sector.', 'Sin presupuesto para este sector.')}
+                </p>
+              )}
+              {visibleBudgets.map((b) => {
                 const active = b.id === selectedId;
                 return (
                   <button key={b.id} onClick={() => setSelectedId(b.id)}
@@ -185,6 +240,7 @@ export default function Budgets() {
                       <p className="text-xs text-gray-500 mt-0.5">
                         {periodLabel(t, selected)} · {t(...(SECTOR_LABELS[selected.sector] || [selected.sector]))}
                       </p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">📅 {periodDatesLabel(selected, startMonth)}</p>
                       {selected.notes && <p className="text-xs text-gray-400 mt-1">{selected.notes}</p>}
                     </div>
                     {canManage && (
@@ -276,6 +332,7 @@ export default function Budgets() {
       {budgetModal && (
         <BudgetFormModal
           budget={budgetModal.budget} academicYear={activeYear}
+          startMonth={startMonth} budgets={budgets}
           onSave={saveBudget} onClose={() => setBudgetModal(null)}
         />
       )}
@@ -288,6 +345,7 @@ export default function Budgets() {
           onSave={saveChapter} onClose={() => setChapterModal(null)}
         />
       )}
+      {confirmDialog}
     </Layout>
   );
 }
@@ -348,7 +406,7 @@ function BudgetNode({ node, depth, amountOf, money, canManage, t, onAddSub, onEd
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-sm tabular-nums text-gray-700">{money(amountOf(node))}</span>
           {canManage && (
-            <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+            <span className="opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1">
               {canAddChild && (
                 <button className="text-[11px] text-indigo-500 hover:text-indigo-700"
                   title={t(...LEVEL_ADD_LABEL[depth])} onClick={() => onAddSub(node)}>＋</button>

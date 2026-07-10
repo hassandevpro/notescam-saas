@@ -10,12 +10,16 @@ import { fetchAssets, upsertAsset, deleteAsset, ASSET_ENTITIES } from '../lib/as
 import { assetSummary, fleetStats, ASSET_CATEGORIES } from '../lib/assetEngine';
 import { ASSET_FORM, ASSET_TABS, ASSET_TAB_BY_KEY, CATEGORY_LABELS, STATUS_LABELS, OPTION_LABELS } from '../components/assets/assetEntities';
 import HrRecordModal from '../components/hr/HrRecordModal';
+import { useConfirm } from '../components/ConfirmDialog';
+import { toast } from '../store/toastStore';
+import { printAssetSheet, printAssetRegister } from '../lib/assetDoc';
 
 const EMPTY = { breakdowns: [], repairs: [], expenses: [] };
 
 export default function Assets() {
   const t = useT();
   const money = useMoney();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const school = useAuthStore((s) => s.school);
   const role = useAuthStore((s) => s.role);
   const schoolId = school?.id;
@@ -57,23 +61,53 @@ export default function Assets() {
   const tab = ASSET_TAB_BY_KEY[tabKey];
   const rows = journals[tabKey] || [];
 
+  const failToast = () => toast.error(t('Échec de l’opération — vérifiez votre connexion.', 'Operation failed — check your connection.', 'Error — verifique su conexión.'));
+
   const saveAsset = async (rec) => {
     const saved = await upsertAsset({ ...rec, school_id: schoolId });
     setAssetModal(null);
-    if (saved) { await loadAssets(); setSelectedId(saved.id); }
+    if (saved) { await loadAssets(); setSelectedId(saved.id); toast.success(t('Immobilisation enregistrée', 'Asset saved', 'Activo guardado')); }
+    else failToast();
   };
   const removeAsset = async () => {
-    if (!window.confirm(t('Supprimer cette immobilisation et ses journaux ?', 'Delete this asset and its logs?', '¿Eliminar este activo y sus registros?'))) return;
-    if (await deleteAsset(selected.id)) { setSelectedId(null); await loadAssets(); }
+    if (!(await confirm({
+      tone: 'danger',
+      title: t('Supprimer l’immobilisation', 'Delete asset', 'Eliminar activo'),
+      message: t('Supprimer cette immobilisation et ses journaux ?', 'Delete this asset and its logs?', '¿Eliminar este activo y sus registros?'),
+      confirmLabel: t('Supprimer', 'Delete', 'Eliminar'),
+    }))) return;
+    if (await deleteAsset(selected.id)) { setSelectedId(null); await loadAssets(); toast.success(t('Immobilisation supprimée', 'Asset deleted', 'Activo eliminado')); }
+    else failToast();
   };
   const saveRecord = async (rec) => {
     const saved = await ASSET_ENTITIES[tabKey].upsert({ ...rec, school_id: schoolId, asset_id: selectedId });
     setRecordModal(null);
-    if (saved) await loadJournals(selectedId);
+    if (saved) { await loadJournals(selectedId); toast.success(t('Enregistré', 'Saved', 'Guardado')); }
+    else failToast();
   };
   const removeRecord = async (rec) => {
-    if (!window.confirm(t('Supprimer cet enregistrement ?', 'Delete this record?', '¿Eliminar este registro?'))) return;
-    if (await ASSET_ENTITIES[tabKey].remove(rec.id)) await loadJournals(selectedId);
+    if (!(await confirm({
+      tone: 'danger',
+      title: t('Supprimer l’enregistrement', 'Delete record', 'Eliminar registro'),
+      message: t('Supprimer cet enregistrement ?', 'Delete this record?', '¿Eliminar este registro?'),
+      confirmLabel: t('Supprimer', 'Delete', 'Eliminar'),
+    }))) return;
+    if (await ASSET_ENTITIES[tabKey].remove(rec.id)) { await loadJournals(selectedId); toast.success(t('Enregistrement supprimé', 'Record deleted', 'Registro eliminado')); }
+    else failToast();
+  };
+
+  // ── Impression (Phase C) ──
+  const popupError = () => toast.error(t('Autorisez les pop-ups pour imprimer.', 'Allow pop-ups to print.', 'Permita las ventanas emergentes para imprimir.'));
+  const catLabel = (c) => t(...(CATEGORY_LABELS[c] || [c]));
+  const statLabel = (s) => t(...(STATUS_LABELS[s] || [s]));
+  const printSheet = () => {
+    if (!selected || !summary) return;
+    const ok = printAssetSheet({ school, t, money, asset: selected, summary, journals, categoryLabel: catLabel, statusLabel: statLabel });
+    if (!ok) popupError();
+  };
+  const printRegister = () => {
+    const ok = printAssetRegister({ school, t, money, assets, categoryLabel: catLabel, statusLabel: statLabel });
+    if (!ok) popupError();
   };
 
   const cell = (f, r) => {
@@ -98,6 +132,10 @@ export default function Assets() {
               <option value="all">{t('Toutes catégories', 'All categories', 'Todas')}</option>
               {ASSET_CATEGORIES.map((c) => <option key={c} value={c}>{t(...CATEGORY_LABELS[c])}</option>)}
             </select>
+            {assets.length > 0 && (
+              <button className="px-3 py-1.5 text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+                onClick={printRegister}>🖨 {t('Registre', 'Register', 'Registro')}</button>
+            )}
             {canManage && (
               <button className="px-3 py-1.5 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
                 onClick={() => setAssetModal({ record: null })}>+ {t('Immobilisation', 'Asset', 'Activo')}</button>
@@ -137,12 +175,15 @@ export default function Assets() {
                         {selected.location ? ` · ${selected.location}` : ''}
                       </p>
                     </div>
-                    {canManage && (
-                      <div className="flex gap-2">
-                        <button onClick={() => setAssetModal({ record: selected })} className="text-xs text-gray-500 hover:text-gray-800">{t('Modifier', 'Edit', 'Editar')}</button>
-                        <button onClick={removeAsset} className="text-xs text-rose-500 hover:text-rose-700">{t('Supprimer', 'Delete', 'Eliminar')}</button>
-                      </div>
-                    )}
+                    <div className="flex gap-2 items-center">
+                      <button onClick={printSheet} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">🖨 {t('Fiche', 'Sheet', 'Ficha')}</button>
+                      {canManage && (
+                        <>
+                          <button onClick={() => setAssetModal({ record: selected })} className="text-xs text-gray-500 hover:text-gray-800">{t('Modifier', 'Edit', 'Editar')}</button>
+                          <button onClick={removeAsset} className="text-xs text-rose-500 hover:text-rose-700">{t('Supprimer', 'Delete', 'Eliminar')}</button>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-center">
@@ -173,6 +214,7 @@ export default function Assets() {
                     {rows.length === 0 ? (
                       <p className="text-sm text-gray-400 py-8 text-center">{t('Aucun enregistrement.', 'No record.', 'Sin registros.')}</p>
                     ) : (
+                      <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-gray-50 text-gray-500 text-xs">
                           <tr>
@@ -196,6 +238,7 @@ export default function Assets() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -207,6 +250,7 @@ export default function Assets() {
 
       {assetModal && <HrRecordModal tab={ASSET_FORM} record={assetModal.record} onSave={saveAsset} onClose={() => setAssetModal(null)} />}
       {recordModal && selected && <HrRecordModal tab={tab} record={recordModal.record} onSave={saveRecord} onClose={() => setRecordModal(null)} />}
+      {confirmDialog}
     </Layout>
   );
 }

@@ -269,6 +269,8 @@ CREATE TABLE IF NOT EXISTS budgets (
   academic_year  TEXT NOT NULL,
   period_type    TEXT NOT NULL DEFAULT 'annuel',   -- annuel|trimestriel|mensuel
   period_ref     INTEGER,                          -- trimestre 1..3 / mois 1..12 ; NULL en annuel
+  start_date     TEXT,                             -- date réelle de début d'exercice (Phase D)
+  end_date       TEXT,                             -- date réelle de fin d'exercice (inclusive)
   sector         TEXT NOT NULL DEFAULT 'general',
   label          TEXT NOT NULL,
   status         TEXT NOT NULL DEFAULT 'draft',    -- draft|active|closed
@@ -311,10 +313,13 @@ CREATE TABLE IF NOT EXISTS budget_expenses (
   amount            INTEGER NOT NULL DEFAULT 0,
   requester         TEXT,
   receipt           TEXT,
-  status            TEXT NOT NULL DEFAULT 'draft',  -- draft|submitted|approved|paid|rejected
+  status            TEXT NOT NULL DEFAULT 'draft',  -- draft|submitted|approved|paid|rejected|cancelled
   expense_date      TEXT,
   notes             TEXT,
   created_by        TEXT,
+  cancel_reason     TEXT,                            -- annulation tracée : motif (obligatoire côté UI)
+  cancelled_by      TEXT,                            -- auteur de l'annulation
+  cancelled_at      TEXT,                            -- date de l'annulation
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -182,6 +182,18 @@ for (const t of SYNCED_TABLES) {
   ensureColumn(t, 'device_id',  'device_id TEXT');                    // origine du changement (anti-écho + départage)
 }
 
+// Module Dépenses — annulation TRACÉE (statut terminal `cancelled`). Conservée en
+// base ; jamais supprimée. Motif obligatoire côté UI + auteur + date.
+ensureColumn('budget_expenses', 'cancel_reason', 'cancel_reason TEXT');
+ensureColumn('budget_expenses', 'cancelled_by',  'cancelled_by TEXT');
+ensureColumn('budget_expenses', 'cancelled_at',  'cancelled_at TEXT');
+
+// Module Budgets — dates réelles d'exercice (Phase D) + mois de début d'année
+// scolaire configurable par établissement (défaut septembre).
+ensureColumn('budgets', 'start_date', 'start_date TEXT');
+ensureColumn('budgets', 'end_date',   'end_date TEXT');
+ensureColumn('schools', 'school_year_start_month', 'school_year_start_month INTEGER');
+
 // Identifiant STABLE de cette installation (origine des changements locaux).
 let _deviceId = null;
 export function deviceId() {

@@ -2,7 +2,7 @@
 // statistiques avancées. Aucune I/O → testable. RÉUTILISE les moteurs budget
 // et dépenses (pas de recalcul en double).
 import { computeBudgetTotals, chapterRollup } from './budgetEngine.js';
-import { totalSpent, spentByChapter } from './expenseEngine.js';
+import { totalSpent, totalPaid, spentByChapter } from './expenseEngine.js';
 
 const groupBy = (arr, key) => {
   const m = new Map();
@@ -10,45 +10,65 @@ const groupBy = (arr, key) => {
   return m;
 };
 
-// Fraction ÉCOULÉE de l'année scolaire (sept → août). `year` = 'YYYY-YYYY'.
-export function elapsedFraction(year, today = new Date()) {
+// Fraction ÉCOULÉE de l'année scolaire. `year` = 'YYYY-YYYY'. `startMonth` = mois de
+// début d'exercice (1..12, défaut septembre) — configurable par établissement
+// (schools.school_year_start_month) au lieu d'être codé en dur (Phase D).
+export function elapsedFraction(year, today = new Date(), startMonth = 9) {
   const startY = parseInt(String(year).slice(0, 4), 10);
   if (!startY) return 0;
-  const start = new Date(startY, 8, 1);          // 1er septembre (début exercice)
-  const end = new Date(startY + 1, 8, 1);        // 1er septembre suivant (fin, exclusif) → 12 mois pleins
+  const sm = Math.min(12, Math.max(1, Number(startMonth) || 9));
+  const start = new Date(startY, sm - 1, 1);
+  const end = new Date(startY + 1, sm - 1, 1);   // 12 mois pleins
   const t = today instanceof Date ? today : new Date(today);
   const f = (t - start) / (end - start);
   return Math.max(0, Math.min(1, f));
+}
+
+// Position dans un exercice à partir de ses BORNES RÉELLES { start, end } (Date).
+// Renvoie la fraction bornée [0..1], la fraction brute (peut dépasser), et un ÉTAT
+// explicite : 'before' (pas commencé) | 'running' (en cours) | 'ended' (terminé,
+// en attente de clôture) — pour éviter d'afficher un « 112 % » aberrant.
+export function exercisePosition(bounds, today = new Date()) {
+  if (!bounds || !bounds.start || !bounds.end) return { fraction: 0, raw: 0, state: 'unknown' };
+  const t = today instanceof Date ? today : new Date(today);
+  const span = bounds.end - bounds.start;
+  const raw = span > 0 ? (t - bounds.start) / span : 0;
+  const state = t < bounds.start ? 'before' : (t >= bounds.end ? 'ended' : 'running');
+  return { fraction: Math.max(0, Math.min(1, raw)), raw, state };
 }
 
 // Budget GLOBAL consolidé (tous budgets confondus) + ventilations.
 export function globalBudget(budgets = [], chapters = [], expenses = []) {
   const chByBudget = groupBy(chapters, 'budget_id');
   const exByBudget = groupBy(expenses, 'budget_id');
-  let recettes = 0, depensesPrevues = 0, engage = 0;
+  // `engage` = validé + payé (pilotage) ; `paid` = décaissé réel (trésorerie).
+  // Les deux sont exposés pour distinguer ce qui est engagé de ce qui est sorti de caisse.
+  let recettes = 0, depensesPrevues = 0, engage = 0, paid = 0;
   const byBudget = [], sectorMap = {};
   for (const b of budgets) {
     const ch = chByBudget.get(b.id) || [];
     const ex = exByBudget.get(b.id) || [];
     const tot = computeBudgetTotals(ch);           // UN SEUL passage sur les chapitres
     const engageB = totalSpent(ex);                 // engagé du budget (statuts « committing »)
+    const paidB = totalPaid(ex);                    // décaissé réel (statut `paid` uniquement)
     const depassement = engageB > tot.depenses;
-    recettes += tot.recettes; depensesPrevues += tot.depenses; engage += engageB;
+    recettes += tot.recettes; depensesPrevues += tot.depenses; engage += engageB; paid += paidB;
     byBudget.push({
       id: b.id, label: b.label, sector: b.sector, status: b.status,
-      recettes: tot.recettes, depensesPrevues: tot.depenses, engage: engageB,
+      recettes: tot.recettes, depensesPrevues: tot.depenses, engage: engageB, paid: paidB,
       reste: tot.depenses - engageB, rate: tot.depenses > 0 ? Math.round((engageB / tot.depenses) * 100) : 0,
       depassement,
     });
     const secKey = b.sector || 'general';
-    const s = sectorMap[secKey] || (sectorMap[secKey] = { sector: secKey, depensesPrevues: 0, engage: 0 });
-    s.depensesPrevues += tot.depenses; s.engage += engageB;
+    const s = sectorMap[secKey] || (sectorMap[secKey] = { sector: secKey, depensesPrevues: 0, engage: 0, paid: 0 });
+    s.depensesPrevues += tot.depenses; s.engage += engageB; s.paid += paidB;
   }
   const bySector = Object.values(sectorMap)
     .map((s) => ({ ...s, reste: s.depensesPrevues - s.engage, rate: s.depensesPrevues > 0 ? Math.round((s.engage / s.depensesPrevues) * 100) : 0 }))
     .sort((a, b) => b.depensesPrevues - a.depensesPrevues);
   return {
-    recettes, depensesPrevues, engage,
+    recettes, depensesPrevues, engage, paid,
+    aPayer: Math.max(0, engage - paid),            // validé mais pas encore décaissé
     reste: depensesPrevues - engage,
     solde: recettes - depensesPrevues,
     executionRate: depensesPrevues > 0 ? Math.round((engage / depensesPrevues) * 100) : 0,

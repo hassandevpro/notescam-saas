@@ -35,6 +35,10 @@ export async function upsertBudget(row) {
     sector: row.sector || 'general',
     label: row.label,
     status: row.status || 'draft',
+    // Dates réelles d'exercice (Phase D) — nullables : les budgets sans dates
+    // dérivent leurs bornes à la lecture (budgetEngine.budgetPeriodBounds).
+    start_date: nn(row.start_date),
+    end_date: nn(row.end_date),
     notes: nn(row.notes),
     closed_at: nn(row.closed_at),
     closed_by: nn(row.closed_by),

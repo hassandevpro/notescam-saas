@@ -8,23 +8,44 @@
 import { computeBudgetTotals, chapterRollup, childrenIndex } from './budgetEngine.js';
 
 // ── Statuts & cycle de vie ────────────────────────────────────────────────────
-export const EXPENSE_STATUSES = ['draft', 'submitted', 'approved', 'paid', 'rejected'];
+// `cancelled` = annulation TRACÉE (motif + auteur + date), conservée en base et
+// visible dans l'historique — remplace la suppression physique pour une dépense
+// qui a déjà pu compter dans le budget. Terminal, verrouillé, et EXCLU des
+// agrégats (comme `rejected`, il n'est pas « committing »).
+export const EXPENSE_STATUSES = ['draft', 'submitted', 'approved', 'paid', 'rejected', 'cancelled'];
 
-// Statuts qui ENGAGENT le budget (comptent dans le « consommé »). Un brouillon ou
-// une dépense rejetée ne consomment rien.
+// Statuts qui ENGAGENT le budget (comptent dans le « consommé »). Un brouillon,
+// une dépense rejetée ou ANNULÉE ne consomment rien.
 export const COMMITTING_STATUSES = ['submitted', 'approved', 'paid'];
 export function isCommitting(status) { return COMMITTING_STATUSES.includes(status); }
 
-// Transitions autorisées du circuit de la dépense.
+// Transitions autorisées du circuit de la dépense. Une dépense non terminale peut
+// être ANNULÉE (→ cancelled) ; l'annulation passe par la modale de motif, pas par
+// un bouton de statut ordinaire (cf. Expenses.jsx).
 const TRANSITIONS = {
-  draft:     ['submitted'],
-  submitted: ['approved', 'rejected', 'draft'], // approbation / rejet / retrait
-  approved:  ['paid', 'rejected'],
+  draft:     ['submitted', 'cancelled'],
+  submitted: ['approved', 'rejected', 'draft', 'cancelled'], // approbation / rejet / retrait / annulation
+  approved:  ['paid', 'rejected', 'cancelled'],
   rejected:  ['draft'],                          // reprise
-  paid:      [],                                 // terminal
+  paid:      [],                                 // terminal (décaissé)
+  cancelled: [],                                 // terminal (annulé, conservé pour l'historique)
 };
 export function canTransition(from, to) { return (TRANSITIONS[from] || []).includes(to); }
-export function isExpenseLocked(expense) { return expense?.status === 'paid'; }
+
+// Verrouillée (lecture seule) : décaissée (paid) OU annulée (cancelled). Dans les
+// deux cas la ligne est conservée en base — jamais supprimée.
+export function isExpenseLocked(expense) {
+  return expense?.status === 'paid' || expense?.status === 'cancelled';
+}
+
+// Peut être annulée (statut cancelled, avec motif) : tout ce qui n'est pas terminal.
+export function isCancellable(status) { return canTransition(status, 'cancelled'); }
+
+// Suppression PHYSIQUE (SQL) tolérée UNIQUEMENT pour un brouillon : un `draft`
+// n'engage rien et n'a donc aucun impact budgétaire ni comptable (cas d'une saisie
+// créée par erreur, jamais soumise). Tout autre statut passe par l'annulation
+// tracée afin de laisser une trace auditable dans les rapports de clôture.
+export function canHardDelete(status) { return status === 'draft'; }
 
 // ── Consommation & reste ──────────────────────────────────────────────────────
 
@@ -39,11 +60,28 @@ export function spentByChapter(expenses = [], { onlyCommitting = true } = {}) {
   return map;
 }
 
-// Total engagé sur un budget (toutes lignes « committing »).
+// Total engagé sur un budget (toutes lignes « committing » = submitted+approved+paid).
 export function totalSpent(expenses = [], opts) {
   let s = 0;
   for (const [, v] of spentByChapter(expenses, opts)) s += v;
   return s;
+}
+
+// Total réellement DÉCAISSÉ (statut `paid` uniquement) — notion de TRÉSORERIE, à
+// distinguer de l'engagé (qui inclut le validé pas encore payé : submitted+approved).
+export function totalPaid(expenses = []) {
+  return expenses.reduce((s, e) => s + (e.status === 'paid' ? (Number(e.amount) || 0) : 0), 0);
+}
+
+// Décaissé (paid) par chapitre — pendant « trésorerie » de spentByChapter (engagé).
+export function paidByChapter(expenses = []) {
+  const map = new Map();
+  for (const e of expenses) {
+    if (e.status !== 'paid') continue;
+    const key = e.budget_chapter_id || null;
+    map.set(key, (map.get(key) || 0) + (Number(e.amount) || 0));
+  }
+  return map;
 }
 
 // Reste consolidé d'un chapitre : planifié (sous-arbre) − engagé (sous-arbre).
@@ -89,20 +127,22 @@ const LEVELS = ['category', 'chapter', 'subchapter'];
 export function hierarchyRollup(chapters = [], expenses = []) {
   const { amountOf } = chapterRollup(chapters);         // planifié consolidé (feuilles)
   const spent = spentByChapter(expenses);               // engagé par feuille
+  const paid = paidByChapter(expenses);                 // décaissé par feuille
   const { byParent } = childrenIndex(chapters);
   const sortFn = (a, b) => ((a.position || 0) - (b.position || 0)) || String(a.label || '').localeCompare(String(b.label || ''));
-  const spentSubtree = (c) => {
+  const sumSubtree = (c, m) => {
     const kids = byParent.get(c.id);
-    const own = spent.get(c.id) || 0;
-    return (kids && kids.length) ? own + kids.reduce((s, k) => s + spentSubtree(k), 0) : own;
+    const own = m.get(c.id) || 0;
+    return (kids && kids.length) ? own + kids.reduce((s, k) => s + sumSubtree(k, m), 0) : own;
   };
   const build = (node, depth) => {
     const planned = amountOf(node);
-    const engage = spentSubtree(node);
+    const engage = sumSubtree(node, spent);
+    const paidN = sumSubtree(node, paid);
     return {
       id: node.id, label: node.label, kind: node.kind,
       level: node.level || LEVELS[Math.min(depth, 2)],
-      planned, engage, reste: planned - engage,
+      planned, engage, paid: paidN, reste: planned - engage,
       taux: planned > 0 ? Math.round((engage / planned) * 100) : 0,
       depassement: engage > planned,
       children: (byParent.get(node.id) || []).slice().sort(sortFn).map((k) => build(k, depth + 1)),

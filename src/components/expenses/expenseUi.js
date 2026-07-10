@@ -5,6 +5,7 @@ export const EXPENSE_STATUS_UI = {
   approved:  { label: ['Approuvée', 'Approved', 'Aprobada'], color: 'bg-blue-100 text-blue-700' },
   paid:      { label: ['Payée', 'Paid', 'Pagada'],           color: 'bg-emerald-100 text-emerald-700' },
   rejected:  { label: ['Rejetée', 'Rejected', 'Rechazada'],  color: 'bg-rose-100 text-rose-600' },
+  cancelled: { label: ['Annulée', 'Cancelled', 'Anulada'],   color: 'bg-slate-200 text-slate-600' },
 };
 
 // Statuts d'une demande de déblocage.

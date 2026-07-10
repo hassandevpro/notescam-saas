@@ -2,7 +2,8 @@
 //   node src/lib/_expenseEngine.test.mjs
 import {
   EXPENSE_STATUSES, COMMITTING_STATUSES, isCommitting, canTransition, isExpenseLocked,
-  spentByChapter, totalSpent, chapterRemaining, budgetConsumption, resolveBudgetId,
+  isCancellable, canHardDelete,
+  spentByChapter, totalSpent, totalPaid, chapterRemaining, budgetConsumption, resolveBudgetId,
   UNLOCK_STATUSES, authorizedAllowanceByChapter, chapterAvailability, isChapterExhausted, wouldExceed,
 } from './expenseEngine.js';
 
@@ -10,14 +11,22 @@ let failed = false;
 const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed = true; };
 
 // --- Statuts & transitions ---------------------------------------------------
-ok(EXPENSE_STATUSES.length === 5, '5 statuts de dépense');
+ok(EXPENSE_STATUSES.length === 6, '6 statuts de dépense (dont annulée)');
 ok(isCommitting('approved') && isCommitting('paid') && isCommitting('submitted'), 'submitted/approved/paid engagent le budget');
 ok(!isCommitting('draft') && !isCommitting('rejected'), 'draft/rejected n’engagent rien');
+ok(!isCommitting('cancelled'), 'annulée n’engage rien (exclue des agrégats comme rejected)');
 ok(canTransition('draft', 'submitted'), 'draft -> submitted');
 ok(canTransition('submitted', 'approved') && canTransition('approved', 'paid'), 'circuit d’approbation');
 ok(canTransition('submitted', 'rejected') && canTransition('rejected', 'draft'), 'rejet puis reprise');
 ok(!canTransition('paid', 'draft'), 'payé = terminal');
 ok(isExpenseLocked({ status: 'paid' }) && !isExpenseLocked({ status: 'approved' }), 'payé = verrouillé');
+
+// --- Annulation tracée (cancelled) ------------------------------------------
+ok(canTransition('submitted', 'cancelled') && canTransition('approved', 'cancelled'), 'soumise/approuvée annulables');
+ok(!canTransition('cancelled', 'draft') && !canTransition('cancelled', 'paid'), 'annulée = terminal');
+ok(isExpenseLocked({ status: 'cancelled' }), 'annulée = verrouillée (conservée)');
+ok(isCancellable('submitted') && isCancellable('approved') && !isCancellable('paid'), 'annulable sauf payée/terminal');
+ok(canHardDelete('draft') && !canHardDelete('approved') && !canHardDelete('paid'), 'suppression physique = brouillon uniquement');
 
 // --- Rattachement automatique au budget -------------------------------------
 ok(resolveBudgetId({ budget_id: 'b1' }) === 'b1', 'budget_id dérivé du chapitre');
@@ -35,6 +44,7 @@ ok(resolveBudgetId({ budget_id: 'b1' }) === 'b1', 'budget_id dérivé du chapitr
   ok(m.get('c1') === 150000, 'engagé chapitre c1 = 100k + 50k (brouillon exclu)');
   ok(m.get('c2') === 20000, 'engagé chapitre c2 = 20k (rejet exclu)');
   ok(totalSpent(expenses) === 170000, 'total engagé = 170k');
+  ok(totalPaid(expenses) === 100000, 'total payé (décaissé) = 100k (paid uniquement)');
 }
 
 // --- Reste consolidé d'un chapitre (parent + sous-chapitres) -----------------

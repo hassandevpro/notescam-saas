@@ -152,6 +152,100 @@ export function computeBudgetTotals(chapters = []) {
   return { recettes, depenses, solde: recettes - depenses };
 }
 
+// ── Dates d'exercice (Phase D) ────────────────────────────────────────────────
+// Mois de début d'année scolaire par défaut (septembre) — surchargé par
+// schools.school_year_start_month. Base multi-pays.
+export const DEFAULT_SCHOOL_YEAR_START_MONTH = 9;
+
+function clampMonth(m) { return Math.min(12, Math.max(1, Number(m) || DEFAULT_SCHOOL_YEAR_START_MONTH)); }
+function addMonths(d, n) { return new Date(d.getFullYear(), d.getMonth() + n, d.getDate()); }
+
+// Année de DÉBUT dérivée de l'étiquette « 2025-2026 » -> 2025.
+export function academicStartYear(academicYear) {
+  const y = parseInt(String(academicYear || '').slice(0, 4), 10);
+  return Number.isFinite(y) ? y : null;
+}
+
+// Bornes effectives d'un budget. Priorité aux DATES EXPLICITES (start_date/end_date) ;
+// sinon DÉRIVÉES de academic_year + period_type + period_ref + mois de début d'année
+// scolaire (zéro régression pour les budgets créés avant la Phase D).
+// Renvoie { start (inclusif), end (EXCLUSIF), endInclusive, source } — ou null.
+export function budgetPeriodBounds(budget, startMonth = DEFAULT_SCHOOL_YEAR_START_MONTH) {
+  const sm = clampMonth(startMonth);
+  if (budget?.start_date && budget?.end_date) {
+    const start = new Date(budget.start_date);
+    const endInc = new Date(budget.end_date);
+    if (!isNaN(start.getTime()) && !isNaN(endInc.getTime())) {
+      const end = new Date(endInc.getFullYear(), endInc.getMonth(), endInc.getDate() + 1); // exclusif
+      return { start, end, endInclusive: endInc, source: 'explicit' };
+    }
+  }
+  const y = academicStartYear(budget?.academic_year);
+  if (y == null) return null;
+  const yearStart = new Date(y, sm - 1, 1);
+  const type = budget?.period_type || 'annuel';
+  const ref = Number(budget?.period_ref) || 1;
+  let start, end;
+  if (type === 'trimestriel') {          // 3 trimestres de 4 mois dans l'exercice
+    start = addMonths(yearStart, (Math.min(3, Math.max(1, ref)) - 1) * 4);
+    end = addMonths(start, 4);
+  } else if (type === 'mensuel') {
+    start = addMonths(yearStart, Math.min(12, Math.max(1, ref)) - 1);
+    end = addMonths(start, 1);
+  } else {                                // annuel : 12 mois pleins
+    start = yearStart;
+    end = addMonths(yearStart, 12);
+  }
+  const endInclusive = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
+  return { start, end, endInclusive, source: 'derived' };
+}
+
+// Libellé de plage de dates : « 01/09/2026 – 31/08/2027 » (pour l'UI et l'impression).
+export function periodDatesLabel(budget, startMonth = DEFAULT_SCHOOL_YEAR_START_MONTH) {
+  const bd = budgetPeriodBounds(budget, startMonth);
+  if (!bd) return '';
+  const f = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return `${f(bd.start)} – ${f(bd.endInclusive)}`;
+}
+
+// Durée d'un budget en jours (pour départager en cas de chevauchement).
+function spanDays(budget, sm) {
+  const bd = budgetPeriodBounds(budget, sm);
+  return bd ? Math.round((bd.end - bd.start) / 86400000) : Infinity;
+}
+
+// Budget « en cours » à une date donnée (selon ses bornes). Préfère un budget de
+// statut `active`, puis la période la PLUS COURTE (la plus spécifique).
+export function getActiveBudget(budgets = [], date = new Date(), startMonth = DEFAULT_SCHOOL_YEAR_START_MONTH) {
+  const t = date instanceof Date ? date : new Date(date);
+  const inRange = budgets.filter((b) => {
+    const bd = budgetPeriodBounds(b, startMonth);
+    return bd && t >= bd.start && t < bd.end;
+  });
+  inRange.sort((a, b) => {
+    const sa = a.status === 'active' ? 0 : 1, sb = b.status === 'active' ? 0 : 1;
+    return (sa - sb) || (spanDays(a, startMonth) - spanDays(b, startMonth));
+  });
+  return inRange[0] || null;
+}
+
+// Deux budgets se chevauchent-ils dans le temps ? (bornes qui s'intersectent)
+export function budgetsOverlap(a, b, startMonth = DEFAULT_SCHOOL_YEAR_START_MONTH) {
+  const ba = budgetPeriodBounds(a, startMonth), bb = budgetPeriodBounds(b, startMonth);
+  if (!ba || !bb) return false;
+  return ba.start < bb.end && bb.start < ba.end;
+}
+
+// Premier budget EXISTANT (même secteur) chevauchant `candidate` — avertissement à
+// la création (pas de blocage : un budget « Investissement » peut légitimement
+// chevaucher l'exercice annuel, d'où le filtre par secteur).
+export function findOverlappingBudget(candidate, budgets = [], startMonth = DEFAULT_SCHOOL_YEAR_START_MONTH) {
+  return budgets.find((b) =>
+    b.id !== candidate.id &&
+    (b.sector || 'general') === (candidate.sector || 'general') &&
+    budgetsOverlap(candidate, b, startMonth)) || null;
+}
+
 // ── Machine à états (statut) ──────────────────────────────────────────────────
 
 // Transitions autorisées de cette tranche (sans workflow de validation).

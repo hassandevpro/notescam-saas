@@ -29,6 +29,8 @@ const expenses = [
 ];
 const g = globalBudget(budgets, chapters, expenses);
 ok(g.depensesPrevues === 10000000 && g.engage === 4000000 && g.reste === 6000000, 'global : prévu/engagé/reste');
+ok(g.paid === 3000000 && g.aPayer === 1000000, 'global : payé (décaissé) = 3M, à payer = engagé − payé = 1M');
+ok(g.bySector.find((s) => s.sector === 'primaire').paid === 3000000, 'payé ventilé par secteur');
 ok(g.recettes === 8000000 && g.solde === -2000000, 'global : recettes + solde prévisionnel');
 ok(g.executionRate === 40, 'taux d’exécution global = 40%');
 ok(g.bySector[0].sector === 'primaire' && g.bySector[0].depensesPrevues === 6000000, 'ventilation par secteur triée');

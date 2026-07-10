@@ -31,6 +31,10 @@ export async function upsertExpense(row) {
     expense_date: nn(row.expense_date),
     notes: nn(row.notes),
     created_by: nn(row.created_by),
+    // Annulation tracée (statut `cancelled`) — conservée, jamais supprimée.
+    cancel_reason: nn(row.cancel_reason),
+    cancelled_by: nn(row.cancelled_by),
+    cancelled_at: nn(row.cancelled_at),
     updated_at: new Date().toISOString(),
     version: (row.version || 0) + 1,
   };

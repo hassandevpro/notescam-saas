@@ -11,10 +11,10 @@ import { useT } from '../lib/i18n';
 import { useMoney } from '../lib/useMoney';
 import {
   fetchBudgets, upsertBudget, deleteBudget,
-  fetchBudgetChapters, upsertBudgetChapter, deleteBudgetChapter,
+  fetchBudgetChapters, upsertBudgetChapter, deleteBudgetChapter, applyDefaultStructure,
 } from '../lib/budgetService';
 import {
-  buildChapterTree, computeBudgetTotals, chapterRollup,
+  buildBudgetTree, computeBudgetTotals, chapterRollup,
   canTransition, isBudgetLocked,
 } from '../lib/budgetEngine';
 import BudgetFormModal from '../components/budgets/BudgetFormModal';
@@ -73,7 +73,7 @@ export default function Budgets() {
   useEffect(() => { loadChapters(selectedId); }, [selectedId, loadChapters]);
 
   const totals = useMemo(() => computeBudgetTotals(chapters), [chapters]);
-  const tree = useMemo(() => buildChapterTree(chapters), [chapters]);
+  const tree = useMemo(() => buildBudgetTree(chapters), [chapters]);
   const { amountOf } = useMemo(() => chapterRollup(chapters), [chapters]);
 
   // — Actions budget —
@@ -109,8 +109,13 @@ export default function Budgets() {
   };
 
   const removeChapter = async (chapter) => {
-    if (!window.confirm(t('Supprimer ce chapitre (et ses sous-chapitres) ?', 'Delete this chapter (and its sub-chapters)?', '¿Eliminar este capítulo (y sus subcapítulos)?'))) return;
+    if (!window.confirm(t('Supprimer cet élément (et tout ce qu’il contient) ?', 'Delete this item (and everything under it)?', '¿Eliminar este elemento y su contenido?'))) return;
     if (await deleteBudgetChapter(chapter.id)) await loadChapters(selectedId);
+  };
+
+  const genDefault = async () => {
+    if (!window.confirm(t('Générer la structure budgétaire par défaut (5 catégories) ?', 'Generate the default budget structure (5 categories)?', '¿Generar la estructura por defecto?'))) return;
+    if (await applyDefaultStructure(schoolId, selectedId)) await loadChapters(selectedId);
   };
 
   const recettes = tree.filter((c) => c.kind === 'recette');
@@ -222,7 +227,17 @@ export default function Budgets() {
                     </div>
                   )}
 
-                  {/* Colonnes Recettes / Dépenses */}
+                  {/* Structure par défaut (budget encore vide) */}
+                  {canManage && !locked && chapters.length === 0 && (
+                    <div className="mb-3 flex items-center justify-between gap-2 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+                      <span className="text-xs text-indigo-700">{t('Budget vide — partez d’une structure standard (Fonctionnement, Maintenance, Pédagogie, Vie scolaire, Investissements).', 'Empty budget — start from a standard structure.', 'Presupuesto vacío — parta de una estructura estándar.')}</span>
+                      <button onClick={genDefault} className="text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg shrink-0">
+                        {t('Générer la structure par défaut', 'Generate default structure', 'Generar estructura por defecto')}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Arbre Catégorie → Chapitre → Sous-chapitre (Recettes / Dépenses) */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <ChapterColumn
                       title={t('Recettes prévues', 'Planned revenue', 'Ingresos previstos')}
@@ -286,7 +301,12 @@ function Total({ label, value, tone }) {
   );
 }
 
-// Colonne d'une nature (recettes ou dépenses) : chapitres racines + sous-chapitres.
+// Colonne d'une nature (recettes ou dépenses) : arbre Catégorie → Chapitre →
+// Sous-chapitre (récursif, N niveaux).
+const LEVEL_ADD_LABEL = [
+  ['Chapitre', 'Chapter', 'Capítulo'],
+  ['Sous-chapitre', 'Sub-chapter', 'Subcapítulo'],
+];
 function ChapterColumn({ title, tone, tree, amountOf, money, canManage, t, onAdd, onAddSub, onEdit, onRemove }) {
   const border = tone === 'emerald' ? 'border-emerald-200' : 'border-rose-200';
   const head = tone === 'emerald' ? 'text-emerald-700' : 'text-rose-600';
@@ -296,29 +316,17 @@ function ChapterColumn({ title, tone, tree, amountOf, money, canManage, t, onAdd
         <h3 className={`text-xs font-bold uppercase tracking-wide ${head}`}>{title}</h3>
         {canManage && (
           <button className="text-xs font-semibold text-indigo-600 hover:text-indigo-800" onClick={onAdd}>
-            + {t('Chapitre', 'Chapter', 'Capítulo')}
+            + {t('Catégorie', 'Category', 'Categoría')}
           </button>
         )}
       </div>
       {tree.length === 0 ? (
-        <p className="text-xs text-gray-400 py-3 text-center">{t('Aucun chapitre.', 'No chapter.', 'Sin capítulos.')}</p>
+        <p className="text-xs text-gray-400 py-3 text-center">{t('Aucune catégorie.', 'No category.', 'Sin categorías.')}</p>
       ) : (
         <ul className="space-y-1.5">
-          {tree.map((c) => (
-            <li key={c.id}>
-              <ChapterRow chapter={c} amount={amountOf(c)} money={money} canManage={canManage} t={t}
-                isParent onEdit={onEdit} onRemove={onRemove} onAddSub={onAddSub} />
-              {c.children.length > 0 && (
-                <ul className="ml-4 mt-1 space-y-1 border-l border-gray-100 pl-2">
-                  {c.children.map((sc) => (
-                    <li key={sc.id}>
-                      <ChapterRow chapter={sc} amount={amountOf(sc)} money={money} canManage={canManage} t={t}
-                        onEdit={onEdit} onRemove={onRemove} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
+          {tree.map((node) => (
+            <BudgetNode key={node.id} node={node} depth={0} amountOf={amountOf} money={money}
+              canManage={canManage} t={t} onAddSub={onAddSub} onEdit={onEdit} onRemove={onRemove} />
           ))}
         </ul>
       )}
@@ -326,26 +334,39 @@ function ChapterColumn({ title, tone, tree, amountOf, money, canManage, t, onAdd
   );
 }
 
-function ChapterRow({ chapter, amount, money, canManage, t, isParent, onEdit, onRemove, onAddSub }) {
+// Nœud récursif : catégorie (depth 0), chapitre (depth 1), sous-chapitre (depth 2).
+function BudgetNode({ node, depth, amountOf, money, canManage, t, onAddSub, onEdit, onRemove }) {
+  const hasKids = node.children && node.children.length > 0;
+  const canAddChild = depth < 2; // pas d'ajout au-delà du sous-chapitre
   return (
-    <div className="flex items-center justify-between gap-2 group">
-      <span className={`text-sm truncate ${isParent ? 'font-semibold text-gray-800' : 'text-gray-600'}`}>
-        {chapter.code ? <span className="text-gray-400 mr-1">{chapter.code}</span> : null}
-        {chapter.label}
-      </span>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className="text-sm tabular-nums text-gray-700">{money(amount)}</span>
-        {canManage && (
-          <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-            {isParent && (
-              <button className="text-[11px] text-indigo-500 hover:text-indigo-700" title={t('Sous-chapitre', 'Sub-chapter', 'Subcapítulo')}
-                onClick={() => onAddSub(chapter)}>＋</button>
-            )}
-            <button className="text-[11px] text-gray-400 hover:text-gray-700" onClick={() => onEdit(chapter)}>✎</button>
-            <button className="text-[11px] text-rose-400 hover:text-rose-600" onClick={() => onRemove(chapter)}>✕</button>
-          </span>
-        )}
+    <li>
+      <div className="flex items-center justify-between gap-2 group">
+        <span className={`text-sm truncate ${depth === 0 ? 'font-bold text-gray-900' : depth === 1 ? 'font-semibold text-gray-800' : 'text-gray-600'}`}>
+          {node.code ? <span className="text-gray-400 mr-1">{node.code}</span> : null}
+          {node.label}
+        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-sm tabular-nums text-gray-700">{money(amountOf(node))}</span>
+          {canManage && (
+            <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+              {canAddChild && (
+                <button className="text-[11px] text-indigo-500 hover:text-indigo-700"
+                  title={t(...LEVEL_ADD_LABEL[depth])} onClick={() => onAddSub(node)}>＋</button>
+              )}
+              <button className="text-[11px] text-gray-400 hover:text-gray-700" onClick={() => onEdit(node)}>✎</button>
+              <button className="text-[11px] text-rose-400 hover:text-rose-600" onClick={() => onRemove(node)}>✕</button>
+            </span>
+          )}
+        </div>
       </div>
-    </div>
+      {hasKids && (
+        <ul className="ml-4 mt-1 space-y-1 border-l border-gray-100 pl-2">
+          {node.children.map((c) => (
+            <BudgetNode key={c.id} node={c} depth={depth + 1} amountOf={amountOf} money={money}
+              canManage={canManage} t={t} onAddSub={onAddSub} onEdit={onEdit} onRemove={onRemove} />
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }

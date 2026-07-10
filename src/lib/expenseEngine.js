@@ -5,7 +5,7 @@
 // (planifié − engagé), donc toujours juste, jamais désynchronisé.
 //
 // Réutilise le moteur Budgets (computeBudgetTotals) pour le planifié.
-import { computeBudgetTotals, chapterRollup } from './budgetEngine.js';
+import { computeBudgetTotals, chapterRollup, childrenIndex } from './budgetEngine.js';
 
 // ── Statuts & cycle de vie ────────────────────────────────────────────────────
 export const EXPENSE_STATUSES = ['draft', 'submitted', 'approved', 'paid', 'rejected'];
@@ -79,6 +79,45 @@ export function budgetConsumption(chapters = [], expenses = []) {
 // ── Rattachement automatique à un budget ──────────────────────────────────────
 // Dérive le budget_id d'une dépense depuis le chapitre choisi (source de vérité).
 export function resolveBudgetId(chapter) { return chapter?.budget_id || null; }
+
+// ── Analyse HIÉRARCHIQUE : budget alloué / engagé / reste / % par nœud ─────────
+// Arbre Catégorie → Chapitre → Sous-chapitre avec, pour CHAQUE nœud : alloué
+// (planifié consolidé des feuilles), engagé (dépenses « committing » du sous-arbre),
+// reste et taux d'exécution. Base des tableaux de bord par catégorie/chapitre/
+// sous-chapitre.
+const LEVELS = ['category', 'chapter', 'subchapter'];
+export function hierarchyRollup(chapters = [], expenses = []) {
+  const { amountOf } = chapterRollup(chapters);         // planifié consolidé (feuilles)
+  const spent = spentByChapter(expenses);               // engagé par feuille
+  const { byParent } = childrenIndex(chapters);
+  const sortFn = (a, b) => ((a.position || 0) - (b.position || 0)) || String(a.label || '').localeCompare(String(b.label || ''));
+  const spentSubtree = (c) => {
+    const kids = byParent.get(c.id);
+    const own = spent.get(c.id) || 0;
+    return (kids && kids.length) ? own + kids.reduce((s, k) => s + spentSubtree(k), 0) : own;
+  };
+  const build = (node, depth) => {
+    const planned = amountOf(node);
+    const engage = spentSubtree(node);
+    return {
+      id: node.id, label: node.label, kind: node.kind,
+      level: node.level || LEVELS[Math.min(depth, 2)],
+      planned, engage, reste: planned - engage,
+      taux: planned > 0 ? Math.round((engage / planned) * 100) : 0,
+      depassement: engage > planned,
+      children: (byParent.get(node.id) || []).slice().sort(sortFn).map((k) => build(k, depth + 1)),
+    };
+  };
+  return (byParent.get('__root__') || []).slice().sort(sortFn).map((n) => build(n, 0));
+}
+
+// Aplatit l'arbre par niveau (pour un tableau « par catégorie / chapitre / sous-chapitre »).
+export function flattenByLevel(tree = []) {
+  const out = { category: [], chapter: [], subchapter: [] };
+  const walk = (nodes) => { for (const n of nodes) { (out[n.level] || out.subchapter).push(n); walk(n.children || []); } };
+  walk(tree);
+  return out;
+}
 
 // ── Déblocage d'une ligne épuisée ─────────────────────────────────────────────
 // Une demande de déblocage suit : pending -> refused | authorized | increased.

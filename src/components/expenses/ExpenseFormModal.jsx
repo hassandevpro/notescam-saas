@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
 import { useMoney } from '../../lib/useMoney';
-import { buildChapterTree } from '../../lib/budgetEngine';
+import { buildBudgetTree } from '../../lib/budgetEngine';
 import { chapterAvailability } from '../../lib/expenseEngine';
 
 // Saisie / modification d'une dépense. Toujours rattachée au budget courant
@@ -27,9 +27,21 @@ export default function ExpenseFormModal({
   const [notes, setNotes]         = useState(expense?.notes || '');
   const [saving, setSaving]       = useState(false);
 
-  // Uniquement les chapitres de DÉPENSE (une dépense ne s'impute pas sur une recette).
-  const depenseChapters = chapters.filter((c) => c.kind === 'depense');
-  const tree = buildChapterTree(depenseChapters);
+  // Une dépense s'impute OBLIGATOIREMENT sur une FEUILLE (sous-chapitre) de la
+  // hiérarchie des dépenses. On liste les feuilles avec leur chemin complet.
+  const leafOptions = useMemo(() => {
+    const depenseChapters = chapters.filter((c) => c.kind === 'depense');
+    const out = [];
+    const walk = (nodes, path) => {
+      for (const n of nodes) {
+        const p = [...path, n.label];
+        if (!n.children || !n.children.length) out.push({ id: n.id, path: p.join(' › ') });
+        else walk(n.children, p);
+      }
+    };
+    walk(buildBudgetTree(depenseChapters), []);
+    return out;
+  }, [chapters]);
 
   // Disponible de la ligne choisie (hors dépense en cours d'édition) + contrôle
   // de blocage : une dépense ne peut pas dépasser le disponible.
@@ -43,7 +55,8 @@ export default function ExpenseFormModal({
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!amount || saving || exceeds) return;   // BLOCAGE : dépassement interdit
+    // Imputation OBLIGATOIRE sur un sous-chapitre + montant + pas de dépassement.
+    if (!chapterId || !amount || saving || exceeds) return;
     setSaving(true);
     await onSave({
       ...expense,
@@ -75,18 +88,14 @@ export default function ExpenseFormModal({
 
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
-            <label className={lbl}>{t('Chapitre budgétaire', 'Budget chapter', 'Capítulo presupuestario')}</label>
+            <label className={lbl}>{t('Sous-chapitre budgétaire (obligatoire)', 'Budget sub-chapter (required)', 'Subcapítulo (obligatorio)')}</label>
             <select className={field} value={chapterId} onChange={(e) => setChapterId(e.target.value)}>
-              <option value="">{t('— non imputé —', '— unassigned —', '— sin imputar —')}</option>
-              {tree.map((c) => (
-                <optgroup key={c.id} label={`${c.code ? c.code + ' ' : ''}${c.label}`}>
-                  <option value={c.id}>{c.label}</option>
-                  {c.children.map((sc) => (
-                    <option key={sc.id} value={sc.id}>&nbsp;&nbsp;↳ {sc.label}</option>
-                  ))}
-                </optgroup>
-              ))}
+              <option value="">{t('— choisir un sous-chapitre —', '— choose a sub-chapter —', '— elegir subcapítulo —')}</option>
+              {leafOptions.map((o) => <option key={o.id} value={o.id}>{o.path}</option>)}
             </select>
+            {leafOptions.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">{t('Aucun sous-chapitre de dépense — créez la structure dans le budget d’abord.', 'No expense sub-chapter — build the budget structure first.', 'Sin subcapítulos — cree la estructura primero.')}</p>
+            )}
           </div>
           <div>
             <label className={lbl}>{t('Catégorie', 'Category', 'Categoría')}</label>
@@ -156,7 +165,7 @@ export default function ExpenseFormModal({
           <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
             {t('Annuler', 'Cancel', 'Cancelar')}
           </button>
-          <button type="submit" disabled={!amount || saving || exceeds}
+          <button type="submit" disabled={!chapterId || !amount || saving || exceeds}
             className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
             {saving ? t('Enregistrement…', 'Saving…', 'Guardando…') : t('Enregistrer', 'Save', 'Guardar')}
           </button>

@@ -83,6 +83,57 @@ export function buildChapterTree(chapters = []) {
   }));
 }
 
+// ── Hiérarchie N-niveaux (Catégorie → Chapitre → Sous-chapitre) ───────────────
+// Le modèle repose sur `parent_id` (arbre). Le NIVEAU est déduit de la profondeur
+// (0=category, 1=chapter, 2=subchapter) — rétro-compatible avec l'existant à
+// 2 niveaux, sans migration : le champ `level` n'est qu'un cache facultatif.
+
+export const BUDGET_LEVELS = ['category', 'chapter', 'subchapter'];
+
+export function childrenIndex(chapters = []) {
+  const byId = new Map(chapters.map((c) => [c.id, c]));
+  const byParent = new Map();
+  for (const c of chapters) {
+    const k = c.parent_id || '__root__';
+    if (!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k).push(c);
+  }
+  return { byId, byParent };
+}
+
+// Profondeur d'un noeud (0 = racine). Borne à 8 (garde anti-cycle).
+export function nodeDepth(chapter, byId) {
+  let d = 0, cur = chapter;
+  while (cur?.parent_id && d < 8) { cur = byId.get(cur.parent_id); d++; }
+  return d;
+}
+export function levelName(chapter, byId) {
+  return BUDGET_LEVELS[Math.min(nodeDepth(chapter, byId), 2)];
+}
+
+export function isLeaf(chapter, byParent) {
+  const kids = byParent.get(chapter.id);
+  return !(kids && kids.length);
+}
+
+// Feuilles = points de rattachement des dépenses (« sous-chapitres » fonctionnels).
+export function leafChapters(chapters = []) {
+  const { byParent } = childrenIndex(chapters);
+  return chapters.filter((c) => isLeaf(c, byParent));
+}
+
+// Arbre imbriqué complet [{...node, level, children:[…]}] trié par position/label.
+export function buildBudgetTree(chapters = []) {
+  const { byId, byParent } = childrenIndex(chapters);
+  const sortFn = (a, b) => ((a.position || 0) - (b.position || 0)) || String(a.label || '').localeCompare(String(b.label || ''));
+  const build = (node) => ({
+    ...node,
+    level: node.level || levelName(node, byId),
+    children: (byParent.get(node.id) || []).slice().sort(sortFn).map(build),
+  });
+  return (byParent.get('__root__') || []).slice().sort(sortFn).map(build);
+}
+
 // ── Totaux prévisionnels ──────────────────────────────────────────────────────
 
 // Total recettes / dépenses / solde. On ne somme QUE les feuilles (un chapitre

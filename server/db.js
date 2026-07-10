@@ -104,6 +104,7 @@ ensureColumn('schools',  'validation_rules',  'validation_rules TEXT'); // barè
 ensureColumn('signalements', 'assigned_department', 'assigned_department TEXT'); // affectation auto du module Reports (dérivée de la catégorie)
 ensureColumn('fee_payments', 'student_fee_item_id', 'student_fee_item_id TEXT'); // lien paiement->frais précis (null = paiement global hérité)
 ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
+ensureColumn('budget_chapters', 'level', 'level TEXT'); // hiérarchie budget : category|chapter|subchapter (null = déduit de la profondeur)
 // Moteur de bulletin de l'établissement : 'classic' | 'officiel' (+ anciens drapeaux
 // minesec/minedub/apc… rétro-compatibles). Absente du schéma LAN d'origine → le
 // choix « Officiel Cameroun » n'était jamais persisté (avalé par pickColumns).

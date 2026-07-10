@@ -130,12 +130,17 @@ try {
   const budSel = await db({ table: 'budgets', action: 'select', single: true, filters: [{ op: 'eq', col: 'id', val: 'bud1' }] });
   ok(budSel?.data?.version >= 1 && !!budSel?.data?.updated_at, 'budget : colonnes de sync estampillées (version/updated_at)', budSel?.data?.version);
 
+  // Hiérarchie 3 niveaux : catégorie → chapitre → sous-chapitre (colonne level).
   await db({ table: 'budget_chapters', action: 'insert', values: {
-    id: 'ch1', school_id: 'sch1', budget_id: 'bud1', label: 'Fournitures', kind: 'depense', planned_amount: 500000, position: 0 } });
+    id: 'ch1', school_id: 'sch1', budget_id: 'bud1', level: 'category', label: 'Fonctionnement', kind: 'depense', planned_amount: 0, position: 0 } });
   await db({ table: 'budget_chapters', action: 'insert', values: {
-    id: 'ch1a', school_id: 'sch1', budget_id: 'bud1', parent_id: 'ch1', label: 'Cahiers', kind: 'depense', planned_amount: 200000, position: 0 } });
+    id: 'ch1a', school_id: 'sch1', budget_id: 'bud1', parent_id: 'ch1', level: 'chapter', label: 'Fournitures', kind: 'depense', planned_amount: 0, position: 0 } });
+  await db({ table: 'budget_chapters', action: 'insert', values: {
+    id: 'ch1b', school_id: 'sch1', budget_id: 'bud1', parent_id: 'ch1a', level: 'subchapter', label: 'Cahiers', kind: 'depense', planned_amount: 200000, position: 0 } });
   const chSel = await db({ table: 'budget_chapters', action: 'select', columns: '*', filters: [{ op: 'eq', col: 'budget_id', val: 'bud1' }] });
-  ok(Array.isArray(chSel?.data) && chSel.data.length === 2, 'chapitre + sous-chapitre persistés', chSel?.data?.length);
+  ok(Array.isArray(chSel?.data) && chSel.data.length === 3, 'hiérarchie 3 niveaux persistée', chSel?.data?.length);
+  const cat = (chSel.data || []).find((c) => c.id === 'ch1');
+  ok(cat?.level === 'category', 'colonne level persistée (category)', cat?.level);
 
   // Suppression du budget -> cascade sur ses chapitres (FK ON DELETE CASCADE).
   await db({ table: 'budgets', action: 'delete', filters: [{ op: 'eq', col: 'id', val: 'bud1' }] });

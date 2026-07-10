@@ -69,6 +69,7 @@ export async function upsertBudgetChapter(row) {
     school_id: row.school_id,
     budget_id: row.budget_id,
     parent_id: nn(row.parent_id),
+    level: nn(row.level),
     code: nn(row.code),
     label: row.label,
     kind: row.kind || 'depense',
@@ -87,5 +88,17 @@ export async function deleteBudgetChapter(id) {
   // Les sous-chapitres sont supprimés en cascade côté base (FK ON DELETE CASCADE).
   const { error } = await supabase.from('budget_chapters').delete().eq('id', id);
   if (error) { console.error('deleteBudgetChapter', error); return false; }
+  return true;
+}
+
+// Génère la structure budgétaire par DÉFAUT (5 catégories + chapitres) pour un
+// budget. Insère les lignes en une passe ; l'établissement peut ensuite les
+// personnaliser (créer / modifier / supprimer / réorganiser).
+export async function applyDefaultStructure(schoolId, budgetId) {
+  const { instantiateDefaultStructure } = await import('./budgetDefaults.js');
+  const rows = instantiateDefaultStructure({ schoolId, budgetId, uid: uuid })
+    .map((r) => ({ ...r, updated_at: new Date().toISOString(), version: 1 }));
+  const { error } = await supabase.from('budget_chapters').insert(rows);
+  if (error) { console.error('applyDefaultStructure', error); return false; }
   return true;
 }

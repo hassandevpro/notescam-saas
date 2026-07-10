@@ -10,7 +10,7 @@ import { useMoney } from '../lib/useMoney';
 import { fetchBudgets, fetchBudgetChapters } from '../lib/budgetService';
 import { fetchExpenses, upsertExpense, deleteExpense } from '../lib/expenseService';
 import { fetchUnlockRequests, createUnlockRequest, decideUnlockRequest } from '../lib/unlockService';
-import { budgetConsumption, canTransition, isExpenseLocked, EXPENSE_STATUSES } from '../lib/expenseEngine';
+import { budgetConsumption, canTransition, isExpenseLocked, EXPENSE_STATUSES, hierarchyRollup } from '../lib/expenseEngine';
 import { periodLabel, SECTOR_LABELS, STATUS_UI as BUDGET_STATUS_UI } from '../components/budgets/budgetUi';
 import { EXPENSE_STATUS_UI, TRANSITION_LABEL, UNLOCK_STATUS_UI } from '../components/expenses/expenseUi';
 import ExpenseFormModal from '../components/expenses/ExpenseFormModal';
@@ -88,6 +88,7 @@ export default function Expenses() {
   useEffect(() => { reload(budgetId); }, [budgetId, reload]);
 
   const consumption = useMemo(() => budgetConsumption(chapters, expenses), [chapters, expenses]);
+  const rollup = useMemo(() => hierarchyRollup(chapters, expenses), [chapters, expenses]);
   const chapterLabel = useMemo(() => {
     const m = new Map(chapters.map((c) => [c.id, c.label]));
     return (id) => (id ? (m.get(id) || '—') : '—');
@@ -205,6 +206,25 @@ export default function Expenses() {
                 </p>
               )}
             </div>
+
+            {/* Analyse hiérarchique : catégorie → chapitre → sous-chapitre */}
+            {rollup.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-5">
+                <div className="px-4 py-3 text-sm font-bold text-gray-800 border-b border-gray-100">
+                  {t('Exécution par catégorie / chapitre / sous-chapitre', 'Execution by category / chapter / sub-chapter', 'Ejecución por categoría / capítulo / subcapítulo')}
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-400 text-xs"><tr>
+                    <th className="text-left px-4 py-2 font-semibold">{t('Poste', 'Line', 'Partida')}</th>
+                    <th className="text-right px-4 py-2 font-semibold">{t('Alloué', 'Allocated', 'Asignado')}</th>
+                    <th className="text-right px-4 py-2 font-semibold">{t('Engagé', 'Committed', 'Comprom.')}</th>
+                    <th className="text-right px-4 py-2 font-semibold">{t('Reste', 'Remaining', 'Restante')}</th>
+                    <th className="text-right px-4 py-2 font-semibold">{t('Exéc.', 'Exec.', 'Ejec.')}</th>
+                  </tr></thead>
+                  <tbody>{rollup.filter((n) => n.kind === 'depense').map((n) => <RollupRows key={n.id} node={n} depth={0} money={money} />)}</tbody>
+                </table>
+              </div>
+            )}
 
             {/* Liste des dépenses */}
             {expenses.length === 0 ? (
@@ -363,5 +383,22 @@ function Stat({ label, value, tone }) {
       <div className={`text-lg font-bold ${tone}`}>{value}</div>
       <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{label}</div>
     </div>
+  );
+}
+
+// Lignes récursives du rollup hiérarchique (catégorie → chapitre → sous-chapitre).
+function RollupRows({ node, depth, money }) {
+  const weight = depth === 0 ? 'font-bold text-gray-900' : depth === 1 ? 'font-semibold text-gray-800' : 'text-gray-600';
+  return (
+    <>
+      <tr className="border-t border-gray-100">
+        <td className="px-4 py-1.5" style={{ paddingLeft: `${16 + depth * 18}px` }}><span className={`text-sm ${weight}`}>{node.label}</span></td>
+        <td className="px-4 py-1.5 text-right tabular-nums text-gray-700">{money(node.planned)}</td>
+        <td className="px-4 py-1.5 text-right tabular-nums text-amber-600">{money(node.engage)}</td>
+        <td className={`px-4 py-1.5 text-right tabular-nums ${node.reste < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{money(node.reste)}</td>
+        <td className={`px-4 py-1.5 text-right tabular-nums ${node.depassement ? 'text-rose-600' : 'text-gray-500'}`}>{node.taux}%</td>
+      </tr>
+      {(node.children || []).map((c) => <RollupRows key={c.id} node={c} depth={depth + 1} money={money} />)}
+    </>
   );
 }

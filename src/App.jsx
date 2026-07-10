@@ -12,6 +12,7 @@ import { installDocumentScaleVars } from './lib/documentScaleVars';
 installDocumentScaleVars();
 import ProtectedRoute from './components/ProtectedRoute';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
+import ToastHost from './components/ToastHost';
 import OnboardingWizard from './components/OnboardingWizard';
 import LanLicenseGate from './components/LanLicenseGate';
 import CloudActivationWizard from './components/CloudActivationWizard';
@@ -292,6 +293,7 @@ export default function App() {
         </Routes>
       </Suspense>
       <PwaUpdatePrompt />
+      <ToastHost />
       <OnboardingGate />
       <CloudActivationWizard />
       <CloudMigrationWizard />

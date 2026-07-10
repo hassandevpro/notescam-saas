@@ -39,16 +39,24 @@ export default function GroupDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!schoolId) return;
+    if (!schoolId) { setLoading(false); return; }
     let alive = true;
+    const cacheKey = `nc_groupdash_${schoolId}_${year}`;
+    // Cache immédiat (offline-lite) puis rafraîchissement non bloquant.
+    try { const c = JSON.parse(localStorage.getItem(cacheKey) || 'null'); if (c) { setRemote(c); setLoading(false); } } catch { /* ignore */ }
     (async () => {
-      setLoading(true);
-      const [data, gr] = await Promise.all([
-        fetchGroupData(schoolId, { yearLabel: year }),
-        userId ? fetchUserGovernanceRoles(schoolId, userId) : Promise.resolve([]),
-      ]);
-      if (!alive) return;
-      setRemote(data); setGovRoles((gr || []).map((x) => x.role)); setLoading(false);
+      try {
+        const [data, gr] = await Promise.all([
+          fetchGroupData(schoolId, { yearLabel: year }),
+          userId ? fetchUserGovernanceRoles(schoolId, userId) : Promise.resolve([]),
+        ]);
+        if (!alive) return;
+        setRemote(data); setGovRoles((gr || []).map((x) => x.role));
+        if (data && (data.budgets?.length || data.expenses?.length || data.reports?.length)) {
+          try { localStorage.setItem(cacheKey, JSON.stringify(data)); } catch { /* quota */ }
+        }
+      } catch { /* hors-ligne : on garde le cache */ }
+      finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
   }, [schoolId, year, userId]);
@@ -61,8 +69,15 @@ export default function GroupDashboard() {
   const isGeneralDirection = role === 'admin'
     || govRoles.some((r) => r === 'fondatrice' || r === 'coordonnateur_general');
 
-  if (loading || !stats) {
+  if (loading) {
     return <Layout><div className="text-gray-400 text-sm py-20 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;
+  }
+  if (!stats) {
+    return <Layout><div className="max-w-md mx-auto py-24 text-center text-gray-500">
+      <div className="text-3xl mb-2">📡</div>
+      <p className="font-semibold text-gray-700">{t('Données indisponibles hors-ligne', 'Data unavailable offline', 'Datos no disponibles sin conexión')}</p>
+      <p className="text-sm mt-1">{t('Reconnectez-vous, ou utilisez l’édition LAN pour un accès hors-ligne complet.', 'Reconnect, or use the LAN edition.', 'Reconéctese o use la edición LAN.')}</p>
+    </div></Layout>;
   }
 
   const { finance, budget, expense, hr, academic, discipline, alerts } = stats;

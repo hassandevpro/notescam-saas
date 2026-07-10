@@ -17,6 +17,7 @@ import ExpenseFormModal from '../components/expenses/ExpenseFormModal';
 import ValidationRulesEditor from '../components/expenses/ValidationRulesEditor';
 import UnlockRequestModal from '../components/expenses/UnlockRequestModal';
 import UnlockDecisionModal from '../components/expenses/UnlockDecisionModal';
+import { loadWithCache } from '../lib/offlineCache';
 import { resolveValidatorRole } from '../governance/validationEngine';
 import { getGovernanceRole } from '../governance/roles';
 import { fetchUserGovernanceRoles } from '../governance/governanceService';
@@ -62,10 +63,10 @@ export default function Expenses() {
   const budget = budgets.find((b) => b.id === budgetId) || null;
 
   useEffect(() => {
-    if (!schoolId) return;
+    if (!schoolId) { setLoading(false); return; }
     (async () => {
       setLoading(true);
-      const rows = await fetchBudgets(schoolId, { yearLabel: activeYear }) || [];
+      const { rows } = await loadWithCache(`nc_budgets_${schoolId}_${activeYear}`, () => fetchBudgets(schoolId, { yearLabel: activeYear }));
       setBudgets(rows);
       setBudgetId((cur) => cur && rows.some((b) => b.id === cur) ? cur : (rows[0]?.id || ''));
       setLoading(false);
@@ -75,13 +76,13 @@ export default function Expenses() {
   const reload = useCallback(async (bid) => {
     if (!schoolId || !bid) { setChapters([]); setExpenses([]); setRequests([]); return; }
     const [ch, ex, rq] = await Promise.all([
-      fetchBudgetChapters(schoolId, { budgetId: bid }),
-      fetchExpenses(schoolId, { budgetId: bid }),
-      fetchUnlockRequests(schoolId, { budgetId: bid }),
+      loadWithCache(`nc_chapters_${bid}`, () => fetchBudgetChapters(schoolId, { budgetId: bid })),
+      loadWithCache(`nc_expenses_${bid}`, () => fetchExpenses(schoolId, { budgetId: bid })),
+      loadWithCache(`nc_unlocks_${bid}`, () => fetchUnlockRequests(schoolId, { budgetId: bid })),
     ]);
-    setChapters(ch || []);
-    setExpenses(ex || []);
-    setRequests(rq || []);
+    setChapters(ch.rows);
+    setExpenses(ex.rows);
+    setRequests(rq.rows);
   }, [schoolId]);
 
   useEffect(() => { reload(budgetId); }, [budgetId, reload]);

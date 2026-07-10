@@ -17,6 +17,7 @@ import {
 } from '../lib/feeCatalogEngine';
 import { FEE_CATEGORY_LABELS } from '../components/fees/feeCatalogUi';
 import FeeCatalogItemModal from '../components/fees/FeeCatalogItemModal';
+import { loadWithCache } from '../lib/offlineCache';
 import { uuid } from '../lib/uuid';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -46,7 +47,8 @@ export default function FeeCatalog() {
 
   const loadCatalog = useCallback(async () => {
     if (!schoolId) return;
-    setCatalog(await fetchCatalog(schoolId, { yearLabel: year }) || []);
+    const { rows } = await loadWithCache(`nc_feecatalog_${schoolId}_${year}`, () => fetchCatalog(schoolId, { yearLabel: year }));
+    setCatalog(rows);
   }, [schoolId, year]);
   useEffect(() => { loadCatalog(); }, [loadCatalog]);
 

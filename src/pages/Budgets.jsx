@@ -20,6 +20,7 @@ import {
 import BudgetFormModal from '../components/budgets/BudgetFormModal';
 import ChapterFormModal from '../components/budgets/ChapterFormModal';
 import { STATUS_UI, SECTOR_LABELS, periodLabel } from '../components/budgets/budgetUi';
+import { loadWithCache } from '../lib/offlineCache';
 
 function StatusBadge({ status, t }) {
   const ui = STATUS_UI[status] || STATUS_UI.draft;
@@ -52,9 +53,9 @@ export default function Budgets() {
 
   // — Chargement des budgets de l'année active —
   const loadBudgets = useCallback(async () => {
-    if (!schoolId) return;
+    if (!schoolId) { setLoading(false); return; }
     setLoading(true);
-    const rows = await fetchBudgets(schoolId, { yearLabel: activeYear }) || [];
+    const { rows } = await loadWithCache(`nc_budgets_${schoolId}_${activeYear}`, () => fetchBudgets(schoolId, { yearLabel: activeYear }));
     setBudgets(rows);
     setSelectedId((cur) => cur && rows.some((b) => b.id === cur) ? cur : (rows[0]?.id || null));
     setLoading(false);
@@ -65,7 +66,7 @@ export default function Budgets() {
   // — Chargement des chapitres du budget sélectionné —
   const loadChapters = useCallback(async (budgetId) => {
     if (!schoolId || !budgetId) { setChapters([]); return; }
-    const rows = await fetchBudgetChapters(schoolId, { budgetId }) || [];
+    const { rows } = await loadWithCache(`nc_chapters_${budgetId}`, () => fetchBudgetChapters(schoolId, { budgetId }));
     setChapters(rows);
   }, [schoolId]);
 

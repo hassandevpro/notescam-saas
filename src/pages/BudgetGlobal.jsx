@@ -25,12 +25,33 @@ export default function BudgetGlobal() {
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [offline, setOffline] = useState(false);
 
   useEffect(() => {
-    if (!schoolId) return;
-    let alive = true; setLoading(true);
-    fetchGroupData(schoolId, { yearLabel: year }).then((d) => { if (alive) { setData(d); setLoading(false); } });
+    if (!schoolId) { setLoading(false); return; }
+    let alive = true;
+    const cacheKey = `notescam_budgetglobal_${schoolId}_${year}`;
+
+    // 1) Affiche IMMÉDIATEMENT les dernières données connues (offline-lite).
+    try {
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+      if (cached) { setData(cached); setLoading(false); }
+    } catch { /* cache illisible */ }
+
+    // 2) Rafraîchit depuis le réseau ; ne bloque JAMAIS sur échec.
+    setLoading((l) => (data ? false : l));
+    fetchGroupData(schoolId, { yearLabel: year })
+      .then((d) => {
+        if (!alive) return;
+        setData(d); setOffline(false); setLoading(false);
+        // Ne met en cache que des données réelles (évite d'écraser par du vide hors-ligne).
+        if (d && (d.budgets?.length || d.expenses?.length || d.chapters?.length)) {
+          try { localStorage.setItem(cacheKey, JSON.stringify(d)); } catch { /* quota */ }
+        }
+      })
+      .catch(() => { if (alive) { setOffline(true); setLoading(false); } });
     return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolId, year]);
 
   const f = useMemo(() => elapsedFraction(year), [year]);
@@ -39,8 +60,15 @@ export default function BudgetGlobal() {
   const ff = useMemo(() => feeForecast(fees, f), [fees, f]);
   const top = useMemo(() => data ? topExpenseChapters(data.chapters, data.expenses) : [], [data]);
 
-  if (loading || !g) {
+  if (loading) {
     return <Layout><div className="text-gray-400 text-sm py-24 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;
+  }
+  if (!g) {
+    return <Layout><div className="max-w-md mx-auto py-24 text-center text-gray-500">
+      <div className="text-3xl mb-2">📡</div>
+      <p className="font-semibold text-gray-700">{t('Données indisponibles hors-ligne', 'Data unavailable offline', 'Datos no disponibles sin conexión')}</p>
+      <p className="text-sm mt-1">{t('Cette vue lit les budgets en ligne. Reconnectez-vous, ou utilisez l’édition LAN pour un accès hors-ligne complet.', 'This view reads budgets online. Reconnect, or use the LAN edition for full offline access.', 'Esta vista lee en línea. Reconéctese o use la edición LAN.')}</p>
+    </div></Layout>;
   }
 
   const secLabel = (s) => t(...(SECTOR_LABELS[s] || [s]));
@@ -52,6 +80,11 @@ export default function BudgetGlobal() {
         <div className="mb-5">
           <h1 className="text-2xl font-bold text-gray-900">{t('Budget global', 'Global budget', 'Presupuesto global')}</h1>
           <p className="text-sm text-gray-500 mt-1">{school?.name || ''} · {year || '—'} · <span className="text-indigo-600 font-semibold">{fc.elapsed}% {t('de l’année écoulée', 'of year elapsed', 'del año')}</span></p>
+          {offline && (
+            <span className="inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+              📡 {t('Hors-ligne — dernières données connues', 'Offline — last known data', 'Sin conexión — últimos datos')}
+            </span>
+          )}
         </div>
 
         {/* Tuiles en dégradé */}

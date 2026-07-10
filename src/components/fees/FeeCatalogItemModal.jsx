@@ -3,7 +3,7 @@ import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
 import { FEE_CATEGORIES, FEE_PAYMENT_TYPES } from '../../lib/feeCatalogEngine';
 import { FEE_CATEGORY_LABELS, PAYMENT_TYPE_LABELS } from './feeCatalogUi';
-import { SECTIONS } from '../../core/engineResolver';
+import { SECTIONS, classSectionKey } from '../../core/engineResolver';
 
 // Édition d'un article du catalogue de frais. Champs = spécification complète.
 export default function FeeCatalogItemModal({ item, classes = [], academicYear, onSave, onClose }) {
@@ -60,7 +60,8 @@ export default function FeeCatalogItemModal({ item, classes = [], academicYear, 
         </div>
         <div>
           <label className={lbl}>{t('Section concernée', 'Section', 'Sección')}</label>
-          <select className={fld} value={f.level} onChange={(e) => set('level', e.target.value)}>
+          <select className={fld} value={f.level}
+            onChange={(e) => setF((s) => ({ ...s, level: e.target.value, class_id: '' }))}>
             <option value="">{t('— toutes les sections —', '— all sections —', '— todas —')}</option>
             {SECTIONS.filter((s) => s.key !== 'autre').map((s) => (
               <option key={s.key} value={s.key}>{t(s.fr, s.en, s.es)}</option>
@@ -70,8 +71,11 @@ export default function FeeCatalogItemModal({ item, classes = [], academicYear, 
         <div className="col-span-2">
           <label className={lbl}>{t('Classe concernée', 'Class', 'Clase')}</label>
           <select className={fld} value={f.class_id} onChange={(e) => set('class_id', e.target.value)}>
-            <option value="">{t('— toutes (selon niveau/école) —', '— all —', '— todas —')}</option>
-            {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <option value="">{f.level
+              ? t('— toutes les classes de la section —', '— all classes of the section —', '— todas las clases —')
+              : t('— toutes (selon section/école) —', '— all —', '— todas —')}</option>
+            {(f.level ? classes.filter((c) => classSectionKey(c) === f.level) : classes)
+              .map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
         <div>

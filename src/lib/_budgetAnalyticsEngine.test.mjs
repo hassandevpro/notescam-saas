@@ -6,11 +6,12 @@ import {
 let failed = false;
 const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed = true; };
 
-// --- Fraction d'année écoulée -----------------------------------------------
-ok(elapsedFraction('2025-2026', new Date(2025, 8, 1)) === 0, 'début d’année = 0');
-ok(elapsedFraction('2025-2026', new Date(2026, 7, 31)) === 1, 'fin d’année = 1');
-ok(Math.abs(elapsedFraction('2025-2026', new Date(2026, 1, 28)) - 0.5) < 0.05, 'mi-année ≈ 0,5');
+// --- Fraction d'année écoulée (sept → sept, 12 mois pleins) -----------------
+ok(elapsedFraction('2025-2026', new Date(2025, 8, 1)) === 0, 'début d’année (1er sept) = 0');
+ok(elapsedFraction('2025-2026', new Date(2026, 8, 1)) === 1, 'fin d’année (1er sept suivant) = 1');
+ok(Math.abs(elapsedFraction('2025-2026', new Date(2026, 2, 1)) - 0.5) < 0.03, 'mi-année (1er mars) ≈ 0,5');
 ok(elapsedFraction('2025-2026', new Date(2027, 0, 1)) === 1, 'après la fin borné à 1');
+ok(elapsedFraction('2025-2026', new Date(2025, 7, 1)) === 0, 'avant le début borné à 0');
 
 // --- Budget global consolidé -------------------------------------------------
 const budgets = [
@@ -43,6 +44,15 @@ ok(g.byBudget.length === 2, 'détail par budget');
 
   const f2 = forecast({ ...g, engage: 9000000, executionRate: 90 }, 0.5); // 90% à mi-année
   ok(f2.overspendRisk === true && f2.onTrack === false, 'risque de dépassement détecté (rythme trop rapide)');
+
+  // Début d'exercice : la projection ne doit PAS exploser (plancher d'1 mois).
+  const early = forecast({ ...g, engage: 1000000, executionRate: 10 }, 0.01); // 1% écoulé
+  ok(early.projectedSpend === 12000000, 'début d’exercice : projection = engagé ÷ (1/12), pas ÷0,01');
+  ok(early.elapsed === 1, 'temps écoulé affiché reste réel (1%)');
+
+  // Sans dépenses prévues : pas de « risque » ni « hors clous » absurdes.
+  const noPlan = forecast({ recettes: 0, depensesPrevues: 0, engage: 0, executionRate: 0 }, 0.5);
+  ok(noPlan.overspendRisk === false && noPlan.onTrack === true, 'aucun budget prévu → pas de risque, dans les clous');
 }
 
 // --- Prévision de recouvrement des frais ------------------------------------

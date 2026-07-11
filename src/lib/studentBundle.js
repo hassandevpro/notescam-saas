@@ -36,6 +36,51 @@ export function isEmptyBundle(bundle) {
   return grades.length === 0 && fees.length === 0 && payments.length === 0;
 }
 
+// ── Corbeille MATIÈRE ───────────────────────────────────────────────────────
+// Supprimer une matière déclenche un DELETE cloud qui efface EN CASCADE toutes
+// ses notes (`grades.subject_id … ON DELETE CASCADE`). En IDB, une note vit comme
+// une cellule `scores[subject_id]` d'un record `grades` par (classe×élève×séq).
+// On capture chaque cellule de la matière pour pouvoir la ré-écrire (cloud + IDB)
+// à la restauration. Fonction PURE.
+// @returns {{ subjectGrades: {key,class_id,student_id,sequence,subject_id,value}[] }}
+export function collectSubjectBundle(subjectId, { grades = [] } = {}) {
+  const subjectGrades = [];
+  for (const g of grades) {
+    const v = g?.scores?.[subjectId];
+    if (v === undefined || v === null || v === '') continue;
+    subjectGrades.push({
+      key: g.key, class_id: g.class_id, student_id: g.student_id,
+      sequence: g.sequence, subject_id: subjectId, value: v,
+    });
+  }
+  return { subjectGrades };
+}
+
+// ── Corbeille CLASSE ────────────────────────────────────────────────────────
+// Supprimer une classe déclenche un DELETE cloud qui efface EN CASCADE ses
+// matières ET ses élèves (`subjects.class_id` / `students.class_id … ON DELETE
+// CASCADE`), donc, transitivement, les notes, frais et paiements de ces élèves.
+// On capture l'ensemble pour une restauration complète. Fonction PURE.
+// @returns {{ subjects, students, grades, fees, payments }}
+export function collectClassBundle(classId, { subjects = [], students = [], grades = [], fees = [], payments = [] } = {}) {
+  const classStudents = students.filter((s) => s && s.class_id === classId);
+  const studentIds = new Set(classStudents.map((s) => s.id));
+  return {
+    subjects: subjects.filter((s) => s && s.class_id === classId),
+    students: classStudents,
+    grades:   grades.filter((g) => g && g.class_id === classId),
+    fees:     fees.filter((f) => f && studentIds.has(f.student_id)),
+    payments: payments.filter((p) => p && studentIds.has(p.student_id)),
+  };
+}
+
+// Vrai si un bundle de classe ne contient aucune donnée dépendante.
+export function isEmptyClassBundle(bundle) {
+  if (!bundle) return true;
+  const { subjects = [], students = [], grades = [], fees = [], payments = [] } = bundle;
+  return !subjects.length && !students.length && !grades.length && !fees.length && !payments.length;
+}
+
 // Sépare un objet `scores` (record IDB grades) en deux : les vraies notes
 // (clés = subject_id) et les champs spéciaux (absences/conduite/conseil, clés
 // préfixées par `__`). Reproduit exactement le découpage de schoolStore.saveGrade.

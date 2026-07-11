@@ -35,7 +35,7 @@ import {
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
 import { moveToTrash, logAction } from '../lib/historyService';
-import { collectStudentBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
+import { collectStudentBundle, collectSubjectBundle, collectClassBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
 import { fetchStaff, upsertStaff, deleteStaff as sbDeleteStaff } from '../lib/staffService';
 import { logAssignment } from '../lib/classAssignmentService';
 import { flushSyncQueue } from '../lib/sync';
@@ -982,13 +982,152 @@ export const useSchoolStore = create((set, get) => ({
 
   deleteClass: async (id) => {
     const snapshot = get().classes.find((c) => c.id === id);
-    if (snapshot) await moveToTrash({ table: 'classes', payload: snapshot });
+
+    // Le DELETE cloud efface EN CASCADE les matières ET les élèves de la classe
+    // — donc, transitivement, leurs notes, frais et paiements (cf. collectClassBundle).
+    // On capture TOUT depuis l'IDB (source complète, toutes années) AVANT toute
+    // suppression, pour permettre une restauration intégrale depuis la corbeille.
+    const [allSubjects, allStudents, allGrades, allFees, allPayments] = await Promise.all([
+      subjectsDB.getAll(),
+      studentsDB.getAll(),
+      gradesDB.getAll(),
+      feesDB.getAll(),
+      feePaymentsDB.getAll().catch(() => []),
+    ]);
+    const bundle = collectClassBundle(id, {
+      subjects: allSubjects, students: allStudents, grades: allGrades, fees: allFees, payments: allPayments,
+    });
+
+    if (snapshot) await moveToTrash({ table: 'classes', payload: snapshot, related: bundle });
+
+    // Nettoie l'IDB en cohérence avec le cascade backend : sans cela, matières,
+    // élèves, notes, frais et paiements resteraient en cache local en pointant vers
+    // une classe supprimée (orphelins ressurgissant via reconstructRoster, etc.).
     await classesDB.delete(id);
-    set((s) => ({ classes: s.classes.filter((c) => c.id !== id) }));
+    for (const sub of bundle.subjects) await subjectsDB.delete(sub.id);
+    for (const st  of bundle.students) await studentsDB.delete(st.id);
+    for (const g   of bundle.grades)   await gradesDB.delete(g.key);
+    for (const f   of bundle.fees)     await feesDB.delete(f.id);
+    for (const p   of bundle.payments) await feePaymentsDB.delete(p.id);
+
+    const subjIds  = new Set(bundle.subjects.map((s) => s.id));
+    const studIds  = new Set(bundle.students.map((s) => s.id));
+    const feeIds   = new Set(bundle.fees.map((f) => f.id));
+    const payIds   = new Set(bundle.payments.map((p) => p.id));
+    const gradeKys = new Set(bundle.grades.map((g) => g.key));
+    set((s) => {
+      const gradeMap = { ...s.gradeMap };
+      for (const k of gradeKys) delete gradeMap[k];
+      return {
+        classes:     s.classes.filter((c) => c.id !== id),
+        subjects:    s.subjects.filter((x) => !subjIds.has(x.id)),
+        students:    s.students.filter((x) => !studIds.has(x.id)),
+        fees:        s.fees.filter((f) => !feeIds.has(f.id)),
+        feePayments: s.feePayments.filter((p) => !payIds.has(p.id)),
+        gradeMap,
+      };
+    });
+
     if (backendOnline()) {
       sbDeleteClass(id).then((ok) => { if (!ok) queueOffline({ table: 'classes', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'classes', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // Restaure une classe supprimée + tout son contenu (matières, élèves, notes,
+  // frais, paiements) effacé en cascade. Insère la classe SANS auto-configuration
+  // des matières (sinon des matières neuves feraient doublon avec celles du bundle
+  // et casseraient le lien notes↔matière) puis réinjecte le bundle. Réécrit l'IDB
+  // + pousse vers le backend (ou la queue offline), comme restoreStudentBundle.
+  restoreClassBundle: async (classPayload, related) => {
+    if (!classPayload) return;
+    const { schoolId, activeYear } = get();
+    const { subjects = [], students = [], grades = [], fees = [], payments = [] } = related || {};
+
+    // --- Classe (insertion « nue », pas d'autoConfig) ---
+    await classesDB.put(classPayload);
+    set((s) => ({ classes: s.classes.some((c) => c.id === classPayload.id) ? s.classes : [...s.classes, classPayload] }));
+    if (backendOnline()) {
+      upsertClass(classPayload).then((ok) => { if (!ok) queueOffline({ table: 'classes', operation: 'upsert', payload: classPayload }); });
+    } else {
+      queueOffline({ table: 'classes', operation: 'upsert', payload: classPayload });
+    }
+
+    // --- Matières ---
+    if (subjects.length) {
+      await subjectsDB.putMany(subjects);
+      set((s) => {
+        const byId = new Map(s.subjects.map((x) => [x.id, x]));
+        for (const sub of subjects) byId.set(sub.id, sub);
+        return { subjects: [...byId.values()] };
+      });
+      for (const sub of subjects) {
+        if (backendOnline()) upsertSubject(sub).then((ok) => { if (!ok) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+        else queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+
+    // --- Élèves ---
+    if (students.length) {
+      await studentsDB.putMany(students);
+      set((s) => {
+        const byId = new Map(s.students.map((x) => [x.id, x]));
+        for (const st of students) byId.set(st.id, st);
+        return { students: [...byId.values()] };
+      });
+      for (const st of students) {
+        if (backendOnline()) upsertStudent(st).then((ok) => { if (!ok) queueOffline({ table: 'students', operation: 'upsert', payload: st }); });
+        else queueOffline({ table: 'students', operation: 'upsert', payload: st });
+      }
+    }
+
+    // --- Notes + absences (records IDB portant les deux, cf. restoreStudentBundle) ---
+    if (grades.length) {
+      await gradesDB.putMany(grades);
+      set((s) => {
+        const gradeMap = { ...s.gradeMap };
+        for (const g of grades) gradeMap[g.key] = g.scores;
+        return { gradeMap };
+      });
+      for (const g of grades) {
+        const scores = g.scores || {};
+        if (backendOnline()) {
+          if (hasRealGrades(scores))    upsertGradeEntry(g.class_id, g.student_id, g.sequence, scores, schoolId).then((ok) => { if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload: g }); });
+          if (hasSpecialFields(scores)) upsertAbsenceEntry(g.class_id, g.student_id, g.sequence, scores, schoolId).then((ok) => { if (!ok) queueOffline({ table: 'student_absences', operation: 'upsert', payload: g }); });
+        } else {
+          queueOffline({ table: 'grades', operation: 'upsert', payload: g });
+        }
+      }
+    }
+
+    // --- Frais ---
+    if (fees.length) {
+      await feesDB.putMany(fees);
+      set((s) => {
+        const byId = new Map(s.fees.map((f) => [f.id, f]));
+        for (const f of fees) if (!activeYear || f.academic_year === activeYear) byId.set(f.id, f);
+        return { fees: [...byId.values()] };
+      });
+      for (const f of fees) {
+        if (backendOnline()) upsertFee(f).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f }); });
+        else queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
+      }
+    }
+
+    // --- Paiements : réinsérés tels quels (pas via addPayment, qui recalculerait
+    //     frais_payes et fausserait le total déjà restauré ci-dessus). ---
+    if (payments.length) {
+      await feePaymentsDB.putMany(payments);
+      set((s) => {
+        const byId = new Map(s.feePayments.map((p) => [p.id, p]));
+        for (const p of payments) if (!activeYear || p.academic_year === activeYear) byId.set(p.id, p);
+        return { feePayments: [...byId.values()] };
+      });
+      for (const p of payments) {
+        if (backendOnline()) insertFeePayment(p).then((ok) => { if (!ok) queueOffline({ table: 'fee_payments', operation: 'insert', payload: p }); });
+        else queueOffline({ table: 'fee_payments', operation: 'insert', payload: p });
+      }
     }
   },
 
@@ -1022,13 +1161,86 @@ export const useSchoolStore = create((set, get) => ({
 
   deleteSubject: async (id) => {
     const snapshot = get().subjects.find((s) => s.id === id);
-    if (snapshot) await moveToTrash({ table: 'subjects', payload: snapshot });
+
+    // Le DELETE cloud efface EN CASCADE toutes les notes de la matière
+    // (`grades.subject_id … ON DELETE CASCADE`). On capture ces notes AVANT
+    // suppression pour que la corbeille puisse les restaurer (cf. collectSubjectBundle).
+    const allGrades = await gradesDB.getAll();
+    const bundle = collectSubjectBundle(id, { grades: allGrades });
+
+    if (snapshot) await moveToTrash({ table: 'subjects', payload: snapshot, related: bundle });
+
+    // Retire la cellule de cette matière des records de notes IDB + gradeMap, en
+    // cohérence avec le cascade cloud (le bundle permet la restauration).
+    if (bundle.subjectGrades.length) {
+      const affectedKeys = new Set(bundle.subjectGrades.map((c) => c.key));
+      const updated = [];
+      for (const g of allGrades) {
+        if (!affectedKeys.has(g.key)) continue;
+        const scores = { ...(g.scores || {}) };
+        delete scores[id];
+        updated.push({ ...g, scores });
+      }
+      if (updated.length) {
+        await gradesDB.putMany(updated);
+        set((s) => {
+          const gradeMap = { ...s.gradeMap };
+          for (const rec of updated) gradeMap[rec.key] = rec.scores;
+          return { gradeMap };
+        });
+      }
+    }
+
     await subjectsDB.delete(id);
     set((s) => ({ subjects: s.subjects.filter((x) => x.id !== id) }));
     if (backendOnline()) {
       sbDeleteSubject(id).then((ok) => { if (!ok) queueOffline({ table: 'subjects', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'subjects', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // Restaure les notes d'une matière supprimée (effacées en cascade). La ligne
+  // matière est déjà recréée par addSubject (même id) via restoreFromTrash ; ici on
+  // réinjecte chaque cellule de note dans les records IDB + gradeMap et on pousse
+  // vers le backend (ou la queue offline).
+  restoreSubjectBundle: async (subjectId, related) => {
+    const cells = related?.subjectGrades || [];
+    if (!cells.length) return;
+    const { schoolId } = get();
+
+    // Réécrit l'IDB : fusionne chaque cellule dans le record de notes existant
+    // (ou un record neuf si le cascade l'avait entièrement effacé).
+    const all = await gradesDB.getAll();
+    const byKey = new Map(all.map((g) => [g.key, g]));
+    const affectedKeys = new Set(cells.map((c) => c.key));
+    for (const cell of cells) {
+      const base = byKey.get(cell.key) || {
+        key: cell.key, class_id: cell.class_id, student_id: cell.student_id,
+        sequence: cell.sequence, school_id: schoolId, scores: {},
+      };
+      byKey.set(cell.key, { ...base, scores: { ...(base.scores || {}), [subjectId]: cell.value } });
+    }
+    const updated = [...affectedKeys].map((k) => byKey.get(k));
+    await gradesDB.putMany(updated);
+    set((s) => {
+      const gradeMap = { ...s.gradeMap };
+      for (const rec of updated) gradeMap[rec.key] = rec.scores;
+      return { gradeMap };
+    });
+
+    // Pousse chaque cellule vers le cloud (le cascade l'y avait effacée).
+    for (const cell of cells) {
+      const payload = {
+        key: cell.key, class_id: cell.class_id, student_id: cell.student_id,
+        sequence: cell.sequence, school_id: schoolId, scores: { [subjectId]: cell.value },
+      };
+      if (backendOnline()) {
+        upsertGradeEntry(cell.class_id, cell.student_id, cell.sequence, { [subjectId]: cell.value }, schoolId)
+          .then((ok) => { if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload }); });
+      } else {
+        queueOffline({ table: 'grades', operation: 'upsert', payload });
+      }
     }
   },
 

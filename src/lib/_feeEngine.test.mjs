@@ -3,6 +3,7 @@
 import {
   applyAdjustments, resolveSchedule, studentFeeSituation, feeDashboard,
   inscriptionApplies, PAYMENT_MODES, FEE_STATUS, daysBetween,
+  sumPaidForStudent, derivePaid, reconcilePaid,
 } from './feeEngine.js';
 
 let failed = false;
@@ -107,6 +108,37 @@ const dash = feeDashboard(entries, '2025-10-20', 7);
 ok(dash.expected === 650000 * 3, 'dashboard : attendu = 3 × 650000');
 ok(dash.collected === 100000 + 650000 + 300000, 'dashboard : encaissé cumulé');
 ok(dash.lateTotal === 1, 'dashboard : 1 élève en retard');
+
+// ── C4 : frais_payes dérivé des lignes de paiement ──────────────────────────
+const pays = [
+  { student_id: 's1', academic_year: '2025-2026', amount: 30000 },
+  { student_id: 's1', academic_year: '2025-2026', amount: '20000' }, // string toléré
+  { student_id: 's1', academic_year: '2024-2025', amount: 99999 },   // autre année
+  { student_id: 's2', academic_year: '2025-2026', amount: 5000 },
+];
+ok(sumPaidForStudent(pays, 's1', '2025-2026') === 50000, 'sumPaid : somme année courante (string incluse)');
+ok(sumPaidForStudent(pays, 's1', null) === 149999, 'sumPaid : toutes années si year null');
+ok(sumPaidForStudent(pays, 'sX', '2025-2026') === 0, 'sumPaid : élève inconnu → 0');
+ok(sumPaidForStudent(null, 's1') === 0, 'sumPaid : entrée nulle → 0');
+
+// derivePaid — ajout de versement (rowsBefore → rowsBefore+montant)
+ok(derivePaid(0, 0, 30000) === 30000, 'derivePaid : 1er versement');
+ok(derivePaid(30000, 30000, 50000) === 50000, 'derivePaid : 2e versement cohérent');
+// socle opaque importé (frais_payes=50000 sans ligne) : +20000 → 70000, jamais reperdu
+ok(derivePaid(50000, 0, 20000) === 70000, 'derivePaid : préserve le socle opaque importé');
+// cache sous-évalué (lost-update) : la dérivation se recale sur les lignes
+ok(derivePaid(15000, 20000, 50000) === 50000, 'derivePaid : guérit un cache sous-évalué');
+// suppression : rowsAfter = rowsBefore - montant
+ok(derivePaid(50000, 50000, 30000) === 30000, 'derivePaid : suppression d\'un versement');
+ok(derivePaid(30000, 30000, 0) === 0, 'derivePaid : suppression du dernier versement → 0');
+// suppression en préservant socle : cache 70000 (socle 50000 + 20000 en lignes), on retire les 20000
+ok(derivePaid(70000, 20000, 0) === 50000, 'derivePaid : suppression conserve le socle importé');
+
+// reconcilePaid — monotone (ne fait que remonter)
+ok(reconcilePaid(30000, 60000) === 60000, 'reconcile : remonte au total réel des lignes (lost-update)');
+ok(reconcilePaid(50000, 0) === 50000, 'reconcile : préserve le solde importé (0 ligne)');
+ok(reconcilePaid(50000, 30000) === 50000, 'reconcile : ne diminue jamais (suppression en vol)');
+ok(reconcilePaid(0, 0) === 0, 'reconcile : rien à faire → 0');
 
 console.log(failed ? '\n❌ ÉCHECS' : '\n✅ Tous les tests passent');
 process.exit(failed ? 1 : 0);

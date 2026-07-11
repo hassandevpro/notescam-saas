@@ -36,6 +36,7 @@ import {
 import { upsertGradeNotification } from '../lib/notificationsService';
 import { moveToTrash, logAction } from '../lib/historyService';
 import { collectStudentBundle, collectSubjectBundle, collectClassBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
+import { sumPaidForStudent, derivePaid, reconcilePaid } from '../lib/feeEngine';
 import { fetchStaff, upsertStaff, deleteStaff as sbDeleteStaff } from '../lib/staffService';
 import { logAssignment } from '../lib/classAssignmentService';
 import { flushSyncQueue } from '../lib/sync';
@@ -267,6 +268,9 @@ export const useSchoolStore = create((set, get) => ({
         loading:     false,
       });
 
+      // Auto-guérison du cache frais_payes depuis les lignes de paiement (offline-first).
+      get().reconcileFeesPaid();
+
       if (backendOnline()) {
         get()._refreshFromSupabase(schoolId, activeYear);
       }
@@ -434,6 +438,10 @@ export const useSchoolStore = create((set, get) => ({
       ...(sbUnits            !== null && { schoolUnits: newUnits }),
       gradeMap: newGradeMap,
     });
+
+    // Réconcilie le cache frais_payes avec les lignes de paiement fraîchement
+    // synchronisées (moment autoritatif : fees + payments à jour depuis le cloud).
+    if (sbFees !== null || sbFeePayments !== null) get().reconcileFeesPaid();
   },
 
   // Recharge les périodes académiques (IDB → état) et recalcule activeSequence.
@@ -1633,8 +1641,12 @@ export const useSchoolStore = create((set, get) => ({
       created_at:    new Date().toISOString(),
     };
 
+    // frais_payes est DÉRIVÉ des lignes de paiement (source de vérité), jamais
+    // incrémenté en aveugle — sinon 2 versements concurrents (hors-ligne / LWW)
+    // s'écrasent. On préserve le socle opaque importé (cf. feeEngine.derivePaid).
     const existing = fees.find((f) => f.student_id === studentId && f.academic_year === activeYear);
-    const newPaid = (existing?.frais_payes || 0) + parsedAmount;
+    const rowsBefore = sumPaidForStudent(feePayments, studentId, activeYear);
+    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore + parsedAmount);
 
     await feePaymentsDB.put(record);
     set((s) => ({ feePayments: [record, ...s.feePayments] }));
@@ -1656,8 +1668,12 @@ export const useSchoolStore = create((set, get) => ({
     const payment = feePayments.find((p) => p.id === paymentId);
     if (!payment) return;
 
+    // Dérive frais_payes des lignes restantes (source de vérité) en préservant le
+    // socle opaque importé (cf. feeEngine.derivePaid). rowsBefore inclut la ligne
+    // supprimée ; rowsAfter la retire.
     const existing = fees.find((f) => f.student_id === studentId && f.academic_year === activeYear);
-    const newPaid = Math.max(0, (existing?.frais_payes || 0) - payment.amount);
+    const rowsBefore = sumPaidForStudent(feePayments, studentId, activeYear);
+    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore - payment.amount);
     const remaining = feePayments.filter((p) => p.id !== paymentId && p.student_id === studentId);
     const lastDate = remaining.sort((a, b) => b.date.localeCompare(a.date))[0]?.date ?? null;
 
@@ -1682,6 +1698,41 @@ export const useSchoolStore = create((set, get) => ({
       sbDeleteFee(id).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'student_fees', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // Réconciliation du cache frais_payes à partir des lignes fee_payments (source
+  // de vérité). MONOTONE : ne fait que corriger une sous-évaluation (lost-update /
+  // LWW cross-appareil), jamais diminuer → préserve les soldes importés opaques et
+  // les suppressions déjà répercutées. N'écrit (IDB + cloud) que les fiches ayant
+  // réellement dérivé. Appelée après chaque chargement (init + refresh).
+  reconcileFeesPaid: async () => {
+    const { fees, feePayments, activeYear } = get();
+    if (!fees.length) return;
+    // Index paiements → somme par (élève × année), une seule passe (évite l'O(n²)).
+    const paidByKey = new Map();
+    for (const p of feePayments) {
+      if (!p) continue;
+      const k = `${p.student_id}::${p.academic_year || activeYear || ''}`;
+      paidByKey.set(k, (paidByKey.get(k) || 0) + (parseInt(p.amount, 10) || 0));
+    }
+    const drifted = [];
+    const nextFees = fees.map((f) => {
+      const rowsSum   = paidByKey.get(`${f.student_id}::${f.academic_year || activeYear || ''}`) || 0;
+      const corrected = reconcilePaid(f.frais_payes, rowsSum);
+      if (corrected !== (f.frais_payes || 0)) {
+        const rec = { ...f, frais_payes: corrected };
+        drifted.push(rec);
+        return rec;
+      }
+      return f;
+    });
+    if (!drifted.length) return;
+    set({ fees: nextFees });
+    await feesDB.putMany(drifted);
+    for (const rec of drifted) {
+      if (backendOnline()) upsertFee(rec).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec }); });
+      else queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec });
     }
   },
 

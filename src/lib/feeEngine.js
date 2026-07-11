@@ -348,3 +348,42 @@ export function feeDashboard(entries, today = todayISO(), soonDays = 7) {
 export function sumTranches(tranches = []) {
   return (tranches || []).reduce((s, t) => s + toInt(t.amount), 0);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SOURCE DE VÉRITÉ DU « PAYÉ » — dérivé des lignes fee_payments
+// ════════════════════════════════════════════════════════════════════════════
+// `student_fees.frais_payes` n'est qu'un CACHE : la vérité, ce sont les lignes de
+// paiement (append-only, id unique → aucun conflit de synchro). Incrémenter le
+// cache en aveugle perd des versements en concurrence (2 postes hors-ligne, LWW).
+// On le recalcule donc toujours à partir des lignes.
+//
+// Subtilité « socle opaque » : un import peut fixer frais_payes SANS ligne de
+// paiement (solde historique). On préserve donc systématiquement
+// baseline = max(0, cache − sommeDesLignes), jamais écrasé par la dérivation.
+
+// Somme des versements d'un élève (option : restreinte à une année scolaire).
+export function sumPaidForStudent(payments, studentId, academicYear = null) {
+  let sum = 0;
+  for (const p of payments || []) {
+    if (!p || p.student_id !== studentId) continue;
+    if (academicYear && p.academic_year && p.academic_year !== academicYear) continue;
+    sum += toInt(p.amount);
+  }
+  return sum;
+}
+
+// Recalcule frais_payes à une MUTATION (ajout / suppression de versement), en
+// préservant le socle opaque importé. rowsSumBefore/After = somme des lignes
+// avant/après la mutation. newPaid = baseline + rowsSumAfter.
+export function derivePaid(prevCachedPaid, rowsSumBefore, rowsSumAfter) {
+  const baseline = Math.max(0, toInt(prevCachedPaid) - toInt(rowsSumBefore));
+  return Math.max(0, baseline + toInt(rowsSumAfter));
+}
+
+// Réconciliation MONOTONE au chargement : ne corrige qu'une SOUS-évaluation du
+// cache (symptôme d'un lost-update / LWW cross-appareil). Ne diminue jamais la
+// valeur → préserve les soldes importés (sommeLignes = 0) et les suppressions
+// déjà répercutées par la mutation. Renvoie la valeur corrigée (== cache si RAS).
+export function reconcilePaid(cachedPaid, rowsSum) {
+  return Math.max(toInt(cachedPaid), toInt(rowsSum));
+}

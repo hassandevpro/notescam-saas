@@ -49,15 +49,18 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
 
   const handleImport = async () => {
     setImporting(true);
-    let imported = 0;
+    let imported = 0, locked = 0;
     for (const { student, gradeEntries } of matched) {
       if (Object.keys(gradeEntries).length > 0) {
-        await saveGrade(classId, student.id, sequence, gradeEntries);
-        imported++;
+        // saveGrade refuse et renvoie { locked } si la séquence est verrouillée.
+        // silent : on agrège (done.locked), pas un toast par élève.
+        const res = await saveGrade(classId, student.id, sequence, gradeEntries, { silent: true });
+        if (res?.locked) locked++;
+        else imported++;
       }
     }
     setImporting(false);
-    setDone({ imported, skipped: matched.length - imported + unmatched.length });
+    setDone({ imported, locked, skipped: matched.length - imported - locked + unmatched.length });
   };
 
   const resetFile = () => {
@@ -145,6 +148,7 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
           <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-2xl font-bold">✓</div>
           <p className="text-lg font-semibold text-gray-900">{done.imported} {done.imported > 1 ? t('élèves importés avec succès', 'students imported successfully') : t('élève importé avec succès', 'student imported successfully')}</p>
           {done.skipped > 0 && <p className="text-sm text-gray-400">{done.skipped} {t('ligne(s) ignorée(s)', 'row(s) skipped')}</p>}
+          {done.locked > 0 && <p className="text-sm font-medium text-amber-600">🔒 {done.locked} {t('note(s) refusée(s) : séquence verrouillée', 'grade(s) refused: sequence locked', 'nota(s) rechazada(s): secuencia bloqueada')}</p>}
           <button onClick={onClose} className="btn-primary mt-2">{t('Fermer', 'Close')}</button>
         </div>
       )}

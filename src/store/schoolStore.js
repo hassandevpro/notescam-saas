@@ -21,7 +21,10 @@ import { buildSubjectsForClassicClass } from '../core/classicSubjects';
 import { resolveClassEngine } from '../core/engineResolver';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { fetchPeriods } from '../lib/academicPeriodsService';
-import { deriveActiveSequence } from '../lib/periodLogic';
+import { deriveActiveSequence, isSequenceLockedByPeriod } from '../lib/periodLogic';
+import { isSequenceLocked as isClassSequenceLocked } from '../lib/lockService';
+import { toast } from './toastStore';
+import { tStatic } from '../lib/i18n';
 import {
   fetchClasses, upsertClass, deleteClass as sbDeleteClass,
   fetchSubjects, upsertSubject, deleteSubject as sbDeleteSubject,
@@ -1440,17 +1443,44 @@ export const useSchoolStore = create((set, get) => ({
 
   // --- Grades ---
 
-  saveGrade: async (classId, studentId, sequence, scores) => {
-    const { schoolId, gradeMap } = get();
+  saveGrade: async (classId, studentId, sequence, scores, opts = {}) => {
+    const { schoolId, gradeMap, academicPeriods, activeYear } = get();
+
+    const hasSpecial = Object.keys(scores).some((k) => k.startsWith('__'));
+    const hasGrades  = Object.keys(scores).some((k) => !k.startsWith('__'));
+
+    // ── Enforcement du verrou (C6/I6) ────────────────────────────────────────
+    // On REFUSE d'écrire de VRAIES notes dans une séquence verrouillée. Deux
+    // sources : le verrou de PÉRIODE (academic_periods.is_locked, synchronisé →
+    // cross-appareil, couvre aussi une année clôturée-verrouillée) et le verrou
+    // par CLASSE (validation admin). Les champs spéciaux (__abs__/__conduite__/
+    // __decision__ du Conseil) restent autorisés : le conseil suit la validation.
+    // Refus silencieux au niveau données (renvoie { locked }) — l'UI grise déjà la
+    // saisie ; ceci ferme les contournements (import de masse, rendu obsolète,
+    // autre appareil ayant posé le verrou entre-temps).
+    if (hasGrades) {
+      const periodLocked = isSequenceLockedByPeriod(academicPeriods, sequence, activeYear);
+      const classLocked  = isClassSequenceLocked(schoolId, classId, sequence);
+      if (periodLocked || classLocked) {
+        // opts.silent : l'appelant agrège lui-même le résultat (ex. import de masse
+        // → un seul récapitulatif au lieu d'un toast par élève).
+        if (!opts.silent) {
+          toast.error(tStatic(
+            'Séquence verrouillée — saisie refusée. Déverrouillez d\'abord.',
+            'Sequence locked — entry refused. Unlock it first.',
+            'Secuencia bloqueada — captura rechazada. Desbloquéela primero.',
+          ));
+        }
+        return { error: 'locked', locked: true, scope: periodLocked ? 'period' : 'class' };
+      }
+    }
+
     const key    = gradeKey(classId, studentId, sequence);
     const merged = { ...(gradeMap[key] || {}), ...scores };
     const record = { key, class_id: classId, student_id: studentId, sequence, school_id: schoolId, scores: merged };
 
     await gradesDB.put(record);
     set((s) => ({ gradeMap: { ...s.gradeMap, [key]: merged } }));
-
-    const hasSpecial = Object.keys(scores).some((k) => k.startsWith('__'));
-    const hasGrades  = Object.keys(scores).some((k) => !k.startsWith('__'));
 
     if (backendOnline()) {
       if (hasGrades) {

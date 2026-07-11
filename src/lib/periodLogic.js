@@ -15,6 +15,22 @@ export function deriveActiveSequence(periods) {
   return active?.sequence_order ?? null;
 }
 
+// Vrai si la séquence (par son sequence_order) est VERROUILLÉE (is_locked) pour
+// l'année donnée. Le verrou vit dans academic_periods → synchronisé cloud/LAN,
+// donc cross-appareil. `is_locked` = « édition matériellement bloquée » : l'écriture
+// des notes d'une séquence verrouillée doit être refusée au niveau données, pas
+// seulement grisée dans l'UI. (Le `status='closed'` seul NE bloque PAS, par design.)
+export function isSequenceLockedByPeriod(periods, sequenceOrder, year = null) {
+  if (sequenceOrder == null || sequenceOrder === '') return false;
+  const ord = Number(sequenceOrder);
+  return (periods || []).some(
+    (p) => p && p.type === 'sequence' &&
+           Number(p.sequence_order) === ord &&
+           (!year || p.school_year === year) &&
+           p.is_locked === true,
+  );
+}
+
 // La séquence dont `teaching_start <= today` la plus récente. Renvoie la ligne
 // période, ou null si aucune n'a démarré. Ne dépend QUE des données fournies.
 export function computeAutoActive(periods, today = new Date()) {

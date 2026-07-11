@@ -21,7 +21,7 @@ import { buildSubjectsForClassicClass } from '../core/classicSubjects';
 import { resolveClassEngine } from '../core/engineResolver';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { fetchPeriods } from '../lib/academicPeriodsService';
-import { deriveActiveSequence, isSequenceLockedByPeriod } from '../lib/periodLogic';
+import { deriveActiveSequence, isSequenceLockedByPeriod, anySequenceLockedThisYear } from '../lib/periodLogic';
 import { isSequenceLocked as isClassSequenceLocked } from '../lib/lockService';
 import { toast } from './toastStore';
 import { tStatic } from '../lib/i18n';
@@ -45,7 +45,7 @@ import { logAssignment } from '../lib/classAssignmentService';
 import { flushSyncQueue } from '../lib/sync';
 import { backendOnline } from '../lib/edition';
 import { uuid } from '../lib/uuid';
-import { getNextLevel, computeNextYear, isRepeater } from '../lib/yearEngine';
+import { getNextLevel, computeNextYear, isRepeater, lastSequenceFor } from '../lib/yearEngine';
 import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 
@@ -141,6 +141,80 @@ function reconstructRoster(roster, grades, pool, classIds) {
     if (base) extra.push({ ...base, class_id: cid });
   }
   return extra.length ? [...roster, ...extra] : roster;
+}
+
+// ── Gel de configuration (audit C2) ─────────────────────────────────────────
+// Une classe est FIGÉE quand un de ses bulletins est déjà verrouillé. On refuse
+// alors les modifications de matières qui affectent le calcul — sinon elles
+// réécriraient rétroactivement un bulletin verrouillé (les NOTES sont déjà gelées
+// par C6 ; restent coef/barème/structure).
+//
+// Le gel est PRÉCIS PAR CLASSE (ne pas sur-bloquer une classe créée après un
+// verrou, donc sans bulletin verrouillé) :
+//   1. verrou par classe (validation admin explicite) sur une séquence de la classe ;
+//   2. OU verrou de période (academic_periods.is_locked, synchronisé) ET la classe
+//      a effectivement des notes dans cette séquence verrouillée.
+function isClassConfigFrozen(state, classId) {
+  const { academicPeriods, activeYear, schoolId, classes, gradeMap } = state;
+  const cls = classes.find((c) => c.id === classId);
+  const maxSeq = cls ? lastSequenceFor(cls) : 6;
+
+  // 1) Verrou par classe.
+  for (let s = 1; s <= maxSeq; s++) {
+    if (isClassSequenceLocked(schoolId, classId, s)) return true;
+  }
+
+  // 2) Verrou de période + la classe a des notes dans la séquence verrouillée.
+  if (anySequenceLockedThisYear(academicPeriods, activeYear)) {
+    const lockedOrders = new Set(
+      (academicPeriods || [])
+        .filter((p) => p && p.type === 'sequence' && (!activeYear || p.school_year === activeYear) && p.is_locked === true)
+        .map((p) => Number(p.sequence_order)),
+    );
+    const prefix = classId + '_';
+    for (const key of Object.keys(gradeMap || {})) {
+      if (!key.startsWith(prefix)) continue;
+      const seq = Number(key.slice(key.lastIndexOf('_') + 1));
+      if (lockedOrders.has(seq)) return true;
+    }
+  }
+  return false;
+}
+
+// Normalise '' / undefined → null pour comparer sans faux positif (formulaires).
+const _normCalc = (v) => (v === '' || v === undefined ? null : v);
+
+// Champs d'une matière qui changent une moyenne / un rang. Le nom, l'enseignant,
+// la catégorie et la POSITION (ordre d'affichage, purement cosmétique — le calcul
+// somme les matières quel que soit l'ordre) NE sont PAS ici : ils restent
+// modifiables même figé.
+const SUBJECT_CALC_NUM   = ['coef', 'max'];
+const SUBJECT_CALC_OTHER = ['parent_id', 'calc_method'];
+function changesSubjectCalc(existing, data) {
+  for (const k of SUBJECT_CALC_NUM) {
+    if (k in data && Number(data[k] ?? 0) !== Number(existing?.[k] ?? 0)) return true;
+  }
+  for (const k of SUBJECT_CALC_OTHER) {
+    if (k in data && _normCalc(data[k]) !== _normCalc(existing?.[k])) return true;
+  }
+  return false;
+}
+
+// Champs d'une CLASSE qui rescalent les moyennes ou changent le moteur de bulletin
+// (barème de sortie, système, cycle, série, moteur). Le nom, la section, le prof
+// principal NE sont PAS ici : modifiables même figé.
+const CLASS_CALC_NUM   = ['grade_max'];
+const CLASS_CALC_OTHER = ['system', 'cycle', 'serie', 'bulletin_engine'];
+function changesClassCalc(existing, data) {
+  for (const k of CLASS_CALC_NUM) {
+    // grade_max peut être absent (défaut système) : ne compte que si les deux
+    // côtés sont définis et diffèrent numériquement.
+    if (k in data && data[k] != null && existing?.[k] != null && Number(data[k]) !== Number(existing[k])) return true;
+  }
+  for (const k of CLASS_CALC_OTHER) {
+    if (k in data && _normCalc(data[k]) !== _normCalc(existing?.[k])) return true;
+  }
+  return false;
 }
 
 export const useSchoolStore = create((set, get) => ({
@@ -980,8 +1054,19 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   updateClass: async (id, data) => {
-    const { classes } = get();
-    const record = { ...classes.find((c) => c.id === id), ...data };
+    const state = get();
+    const existing = state.classes.find((c) => c.id === id);
+    // Gel C2 : le barème de sortie / le système / le moteur d'une classe rescalent
+    // les moyennes → refusés si un bulletin de la classe est déjà verrouillé.
+    if (existing && changesClassCalc(existing, data) && isClassConfigFrozen(state, id)) {
+      toast.error(tStatic(
+        'Configuration figée : une séquence de cette classe est verrouillée. Déverrouillez pour changer barème / système.',
+        'Configuration frozen: a sequence of this class is locked. Unlock to change scale / system.',
+        'Configuración bloqueada: una secuencia de esta clase está bloqueada. Desbloquee para cambiar escala / sistema.',
+      ));
+      return { error: 'frozen', locked: true };
+    }
+    const record = { ...existing, ...data };
     await classesDB.put(record);
     set((s) => ({ classes: s.classes.map((c) => (c.id === id ? record : c)) }));
     if (backendOnline()) {
@@ -1159,8 +1244,18 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   updateSubject: async (id, data) => {
-    const { subjects } = get();
-    const record = { ...subjects.find((s) => s.id === id), ...data };
+    const state = get();
+    const existing = state.subjects.find((s) => s.id === id);
+    // Gel C2 : refuse un changement de coef/barème/structure sur une classe figée.
+    if (existing && changesSubjectCalc(existing, data) && isClassConfigFrozen(state, existing.class_id)) {
+      toast.error(tStatic(
+        'Configuration figée : une séquence de cette classe est verrouillée. Déverrouillez pour changer coefficient / barème / structure.',
+        'Configuration frozen: a sequence of this class is locked. Unlock to change coefficient / scale / structure.',
+        'Configuración bloqueada: una secuencia de esta clase está bloqueada. Desbloquee para cambiar coeficiente / escala / estructura.',
+      ));
+      return { error: 'frozen', locked: true };
+    }
+    const record = { ...existing, ...data };
     await subjectsDB.put(record);
     set((s) => ({ subjects: s.subjects.map((x) => (x.id === id ? record : x)) }));
     if (backendOnline()) {
@@ -1171,7 +1266,19 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   deleteSubject: async (id) => {
-    const snapshot = get().subjects.find((s) => s.id === id);
+    const state = get();
+    const snapshot = state.subjects.find((s) => s.id === id);
+
+    // Gel C2 : supprimer une matière change la structure/les moyennes des bulletins
+    // déjà verrouillés de cette classe → refusé tant qu'une séquence est verrouillée.
+    if (snapshot && isClassConfigFrozen(state, snapshot.class_id)) {
+      toast.error(tStatic(
+        'Suppression impossible : une séquence de cette classe est verrouillée. Déverrouillez d\'abord.',
+        'Cannot delete: a sequence of this class is locked. Unlock it first.',
+        'No se puede eliminar: una secuencia de esta clase está bloqueada. Desbloquéela primero.',
+      ));
+      return { error: 'frozen', locked: true };
+    }
 
     // Le DELETE cloud efface EN CASCADE toutes les notes de la matière
     // (`grades.subject_id … ON DELETE CASCADE`). On capture ces notes AVANT

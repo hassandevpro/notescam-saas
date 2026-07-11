@@ -31,6 +31,19 @@ export function isSequenceLockedByPeriod(periods, sequenceOrder, year = null) {
   );
 }
 
+// Vrai si AU MOINS une séquence de l'année est verrouillée (is_locked). Sert au
+// « gel de configuration » (audit C2) : dès qu'une séquence est validée, la config
+// des matières (coef/barème/structure) qui alimente les bulletins de cette année
+// est figée — on refuse toute modification qui réécrirait rétroactivement un
+// bulletin déjà verrouillé. Le verrou vit dans academic_periods (synchronisé).
+export function anySequenceLockedThisYear(periods, year = null) {
+  return (periods || []).some(
+    (p) => p && p.type === 'sequence' &&
+           (!year || p.school_year === year) &&
+           p.is_locked === true,
+  );
+}
+
 // La séquence dont `teaching_start <= today` la plus récente. Renvoie la ligne
 // période, ou null si aucune n'a démarré. Ne dépend QUE des données fournies.
 export function computeAutoActive(periods, today = new Date()) {

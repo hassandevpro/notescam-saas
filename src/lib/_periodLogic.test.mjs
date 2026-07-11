@@ -1,6 +1,6 @@
 // Test du cœur pur des périodes académiques : auto-switch par date + dérivation
 // de la séquence active. Aucune dépendance (pas de store / réseau / React).
-import { computeAutoActive, deriveActiveSequence, toDateStr, isSequenceLockedByPeriod } from './periodLogic.js';
+import { computeAutoActive, deriveActiveSequence, toDateStr, isSequenceLockedByPeriod, anySequenceLockedThisYear } from './periodLogic.js';
 
 let failed = false;
 const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed = true; };
@@ -61,6 +61,14 @@ ok(isSequenceLockedByPeriod(lockPeriods, 1, null) === true, 'lock: sans filtre a
 ok(isSequenceLockedByPeriod(lockPeriods, 9, '2025-2026') === false, 'lock: séquence inexistante → false');
 ok(isSequenceLockedByPeriod(lockPeriods, null) === false, 'lock: sequence null → false');
 ok(isSequenceLockedByPeriod(null, 1) === false, 'lock: périodes nulles → false');
+
+// 8) anySequenceLockedThisYear (C2) — gel de config si une séquence est verrouillée.
+ok(anySequenceLockedThisYear(lockPeriods, '2025-2026') === true, 'gel: année avec séquence verrouillée → true');
+ok(anySequenceLockedThisYear(lockPeriods, '2024-2025') === false, 'gel: année sans séquence verrouillée → false');
+ok(anySequenceLockedThisYear(lockPeriods, null) === true, 'gel: sans filtre année → true (au moins une verrouillée)');
+ok(anySequenceLockedThisYear([{ type: 'trimestre', is_locked: true }], null) === false, 'gel: un trimestre verrouillé n\'entre pas en compte');
+ok(anySequenceLockedThisYear([], '2025-2026') === false, 'gel: liste vide → false');
+ok(anySequenceLockedThisYear(null) === false, 'gel: null → false');
 
 console.log(failed ? '\n❌ ÉCHEC' : '\n✅ OK');
 process.exit(failed ? 1 : 0);

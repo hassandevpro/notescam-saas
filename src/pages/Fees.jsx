@@ -130,10 +130,16 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
         : (fee?.frais_annuels || 0) + inscription);
   // Dû global affiché = scolarité (+ inscription) + frais du catalogue de l'élève.
   const previewTotal = tuitionTotal + catalogDue;
+  // Reste à payer : borne les versements pour ne JAMAIS encaisser au-delà du dû
+  // (sinon « Total encaissé » > « Total dû » → recouvrement > 100 %, calculs faussés).
+  // Si aucun dû n'est défini (previewTotal 0), on ne borne pas (rien à comparer).
+  const remaining = previewTotal > 0 ? Math.max(0, previewTotal - (fee?.frais_payes ?? 0)) : Infinity;
+  const overpay = typed > remaining;
 
   const handleAddPayment = async () => {
     const parsed = parseInt(montant, 10) || 0;
     if (!parsed) return;
+    if (parsed > remaining) return; // garde-fou : jamais au-delà du reste dû
     setSaving(true);
     // Fige le mode au 1er versement selon le montant (si une grille existe et
     // qu'aucun mode n'a encore été déterminé).
@@ -419,9 +425,17 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
                     )}
                   </p>
                 )}
+                {overpay && (
+                  <p className="text-xs text-red-600 font-medium mb-3">
+                    ⚠ {t('Le versement dépasse le reste dû', 'Payment exceeds the balance due', 'El pago supera el saldo')} ({money(remaining)}).{' '}
+                    <button type="button" onClick={() => setMontant(String(remaining))} className="underline font-semibold">
+                      {t('Ajuster au reste', 'Set to balance', 'Ajustar al saldo')}
+                    </button>
+                  </p>
+                )}
                 <button
                   onClick={handleAddPayment}
-                  disabled={saving || !montant}
+                  disabled={saving || !montant || overpay}
                   className="btn-primary"
                   style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}
                 >
@@ -668,7 +682,12 @@ export default function Fees() {
     const all      = students.filter((s) => !filterClass || s.class_id === filterClass);
     // Dû = tarif figé ou, à défaut, échelonné de la grille de classe.
     const totalDu   = all.reduce((n, s) => n + effectiveDue(s, feeMap[s.id]), 0);
-    const totalPaye = all.reduce((n, s) => n + (feeMap[s.id]?.frais_payes || 0), 0);
+    // Encaissé IMPUTÉ aux frais : borné au dû par élève (un éventuel trop-perçu
+    // n'est pas compté → recouvrement plafonné à 100 %, jamais > le dû).
+    const totalPaye = all.reduce((n, s) => {
+      const due = effectiveDue(s, feeMap[s.id]);
+      return n + Math.min(feeMap[s.id]?.frais_payes || 0, due);
+    }, 0);
     const countPaid = all.filter((s) => rowStatus(s, feeMap[s.id]) === 'paid').length;
     const countUnpaid = all.filter((s) => ['unpaid', 'none'].includes(rowStatus(s, feeMap[s.id]))).length;
     return { totalDu, totalPaye, countPaid, countUnpaid, effectif: all.length };

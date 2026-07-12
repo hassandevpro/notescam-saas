@@ -242,6 +242,44 @@ const handlers = {
     return null;
   },
 
+  // Édition du catalogue de rôles (Phase 2). Code immuable après création.
+  admin_upsert_governance_role(p, ctx) {
+    const schoolId = requireAdmin(ctx);
+    const code = String(p.p_code || '').trim();
+    if (!code) throw new Error('Code requis');
+    if (!['complex', 'sector'].includes(p.p_scope)) throw new Error('Portée invalide');
+    const J = (v) => JSON.stringify(Array.isArray(v) ? v : (v ? JSON.parse(v) : []));
+    if (p.p_id) {
+      const row = db.prepare('SELECT id FROM governance_roles WHERE id = ? AND school_id = ?').get(p.p_id, schoolId);
+      if (!row) throw new Error('Rôle introuvable');
+      db.prepare(`UPDATE governance_roles SET name=?, description=?, rank=?, scope=?, sector=?,
+                    permissions=?, pages=?, dashboards=?, workflows=?, active=?, updated_at=?
+                  WHERE id=? AND school_id=?`)
+        .run(p.p_name, p.p_description ?? null, Number(p.p_rank) || 0, p.p_scope, p.p_sector ?? null,
+             J(p.p_permissions), J(p.p_pages), J(p.p_dashboards), J(p.p_workflows),
+             p.p_active === false ? 0 : 1, nowISO(), p.p_id, schoolId);
+      return p.p_id;
+    }
+    if (db.prepare('SELECT 1 FROM governance_roles WHERE school_id = ? AND code = ?').get(schoolId, code))
+      throw new Error('Un rôle avec ce code existe déjà : ' + code);
+    const id = randomUUID();
+    db.prepare(`INSERT INTO governance_roles (id, school_id, code, name, description, rank, scope, sector,
+                  permissions, pages, dashboards, workflows, active, is_system)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)`)
+      .run(id, schoolId, code, p.p_name, p.p_description ?? null, Number(p.p_rank) || 0, p.p_scope, p.p_sector ?? null,
+           J(p.p_permissions), J(p.p_pages), J(p.p_dashboards), J(p.p_workflows), p.p_active === false ? 0 : 1);
+    return id;
+  },
+
+  admin_delete_governance_role(p, ctx) {
+    const schoolId = requireAdmin(ctx);
+    const row = db.prepare('SELECT * FROM governance_roles WHERE id = ? AND school_id = ?').get(p.p_id, schoolId);
+    if (!row) return null;
+    if (row.is_system) throw new Error('Rôle système : désactivez-le au lieu de le supprimer');
+    db.prepare('DELETE FROM governance_roles WHERE id = ? AND school_id = ?').run(p.p_id, schoolId);
+    return null;
+  },
+
   update_teacher_profile(p, ctx) {
     const m = membership(ctx.userId);
     if (!m) throw new Error('Non autorisé');

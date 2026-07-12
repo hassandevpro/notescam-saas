@@ -16,7 +16,7 @@ import { resizeImageToSquare } from '../lib/image';
 import { TeachersPanel } from './Teachers';
 import StaffManager from '../components/StaffManager';
 import StaffAccessModal from '../components/StaffAccessModal';
-import GovernanceRolesManager from '../components/GovernanceRolesManager';
+import GovernanceCenter from '../components/GovernanceCenter';
 
 // Libellés + icônes des départements.
 function useDepartmentMeta() {
@@ -480,7 +480,7 @@ export default function Personnel() {
       {dep === ROLES_TAB
         ? <RolesPanel />
         : dep === GOV_TAB
-          ? <GovernanceRolesManager />
+          ? <GovernanceCenter />
           : dep === 'enseignants'
             ? <TeachersPanel />
             : <StaffDepartmentPanel key={dep} department={dep} label={meta[dep].label} />}

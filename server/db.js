@@ -108,6 +108,45 @@ ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités g
 ensureColumn('user_governance_roles', 'start_date', 'start_date TEXT');
 ensureColumn('user_governance_roles', 'end_date',   'end_date TEXT');
 ensureColumn('user_governance_roles', 'status',     "status TEXT NOT NULL DEFAULT 'active'");
+
+// Seed du CATALOGUE de rôles de gouvernance pour toute école qui n'en a pas
+// encore (miroir de supabase_governance_catalog.sql). Best-effort, idempotent.
+seedGovernanceCatalog();
+function seedGovernanceCatalog() {
+  const BUDGET_PAGES = ['/app/budgets', '/app/budget-global', '/app/depenses'];
+  const DIRECTION = ['/app/groupe', '/app/reports', ...BUDGET_PAGES];
+  const SECTOR_PERMS = ['budget.view', 'budget.prepare', 'budget.submit', 'expense.view', 'expense.prepare', 'expense.submit', 'budget.unlock.request'];
+  const ROLES = [
+    ['fondatrice', 'Fondatrice', 'Autorité suprême du complexe', 100, 'complex', null,
+      ['governance.manage', 'governance.view', 'budget.view', 'expense.view'], DIRECTION, ['group', 'budget-global'],
+      ['budget.validate.sector', 'budget.validate.finance', 'budget.approve', 'budget.close', 'budget.reopen', 'expense.approve', 'expense.reject', 'budget.unlock.decide']],
+    ['coordonnateur_general', 'Coordonnateur Général', 'Direction générale du complexe', 90, 'complex', null,
+      ['governance.manage', 'governance.view', 'budget.view', 'expense.view'], DIRECTION, ['group', 'budget-global'],
+      ['budget.validate.sector', 'budget.validate.finance', 'budget.approve', 'budget.close', 'budget.reopen', 'expense.approve', 'expense.reject', 'budget.unlock.decide']],
+    ['raf', 'Responsable Administratif et Financier (RAF)', 'Gestion administrative et financière', 80, 'complex', null,
+      ['governance.view', 'budget.view', 'budget.prepare', 'budget.submit', 'expense.view', 'budget.unlock.request'], DIRECTION, ['group', 'budget-global'],
+      ['budget.validate.finance', 'budget.close', 'expense.approve', 'expense.reject', 'expense.pay']],
+    ['principal', 'Principal', 'Chef du secteur collège', 60, 'sector', 'college', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], ['budget.validate.sector']],
+    ['directrice_primaire', 'Directrice du primaire', 'Chef du secteur primaire', 60, 'sector', 'primaire', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], ['budget.validate.sector']],
+    ['responsable_maternelle', 'Responsable de la maternelle', 'Chef du secteur maternelle', 60, 'sector', 'maternelle', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], ['budget.validate.sector']],
+    ['vice_principal', 'Vice-principal', 'Adjoint du secteur collège', 50, 'sector', 'college', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], []],
+    ['directrice_adjointe_primaire', 'Directrice adjointe du primaire', 'Adjointe du secteur primaire', 50, 'sector', 'primaire', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], []],
+    ['caissier', 'Caissier', 'Exécute les décaissements', 30, 'complex', null, ['budget.view', 'expense.view'], ['/app/depenses'], [], ['expense.pay']],
+  ];
+  try {
+    const schools = db.prepare('SELECT id FROM schools').all();
+    const ins = db.prepare(`INSERT OR IGNORE INTO governance_roles
+      (id, school_id, code, name, description, rank, scope, sector, permissions, pages, dashboards, workflows, active, is_system)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,1)`);
+    for (const s of schools) {
+      if (db.prepare('SELECT 1 FROM governance_roles WHERE school_id = ? LIMIT 1').get(s.id)) continue;
+      for (const r of ROLES) {
+        ins.run(randomUUID(), s.id, r[0], r[1], r[2], r[3], r[4], r[5],
+          JSON.stringify(r[6]), JSON.stringify(r[7]), JSON.stringify(r[8]), JSON.stringify(r[9]));
+      }
+    }
+  } catch { /* seed best-effort */ }
+}
 ensureColumn('budget_chapters', 'level', 'level TEXT'); // hiérarchie budget : category|chapter|subchapter (null = déduit de la profondeur)
 // Moteur de bulletin de l'établissement : 'classic' | 'officiel' (+ anciens drapeaux
 // minesec/minedub/apc… rétro-compatibles). Absente du schéma LAN d'origine → le

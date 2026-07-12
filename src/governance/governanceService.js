@@ -70,3 +70,32 @@ export async function revokeGovernanceRole(id) {
   if (error) { console.error('revokeGovernanceRole', error); return false; }
   return true;
 }
+
+// ── Édition du CATALOGUE (Phase 2 — admin uniquement) ────────────────────────
+// Crée (p_id null) ou met à jour un rôle. Le `code` est immuable après création
+// (protège les références du barème de validation). Renvoie { id } ou { error }.
+export async function upsertGovernanceRole(draft) {
+  const { data, error } = await supabase.rpc('admin_upsert_governance_role', {
+    p_id:          draft.id ?? null,
+    p_code:        draft.code,
+    p_name:        draft.name,
+    p_description: draft.description ?? null,
+    p_rank:        Number(draft.rank) || 0,
+    p_scope:       draft.scope || 'complex',
+    p_sector:      draft.sector || null,
+    p_permissions: draft.permissions || [],
+    p_pages:       draft.pages || [],
+    p_dashboards:  draft.dashboards || [],
+    p_workflows:   draft.workflows || [],
+    p_active:      draft.active !== false,
+  });
+  if (error) { console.error('upsertGovernanceRole', error); return { error }; }
+  return { id: data };
+}
+
+// Supprime un rôle personnalisé (les rôles système sont protégés → à désactiver).
+export async function deleteGovernanceRole(id) {
+  const { error } = await supabase.rpc('admin_delete_governance_role', { p_id: id });
+  if (error) { console.error('deleteGovernanceRole', error); return { error }; }
+  return { ok: true };
+}

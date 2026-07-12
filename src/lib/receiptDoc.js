@@ -38,13 +38,14 @@ function esc(s) {
  * @param {string}  opts.date          date du versement (ISO)
  * @param {string}  opts.mode          comptant | echelonne | libre
  * @param {string}  opts.cashierName   nom du caissier (utilisateur connecté)
+ * @param {string} [opts.designation]  libellé du frais payé (ex. « Cantine ») ; défaut « Frais de scolarité »
  * @param {string}  opts.lang          langue de l'école (anglophone…)
  * @param {string} [opts.currency]     devise (défaut FCFA)
  */
 // Construit le HTML complet du reçu (fonction PURE — testable, sans DOM).
 export function buildReceiptHtml({
   school, student, className, versement, newTotal, fraisAnnuels,
-  date, mode, cashierName, lang, currency,
+  date, mode, cashierName, lang, currency, designation,
 }) {
   const isGE   = resolveCountryCode(school) === 'guinea_eq';
   const isEn   = !isGE && lang === 'anglophone';
@@ -222,7 +223,7 @@ export function buildReceiptHtml({
           </thead>
           <tbody>
             <tr>
-              <td>${t('Frais de scolarité', 'Tuition fees', 'Cuota escolar')}</td>
+              <td>${designation ? esc(designation) : t('Frais de scolarité', 'Tuition fees', 'Cuota escolar')}</td>
               <td class="amt">${money(versement)}</td>
             </tr>
           </tbody>

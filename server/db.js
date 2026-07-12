@@ -104,6 +104,10 @@ ensureColumn('schools',  'validation_rules',  'validation_rules TEXT'); // barè
 ensureColumn('signalements', 'assigned_department', 'assigned_department TEXT'); // affectation auto du module Reports (dérivée de la catégorie)
 ensureColumn('fee_payments', 'student_fee_item_id', 'student_fee_item_id TEXT'); // lien paiement->frais précis (null = paiement global hérité)
 ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
+// Attributions de gouvernance : fenêtre de validité + statut (Phase 1 rôles).
+ensureColumn('user_governance_roles', 'start_date', 'start_date TEXT');
+ensureColumn('user_governance_roles', 'end_date',   'end_date TEXT');
+ensureColumn('user_governance_roles', 'status',     "status TEXT NOT NULL DEFAULT 'active'");
 ensureColumn('budget_chapters', 'level', 'level TEXT'); // hiérarchie budget : category|chapter|subchapter (null = déduit de la profondeur)
 // Moteur de bulletin de l'établissement : 'classic' | 'officiel' (+ anciens drapeaux
 // minesec/minedub/apc… rétro-compatibles). Absente du schéma LAN d'origine → le
@@ -127,6 +131,74 @@ for (const [col, ddl] of [
   ['photo_url', 'photo_url TEXT'], ['fonction', 'fonction TEXT'], ['hire_date', 'hire_date TEXT'],
   ['status', 'status TEXT'], ['documents', 'documents TEXT'],
 ]) ensureColumn('teachers', col, ddl);
+
+// --- Historisation des affectations élèves (Partie 1) -----------------
+// La table student_class_assignments (jadis simple journal) devient la SOURCE
+// DE VÉRITÉ des affectations. Colonnes ajoutées (nullables) + identifiant de
+// groupe stable + rattachement des données pédagogiques à l'affectation.
+ensureColumn('student_class_assignments', 'school_unit_id', 'school_unit_id TEXT'); // établissement du groupe
+ensureColumn('student_class_assignments', 'section',        'section TEXT');
+ensureColumn('student_class_assignments', 'date_debut',     'date_debut TEXT');
+ensureColumn('student_class_assignments', 'date_fin',       'date_fin TEXT');       // NULL = en cours
+ensureColumn('student_class_assignments', 'type_transfert', 'type_transfert TEXT'); // initial|changement_*|reconstruit
+ensureColumn('student_class_assignments', 'motif_cloture',  'motif_cloture TEXT');
+ensureColumn('student_class_assignments', 'commentaire',    'commentaire TEXT');
+ensureColumn('student_class_assignments', 'created_at',     'created_at TEXT');
+ensureColumn('students', 'group_student_id', 'group_student_id TEXT'); // identité stable au niveau groupe
+// Rattachement (nullable, sans FK dure — cohérent avec le reste du schéma LAN).
+ensureColumn('grades',           'assignment_id', 'assignment_id TEXT');
+ensureColumn('student_absences', 'assignment_id', 'assignment_id TEXT');
+ensureColumn('student_fees',     'assignment_id', 'assignment_id TEXT');
+
+// Backfill idempotent : miroir exact de supabase_student_assignments.sql, en
+// SQLite (sous-requêtes corrélées pour rester portable). Rejouable à chaque
+// démarrage sans doublon (COALESCE + garde NOT EXISTS sur l'affectation en cours).
+try {
+  db.exec(`
+    -- 4. Identifiant de groupe (distinct par élève, randomblob appelé par ligne)
+    UPDATE students SET group_student_id = lower(hex(randomblob(16)))
+     WHERE group_student_id IS NULL;
+
+    -- 5a. Enrichit les lignes existantes depuis leur classe + date_debut/type
+    UPDATE student_class_assignments AS a SET
+      class_name     = COALESCE(class_name,     (SELECT c.name    FROM classes c WHERE c.id = a.class_id)),
+      section        = COALESCE(section,        (SELECT c.section FROM classes c WHERE c.id = a.class_id)),
+      school_unit_id = COALESCE(school_unit_id, (SELECT c.unit_id FROM classes c WHERE c.id = a.class_id)),
+      date_debut     = COALESCE(date_debut, assigned_at),
+      type_transfert = COALESCE(type_transfert, 'reconstruit');
+
+    -- 5b. Ferme les lignes ayant une ligne postérieure du même élève
+    UPDATE student_class_assignments AS a
+       SET date_fin = (SELECT MIN(b.assigned_at) FROM student_class_assignments b
+                        WHERE b.student_id = a.student_id AND b.assigned_at > a.assigned_at)
+     WHERE a.date_fin IS NULL
+       AND EXISTS (SELECT 1 FROM student_class_assignments b
+                    WHERE b.student_id = a.student_id AND b.assigned_at > a.assigned_at);
+
+    -- 5c. Réconcilie la dernière ligne ouverte si sa classe ≠ source de vérité
+    UPDATE student_class_assignments AS a
+       SET date_fin = datetime('now')
+     WHERE a.date_fin IS NULL
+       AND a.class_id IS NOT (SELECT s.class_id FROM students s WHERE s.id = a.student_id);
+
+    -- 5d. Crée l'affectation EN COURS pour tout élève qui n'en a pas
+    INSERT INTO student_class_assignments (
+      id, school_id, student_id, class_id, class_name, section, school_unit_id,
+      date_debut, date_fin, type_transfert, reason, assigned_at, created_at
+    )
+    SELECT lower(hex(randomblob(16))), s.school_id, s.id, s.class_id,
+           (SELECT c.name FROM classes c WHERE c.id = s.class_id),
+           (SELECT c.section FROM classes c WHERE c.id = s.class_id),
+           (SELECT c.unit_id FROM classes c WHERE c.id = s.class_id),
+           COALESCE(s.created_at, datetime('now')), NULL, 'initial',
+           'Migration : affectation initiale', datetime('now'), datetime('now')
+      FROM students s
+     WHERE NOT EXISTS (SELECT 1 FROM student_class_assignments a
+                        WHERE a.student_id = s.id AND a.date_fin IS NULL);
+  `);
+} catch (e) {
+  console.warn('[migration] affectations élèves (backfill) :', e.message);
+}
 
 // --- Seed du référentiel officiel (MINEDUB + MINESEC) -----------------
 // Peuple les tables « référentiel » (cycles/classes/matières/compétences APC,
@@ -163,8 +235,8 @@ export const SYNCED_TABLES = new Set([
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   // Catalogue de frais (obligatoires/optionnels) + liste par élève.
   'fee_catalog', 'student_fee_items',
-  // Gouvernance du complexe — attribution des rôles de direction.
-  'user_governance_roles',
+  // Gouvernance du complexe — catalogue de rôles + attribution + historique.
+  'governance_roles', 'user_governance_roles', 'governance_role_history',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
   // Notes du moteur officiel (compétences/observations). Synchro LAN↔LAN OK (même
@@ -222,7 +294,8 @@ export function tableColumns(table) {
 export const ALLOWED_TABLES = new Set([
   'schools', 'school_units', 'school_users', 'classes', 'subjects', 'students', 'grades',
   'teachers', 'staff', 'student_fees', 'fee_payments', 'class_fee_grids',
-  'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests', 'user_governance_roles',
+  'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',
+  'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
   'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',

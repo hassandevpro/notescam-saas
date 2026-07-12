@@ -10,7 +10,8 @@ import { useT } from '../lib/i18n';
 import { useMoney } from '../lib/useMoney';
 import { consolidate } from '../lib/groupStatsEngine';
 import { fetchGroupData } from '../lib/groupDashboardService';
-import { fetchUserGovernanceRoles } from '../governance/governanceService';
+import { canSeeDashboard } from '../governance/governanceEngine';
+import { catalogOrDefault } from '../governance/defaultCatalog';
 import { SECTOR_LABELS } from '../components/budgets/budgetUi';
 
 const ALERT_COLOR = {
@@ -24,7 +25,9 @@ export default function GroupDashboard() {
   const money = useMoney();
   const school = useAuthStore((s) => s.school);
   const role = useAuthStore((s) => s.role);
-  const userId = useAuthStore((s) => s.user?.id);
+  const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
+  const assignments = useAuthStore((s) => s.governanceAssignments);
+  const catalog = useMemo(() => catalogOrDefault(governanceCatalog), [governanceCatalog]);
   const schoolId = school?.id;
   const year = school?.current_year || '';
 
@@ -35,7 +38,6 @@ export default function GroupDashboard() {
   const units = useSchoolStore((s) => s.schoolUnits);
 
   const [remote, setRemote] = useState(null);
-  const [govRoles, setGovRoles] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -46,12 +48,9 @@ export default function GroupDashboard() {
     try { const c = JSON.parse(localStorage.getItem(cacheKey) || 'null'); if (c) { setRemote(c); setLoading(false); } } catch { /* ignore */ }
     (async () => {
       try {
-        const [data, gr] = await Promise.all([
-          fetchGroupData(schoolId, { yearLabel: year }),
-          userId ? fetchUserGovernanceRoles(schoolId, userId) : Promise.resolve([]),
-        ]);
+        const data = await fetchGroupData(schoolId, { yearLabel: year });
         if (!alive) return;
-        setRemote(data); setGovRoles((gr || []).map((x) => x.role));
+        setRemote(data);
         if (data && (data.budgets?.length || data.expenses?.length || data.reports?.length)) {
           try { localStorage.setItem(cacheKey, JSON.stringify(data)); } catch { /* quota */ }
         }
@@ -59,15 +58,15 @@ export default function GroupDashboard() {
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [schoolId, year, userId]);
+  }, [schoolId, year]);
 
   const stats = useMemo(() => remote ? consolidate({
     fees, students, classes, staff, units, ...remote,
   }) : null, [remote, fees, students, classes, staff, units]);
 
-  // Audience : direction générale (admin, ou rôle Coordonnateur/Fondatrice).
-  const isGeneralDirection = role === 'admin'
-    || govRoles.some((r) => r === 'fondatrice' || r === 'coordonnateur_general');
+  // Audience : direction générale (admin, ou rôle dont le catalogue associe le
+  // dashboard 'group'). Aucun nom de rôle codé en dur.
+  const isGeneralDirection = canSeeDashboard(role, catalog, assignments, 'group');
 
   if (loading) {
     return <Layout><div className="text-gray-400 text-sm py-20 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;

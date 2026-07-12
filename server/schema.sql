@@ -406,6 +406,46 @@ CREATE TABLE IF NOT EXISTS user_governance_roles (
 );
 CREATE INDEX IF NOT EXISTS idx_ugr_user ON user_governance_roles(school_id, user_id);
 
+-- Catalogue de rôles CONFIGURABLE par école (miroir de supabase_governance_catalog.sql).
+-- Le moteur (src/governance/governanceEngine.js) en dérive permissions/menus/dashboards.
+CREATE TABLE IF NOT EXISTS governance_roles (
+  id          TEXT PRIMARY KEY,
+  school_id   TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  code        TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  description TEXT,
+  rank        INTEGER NOT NULL DEFAULT 0,
+  scope       TEXT NOT NULL DEFAULT 'complex',
+  sector      TEXT,
+  permissions TEXT NOT NULL DEFAULT '[]',
+  pages       TEXT NOT NULL DEFAULT '[]',
+  dashboards  TEXT NOT NULL DEFAULT '[]',
+  workflows   TEXT NOT NULL DEFAULT '[]',
+  active      INTEGER NOT NULL DEFAULT 1,
+  is_system   INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (school_id, code)
+);
+CREATE INDEX IF NOT EXISTS idx_gov_roles_school ON governance_roles(school_id);
+
+-- Historique des changements de rôle.
+CREATE TABLE IF NOT EXISTS governance_role_history (
+  id          TEXT PRIMARY KEY,
+  school_id   TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL,
+  role_code   TEXT NOT NULL,
+  action      TEXT NOT NULL,
+  sector      TEXT,
+  start_date  TEXT,
+  end_date    TEXT,
+  actor_id    TEXT,
+  actor_name  TEXT,
+  detail      TEXT NOT NULL DEFAULT '{}',
+  at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_gov_hist_school ON governance_role_history(school_id, at);
+
 -- --- Catalogue de frais (obligatoires / optionnels) ----------
 -- Configurable par établissement. student_fee_items = liste de frais par élève.
 CREATE TABLE IF NOT EXISTS fee_catalog (

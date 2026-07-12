@@ -26,7 +26,10 @@ import UnlockDecisionModal from '../components/expenses/UnlockDecisionModal';
 import { loadWithCache } from '../lib/offlineCache';
 import { resolveValidatorRole } from '../governance/validationEngine';
 import { getGovernanceRole } from '../governance/roles';
-import { fetchUserGovernanceRoles } from '../governance/governanceService';
+import { hasPermission, canValidateAmount, coveredSectors } from '../governance/governanceEngine';
+import { catalogOrDefault } from '../governance/defaultCatalog';
+import { GOV_PERM } from '../governance/permissions';
+import { roleBudgetQueues } from '../governance/dashboard';
 
 export default function Expenses() {
   const t = useT();
@@ -36,6 +39,10 @@ export default function Expenses() {
   const role = useAuthStore((s) => s.role);
   const fullName = useAuthStore((s) => s.fullName);
   const userId = useAuthStore((s) => s.user?.id);
+  const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
+  const assignments = useAuthStore((s) => s.governanceAssignments);
+  const govRows = useAuthStore((s) => s.governanceRoleRows); // affectations ACTIVES
+  const catalog = useMemo(() => catalogOrDefault(governanceCatalog), [governanceCatalog]);
   const schoolId = school?.id;
   const activeYear = school?.current_year || '';
   const startMonth = school?.school_year_start_month || DEFAULT_SCHOOL_YEAR_START_MONTH;
@@ -46,7 +53,6 @@ export default function Expenses() {
   const [chapters, setChapters]   = useState([]);
   const [expenses, setExpenses]   = useState([]);
   const [requests, setRequests]   = useState([]);
-  const [govRoles, setGovRoles]   = useState([]);
   const [loading, setLoading]     = useState(true);
   const [modal, setModal]         = useState(null);        // dépense
   const [cancelModal, setCancelModal] = useState(null);    // { expense } — annulation tracée
@@ -60,20 +66,42 @@ export default function Expenses() {
   const [fFrom, setFFrom]         = useState('');
   const [fTo, setFTo]             = useState('');
 
-  // Décideurs du déblocage : Coordonnateur Général ou Fondatrice (ou admin en repli).
+  // Décideur du déblocage : détenteur de la permission UNLOCK_DECIDE (ou admin).
   const canDecideUnlock = canManage
-    || govRoles.some((r) => r === 'fondatrice' || r === 'coordonnateur_general');
-
-  useEffect(() => {
-    if (!schoolId || !userId) return;
-    fetchUserGovernanceRoles(schoolId, userId).then((rs) => setGovRoles((rs || []).map((x) => x.role)));
-  }, [schoolId, userId]);
+    || hasPermission(role, catalog, assignments, GOV_PERM.UNLOCK_DECIDE);
 
   // Validateur requis pour un montant (moteur générique + barème de l'école).
   const requiredValidator = useCallback((amount) => {
     const roleId = resolveValidatorRole(school?.validation_rules, 'expense', amount);
     return roleId ? getGovernanceRole(roleId) : null;
   }, [school?.validation_rules]);
+
+  // ── Gating gouvernance (Phase F) — ne modifie PAS le métier ─────────────────
+  // Créer/modifier une dépense (brouillon) = permission EXPENSE_PREPARE (rôles de
+  // secteur, caissier) ou admin. Les seuils/déblocage restent réservés admin
+  // (canManage) et Fondatrice/Coordonnateur (canDecideUnlock), inchangés.
+  const canPrepare = hasPermission(role, catalog, assignments, GOV_PERM.EXPENSE_PREPARE);
+  // Permission requise pour ATTEINDRE un statut cible.
+  const PERM_FOR_TARGET = {
+    submitted: GOV_PERM.EXPENSE_SUBMIT,
+    approved:  GOV_PERM.EXPENSE_APPROVE,
+    paid:      GOV_PERM.EXPENSE_PAY,
+    rejected:  GOV_PERM.EXPENSE_REJECT,
+  };
+  // Peut-on déclencher la transition vers `target` pour cette dépense ? La validité
+  // de la transition (canTransition, expenseEngine) reste maître ; on n'ajoute QUE
+  // la permission de rôle, ET — pour l'approbation — l'habilitation au MONTANT
+  // (resolveValidatorRole via actorCanValidate). ET logique, jamais l'un sans l'autre.
+  const canActTransition = useCallback((e, target) => {
+    if (role === 'admin') return true; // accès complet préservé (aucune régression)
+    const perm = PERM_FOR_TARGET[target];
+    if (!perm || !hasPermission(role, catalog, assignments, perm)) return false;
+    if (target === 'approved') {
+      // Habilitation au MONTANT (palier exact + recours hiérarchique par rang).
+      return canValidateAmount(role, catalog, assignments, school?.validation_rules, e?.amount);
+    }
+    return true;
+  }, [role, catalog, assignments, school?.validation_rules]);
 
   const budget = budgets.find((b) => b.id === budgetId) || null;
   const activeBudget = useMemo(() => getActiveBudget(budgets, new Date(), startMonth), [budgets, startMonth]);
@@ -206,7 +234,8 @@ export default function Expenses() {
 
   const applyDecision = async (dec, { grantedAmount, note }) => {
     const req = decision.request;
-    const decidedRole = govRoles.find((r) => r === 'fondatrice' || r === 'coordonnateur_general') || (canManage ? 'admin' : '');
+    const decidedRole = govRows.find((r) => hasPermission(role, catalog, [r], GOV_PERM.UNLOCK_DECIDE))?.role
+      || (canManage ? 'admin' : '');
     const chapter = chapters.find((c) => c.id === req.budget_chapter_id) || null;
     const saved = await decideUnlockRequest(req, dec, {
       grantedAmount, note, decidedBy: fullName || '', decidedById: userId || '', decidedRole, chapter,
@@ -271,11 +300,43 @@ export default function Expenses() {
 
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
 
+  // Dashboard personnalisé : file d'actions propres au rôle courant (catalogue).
+  const covered = useMemo(() => coveredSectors(role, catalog, assignments), [role, catalog, assignments]);
+  const queues = useMemo(() => roleBudgetQueues({
+    role, catalog, assignments, expenses, unlockRequests: requests,
+    validationRules: school?.validation_rules, covered,
+  }), [role, catalog, assignments, expenses, requests, school?.validation_rules, covered]);
+
   const btn = 'px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors';
 
   return (
     <Layout>
       <div className="max-w-6xl mx-auto">
+        {/* Dashboard personnalisé (F3) : mes actions en attente + périmètre secteur. */}
+        {(queues.counts.toValidate + queues.counts.toPay + queues.counts.unlocksToDecide > 0 || covered) && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+            {covered && (
+              <span className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-1.5 text-amber-800">
+                🔒 {t('Secteur', 'Sector', 'Sector')} : <span className="font-semibold">{covered.map((s) => t(...(SECTOR_LABELS[s] || [s]))).join(', ')}</span>
+              </span>
+            )}
+            {queues.counts.toValidate > 0 && (
+              <span className="rounded-lg bg-indigo-50 border border-indigo-200 px-3 py-1.5 text-indigo-800 font-semibold">
+                {queues.counts.toValidate} {t('à valider', 'to approve', 'por validar')}
+              </span>
+            )}
+            {queues.counts.toPay > 0 && (
+              <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-emerald-800 font-semibold">
+                {queues.counts.toPay} {t('à décaisser', 'to disburse', 'por desembolsar')}
+              </span>
+            )}
+            {queues.counts.unlocksToDecide > 0 && (
+              <span className="rounded-lg bg-rose-50 border border-rose-200 px-3 py-1.5 text-rose-800 font-semibold">
+                {queues.counts.unlocksToDecide} {t('déblocage(s) à décider', 'unlock(s) to decide', 'desbloqueo(s) por decidir')}
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
           <div>
             <h1 className="text-xl font-bold text-gray-900">{t('Dépenses', 'Expenses', 'Gastos')}</h1>
@@ -298,7 +359,7 @@ export default function Expenses() {
                 ⚙ {t('Seuils', 'Thresholds', 'Umbrales')}
               </button>
             )}
-            {canManage && budget && (
+            {canPrepare && budget && (
               <button className={`${btn} text-white bg-indigo-600 hover:bg-indigo-700`}
                 onClick={() => setModal({ expense: null })}>
                 + {t('Dépense', 'Expense', 'Gasto')}
@@ -478,9 +539,11 @@ export default function Expenses() {
                             )}
                           </td>
                           <td className="px-4 py-2">
-                            {canManage && (
+                            {(canManage || govRows.length > 0) && (
                               <div className="flex items-center justify-end gap-1 flex-wrap">
-                                {nexts.map((s) => (
+                                {/* Transitions filtrées par PERMISSION (+ montant pour l'approbation).
+                                    La validité métier de la transition (canTransition) est déjà dans `nexts`. */}
+                                {nexts.filter((s) => canActTransition(e, s)).map((s) => (
                                   <button key={s} onClick={() => changeStatus(e, s)}
                                     className="text-[11px] px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-700">
                                     {t(...(TRANSITION_LABEL[s] || [s]))}
@@ -490,14 +553,14 @@ export default function Expenses() {
                                   <button onClick={() => printVoucher(e)} title={t('Imprimer le bon de dépense', 'Print expense voucher', 'Imprimir comprobante')}
                                     className="text-[11px] px-2 py-1 text-gray-400 hover:text-indigo-600">🖨</button>
                                 )}
-                                {!isExpenseLocked(e) && (
+                                {canPrepare && !isExpenseLocked(e) && (
                                   <button onClick={() => setModal({ expense: e })} title={t('Modifier', 'Edit', 'Editar')}
                                     className="text-[11px] px-2 py-1 text-gray-400 hover:text-gray-700">✎</button>
                                 )}
-                                {canHardDelete(e.status) ? (
+                                {canPrepare && canHardDelete(e.status) ? (
                                   <button onClick={() => removeExpense(e)} title={t('Supprimer le brouillon', 'Delete draft', 'Eliminar borrador')}
                                     className="text-[11px] px-2 py-1 text-rose-400 hover:text-rose-600">✕</button>
-                                ) : isCancellable(e.status) ? (
+                                ) : canPrepare && isCancellable(e.status) ? (
                                   <button onClick={() => setCancelModal({ expense: e })} title={t('Annuler (conservée dans l’historique)', 'Cancel (kept in history)', 'Anular (conservada en el historial)')}
                                     className="text-[11px] px-2 py-1 rounded text-rose-600 hover:bg-rose-50 font-semibold">
                                     {t('Annuler', 'Cancel', 'Anular')}

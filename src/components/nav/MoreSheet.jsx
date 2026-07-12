@@ -14,6 +14,8 @@ import { roleLabel } from '../../lib/roleLabel';
 export default function MoreSheet({ open, onClose, onLogout }) {
   const role = useAuthStore((s) => s.role);
   const permissions = useAuthStore((s) => s.permissions);
+  const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
+  const governanceAssignments = useAuthStore((s) => s.governanceAssignments);
   const fullName = useAuthStore((s) => s.fullName);
   const photoUrl = useAuthStore((s) => s.photoUrl);
   const unreadCount = useNotificationsStore((s) => s.unreadCount);
@@ -23,7 +25,7 @@ export default function MoreSheet({ open, onClose, onLogout }) {
   const { f } = usePlan();
 
   if (!open) return null;
-  const groups = getNavGroups(role, f, permissions);
+  const groups = getNavGroups(role, f, permissions, { catalog: governanceCatalog, assignments: governanceAssignments });
 
   return (
     <div className="fixed inset-0 z-[70] md:hidden" role="dialog" aria-modal="true">

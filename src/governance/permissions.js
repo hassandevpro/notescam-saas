@@ -67,6 +67,7 @@ export const GOVERNANCE_GRANTS = {
   // Adjoints : préparent et soumettent (aval réservé au titulaire du secteur).
   directrice_adjointe_primaire: [P.BUDGET_VIEW, P.BUDGET_PREPARE, P.BUDGET_SUBMIT, P.EXPENSE_VIEW, P.EXPENSE_PREPARE, P.EXPENSE_SUBMIT, P.UNLOCK_REQUEST],
   vice_principal:               [P.BUDGET_VIEW, P.BUDGET_PREPARE, P.BUDGET_SUBMIT, P.EXPENSE_VIEW, P.EXPENSE_PREPARE, P.EXPENSE_SUBMIT, P.UNLOCK_REQUEST],
-  // Caissier : prépare la dépense et EXÉCUTE le paiement ; n'est PAS un valideur.
-  caissier: [P.BUDGET_VIEW, P.BUDGET_PREPARE, P.EXPENSE_VIEW, P.EXPENSE_PREPARE, P.EXPENSE_SUBMIT, P.EXPENSE_PAY, P.UNLOCK_REQUEST],
+  // Caissier : CONSULTE et EXÉCUTE le décaissement (approved → paid). Ne crée ni ne
+  // modifie budget/dépense, n'est PAS un valideur (Phase F, décision + brief F1/F3/F4).
+  caissier: [P.BUDGET_VIEW, P.EXPENSE_VIEW, P.EXPENSE_PAY],
 };

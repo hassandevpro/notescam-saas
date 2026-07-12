@@ -24,6 +24,8 @@
 //   - Surveillance      : Analyses  → Vie scolaire
 // ─────────────────────────────────────────────────────────────────────────────
 import { isPathPermitted } from './capabilities';
+import { effectivePages } from '../governance/governanceEngine';
+import { catalogOrDefault } from '../governance/defaultCatalog';
 
 export const ROLES = {
   ADMIN: 'admin',
@@ -113,14 +115,15 @@ export const NAV_GROUPS = [
     items: [
       { to: '/app/fees', icon: 'fees', label: ['Frais scolaires', 'School Fees', 'Tasas escolares'],
         roles: ['admin', 'censeur'], feature: 'hasFees' },
-      { to: '/app/frais-catalogue', icon: 'fees', label: ['Catalogue des frais', 'Fee catalog', 'Catálogo de tasas'],
-        roles: ['admin', 'censeur'] },
+      // Catalogue des frais : désormais un onglet DANS « Frais scolaires » (près
+      // des Grilles tarifaires), plus une entrée de menu autonome. Route
+      // /app/frais-catalogue conservée (liens profonds).
       { to: '/app/budgets', icon: 'reports', label: ['Budgets', 'Budgets', 'Presupuestos'],
-        roles: ['admin'] },
+        roles: ['admin'], budgetAccess: true },
       { to: '/app/budget-global', icon: 'reports', label: ['Budget global & prévisions', 'Global budget & forecast', 'Presupuesto global'],
-        roles: ['admin'] },
+        roles: ['admin'], budgetAccess: true },
       { to: '/app/depenses', icon: 'fees', label: ['Dépenses', 'Expenses', 'Gastos'],
-        roles: ['admin'] },
+        roles: ['admin'], budgetAccess: true },
     ],
   },
   {
@@ -182,11 +185,17 @@ function visibleForRole(item, role) {
  * @param {string} role
  * @param {object} f  features de plan (usePlan().f)
  */
-export function getNavGroups(role, f = {}, permissions = null) {
+export function getNavGroups(role, f = {}, permissions = null, gov = {}) {
   // Compte délégué : la navigation reflète EXACTEMENT ses capacités (les
   // permissions font autorité, le rôle de base n'entre plus en jeu).
   const delegated = permissions && permissions.length;
-  const visible = (it) => delegated ? isPathPermitted(it.to, permissions) : visibleForRole(it, role);
+  // Pages ouvertes par les rôles de GOUVERNANCE (dérivées du catalogue, dates +
+  // statut appliqués). Additif : passe outre `roles`/permissions pour ces pages.
+  const govPages = effectivePages(role, catalogOrDefault(gov.catalog), gov.assignments || []);
+  const visible = (it) => {
+    if (govPages.has(it.to)) return true;
+    return delegated ? isPathPermitted(it.to, permissions) : visibleForRole(it, role);
+  };
   return NAV_GROUPS
     .map((group) => ({
       ...group,
@@ -202,8 +211,8 @@ export function getNavGroups(role, f = {}, permissions = null) {
  * On prend les items `mobilePrimary` visibles ; on complète si le rôle en a
  * moins de 4 (ex. teacher) avec ses premiers items disponibles.
  */
-export function getMobilePrimary(role, f = {}, max = 4, permissions = null) {
-  const groups = getNavGroups(role, f, permissions);
+export function getMobilePrimary(role, f = {}, max = 4, permissions = null, gov = {}) {
+  const groups = getNavGroups(role, f, permissions, gov);
   const flat = groups.flatMap((g) => g.items);
   const primary = flat.filter((it) => it.mobilePrimary);
   const result = [...primary];

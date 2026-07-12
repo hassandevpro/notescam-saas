@@ -23,6 +23,9 @@ import { useConfirm } from '../components/ConfirmDialog';
 import { toast } from '../store/toastStore';
 import { STATUS_UI, SECTOR_LABELS, periodLabel } from '../components/budgets/budgetUi';
 import { loadWithCache } from '../lib/offlineCache';
+import { hasPermission } from '../governance/governanceEngine';
+import { catalogOrDefault } from '../governance/defaultCatalog';
+import { GOV_PERM } from '../governance/permissions';
 
 function StatusBadge({ status, t }) {
   const ui = STATUS_UI[status] || STATUS_UI.draft;
@@ -39,11 +42,16 @@ export default function Budgets() {
   const { confirm, dialog: confirmDialog } = useConfirm();
   const school = useAuthStore((s) => s.school);
   const role = useAuthStore((s) => s.role);
+  const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
+  const assignments = useAuthStore((s) => s.governanceAssignments);
+  const catalog = useMemo(() => catalogOrDefault(governanceCatalog), [governanceCatalog]);
   const fullName = useAuthStore((s) => s.fullName);
   const schoolId = school?.id;
   const activeYear = school?.current_year || '';
   const startMonth = school?.school_year_start_month || DEFAULT_SCHOOL_YEAR_START_MONTH;
-  const canManage = role === 'admin';
+  // Gestion (créer/modifier budget + préparer chapitres) = admin OU rôle habilité
+  // (permission BUDGET_PREPARE). Les autres rôles accèdent en CONSULTATION seule.
+  const canManage = hasPermission(role, catalog, assignments, GOV_PERM.BUDGET_PREPARE);
 
   const [budgets, setBudgets]   = useState([]);
   const [selectedId, setSelectedId] = useState(null);

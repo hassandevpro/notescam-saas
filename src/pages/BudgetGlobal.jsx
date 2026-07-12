@@ -13,6 +13,9 @@ import {
 import { budgetPeriodBounds, periodDatesLabel, DEFAULT_SCHOOL_YEAR_START_MONTH } from '../lib/budgetEngine';
 import { SECTOR_LABELS } from '../components/budgets/budgetUi';
 import { Donut, RadialGauge, Legend, ProgressBar } from '../components/charts/Charts';
+import { coveredSectors } from '../governance/governanceEngine';
+import { catalogOrDefault } from '../governance/defaultCatalog';
+import { filterBudgetDataBySector } from '../governance/dashboard';
 
 const PALETTE = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#14b8a6', '#ef4444'];
 
@@ -20,9 +23,15 @@ export default function BudgetGlobal() {
   const t = useT();
   const money = useMoney();
   const school = useAuthStore((s) => s.school);
+  const role = useAuthStore((s) => s.role);
+  const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
+  const assignments = useAuthStore((s) => s.governanceAssignments);
+  const catalog = useMemo(() => catalogOrDefault(governanceCatalog), [governanceCatalog]);
   const fees = useSchoolStore((s) => s.fees);
   const schoolId = school?.id;
   const year = school?.current_year || '';
+  // Un chef de secteur ne voit QUE son secteur (null = tous, admin/transverse).
+  const covered = useMemo(() => coveredSectors(role, catalog, assignments), [role, catalog, assignments]);
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -59,10 +68,13 @@ export default function BudgetGlobal() {
   const bounds = useMemo(() => budgetPeriodBounds({ academic_year: year, period_type: 'annuel' }, startMonth), [year, startMonth]);
   const pos = useMemo(() => exercisePosition(bounds, new Date()), [bounds]);
   const f = pos.fraction;
-  const g = useMemo(() => data ? globalBudget(data.budgets, data.chapters, data.expenses) : null, [data]);
+  // Données bornées au secteur de l'utilisateur AVANT les moteurs (moteurs métier
+  // inchangés : on ne fait que leur passer un sous-ensemble). admin/transverse → tout.
+  const scoped = useMemo(() => filterBudgetDataBySector(data, covered), [data, covered]);
+  const g = useMemo(() => scoped ? globalBudget(scoped.budgets, scoped.chapters, scoped.expenses) : null, [scoped]);
   const fc = useMemo(() => g ? forecast(g, f) : null, [g, f]);
   const ff = useMemo(() => feeForecast(fees, f), [fees, f]);
-  const top = useMemo(() => data ? topExpenseChapters(data.chapters, data.expenses) : [], [data]);
+  const top = useMemo(() => scoped ? topExpenseChapters(scoped.chapters, scoped.expenses) : [], [scoped]);
 
   if (loading) {
     return <Layout><div className="text-gray-400 text-sm py-24 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;
@@ -81,6 +93,12 @@ export default function BudgetGlobal() {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto">
+        {covered && (
+          <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-2 text-sm text-amber-800">
+            🔒 {t('Vue limitée à votre secteur', 'View limited to your sector', 'Vista limitada a su sector')} :{' '}
+            <span className="font-semibold">{covered.map((s) => t(...(SECTOR_LABELS[s] || [s]))).join(', ')}</span>
+          </div>
+        )}
         <div className="mb-5">
           <h1 className="text-2xl font-bold text-gray-900">{t('Budget global', 'Global budget', 'Presupuesto global')}</h1>
           <p className="text-sm text-gray-500 mt-1">

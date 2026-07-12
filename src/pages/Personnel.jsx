@@ -16,6 +16,7 @@ import { resizeImageToSquare } from '../lib/image';
 import { TeachersPanel } from './Teachers';
 import StaffManager from '../components/StaffManager';
 import StaffAccessModal from '../components/StaffAccessModal';
+import GovernanceRolesManager from '../components/GovernanceRolesManager';
 
 // Libellés + icônes des départements.
 function useDepartmentMeta() {
@@ -437,6 +438,7 @@ export default function Personnel() {
   const [dep, setDep] = useState('enseignants');
 
   const ROLES_TAB = 'roles';
+  const GOV_TAB = 'gouvernance';
   const countFor = (d) => d === 'enseignants' ? teachers.length : staff.filter((m) => m.department === d).length;
 
   return (
@@ -467,13 +469,21 @@ export default function Personnel() {
           <span>🔑</span>
           {t('Rôles & accès', 'Roles & access', 'Roles y acceso')}
         </button>
+        <button onClick={() => setDep(GOV_TAB)}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
+            dep === GOV_TAB ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <span>🏛️</span>
+          {t('Gouvernance', 'Governance', 'Gobernanza')}
+        </button>
       </div>
 
       {dep === ROLES_TAB
         ? <RolesPanel />
-        : dep === 'enseignants'
-          ? <TeachersPanel />
-          : <StaffDepartmentPanel key={dep} department={dep} label={meta[dep].label} />}
+        : dep === GOV_TAB
+          ? <GovernanceRolesManager />
+          : dep === 'enseignants'
+            ? <TeachersPanel />
+            : <StaffDepartmentPanel key={dep} department={dep} label={meta[dep].label} />}
     </Layout>
   );
 }

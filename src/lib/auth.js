@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { activeAssignments } from '../governance/governanceEngine';
 
 /**
  * Récupère la session active (ou null).
@@ -114,6 +115,25 @@ export async function getCurrentUserContext() {
     if (teacherRow) { teacherId = teacherRow.id; specialty = teacherRow.specialty ?? null; }
   }
 
+  // Gouvernance (additive) : CATALOGUE de rôles de l'école + AFFECTATIONS de ce
+  // compte (avec secteur/dates/statut). Le moteur en dérive permissions, menus,
+  // routes, dashboards et validations. Best-effort : tableaux vides si migration
+  // absente / hors-ligne (le moteur retombe alors sur le catalogue par défaut).
+  let governanceCatalog = [];
+  let governanceAssignments = [];
+  try {
+    const [cat, asg] = await Promise.all([
+      supabase.from('governance_roles').select('*').eq('school_id', data.school_id),
+      supabase.from('user_governance_roles')
+        .select('role, sector, start_date, end_date, status')
+        .eq('school_id', data.school_id).eq('user_id', user.id),
+    ]);
+    if (Array.isArray(cat.data)) governanceCatalog = cat.data;
+    if (Array.isArray(asg.data)) governanceAssignments = asg.data.filter((r) => r && r.role);
+  } catch { /* tables absentes / hors-ligne → gouvernance par défaut */ }
+  // Compat : lignes/ids des rôles ACTIFS maintenant (dates + statut respectés).
+  const governanceRoleRows = activeAssignments(governanceAssignments);
+
   return {
     user,
     school:       data.schools,
@@ -127,6 +147,11 @@ export async function getCurrentUserContext() {
     classId:      data.class_id,
     schoolUserId: data.id,
     teacherId,
+    // Gouvernance : catalogue de l'école + affectations (toutes) + dérivés actifs.
+    governanceCatalog,
+    governanceAssignments,
+    governanceRoles:    governanceRoleRows.map((r) => r.role),
+    governanceRoleRows,
     // Périmètre vie scolaire (null si migration non appliquée → accès global).
     scope: {
       sections: data.scope_sections  ?? null,

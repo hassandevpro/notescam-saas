@@ -12,6 +12,7 @@ import { installDocumentScaleVars } from './lib/documentScaleVars';
 installDocumentScaleVars();
 import ProtectedRoute from './components/ProtectedRoute';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
+import ToastHost from './components/ToastHost';
 import OnboardingWizard from './components/OnboardingWizard';
 import LanLicenseGate from './components/LanLicenseGate';
 import CloudActivationWizard from './components/CloudActivationWizard';
@@ -36,11 +37,22 @@ const Transcripts   = lazy(() => import('./pages/Transcripts'));
 const VerifyTranscript = lazy(() => import('./pages/VerifyTranscript'));
 const Teachers      = lazy(() => import('./pages/Teachers'));
 const Personnel     = lazy(() => import('./pages/Personnel'));
+const HR            = lazy(() => import('./pages/HR'));
+const Signalements  = lazy(() => import('./pages/Signalements'));
+const Notifications = lazy(() => import('./pages/Notifications'));
+const GroupDashboard = lazy(() => import('./pages/GroupDashboard'));
+const Assets        = lazy(() => import('./pages/Assets'));
 const Settings      = lazy(() => import('./pages/Settings'));
 const Profile       = lazy(() => import('./pages/Profile'));
+// Module « Seed Data » — chargé UNIQUEMENT en mode Développement (tree-shaké en prod).
+const SeedData      = import.meta.env.DEV ? lazy(() => import('./pages/SeedData')) : null;
 const AcademicYear  = lazy(() => import('./pages/AcademicYear'));
 const Reports        = lazy(() => import('./pages/Reports'));
 const Fees           = lazy(() => import('./pages/Fees'));
+const Budgets        = lazy(() => import('./pages/Budgets'));
+const BudgetGlobal   = lazy(() => import('./pages/BudgetGlobal'));
+const FeeCatalog     = lazy(() => import('./pages/FeeCatalog'));
+const Expenses       = lazy(() => import('./pages/Expenses'));
 const TeacherMonitor    = lazy(() => import('./pages/TeacherMonitor'));
 const Absences          = lazy(() => import('./pages/Absences'));
 const ConseilDeClasse   = lazy(() => import('./pages/ConseilDeClasse'));
@@ -243,11 +255,23 @@ export default function App() {
           <Route path="/app/palmares"       element={<ProtectedRoute allow={ACADEMIC}><HonorRoll /></ProtectedRoute>} />
           <Route path="/app/teachers"       element={<ProtectedRoute allow={ADMIN_ONLY}><Teachers /></ProtectedRoute>} />
           <Route path="/app/personnel"      element={<ProtectedRoute allow={ADMIN_ONLY}><Personnel /></ProtectedRoute>} />
+          <Route path="/app/rh"             element={<ProtectedRoute allow={ADMIN_ONLY}><HR /></ProtectedRoute>} />
+          <Route path="/app/signalements"   element={<ProtectedRoute allow={ALL_STAFF}><Signalements /></ProtectedRoute>} />
+          <Route path="/app/notifications"  element={<ProtectedRoute allow={ALL_STAFF}><Notifications /></ProtectedRoute>} />
+          <Route path="/app/groupe"          element={<ProtectedRoute allow={ADMIN_ONLY}><GroupDashboard /></ProtectedRoute>} />
+          <Route path="/app/immobilisations" element={<ProtectedRoute allow={ADMIN_ONLY}><Assets /></ProtectedRoute>} />
+          {import.meta.env.DEV && SeedData && (
+            <Route path="/app/seed-data"   element={<ProtectedRoute allow={ADMIN_ONLY}><SeedData /></ProtectedRoute>} />
+          )}
           <Route path="/app/settings"       element={<ProtectedRoute allow={ALL_STAFF}><Settings /></ProtectedRoute>} />
           <Route path="/app/profile"        element={<ProtectedRoute allow={ALL_STAFF}><Profile /></ProtectedRoute>} />
           <Route path="/app/year"           element={<ProtectedRoute allow={ADMIN_ONLY}><AcademicYear /></ProtectedRoute>} />
           <Route path="/app/reports"        element={<ProtectedRoute allow={ACADEMIC}><Reports /></ProtectedRoute>} />
           <Route path="/app/fees"            element={<ProtectedRoute allow={ACADEMIC}><Fees /></ProtectedRoute>} />
+          <Route path="/app/frais-catalogue" element={<ProtectedRoute allow={ACADEMIC}><FeeCatalog /></ProtectedRoute>} />
+          <Route path="/app/budgets"         element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><Budgets /></ProtectedRoute>} />
+          <Route path="/app/budget-global"   element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><BudgetGlobal /></ProtectedRoute>} />
+          <Route path="/app/depenses"        element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><Expenses /></ProtectedRoute>} />
           <Route path="/app/absences"         element={<ProtectedRoute allow={ALL_STAFF}><Absences /></ProtectedRoute>} />
           <Route path="/app/monitor"          element={<ProtectedRoute allow={ACADEMIC}><TeacherMonitor /></ProtectedRoute>} />
           <Route path="/app/conseil"          element={<ProtectedRoute allow={DISCIPLINE}><ConseilDeClasse /></ProtectedRoute>} />
@@ -269,6 +293,7 @@ export default function App() {
         </Routes>
       </Suspense>
       <PwaUpdatePrompt />
+      <ToastHost />
       <OnboardingGate />
       <CloudActivationWizard />
       <CloudMigrationWizard />

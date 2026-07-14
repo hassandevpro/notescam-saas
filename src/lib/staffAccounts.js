@@ -14,7 +14,7 @@ const anonClient = createClient(
 
 // Crée (ou réutilise) un compte auth et le lie à l'école avec le rôle donné.
 // Lève new Error('EMAIL_IN_USE') si l'email existe avec un autre mot de passe.
-export async function createStaffAccount({ email, password, fullName, role }) {
+export async function createStaffAccount({ email, password, fullName, role, permissions = null }) {
   const mail = email.trim();
   const { data: signUpData, error: signUpError } = await anonClient.auth.signUp({ email: mail, password });
 
@@ -32,19 +32,49 @@ export async function createStaffAccount({ email, password, fullName, role }) {
     targetUserId = signUpData.user.id;
   }
 
-  const { error: rpcError } = await supabase.rpc('admin_create_staff_account', {
-    p_target_user_id: targetUserId,
-    p_full_name:      fullName,
-    p_role:           role,
-  });
+  const permJson = permissions && permissions.length ? JSON.stringify(permissions) : null;
+  // Appel avec permissions ; repli sans si la RPC ne connaît pas encore le param
+  // (migration supabase_staff_permissions.sql non exécutée).
+  let rpcError = null;
+  ({ error: rpcError } = await supabase.rpc('admin_create_staff_account', {
+    p_target_user_id: targetUserId, p_full_name: fullName, p_role: role, p_permissions: permJson,
+  }));
+  if (rpcError && /p_permissions|does not exist|function/i.test(rpcError.message || '')) {
+    ({ error: rpcError } = await supabase.rpc('admin_create_staff_account', {
+      p_target_user_id: targetUserId, p_full_name: fullName, p_role: role,
+    }));
+  }
   if (rpcError) throw rpcError;
-  return { email: mail };
+  return { email: mail, userId: targetUserId };
+}
+
+// Mot de passe lisible à remettre au membre (3 lettres + 4 chiffres + symbole).
+export function generatePassword() {
+  const U = 'ABCDEFGHJKLMNPQRSTUVWXYZ', l = 'abcdefghijkmnpqrstuvwxyz', D = '23456789', S = '@#!$';
+  const p = (s) => s[Math.floor(Math.random() * s.length)];
+  return `${p(U)}${p(l)}${p(l)}${p(D)}${p(D)}${p(D)}${p(D)}${p(S)}`;
 }
 
 export async function fetchStaff(role) {
   const { data, error } = await supabase.rpc('admin_list_staff', { p_role: role });
   if (error) { console.error('fetchStaff', error); return []; }
   return data || [];
+}
+
+// Met à jour les capacités (permissions granulaires) d'un compte délégué existant.
+export async function setStaffPermissions(schoolUserId, permissions) {
+  const permJson = permissions && permissions.length ? JSON.stringify(permissions) : null;
+  const { error } = await supabase.rpc('admin_set_staff_permissions', {
+    p_school_user_id: schoolUserId, p_permissions: permJson,
+  });
+  return { error };
+}
+
+// Parse le champ permissions (JSON texte) d'une ligne de compte -> tableau (ou []).
+export function parsePermissions(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try { const p = JSON.parse(raw); return Array.isArray(p) ? p : []; } catch { return []; }
 }
 
 export async function setStaffActive(schoolUserId, active) {

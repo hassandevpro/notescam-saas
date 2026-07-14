@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 
 import { db, getSchool, DATA_DIR } from './db.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey, licensingEnabled, machineFingerprint } from './security.js';
-import { runQuery } from './query.js';
+import { runQuery, runBatch } from './query.js';
 import { runRpc } from './rpc.js';
 import { scheduleBackups, runBackup } from './backup.js';
 import { runMigration } from './migrate.js';
@@ -98,8 +98,17 @@ app.post('/api/auth/update', (req, reply) => {
 app.post('/api/db', (req, reply) => {
   const { userId } = authOf(req);
   if (!userId) return reply.code(401).send({ error: { message: 'Not authenticated' }, data: null });
-  const result = runQuery(req.body || {});
+  const result = runQuery(req.body || {}, { userId });
   return result;
+});
+
+// Batch atomique (Unit of Work / transactional outbox du kernel) : applique une
+// liste d'ops d'écriture dans UNE transaction (tout ou rien). Utilisé par
+// localClient.batch() → kernel driver.commit().
+app.post('/api/db/batch', (req, reply) => {
+  const { userId } = authOf(req);
+  if (!userId) return reply.code(401).send({ error: { message: 'Not authenticated' }, data: null });
+  return runBatch((req.body || {}).ops || [], { userId });
 });
 
 // ====================== RPC ===========================================

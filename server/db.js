@@ -18,7 +18,12 @@ mkdirSync(DATA_DIR, { recursive: true });
 export const DB_PATH = join(DATA_DIR, 'notescam.db');
 
 export const db = new DatabaseSync(DB_PATH);
-db.exec('PRAGMA journal_mode = WAL');   // lecteurs concurrents + écriture sûre
+db.exec('PRAGMA journal_mode = WAL');    // lecteurs concurrents + écriture sûre
+db.exec('PRAGMA synchronous = FULL');    // durabilité sur COUPURE SECTEUR (poste LAN
+                                         // rural sans onduleur) : une transaction validée
+                                         // a bien atteint le disque → l'outbox transactionnel
+                                         // du kernel ne peut pas être perdu après un commit.
+db.exec('PRAGMA wal_autocheckpoint = 400'); // borne la taille du WAL (checkpoints réguliers)
 db.exec('PRAGMA foreign_keys = ON');
 db.exec('PRAGMA busy_timeout = 5000');  // attend si un autre process écrit
 
@@ -94,6 +99,55 @@ ensureColumn('schools',  'ge_grade_max', 'ge_grade_max INTEGER');  // barème GE
 ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // pilotage des périodes : 'auto' | 'manual'
 ensureColumn('schools',  'grade_entry_mode', "grade_entry_mode TEXT NOT NULL DEFAULT 'principal'"); // 'principal' | 'subject' (enseignant de matière)
 ensureColumn('schools',  'bulletin_subject_mode', "bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic'"); // 'synthetic' | 'detailed'
+ensureColumn('schools',  'budget_validation', 'budget_validation INTEGER NOT NULL DEFAULT 0'); // workflows de validation budgétaire (0=off, comportement Budgets inchangé)
+ensureColumn('schools',  'validation_rules',  'validation_rules TEXT'); // barème seuils->rôle validateur (JSON ; null = défaut moteur)
+ensureColumn('signalements', 'assigned_department', 'assigned_department TEXT'); // affectation auto du module Reports (dérivée de la catégorie)
+ensureColumn('fee_payments', 'student_fee_item_id', 'student_fee_item_id TEXT'); // lien paiement->frais précis (null = paiement global hérité)
+ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
+// Attributions de gouvernance : fenêtre de validité + statut (Phase 1 rôles).
+ensureColumn('user_governance_roles', 'start_date', 'start_date TEXT');
+ensureColumn('user_governance_roles', 'end_date',   'end_date TEXT');
+ensureColumn('user_governance_roles', 'status',     "status TEXT NOT NULL DEFAULT 'active'");
+
+// Seed du CATALOGUE de rôles de gouvernance pour toute école qui n'en a pas
+// encore (miroir de supabase_governance_catalog.sql). Best-effort, idempotent.
+seedGovernanceCatalog();
+function seedGovernanceCatalog() {
+  const BUDGET_PAGES = ['/app/budgets', '/app/budget-global', '/app/depenses'];
+  const DIRECTION = ['/app/groupe', '/app/reports', ...BUDGET_PAGES];
+  const SECTOR_PERMS = ['budget.view', 'budget.prepare', 'budget.submit', 'expense.view', 'expense.prepare', 'expense.submit', 'budget.unlock.request'];
+  const ROLES = [
+    ['fondatrice', 'Fondatrice', 'Autorité suprême du complexe', 100, 'complex', null,
+      ['governance.manage', 'governance.view', 'budget.view', 'expense.view'], DIRECTION, ['group', 'budget-global'],
+      ['budget.validate.sector', 'budget.validate.finance', 'budget.approve', 'budget.close', 'budget.reopen', 'expense.approve', 'expense.reject', 'budget.unlock.decide']],
+    ['coordonnateur_general', 'Coordonnateur Général', 'Direction générale du complexe', 90, 'complex', null,
+      ['governance.manage', 'governance.view', 'budget.view', 'expense.view'], DIRECTION, ['group', 'budget-global'],
+      ['budget.validate.sector', 'budget.validate.finance', 'budget.approve', 'budget.close', 'budget.reopen', 'expense.approve', 'expense.reject', 'budget.unlock.decide']],
+    ['raf', 'Responsable Administratif et Financier (RAF)', 'Gestion administrative et financière', 80, 'complex', null,
+      ['governance.view', 'budget.view', 'budget.prepare', 'budget.submit', 'expense.view', 'budget.unlock.request'], DIRECTION, ['group', 'budget-global'],
+      ['budget.validate.finance', 'budget.close', 'expense.approve', 'expense.reject', 'expense.pay']],
+    ['principal', 'Principal', 'Chef du secteur collège', 60, 'sector', 'college', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], ['budget.validate.sector']],
+    ['directrice_primaire', 'Directrice du primaire', 'Chef du secteur primaire', 60, 'sector', 'primaire', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], ['budget.validate.sector']],
+    ['responsable_maternelle', 'Responsable de la maternelle', 'Chef du secteur maternelle', 60, 'sector', 'maternelle', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], ['budget.validate.sector']],
+    ['vice_principal', 'Vice-principal', 'Adjoint du secteur collège', 50, 'sector', 'college', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], []],
+    ['directrice_adjointe_primaire', 'Directrice adjointe du primaire', 'Adjointe du secteur primaire', 50, 'sector', 'primaire', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], []],
+    ['caissier', 'Caissier', 'Exécute les décaissements', 30, 'complex', null, ['budget.view', 'expense.view'], ['/app/depenses'], [], ['expense.pay']],
+  ];
+  try {
+    const schools = db.prepare('SELECT id FROM schools').all();
+    const ins = db.prepare(`INSERT OR IGNORE INTO governance_roles
+      (id, school_id, code, name, description, rank, scope, sector, permissions, pages, dashboards, workflows, active, is_system)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,1)`);
+    for (const s of schools) {
+      if (db.prepare('SELECT 1 FROM governance_roles WHERE school_id = ? LIMIT 1').get(s.id)) continue;
+      for (const r of ROLES) {
+        ins.run(randomUUID(), s.id, r[0], r[1], r[2], r[3], r[4], r[5],
+          JSON.stringify(r[6]), JSON.stringify(r[7]), JSON.stringify(r[8]), JSON.stringify(r[9]));
+      }
+    }
+  } catch { /* seed best-effort */ }
+}
+ensureColumn('budget_chapters', 'level', 'level TEXT'); // hiérarchie budget : category|chapter|subchapter (null = déduit de la profondeur)
 // Moteur de bulletin de l'établissement : 'classic' | 'officiel' (+ anciens drapeaux
 // minesec/minedub/apc… rétro-compatibles). Absente du schéma LAN d'origine → le
 // choix « Officiel Cameroun » n'était jamais persisté (avalé par pickColumns).
@@ -117,6 +171,74 @@ for (const [col, ddl] of [
   ['status', 'status TEXT'], ['documents', 'documents TEXT'],
 ]) ensureColumn('teachers', col, ddl);
 
+// --- Historisation des affectations élèves (Partie 1) -----------------
+// La table student_class_assignments (jadis simple journal) devient la SOURCE
+// DE VÉRITÉ des affectations. Colonnes ajoutées (nullables) + identifiant de
+// groupe stable + rattachement des données pédagogiques à l'affectation.
+ensureColumn('student_class_assignments', 'school_unit_id', 'school_unit_id TEXT'); // établissement du groupe
+ensureColumn('student_class_assignments', 'section',        'section TEXT');
+ensureColumn('student_class_assignments', 'date_debut',     'date_debut TEXT');
+ensureColumn('student_class_assignments', 'date_fin',       'date_fin TEXT');       // NULL = en cours
+ensureColumn('student_class_assignments', 'type_transfert', 'type_transfert TEXT'); // initial|changement_*|reconstruit
+ensureColumn('student_class_assignments', 'motif_cloture',  'motif_cloture TEXT');
+ensureColumn('student_class_assignments', 'commentaire',    'commentaire TEXT');
+ensureColumn('student_class_assignments', 'created_at',     'created_at TEXT');
+ensureColumn('students', 'group_student_id', 'group_student_id TEXT'); // identité stable au niveau groupe
+// Rattachement (nullable, sans FK dure — cohérent avec le reste du schéma LAN).
+ensureColumn('grades',           'assignment_id', 'assignment_id TEXT');
+ensureColumn('student_absences', 'assignment_id', 'assignment_id TEXT');
+ensureColumn('student_fees',     'assignment_id', 'assignment_id TEXT');
+
+// Backfill idempotent : miroir exact de supabase_student_assignments.sql, en
+// SQLite (sous-requêtes corrélées pour rester portable). Rejouable à chaque
+// démarrage sans doublon (COALESCE + garde NOT EXISTS sur l'affectation en cours).
+try {
+  db.exec(`
+    -- 4. Identifiant de groupe (distinct par élève, randomblob appelé par ligne)
+    UPDATE students SET group_student_id = lower(hex(randomblob(16)))
+     WHERE group_student_id IS NULL;
+
+    -- 5a. Enrichit les lignes existantes depuis leur classe + date_debut/type
+    UPDATE student_class_assignments AS a SET
+      class_name     = COALESCE(class_name,     (SELECT c.name    FROM classes c WHERE c.id = a.class_id)),
+      section        = COALESCE(section,        (SELECT c.section FROM classes c WHERE c.id = a.class_id)),
+      school_unit_id = COALESCE(school_unit_id, (SELECT c.unit_id FROM classes c WHERE c.id = a.class_id)),
+      date_debut     = COALESCE(date_debut, assigned_at),
+      type_transfert = COALESCE(type_transfert, 'reconstruit');
+
+    -- 5b. Ferme les lignes ayant une ligne postérieure du même élève
+    UPDATE student_class_assignments AS a
+       SET date_fin = (SELECT MIN(b.assigned_at) FROM student_class_assignments b
+                        WHERE b.student_id = a.student_id AND b.assigned_at > a.assigned_at)
+     WHERE a.date_fin IS NULL
+       AND EXISTS (SELECT 1 FROM student_class_assignments b
+                    WHERE b.student_id = a.student_id AND b.assigned_at > a.assigned_at);
+
+    -- 5c. Réconcilie la dernière ligne ouverte si sa classe ≠ source de vérité
+    UPDATE student_class_assignments AS a
+       SET date_fin = datetime('now')
+     WHERE a.date_fin IS NULL
+       AND a.class_id IS NOT (SELECT s.class_id FROM students s WHERE s.id = a.student_id);
+
+    -- 5d. Crée l'affectation EN COURS pour tout élève qui n'en a pas
+    INSERT INTO student_class_assignments (
+      id, school_id, student_id, class_id, class_name, section, school_unit_id,
+      date_debut, date_fin, type_transfert, reason, assigned_at, created_at
+    )
+    SELECT lower(hex(randomblob(16))), s.school_id, s.id, s.class_id,
+           (SELECT c.name FROM classes c WHERE c.id = s.class_id),
+           (SELECT c.section FROM classes c WHERE c.id = s.class_id),
+           (SELECT c.unit_id FROM classes c WHERE c.id = s.class_id),
+           COALESCE(s.created_at, datetime('now')), NULL, 'initial',
+           'Migration : affectation initiale', datetime('now'), datetime('now')
+      FROM students s
+     WHERE NOT EXISTS (SELECT 1 FROM student_class_assignments a
+                        WHERE a.student_id = s.id AND a.date_fin IS NULL);
+  `);
+} catch (e) {
+  console.warn('[migration] affectations élèves (backfill) :', e.message);
+}
+
 // --- Seed du référentiel officiel (MINEDUB + MINESEC) -----------------
 // Peuple les tables « référentiel » (cycles/classes/matières/compétences APC,
 // séries/coef SC, domaines maternelle, compétences primaire) pour que le moteur
@@ -136,18 +258,52 @@ export const SYNCED_TABLES = new Set([
   'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'class_fee_grids',
+  // Module Budgets (prévisionnel) — enveloppe + chapitres/sous-chapitres.
+  'budgets', 'budget_chapters',
+  // Module Dépenses — exécution budgétaire (rattachée à un budget).
+  'budget_expenses',
+  // Déblocage de lignes épuisées (demandes + décisions historisées).
+  'budget_unlock_requests',
+  // Ressources Humaines (satellites du dossier staff ; pas de paie).
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  // Reports (Signalements) — commentaires + historique.
+  'signalement_comments', 'signalement_history',
+  // Notifications (moteur multi-canaux ; interne + file d'envoi externe prévue).
+  'notifications', 'notification_outbox',
+  // Immobilisations (patrimoine) — registre + pannes/réparations/dépenses.
+  'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
+  // Catalogue de frais (obligatoires/optionnels) + liste par élève.
+  'fee_catalog', 'student_fee_items',
+  // Gouvernance du complexe — catalogue de rôles + attribution + historique.
+  'governance_roles', 'user_governance_roles', 'governance_role_history',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
   // Notes du moteur officiel (compétences/observations). Synchro LAN↔LAN OK (même
   // seed = mêmes ids référentiel) ; la synchro LAN↔Cloud des notes reste un
   // chantier à part (les ids de compétences cloud diffèrent du seed local).
   'apc_notes', 'mat_observations', 'prim_notes',
+  // Socle P0 — le domaine transverse Signalement suit le même sync LWW Phase 2.
+  // (domain_events/audit_events sont append-only : réplication par curseur `seq`,
+  //  chantier de sync-pull dédié — cf. docs/ARCHITECTURE_KERNEL.md.)
+  'signalements',
 ]);
 for (const t of SYNCED_TABLES) {
   ensureColumn(t, 'updated_at', 'updated_at TEXT');                  // horodatage du dernier changement (LWW)
   ensureColumn(t, 'version',    'version INTEGER NOT NULL DEFAULT 1'); // compteur monotone (départage)
   ensureColumn(t, 'device_id',  'device_id TEXT');                    // origine du changement (anti-écho + départage)
 }
+
+// Module Dépenses — annulation TRACÉE (statut terminal `cancelled`). Conservée en
+// base ; jamais supprimée. Motif obligatoire côté UI + auteur + date.
+ensureColumn('budget_expenses', 'cancel_reason', 'cancel_reason TEXT');
+ensureColumn('budget_expenses', 'cancelled_by',  'cancelled_by TEXT');
+ensureColumn('budget_expenses', 'cancelled_at',  'cancelled_at TEXT');
+
+// Module Budgets — dates réelles d'exercice (Phase D) + mois de début d'année
+// scolaire configurable par établissement (défaut septembre).
+ensureColumn('budgets', 'start_date', 'start_date TEXT');
+ensureColumn('budgets', 'end_date',   'end_date TEXT');
+ensureColumn('schools', 'school_year_start_month', 'school_year_start_month INTEGER');
 
 // Identifiant STABLE de cette installation (origine des changements locaux).
 let _deviceId = null;
@@ -177,6 +333,13 @@ export function tableColumns(table) {
 export const ALLOWED_TABLES = new Set([
   'schools', 'school_units', 'school_users', 'classes', 'subjects', 'students', 'grades',
   'teachers', 'staff', 'student_fees', 'fee_payments', 'class_fee_grids',
+  'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',
+  'governance_roles', 'user_governance_roles', 'governance_role_history',
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  'signalement_comments', 'signalement_history',
+  'notifications', 'notification_outbox',
+  'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
+  'fee_catalog', 'student_fee_items',
   'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots', 'country_education_config',
@@ -188,6 +351,8 @@ export const ALLOWED_TABLES = new Set([
   'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines', 'mat_observations',
   'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
   'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_notes',
+  // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
+  'domain_events', 'audit_events', 'signalements',
 ]);
 
 // Quote sûr d'un identifiant SQLite (table / colonne) : double les guillemets.

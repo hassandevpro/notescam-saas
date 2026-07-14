@@ -13,6 +13,13 @@ async function sha256(s: string) { const h = await crypto.subtle.digest('SHA-256
 const ALLOWED = new Set([
   'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
+  'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',
+  'governance_roles', 'user_governance_roles', 'governance_role_history',
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  'signalement_comments', 'signalement_history',
+  'notifications', 'notification_outbox',
+  'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
+  'fee_catalog', 'student_fee_items',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ]);
@@ -25,6 +32,21 @@ async function schoolOfToken(token: string): Promise<string | null> {
 }
 const belongs = (table: string, row: any, schoolId: string) =>
   table === 'schools' ? row.id === schoolId : row.school_id === schoolId;
+
+// Comparateur LWW DÉTERMINISTE, identique au serveur LAN (server/cloudSync.js
+// remoteWins) : updated_at, puis version, puis device_id. Corrige la divergence
+// de la revue P0 #4 (le Cloud ne comparait que updated_at → ties non déterministes
+// et résolution incohérente entre les deux côtés). `wins(a,b)` = a doit écraser b.
+function wins(a: any, b: any): boolean {
+  if (!b) return true;
+  if (!a) return false;
+  const at = Date.parse(a.updated_at || 0) || 0;
+  const bt = Date.parse(b.updated_at || 0) || 0;
+  if (at !== bt) return at > bt;
+  const av = a.version || 0, bv = b.version || 0;
+  if (av !== bv) return av > bv;
+  return String(a.device_id || '') > String(b.device_id || '');
+}
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json(405, { error: 'method' });
@@ -53,11 +75,12 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // upsert : périmètre + LWW (le cloud plus récent n'est pas écrasé).
+    // upsert : périmètre + LWW déterministe (le cloud ne cède que si le
+    // changement local gagne selon (updated_at, version, device_id)).
     if (!belongs(ch.table, ch.row, schoolId)) { skipped++; continue; }
-    const { data: existing } = await admin.from(ch.table).select('updated_at').eq('id', id).maybeSingle();
-    if (existing && (existing as any).updated_at && ch.row.updated_at &&
-        (existing as any).updated_at > ch.row.updated_at) { skipped++; continue; }
+    const { data: existing } = await admin.from(ch.table)
+      .select('updated_at, version, device_id').eq('id', id).maybeSingle();
+    if (existing && !wins(ch.row, existing)) { skipped++; continue; }
     const { error } = await admin.from(ch.table).upsert(ch.row, { onConflict: 'id' });
     if (error) { skipped++; continue; }
     applied++;

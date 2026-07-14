@@ -7,7 +7,7 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB, assignmentsDB } from '../lib/db';
 import { fetchSchoolUnits, upsertSchoolUnit, deleteSchoolUnit as sbDeleteSchoolUnit } from '../lib/schoolUnitService';
 import { fetchReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
 import { fetchScReferentiel } from '../lib/scService';
@@ -21,7 +21,10 @@ import { buildSubjectsForClassicClass } from '../core/classicSubjects';
 import { resolveClassEngine } from '../core/engineResolver';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { fetchPeriods } from '../lib/academicPeriodsService';
-import { deriveActiveSequence } from '../lib/periodLogic';
+import { deriveActiveSequence, isSequenceLockedByPeriod, anySequenceLockedThisYear } from '../lib/periodLogic';
+import { isSequenceLocked as isClassSequenceLocked } from '../lib/lockService';
+import { toast } from './toastStore';
+import { tStatic } from '../lib/i18n';
 import {
   fetchClasses, upsertClass, deleteClass as sbDeleteClass,
   fetchSubjects, upsertSubject, deleteSubject as sbDeleteSubject,
@@ -32,16 +35,19 @@ import {
   fetchFees, upsertFee, deleteFee as sbDeleteFee,
   fetchFeePayments, insertFeePayment, deleteFeePayment as sbDeleteFeePayment,
   fetchClassFeeGrids, upsertClassFeeGrid, deleteClassFeeGrid as sbDeleteClassFeeGrid,
+  fetchAssignments, upsertAssignments,
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
 import { moveToTrash, logAction } from '../lib/historyService';
-import { collectStudentBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
+import { collectStudentBundle, collectSubjectBundle, collectClassBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
+import { sumPaidForStudent, derivePaid, reconcilePaid, computeTransferFeePatch } from '../lib/feeEngine';
 import { fetchStaff, upsertStaff, deleteStaff as sbDeleteStaff } from '../lib/staffService';
-import { logAssignment } from '../lib/classAssignmentService';
+import { buildTransfer, resolveTransferType } from '../core/transferEngine';
 import { flushSyncQueue } from '../lib/sync';
 import { backendOnline } from '../lib/edition';
 import { uuid } from '../lib/uuid';
-import { getNextLevel, computeNextYear, isRepeater } from '../lib/yearEngine';
+import { getNextLevel, computeNextYear, isRepeater, lastSequenceFor } from '../lib/yearEngine';
+import { promotionAlreadyDone } from '../lib/promotionGuard';
 import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 
@@ -139,6 +145,80 @@ function reconstructRoster(roster, grades, pool, classIds) {
   return extra.length ? [...roster, ...extra] : roster;
 }
 
+// ── Gel de configuration (audit C2) ─────────────────────────────────────────
+// Une classe est FIGÉE quand un de ses bulletins est déjà verrouillé. On refuse
+// alors les modifications de matières qui affectent le calcul — sinon elles
+// réécriraient rétroactivement un bulletin verrouillé (les NOTES sont déjà gelées
+// par C6 ; restent coef/barème/structure).
+//
+// Le gel est PRÉCIS PAR CLASSE (ne pas sur-bloquer une classe créée après un
+// verrou, donc sans bulletin verrouillé) :
+//   1. verrou par classe (validation admin explicite) sur une séquence de la classe ;
+//   2. OU verrou de période (academic_periods.is_locked, synchronisé) ET la classe
+//      a effectivement des notes dans cette séquence verrouillée.
+function isClassConfigFrozen(state, classId) {
+  const { academicPeriods, activeYear, schoolId, classes, gradeMap } = state;
+  const cls = classes.find((c) => c.id === classId);
+  const maxSeq = cls ? lastSequenceFor(cls) : 6;
+
+  // 1) Verrou par classe.
+  for (let s = 1; s <= maxSeq; s++) {
+    if (isClassSequenceLocked(schoolId, classId, s)) return true;
+  }
+
+  // 2) Verrou de période + la classe a des notes dans la séquence verrouillée.
+  if (anySequenceLockedThisYear(academicPeriods, activeYear)) {
+    const lockedOrders = new Set(
+      (academicPeriods || [])
+        .filter((p) => p && p.type === 'sequence' && (!activeYear || p.school_year === activeYear) && p.is_locked === true)
+        .map((p) => Number(p.sequence_order)),
+    );
+    const prefix = classId + '_';
+    for (const key of Object.keys(gradeMap || {})) {
+      if (!key.startsWith(prefix)) continue;
+      const seq = Number(key.slice(key.lastIndexOf('_') + 1));
+      if (lockedOrders.has(seq)) return true;
+    }
+  }
+  return false;
+}
+
+// Champs d'une matière qui changent une moyenne / un rang. Le nom, l'enseignant,
+// la catégorie et la POSITION (ordre d'affichage, purement cosmétique — le calcul
+// somme les matières quel que soit l'ordre) NE sont PAS ici : ils restent
+// modifiables même figé.
+// Normalise '' / undefined → null pour comparer sans faux positif (formulaires).
+const _normCalc = (v) => (v === '' || v === undefined ? null : v);
+
+const SUBJECT_CALC_NUM   = ['coef', 'max'];
+const SUBJECT_CALC_OTHER = ['parent_id', 'calc_method'];
+function changesSubjectCalc(existing, data) {
+  for (const k of SUBJECT_CALC_NUM) {
+    if (k in data && Number(data[k] ?? 0) !== Number(existing?.[k] ?? 0)) return true;
+  }
+  for (const k of SUBJECT_CALC_OTHER) {
+    if (k in data && _normCalc(data[k]) !== _normCalc(existing?.[k])) return true;
+  }
+  return false;
+}
+
+// Champs d'une CLASSE qui rescalent les moyennes ou changent le moteur de bulletin
+// (barème de sortie, système, cycle, série, moteur). Le nom, la section, le prof
+// principal NE sont PAS ici : modifiables même figé.
+const CLASS_CALC_NUM   = ['grade_max'];
+const CLASS_CALC_OTHER = ['system', 'cycle', 'serie', 'bulletin_engine'];
+function changesClassCalc(existing, data) {
+  for (const k of CLASS_CALC_NUM) {
+    // grade_max peut être absent (défaut système) : ne compte que si les deux
+    // côtés sont définis et diffèrent numériquement.
+    if (k in data && data[k] != null && existing?.[k] != null && Number(data[k]) !== Number(existing[k])) return true;
+  }
+  for (const k of CLASS_CALC_OTHER) {
+    if (k in data && _normCalc(data[k]) !== _normCalc(existing?.[k])) return true;
+  }
+  return false;
+}
+
 export const useSchoolStore = create((set, get) => ({
   schoolId:   null,
   activeYear: null,
@@ -151,6 +231,7 @@ export const useSchoolStore = create((set, get) => ({
   feePayments:  [],
   classFeeGrids: [],
   schoolUnits:  [],
+  assignments:  [],   // affectations historisées (source de vérité ; students.class_id = cache courant)
   gradeMap:     {},
   academicPeriods: [],
   activeSequence:  null,
@@ -178,13 +259,13 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     // Wipe stale data from any previous session immediately — prevents flash of wrong data
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
-          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], schoolUnits: [], gradeMap: {},
+          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], schoolUnits: [], assignments: [], gradeMap: {},
           academicPeriods: [], activeSequence: null });
 
     try {
       await initDB();
 
-      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbFeeGrids, idbPeriods, idbUnits] = await Promise.all([
+      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbFeeGrids, idbPeriods, idbUnits, idbAssignments] = await Promise.all([
         classesDB.getAll(),
         subjectsDB.getAll(),
         studentsDB.getAll(),
@@ -196,6 +277,7 @@ export const useSchoolStore = create((set, get) => ({
         classFeeGridsDB.getAll().catch(() => []),
         academicPeriodsDB.getAll().catch(() => []),
         schoolUnitsDB.getAll().catch(() => []),
+        assignmentsDB.getAll().catch(() => []),
       ]);
 
       // Filter by school
@@ -212,6 +294,9 @@ export const useSchoolStore = create((set, get) => ({
       // Unités pédagogiques : périmètre ÉCOLE (jamais filtrées par année ni par
       // rôle) — elles définissent l'identité des documents pour tout le monde.
       const allUnits       = (idbUnits || []).filter((u) => u.school_id === schoolId);
+      // Affectations : périmètre ÉCOLE, toutes années (c'est l'historique). Jamais
+      // filtrées par année/rôle. students.class_id reste le cache de la classe courante.
+      const allAssignments = (idbAssignments || []).filter((a) => a.school_id === schoolId);
 
       // Filter by active year (classes drive the year scope)
       if (activeYear) {
@@ -261,11 +346,15 @@ export const useSchoolStore = create((set, get) => ({
         feePayments: allFeePayments,
         classFeeGrids: allFeeGrids,
         schoolUnits: allUnits,
+        assignments: allAssignments,
         gradeMap:    buildGradeMap(allGrades),
         academicPeriods: allPeriods,
         activeSequence:  deriveActiveSequence(allPeriods),
         loading:     false,
       });
+
+      // Auto-guérison du cache frais_payes depuis les lignes de paiement (offline-first).
+      get().reconcileFeesPaid();
 
       if (backendOnline()) {
         get()._refreshFromSupabase(schoolId, activeYear);
@@ -289,7 +378,7 @@ export const useSchoolStore = create((set, get) => ({
     const sbClasses = await fetchClasses(schoolId, year);
     const scopeIds  = (sbClasses ?? get().classes).map((c) => c.id);
 
-    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbFeeGrids, sbPeriods, sbUnits] = await Promise.all([
+    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbFeeGrids, sbPeriods, sbUnits, sbAssignments] = await Promise.all([
       fetchSubjects(schoolId, scopeIds),
       fetchStudents(schoolId, scopeIds),
       fetchGrades(schoolId, scopeIds),
@@ -301,6 +390,7 @@ export const useSchoolStore = create((set, get) => ({
       fetchClassFeeGrids(schoolId, year).catch(() => null),
       fetchPeriods(schoolId, year).catch(() => null),
       fetchSchoolUnits(schoolId).catch(() => null),
+      fetchAssignments(schoolId).catch(() => null),
     ]);
 
     // ── Normalize student genders ────────────────────────────────────────
@@ -346,6 +436,10 @@ export const useSchoolStore = create((set, get) => ({
       ? sbPeriods.filter((p) => !year || p.school_year === year)
       : get().academicPeriods;
     const newUnits        = sbUnits ?? get().schoolUnits;
+    // Affectations : périmètre école, toutes années — jamais filtrées par rôle/année.
+    const newAssignments  = sbAssignments !== null
+      ? sbAssignments.filter((a) => a.school_id === schoolId)
+      : get().assignments;
 
     // ── Teacher scope: filter BEFORE touching state ──────────────────────
     // Build class set from both class.teacher_id and subject.teacher_id
@@ -381,6 +475,7 @@ export const useSchoolStore = create((set, get) => ({
     if (sbFeeGrids         !== null) await classFeeGridsDB.putMany(newFeeGrids);
     if (sbPeriods          !== null) await academicPeriodsDB.putMany(sbPeriods);
     if (sbUnits            !== null) await schoolUnitsDB.putMany(sbUnits);
+    if (sbAssignments      !== null) await assignmentsDB.putMany(sbAssignments);
 
     // ── Grades ────────────────────────────────────────────────────────────
     const { gradeMap } = get();
@@ -432,8 +527,13 @@ export const useSchoolStore = create((set, get) => ({
       ...(sbFeeGrids         !== null && { classFeeGrids: newFeeGrids }),
       ...(sbPeriods          !== null && { academicPeriods: newPeriods, activeSequence: deriveActiveSequence(newPeriods) }),
       ...(sbUnits            !== null && { schoolUnits: newUnits }),
+      ...(sbAssignments      !== null && { assignments: newAssignments }),
       gradeMap: newGradeMap,
     });
+
+    // Réconcilie le cache frais_payes avec les lignes de paiement fraîchement
+    // synchronisées (moment autoritatif : fees + payments à jour depuis le cloud).
+    if (sbFees !== null || sbFeePayments !== null) get().reconcileFeesPaid();
   },
 
   // Recharge les périodes académiques (IDB → état) et recalcule activeSequence.
@@ -633,10 +733,31 @@ export const useSchoolStore = create((set, get) => ({
     if (!school?.current_year) return { error: 'Aucune année active définie.' };
 
     const newYear = computeNextYear(school.current_year);
+
+    // Garde d'idempotence (C3) : refuse si l'année cible a déjà des classes
+    // (double-clic, reprise après coupure, échec partiel avant le basculement
+    // d'année) — sinon toute la cohorte serait dupliquée. Lecture COMPLÈTE IDB :
+    // les classes de newYear ne sont pas dans l'état en mémoire (filtré année active).
+    const existingAll = await classesDB.getAll();
+    if (promotionAlreadyDone(existingAll, schoolId, newYear)) {
+      return { error: `L'année ${newYear} existe déjà : promotion déjà effectuée.`, alreadyDone: true };
+    }
+
     const classMapping = new Map(); // oldClassId → newClass | null (diplômés)
-    const newClasses   = [];
-    const newSubjList  = [];
-    const newStudents  = [];
+    const newClasses     = [];
+    const newSubjList    = [];
+    const newStudents    = [];
+    const newAssignments = []; // affectations INITIALES des promus (coordination modèle C5)
+
+    // Affectation initiale d'un élève promu/redoublant dans sa nouvelle classe —
+    // même patron que addStudent (moteur transferEngine, current=null → 'initial').
+    // Sans elle, un élève promu n'aurait aucune affectation courante (source de
+    // vérité C5) → transferts / roster / recalcul de frais cassés après promotion.
+    const { user: promoter, fullName: promoterName } = useAuthStore.getState();
+    const buildInitialAssignment = (ns, cls) => buildTransfer({
+      current: null, newClass: cls, student: ns, schoolId, newId: uuid(),
+      userId: promoter?.id, userName: promoterName,
+    }).newRow;
 
     // Copie les matières d'une ancienne classe vers une nouvelle classe.
     const copySubjects = (oldClassId, newClassId) => {
@@ -707,7 +828,9 @@ export const useSchoolStore = create((set, get) => ({
         const oldCls = classes.find((c) => c.id === student.class_id);
         if (!oldCls) continue;
         const rc = ensureRepeatClass(oldCls);
-        newStudents.push({ ...student, id: uuid(), class_id: rc.id, parent_token: uuid(), created_at: undefined });
+        const ns = { ...student, id: uuid(), class_id: rc.id, parent_token: uuid(), created_at: undefined };
+        newStudents.push(ns);
+        newAssignments.push(buildInitialAssignment(ns, rc));
         repeatedCount++;
         continue;
       }
@@ -715,7 +838,9 @@ export const useSchoolStore = create((set, get) => ({
       if (newCls) {
         // parent_token is UNIQUE — generate a fresh one for the copy instead of
         // reusing the old row's (would violate students_parent_token_idx).
-        newStudents.push({ ...student, id: uuid(), class_id: newCls.id, parent_token: uuid(), created_at: undefined });
+        const ns = { ...student, id: uuid(), class_id: newCls.id, parent_token: uuid(), created_at: undefined };
+        newStudents.push(ns);
+        newAssignments.push(buildInitialAssignment(ns, newCls));
         promotedCount++;
       } else {
         graduatedCount++; // classe diplômante, élève non redoublant → archivé diplômé
@@ -723,14 +848,16 @@ export const useSchoolStore = create((set, get) => ({
     }
 
     // 3. Persist to IDB
-    if (newClasses.length)   await classesDB.putMany(newClasses);
-    if (newSubjList.length)  await subjectsDB.putMany(newSubjList);
+    if (newClasses.length)     await classesDB.putMany(newClasses);
+    if (newSubjList.length)    await subjectsDB.putMany(newSubjList);
     for (const s of newStudents) await studentsDB.put(s);
+    if (newAssignments.length) await assignmentsDB.putMany(newAssignments);
 
     // 4. Queue sync operations
     for (const cls of newClasses)  await queueOffline({ table: 'classes',  operation: 'upsert', payload: cls });
     for (const sub of newSubjList) await queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
     for (const s of newStudents)   await queueOffline({ table: 'students', operation: 'upsert', payload: s });
+    for (const a of newAssignments) await queueOffline({ table: 'student_class_assignments', operation: 'upsert', payload: a });
 
     // 5. Flush sync immediately if online — ensures Supabase is up-to-date
     //    before _refreshFromSupabase could overwrite our IDB changes.
@@ -969,8 +1096,19 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   updateClass: async (id, data) => {
-    const { classes } = get();
-    const record = { ...classes.find((c) => c.id === id), ...data };
+    const state = get();
+    const existing = state.classes.find((c) => c.id === id);
+    // Gel C2 : le barème de sortie / le système / le moteur d'une classe rescalent
+    // les moyennes → refusés si un bulletin de la classe est déjà verrouillé.
+    if (existing && changesClassCalc(existing, data) && isClassConfigFrozen(state, id)) {
+      toast.error(tStatic(
+        'Configuration figée : une séquence de cette classe est verrouillée. Déverrouillez pour changer barème / système.',
+        'Configuration frozen: a sequence of this class is locked. Unlock to change scale / system.',
+        'Configuración bloqueada: una secuencia de esta clase está bloqueada. Desbloquee para cambiar escala / sistema.',
+      ));
+      return { error: 'frozen', locked: true };
+    }
+    const record = { ...existing, ...data };
     await classesDB.put(record);
     set((s) => ({ classes: s.classes.map((c) => (c.id === id ? record : c)) }));
     if (backendOnline()) {
@@ -982,13 +1120,152 @@ export const useSchoolStore = create((set, get) => ({
 
   deleteClass: async (id) => {
     const snapshot = get().classes.find((c) => c.id === id);
-    if (snapshot) await moveToTrash({ table: 'classes', payload: snapshot });
+
+    // Le DELETE cloud efface EN CASCADE les matières ET les élèves de la classe
+    // — donc, transitivement, leurs notes, frais et paiements (cf. collectClassBundle).
+    // On capture TOUT depuis l'IDB (source complète, toutes années) AVANT toute
+    // suppression, pour permettre une restauration intégrale depuis la corbeille.
+    const [allSubjects, allStudents, allGrades, allFees, allPayments] = await Promise.all([
+      subjectsDB.getAll(),
+      studentsDB.getAll(),
+      gradesDB.getAll(),
+      feesDB.getAll(),
+      feePaymentsDB.getAll().catch(() => []),
+    ]);
+    const bundle = collectClassBundle(id, {
+      subjects: allSubjects, students: allStudents, grades: allGrades, fees: allFees, payments: allPayments,
+    });
+
+    if (snapshot) await moveToTrash({ table: 'classes', payload: snapshot, related: bundle });
+
+    // Nettoie l'IDB en cohérence avec le cascade backend : sans cela, matières,
+    // élèves, notes, frais et paiements resteraient en cache local en pointant vers
+    // une classe supprimée (orphelins ressurgissant via reconstructRoster, etc.).
     await classesDB.delete(id);
-    set((s) => ({ classes: s.classes.filter((c) => c.id !== id) }));
+    for (const sub of bundle.subjects) await subjectsDB.delete(sub.id);
+    for (const st  of bundle.students) await studentsDB.delete(st.id);
+    for (const g   of bundle.grades)   await gradesDB.delete(g.key);
+    for (const f   of bundle.fees)     await feesDB.delete(f.id);
+    for (const p   of bundle.payments) await feePaymentsDB.delete(p.id);
+
+    const subjIds  = new Set(bundle.subjects.map((s) => s.id));
+    const studIds  = new Set(bundle.students.map((s) => s.id));
+    const feeIds   = new Set(bundle.fees.map((f) => f.id));
+    const payIds   = new Set(bundle.payments.map((p) => p.id));
+    const gradeKys = new Set(bundle.grades.map((g) => g.key));
+    set((s) => {
+      const gradeMap = { ...s.gradeMap };
+      for (const k of gradeKys) delete gradeMap[k];
+      return {
+        classes:     s.classes.filter((c) => c.id !== id),
+        subjects:    s.subjects.filter((x) => !subjIds.has(x.id)),
+        students:    s.students.filter((x) => !studIds.has(x.id)),
+        fees:        s.fees.filter((f) => !feeIds.has(f.id)),
+        feePayments: s.feePayments.filter((p) => !payIds.has(p.id)),
+        gradeMap,
+      };
+    });
+
     if (backendOnline()) {
       sbDeleteClass(id).then((ok) => { if (!ok) queueOffline({ table: 'classes', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'classes', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // Restaure une classe supprimée + tout son contenu (matières, élèves, notes,
+  // frais, paiements) effacé en cascade. Insère la classe SANS auto-configuration
+  // des matières (sinon des matières neuves feraient doublon avec celles du bundle
+  // et casseraient le lien notes↔matière) puis réinjecte le bundle. Réécrit l'IDB
+  // + pousse vers le backend (ou la queue offline), comme restoreStudentBundle.
+  restoreClassBundle: async (classPayload, related) => {
+    if (!classPayload) return;
+    const { schoolId, activeYear } = get();
+    const { subjects = [], students = [], grades = [], fees = [], payments = [] } = related || {};
+
+    // --- Classe (insertion « nue », pas d'autoConfig) ---
+    await classesDB.put(classPayload);
+    set((s) => ({ classes: s.classes.some((c) => c.id === classPayload.id) ? s.classes : [...s.classes, classPayload] }));
+    if (backendOnline()) {
+      upsertClass(classPayload).then((ok) => { if (!ok) queueOffline({ table: 'classes', operation: 'upsert', payload: classPayload }); });
+    } else {
+      queueOffline({ table: 'classes', operation: 'upsert', payload: classPayload });
+    }
+
+    // --- Matières ---
+    if (subjects.length) {
+      await subjectsDB.putMany(subjects);
+      set((s) => {
+        const byId = new Map(s.subjects.map((x) => [x.id, x]));
+        for (const sub of subjects) byId.set(sub.id, sub);
+        return { subjects: [...byId.values()] };
+      });
+      for (const sub of subjects) {
+        if (backendOnline()) upsertSubject(sub).then((ok) => { if (!ok) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+        else queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+
+    // --- Élèves ---
+    if (students.length) {
+      await studentsDB.putMany(students);
+      set((s) => {
+        const byId = new Map(s.students.map((x) => [x.id, x]));
+        for (const st of students) byId.set(st.id, st);
+        return { students: [...byId.values()] };
+      });
+      for (const st of students) {
+        if (backendOnline()) upsertStudent(st).then((ok) => { if (!ok) queueOffline({ table: 'students', operation: 'upsert', payload: st }); });
+        else queueOffline({ table: 'students', operation: 'upsert', payload: st });
+      }
+    }
+
+    // --- Notes + absences (records IDB portant les deux, cf. restoreStudentBundle) ---
+    if (grades.length) {
+      await gradesDB.putMany(grades);
+      set((s) => {
+        const gradeMap = { ...s.gradeMap };
+        for (const g of grades) gradeMap[g.key] = g.scores;
+        return { gradeMap };
+      });
+      for (const g of grades) {
+        const scores = g.scores || {};
+        if (backendOnline()) {
+          if (hasRealGrades(scores))    upsertGradeEntry(g.class_id, g.student_id, g.sequence, scores, schoolId).then((ok) => { if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload: g }); });
+          if (hasSpecialFields(scores)) upsertAbsenceEntry(g.class_id, g.student_id, g.sequence, scores, schoolId).then((ok) => { if (!ok) queueOffline({ table: 'student_absences', operation: 'upsert', payload: g }); });
+        } else {
+          queueOffline({ table: 'grades', operation: 'upsert', payload: g });
+        }
+      }
+    }
+
+    // --- Frais ---
+    if (fees.length) {
+      await feesDB.putMany(fees);
+      set((s) => {
+        const byId = new Map(s.fees.map((f) => [f.id, f]));
+        for (const f of fees) if (!activeYear || f.academic_year === activeYear) byId.set(f.id, f);
+        return { fees: [...byId.values()] };
+      });
+      for (const f of fees) {
+        if (backendOnline()) upsertFee(f).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f }); });
+        else queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
+      }
+    }
+
+    // --- Paiements : réinsérés tels quels (pas via addPayment, qui recalculerait
+    //     frais_payes et fausserait le total déjà restauré ci-dessus). ---
+    if (payments.length) {
+      await feePaymentsDB.putMany(payments);
+      set((s) => {
+        const byId = new Map(s.feePayments.map((p) => [p.id, p]));
+        for (const p of payments) if (!activeYear || p.academic_year === activeYear) byId.set(p.id, p);
+        return { feePayments: [...byId.values()] };
+      });
+      for (const p of payments) {
+        if (backendOnline()) insertFeePayment(p).then((ok) => { if (!ok) queueOffline({ table: 'fee_payments', operation: 'insert', payload: p }); });
+        else queueOffline({ table: 'fee_payments', operation: 'insert', payload: p });
+      }
     }
   },
 
@@ -1009,8 +1286,18 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   updateSubject: async (id, data) => {
-    const { subjects } = get();
-    const record = { ...subjects.find((s) => s.id === id), ...data };
+    const state = get();
+    const existing = state.subjects.find((s) => s.id === id);
+    // Gel C2 : refuse un changement de coef/barème/structure sur une classe figée.
+    if (existing && changesSubjectCalc(existing, data) && isClassConfigFrozen(state, existing.class_id)) {
+      toast.error(tStatic(
+        'Configuration figée : une séquence de cette classe est verrouillée. Déverrouillez pour changer coefficient / barème / structure.',
+        'Configuration frozen: a sequence of this class is locked. Unlock to change coefficient / scale / structure.',
+        'Configuración bloqueada: una secuencia de esta clase está bloqueada. Desbloquee para cambiar coeficiente / escala / estructura.',
+      ));
+      return { error: 'frozen', locked: true };
+    }
+    const record = { ...existing, ...data };
     await subjectsDB.put(record);
     set((s) => ({ subjects: s.subjects.map((x) => (x.id === id ? record : x)) }));
     if (backendOnline()) {
@@ -1021,14 +1308,99 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   deleteSubject: async (id) => {
-    const snapshot = get().subjects.find((s) => s.id === id);
-    if (snapshot) await moveToTrash({ table: 'subjects', payload: snapshot });
+    const state = get();
+    const snapshot = state.subjects.find((s) => s.id === id);
+
+    // Gel C2 : supprimer une matière change la structure/les moyennes des bulletins
+    // déjà verrouillés de cette classe → refusé tant qu'une séquence est verrouillée.
+    if (snapshot && isClassConfigFrozen(state, snapshot.class_id)) {
+      toast.error(tStatic(
+        'Suppression impossible : une séquence de cette classe est verrouillée. Déverrouillez d\'abord.',
+        'Cannot delete: a sequence of this class is locked. Unlock it first.',
+        'No se puede eliminar: una secuencia de esta clase está bloqueada. Desbloquéela primero.',
+      ));
+      return { error: 'frozen', locked: true };
+    }
+
+    // Le DELETE cloud efface EN CASCADE toutes les notes de la matière
+    // (`grades.subject_id … ON DELETE CASCADE`). On capture ces notes AVANT
+    // suppression pour que la corbeille puisse les restaurer (cf. collectSubjectBundle).
+    const allGrades = await gradesDB.getAll();
+    const bundle = collectSubjectBundle(id, { grades: allGrades });
+
+    if (snapshot) await moveToTrash({ table: 'subjects', payload: snapshot, related: bundle });
+
+    // Retire la cellule de cette matière des records de notes IDB + gradeMap, en
+    // cohérence avec le cascade cloud (le bundle permet la restauration).
+    if (bundle.subjectGrades.length) {
+      const affectedKeys = new Set(bundle.subjectGrades.map((c) => c.key));
+      const updated = [];
+      for (const g of allGrades) {
+        if (!affectedKeys.has(g.key)) continue;
+        const scores = { ...(g.scores || {}) };
+        delete scores[id];
+        updated.push({ ...g, scores });
+      }
+      if (updated.length) {
+        await gradesDB.putMany(updated);
+        set((s) => {
+          const gradeMap = { ...s.gradeMap };
+          for (const rec of updated) gradeMap[rec.key] = rec.scores;
+          return { gradeMap };
+        });
+      }
+    }
+
     await subjectsDB.delete(id);
     set((s) => ({ subjects: s.subjects.filter((x) => x.id !== id) }));
     if (backendOnline()) {
       sbDeleteSubject(id).then((ok) => { if (!ok) queueOffline({ table: 'subjects', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'subjects', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // Restaure les notes d'une matière supprimée (effacées en cascade). La ligne
+  // matière est déjà recréée par addSubject (même id) via restoreFromTrash ; ici on
+  // réinjecte chaque cellule de note dans les records IDB + gradeMap et on pousse
+  // vers le backend (ou la queue offline).
+  restoreSubjectBundle: async (subjectId, related) => {
+    const cells = related?.subjectGrades || [];
+    if (!cells.length) return;
+    const { schoolId } = get();
+
+    // Réécrit l'IDB : fusionne chaque cellule dans le record de notes existant
+    // (ou un record neuf si le cascade l'avait entièrement effacé).
+    const all = await gradesDB.getAll();
+    const byKey = new Map(all.map((g) => [g.key, g]));
+    const affectedKeys = new Set(cells.map((c) => c.key));
+    for (const cell of cells) {
+      const base = byKey.get(cell.key) || {
+        key: cell.key, class_id: cell.class_id, student_id: cell.student_id,
+        sequence: cell.sequence, school_id: schoolId, scores: {},
+      };
+      byKey.set(cell.key, { ...base, scores: { ...(base.scores || {}), [subjectId]: cell.value } });
+    }
+    const updated = [...affectedKeys].map((k) => byKey.get(k));
+    await gradesDB.putMany(updated);
+    set((s) => {
+      const gradeMap = { ...s.gradeMap };
+      for (const rec of updated) gradeMap[rec.key] = rec.scores;
+      return { gradeMap };
+    });
+
+    // Pousse chaque cellule vers le cloud (le cascade l'y avait effacée).
+    for (const cell of cells) {
+      const payload = {
+        key: cell.key, class_id: cell.class_id, student_id: cell.student_id,
+        sequence: cell.sequence, school_id: schoolId, scores: { [subjectId]: cell.value },
+      };
+      if (backendOnline()) {
+        upsertGradeEntry(cell.class_id, cell.student_id, cell.sequence, { [subjectId]: cell.value }, schoolId)
+          .then((ok) => { if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload }); });
+      } else {
+        queueOffline({ table: 'grades', operation: 'upsert', payload });
+      }
     }
   },
 
@@ -1043,6 +1415,24 @@ export const useSchoolStore = create((set, get) => ({
       upsertStudent(record).then((saved) => { if (!saved) queueOffline({ table: 'students', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'students', operation: 'upsert', payload: record });
+    }
+
+    // Affectation INITIALE : tout élève placé dans une classe reçoit sa 1re ligne
+    // d'affectation (source de vérité). Réutilise le moteur (current=null → 'initial').
+    const newClass = record.class_id ? get().classes.find((c) => c.id === record.class_id) : null;
+    if (newClass) {
+      const { user, fullName } = useAuthStore.getState();
+      const { newRow } = buildTransfer({
+        current: null, newClass, student: record, schoolId, newId: uuid(),
+        userId: user?.id, userName: fullName,
+      });
+      await assignmentsDB.put(newRow);
+      set((s) => ({ assignments: [...s.assignments, newRow] }));
+      if (backendOnline()) {
+        upsertAssignments([newRow]).then((ok) => { if (!ok) queueOffline({ table: 'student_class_assignments', operation: 'upsert', payload: newRow }); });
+      } else {
+        queueOffline({ table: 'student_class_assignments', operation: 'upsert', payload: newRow });
+      }
     }
     return record;
   },
@@ -1180,57 +1570,118 @@ export const useSchoolStore = create((set, get) => ({
     }
   },
 
-  assignStudentToClass: async (studentId, classId, reason) => {
-    const { schoolId, classes } = get();
-    await get().updateStudent(studentId, { class_id: classId });
+  // Affectation HISTORISÉE : ferme l'affectation en cours (date_fin + motif) et en
+  // ouvre une nouvelle (moteur transferEngine, jamais d'UPDATE aveugle de class_id).
+  // `opts` : { type, motif, commentaire } ; rétro-compat : une chaîne = commentaire.
+  // students.class_id reste synchronisé comme CACHE de la classe courante.
+  assignStudentToClass: async (studentId, classId, opts = {}) => {
+    const o = typeof opts === 'string' ? { commentaire: opts } : (opts || {});
+    const { schoolId, classes, students } = get();
+    const newClass = classes.find((c) => c.id === classId);
+    if (!newClass) return;
+    const student = students.find((s) => s.id === studentId) || { id: studentId, school_id: schoolId };
+    const current = get().getCurrentAssignment(studentId);
+    const oldClass = current ? classes.find((c) => c.id === current.class_id) : null;
+    const type = o.type || resolveTransferType(oldClass, newClass);
+    const { user, fullName } = useAuthStore.getState();
+
+    const { closedRow, newRow, noop } = buildTransfer({
+      current, newClass, student, schoolId, type,
+      motif: o.motif, commentaire: o.commentaire,
+      userId: user?.id, userName: fullName, newId: uuid(),
+    });
+    if (noop) return;
+
+    // 1. Persiste les lignes d'affectation (IDB + cloud/queue). L'upsert d'une
+    //    ligne existante (closedRow) et l'insert de la nouvelle passent par le
+    //    même chemin générique (onConflict:id) — y compris via la file offline.
+    // ORDRE IMPORTANT : fermer AVANT d'ouvrir. Deux lignes date_fin=null pour le
+    // même élève violeraient l'index unique partiel (sca_one_current_per_student).
+    const rows = closedRow ? [closedRow, newRow] : [newRow];
+    for (const r of rows) await assignmentsDB.put(r);
+    set((s) => {
+      const ids = new Set(rows.map((r) => r.id));
+      return { assignments: [...s.assignments.filter((a) => !ids.has(a.id)), ...rows] };
+    });
+    const queueRows = () => rows.forEach((r) =>
+      queueOffline({ table: 'student_class_assignments', operation: 'upsert', payload: r }));
     if (backendOnline()) {
-      const cls = classes.find((c) => c.id === classId);
-      const { user, fullName } = useAuthStore.getState();
-      logAssignment({
-        school_id:        schoolId,
-        student_id:       studentId,
-        class_id:         classId,
-        class_name:       cls?.name || null,
-        assigned_by:      user?.id  || null,
-        assigned_by_name: fullName  || null,
-        reason:           reason    || null,
-      }).catch(() => {});
+      (async () => {
+        // Séquentiel : clôture d'abord, ouverture ensuite.
+        let ok = closedRow ? await upsertAssignments([closedRow]) : true;
+        if (ok) ok = await upsertAssignments([newRow]);
+        if (!ok) queueRows();
+      })();
+    } else {
+      queueRows();
+    }
+
+    // 2. Met à jour le cache classe courante (source de vérité = l'affectation).
+    const oldClassId = current?.class_id || null;
+    await get().updateStudent(studentId, { class_id: classId });
+
+    // 3. Recalcule le plan de frais selon la grille de la nouvelle classe
+    //    (paiements préservés, remises % reportées) et rattache la ligne à la
+    //    nouvelle affectation. No-op si tarif identique ou saisie manuelle.
+    await get().recalcFeesAfterTransfer(studentId, newRow.id, oldClassId);
+  },
+
+  bulkAssignToClass: async (studentIds, classId, opts = {}) => {
+    for (const studentId of studentIds) {
+      await get().assignStudentToClass(studentId, classId, opts);
     }
   },
 
-  bulkAssignToClass: async (studentIds, classId, reason) => {
-    const { schoolId, classes } = get();
-    const cls = classes.find((c) => c.id === classId);
-    const { user, fullName } = useAuthStore.getState();
-    for (const studentId of studentIds) {
-      await get().updateStudent(studentId, { class_id: classId });
-      if (backendOnline()) {
-        logAssignment({
-          school_id:        schoolId,
-          student_id:       studentId,
-          class_id:         classId,
-          class_name:       cls?.name || null,
-          assigned_by:      user?.id  || null,
-          assigned_by_name: fullName  || null,
-          reason:           reason    || null,
-        }).catch(() => {});
-      }
-    }
-  },
+  // Affectation EN COURS d'un élève (date_fin null) ou null.
+  getCurrentAssignment: (studentId) =>
+    get().assignments.find((a) => a.student_id === studentId && !a.date_fin) || null,
+
+  // Historique complet des affectations d'un élève, du plus ancien au plus récent.
+  getAssignmentHistory: (studentId) =>
+    get().assignments
+      .filter((a) => a.student_id === studentId)
+      .sort((a, b) => new Date(a.date_debut || a.assigned_at || 0) - new Date(b.date_debut || b.assigned_at || 0)),
 
   // --- Grades ---
 
-  saveGrade: async (classId, studentId, sequence, scores) => {
-    const { schoolId, gradeMap } = get();
+  saveGrade: async (classId, studentId, sequence, scores, opts = {}) => {
+    const { schoolId, gradeMap, academicPeriods, activeYear } = get();
+
+    const hasSpecial = Object.keys(scores).some((k) => k.startsWith('__'));
+    const hasGrades  = Object.keys(scores).some((k) => !k.startsWith('__'));
+
+    // ── Enforcement du verrou (C6/I6) ────────────────────────────────────────
+    // On REFUSE d'écrire de VRAIES notes dans une séquence verrouillée. Deux
+    // sources : le verrou de PÉRIODE (academic_periods.is_locked, synchronisé →
+    // cross-appareil, couvre aussi une année clôturée-verrouillée) et le verrou
+    // par CLASSE (validation admin). Les champs spéciaux (__abs__/__conduite__/
+    // __decision__ du Conseil) restent autorisés : le conseil suit la validation.
+    // Refus silencieux au niveau données (renvoie { locked }) — l'UI grise déjà la
+    // saisie ; ceci ferme les contournements (import de masse, rendu obsolète,
+    // autre appareil ayant posé le verrou entre-temps).
+    if (hasGrades) {
+      const periodLocked = isSequenceLockedByPeriod(academicPeriods, sequence, activeYear);
+      const classLocked  = isClassSequenceLocked(schoolId, classId, sequence);
+      if (periodLocked || classLocked) {
+        // opts.silent : l'appelant agrège lui-même le résultat (ex. import de masse
+        // → un seul récapitulatif au lieu d'un toast par élève).
+        if (!opts.silent) {
+          toast.error(tStatic(
+            'Séquence verrouillée — saisie refusée. Déverrouillez d\'abord.',
+            'Sequence locked — entry refused. Unlock it first.',
+            'Secuencia bloqueada — captura rechazada. Desbloquéela primero.',
+          ));
+        }
+        return { error: 'locked', locked: true, scope: periodLocked ? 'period' : 'class' };
+      }
+    }
+
     const key    = gradeKey(classId, studentId, sequence);
     const merged = { ...(gradeMap[key] || {}), ...scores };
     const record = { key, class_id: classId, student_id: studentId, sequence, school_id: schoolId, scores: merged };
 
     await gradesDB.put(record);
     set((s) => ({ gradeMap: { ...s.gradeMap, [key]: merged } }));
-
-    const hasSpecial = Object.keys(scores).some((k) => k.startsWith('__'));
-    const hasGrades  = Object.keys(scores).some((k) => !k.startsWith('__'));
 
     if (backendOnline()) {
       if (hasGrades) {
@@ -1386,6 +1837,8 @@ export const useSchoolStore = create((set, get) => ({
       tranches:      feeData.tranches      ?? existing?.tranches      ?? [],
       payment_mode:  feeData.payment_mode  ?? existing?.payment_mode  ?? null,
       adjustments:   feeData.adjustments   ?? existing?.adjustments   ?? [],
+      // Rattachement à l'affectation en cours (traçabilité du contexte tarifaire).
+      assignment_id: feeData.assignment_id ?? existing?.assignment_id ?? null,
     };
     await feesDB.put(record);
     set((s) => ({
@@ -1401,7 +1854,7 @@ export const useSchoolStore = create((set, get) => ({
     return record;
   },
 
-  addPayment: async (studentId, { amount, date, note }) => {
+  addPayment: async (studentId, { amount, date, note, student_fee_item_id = null }) => {
     const { schoolId, activeYear, fees, feePayments } = get();
     const userId = useAuthStore.getState().userId;
     const parsedAmount = parseInt(amount, 10) || 0;
@@ -1416,11 +1869,17 @@ export const useSchoolStore = create((set, get) => ({
       date:          date,
       note:          note || '',
       recorded_by:   userId,
+      // Lien optionnel vers un frais précis du catalogue (null = paiement global).
+      student_fee_item_id: student_fee_item_id || null,
       created_at:    new Date().toISOString(),
     };
 
+    // frais_payes est DÉRIVÉ des lignes de paiement (source de vérité), jamais
+    // incrémenté en aveugle — sinon 2 versements concurrents (hors-ligne / LWW)
+    // s'écrasent. On préserve le socle opaque importé (cf. feeEngine.derivePaid).
     const existing = fees.find((f) => f.student_id === studentId && f.academic_year === activeYear);
-    const newPaid = (existing?.frais_payes || 0) + parsedAmount;
+    const rowsBefore = sumPaidForStudent(feePayments, studentId, activeYear);
+    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore + parsedAmount);
 
     await feePaymentsDB.put(record);
     set((s) => ({ feePayments: [record, ...s.feePayments] }));
@@ -1442,8 +1901,12 @@ export const useSchoolStore = create((set, get) => ({
     const payment = feePayments.find((p) => p.id === paymentId);
     if (!payment) return;
 
+    // Dérive frais_payes des lignes restantes (source de vérité) en préservant le
+    // socle opaque importé (cf. feeEngine.derivePaid). rowsBefore inclut la ligne
+    // supprimée ; rowsAfter la retire.
     const existing = fees.find((f) => f.student_id === studentId && f.academic_year === activeYear);
-    const newPaid = Math.max(0, (existing?.frais_payes || 0) - payment.amount);
+    const rowsBefore = sumPaidForStudent(feePayments, studentId, activeYear);
+    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore - payment.amount);
     const remaining = feePayments.filter((p) => p.id !== paymentId && p.student_id === studentId);
     const lastDate = remaining.sort((a, b) => b.date.localeCompare(a.date))[0]?.date ?? null;
 
@@ -1468,6 +1931,41 @@ export const useSchoolStore = create((set, get) => ({
       sbDeleteFee(id).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'delete', payload: { id } }); });
     } else {
       queueOffline({ table: 'student_fees', operation: 'delete', payload: { id } });
+    }
+  },
+
+  // Réconciliation du cache frais_payes à partir des lignes fee_payments (source
+  // de vérité). MONOTONE : ne fait que corriger une sous-évaluation (lost-update /
+  // LWW cross-appareil), jamais diminuer → préserve les soldes importés opaques et
+  // les suppressions déjà répercutées. N'écrit (IDB + cloud) que les fiches ayant
+  // réellement dérivé. Appelée après chaque chargement (init + refresh).
+  reconcileFeesPaid: async () => {
+    const { fees, feePayments, activeYear } = get();
+    if (!fees.length) return;
+    // Index paiements → somme par (élève × année), une seule passe (évite l'O(n²)).
+    const paidByKey = new Map();
+    for (const p of feePayments) {
+      if (!p) continue;
+      const k = `${p.student_id}::${p.academic_year || activeYear || ''}`;
+      paidByKey.set(k, (paidByKey.get(k) || 0) + (parseInt(p.amount, 10) || 0));
+    }
+    const drifted = [];
+    const nextFees = fees.map((f) => {
+      const rowsSum   = paidByKey.get(`${f.student_id}::${f.academic_year || activeYear || ''}`) || 0;
+      const corrected = reconcilePaid(f.frais_payes, rowsSum);
+      if (corrected !== (f.frais_payes || 0)) {
+        const rec = { ...f, frais_payes: corrected };
+        drifted.push(rec);
+        return rec;
+      }
+      return f;
+    });
+    if (!drifted.length) return;
+    set({ fees: nextFees });
+    await feesDB.putMany(drifted);
+    for (const rec of drifted) {
+      if (backendOnline()) upsertFee(rec).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec }); });
+      else queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec });
     }
   },
 
@@ -1542,6 +2040,36 @@ export const useSchoolStore = create((set, get) => ({
     }
     // mode 'libre' / null : on ne touche ni au total ni aux tranches (saisie manuelle).
     return get().saveFee(studentId, patch);
+  },
+
+  // Recalcul des frais après un TRANSFERT (Étape 3). Applique la grille de la
+  // NOUVELLE classe (student.class_id déjà mis à jour), en préservant les
+  // paiements (frais_payes, dérivés des lignes de paiement) et en reportant les
+  // remises en POURCENTAGE (les remises en montant fixe sont retirées → à
+  // re-saisir sur le nouveau tarif ; défaut validé par l'établissement).
+  //   - `oldClassId` : classe d'avant (pour ne rien toucher si le tarif est identique).
+  //   - `assignmentId` : nouvelle affectation, rattachée à la ligne de frais.
+  // Ne recalcule QUE les modes pilotés par la grille ('comptant'/'echelonne') ;
+  // 'libre'/null (saisie manuelle) → on ne réécrit aucun montant.
+  recalcFeesAfterTransfer: async (studentId, assignmentId, oldClassId) => {
+    const { fees, activeYear, classFeeGrids, students } = get();
+    const fee = fees.find((f) => f.student_id === studentId && (!activeYear || f.academic_year === activeYear));
+    if (!fee) return; // aucun frais pour l'année → rien à recalculer
+
+    const gridFor = (classId) => classFeeGrids.find(
+      (g) => g.class_id === classId && (!activeYear || g.academic_year === activeYear)
+    ) || null;
+    const student = students.find((s) => s.id === studentId);
+
+    // Décision PURE (feeEngine) : nouveau total/tranches, report des remises %,
+    // paiements préservés. patch=null si rien à recalculer.
+    const { patch } = computeTransferFeePatch({
+      fee,
+      newGrid: gridFor(student?.class_id),
+      oldGrid: oldClassId ? gridFor(oldClassId) : null,
+      assignmentId,
+    });
+    if (patch) await get().saveFee(studentId, patch);
   },
 
   // --- Selectors ---

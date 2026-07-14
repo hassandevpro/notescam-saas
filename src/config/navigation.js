@@ -23,6 +23,9 @@
 //   - Conseil de classe : Scolarité → Évaluations
 //   - Surveillance      : Analyses  → Vie scolaire
 // ─────────────────────────────────────────────────────────────────────────────
+import { isPathPermitted } from './capabilities';
+import { effectivePages } from '../governance/governanceEngine';
+import { catalogOrDefault } from '../governance/defaultCatalog';
 
 export const ROLES = {
   ADMIN: 'admin',
@@ -99,6 +102,10 @@ export const NAV_GROUPS = [
         roles: DISCIPLINE },
       { to: '/app/monitor',  icon: 'monitor',  label: ['Surveillance profs', 'Teacher monitoring', 'Supervisión docentes'],
         roles: ['admin', 'censeur'], badge: true },
+      { to: '/app/signalements', icon: 'history', label: ['Signalements', 'Reports', 'Reportes'],
+        roles: ALL },
+      { to: '/app/notifications', icon: 'monitor', label: ['Notifications', 'Notifications', 'Notificaciones'],
+        roles: ALL },
     ],
   },
   {
@@ -108,6 +115,15 @@ export const NAV_GROUPS = [
     items: [
       { to: '/app/fees', icon: 'fees', label: ['Frais scolaires', 'School Fees', 'Tasas escolares'],
         roles: ['admin', 'censeur'], feature: 'hasFees' },
+      // Catalogue des frais : désormais un onglet DANS « Frais scolaires » (près
+      // des Grilles tarifaires), plus une entrée de menu autonome. Route
+      // /app/frais-catalogue conservée (liens profonds).
+      { to: '/app/budgets', icon: 'reports', label: ['Budgets', 'Budgets', 'Presupuestos'],
+        roles: ['admin'], budgetAccess: true },
+      { to: '/app/budget-global', icon: 'reports', label: ['Budget global & prévisions', 'Global budget & forecast', 'Presupuesto global'],
+        roles: ['admin'], budgetAccess: true },
+      { to: '/app/depenses', icon: 'fees', label: ['Dépenses', 'Expenses', 'Gastos'],
+        roles: ['admin'], budgetAccess: true },
     ],
   },
   {
@@ -119,6 +135,12 @@ export const NAV_GROUPS = [
         roles: ['admin'], feature: 'hasTeachers' },
       { to: '/app/personnel', icon: 'students', label: ['Personnel & rôles', 'Staff & roles', 'Personal y roles'],
         roles: ['admin'], feature: 'hasTeachers' },
+      { to: '/app/rh', icon: 'teachers', label: ['Ressources Humaines', 'Human Resources', 'Recursos Humanos'],
+        roles: ['admin'] },
+      { to: '/app/immobilisations', icon: 'settings', label: ['Immobilisations', 'Fixed assets', 'Inmovilizado'],
+        roles: ['admin'] },
+      // Seed Data — visible UNIQUEMENT en développement (retiré du bundle en prod).
+      ...(import.meta.env.DEV ? [{ to: '/app/seed-data', icon: 'settings', label: ['Données de démo (DEV)', 'Seed Data (DEV)', 'Datos demo (DEV)'], roles: ['admin'] }] : []),
     ],
   },
   {
@@ -128,6 +150,8 @@ export const NAV_GROUPS = [
     items: [
       { to: '/app/reports', icon: 'reports', label: ['Rapports', 'Reports', 'Informes'],
         roles: ['admin', 'censeur'], mobilePrimary: true },
+      { to: '/app/groupe', icon: 'home', label: ['Tableau de bord du groupe', 'Group dashboard', 'Panel del grupo'],
+        roles: ['admin'] },
     ],
   },
   {
@@ -161,12 +185,22 @@ function visibleForRole(item, role) {
  * @param {string} role
  * @param {object} f  features de plan (usePlan().f)
  */
-export function getNavGroups(role, f = {}) {
+export function getNavGroups(role, f = {}, permissions = null, gov = {}) {
+  // Compte délégué : la navigation reflète EXACTEMENT ses capacités (les
+  // permissions font autorité, le rôle de base n'entre plus en jeu).
+  const delegated = permissions && permissions.length;
+  // Pages ouvertes par les rôles de GOUVERNANCE (dérivées du catalogue, dates +
+  // statut appliqués). Additif : passe outre `roles`/permissions pour ces pages.
+  const govPages = effectivePages(role, catalogOrDefault(gov.catalog), gov.assignments || []);
+  const visible = (it) => {
+    if (govPages.has(it.to)) return true;
+    return delegated ? isPathPermitted(it.to, permissions) : visibleForRole(it, role);
+  };
   return NAV_GROUPS
     .map((group) => ({
       ...group,
       items: group.items
-        .filter((it) => visibleForRole(it, role))
+        .filter(visible)
         .map((it) => ({ ...it, locked: it.feature ? !f[it.feature] : false })),
     }))
     .filter((group) => group.items.length > 0);
@@ -177,8 +211,8 @@ export function getNavGroups(role, f = {}) {
  * On prend les items `mobilePrimary` visibles ; on complète si le rôle en a
  * moins de 4 (ex. teacher) avec ses premiers items disponibles.
  */
-export function getMobilePrimary(role, f = {}, max = 4) {
-  const groups = getNavGroups(role, f);
+export function getMobilePrimary(role, f = {}, max = 4, permissions = null, gov = {}) {
+  const groups = getNavGroups(role, f, permissions, gov);
   const flat = groups.flatMap((g) => g.items);
   const primary = flat.filter((it) => it.mobilePrimary);
   const result = [...primary];

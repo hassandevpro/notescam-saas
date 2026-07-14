@@ -102,9 +102,17 @@ export async function restoreFromTrash(trashItem, store) {
   await cancelQueuedDelete(table, payload?.id);
   switch (table) {
     case 'classes':
-      await store.addClass(payload); break;
+      // Avec bundle : restauration intégrale (classe + matières + élèves + notes +
+      // frais + paiements effacés en cascade), SANS auto-config des matières.
+      // Sans bundle (anciennes entrées) : simple recréation de la classe.
+      if (related) await store.restoreClassBundle?.(payload, related);
+      else         await store.addClass(payload);
+      break;
     case 'subjects':
-      await store.addSubject(payload); break;
+      await store.addSubject(payload);
+      // Réinjecte les notes de la matière effacées en cascade.
+      if (related) await store.restoreSubjectBundle?.(payload.id, related);
+      break;
     case 'students':
       await store.addStudent(payload);
       // Réinjecte notes / absences / frais / paiements effacés en cascade lors de

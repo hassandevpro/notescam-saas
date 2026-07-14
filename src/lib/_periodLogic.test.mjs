@@ -1,6 +1,6 @@
 // Test du cœur pur des périodes académiques : auto-switch par date + dérivation
 // de la séquence active. Aucune dépendance (pas de store / réseau / React).
-import { computeAutoActive, deriveActiveSequence, toDateStr } from './periodLogic.js';
+import { computeAutoActive, deriveActiveSequence, toDateStr, isSequenceLockedByPeriod, anySequenceLockedThisYear } from './periodLogic.js';
 
 let failed = false;
 const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed = true; };
@@ -45,6 +45,30 @@ ok(toDateStr('pas une date') === '', 'toDateStr tolère une entrée invalide');
 const snapshot = JSON.stringify(periods);
 computeAutoActive(periods, new Date('2026-04-15'));
 ok(JSON.stringify(periods) === snapshot, 'computeAutoActive ne mute pas le tableau source');
+
+// 7) isSequenceLockedByPeriod (C6/I6) — verrou matériel par sequence_order.
+const lockPeriods = [
+  { type: 'trimestre', name: 'T1', is_locked: true }, // ignoré (pas une séquence)
+  { type: 'sequence', sequence_order: 1, school_year: '2025-2026', is_locked: true },
+  { type: 'sequence', sequence_order: 2, school_year: '2025-2026', is_locked: false },
+  { type: 'sequence', sequence_order: 1, school_year: '2024-2025', is_locked: false },
+];
+ok(isSequenceLockedByPeriod(lockPeriods, 1, '2025-2026') === true, 'lock: séquence 1 verrouillée (année courante)');
+ok(isSequenceLockedByPeriod(lockPeriods, 2, '2025-2026') === false, 'lock: séquence 2 non verrouillée');
+ok(isSequenceLockedByPeriod(lockPeriods, 1, '2024-2025') === false, 'lock: même ordre, autre année → non verrouillée');
+ok(isSequenceLockedByPeriod(lockPeriods, '1', '2025-2026') === true, 'lock: tolère sequence en string');
+ok(isSequenceLockedByPeriod(lockPeriods, 1, null) === true, 'lock: sans filtre année → verrouillée si une séquence 1 l\'est');
+ok(isSequenceLockedByPeriod(lockPeriods, 9, '2025-2026') === false, 'lock: séquence inexistante → false');
+ok(isSequenceLockedByPeriod(lockPeriods, null) === false, 'lock: sequence null → false');
+ok(isSequenceLockedByPeriod(null, 1) === false, 'lock: périodes nulles → false');
+
+// 8) anySequenceLockedThisYear (C2) — gel de config si une séquence est verrouillée.
+ok(anySequenceLockedThisYear(lockPeriods, '2025-2026') === true, 'gel: année avec séquence verrouillée → true');
+ok(anySequenceLockedThisYear(lockPeriods, '2024-2025') === false, 'gel: année sans séquence verrouillée → false');
+ok(anySequenceLockedThisYear(lockPeriods, null) === true, 'gel: sans filtre année → true (au moins une verrouillée)');
+ok(anySequenceLockedThisYear([{ type: 'trimestre', is_locked: true }], null) === false, 'gel: un trimestre verrouillé n\'entre pas en compte');
+ok(anySequenceLockedThisYear([], '2025-2026') === false, 'gel: liste vide → false');
+ok(anySequenceLockedThisYear(null) === false, 'gel: null → false');
 
 console.log(failed ? '\n❌ ÉCHEC' : '\n✅ OK');
 process.exit(failed ? 1 : 0);

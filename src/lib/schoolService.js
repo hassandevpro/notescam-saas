@@ -377,6 +377,30 @@ export async function deleteClassFeeGrid(id) {
   return true;
 }
 
+// --- Affectations élèves (historisées) ---
+
+// Toutes les affectations de l'école (toutes années : c'est l'historique).
+export async function fetchAssignments(schoolId) {
+  const { data, error } = await supabase
+    .from('student_class_assignments')
+    .select('*')
+    .eq('school_id', schoolId)
+    .order('date_debut', { ascending: true });
+  if (error) { console.error('fetchAssignments', error); return null; }
+  return data;
+}
+
+// Upsert d'une ou plusieurs lignes d'affectation (clôture + ouverture d'un transfert).
+export async function upsertAssignments(rows) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  if (!list.length) return true;
+  const { error } = await supabase
+    .from('student_class_assignments')
+    .upsert(list, { onConflict: 'id' });
+  if (error) { console.error('upsertAssignments', error); return false; }
+  return true;
+}
+
 // --- Fee payments (individual installments) ---
 
 export async function fetchFeePayments(schoolId, year) {

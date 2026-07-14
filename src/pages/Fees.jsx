@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
@@ -10,8 +10,13 @@ import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
 import { printReceipt } from '../lib/receiptDoc';
 import FeeGridsTab from '../components/fees/FeeGridsTab';
+import FeeCatalog from './FeeCatalog';
 import FeeDashboard from '../components/fees/FeeDashboard';
 import { studentFeeSituation, inscriptionApplies } from '../lib/feeEngine';
+import { fetchStudentFeeItems, fetchCatalog, upsertStudentFeeItem, deleteStudentFeeItem } from '../lib/feeCatalogService';
+import { studentTotals, optionalItemsFor, snapshotItem, paidForItem } from '../lib/feeCatalogEngine';
+import { classSectionKey } from '../core/engineResolver';
+import { uuid } from '../lib/uuid';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import { MODE_LABEL, STATUS_UI, TRANCHE_UI } from '../components/fees/feeUi';
 import { useMoney } from '../lib/useMoney';
@@ -35,13 +40,6 @@ function initials(name = '') {
   return name.split(' ').slice(0, 2).map((w) => w[0] || '').join('').toUpperCase();
 }
 
-function feeStatus(fee) {
-  if (!fee || fee.frais_annuels === 0) return 'none';
-  if (fee.frais_payes >= fee.frais_annuels) return 'paid';
-  if (fee.frais_payes > 0) return 'partial';
-  return 'unpaid';
-}
-
 function isOverdue(fee) {
   if (!fee?.tranches?.length) return false;
   const today = todayISO();
@@ -62,9 +60,10 @@ const PAGE_SIZE = 25;
 
 // ── Barre de progression paiement ─────────────────────────────────────────────
 
-function PayProgress({ fee }) {
-  if (!fee || !fee.frais_annuels) return null;
-  const pct = Math.min(100, Math.round(((fee.frais_payes || 0) / fee.frais_annuels) * 100));
+function PayProgress({ fee, due }) {
+  const total = due || fee?.frais_annuels || 0;
+  if (!total) return null;
+  const pct = Math.min(100, Math.round(((fee?.frais_payes || 0) / total) * 100));
   const bar = pct >= 100 ? 'bg-emerald-500' : pct > 0 ? 'bg-amber-400' : 'bg-red-300';
   return (
     <div className="mt-1.5 min-w-[60px]">
@@ -78,7 +77,8 @@ function PayProgress({ fee }) {
 
 // ── Panneau de gestion étendu ─────────────────────────────────────────────────
 
-function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeletePayment, onClose, onPrintReceipt, onConfigureGrid }) {
+function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeletePayment, onClose, onPrintReceipt, onConfigureGrid,
+  studentItems = [], optionalItems = [], onAttachOptional, onDetachOptional }) {
   const t = useT();
   const money = useMoney();
 
@@ -92,6 +92,13 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
   const inscription = applyInscription ? (grid?.amount_inscription || 0) : 0;
   const situation = studentFeeSituation(fee, grid, { applyInscription });
   const mode = fee?.payment_mode || null;
+
+  // Frais du CATALOGUE de l'élève (obligatoires + optionnels) : leur montant entre
+  // dans le « Dû » (les versements liés à ces frais alimentent déjà `frais_payes`,
+  // sinon le Payé dépasserait le Dû). Fournis par la page (source unique).
+  const catalogDue = studentTotals(studentItems).due;
+  // Frais optionnels du catalogue : coché = déjà attribué à l'élève.
+  const attachedByCatalogId = new Map(studentItems.map((i) => [i.fee_catalog_id, i]));
 
   // Détection AUTOMATIQUE du mode à partir du montant versé : payer la totalité
   // du tarif comptant en une fois → comptant (tarif réduit) ; sinon → échelonné.
@@ -116,15 +123,23 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
   // Total dû : si le mode est déjà figé, on le respecte ; sinon on prévisualise
   // selon le montant en cours de saisie (le système « décide directement »).
   const previewMode  = mode || detectMode(typed);
-  const previewTotal = mode
+  const tuitionTotal = mode
     ? situation.total
     : (grid
         ? (previewMode === 'comptant' ? grid.amount_comptant : grid.amount_echelonne) + inscription
         : (fee?.frais_annuels || 0) + inscription);
+  // Dû global affiché = scolarité (+ inscription) + frais du catalogue de l'élève.
+  const previewTotal = tuitionTotal + catalogDue;
+  // Reste à payer : borne les versements pour ne JAMAIS encaisser au-delà du dû
+  // (sinon « Total encaissé » > « Total dû » → recouvrement > 100 %, calculs faussés).
+  // Si aucun dû n'est défini (previewTotal 0), on ne borne pas (rien à comparer).
+  const remaining = previewTotal > 0 ? Math.max(0, previewTotal - (fee?.frais_payes ?? 0)) : Infinity;
+  const overpay = typed > remaining;
 
   const handleAddPayment = async () => {
     const parsed = parseInt(montant, 10) || 0;
     if (!parsed) return;
+    if (parsed > remaining) return; // garde-fou : jamais au-delà du reste dû
     setSaving(true);
     // Fige le mode au 1er versement selon le montant (si une grille existe et
     // qu'aucun mode n'a encore été déterminé).
@@ -142,6 +157,7 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
         fraisAnnuels: previewTotal,
         mode: appliedMode,
         date,
+        designation: note.trim() || null, // le reçu porte le nom saisi (ex. « Cantine »)
       });
       setMontant(''); setNote('');
     }
@@ -152,6 +168,26 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
     await onDeletePayment(paymentId, student.id);
     setDeleting(null);
     setLastPayment(null);
+  };
+
+  // Paiement RATTACHÉ à un frais optionnel précis (student_fee_item_id) : règle son
+  // solde, la note = son nom → le reçu porte automatiquement ce nom.
+  const payOptional = async (item) => {
+    const bal = Math.max(0, (Number(item.amount) || 0) - paidForItem(item.id, payments));
+    if (bal <= 0) return;
+    setSaving(true);
+    const rec = await onAddPayment(student.id, { amount: bal, date: todayISO(), note: item.name, student_fee_item_id: item.id });
+    setSaving(false);
+    if (rec) {
+      setLastPayment({
+        versement: bal,
+        newTotal: (fee?.frais_payes ?? 0) + bal,
+        fraisAnnuels: previewTotal,
+        mode: mode || 'libre',
+        date: todayISO(),
+        designation: item.name,
+      });
+    }
   };
 
   return (
@@ -188,6 +224,66 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
                   🎒 {t("Frais d'inscription", 'Registration fee', 'Matrícula')} ({t('nouveau', 'new', 'nuevo')})
                 </span>
                 <span className="font-bold text-amber-800">+ {money(inscription)}</span>
+              </div>
+            )}
+
+            {/* Frais du catalogue (obligatoires + optionnels) inclus dans le Dû. */}
+            {catalogDue > 0 && (
+              <div className="mb-3 flex items-center justify-between rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs">
+                <span className="font-semibold text-indigo-700">
+                  🧾 {t('Frais additionnels (catalogue)', 'Additional fees (catalog)', 'Tasas adicionales (catálogo)')}
+                </span>
+                <span className="font-bold text-indigo-800">+ {money(catalogDue)}</span>
+              </div>
+            )}
+
+            {/* Frais optionnels du catalogue : cliquer pour AJOUTER directement à
+                l'élève (ou retirer si non payé). Toujours affiché quand un catalogue
+                d'optionnels existe pour la classe de l'élève. */}
+            {onAttachOptional && (
+              <div className="mb-3 rounded-lg border border-gray-200 p-2.5">
+                <div className="text-[11px] font-bold text-gray-500 uppercase mb-1.5">
+                  {t('Frais optionnels', 'Optional fees', 'Tasas opcionales')}
+                  <span className="ml-1 font-normal text-gray-400 lowercase">— {t('cliquez pour ajouter', 'click to add', 'clic para añadir')}</span>
+                </div>
+                {optionalItems.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-1">{t('Aucun frais optionnel configuré pour cette classe.', 'No optional fee configured for this class.', 'Sin tasas opcionales configuradas.')}</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {optionalItems.map((opt) => {
+                      const attached = attachedByCatalogId.get(opt.id) || null;
+                      const paidAmt = attached ? paidForItem(attached.id, payments) : 0;
+                      const bal = attached ? Math.max(0, (Number(attached.amount) || 0) - paidAmt) : 0;
+                      const fullyPaid = attached && bal <= 0;
+                      if (attached) {
+                        return (
+                          <span key={opt.id} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-indigo-50 border border-indigo-200 text-indigo-700 font-semibold">
+                            ✓ {opt.name} · {money(opt.amount)}
+                            {fullyPaid ? (
+                              <span className="text-[10px] text-emerald-600 font-bold">{t('payé', 'paid', 'pagado')}</span>
+                            ) : (
+                              <>
+                                <button type="button" onClick={() => payOptional(attached)} disabled={saving}
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+                                  {t('Payer', 'Pay', 'Pagar')} {money(bal)}
+                                </button>
+                                {paidAmt === 0 && (
+                                  <button type="button" onClick={() => onDetachOptional(student.id, attached)} title={t('Retirer', 'Remove', 'Quitar')} className="text-indigo-400 hover:text-rose-600">✕</button>
+                                )}
+                              </>
+                            )}
+                          </span>
+                        );
+                      }
+                      return (
+                        <button key={opt.id} type="button" onClick={() => onAttachOptional(student.id, opt)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-white border border-dashed border-gray-300 text-gray-700 hover:border-indigo-400 hover:bg-indigo-50 font-medium">
+                          + {opt.name} · <span className="font-semibold">{money(opt.amount)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -329,9 +425,17 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
                     )}
                   </p>
                 )}
+                {overpay && (
+                  <p className="text-xs text-red-600 font-medium mb-3">
+                    ⚠ {t('Le versement dépasse le reste dû', 'Payment exceeds the balance due', 'El pago supera el saldo')} ({money(remaining)}).{' '}
+                    <button type="button" onClick={() => setMontant(String(remaining))} className="underline font-semibold">
+                      {t('Ajuster au reste', 'Set to balance', 'Ajustar al saldo')}
+                    </button>
+                  </p>
+                )}
                 <button
                   onClick={handleAddPayment}
-                  disabled={saving || !montant}
+                  disabled={saving || !montant || overpay}
                   className="btn-primary"
                   style={{ width: 'auto', paddingLeft: '1.5rem', paddingRight: '1.5rem' }}
                 >
@@ -426,7 +530,10 @@ export default function Fees() {
   const saveFee      = useSchoolStore((s) => s.saveFee);
 
   const activeYear = school?.current_year || '';
+  const schoolId = school?.id;
   const [importMsg, setImportMsg] = useState(null);
+  const [feeItems, setFeeItems] = useState([]);   // frais catalogue de TOUS les élèves (année active)
+  const [catalog, setCatalog]   = useState([]);   // catalogue de frais de l'école
   const fileRef = useRef(null);
 
   const [mainTab,      setMainTab]      = useState('suivi'); // suivi | echeances | grilles
@@ -474,6 +581,47 @@ export default function Fees() {
     return map;
   }, [fees]);
 
+  const classById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
+
+  // Frais du CATALOGUE (obligatoires + optionnels) de tous les élèves + catalogue
+  // de l'école : intégrés au Dû/Reste/statut de la liste ET du panneau (source unique).
+  const loadFeeItems = useCallback(async () => {
+    if (!schoolId) return;
+    const rows = await fetchStudentFeeItems(schoolId, { yearLabel: activeYear });
+    setFeeItems(Array.isArray(rows) ? rows : []);
+  }, [schoolId, activeYear]);
+  const loadCatalog = useCallback(async () => {
+    if (!schoolId) return;
+    const rows = await fetchCatalog(schoolId, { yearLabel: activeYear });
+    setCatalog(Array.isArray(rows) ? rows : (rows?.rows || []));
+  }, [schoolId, activeYear]);
+  useEffect(() => { loadFeeItems(); loadCatalog(); }, [loadFeeItems, loadCatalog]);
+  // Rafraîchit à l'ouverture d'un panneau élève (catalogue récemment configuré).
+  useEffect(() => { if (openRow) { loadFeeItems(); loadCatalog(); } }, [openRow, loadFeeItems, loadCatalog]);
+
+  // Dû catalogue par élève (items actifs).
+  const catalogDueByStudent = useMemo(() => {
+    const byStudent = {};
+    for (const it of feeItems) {
+      if (!it || it.status === 'removed') continue;
+      (byStudent[it.student_id] || (byStudent[it.student_id] = [])).push(it);
+    }
+    const map = {};
+    for (const [sid, list] of Object.entries(byStudent)) map[sid] = studentTotals(list).due;
+    return map;
+  }, [feeItems]);
+
+  // Attribution / retrait d'un frais optionnel depuis le panneau « gérer ».
+  const attachOptional = useCallback(async (studentId, opt) => {
+    const saved = await upsertStudentFeeItem({ id: uuid(), ...snapshotItem(opt, { studentId, schoolId, academicYear: activeYear }) });
+    if (saved) await loadFeeItems();
+  }, [schoolId, activeYear, loadFeeItems]);
+  const detachOptional = useCallback(async (studentId, item) => {
+    if (!item) return;
+    if (paidForItem(item.id, feePayments) > 0) { window.alert(t('Frais déjà payé : impossible de le retirer.', 'Already paid: cannot remove.', 'Ya pagado: no se puede quitar.')); return; }
+    if (await deleteStudentFeeItem(item.id)) await loadFeeItems();
+  }, [feePayments, loadFeeItems, t]);
+
   // Grille tarifaire applicable par classe (année active) : permet d'afficher le
   // montant dû dès qu'une grille est définie, AVANT tout versement.
   const gridMap = useMemo(() => {
@@ -492,7 +640,22 @@ export default function Fees() {
     // Frais d'inscription en plus pour un nouveau dans l'établissement.
     const inscription = inscriptionApplies(student) ? (grid?.amount_inscription || 0) : 0;
     const base = fee?.frais_annuels || grid?.amount_echelonne || grid?.amount_comptant || 0;
-    return base + inscription;
+    // + frais du catalogue attribués à l'élève (obligatoires + optionnels).
+    return base + inscription + (catalogDueByStudent[student.id] || 0);
+  };
+
+  // Statut d'un élève basé sur le Dû TOTAL (scolarité + inscription + catalogue).
+  // Conserve « non défini » tant qu'aucune scolarité n'est figée ET qu'aucun frais
+  // catalogue n'est attribué (comportement historique préservé).
+  const rowStatus = (student, fee) => {
+    const catDue = catalogDueByStudent[student.id] || 0;
+    if (!fee?.frais_annuels && catDue === 0) return 'none';
+    const due = effectiveDue(student, fee);
+    const paid = fee?.frais_payes || 0;
+    if (due <= 0) return 'none';
+    if (paid >= due) return 'paid';
+    if (paid > 0) return 'partial';
+    return 'unpaid';
   };
 
   const classNameById = (id) => classes.find((c) => c.id === id)?.name || '—';
@@ -506,10 +669,10 @@ export default function Fees() {
       .filter((s) => {
         if (filterStatus === 'all') return true;
         if (filterStatus === 'overdue') return isOverdue(feeMap[s.id]);
-        return feeStatus(feeMap[s.id]) === filterStatus;
+        return rowStatus(s, feeMap[s.id]) === filterStatus;
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, filterClass, filterSection, filterStatus, search, feeMap, classes]);
+  }, [students, filterClass, filterSection, filterStatus, search, feeMap, classes, catalogDueByStudent]);
 
   const totalPages = Math.ceil(visible.length / PAGE_SIZE);
   const paginated  = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -519,12 +682,17 @@ export default function Fees() {
     const all      = students.filter((s) => !filterClass || s.class_id === filterClass);
     // Dû = tarif figé ou, à défaut, échelonné de la grille de classe.
     const totalDu   = all.reduce((n, s) => n + effectiveDue(s, feeMap[s.id]), 0);
-    const totalPaye = all.reduce((n, s) => n + (feeMap[s.id]?.frais_payes || 0), 0);
-    const countPaid = all.filter((s) => feeStatus(feeMap[s.id]) === 'paid').length;
-    const countUnpaid = all.filter((s) => ['unpaid', 'none'].includes(feeStatus(feeMap[s.id]))).length;
+    // Encaissé IMPUTÉ aux frais : borné au dû par élève (un éventuel trop-perçu
+    // n'est pas compté → recouvrement plafonné à 100 %, jamais > le dû).
+    const totalPaye = all.reduce((n, s) => {
+      const due = effectiveDue(s, feeMap[s.id]);
+      return n + Math.min(feeMap[s.id]?.frais_payes || 0, due);
+    }, 0);
+    const countPaid = all.filter((s) => rowStatus(s, feeMap[s.id]) === 'paid').length;
+    const countUnpaid = all.filter((s) => ['unpaid', 'none'].includes(rowStatus(s, feeMap[s.id]))).length;
     return { totalDu, totalPaye, countPaid, countUnpaid, effectif: all.length };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, filterClass, feeMap, gridMap]);
+  }, [students, filterClass, feeMap, gridMap, catalogDueByStudent]);
 
   const statusLabel = (status) => ({
     paid:    t('Payé intégral', 'Paid in full'),
@@ -548,7 +716,7 @@ export default function Fees() {
           due || '',
           f?.frais_payes ?? '',
           due ? Math.max(0, due - (f?.frais_payes || 0)) : '',
-          statusLabel(feeStatus(f)),
+          statusLabel(rowStatus(s, f)),
           f?.date_dernier_paiement || '',
         ];
       }),
@@ -569,7 +737,7 @@ export default function Fees() {
         <td style="text-align:right">${due ? money.amount(due) : '—'}</td>
         <td style="text-align:right">${fe?.frais_payes ? money.amount(fe.frais_payes) : '—'}</td>
         <td style="text-align:right">${reste !== '' ? money.amount(reste) : '—'}</td>
-        <td>${statusLabel(feeStatus(fe))}</td></tr>`;
+        <td>${statusLabel(rowStatus(s, fe))}</td></tr>`;
     }).join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${t('Frais scolaires', 'School Fees')} — ${scope}</title>
       <style>
@@ -670,6 +838,7 @@ export default function Fees() {
           {[
             { id: 'suivi',     label: t('Suivi des paiements', 'Payment tracking', 'Seguimiento') },
             { id: 'echeances', label: t('Échéances', 'Schedule', 'Vencimientos') },
+            { id: 'catalogue', label: t('Catalogue des frais', 'Fee catalog', 'Catálogo de tasas') },
             { id: 'grilles',   label: t('Grilles tarifaires', 'Fee grids', 'Tarifas') },
           ].map(({ id, label }) => (
             <button
@@ -693,6 +862,9 @@ export default function Fees() {
             onOpenStudent={openStudentPanel}
           />
         )}
+
+        {/* ── Onglet Catalogue des frais (intégré, sans Layout) ── */}
+        {mainTab === 'catalogue' && <FeeCatalog embedded />}
 
         {/* ── Onglet Grilles tarifaires ── */}
         {mainTab === 'grilles' && (
@@ -831,7 +1003,7 @@ export default function Fees() {
                 <tbody>
                   {paginated.map((student) => {
                     const fee    = feeMap[student.id];
-                    const status = feeStatus(fee);
+                    const status = rowStatus(student, fee);
                     const cfg    = STATUS_CONFIG[status];
                     const grid   = gridMap[student.class_id];
                     // Grille définie mais mode pas encore figé → on prévisualise les deux tarifs.
@@ -896,13 +1068,18 @@ export default function Fees() {
                               + {money.amount(grid.amount_inscription)} {t('inscription', 'registration', 'matrícula')}
                             </div>
                           )}
+                          {catalogDueByStudent[student.id] > 0 && (
+                            <div className="text-[10px] text-indigo-600 font-sans mt-0.5 whitespace-nowrap">
+                              + {money.amount(catalogDueByStudent[student.id])} {t('catalogue', 'catalog', 'catálogo')}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex flex-col items-end">
                             {fee?.frais_payes
                               ? <span className="font-mono text-emerald-600 font-semibold">{money.amount(fee.frais_payes)}</span>
                               : <span className="text-gray-300 font-mono">0</span>}
-                            <PayProgress fee={fee} />
+                            <PayProgress fee={fee} due={due} />
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right font-mono">
@@ -999,6 +1176,9 @@ export default function Fees() {
         {openRow && (() => {
           const student = students.find((s) => s.id === openRow);
           if (!student) return null;
+          const studentItems = feeItems.filter((i) => i.student_id === student.id && i.status !== 'removed');
+          const ctx = { academicYear: activeYear, level: classSectionKey(classById[student.class_id]), classId: student.class_id };
+          const optionalItems = optionalItemsFor(catalog, ctx);
           return (
             <PaymentPanel
               student={student}
@@ -1007,6 +1187,10 @@ export default function Fees() {
                 .filter((p) => p.student_id === student.id && p.academic_year === activeYear)
                 .sort((a, b) => b.date.localeCompare(a.date))}
               isAdmin={isAdmin}
+              studentItems={studentItems}
+              optionalItems={optionalItems}
+              onAttachOptional={attachOptional}
+              onDetachOptional={detachOptional}
               onAddPayment={addPayment}
               onDeletePayment={deletePayment}
               onClose={() => setOpenRow(null)}

@@ -15,6 +15,8 @@ import { exportStaff, downloadStaffTemplate, parseStaffSpreadsheet, printStaffLi
 import { resizeImageToSquare } from '../lib/image';
 import { TeachersPanel } from './Teachers';
 import StaffManager from '../components/StaffManager';
+import StaffAccessModal from '../components/StaffAccessModal';
+import GovernanceCenter from '../components/GovernanceCenter';
 
 // Libellés + icônes des départements.
 function useDepartmentMeta() {
@@ -202,6 +204,7 @@ function StaffDepartmentPanel({ department, label }) {
   const [editing, setEditing] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [importMsg, setImportMsg] = useState(null);
+  const [accessFor, setAccessFor] = useState(null); // membre pour lequel créer un accès
   const importRef = useRef();
 
   const members = useMemo(() => {
@@ -351,6 +354,16 @@ function StaffDepartmentPanel({ department, label }) {
                           </span>
                         ) : (
                           <span className="flex items-center justify-end gap-1">
+                            {m.auth_user_id ? (
+                              <span className="p-1.5 text-emerald-500" title={t('Accès créé', 'Access created', 'Acceso creado')}>
+                                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd"/></svg>
+                              </span>
+                            ) : (
+                              <button onClick={() => setAccessFor(m)}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-indigo-600 hover:bg-indigo-50" title={t('Créer l’accès (compte + mot de passe)', 'Create access (account + password)', 'Crear acceso')}>
+                                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M8 7a4 4 0 118 0 4 4 0 01-8 0zm0 6a4 4 0 00-4 4h2a2 2 0 012-2h2l1.5-1.5L14 12l-1-1-1 1-1-1-1 1H8z" opacity=".0"/><path fillRule="evenodd" d="M12.293 2.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-7 7A1 1 0 019 15H7a1 1 0 01-1-1v-2a1 1 0 01.293-.707l7-7zM8 12.414V13h.586l6.293-6.293-.586-.586L8 12.414z" clipRule="evenodd"/><path d="M4 9a5 5 0 018.9-3.1l-1.42 1.42A3 3 0 006 9a3 3 0 003 3 3 3 0 00.68-.08l1.6 1.6A5 5 0 014 9z" opacity=".0"/></svg>
+                              </button>
+                            )}
                             <button onClick={() => { setEditing(m); setShowForm(true); }}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50" title={t('Modifier', 'Edit', 'Editar')}>
                               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
@@ -379,6 +392,14 @@ function StaffDepartmentPanel({ department, label }) {
           onCancel={() => { setShowForm(false); setEditing(null); }}
         />
       )}
+
+      {accessFor && (
+        <StaffAccessModal
+          staff={accessFor}
+          onCreated={(userId) => updateStaff(accessFor.id, { auth_user_id: userId })}
+          onClose={() => setAccessFor(null)}
+        />
+      )}
     </div>
   );
 }
@@ -400,15 +421,9 @@ function RolesPanel() {
       </p>
       <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
         <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-          <span>🎓</span>{t('Censeurs', 'Deans of studies', 'Jefes de estudios')}
+          <span>👥</span>{t('Comptes & accès', 'Accounts & access', 'Cuentas y accesos')}
         </h3>
-        <StaffManager role="censeur" />
-      </section>
-      <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-        <h3 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-          <span>🛡️</span>{t('Surveillants', 'Supervisors', 'Jefes de disciplina')}
-        </h3>
-        <StaffManager role="surveillant" />
+        <StaffManager roles={['censeur', 'surveillant']} />
       </section>
     </div>
   );
@@ -423,6 +438,7 @@ export default function Personnel() {
   const [dep, setDep] = useState('enseignants');
 
   const ROLES_TAB = 'roles';
+  const GOV_TAB = 'gouvernance';
   const countFor = (d) => d === 'enseignants' ? teachers.length : staff.filter((m) => m.department === d).length;
 
   return (
@@ -453,13 +469,21 @@ export default function Personnel() {
           <span>🔑</span>
           {t('Rôles & accès', 'Roles & access', 'Roles y acceso')}
         </button>
+        <button onClick={() => setDep(GOV_TAB)}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
+            dep === GOV_TAB ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <span>🏛️</span>
+          {t('Gouvernance', 'Governance', 'Gobernanza')}
+        </button>
       </div>
 
       {dep === ROLES_TAB
         ? <RolesPanel />
-        : dep === 'enseignants'
-          ? <TeachersPanel />
-          : <StaffDepartmentPanel key={dep} department={dep} label={meta[dep].label} />}
+        : dep === GOV_TAB
+          ? <GovernanceCenter />
+          : dep === 'enseignants'
+            ? <TeachersPanel />
+            : <StaffDepartmentPanel key={dep} department={dep} label={meta[dep].label} />}
     </Layout>
   );
 }

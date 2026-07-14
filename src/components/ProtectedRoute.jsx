@@ -1,5 +1,8 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { isPathPermitted, firstPermitted } from '../config/capabilities';
+import { effectivePages } from '../governance/governanceEngine';
+import { catalogOrDefault } from '../governance/defaultCatalog';
 
 // Page d'accueil par défaut selon le rôle — cible des redirections quand un
 // rôle tente d'accéder à une route qui ne lui est pas autorisée.
@@ -12,11 +15,17 @@ export function homeForRole(role) {
 /**
  * Protège une route :
  *  - redirige vers /login si pas de session ;
- *  - si `allow` est fourni, vérifie que le rôle courant y figure, sinon
- *    redirige vers la page d'accueil du rôle (garde de route par rôle).
+ *  - COMPTE DÉLÉGUÉ (permissions non vides) : accès autorisé UNIQUEMENT aux pages
+ *    de sa liste de capacités (les permissions font autorité, quel que soit le
+ *    rôle de base) ;
+ *  - sinon : garde de route par rôle (`allow`) — comportement historique inchangé.
  */
 export default function ProtectedRoute({ children, allow }) {
   const { session, loading, role } = useAuthStore();
+  const permissions = useAuthStore((s) => s.permissions);
+  const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
+  const governanceAssignments = useAuthStore((s) => s.governanceAssignments);
+  const { pathname } = useLocation();
 
   if (loading) {
     return (
@@ -31,7 +40,25 @@ export default function ProtectedRoute({ children, allow }) {
   }
 
   // Le superadmin (propriétaire de la plateforme) n'est jamais restreint.
-  if (allow && role !== 'superadmin' && !allow.includes(role)) {
+  if (role === 'superadmin') return children;
+
+  // Accès via un rôle de GOUVERNANCE (additif, dérivé du catalogue) : un porteur
+  // de rôle habilité accède aux pages ouvertes par ce rôle (budgets, dépenses,
+  // tableau du groupe…) même si son rôle de base n'est pas dans `allow`. Le
+  // filtrage FIN (secteur, actions) reste dans les pages + RLS.
+  const govPages = effectivePages(role, catalogOrDefault(governanceCatalog), governanceAssignments);
+  if (govPages.has(pathname) || [...govPages].some((p) => pathname.startsWith(p + '/'))) return children;
+
+  // Compte délégué : les permissions granulaires font autorité.
+  if (permissions && permissions.length) {
+    if (!isPathPermitted(pathname, permissions)) {
+      return <Navigate to={firstPermitted(permissions)} replace />;
+    }
+    return children;
+  }
+
+  // Garde historique par rôle.
+  if (allow && !allow.includes(role)) {
     return <Navigate to={homeForRole(role)} replace />;
   }
 

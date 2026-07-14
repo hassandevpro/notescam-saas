@@ -7,7 +7,7 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB, assignmentsDB } from '../lib/db';
 import { fetchSchoolUnits, upsertSchoolUnit, deleteSchoolUnit as sbDeleteSchoolUnit } from '../lib/schoolUnitService';
 import { fetchReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
 import { fetchScReferentiel } from '../lib/scService';
@@ -35,17 +35,19 @@ import {
   fetchFees, upsertFee, deleteFee as sbDeleteFee,
   fetchFeePayments, insertFeePayment, deleteFeePayment as sbDeleteFeePayment,
   fetchClassFeeGrids, upsertClassFeeGrid, deleteClassFeeGrid as sbDeleteClassFeeGrid,
+  fetchAssignments, upsertAssignments,
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
 import { moveToTrash, logAction } from '../lib/historyService';
 import { collectStudentBundle, collectSubjectBundle, collectClassBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
-import { sumPaidForStudent, derivePaid, reconcilePaid } from '../lib/feeEngine';
+import { sumPaidForStudent, derivePaid, reconcilePaid, computeTransferFeePatch } from '../lib/feeEngine';
 import { fetchStaff, upsertStaff, deleteStaff as sbDeleteStaff } from '../lib/staffService';
-import { logAssignment } from '../lib/classAssignmentService';
+import { buildTransfer, resolveTransferType } from '../core/transferEngine';
 import { flushSyncQueue } from '../lib/sync';
 import { backendOnline } from '../lib/edition';
 import { uuid } from '../lib/uuid';
 import { getNextLevel, computeNextYear, isRepeater, lastSequenceFor } from '../lib/yearEngine';
+import { promotionAlreadyDone } from '../lib/promotionGuard';
 import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 
@@ -181,13 +183,13 @@ function isClassConfigFrozen(state, classId) {
   return false;
 }
 
-// Normalise '' / undefined → null pour comparer sans faux positif (formulaires).
-const _normCalc = (v) => (v === '' || v === undefined ? null : v);
-
 // Champs d'une matière qui changent une moyenne / un rang. Le nom, l'enseignant,
 // la catégorie et la POSITION (ordre d'affichage, purement cosmétique — le calcul
 // somme les matières quel que soit l'ordre) NE sont PAS ici : ils restent
 // modifiables même figé.
+// Normalise '' / undefined → null pour comparer sans faux positif (formulaires).
+const _normCalc = (v) => (v === '' || v === undefined ? null : v);
+
 const SUBJECT_CALC_NUM   = ['coef', 'max'];
 const SUBJECT_CALC_OTHER = ['parent_id', 'calc_method'];
 function changesSubjectCalc(existing, data) {
@@ -229,6 +231,7 @@ export const useSchoolStore = create((set, get) => ({
   feePayments:  [],
   classFeeGrids: [],
   schoolUnits:  [],
+  assignments:  [],   // affectations historisées (source de vérité ; students.class_id = cache courant)
   gradeMap:     {},
   academicPeriods: [],
   activeSequence:  null,
@@ -256,13 +259,13 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     // Wipe stale data from any previous session immediately — prevents flash of wrong data
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
-          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], schoolUnits: [], gradeMap: {},
+          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], schoolUnits: [], assignments: [], gradeMap: {},
           academicPeriods: [], activeSequence: null });
 
     try {
       await initDB();
 
-      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbFeeGrids, idbPeriods, idbUnits] = await Promise.all([
+      const [idbClasses, idbSubjects, idbStudents, idbGrades, idbTeachers, idbStaff, idbFees, idbFeePayments, idbFeeGrids, idbPeriods, idbUnits, idbAssignments] = await Promise.all([
         classesDB.getAll(),
         subjectsDB.getAll(),
         studentsDB.getAll(),
@@ -274,6 +277,7 @@ export const useSchoolStore = create((set, get) => ({
         classFeeGridsDB.getAll().catch(() => []),
         academicPeriodsDB.getAll().catch(() => []),
         schoolUnitsDB.getAll().catch(() => []),
+        assignmentsDB.getAll().catch(() => []),
       ]);
 
       // Filter by school
@@ -290,6 +294,9 @@ export const useSchoolStore = create((set, get) => ({
       // Unités pédagogiques : périmètre ÉCOLE (jamais filtrées par année ni par
       // rôle) — elles définissent l'identité des documents pour tout le monde.
       const allUnits       = (idbUnits || []).filter((u) => u.school_id === schoolId);
+      // Affectations : périmètre ÉCOLE, toutes années (c'est l'historique). Jamais
+      // filtrées par année/rôle. students.class_id reste le cache de la classe courante.
+      const allAssignments = (idbAssignments || []).filter((a) => a.school_id === schoolId);
 
       // Filter by active year (classes drive the year scope)
       if (activeYear) {
@@ -339,6 +346,7 @@ export const useSchoolStore = create((set, get) => ({
         feePayments: allFeePayments,
         classFeeGrids: allFeeGrids,
         schoolUnits: allUnits,
+        assignments: allAssignments,
         gradeMap:    buildGradeMap(allGrades),
         academicPeriods: allPeriods,
         activeSequence:  deriveActiveSequence(allPeriods),
@@ -370,7 +378,7 @@ export const useSchoolStore = create((set, get) => ({
     const sbClasses = await fetchClasses(schoolId, year);
     const scopeIds  = (sbClasses ?? get().classes).map((c) => c.id);
 
-    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbFeeGrids, sbPeriods, sbUnits] = await Promise.all([
+    const [sbSubjects, sbStudents, sbGrades, sbAbsences, sbTeachers, sbStaff, sbFees, sbFeePayments, sbFeeGrids, sbPeriods, sbUnits, sbAssignments] = await Promise.all([
       fetchSubjects(schoolId, scopeIds),
       fetchStudents(schoolId, scopeIds),
       fetchGrades(schoolId, scopeIds),
@@ -382,6 +390,7 @@ export const useSchoolStore = create((set, get) => ({
       fetchClassFeeGrids(schoolId, year).catch(() => null),
       fetchPeriods(schoolId, year).catch(() => null),
       fetchSchoolUnits(schoolId).catch(() => null),
+      fetchAssignments(schoolId).catch(() => null),
     ]);
 
     // ── Normalize student genders ────────────────────────────────────────
@@ -427,6 +436,10 @@ export const useSchoolStore = create((set, get) => ({
       ? sbPeriods.filter((p) => !year || p.school_year === year)
       : get().academicPeriods;
     const newUnits        = sbUnits ?? get().schoolUnits;
+    // Affectations : périmètre école, toutes années — jamais filtrées par rôle/année.
+    const newAssignments  = sbAssignments !== null
+      ? sbAssignments.filter((a) => a.school_id === schoolId)
+      : get().assignments;
 
     // ── Teacher scope: filter BEFORE touching state ──────────────────────
     // Build class set from both class.teacher_id and subject.teacher_id
@@ -462,6 +475,7 @@ export const useSchoolStore = create((set, get) => ({
     if (sbFeeGrids         !== null) await classFeeGridsDB.putMany(newFeeGrids);
     if (sbPeriods          !== null) await academicPeriodsDB.putMany(sbPeriods);
     if (sbUnits            !== null) await schoolUnitsDB.putMany(sbUnits);
+    if (sbAssignments      !== null) await assignmentsDB.putMany(sbAssignments);
 
     // ── Grades ────────────────────────────────────────────────────────────
     const { gradeMap } = get();
@@ -513,6 +527,7 @@ export const useSchoolStore = create((set, get) => ({
       ...(sbFeeGrids         !== null && { classFeeGrids: newFeeGrids }),
       ...(sbPeriods          !== null && { academicPeriods: newPeriods, activeSequence: deriveActiveSequence(newPeriods) }),
       ...(sbUnits            !== null && { schoolUnits: newUnits }),
+      ...(sbAssignments      !== null && { assignments: newAssignments }),
       gradeMap: newGradeMap,
     });
 
@@ -718,10 +733,31 @@ export const useSchoolStore = create((set, get) => ({
     if (!school?.current_year) return { error: 'Aucune année active définie.' };
 
     const newYear = computeNextYear(school.current_year);
+
+    // Garde d'idempotence (C3) : refuse si l'année cible a déjà des classes
+    // (double-clic, reprise après coupure, échec partiel avant le basculement
+    // d'année) — sinon toute la cohorte serait dupliquée. Lecture COMPLÈTE IDB :
+    // les classes de newYear ne sont pas dans l'état en mémoire (filtré année active).
+    const existingAll = await classesDB.getAll();
+    if (promotionAlreadyDone(existingAll, schoolId, newYear)) {
+      return { error: `L'année ${newYear} existe déjà : promotion déjà effectuée.`, alreadyDone: true };
+    }
+
     const classMapping = new Map(); // oldClassId → newClass | null (diplômés)
-    const newClasses   = [];
-    const newSubjList  = [];
-    const newStudents  = [];
+    const newClasses     = [];
+    const newSubjList    = [];
+    const newStudents    = [];
+    const newAssignments = []; // affectations INITIALES des promus (coordination modèle C5)
+
+    // Affectation initiale d'un élève promu/redoublant dans sa nouvelle classe —
+    // même patron que addStudent (moteur transferEngine, current=null → 'initial').
+    // Sans elle, un élève promu n'aurait aucune affectation courante (source de
+    // vérité C5) → transferts / roster / recalcul de frais cassés après promotion.
+    const { user: promoter, fullName: promoterName } = useAuthStore.getState();
+    const buildInitialAssignment = (ns, cls) => buildTransfer({
+      current: null, newClass: cls, student: ns, schoolId, newId: uuid(),
+      userId: promoter?.id, userName: promoterName,
+    }).newRow;
 
     // Copie les matières d'une ancienne classe vers une nouvelle classe.
     const copySubjects = (oldClassId, newClassId) => {
@@ -792,7 +828,9 @@ export const useSchoolStore = create((set, get) => ({
         const oldCls = classes.find((c) => c.id === student.class_id);
         if (!oldCls) continue;
         const rc = ensureRepeatClass(oldCls);
-        newStudents.push({ ...student, id: uuid(), class_id: rc.id, parent_token: uuid(), created_at: undefined });
+        const ns = { ...student, id: uuid(), class_id: rc.id, parent_token: uuid(), created_at: undefined };
+        newStudents.push(ns);
+        newAssignments.push(buildInitialAssignment(ns, rc));
         repeatedCount++;
         continue;
       }
@@ -800,7 +838,9 @@ export const useSchoolStore = create((set, get) => ({
       if (newCls) {
         // parent_token is UNIQUE — generate a fresh one for the copy instead of
         // reusing the old row's (would violate students_parent_token_idx).
-        newStudents.push({ ...student, id: uuid(), class_id: newCls.id, parent_token: uuid(), created_at: undefined });
+        const ns = { ...student, id: uuid(), class_id: newCls.id, parent_token: uuid(), created_at: undefined };
+        newStudents.push(ns);
+        newAssignments.push(buildInitialAssignment(ns, newCls));
         promotedCount++;
       } else {
         graduatedCount++; // classe diplômante, élève non redoublant → archivé diplômé
@@ -808,14 +848,16 @@ export const useSchoolStore = create((set, get) => ({
     }
 
     // 3. Persist to IDB
-    if (newClasses.length)   await classesDB.putMany(newClasses);
-    if (newSubjList.length)  await subjectsDB.putMany(newSubjList);
+    if (newClasses.length)     await classesDB.putMany(newClasses);
+    if (newSubjList.length)    await subjectsDB.putMany(newSubjList);
     for (const s of newStudents) await studentsDB.put(s);
+    if (newAssignments.length) await assignmentsDB.putMany(newAssignments);
 
     // 4. Queue sync operations
     for (const cls of newClasses)  await queueOffline({ table: 'classes',  operation: 'upsert', payload: cls });
     for (const sub of newSubjList) await queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
     for (const s of newStudents)   await queueOffline({ table: 'students', operation: 'upsert', payload: s });
+    for (const a of newAssignments) await queueOffline({ table: 'student_class_assignments', operation: 'upsert', payload: a });
 
     // 5. Flush sync immediately if online — ensures Supabase is up-to-date
     //    before _refreshFromSupabase could overwrite our IDB changes.
@@ -1374,6 +1416,24 @@ export const useSchoolStore = create((set, get) => ({
     } else {
       queueOffline({ table: 'students', operation: 'upsert', payload: record });
     }
+
+    // Affectation INITIALE : tout élève placé dans une classe reçoit sa 1re ligne
+    // d'affectation (source de vérité). Réutilise le moteur (current=null → 'initial').
+    const newClass = record.class_id ? get().classes.find((c) => c.id === record.class_id) : null;
+    if (newClass) {
+      const { user, fullName } = useAuthStore.getState();
+      const { newRow } = buildTransfer({
+        current: null, newClass, student: record, schoolId, newId: uuid(),
+        userId: user?.id, userName: fullName,
+      });
+      await assignmentsDB.put(newRow);
+      set((s) => ({ assignments: [...s.assignments, newRow] }));
+      if (backendOnline()) {
+        upsertAssignments([newRow]).then((ok) => { if (!ok) queueOffline({ table: 'student_class_assignments', operation: 'upsert', payload: newRow }); });
+      } else {
+        queueOffline({ table: 'student_class_assignments', operation: 'upsert', payload: newRow });
+      }
+    }
     return record;
   },
 
@@ -1510,43 +1570,77 @@ export const useSchoolStore = create((set, get) => ({
     }
   },
 
-  assignStudentToClass: async (studentId, classId, reason) => {
-    const { schoolId, classes } = get();
-    await get().updateStudent(studentId, { class_id: classId });
+  // Affectation HISTORISÉE : ferme l'affectation en cours (date_fin + motif) et en
+  // ouvre une nouvelle (moteur transferEngine, jamais d'UPDATE aveugle de class_id).
+  // `opts` : { type, motif, commentaire } ; rétro-compat : une chaîne = commentaire.
+  // students.class_id reste synchronisé comme CACHE de la classe courante.
+  assignStudentToClass: async (studentId, classId, opts = {}) => {
+    const o = typeof opts === 'string' ? { commentaire: opts } : (opts || {});
+    const { schoolId, classes, students } = get();
+    const newClass = classes.find((c) => c.id === classId);
+    if (!newClass) return;
+    const student = students.find((s) => s.id === studentId) || { id: studentId, school_id: schoolId };
+    const current = get().getCurrentAssignment(studentId);
+    const oldClass = current ? classes.find((c) => c.id === current.class_id) : null;
+    const type = o.type || resolveTransferType(oldClass, newClass);
+    const { user, fullName } = useAuthStore.getState();
+
+    const { closedRow, newRow, noop } = buildTransfer({
+      current, newClass, student, schoolId, type,
+      motif: o.motif, commentaire: o.commentaire,
+      userId: user?.id, userName: fullName, newId: uuid(),
+    });
+    if (noop) return;
+
+    // 1. Persiste les lignes d'affectation (IDB + cloud/queue). L'upsert d'une
+    //    ligne existante (closedRow) et l'insert de la nouvelle passent par le
+    //    même chemin générique (onConflict:id) — y compris via la file offline.
+    // ORDRE IMPORTANT : fermer AVANT d'ouvrir. Deux lignes date_fin=null pour le
+    // même élève violeraient l'index unique partiel (sca_one_current_per_student).
+    const rows = closedRow ? [closedRow, newRow] : [newRow];
+    for (const r of rows) await assignmentsDB.put(r);
+    set((s) => {
+      const ids = new Set(rows.map((r) => r.id));
+      return { assignments: [...s.assignments.filter((a) => !ids.has(a.id)), ...rows] };
+    });
+    const queueRows = () => rows.forEach((r) =>
+      queueOffline({ table: 'student_class_assignments', operation: 'upsert', payload: r }));
     if (backendOnline()) {
-      const cls = classes.find((c) => c.id === classId);
-      const { user, fullName } = useAuthStore.getState();
-      logAssignment({
-        school_id:        schoolId,
-        student_id:       studentId,
-        class_id:         classId,
-        class_name:       cls?.name || null,
-        assigned_by:      user?.id  || null,
-        assigned_by_name: fullName  || null,
-        reason:           reason    || null,
-      }).catch(() => {});
+      (async () => {
+        // Séquentiel : clôture d'abord, ouverture ensuite.
+        let ok = closedRow ? await upsertAssignments([closedRow]) : true;
+        if (ok) ok = await upsertAssignments([newRow]);
+        if (!ok) queueRows();
+      })();
+    } else {
+      queueRows();
+    }
+
+    // 2. Met à jour le cache classe courante (source de vérité = l'affectation).
+    const oldClassId = current?.class_id || null;
+    await get().updateStudent(studentId, { class_id: classId });
+
+    // 3. Recalcule le plan de frais selon la grille de la nouvelle classe
+    //    (paiements préservés, remises % reportées) et rattache la ligne à la
+    //    nouvelle affectation. No-op si tarif identique ou saisie manuelle.
+    await get().recalcFeesAfterTransfer(studentId, newRow.id, oldClassId);
+  },
+
+  bulkAssignToClass: async (studentIds, classId, opts = {}) => {
+    for (const studentId of studentIds) {
+      await get().assignStudentToClass(studentId, classId, opts);
     }
   },
 
-  bulkAssignToClass: async (studentIds, classId, reason) => {
-    const { schoolId, classes } = get();
-    const cls = classes.find((c) => c.id === classId);
-    const { user, fullName } = useAuthStore.getState();
-    for (const studentId of studentIds) {
-      await get().updateStudent(studentId, { class_id: classId });
-      if (backendOnline()) {
-        logAssignment({
-          school_id:        schoolId,
-          student_id:       studentId,
-          class_id:         classId,
-          class_name:       cls?.name || null,
-          assigned_by:      user?.id  || null,
-          assigned_by_name: fullName  || null,
-          reason:           reason    || null,
-        }).catch(() => {});
-      }
-    }
-  },
+  // Affectation EN COURS d'un élève (date_fin null) ou null.
+  getCurrentAssignment: (studentId) =>
+    get().assignments.find((a) => a.student_id === studentId && !a.date_fin) || null,
+
+  // Historique complet des affectations d'un élève, du plus ancien au plus récent.
+  getAssignmentHistory: (studentId) =>
+    get().assignments
+      .filter((a) => a.student_id === studentId)
+      .sort((a, b) => new Date(a.date_debut || a.assigned_at || 0) - new Date(b.date_debut || b.assigned_at || 0)),
 
   // --- Grades ---
 
@@ -1743,6 +1837,8 @@ export const useSchoolStore = create((set, get) => ({
       tranches:      feeData.tranches      ?? existing?.tranches      ?? [],
       payment_mode:  feeData.payment_mode  ?? existing?.payment_mode  ?? null,
       adjustments:   feeData.adjustments   ?? existing?.adjustments   ?? [],
+      // Rattachement à l'affectation en cours (traçabilité du contexte tarifaire).
+      assignment_id: feeData.assignment_id ?? existing?.assignment_id ?? null,
     };
     await feesDB.put(record);
     set((s) => ({
@@ -1944,6 +2040,36 @@ export const useSchoolStore = create((set, get) => ({
     }
     // mode 'libre' / null : on ne touche ni au total ni aux tranches (saisie manuelle).
     return get().saveFee(studentId, patch);
+  },
+
+  // Recalcul des frais après un TRANSFERT (Étape 3). Applique la grille de la
+  // NOUVELLE classe (student.class_id déjà mis à jour), en préservant les
+  // paiements (frais_payes, dérivés des lignes de paiement) et en reportant les
+  // remises en POURCENTAGE (les remises en montant fixe sont retirées → à
+  // re-saisir sur le nouveau tarif ; défaut validé par l'établissement).
+  //   - `oldClassId` : classe d'avant (pour ne rien toucher si le tarif est identique).
+  //   - `assignmentId` : nouvelle affectation, rattachée à la ligne de frais.
+  // Ne recalcule QUE les modes pilotés par la grille ('comptant'/'echelonne') ;
+  // 'libre'/null (saisie manuelle) → on ne réécrit aucun montant.
+  recalcFeesAfterTransfer: async (studentId, assignmentId, oldClassId) => {
+    const { fees, activeYear, classFeeGrids, students } = get();
+    const fee = fees.find((f) => f.student_id === studentId && (!activeYear || f.academic_year === activeYear));
+    if (!fee) return; // aucun frais pour l'année → rien à recalculer
+
+    const gridFor = (classId) => classFeeGrids.find(
+      (g) => g.class_id === classId && (!activeYear || g.academic_year === activeYear)
+    ) || null;
+    const student = students.find((s) => s.id === studentId);
+
+    // Décision PURE (feeEngine) : nouveau total/tranches, report des remises %,
+    // paiements préservés. patch=null si rien à recalculer.
+    const { patch } = computeTransferFeePatch({
+      fee,
+      newGrid: gridFor(student?.class_id),
+      oldGrid: oldClassId ? gridFor(oldClassId) : null,
+      assignmentId,
+    });
+    if (patch) await get().saveFee(studentId, patch);
   },
 
   // --- Selectors ---

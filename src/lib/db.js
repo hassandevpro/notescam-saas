@@ -12,7 +12,7 @@ const DB_NAME = 'NotesCamDB';
 // Bump à 15 : socle P0 — outbox d'events (`domain_events`), journal d'audit
 //             (`audit_events`) et domaine transverse `signalements`. Offline-first :
 //             les events/signalements créés hors-ligne survivent et se synchronisent.
-const DB_VERSION = 15;
+const DB_VERSION = 16;
 
 let _db = null;
 
@@ -224,6 +224,16 @@ export async function initDB() {
         s.createIndex('by_school', 'school_id');
         s.createIndex('by_domain', 'domain');
       }
+
+      // --- v16 (historisation des affectations élèves) ---
+      // Source de vérité des affectations : une ligne par période d'affectation
+      // (date_fin=null = en cours). Schéma aligné sur la table cloud
+      // student_class_assignments. Périmètre ÉCOLE (jamais filtré par année).
+      if (!db.objectStoreNames.contains('student_class_assignments')) {
+        const s = db.createObjectStore('student_class_assignments', { keyPath: 'id' });
+        s.createIndex('by_school',  'school_id');
+        s.createIndex('by_student', 'student_id');
+      }
     };
 
     req.onsuccess = (e) => {
@@ -352,6 +362,14 @@ export const studentsDB = {
   put: (r) => idbPut('students', r),
   putMany: (rs) => idbPutMany('students', rs),
   delete: (id) => idbDelete('students', id),
+};
+
+export const assignmentsDB = {
+  getAll: () => idbGetAll('student_class_assignments'),
+  getByStudent: (studentId) => idbGetByIndex('student_class_assignments', 'by_student', studentId),
+  put: (r) => idbPut('student_class_assignments', r),
+  putMany: (rs) => idbPutMany('student_class_assignments', rs),
+  delete: (id) => idbDelete('student_class_assignments', id),
 };
 
 export const gradesDB = {

@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
@@ -9,8 +9,7 @@ import Layout from '../components/Layout';
 import StudentAvatar from '../components/StudentAvatar';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
-import { fetchAssignmentHistory } from '../lib/classAssignmentService';
-import { backendOnline } from '../lib/edition';
+import { resolveTransferType, TRANSFER_TYPES, CLOTURE_MOTIFS } from '../core/transferEngine';
 import { copyText } from '../lib/clipboard';
 import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
@@ -232,6 +231,23 @@ export default function StudentProfile() {
     t('Séq 4', 'Seq 4'), t('Séq 5', 'Seq 5'), t('Séq 6', 'Seq 6'),
   ];
 
+  // Libellés bilingues des types de transfert et motifs de clôture.
+  const TYPE_LABELS = {
+    [TRANSFER_TYPES.INITIAL]: t('Affectation initiale', 'Initial assignment'),
+    [TRANSFER_TYPES.ADMIN]:   t('Changement administratif', 'Administrative change'),
+    [TRANSFER_TYPES.NIVEAU]:  t('Changement de niveau', 'Level change'),
+    [TRANSFER_TYPES.ETAB]:    t("Changement d'établissement", 'School change'),
+    reconstruit:              t('Historique reconstruit', 'Reconstructed history'),
+  };
+  const MOTIF_OPTIONS = [
+    { value: CLOTURE_MOTIFS.administratif,            label: t('Administratif', 'Administrative') },
+    { value: CLOTURE_MOTIFS.niveau,                   label: t('Changement de niveau', 'Level change') },
+    { value: CLOTURE_MOTIFS.etablissement,            label: t("Changement d'établissement", 'School change') },
+    { value: CLOTURE_MOTIFS.redoublement,             label: t('Redoublement', 'Repeat year') },
+    { value: CLOTURE_MOTIFS.promotion_exceptionnelle, label: t('Promotion exceptionnelle', 'Exceptional promotion') },
+    { value: CLOTURE_MOTIFS.autre,                    label: t('Autre', 'Other') },
+  ];
+
   const students      = useSchoolStore((s) => s.students);
   const classes       = useSchoolStore((s) => s.classes);
   const subjects      = useSchoolStore((s) => s.subjects);
@@ -254,15 +270,21 @@ export default function StudentProfile() {
   const [showEdit,        setShowEdit]        = useState(false);
   const [showChangeClass, setShowChangeClass] = useState(false);
   const [newClassId,      setNewClassId]      = useState('');
+  const [transferMotif,   setTransferMotif]   = useState('');
+  const [transferComment, setTransferComment] = useState('');
   const [confirmDel,      setConfirmDel]      = useState(false);
   const [changingSaving,  setChangingSaving]  = useState(false);
-  const [assignHistory,   setAssignHistory]   = useState([]);
   const [linkCopied,      setLinkCopied]      = useState(false);
 
-  useEffect(() => {
-    if (!id || !backendOnline()) return;
-    fetchAssignmentHistory(id).then(setAssignHistory).catch(() => {});
-  }, [id]);
+  // Historique d'affectations : lu depuis le store (réactif, hors-ligne), du
+  // plus récent au plus ancien pour l'affichage en timeline.
+  const assignments = useSchoolStore((s) => s.assignments);
+  const assignHistory = useMemo(
+    () => assignments
+      .filter((a) => a.student_id === id)
+      .sort((a, b) => new Date(b.date_debut || b.assigned_at || 0) - new Date(a.date_debut || a.assigned_at || 0)),
+    [assignments, id]
+  );
 
   const student = students.find((s) => s.id === id);
   const cls     = student ? classes.find((c) => c.id === student.class_id) : null;
@@ -345,13 +367,21 @@ export default function StudentProfile() {
   };
 
   const handleChangeClass = async () => {
-    if (!newClassId) return;
+    if (!newClassId || newClassId === student.class_id) return;
     setChangingSaving(true);
-    await useSchoolStore.getState().assignStudentToClass(student.id, newClassId);
-    fetchAssignmentHistory(student.id).then(setAssignHistory).catch(() => {});
+    const target = classes.find((c) => c.id === newClassId);
+    const type = (target && cls) ? resolveTransferType(cls, target) : undefined;
+    await useSchoolStore.getState().assignStudentToClass(student.id, newClassId, {
+      type,
+      motif:       transferMotif || undefined,
+      commentaire: transferComment.trim() || undefined,
+    });
+    // L'historique se met à jour tout seul (sélecteur sur le store).
     setChangingSaving(false);
     setShowChangeClass(false);
     setNewClassId('');
+    setTransferMotif('');
+    setTransferComment('');
   };
 
   const handleDelete = async () => {
@@ -388,7 +418,7 @@ export default function StudentProfile() {
       onClick: cls ? () => { setBulletinsClassId(cls.id); setBulletinsStudentId(student.id); navigate('/app/bulletins'); } : undefined, disabled: !cls },
     { icon: '📅', label: t('Voir les absences', 'View absences'),
       onClick: cls ? () => { setAbsencesClassId(cls.id); setAbsencesStatsClassId(cls.id); navigate('/app/absences'); } : undefined, disabled: !cls },
-    ...(canEdit ? [{ icon: '🏫', label: t('Changer de classe', 'Change class'), onClick: () => { setNewClassId(student.class_id || ''); setShowChangeClass(true); } }] : []),
+    ...(canEdit ? [{ icon: '🏫', label: t('Transférer l’élève', 'Transfer student'), onClick: () => { setNewClassId(student.class_id || ''); setTransferMotif(''); setTransferComment(''); setShowChangeClass(true); } }] : []),
   ];
 
   const dateLocale = localeForLang();
@@ -627,28 +657,37 @@ export default function StudentProfile() {
 
               {assignHistory.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">{t('Historique des classes', 'Class history')}</p>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">{t('Historique des affectations', 'Assignment history')}</p>
                   <div className="relative pl-4">
                     <div className="absolute left-1.5 top-0 bottom-0 w-px bg-gray-100" />
-                    {assignHistory.map((entry, i) => (
-                      <div key={entry.id} className="relative flex gap-3 mb-3 last:mb-0">
-                        <div className={`absolute -left-3 w-3 h-3 rounded-full border-2 mt-0.5 shrink-0 ${
-                          i === 0 ? 'bg-brand-500 border-brand-500' : 'bg-white border-gray-300'
-                        }`} />
-                        <div className="pl-3">
-                          <p className="text-sm font-semibold text-gray-800">{entry.class_name || '—'}</p>
-                          <p className="text-xs text-gray-400">
-                            {new Date(entry.assigned_at).toLocaleDateString(dateLocale, {
-                              day: 'numeric', month: 'long', year: 'numeric',
-                            })}
-                            {entry.assigned_by_name ? ` · ${t('par', 'by')} ${entry.assigned_by_name}` : ''}
-                          </p>
-                          {entry.reason && (
-                            <p className="text-xs text-gray-500 mt-0.5 italic">{entry.reason}</p>
-                          )}
+                    {assignHistory.map((entry, i) => {
+                      const current = !entry.date_fin;
+                      const start = entry.date_debut || entry.assigned_at;
+                      const fmt = (d) => d ? new Date(d).toLocaleDateString(dateLocale, { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+                      return (
+                        <div key={entry.id} className="relative flex gap-3 mb-3 last:mb-0">
+                          <div className={`absolute -left-3 w-3 h-3 rounded-full border-2 mt-0.5 shrink-0 ${
+                            current ? 'bg-brand-500 border-brand-500' : 'bg-white border-gray-300'
+                          }`} />
+                          <div className="pl-3">
+                            <p className="text-sm font-semibold text-gray-800">
+                              {entry.class_name || '—'}
+                              {current && <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-brand-600 bg-brand-50 rounded px-1.5 py-0.5">{t('En cours', 'Current')}</span>}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {fmt(start)}{entry.date_fin ? ` → ${fmt(entry.date_fin)}` : ''}
+                              {entry.assigned_by_name ? ` · ${t('par', 'by')} ${entry.assigned_by_name}` : ''}
+                            </p>
+                            {entry.type_transfert && TYPE_LABELS[entry.type_transfert] && (
+                              <p className="text-xs text-gray-500 mt-0.5">{TYPE_LABELS[entry.type_transfert]}</p>
+                            )}
+                            {(entry.commentaire || entry.reason) && (
+                              <p className="text-xs text-gray-500 mt-0.5 italic">{entry.commentaire || entry.reason}</p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -785,11 +824,19 @@ export default function StudentProfile() {
         </Modal>
       )}
 
-      {showChangeClass && (
-        <Modal title={t('Changer de classe', 'Change class')} onClose={() => setShowChangeClass(false)} size="sm">
+      {showChangeClass && (() => {
+        const target    = classes.find((c) => c.id === newClassId) || null;
+        const isSame     = newClassId && newClassId === student.class_id;
+        const detected   = (target && cls && !isSame) ? resolveTransferType(cls, target) : null;
+        return (
+        <Modal title={t('Transférer l’élève', 'Transfer student')} onClose={() => setShowChangeClass(false)} size="sm">
           <div className="space-y-4">
             <p className="text-sm text-gray-600">
-              {t('Choisissez la nouvelle classe pour', 'Choose the new class for')} <strong>{student.name}</strong>.
+              {t('Nouvelle affectation pour', 'New assignment for')} <strong>{student.name}</strong>.
+              <span className="block text-xs text-gray-400 mt-1">
+                {t("L'affectation actuelle sera clôturée et une nouvelle ouverte — l'historique est conservé.",
+                   'The current assignment is closed and a new one opened — history is kept.')}
+              </span>
             </p>
             <div>
               <label className="form-label">{t('Nouvelle classe', 'New class')}</label>
@@ -799,17 +846,40 @@ export default function StudentProfile() {
                   <option key={c.id} value={c.id}>{c.name} {c.current_year ? `(${c.current_year})` : ''}</option>
                 ))}
               </select>
+              {isSame && (
+                <p className="text-xs text-amber-600 mt-1">{t('Classe identique à l’actuelle — aucun transfert.', 'Same as current class — no transfer.')}</p>
+              )}
+              {detected && (
+                <p className="text-xs text-brand-600 mt-1">{t('Type détecté', 'Detected type')} : <strong>{TYPE_LABELS[detected]}</strong></p>
+              )}
             </div>
+            <div>
+              <label className="form-label">{t('Motif', 'Reason')}</label>
+              <select className="form-input" value={transferMotif} onChange={(e) => setTransferMotif(e.target.value)}>
+                <option value="">{t('— Automatique selon le type —', '— Automatic from type —')}</option>
+                {MOTIF_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">{t('Commentaire', 'Comment')}</label>
+              <textarea className="form-input" rows={2} value={transferComment} onChange={(e) => setTransferComment(e.target.value)}
+                placeholder={t('Optionnel', 'Optional')} />
+            </div>
+            <p className="text-xs text-gray-400">
+              {t('Les paiements déjà effectués sont conservés ; le plan de frais est recalculé selon la nouvelle classe.',
+                 'Payments already made are kept; the fee plan is recalculated for the new class.')}
+            </p>
             <div className="flex gap-3">
-              <button onClick={handleChangeClass} disabled={!newClassId || changingSaving}
+              <button onClick={handleChangeClass} disabled={!newClassId || isSame || changingSaving}
                 className="btn-primary" style={{ width: 'auto', paddingLeft: '2rem', paddingRight: '2rem' }}>
-                {changingSaving ? t('Enregistrement…', 'Saving…') : t('Confirmer', 'Confirm')}
+                {changingSaving ? t('Transfert…', 'Transferring…') : t('Confirmer le transfert', 'Confirm transfer')}
               </button>
               <button onClick={() => setShowChangeClass(false)} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
             </div>
           </div>
         </Modal>
-      )}
+        );
+      })()}
     </Layout>
   );
 }

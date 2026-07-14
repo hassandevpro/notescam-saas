@@ -1,7 +1,7 @@
 // Catalogue de frais (obligatoires / optionnels) + liste de frais PAR ÉLÈVE +
 // statistiques. Configurable par établissement. Compatible avec le système de
 // paiements existant (réutilise schoolStore.addPayment, lié au frais).
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, Fragment } from 'react';
 import Layout from '../components/Layout';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
@@ -23,7 +23,9 @@ import { uuid } from '../lib/uuid';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
-export default function FeeCatalog() {
+// `embedded` : rendu comme onglet de la page Frais scolaires (sans le Layout
+// global), au lieu d'une page autonome.
+export default function FeeCatalog({ embedded = false }) {
   const t = useT();
   const money = useMoney();
   const school = useAuthStore((s) => s.school);
@@ -148,8 +150,9 @@ export default function FeeCatalog() {
     <button onClick={() => setView(id)} className={`px-3 py-1.5 text-sm rounded-lg font-medium ${view === id ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>{label}</button>
   );
 
+  const Wrapper = embedded ? Fragment : Layout;
   return (
-    <Layout>
+    <Wrapper>
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div>
@@ -302,6 +305,6 @@ export default function FeeCatalog() {
       </div>
 
       {catModal && <FeeCatalogItemModal item={catModal.item} classes={classes} academicYear={year} onSave={saveCat} onClose={() => setCatModal(null)} />}
-    </Layout>
+    </Wrapper>
   );
 }

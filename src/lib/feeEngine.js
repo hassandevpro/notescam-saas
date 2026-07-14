@@ -350,6 +350,53 @@ export function sumTranches(tranches = []) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// computeTransferFeePatch — recalcul des frais lors d'un TRANSFERT de classe
+// ════════════════════════════════════════════════════════════════════════════
+// Décision PURE : quand un élève change de classe, son plan de paiement est
+// recalculé selon la grille de la NOUVELLE classe. Règles (défaut établissement) :
+//   • frais_payes (paiements déjà effectués) JAMAIS touché — reste en crédit ;
+//   • remises en POURCENTAGE reportées ; remises en montant fixe retirées
+//     (à re-saisir sur le nouveau tarif) ;
+//   • seuls les modes pilotés par la grille ('comptant'/'echelonne') sont
+//     recalculés ; 'libre'/null (saisie manuelle) → aucun montant réécrit ;
+//   • tarif identique entre ancienne et nouvelle classe → pas de recalcul.
+// Renvoie { recalculated, patch } où `patch` est à passer à saveFee (ou null si
+// rien à faire, hormis éventuellement rattacher assignment_id).
+//   fee     : enregistrement student_fees actuel
+//   newGrid : grille de la nouvelle classe (peut être null)
+//   oldGrid : grille de l'ancienne classe (peut être null)
+//   assignmentId : nouvelle affectation à rattacher à la ligne de frais
+export function computeTransferFeePatch({ fee, newGrid, oldGrid = null, assignmentId = null }) {
+  const mode = fee?.payment_mode || null;
+  const gridDriven = mode === PAYMENT_MODES.COMPTANT || mode === PAYMENT_MODES.ECHELONNE;
+  const totalOf = (grid) => mode === PAYMENT_MODES.COMPTANT ? toInt(grid?.amount_comptant)
+    : mode === PAYMENT_MODES.ECHELONNE ? toInt(grid?.amount_echelonne) : null;
+
+  const attachOnly = () =>
+    (assignmentId && fee?.assignment_id !== assignmentId) ? { assignment_id: assignmentId } : null;
+
+  // Mode manuel, ou tarif inchangé → on ne réécrit pas les montants.
+  if (!gridDriven) return { recalculated: false, patch: attachOnly() };
+  if (oldGrid && totalOf(oldGrid) === totalOf(newGrid)) return { recalculated: false, patch: attachOnly() };
+
+  const newTotal = totalOf(newGrid) || 0;
+  const tranches = mode === PAYMENT_MODES.COMPTANT
+    ? (newTotal ? [{ id: 'comptant', label: 'Paiement comptant', amount: newTotal, due_date: newGrid?.tranches?.[0]?.due_date || null }] : [])
+    : (newGrid?.tranches ?? []).map((t) => ({ ...t }));
+  const adjustments = (fee?.adjustments || []).filter((a) => a?.mode === 'percent');
+
+  return {
+    recalculated: true,
+    patch: {
+      frais_annuels: newTotal,
+      tranches,
+      adjustments,
+      assignment_id: assignmentId || fee?.assignment_id || null,
+    },
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // SOURCE DE VÉRITÉ DU « PAYÉ » — dérivé des lignes fee_payments
 // ════════════════════════════════════════════════════════════════════════════
 // `student_fees.frais_payes` n'est qu'un CACHE : la vérité, ce sont les lignes de

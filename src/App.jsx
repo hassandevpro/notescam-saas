@@ -269,9 +269,9 @@ export default function App() {
           <Route path="/app/reports"        element={<ProtectedRoute allow={ACADEMIC}><Reports /></ProtectedRoute>} />
           <Route path="/app/fees"            element={<ProtectedRoute allow={ACADEMIC}><Fees /></ProtectedRoute>} />
           <Route path="/app/frais-catalogue" element={<ProtectedRoute allow={ACADEMIC}><FeeCatalog /></ProtectedRoute>} />
-          <Route path="/app/budgets"         element={<ProtectedRoute allow={ADMIN_ONLY}><Budgets /></ProtectedRoute>} />
-          <Route path="/app/budget-global"   element={<ProtectedRoute allow={ADMIN_ONLY}><BudgetGlobal /></ProtectedRoute>} />
-          <Route path="/app/depenses"        element={<ProtectedRoute allow={ADMIN_ONLY}><Expenses /></ProtectedRoute>} />
+          <Route path="/app/budgets"         element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><Budgets /></ProtectedRoute>} />
+          <Route path="/app/budget-global"   element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><BudgetGlobal /></ProtectedRoute>} />
+          <Route path="/app/depenses"        element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><Expenses /></ProtectedRoute>} />
           <Route path="/app/absences"         element={<ProtectedRoute allow={ALL_STAFF}><Absences /></ProtectedRoute>} />
           <Route path="/app/monitor"          element={<ProtectedRoute allow={ACADEMIC}><TeacherMonitor /></ProtectedRoute>} />
           <Route path="/app/conseil"          element={<ProtectedRoute allow={DISCIPLINE}><ConseilDeClasse /></ProtectedRoute>} />

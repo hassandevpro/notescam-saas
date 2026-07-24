@@ -22,11 +22,26 @@ const BATCH = 500;
 
 // Ordre FK pour appliquer les lignes distantes (parents avant enfants).
 const PULL_ORDER = [
-  'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
+  'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
+  // Module Budgets — hiérarchie annual→period→sector puis chapitres/dépenses/
+  // opérations. `budgets` s'auto-référence (parent_budget_id) : les lignes sont
+  // triées par `tier` avant application (cf. tierRank) pour respecter la FK.
+  // budget_periods (dédiées) avant les allocations qui les référencent ; les
+  // allocations par ligne viennent après budget_chapters (leur parent FK).
+  'budgets', 'budget_periods', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',
+  'budget_reallocations', 'budget_revisions', 'budget_line_periods', 'budget_line_sectors',
+  'budget_line_reallocations',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ];
+
+// Ordre d'application intra-`budgets` : un parent doit précéder ses enfants
+// (annual < period < sector). Les lignes héritées (tier NULL) n'ont pas de parent
+// budget → rang 0. Garantit l'absence de violation de FK auto-référente au pull.
+function tierRank(row) {
+  return row?.tier === 'sector' ? 2 : row?.tier === 'period' ? 1 : 0;
+}
 
 export function serverToken() {
   try { return existsSync(TOKEN_PATH) ? readFileSync(TOKEN_PATH, 'utf8').trim() || null : null; } catch { return null; }
@@ -88,7 +103,12 @@ async function pull(edge, dryRun) {
   const plan = { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] };
 
   for (const table of PULL_ORDER) {
-    for (const row of rows[table] || []) {
+    // `budgets` s'auto-référence : appliquer les parents (annual) avant les
+    // enfants (period, puis sector) pour ne pas violer la FK parent_budget_id.
+    const batch = table === 'budgets'
+      ? [...(rows[table] || [])].sort((a, b) => tierRank(a) - tierRank(b))
+      : (rows[table] || []);
+    for (const row of batch) {
       if (!row?.id) continue;
       const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(row.id);
       if (local && !remoteWins(local, row)) { plan.keepLocal.push({ table, id: row.id }); continue; }

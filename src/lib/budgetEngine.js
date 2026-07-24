@@ -229,22 +229,9 @@ export function getActiveBudget(budgets = [], date = new Date(), startMonth = DE
   return inRange[0] || null;
 }
 
-// Deux budgets se chevauchent-ils dans le temps ? (bornes qui s'intersectent)
-export function budgetsOverlap(a, b, startMonth = DEFAULT_SCHOOL_YEAR_START_MONTH) {
-  const ba = budgetPeriodBounds(a, startMonth), bb = budgetPeriodBounds(b, startMonth);
-  if (!ba || !bb) return false;
-  return ba.start < bb.end && bb.start < ba.end;
-}
-
-// Premier budget EXISTANT (même secteur) chevauchant `candidate` — avertissement à
-// la création (pas de blocage : un budget « Investissement » peut légitimement
-// chevaucher l'exercice annuel, d'où le filtre par secteur).
-export function findOverlappingBudget(candidate, budgets = [], startMonth = DEFAULT_SCHOOL_YEAR_START_MONTH) {
-  return budgets.find((b) =>
-    b.id !== candidate.id &&
-    (b.sector || 'general') === (candidate.sector || 'general') &&
-    budgetsOverlap(candidate, b, startMonth)) || null;
-}
+// (P7) `budgetsOverlap` / `findOverlappingBudget` retirés : uniquement appelés par
+// l'ancien BudgetFormModal (supprimé). Le modèle hiérarchique garantit l'unicité
+// des enveloppes par index partiels en base (budgets_annual/period/sector_unique).
 
 // ── Machine à états (statut) ──────────────────────────────────────────────────
 

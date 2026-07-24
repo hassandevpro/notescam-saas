@@ -45,11 +45,11 @@ export async function decideUnlockRequest(request, decision, {
 
   // « Augmenter le budget » : relève DÉFINITIVEMENT le planifié du chapitre.
   if (decision === 'increased' && chapter) {
-    const bumped = await upsertBudgetChapter({
+    const { data: bumped, error } = await upsertBudgetChapter({
       ...chapter,
       planned_amount: (Number(chapter.planned_amount) || 0) + granted,
     });
-    if (!bumped) return null;
+    if (error || !bumped) return null;
   }
 
   const patch = {

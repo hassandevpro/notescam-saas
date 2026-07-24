@@ -1,6 +1,6 @@
 // Tests des dates d'exercice (Phase D).  node src/lib/_budgetDates.test.mjs
 import {
-  budgetPeriodBounds, periodDatesLabel, getActiveBudget, budgetsOverlap, findOverlappingBudget,
+  budgetPeriodBounds, periodDatesLabel, getActiveBudget,
 } from './budgetEngine.js';
 import { elapsedFraction, exercisePosition } from './budgetAnalyticsEngine.js';
 
@@ -55,12 +55,6 @@ ok(elapsedFraction('2025-2026', new Date(2025, 8, 1), 1) > 0.6, 'jan-start : 1er
   ];
   ok(getActiveBudget(budgets, new Date(2026, 6, 10), 9)?.id === 'y26', 'budget actif au 10/07/2026 = exercice 2025-2026');
   ok(getActiveBudget(budgets, new Date(2027, 6, 10), 9) === null, 'aucun budget actif hors exercice');
-
-  const a = { id: 'a', academic_year: '2025-2026', period_type: 'annuel', sector: 'primaire' };
-  const b = { id: 'b', academic_year: '2025-2026', period_type: 'annuel', sector: 'primaire' };
-  ok(budgetsOverlap(a, b, 9), 'chevauchement détecté (même période)');
-  ok(findOverlappingBudget(a, [b], 9)?.id === 'b', 'chevauchement même secteur → averti');
-  ok(findOverlappingBudget(a, [{ ...b, sector: 'transport' }], 9) === null, 'secteur différent → pas d’avertissement');
 }
 
 console.log(failed ? '\n❌ Budget dates KO' : '\n✅ Budget dates OK');

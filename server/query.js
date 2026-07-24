@@ -6,6 +6,7 @@
 
 import { db, ALLOWED_TABLES, quoteIdent, tableColumns, pickColumns, normalizeValue, tx, SYNCED_TABLES, deviceId } from './db.js';
 import { randomUUID } from 'node:crypto';
+import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
 
 // --- Suivi des changements pour la sync continue (Phase 2) ------------
 // Horodate la ligne écrite (updated_at/device_id) pour la résolution LWW.
@@ -114,6 +115,10 @@ export function runQuery(op, ctx = null) {
 
   try {
     guardAppendOnly(op, ctx);
+    guardBudgetExpense(op, ctx);   // enforcement budgétaire serveur (chaîne + workflow + permissions)
+    guardBudgetStructure(op);      // P5 : pas de modif silencieuse / d'écriture directe des opérations
+    guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
+    guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
     switch (op.action) {
       case 'select': return doSelect(op);
       case 'insert': return doInsertOrUpsert(op, false);
@@ -273,6 +278,10 @@ export function runBatch(ops = [], ctx = null) {
       for (const op of ops) {
         if (!ALLOWED_TABLES.has(op.table)) throw new Error(`Table non autorisée : ${op.table}`);
         guardAppendOnly(op, ctx);
+        guardBudgetExpense(op, ctx);   // enforcement budgétaire serveur (dans la transaction du lot)
+        guardBudgetStructure(op);      // P5 : structure/opérations protégées
+        guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
+        guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
         let res;
         switch (op.action) {
           case 'insert': insertOrUpsertCore(op, false); break;

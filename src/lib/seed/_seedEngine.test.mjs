@@ -32,6 +32,21 @@ for (const scenario of ['small', 'medium', 'large']) {
   ok((r.signalement_history || []).every((h) => sig.has(h.signalement_id)), 'historique reports → signalement existant');
   ok((r.user_governance_roles || []).length >= 9, 'rôles de gouvernance générés (≥ 9)');
 
+  // — Budget CIBLE V3 (plus de budgets « à plat ») —
+  const anns = (r.budgets || []).filter((b) => b.tier === 'annual');
+  ok(anns.length === 1, 'un SEUL budget annuel (v3), plus de budget par secteur');
+  ok((r.budgets || []).every((b) => !b.period_type && !b.sector), 'aucun budget legacy (period_type/sector)');
+  ok((r.budget_periods || []).length === 3 && r.budget_periods.every((p) => p.end_date > p.start_date), 'périodes budgétaires dédiées (3, dates valides)');
+  const lines = (r.budget_chapters || []).filter((c) => c.scope);
+  ok(lines.length >= 2 && lines.every((l) => l.scope === 'complex' || l.scope === 'sectors'), 'lignes avec portée (complex/sectors)');
+  const perByLine = {}; for (const a of r.budget_line_periods || []) perByLine[a.budget_chapter_id] = (perByLine[a.budget_chapter_id] || 0) + a.pct;
+  ok(lines.every((l) => Math.abs((perByLine[l.id] || 0) - 100) <= 0.01), 'Σ % périodes = 100 par ligne');
+  const secByLine = {}; for (const a of r.budget_line_sectors || []) secByLine[a.budget_chapter_id] = (secByLine[a.budget_chapter_id] || 0) + a.pct;
+  ok(lines.filter((l) => l.scope === 'sectors').every((l) => Math.abs((secByLine[l.id] || 0) - 100) <= 0.01), 'Σ % secteurs = 100 par ligne sectorielle');
+  const lineScope = Object.fromEntries((r.budget_chapters || []).map((c) => [c.id, c.scope]));
+  ok((r.budget_expenses || []).every((e) => e.budget_period_id && e.expense_date && lineScope[e.budget_chapter_id]), 'dépenses v3 : ligne + période + date');
+  ok((r.budget_expenses || []).every((e) => lineScope[e.budget_chapter_id] !== 'complex' || !e.school_unit_id), 'dépense sur ligne complexe = imputation globale (aucun secteur)');
+
   // Volumétrie croissante.
   ok(r.students.length > 0 && r.grades.length >= r.students.length, 'notes ≥ élèves');
 }

@@ -8,7 +8,8 @@ import { computeNextYear, getNextLevel, isRepeater } from '../lib/yearEngine';
 import { fetchDistinctYears } from '../lib/schoolService';
 import { backendOnline } from '../lib/edition';
 import { seedDemoYear, deleteDemoYear, getDemoClassIds } from '../lib/seedDemo';
-import { resolveCountryCode } from '../countries';
+import { seedPeriods } from '../lib/academicPeriodsService';
+import { resolveCountryCode, getCountry } from '../countries';
 import { isOfficialEngine } from '../core/engineResolver';
 import { initDB, classesDB } from '../lib/db';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
@@ -297,6 +298,9 @@ export default function AcademicYear() {
   const t = useT();
   const school      = useAuthStore((s) => s.school);
   const role        = useAuthStore((s) => s.role);
+  const user        = useAuthStore((s) => s.user);
+  const academicPeriods  = useSchoolStore((s) => s.academicPeriods);
+  const refreshPeriods   = useSchoolStore((s) => s._refreshAcademicPeriods);
   const classes     = useSchoolStore((s) => s.classes);
   const students    = useSchoolStore((s) => s.students);
   const subjects    = useSchoolStore((s) => s.subjects);
@@ -315,6 +319,8 @@ export default function AcademicYear() {
   const [deleting,     setDeleting]     = useState(false);
   const [confirmDel,   setConfirmDel]   = useState(false);
   const [demoExists,   setDemoExists]   = useState(false);
+  const [genPeriods,   setGenPeriods]   = useState(false);
+  const [periodMsg,    setPeriodMsg]    = useState(null);
 
   const handleConsult = (year) => {
     setViewYear(year);
@@ -360,6 +366,29 @@ export default function AcademicYear() {
       setSeedResult({ ok: false, error: err.message });
     } finally {
       setSeeding(false);
+    }
+  };
+
+  // Trimestres (périodes de niveau supérieur) configurés pour l'année active.
+  const yearTrimesters = academicPeriods.filter((p) => p.school_year === currentYear && p.type === 'trimestre');
+
+  // Génère les périodes académiques (trimestres + séquences) de l'année depuis la
+  // configuration du pays. Idempotent (ne recrée rien si déjà présentes). Requis
+  // pour les bulletins ET pour les enveloppes budgétaires par période (module Budgets).
+  const handleGeneratePeriods = async () => {
+    if (!school?.id) return;
+    setGenPeriods(true); setPeriodMsg(null);
+    try {
+      const country = getCountry(school);
+      const res = await seedPeriods({ school, country, userId: user?.id, periodMode: school.period_mode || 'auto' });
+      await refreshPeriods();
+      if (res?.error) setPeriodMsg({ ok: false, text: res.error });
+      else if (res?.skipped) setPeriodMsg({ ok: true, text: t('Périodes déjà présentes.', 'Periods already present.', 'Períodos ya presentes.') });
+      else setPeriodMsg({ ok: true, text: t(`${res.trimesters} trimestre(s) et ${res.sequences} séquence(s) générés.`, `${res.trimesters} term(s) and ${res.sequences} sequence(s) created.`, `${res.trimesters} trimestre(s) y ${res.sequences} secuencia(s).`) });
+    } catch (e) {
+      setPeriodMsg({ ok: false, text: e.message });
+    } finally {
+      setGenPeriods(false);
     }
   };
 
@@ -471,6 +500,38 @@ export default function AcademicYear() {
             ))}
           </div>
         </div>
+
+        {/* Périodes académiques — requises pour bulletins + enveloppes budgétaires */}
+        {isAdmin && currentYear && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-6">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-gray-900 text-base">{t('Périodes académiques', 'Academic periods', 'Períodos académicos')}</h3>
+                {yearTrimesters.length > 0 ? (
+                  <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+                    ✓ <strong>{yearTrimesters.length}</strong> {t('trimestre(s) configuré(s)', 'term(s) configured', 'trimestre(s) configurado(s)')} — {yearTrimesters.map((p) => p.name).join(', ')}.
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+                    {t('Aucune période configurée pour cette année. Génère les trimestres et séquences — requis pour les bulletins ET pour répartir le budget annuel par période.',
+                       'No period configured for this year. Generate the terms and sequences — required for report cards AND to split the annual budget by period.',
+                       'Ningún período configurado. Genera los trimestres y secuencias — requerido para boletines y presupuesto por período.')}
+                  </p>
+                )}
+                {periodMsg && <p className={`text-xs mt-2 ${periodMsg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{periodMsg.text}</p>}
+              </div>
+              {yearTrimesters.length === 0 && (
+                <button
+                  onClick={handleGeneratePeriods}
+                  disabled={genPeriods}
+                  className="text-sm font-semibold px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:opacity-50 shrink-0"
+                >
+                  {genPeriods ? t('Génération…', 'Generating…', 'Generando…') : t('Générer les périodes', 'Generate periods', 'Generar períodos')}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Palmarès — tableau d'honneur imprimable */}
         {isAdmin && currentYear && <PalmaresPanel />}

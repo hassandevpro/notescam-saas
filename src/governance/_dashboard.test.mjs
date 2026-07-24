@@ -1,5 +1,5 @@
 // Test pur des dashboards par rôle (catalogue-driven). node src/governance/_dashboard.test.mjs
-import { filterBudgetDataBySector, roleBudgetQueues, dashboardProfile } from './dashboard.js';
+import { roleBudgetQueues, dashboardProfile } from './dashboard.js';
 import { DEFAULT_CATALOG } from './defaultCatalog.js';
 
 const CAT = DEFAULT_CATALOG;
@@ -8,23 +8,15 @@ const A = (role) => ({ role, status: 'active' }); // affectation active
 let failed = false;
 const ok = (c, m) => { console.log(`${c ? '✅' : '❌'} ${m}`); if (!c) failed = true; };
 
-// ── filterBudgetDataBySector ────────────────────────────────────────────────
+// Jeu de dépenses partagé (le scoping présentationnel par secteur via
+// `roleBudgetQueues` s'appuie sur `expense.sector`, conservé en compat — cf. P7).
 const data = {
-  budgets: [ { id: 'b1', sector: 'college' }, { id: 'b2', sector: 'primaire' } ],
-  chapters: [ { id: 'c1', budget_id: 'b1' }, { id: 'c2', budget_id: 'b2' } ],
   expenses: [
     { id: 'e1', sector: 'college', budget_id: 'b1', amount: 10000, status: 'submitted' },
     { id: 'e2', sector: 'primaire', budget_id: 'b2', amount: 300000, status: 'approved' },
-    { id: 'e3', sector: null, budget_id: 'b1', amount: 5000, status: 'submitted' }, // secteur via budget
+    { id: 'e3', sector: null, budget_id: 'b1', amount: 5000, status: 'submitted' },
   ],
 };
-
-ok(filterBudgetDataBySector(data, null) === data, 'covered=null (admin/transverse) → données inchangées');
-const college = filterBudgetDataBySector(data, ['college']);
-ok(college.budgets.length === 1 && college.budgets[0].id === 'b1', 'secteur college → 1 budget');
-ok(college.chapters.length === 1 && college.chapters[0].id === 'c1', 'chapitres du budget college seulement');
-ok(college.expenses.some((e) => e.id === 'e1') && college.expenses.some((e) => e.id === 'e3') && !college.expenses.some((e) => e.id === 'e2'),
-  'dépenses college (e1 direct + e3 via budget), pas primaire (e2)');
 
 // ── roleBudgetQueues ────────────────────────────────────────────────────────
 // RAF (barème par défaut : <25k → RAF). e1=10k / e3=5k submitted → à valider.

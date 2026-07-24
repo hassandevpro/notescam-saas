@@ -5,6 +5,7 @@
 import { db, getSchool, tx } from './db.js';
 import { randomUUID } from 'node:crypto';
 import { hashPassword } from './security.js';
+import { createRevision, decideRevision, createLineReallocation, decideLineReallocation } from './budgetOps.js';
 
 // --- Helpers d'autorisation -------------------------------------------
 function membership(userId) {
@@ -317,6 +318,15 @@ const handlers = {
               WHERE st.school_id = s.id AND cl.current_year = s.current_year) AS nb_students
       FROM schools s ORDER BY s.created_at DESC`).all();
   },
+
+  // ── Opérations budgétaires tracées V3 — autorité serveur, atomiques ──
+  // Révision du budget annuel (opération exceptionnelle, fortement tracée).
+  budget_create_revision(p, ctx) { return createRevision(p, ctx); },
+  budget_decide_revision(p, ctx) { return decideRevision(p, ctx); },
+  // Réallocation entre LIGNES (transfert de montant annuel, total inchangé).
+  // (E8) L'ancienne réallocation entre nœuds period/sector a été supprimée.
+  budget_create_line_realloc(p, ctx) { return createLineReallocation(p, ctx); },
+  budget_decide_line_realloc(p, ctx) { return decideLineReallocation(p, ctx); },
 
   // Portail parent : données du bulletin par jeton. Pas d'auth (lien public).
   get_parent_portal_data(p) {

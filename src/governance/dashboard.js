@@ -15,17 +15,11 @@ export function sectorVisible(covered, sector) {
   return covered.includes(sector);
 }
 
-// ── Filtrage des données budgétaires par SECTEUR ────────────────────────────
-// `covered` = résultat de coveredSectors (null = tous secteurs → aucune coupe).
-export function filterBudgetDataBySector(data, covered) {
-  if (!data || covered == null) return data || { budgets: [], chapters: [], expenses: [] };
-  const budgets  = (data.budgets  || []).filter((b) => sectorVisible(covered, b.sector));
-  const okBudget = new Set(budgets.map((b) => b.id));
-  const chapters = (data.chapters || []).filter((c) => okBudget.has(c.budget_id));
-  const expenses = (data.expenses || []).filter((e) =>
-    (e.sector != null ? sectorVisible(covered, e.sector) : okBudget.has(e.budget_id)));
-  return { ...data, budgets, chapters, expenses };
-}
+// (P7) `filterBudgetDataBySector` retiré : reposait sur `budgets.sector` plat et
+// n'avait plus aucun appelant (le dashboard Budget global scope désormais via la
+// hiérarchie + `school_units.section_key`). `sectorVisible` reste utilisé ci-dessous
+// par `roleBudgetQueues` (périmètre PRÉSENTATIONNEL des files d'action ; la sécurité
+// reste serveur — RLS/P3/P5).
 
 // ── Files d'attente d'actions par rôle ──────────────────────────────────────
 // Éléments sur lesquels CET utilisateur peut agir MAINTENANT, bornés au secteur.

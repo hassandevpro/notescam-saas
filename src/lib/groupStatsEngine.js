@@ -1,17 +1,19 @@
 // Moteur PUR des statistiques CONSOLIDÉES du groupe scolaire (tableau de bord
 // Coordonnateur Général / Fondatrice). Aucune I/O — RÉUTILISE les moteurs des
-// modules (budget, dépenses, RH, reports) au lieu de recalculer. Testable Node.
-import { computeBudgetTotals } from './budgetEngine.js';
-import { budgetConsumption } from './expenseEngine.js';
+// modules (budget V3, dépenses, RH, reports) au lieu de recalculer. Testable Node.
+//
+// Modèle budgétaire = CIBLE V3 EXCLUSIVEMENT : budget annuel → lignes → allocations
+// par période / par secteur → dépenses. Plus AUCUNE dépendance aux anciens champs
+// `budgets.sector`/`period_type` ni aux nœuds tier=period/sector legacy.
+import {
+  indexAllocations, isLine, lines as linesOf, annualConsumption, lineConsumption,
+  sectorTotals,
+} from './budgetLinesEngine.js';
 import { isContractActive, attendanceSummary } from './hrEngine.js';
 import { severityRank } from './reportEngine.js';
 
 const OPEN_REPORT = ['new', 'triaged', 'assigned', 'in_progress'];
-function groupBy(arr, key) {
-  const m = new Map();
-  for (const x of arr) { const k = x[key]; if (!m.has(k)) m.set(k, []); m.get(k).push(x); }
-  return m;
-}
+const GLOBAL_KEY = '__global__';
 
 // ── Finances (scolarité encaissée) ────────────────────────────────────────────
 export function financeStats(fees = []) {
@@ -20,33 +22,44 @@ export function financeStats(fees = []) {
   return { expected, collected, outstanding: expected - collected, rate: expected > 0 ? Math.round((collected / expected) * 100) : 0 };
 }
 
-// ── Budgets (prévisionnel consolidé, par secteur) ─────────────────────────────
-export function budgetStats(budgets = [], chapters = []) {
-  const byBudget = groupBy(chapters, 'budget_id');
-  let recettes = 0, depenses = 0;
-  const sector = {};
-  for (const b of budgets) {
-    const tot = computeBudgetTotals(byBudget.get(b.id) || []);
-    recettes += tot.recettes; depenses += tot.depenses;
-    sector[b.sector] = (sector[b.sector] || 0) + tot.depenses;
+// ── Budgets (prévisionnel consolidé) — modèle V3 ──────────────────────────────
+// `depensesPrevues` = enveloppe ANNUELLE ; `bySector` = ventilation par UNITÉ via
+// les ALLOCATIONS sectorielles des lignes (+ un poste « Complexe / Global » pour les
+// lignes sans secteur). Anti double comptage : une ligne multi-secteurs contribue à
+// chaque secteur SA PART (%) — Σ des parts = montant de la ligne, jamais dupliqué.
+export function budgetStats({ budgets = [], chapters = [], linePeriods = [], lineSectors = [], units = [] } = {}) {
+  const annual = budgets.find((b) => b.tier === 'annual') || null;
+  const annualChapters = annual ? chapters.filter((c) => c.budget_id === annual.id) : chapters;
+  const lines = linesOf(annualChapters);
+  const idx = indexAllocations(linePeriods, lineSectors);
+  const recettes = annualChapters.reduce((s, c) => s + (c.kind === 'recette' ? Number(c.planned_amount) || 0 : 0), 0);
+  const depensesPrevues = annual ? Number(annual.envelope_amount) || 0 : 0;
+
+  const unitName = new Map((units || []).map((u) => [u.id, u.name || u.section_key || '—']));
+  const map = new Map();
+  for (const u of units) {
+    const planned = sectorTotals(lines, u.id, idx).ceiling;
+    if (planned > 0) map.set(u.id, { sector: u.id, label: unitName.get(u.id) || '—', planned });
   }
+  // Lignes « tout le complexe » (sans allocation sectorielle) → poste global.
+  const globalPlanned = lines.filter((l) => l.scope === 'complex').reduce((s, l) => s + (Number(l.planned_amount) || 0), 0);
+  if (globalPlanned > 0) map.set(GLOBAL_KEY, { sector: GLOBAL_KEY, label: 'Complexe / Global', planned: globalPlanned });
+
   return {
-    count: budgets.length, recettes, depensesPrevues: depenses,
-    bySector: Object.entries(sector).map(([s, v]) => ({ sector: s, planned: v })).sort((a, b) => b.planned - a.planned),
+    count: lines.length, recettes, depensesPrevues,
+    bySector: [...map.values()].sort((a, b) => b.planned - a.planned),
   };
 }
 
-// ── Dépenses (exécution consolidée) ───────────────────────────────────────────
-export function expenseStats(budgets = [], chapters = [], expenses = []) {
-  const byBudgetCh = groupBy(chapters, 'budget_id');
-  const byBudgetEx = groupBy(expenses, 'budget_id');
-  let planned = 0, engage = 0, overBudget = 0;
-  for (const b of budgets) {
-    const c = budgetConsumption(byBudgetCh.get(b.id) || [], byBudgetEx.get(b.id) || []);
-    planned += c.depensesPrevues; engage += c.engage;
-    if (c.depassement) overBudget += 1;
-  }
-  return { plannedDepenses: planned, engage, reste: planned - engage, rate: planned > 0 ? Math.round((engage / planned) * 100) : 0, overBudget };
+// ── Dépenses (exécution consolidée) — via le nœud ANNUEL V3 ───────────────────
+export function expenseStats({ budgets = [], chapters = [], linePeriods = [], lineSectors = [], expenses = [] } = {}) {
+  const annual = budgets.find((b) => b.tier === 'annual') || null;
+  const annualChapters = annual ? chapters.filter((c) => c.budget_id === annual.id) : chapters;
+  const lines = linesOf(annualChapters);
+  const a = annual ? annualConsumption(annual, { expenses }) : { ceiling: 0, committed: 0, paid: 0, available: 0, taux: 0 };
+  // Dépassement au niveau LIGNE (jamais recompté depuis des nœuds legacy).
+  const overBudget = lines.filter((l) => lineConsumption(l, { expenses }).depassement).length;
+  return { plannedDepenses: a.ceiling, engage: a.committed, paid: a.paid, reste: a.available, rate: a.taux, overBudget };
 }
 
 // ── RH ────────────────────────────────────────────────────────────────────────
@@ -71,19 +84,18 @@ export function disciplineStats(reports = []) {
 }
 
 // ── Alertes consolidées ───────────────────────────────────────────────────────
-// Agrège les points d'attention transverses en une liste priorisée.
-export function buildAlerts({ budgets = [], chapters = [], expenses = [], unlockRequests = [], leaves = [], reports = [] } = {}) {
+export function buildAlerts(data = {}) {
   const alerts = [];
-  const exp = expenseStats(budgets, chapters, expenses);
+  const exp = expenseStats(data);
   if (exp.overBudget > 0) alerts.push({ key: 'budget_over', severity: 'critical', count: exp.overBudget, label: 'Budgets en dépassement', link: '/app/depenses' });
 
-  const pendingUnlocks = unlockRequests.filter((r) => r.status === 'pending').length;
+  const pendingUnlocks = (data.unlockRequests || []).filter((r) => r.status === 'pending').length;
   if (pendingUnlocks > 0) alerts.push({ key: 'unlock_pending', severity: 'high', count: pendingUnlocks, label: 'Déblocages en attente', link: '/app/depenses' });
 
-  const pendingLeaves = leaves.filter((l) => l.status === 'pending').length;
+  const pendingLeaves = (data.leaves || []).filter((l) => l.status === 'pending').length;
   if (pendingLeaves > 0) alerts.push({ key: 'leave_pending', severity: 'normal', count: pendingLeaves, label: 'Congés en attente', link: '/app/rh' });
 
-  const critical = reports.filter((r) => OPEN_REPORT.includes(r.status) && r.priority === 'critical').length;
+  const critical = (data.reports || []).filter((r) => OPEN_REPORT.includes(r.status) && r.priority === 'critical').length;
   if (critical > 0) alerts.push({ key: 'report_critical', severity: 'critical', count: critical, label: 'Signalements critiques ouverts', link: '/app/signalements' });
 
   return alerts.sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
@@ -93,8 +105,8 @@ export function buildAlerts({ budgets = [], chapters = [], expenses = [], unlock
 export function consolidate(data = {}) {
   return {
     finance: financeStats(data.fees),
-    budget: budgetStats(data.budgets, data.chapters),
-    expense: expenseStats(data.budgets, data.chapters, data.expenses),
+    budget: budgetStats(data),
+    expense: expenseStats(data),
     hr: hrStats(data.staff, data.contracts, data.leaves, data.attendance),
     academic: academicStats(data.students, data.classes, data.units),
     discipline: disciplineStats(data.reports),

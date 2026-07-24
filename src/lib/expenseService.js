@@ -18,11 +18,14 @@ export async function upsertExpense(row) {
   const payload = {
     id: row.id || uuid(),
     school_id: row.school_id,
-    budget_id: row.budget_id,                    // rattachement obligatoire au budget
+    budget_id: row.budget_id,                    // rattachement obligatoire au budget (annuel en v3)
     budget_chapter_id: nn(row.budget_chapter_id),
+    // ── Modèle CIBLE v3 : imputation RÉELLE (période + secteur, NULL = Complexe/Global) ──
+    budget_period_id: nn(row.budget_period_id),
+    school_unit_id: nn(row.school_unit_id),
     category: nn(row.category),
     subcategory: nn(row.subcategory),
-    sector: nn(row.sector),
+    sector: nn(row.sector),                       // LEGACY (libellé dénormalisé)
     supplier: nn(row.supplier),
     amount: Number(row.amount) || 0,
     requester: nn(row.requester),
@@ -40,8 +43,9 @@ export async function upsertExpense(row) {
   };
   const { data, error } = await supabase
     .from('budget_expenses').upsert(payload, { onConflict: 'id' }).select().single();
-  if (error) { console.error('upsertExpense', error); return null; }
-  return data;
+  // Remonte le message serveur (enforcement E3 : imputation, chaîne, permissions).
+  if (error) { console.error('upsertExpense', error); return { data: null, error }; }
+  return { data, error: null };
 }
 
 export async function deleteExpense(id) {

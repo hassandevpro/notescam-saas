@@ -112,17 +112,47 @@ ensureColumn('user_governance_roles', 'status',     "status TEXT NOT NULL DEFAUL
 // Seed du CATALOGUE de rôles de gouvernance pour toute école qui n'en a pas
 // encore (miroir de supabase_governance_catalog.sql). Best-effort, idempotent.
 seedGovernanceCatalog();
+ensureFinanceGrants();
+// Patch IDEMPOTENT (écoles déjà seedées) : garantit que fondatrice/coordonnateur
+// portent bien les capacités financières complètes (fusion sans doublon, aucun reset).
+function ensureFinanceGrants() {
+  const PERMS = ['governance.manage', 'governance.view', 'budget.view', 'budget.prepare', 'budget.submit',
+    'expense.view', 'expense.prepare', 'expense.submit', 'budget.unlock.request', 'budget.reallocate.request', 'budget.annual.revise.request'];
+  const WF = ['budget.validate.sector', 'budget.validate.finance', 'budget.approve', 'budget.close', 'budget.reopen',
+    'expense.approve', 'expense.reject', 'expense.pay', 'budget.unlock.decide', 'budget.reallocate.decide', 'budget.annual.revise'];
+  try {
+    const rows = db.prepare("SELECT id, permissions, workflows FROM governance_roles WHERE code IN ('fondatrice','coordonnateur_general')").all();
+    const upd = db.prepare('UPDATE governance_roles SET permissions = ?, workflows = ? WHERE id = ?');
+    const merge = (json, add) => {
+      let arr = []; try { arr = JSON.parse(json || '[]'); } catch { arr = []; }
+      const set = new Set(Array.isArray(arr) ? arr : []);
+      let changed = false;
+      for (const p of add) if (!set.has(p)) { set.add(p); changed = true; }
+      return { json: JSON.stringify([...set]), changed };
+    };
+    for (const r of rows) {
+      const p = merge(r.permissions, PERMS);
+      const w = merge(r.workflows, WF);
+      if (p.changed || w.changed) upd.run(p.json, w.json, r.id);
+    }
+  } catch { /* best-effort */ }
+}
 function seedGovernanceCatalog() {
   const BUDGET_PAGES = ['/app/budgets', '/app/budget-global', '/app/depenses'];
   const DIRECTION = ['/app/groupe', '/app/reports', ...BUDGET_PAGES];
   const SECTOR_PERMS = ['budget.view', 'budget.prepare', 'budget.submit', 'expense.view', 'expense.prepare', 'expense.submit', 'budget.unlock.request'];
+  // Capacités financières COMPLÈTES (fondatrice/coordonnateur = équivalent admin sur les finances).
+  const FINANCE_PERMS = ['governance.manage', 'governance.view', 'budget.view', 'budget.prepare', 'budget.submit',
+    'expense.view', 'expense.prepare', 'expense.submit', 'budget.unlock.request', 'budget.reallocate.request', 'budget.annual.revise.request'];
+  const FINANCE_WORKFLOWS = ['budget.validate.sector', 'budget.validate.finance', 'budget.approve', 'budget.close', 'budget.reopen',
+    'expense.approve', 'expense.reject', 'expense.pay', 'budget.unlock.decide', 'budget.reallocate.decide', 'budget.annual.revise'];
   const ROLES = [
+    // Fondatrice & Coordonnateur : mêmes capacités FINANCIÈRES que l'admin (préparer/
+    // soumettre + demandes déblocage/réallocation/révision) EN PLUS de la validation.
     ['fondatrice', 'Fondatrice', 'Autorité suprême du complexe', 100, 'complex', null,
-      ['governance.manage', 'governance.view', 'budget.view', 'expense.view'], DIRECTION, ['group', 'budget-global'],
-      ['budget.validate.sector', 'budget.validate.finance', 'budget.approve', 'budget.close', 'budget.reopen', 'expense.approve', 'expense.reject', 'budget.unlock.decide']],
+      FINANCE_PERMS, DIRECTION, ['group', 'budget-global'], FINANCE_WORKFLOWS],
     ['coordonnateur_general', 'Coordonnateur Général', 'Direction générale du complexe', 90, 'complex', null,
-      ['governance.manage', 'governance.view', 'budget.view', 'expense.view'], DIRECTION, ['group', 'budget-global'],
-      ['budget.validate.sector', 'budget.validate.finance', 'budget.approve', 'budget.close', 'budget.reopen', 'expense.approve', 'expense.reject', 'budget.unlock.decide']],
+      FINANCE_PERMS, DIRECTION, ['group', 'budget-global'], FINANCE_WORKFLOWS],
     ['raf', 'Responsable Administratif et Financier (RAF)', 'Gestion administrative et financière', 80, 'complex', null,
       ['governance.view', 'budget.view', 'budget.prepare', 'budget.submit', 'expense.view', 'budget.unlock.request'], DIRECTION, ['group', 'budget-global'],
       ['budget.validate.finance', 'budget.close', 'expense.approve', 'expense.reject', 'expense.pay']],
@@ -264,6 +294,11 @@ export const SYNCED_TABLES = new Set([
   'budget_expenses',
   // Déblocage de lignes épuisées (demandes + décisions historisées).
   'budget_unlock_requests',
+  // Réallocation entre enveloppes + révision du budget annuel (opérations tracées).
+  'budget_reallocations', 'budget_revisions',
+  // Modèle CIBLE v3 : périodes budgétaires dédiées + allocations par ligne (période/secteur)
+  // + réallocation entre lignes (transfert de montant annuel, tracé).
+  'budget_periods', 'budget_line_periods', 'budget_line_sectors', 'budget_line_reallocations',
   // Ressources Humaines (satellites du dossier staff ; pas de paie).
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
   // Reports (Signalements) — commentaires + historique.
@@ -305,6 +340,34 @@ ensureColumn('budgets', 'start_date', 'start_date TEXT');
 ensureColumn('budgets', 'end_date',   'end_date TEXT');
 ensureColumn('schools', 'school_year_start_month', 'school_year_start_month INTEGER');
 
+// Module Budgets — HIÉRARCHIE cible (annual → period → sector). Colonnes ajoutées
+// aux bases existantes ; les CHECK de forme ne s'appliquent qu'aux bases fraîches/
+// réinitialisées, mais les triggers `budgets_hier_guard_*` + index partiels (dans
+// schema.sql, idempotents) s'appliquent PARTOUT. Voir supabase_budget_hierarchy_v2.sql.
+ensureColumn('budgets', 'tier',               'tier TEXT');
+ensureColumn('budgets', 'parent_budget_id',   'parent_budget_id TEXT REFERENCES budgets(id) ON DELETE CASCADE');
+ensureColumn('budgets', 'academic_period_id', 'academic_period_id TEXT REFERENCES academic_periods(id) ON DELETE RESTRICT');
+ensureColumn('budgets', 'school_unit_id',     'school_unit_id TEXT REFERENCES school_units(id) ON DELETE RESTRICT');
+ensureColumn('budgets', 'envelope_amount',    'envelope_amount INTEGER');
+ensureColumn('budgets', 'allocation_pct',     'allocation_pct REAL');
+ensureColumn('budgets', 'sector_amount',      'sector_amount INTEGER');
+
+// Index + triggers d'intégrité de la HIÉRARCHIE budgétaire — appliqués ICI (après
+// l'ajout des colonnes ci-dessus) pour fonctionner aussi sur une base existante
+// pré-hiérarchie. DDL idempotente extraite dans server/budget-hierarchy.sql
+// (source unique, réutilisée par les tests). Miroir : supabase_budget_hierarchy_v2.sql.
+db.exec(readFileSync(join(__dirname, 'budget-hierarchy.sql'), 'utf8'));
+
+// Module Budgets — modèle CIBLE v3 (annuel → rubriques → LIGNES réparties par
+// période/secteur). Colonnes ajoutées aux bases existantes + gardes d'intégrité
+// (chevauchement de périodes, portée sectorielle, activation Σ=100 par ligne).
+// Miroir Cloud : supabase_budget_lines_v3.sql.
+ensureColumn('budget_chapters', 'scope',  'scope TEXT');                          // 'complex'|'sectors' (feuilles)
+ensureColumn('budget_chapters', 'status', "status TEXT NOT NULL DEFAULT 'draft'"); // draft|active|closed (répartition de la ligne)
+ensureColumn('budget_expenses', 'budget_period_id', 'budget_period_id TEXT REFERENCES budget_periods(id) ON DELETE RESTRICT'); // période imputée
+ensureColumn('budget_expenses', 'school_unit_id',   'school_unit_id TEXT REFERENCES school_units(id) ON DELETE SET NULL');     // secteur imputé (NULL = Complexe/Global)
+db.exec(readFileSync(join(__dirname, 'budget-lines.sql'), 'utf8'));
+
 // Identifiant STABLE de cette installation (origine des changements locaux).
 let _deviceId = null;
 export function deviceId() {
@@ -334,6 +397,8 @@ export const ALLOWED_TABLES = new Set([
   'schools', 'school_units', 'school_users', 'classes', 'subjects', 'students', 'grades',
   'teachers', 'staff', 'student_fees', 'fee_payments', 'class_fee_grids',
   'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',
+  'budget_reallocations', 'budget_revisions',
+  'budget_periods', 'budget_line_periods', 'budget_line_sectors', 'budget_line_reallocations',
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
   'signalement_comments', 'signalement_history',

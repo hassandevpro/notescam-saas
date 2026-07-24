@@ -11,9 +11,11 @@ const json = (s: number, b: unknown) => new Response(JSON.stringify(b), { status
 async function sha256(s: string) { const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join(''); }
 
 const TABLES = [
-  'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
+  'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',
+  'budget_reallocations', 'budget_revisions',
+  'budget_periods', 'budget_line_periods', 'budget_line_sectors', 'budget_line_reallocations',
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
   'signalement_comments', 'signalement_history',

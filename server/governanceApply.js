@@ -326,9 +326,10 @@ function applyBudgetEffect({ op, target, aggId, data, school, decider }) {
   runOpsGuarded(buildStructureOps({ op, target, aggId, data: d, school }), ctx);
 }
 
-// ── CŒUR : vérifie + applique UNE intention budgétaire distante. Idempotent. ──
-// Renvoie { applied } | { deferred } (dépendance causale absente → réessai) | { skip }.
-export function verifyRemoteBudgetOperation(event) {
+// ── PRÉ-VÉRIFICATION (LECTURE SEULE, aucun effet) — partagée par l'application RÉELLE
+// et le DRY-RUN pour garantir qu'ils ne DIVERGENT jamais. Renvoie la décision jusqu'à
+// (mais SANS) l'exécution de l'effet métier : skip | reject | defer | idempotent | apply.
+function precheckBudgetOp(event) {
   if (event?.event_type !== EVT.BUDGET_OP_REQUESTED) return { skip: true, reason: 'not_a_budget_op' };
   const eventId = event.id;
   if (!eventId) return { skip: true, reason: 'no_id' };
@@ -342,6 +343,44 @@ export function verifyRemoteBudgetOperation(event) {
   const data = p.data || {};
   const corr = p.correlation_id || event.correlation_id || aggId;
   const school = localSchoolId();
+  const decider = event.actor_id || null;
+  const base = { eventId, op, target, aggId, expectedVersion, data, corr, school, decider };
+
+  // (1) Validité de la commande (op/cible connues, identité autoritaire présente).
+  if (!isBudgetOp(op) || !isBudgetOpTarget(target)) return { ...base, reject: 'rejected_invalid', reason: 'invalid_op' };
+  if (!aggId) return { ...base, reject: 'rejected_invalid', reason: 'no_aggregate_id' };
+  // (2) Périmètre école.
+  if (!school || event.school_id !== school) return { ...base, reject: 'rejected_other_school', reason: 'other_school' };
+  // (3) H4 — accès distant obligatoire (séparation droit financier / accès distant).
+  const su = decider
+    ? db.prepare('SELECT remote_access_allowed FROM school_users WHERE user_id = ? AND school_id = ? AND active = 1').get(decider, school)
+    : null;
+  if (!su || Number(su.remote_access_allowed) !== 1) return { ...base, reject: 'rejected_no_remote_access', reason: 'no_remote_access', extra: { decider_id: decider } };
+  // (4) Permission d'application (autorité de mutation), depuis la gouvernance répliquée.
+  const { baseRole, catalog, assignments } = deciderCtx(school, decider);
+  const perm = BUDGET_OP_APPLY_PERM[op];
+  if (!perm || !hasPermission(baseRole, catalog, assignments, perm)) {
+    return { ...base, reject: 'rejected_unauthorized', reason: 'unauthorized', extra: { decider_id: decider, perm: perm || null } };
+  }
+  // (5) Existence de l'agrégat + ORDRE CAUSAL + VERSION.
+  const agg = db.prepare(`SELECT * FROM ${aggTable(target)} WHERE id = ?`).get(aggId);
+  if (op === 'create') {
+    if (agg) return { ...base, idempotent: true };  // déjà matérialisé → confirmer une fois.
+    return { ...base, mode: 'apply' };
+  }
+  if (!agg) return { ...base, defer: true };          // R-order : dépendance absente → différé.
+  if (expectedVersion != null && Number(expectedVersion) !== Number(agg.version)) {
+    return { ...base, reject: 'rejected_version_conflict', reason: 'version_conflict', extra: { expected_version: expectedVersion, current_version: agg.version } };
+  }
+  return { ...base, mode: 'apply' };
+}
+
+// ── CŒUR : vérifie + applique UNE intention budgétaire distante. Idempotent. ──
+// Renvoie { applied } | { deferred } (dépendance causale absente → réessai) | { skip }.
+export function verifyRemoteBudgetOperation(event) {
+  const c = precheckBudgetOp(event);
+  if (c.skip) return { skip: true, reason: c.reason };
+  const { eventId, op, target, aggId, data, corr, school, decider } = c;
 
   const reject = (result, reason, extra = {}) => {
     tx(() => {
@@ -351,43 +390,12 @@ export function verifyRemoteBudgetOperation(event) {
     return { applied: false, result };
   };
 
-  // (1) Validité de la commande (op/cible connues, identité autoritaire présente).
-  if (!isBudgetOp(op) || !isBudgetOpTarget(target)) return reject('rejected_invalid', 'invalid_op');
-  if (!aggId) return reject('rejected_invalid', 'no_aggregate_id');
-
-  // (2) Périmètre école — une intention d'une AUTRE école est rejetée.
-  if (!school || event.school_id !== school) return reject('rejected_other_school', 'other_school');
-
-  // (3) H4 — ACCÈS DISTANT obligatoire (séparation droit financier / accès distant).
-  const decider = event.actor_id || null;
-  const su = decider
-    ? db.prepare('SELECT remote_access_allowed FROM school_users WHERE user_id = ? AND school_id = ? AND active = 1').get(decider, school)
-    : null;
-  if (!su || Number(su.remote_access_allowed) !== 1) return reject('rejected_no_remote_access', 'no_remote_access', { decider_id: decider });
-
-  // (4) PERMISSION d'application (autorité de mutation), depuis la gouvernance répliquée.
-  const { baseRole, catalog, assignments } = deciderCtx(school, decider);
-  const perm = BUDGET_OP_APPLY_PERM[op];
-  if (!perm || !hasPermission(baseRole, catalog, assignments, perm)) {
-    return reject('rejected_unauthorized', 'unauthorized', { decider_id: decider, perm: perm || null });
-  }
-
-  // (5) Existence de l'agrégat + ORDRE CAUSAL + VERSION.
-  const agg = db.prepare(`SELECT * FROM ${aggTable(target)} WHERE id = ?`).get(aggId);
-  if (op === 'create') {
-    if (agg) { // déjà matérialisé (rejeu après crash) → idempotent : confirmer une fois.
-      let cid = null;
-      tx(() => { recordBudgetOp(eventId, op, target, aggId, 'applied'); cid = emitBudgetOutcome('applied', { school, aggId, event, corr, extra: { op, target, idempotent: true } }); });
-      return { applied: true, result: 'applied', idempotent: true, confirmationEventId: cid };
-    }
-  } else {
-    // R-order : l'agrégat cible n'existe pas encore (create pas encore appliqué) →
-    // on DIFFÈRE (rien inscrit) ; l'intention sera réessayée au prochain cycle.
-    if (!agg) return { deferred: true, reason: 'missing_aggregate' };
-    // Version EXACTE si fournie (état inchangé depuis la vue distante) — sinon rejet.
-    if (expectedVersion != null && Number(expectedVersion) !== Number(agg.version)) {
-      return reject('rejected_version_conflict', 'version_conflict', { expected_version: expectedVersion, current_version: agg.version });
-    }
+  if (c.reject) return reject(c.reject, c.reason, c.extra || {});
+  if (c.defer) return { deferred: true, reason: 'missing_aggregate' };
+  if (c.idempotent) {
+    let cid = null;
+    tx(() => { recordBudgetOp(eventId, op, target, aggId, 'applied'); cid = emitBudgetOutcome('applied', { school, aggId, event, corr, extra: { op, target, idempotent: true } }); });
+    return { applied: true, result: 'applied', idempotent: true, confirmationEventId: cid };
   }
 
   // (6) APPLICATION ATOMIQUE (mutation guardée + idempotence + confirmation) OU rejet
@@ -405,17 +413,53 @@ export function verifyRemoteBudgetOperation(event) {
   return { applied: true, result: 'applied', confirmationEventId: confirmId };
 }
 
-// ── DRAIN : applique les intentions budgétaires non traitées (robuste à la reprise). ──
-// Ordre d'arrivée (rowid) → respecte l'ordre causal d'une même source (créer avant
-// activer). Une intention différée reste non inscrite → réessayée au cycle suivant.
-export function applyPendingBudgetOps() {
-  if (!remoteFinanceGovernance()) return { applied: 0, deferred: 0, processed: 0 };
-  const rows = db.prepare(
+// ── DRY-RUN (recette H3b-5) : PRÉDIT l'issue d'une intention SANS AUCUN effet. Les
+// vérifications sont identiques (precheck partagé) ; pour un « apply » potentiel, on
+// SIMULE l'effet métier dans un SAVEPOINT puis on l'ANNULE → cap/config/gel réellement
+// évalués, zéro mutation, zéro confirmation, zéro idempotence inscrite.
+export function dryRunBudgetOperation(event) {
+  const c = precheckBudgetOp(event);
+  const head = { event_id: event?.id ?? null, op: c.op, target: c.target, aggregate_id: c.aggId };
+  if (c.skip) return { ...head, outcome: 'skip', reason: c.reason };
+  if (c.reject) return { ...head, outcome: 'reject', result: c.reject, reason: c.reason };
+  if (c.defer) return { ...head, outcome: 'defer', reason: 'missing_aggregate' };
+  if (c.idempotent) return { ...head, outcome: 'apply', idempotent: true };
+  try {
+    db.exec('SAVEPOINT dryrun');
+    try { applyBudgetEffect({ op: c.op, target: c.target, aggId: c.aggId, data: c.data, school: c.school, decider: c.decider }); }
+    finally { db.exec('ROLLBACK TO dryrun'); db.exec('RELEASE dryrun'); }
+    return { ...head, outcome: 'apply' };
+  } catch (e) {
+    return { ...head, outcome: 'reject', result: 'rejected_rule', reason: e.message };
+  }
+}
+
+// Sélection des intentions distantes NON encore traitées, dans l'ordre d'arrivée (rowid).
+function pendingBudgetOpEvents() {
+  return db.prepare(
     `SELECT * FROM domain_events
        WHERE event_type = ? AND replicated_from = 'cloud'
          AND id NOT IN (SELECT event_id FROM applied_budget_ops)
        ORDER BY rowid ASC`,
   ).all(EVT.BUDGET_OP_REQUESTED);
+}
+
+// ── DRAIN : applique (ou, en dry-run, PRÉVOIT) les intentions non traitées. Robuste à
+// la reprise. Ordre d'arrivée → ordre causal d'une même source (créer avant activer).
+export function applyPendingBudgetOps({ dryRun = false } = {}) {
+  if (!remoteFinanceGovernance()) {
+    return dryRun ? { plan: [], processed: 0, wouldApply: 0, wouldReject: 0, wouldDefer: 0 } : { applied: 0, deferred: 0, processed: 0 };
+  }
+  const rows = pendingBudgetOpEvents();
+  if (dryRun) {
+    const plan = rows.map(dryRunBudgetOperation);
+    return {
+      plan, processed: rows.length,
+      wouldApply: plan.filter((x) => x.outcome === 'apply').length,
+      wouldReject: plan.filter((x) => x.outcome === 'reject').length,
+      wouldDefer: plan.filter((x) => x.outcome === 'defer').length,
+    };
+  }
   let applied = 0; let deferred = 0;
   for (const ev of rows) {
     const r = verifyRemoteBudgetOperation(ev);

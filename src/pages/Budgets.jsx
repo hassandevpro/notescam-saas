@@ -21,6 +21,8 @@ import {
   createLineReallocation, decideLineReallocation, fetchLineReallocations,
   createRevision, decideRevision, fetchRevisions,
 } from '../lib/budgetOpsService';
+import { financeRemoteMode } from '../lib/budgetRemote';
+import { fetchBudgetOperations, budgetOperationStatus } from '../lib/budgetOperationService';
 import { AnnualBudgetModal } from '../components/budgets/BudgetHierarchyModals';
 import LineFormModal from '../components/budgets/LineFormModal';
 import LineAllocationsModal from '../components/budgets/LineAllocationsModal';
@@ -35,6 +37,19 @@ import { catalogOrDefault } from '../governance/defaultCatalog';
 import { GOV_PERM } from '../governance/permissions';
 
 const Badge = ({ ui, t }) => <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${ui.color}`}>{t(...ui.label)}</span>;
+
+// H3b-4 — libellés des intentions budgétaires distantes (mode gouvernance distante).
+const OP_LABEL = {
+  create: ['Création', 'Create', 'Creación'], modify: ['Modification', 'Modify', 'Modificación'],
+  allocate: ['Répartition', 'Allocation', 'Reparto'], activate: ['Activation', 'Activate', 'Activación'],
+  revise: ['Révision', 'Revision', 'Revisión'], reallocate: ['Réallocation', 'Reallocation', 'Reasignación'],
+};
+const opLabel = (t, op) => t(...(OP_LABEL[op] || [op, op]));
+const intentStatusLabel = (t, s) => (s === 'applied'
+  ? t('Appliquée', 'Applied', 'Aplicada')
+  : s === 'rejected' ? t('Rejetée', 'Rejected', 'Rechazada') : t('En attente', 'Pending', 'Pendiente'));
+const intentStatusPill = (s) => `text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+  s === 'applied' ? 'bg-emerald-100 text-emerald-700' : s === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`;
 
 export default function Budgets() {
   const t = useT();
@@ -72,6 +87,24 @@ export default function Budgets() {
   const [modal, setModal] = useState(null); // {type:'annual'|'rubrique'|'line'|'alloc'|'periods', node?, parent?}
   const [opModal, setOpModal] = useState(null);        // {type:'realloc'|'revision'}
   const [decisionOp, setDecisionOp] = useState(null);  // {kind:'realloc'|'revision', request}
+  // H3b-4 — gouvernance distante : mode « émission d'intention » + état en attente.
+  const [remoteMode, setRemoteMode] = useState(false);
+  const [intents, setIntents] = useState([]);          // intentions budgétaires + statut dérivé
+
+  const loadIntents = useCallback(async () => {
+    if (!schoolId) return;
+    const on = await financeRemoteMode(schoolId);
+    setRemoteMode(on);
+    if (!on) { setIntents([]); return; }
+    const evs = await fetchBudgetOperations(schoolId, { limit: 200 });
+    const parse = (e) => (typeof e.payload === 'object' ? e.payload : (() => { try { return JSON.parse(e.payload || '{}'); } catch { return {}; } })());
+    const rows = evs.filter((e) => e.event_type === 'BudgetOperationRequested').map((e) => {
+      const p = parse(e); const corr = p.correlation_id || e.correlation_id;
+      return { id: e.id, corr, op: p.op, target: p.target, at: e.occurred_at, status: budgetOperationStatus(evs, corr) };
+    });
+    setIntents(rows.slice(0, 20));
+  }, [schoolId]);
+  useEffect(() => { loadIntents(); }, [loadIntents]);
 
   const load = useCallback(async () => {
     if (!schoolId) { setLoading(false); return; }
@@ -110,29 +143,36 @@ export default function Budgets() {
   const envelope = Number(annual?.envelope_amount) || 0;
 
   const failToast = (e) => toast.error(e?.message || t('Échec de l’opération — vérifiez votre connexion.', 'Operation failed — check your connection.', 'Error — verifique su conexión.'));
+  const pendingMsg = t('Demande envoyée · en attente d’application par le serveur de l’école', 'Request sent · awaiting the school server', 'Solicitud enviada · esperando al servidor');
+
+  // Traite un résultat { data, error, pending } : erreur / intention distante (en
+  // attente d'application LAN, #6) / écriture directe appliquée. Rafraîchit la vue.
+  const afterWrite = async (res, okMsg) => {
+    if (res?.error) return failToast(res.error);
+    await load();
+    if (res?.pending) { await loadIntents(); toast.success(pendingMsg); }
+    else if (res?.data) toast.success(okMsg);
+  };
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const saveAnnual = async (data) => {
-    const { data: saved, error: err } = await upsertBudget({ ...data, school_id: schoolId });
+    const res = await upsertBudget({ ...data, school_id: schoolId });
     setModal(null);
-    if (err) return failToast(err);
-    if (saved) { await load(); toast.success(t('Enregistré', 'Saved', 'Guardado')); }
+    await afterWrite(res, t('Enregistré', 'Saved', 'Guardado'));
   };
 
   const saveChapter = async (data) => {
     const parentId = modal?.parent?.id || data.parent_id || null;
     const siblings = annualChapters.filter((c) => (c.parent_id || null) === (parentId || null));
     const position = data.position ?? siblings.length;
-    const { data: saved, error: err } = await upsertBudgetChapter({ ...data, position, school_id: schoolId, budget_id: annual.id, parent_id: parentId });
+    const res = await upsertBudgetChapter({ ...data, position, school_id: schoolId, budget_id: annual.id, parent_id: parentId });
     setModal(null);
-    if (err) return failToast(err);
-    if (saved) { await load(); toast.success(t('Enregistré', 'Saved', 'Guardado')); }
+    await afterWrite(res, t('Enregistré', 'Saved', 'Guardado'));
   };
 
   const changeLineStatus = async (line, to) => {
-    const { data, error: err } = await upsertBudgetChapter({ ...line, status: to });
-    if (err) return failToast(err);
-    if (data) { await load(); toast.success(t('Statut mis à jour', 'Status updated', 'Estado actualizado')); }
+    const res = await upsertBudgetChapter({ ...line, status: to });
+    await afterWrite(res, t('Statut mis à jour', 'Status updated', 'Estado actualizado'));
   };
 
   const removeChapter = async (node, isLineNode) => {
@@ -145,9 +185,8 @@ export default function Budgets() {
   };
 
   const closeExercise = async (to) => {
-    const { data, error: err } = await upsertBudget({ ...annual, status: to });
-    if (err) return failToast(err);
-    if (data) { await load(); toast.success(t('Statut mis à jour', 'Status updated', 'Estado actualizado')); }
+    const res = await upsertBudget({ ...annual, status: to });
+    await afterWrite(res, t('Statut mis à jour', 'Status updated', 'Estado actualizado'));
   };
 
   // Anomalies d'activation d'une ligne (config + plafond annuel) — miroir serveur.
@@ -158,16 +197,19 @@ export default function Budgets() {
 
   // — Opérations tracées V3 : proposition + décision, appliquées côté serveur —
   const submitRealloc = async ({ sourceChapterId, destChapterId, amount, reason }) => {
-    const { error: e } = await createLineReallocation({ sourceChapterId, destChapterId, amount, reason });
+    const res = await createLineReallocation({
+      sourceChapterId, destChapterId, amount, reason,
+      schoolId, expectedVersion: chapterById.get(sourceChapterId)?.version ?? null,
+    });
     setOpModal(null);
-    if (e) return failToast(e);
-    await load(); toast.success(t('Réallocation proposée', 'Reallocation proposed', 'Reasignación propuesta'));
+    await afterWrite(res, t('Réallocation proposée', 'Reallocation proposed', 'Reasignación propuesta'));
   };
   const submitRevision = async ({ newAmount, reason }) => {
-    const { error: e } = await createRevision({ annualId: annual.id, newAmount, reason });
+    const res = await createRevision({
+      annualId: annual.id, newAmount, reason, schoolId, expectedVersion: annual?.version ?? null,
+    });
     setOpModal(null);
-    if (e) return failToast(e);
-    await load(); toast.success(t('Révision proposée', 'Revision proposed', 'Revisión propuesta'));
+    await afterWrite(res, t('Révision proposée', 'Revision proposed', 'Revisión propuesta'));
   };
   const decideOp = async ({ decision, note }) => {
     const { kind, request } = decisionOp;
@@ -214,6 +256,30 @@ export default function Budgets() {
             )}
           </div>
         </div>
+
+        {/* H3b-4 — bandeau « gouvernance distante » : état des intentions en attente d'application LAN */}
+        {remoteMode && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-amber-800">
+                🛰️ {t('Gouvernance à distance — les opérations sont appliquées par le serveur de l’école (LAN)', 'Remote governance — operations are applied by the school server (LAN)', 'Gobernanza remota — el servidor de la escuela (LAN) aplica las operaciones')}
+              </p>
+              <button className="text-xs text-amber-700 underline whitespace-nowrap" onClick={loadIntents}>{t('Rafraîchir', 'Refresh', 'Actualizar')}</button>
+            </div>
+            {intents.filter((i) => i.status !== 'applied').length > 0 ? (
+              <ul className="mt-2 space-y-1">
+                {intents.filter((i) => i.status !== 'applied').slice(0, 6).map((i) => (
+                  <li key={i.id} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-gray-700 truncate">{opLabel(t, i.op)} · {i.target}</span>
+                    <span className={intentStatusPill(i.status)}>{intentStatusLabel(t, i.status)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-xs text-amber-700/80">{t('Aucune demande en attente.', 'No pending request.', 'Sin solicitudes pendientes.')}</p>
+            )}
+          </div>
+        )}
 
         {!annual ? (
           <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">

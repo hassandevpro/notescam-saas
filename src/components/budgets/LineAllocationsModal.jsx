@@ -9,6 +9,7 @@ import { useT } from '../../lib/i18n';
 import { useMoney } from '../../lib/useMoney';
 import { unitLabel } from './BudgetHierarchyModals';
 import { upsertLinePeriod, deleteLinePeriod, upsertLineSector, deleteLineSector } from '../../lib/budgetLineService';
+import { financeRemoteMode, emitBudgetIntent } from '../../lib/budgetRemote';
 import { toast } from '../../store/toastStore';
 
 const pctInput = 'w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right focus:ring-2 focus:ring-indigo-500 outline-none';
@@ -35,6 +36,22 @@ export default function LineAllocationsModal({ line, schoolId, periods = [], uni
     if (saving) return;
     setSaving(true);
     try {
+      // H3b-4 — gouvernance distante : UNE intention 'allocate' (le LAN applique). On
+      // envoie les allocations non nulles ; le retrait d'une allocation se fait au LAN.
+      if (await financeRemoteMode(schoolId)) {
+        const periodsData = periods.filter((p) => (Number(pPct[p.id]) || 0) > 0)
+          .map((p) => ({ budget_period_id: p.id, pct: Number(pPct[p.id]) || 0, amount: amt(planned, pPct[p.id]) }));
+        const sectorsData = isSectors ? units.filter((u) => sOn[u.id] && (Number(sPct[u.id]) || 0) > 0)
+          .map((u) => ({ school_unit_id: u.id, pct: Number(sPct[u.id]) || 0, amount: amt(planned, sPct[u.id]) })) : [];
+        const { error } = await emitBudgetIntent({
+          schoolId, op: 'allocate', target: 'allocation', aggregateId: line.id,
+          expectedVersion: line.version ?? null, data: { periods: periodsData, sectors: sectorsData },
+        });
+        if (error) throw error;
+        toast.success(t('Demande envoyée · en attente d’application par le serveur de l’école', 'Request sent · awaiting the school server', 'Solicitud enviada · esperando el servidor'));
+        onChange?.(); onClose();
+        return;
+      }
       // — Périodes — upsert (pct>0) / delete (0 ou vide) —
       for (const p of periods) {
         const val = Number(pPct[p.id]) || 0;

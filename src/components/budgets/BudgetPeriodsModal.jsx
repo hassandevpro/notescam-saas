@@ -6,6 +6,7 @@ import { useState } from 'react';
 import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
 import { upsertBudgetPeriod, deleteBudgetPeriod } from '../../lib/budgetPeriodService';
+import { financeRemoteMode } from '../../lib/budgetRemote';
 import { toast } from '../../store/toastStore';
 
 const field = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none';
@@ -26,6 +27,11 @@ export default function BudgetPeriodsModal({ schoolId, year, periods = [], onCha
   const save = async (e) => {
     e.preventDefault();
     if (!valid || saving) return;
+    // H3b-4 — les périodes budgétaires ne font pas partie des opérations déléguées à
+    // distance : elles se configurent sur le serveur de l'école (LAN, autorité finale).
+    if (await financeRemoteMode(schoolId)) {
+      return toast.error(t('Les périodes budgétaires se configurent sur le serveur de l’école (LAN).', 'Budget periods are configured on the school server (LAN).', 'Los períodos se configuran en el servidor de la escuela (LAN).'));
+    }
     setSaving(true);
     const position = form.position !== '' && form.position != null
       ? Number(form.position)
@@ -41,6 +47,9 @@ export default function BudgetPeriodsModal({ schoolId, year, periods = [], onCha
   const edit = (p) => setForm({ id: p.id, name: p.name || '', start_date: p.start_date || '', end_date: p.end_date || '', description: p.description || '', position: p.position ?? 0 });
 
   const remove = async (p) => {
+    if (await financeRemoteMode(schoolId)) {
+      return toast.error(t('Les périodes budgétaires se configurent sur le serveur de l’école (LAN).', 'Budget periods are configured on the school server (LAN).', 'Los períodos se configuran en el servidor de la escuela (LAN).'));
+    }
     const { ok, error } = await deleteBudgetPeriod(p.id);
     if (!ok) return toast.error(error?.message?.toLowerCase().includes('restrict') || error?.message?.toLowerCase().includes('foreign')
       ? t('Période utilisée par une ligne — retirez d’abord ses allocations.', 'Period used by a line — remove its allocations first.', 'Período usado por una línea.')

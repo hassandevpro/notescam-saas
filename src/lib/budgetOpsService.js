@@ -5,12 +5,20 @@
 import { supabase } from './supabase';
 import { emitFinanceEvent } from '../domains/finance/emit';
 import { AGGREGATE, EVT, REVISION_EVT_BY_DECISION, REALLOCATION_EVT_BY_DECISION } from '../domains/finance/events';
+import { financeRemoteMode, emitBudgetIntent } from './budgetRemote';
 
 // (E8) createReallocation/decideReallocation/fetchReallocations (réallocation entre
 // nœuds period/sector, P5 legacy) SUPPRIMÉES → remplacées par createLineReallocation
 // & fetchLineReallocations (v3).
 
-export async function createRevision({ annualId, newAmount, reason, receipt }) {
+export async function createRevision({ annualId, newAmount, reason, receipt, schoolId, expectedVersion = null }) {
+  // H3b-4 — gouvernance distante : intention 'revise' (le LAN applique via budget_create_revision).
+  if (await financeRemoteMode(schoolId)) {
+    return emitBudgetIntent({
+      schoolId, op: 'revise', target: 'budget', aggregateId: annualId,
+      expectedVersion, data: { new_amount: newAmount, reason, receipt: receipt || null },
+    });
+  }
   const res = await supabase.rpc('budget_create_revision', {
     p_annual_budget_id: annualId, p_new_amount: newAmount, p_reason: reason, p_receipt: receipt || null,
   });
@@ -30,7 +38,14 @@ export async function decideRevision({ id, decision, note }) {
 }
 
 // ── Modèle CIBLE v3 : réallocation entre LIGNES (transfert de montant annuel) ──
-export async function createLineReallocation({ sourceChapterId, destChapterId, amount, reason, receipt }) {
+export async function createLineReallocation({ sourceChapterId, destChapterId, amount, reason, receipt, schoolId, expectedVersion = null }) {
+  // H3b-4 — gouvernance distante : intention 'reallocate' (le LAN applique via budget_create_line_realloc).
+  if (await financeRemoteMode(schoolId)) {
+    return emitBudgetIntent({
+      schoolId, op: 'reallocate', target: 'line', aggregateId: sourceChapterId,
+      expectedVersion, data: { source_chapter_id: sourceChapterId, dest_chapter_id: destChapterId, amount, reason, receipt: receipt || null },
+    });
+  }
   const res = await supabase.rpc('budget_create_line_realloc', {
     p_source_chapter_id: sourceChapterId, p_dest_chapter_id: destChapterId, p_amount: amount, p_reason: reason, p_receipt: receipt || null,
   });

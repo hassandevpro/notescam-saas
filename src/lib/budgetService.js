@@ -11,9 +11,14 @@
 
 import { supabase } from './supabase';
 import { uuid } from './uuid';
+import { financeRemoteMode, classifyBudgetOp, emitBudgetIntent, localOnlyError } from './budgetRemote';
 
 // Vide -> null pour les colonnes nullables (Postgres rejette '' sur int/date).
 function nn(v) { return v === '' || v === undefined ? null : v; }
+
+// Champs métier d'une intention (payload d'upsert SANS id/version/updated_at :
+// le LAN régénère version/updated_at ; l'id est passé comme aggregateId autoritaire).
+function intentData({ id, version, updated_at, ...data }) { return data; }
 
 // ── Budgets (entête) ──────────────────────────────────────────────────────────
 
@@ -57,6 +62,15 @@ export async function upsertBudget(row) {
     updated_at: new Date().toISOString(),
     version: (row.version || 0) + 1,
   };
+  // H3b-4 — gouvernance distante : émettre une INTENTION au lieu d'écrire (le LAN applique).
+  if (await financeRemoteMode(row.school_id)) {
+    const op = classifyBudgetOp(row);
+    if (op === 'close') return localOnlyError('La clôture s’effectue sur le serveur de l’école (LAN).');
+    return emitBudgetIntent({
+      schoolId: row.school_id, op, target: 'budget', aggregateId: payload.id,
+      expectedVersion: row.version ?? null, data: op === 'activate' ? {} : intentData(payload),
+    });
+  }
   const { data, error } = await supabase
     .from('budgets').upsert(payload, { onConflict: 'id' }).select().single();
   // Remonte le message serveur (gardes d'intégrité P1/P3) pour un affichage précis.
@@ -99,6 +113,16 @@ export async function upsertBudgetChapter(row) {
     updated_at: new Date().toISOString(),
     version: (row.version || 0) + 1,
   };
+  // H3b-4 — gouvernance distante : émettre une INTENTION (activation → op 'activate',
+  // donc autorité budget.approve re-vérifiée au LAN ; jamais une simple modification).
+  if (await financeRemoteMode(row.school_id)) {
+    const op = classifyBudgetOp(row);
+    if (op === 'close') return localOnlyError('La clôture de ligne s’effectue sur le serveur de l’école (LAN).');
+    return emitBudgetIntent({
+      schoolId: row.school_id, op, target: 'line', aggregateId: payload.id,
+      expectedVersion: row.version ?? null, data: op === 'activate' ? {} : intentData(payload),
+    });
+  }
   const { data, error } = await supabase
     .from('budget_chapters').upsert(payload, { onConflict: 'id' }).select().single();
   // Remonte le message serveur (gel/activation/plafond annuel — E3) pour l'UI.

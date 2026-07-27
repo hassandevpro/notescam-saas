@@ -30,6 +30,7 @@ import {
 } from '../src/domains/finance/events.js';
 import { runOpsGuarded } from './query.js';
 import { createRevision, decideRevisionCore, createLineReallocation, decideLineReallocationCore } from './budgetOps.js';
+import { notify, remoteDeciders } from './notify.js';
 
 const DECISION_TYPES = Object.keys(DECISION_EVENT_ACTION);
 
@@ -200,6 +201,15 @@ export function verifyRemoteDecision(event) {
       payload: { from: expense.status, to: toStatus, decision_event_id: eventId, applied_at: new Date().toISOString(), version: newVersion },
     });
   });
+  // H5 — MOMENT 2 : notifie LE DEMANDEUR du sort de sa dépense (hors tx, best-effort).
+  notify({
+    schoolId: school,
+    recipients: expense.created_by ? [{ id: expense.created_by }] : [],
+    type: toStatus === 'approved' ? 'expense_approved' : 'expense_rejected',
+    title: toStatus === 'approved' ? 'Dépense approuvée' : 'Dépense refusée',
+    body: `Votre dépense de ${expense.amount} a été ${toStatus === 'approved' ? 'approuvée' : 'refusée'}.`,
+    link: `/app/depenses/${expenseId}`,
+  });
   return { applied: true, result: 'applied', status: toStatus, confirmationEventId: confirmId };
 }
 
@@ -229,7 +239,7 @@ export function emitApprovalRequest(expense) {
        AND json_extract(payload, '$.expected_version') = ?`,
   ).get(expense.id, EVT.REMOTE_APPROVAL_REQUESTED, expense.version);
   if (dup) return null;
-  return emitLocalEvent({
+  const evId = emitLocalEvent({
     schoolId: expense.school_id, aggregateType: 'expense', aggregateId: expense.id,
     eventType: EVT.REMOTE_APPROVAL_REQUESTED, correlationId: expense.id,
     actorId: expense.created_by || null, actorName: expense.requester || null,
@@ -239,6 +249,16 @@ export function emitApprovalRequest(expense) {
       motif: expense.notes || null, expected_version: expense.version,
     },
   });
+  // H5 — MOMENT 1 : notifie LES DÉCIDEURS DISTANTS qu'une dépense attend leur approbation.
+  notify({
+    schoolId: expense.school_id,
+    recipients: remoteDeciders(expense.school_id),
+    type: 'approval_request',
+    title: 'Dépense en attente d’approbation',
+    body: `${expense.requester || 'Un agent'} demande l’approbation d’une dépense de ${expense.amount}.`,
+    link: `/app/depenses/${expense.id}`,
+  });
+  return evId;
 }
 
 // Hook appelé par query.js après une écriture de budget_expenses : émet la demande
@@ -269,6 +289,22 @@ function recordBudgetOp(eventId, op, target, aggId, result) {
   db.prepare(`INSERT INTO applied_budget_ops (event_id, op, target, aggregate_id, result, applied_at)
               VALUES (?,?,?,?,?,?) ON CONFLICT(event_id) DO NOTHING`)
     .run(eventId, op || null, target || null, aggId || null, result, new Date().toISOString());
+}
+// H5 — MOMENT 3 : notifie LE DÉCIDEUR du sort de son opération budgétaire distante
+// (hors tx, best-effort). `kind` = 'applied' | 'rejected'.
+function notifyBudgetDecider(kind, { school, decider, op, target, aggId, reason = null }) {
+  if (!decider) return;
+  const applied = kind === 'applied';
+  notify({
+    schoolId: school,
+    recipients: [{ id: decider }],
+    type: applied ? 'budget_op_applied' : 'budget_op_rejected',
+    title: applied ? 'Opération budgétaire appliquée' : 'Opération budgétaire refusée',
+    body: applied
+      ? `Votre opération « ${op} » sur ${target} a été appliquée par le serveur de l’école.`
+      : `Votre opération « ${op} » sur ${target} a été refusée${reason ? ` (${reason})` : ''}.`,
+    link: '/app/budgets',
+  });
 }
 function emitBudgetOutcome(kind, { school, aggId, event, corr, extra = {} }) {
   return emitLocalEvent({
@@ -387,6 +423,7 @@ export function verifyRemoteBudgetOperation(event) {
       recordBudgetOp(eventId, op, target, aggId, result);
       emitBudgetOutcome('rejected', { school, aggId, event, corr, extra: { op, target, reason, ...extra } });
     });
+    notifyBudgetDecider('rejected', { school, decider, op, target, aggId, reason });
     return { applied: false, result };
   };
 
@@ -410,6 +447,7 @@ export function verifyRemoteBudgetOperation(event) {
   } catch (e) {
     return reject('rejected_rule', 'rule_violation', { message: e.message });
   }
+  notifyBudgetDecider('applied', { school, decider, op, target, aggId });
   return { applied: true, result: 'applied', confirmationEventId: confirmId };
 }
 

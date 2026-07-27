@@ -11,6 +11,7 @@
 export const AGGREGATE = Object.freeze({
   EXPENSE: 'expense',
   UNLOCK: 'budget_unlock',
+  BUDGET: 'budget',                       // enveloppe budgétaire (cible du canal H3b-budget)
   BUDGET_REVISION: 'budget_revision',
   BUDGET_REALLOCATION: 'budget_reallocation',
   BUDGET_LINE: 'budget_line',
@@ -42,6 +43,10 @@ export const EVT = Object.freeze({
   APPROVAL_GRANTED:          'ExpenseApprovalGranted',          // Cloud→LAN : décision (approuver)
   APPROVAL_REFUSED:          'ExpenseApprovalRefused',          // Cloud→LAN : décision (refuser)
   DECISION_REJECTED:         'ExpenseDecisionRejected',         // LAN→Cloud : décision NON appliquée (conflit/permission)
+  // ── Gouvernance budgétaire distante (H3b-budget) ────────────────────────────
+  BUDGET_OP_REQUESTED:       'BudgetOperationRequested',        // Cloud→LAN : intention (op minimale, id d'agrégat autoritaire)
+  BUDGET_OP_APPLIED:         'BudgetOperationApplied',          // LAN→Cloud : confirmation (estampillé applied_at LAN)
+  BUDGET_OP_REJECTED:        'BudgetOperationRejected',         // LAN→Cloud : refus (cap/version/permission/ordre)
 });
 
 // Événement de décision distante (Cloud→LAN) → action à appliquer côté LAN.
@@ -87,4 +92,45 @@ export function expenseEventType(status) {
 }
 export function unlockEventType(decision) {
   return UNLOCK_EVT_BY_DECISION[decision] || null;
+}
+
+// ── H3b-budget : opérations budgétaires distantes (INERTE — vocabulaire seul) ──
+// Une opération distante est une INTENTION (BudgetOperationRequested) émise par le
+// Cloud ; le LAN reste SEULE autorité d'application (budgetGuard / RPC tracées de
+// Budget V3) et renvoie un verdict (Applied | Rejected). Aucun upsert direct côté
+// Cloud. Ce bloc ne fait que NOMMER le vocabulaire ; le routage vers les guards/RPC
+// et l'application vérifiée sont livrés en H3b-3.
+
+// Type d'opération demandé (op_type du payload d'intention).
+export const BUDGET_OP = Object.freeze({
+  CREATE:     'create',      // créer un budget (enveloppe) ou une ligne — la cible distingue
+  MODIFY:     'modify',      // modifier structure/ligne (upsert guardé)
+  ALLOCATE:   'allocate',    // définir les allocations par période et/ou par secteur d'une ligne
+  ACTIVATE:   'activate',    // activer une ligne (cap annuel RE-VÉRIFIÉ à l'application — R-cap)
+  REVISE:     'revise',      // réviser l'enveloppe → RPC tracée (jamais un upsert — R-rpc)
+  REALLOCATE: 'reallocate',  // réallouer entre lignes → RPC tracée (jamais un upsert — R-rpc)
+});
+
+// Cible de l'opération : un seul type de commande couvre enveloppe / ligne / allocation.
+export const BUDGET_OP_TARGET = Object.freeze({
+  BUDGET:     'budget',      // enveloppe (table budgets)
+  LINE:       'line',        // ligne budgétaire (budget_chapters, scope défini)
+  ALLOCATION: 'allocation',  // allocations période/secteur (budget_line_periods / budget_line_sectors)
+});
+
+// Verdict d'application LAN → type d'événement de confirmation. Invariant #6 : le
+// Cloud n'affiche « appliqué » QUE sur BUDGET_OP_APPLIED renvoyé par le LAN.
+export const BUDGET_OP_EVT_BY_RESULT = Object.freeze({
+  applied:  EVT.BUDGET_OP_APPLIED,
+  rejected: EVT.BUDGET_OP_REJECTED,
+});
+
+export function budgetOpEventType(result) {
+  return BUDGET_OP_EVT_BY_RESULT[result] || null;
+}
+export function isBudgetOp(op) {
+  return Object.values(BUDGET_OP).includes(op);
+}
+export function isBudgetOpTarget(target) {
+  return Object.values(BUDGET_OP_TARGET).includes(target);
 }

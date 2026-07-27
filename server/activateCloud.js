@@ -37,16 +37,65 @@ function withTimeout(promise, label, ms = NET_TIMEOUT_MS) {
   return Promise.race([promise, guard]).finally(() => clearTimeout(timer));
 }
 
-// Tables de données poussées vers le cloud (ordre FK). On EXCLUT :
+// Tables de données poussées vers le cloud (ordre FK, parents avant enfants).
+// ETL COMPLET : structure + notes officiel + frais + budgets + RH + gouvernance +
+// immobilisations + signalements + notifications + journal d'événements + vie scolaire.
+// On EXCLUT :
 //   - users / school_users  : gérées par la fonction edge (auth + memberships) ;
-//   - country_education_config / evaluation_system : config GLOBALE déjà en cloud ;
+//   - country_education_config / evaluation_system + référentiels officiel (apc_*/
+//     sc_*/mat_*/prim_* de config) : config GLOBALE déjà en cloud (seul le school-scoped migre) ;
+//   - applied_decisions / applied_budget_ops : registres d'idempotence LOCAUX (sans school_id) ;
 //   - tables locales (license_activation, migration_state, pwd_mirror_queue, …).
-const PUSH_ORDER = [
+export const PUSH_ORDER = [
+  // Structure de base
   'academic_periods', 'school_units', 'classes', 'subjects', 'students', 'teachers', 'staff', 'grades',
-  'student_fees', 'fee_payments', 'attendance', 'student_absences',
+  'student_fees', 'class_fee_grids', 'fee_payments', 'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots',
+  // Notes du moteur officiel (référentiels déjà en cloud)
+  'apc_notes', 'mat_observations', 'prim_notes',
+  // Catalogue de frais
+  'fee_catalog', 'student_fee_items',
+  // Budgets V3 (ordre FK)
+  'budgets', 'budget_periods', 'budget_chapters',
+  'budget_line_periods', 'budget_line_sectors',
+  'budget_expenses', 'budget_unlock_requests',
+  'budget_reallocations', 'budget_revisions', 'budget_line_reallocations',
+  // Ressources humaines
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  // Gouvernance
+  'governance_roles', 'user_governance_roles', 'governance_role_history',
+  // Immobilisations
+  'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
+  // Signalements
+  'signalements', 'signalement_comments', 'signalement_history',
+  // Notifications
+  'notifications', 'notification_outbox',
+  // Journal d'événements / audit (best-effort : RLS d'insertion restrictive côté cloud)
+  'domain_events', 'audit_events',
+  // Vie scolaire (discipline)
+  'late_arrivals', 'disciplinary_incidents', 'student_warnings', 'exit_permissions',
+  'disciplinary_actions', 'parent_meetings', 'student_detentions', 'discipline_statistics',
 ];
+
+// Journal d'événements : l'insertion directe peut être bloquée par la RLS du cloud
+// (réservée à kernel_emit/service_role). On la traite en BEST-EFFORT : une erreur
+// journalise + saute la table, sans casser toute l'activation.
+const BEST_EFFORT_TABLES = new Set(['domain_events', 'audit_events']);
+
+// Colonnes jsonb côté cloud, stockées en TEXT (JSON) côté LAN : on les REPARSE en
+// objet avant l'upsert (sinon Postgres stocke une chaîne JSON scalaire, pas un tableau).
+const JSON_PUSH_COLUMNS = {
+  governance_roles: ['permissions', 'pages', 'dashboards', 'workflows'],
+  governance_role_history: ['detail'],
+  domain_events: ['payload'],
+  audit_events: ['payload'],
+};
+
+// Colonnes présentes UNIQUEMENT côté LAN (absentes du cloud) → retirées avant push.
+const LOCAL_ONLY_COLUMNS = {
+  domain_events: ['replicated_from'],   // marqueur anti-écho de la réplication LAN↔Cloud
+};
 
 // Erreur « table absente côté cloud » (ex. staff si la migration Personnel n'a
 // pas été jouée). On la traite comme SKIP (journalisée) plutôt que comme un
@@ -168,11 +217,26 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
   if (provision.server_token) writeFileSync(TOKEN_PATH, provision.server_token, { mode: 0o600 });
   appendLog('Tenant provisionné (école + comptes + memberships).');
 
-  // Carte local_user_id → cloud_user_id pour remapper les FK (teachers.auth_user_id).
+  // Carte local_user_id → cloud_user_id pour remapper les références utilisateur.
   const cloudByLocal = new Map();
   for (const r of db.prepare('SELECT id, cloud_user_id FROM users WHERE cloud_user_id IS NOT NULL').all()) {
     cloudByLocal.set(r.id, r.cloud_user_id);
   }
+  // Remap GÉNÉRIQUE des références utilisateur (id local → id cloud) : toute valeur
+  // qui est exactement un id de compte local connu devient l'id cloud correspondant
+  // (couvre created_by / requester / decided_by_id / user_id / actor_id / recipient_id…
+  // sans classer chaque colonne). `auth_user_id` a une FK stricte vers auth.users :
+  // une référence locale sans compte cloud correspondant DOIT devenir null.
+  const remapUserRefs = (row) => {
+    const r = { ...row };
+    const origAuth = r.auth_user_id;
+    for (const k in r) {
+      const v = r[k];
+      if (typeof v === 'string' && cloudByLocal.has(v)) r[k] = cloudByLocal.get(v);
+    }
+    if ('auth_user_id' in r) r.auth_user_id = origAuth ? (cloudByLocal.get(origAuth) || null) : null;
+    return r;
+  };
 
   // (5) Poussée des données par lots, idempotente, AVEC REPRISE.
   log(onProgress, 'push');
@@ -184,11 +248,7 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
     const state = db.prepare('SELECT * FROM cloud_push_state WHERE tablename = ?').get(table);
     if (state?.done) { pushedGlobal += counts[table]; log(onProgress, 'push', { table, pct: Math.round(100 * pushedGlobal / total), resumed: true }); continue; }
 
-    let rows = db.prepare(`SELECT * FROM "${table}" WHERE school_id = ?`).all(school.id);
-    // Remap des FK pointant vers un utilisateur (id local → id cloud).
-    if (table === 'teachers' || table === 'staff') {
-      rows = rows.map((r) => ({ ...r, auth_user_id: r.auth_user_id ? (cloudByLocal.get(r.auth_user_id) || null) : null }));
-    }
+    const rows = db.prepare(`SELECT * FROM "${table}" WHERE school_id = ?`).all(school.id);
 
     db.prepare(`INSERT INTO cloud_push_state (tablename, pushed, total, done, updated_at)
                 VALUES (?,0,?,0,?)
@@ -199,11 +259,14 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
     let pushedThisTable = 0;
     let skipped = false;
     for (let i = 0; i < rows.length; i += CHUNK) {
-      const batch = rows.slice(i, i + CHUNK).map(stripLocalOnly);
+      const batch = rows.slice(i, i + CHUNK).map((r) => stripLocalOnly(remapUserRefs(r), table));
       const { error } = await supa.from(table).upsert(batch, { onConflict });
       if (error) {
-        // Table absente côté cloud → SKIP journalisé, sans casser le job.
-        if (isMissingTable(error)) { appendLog(`${table} ignorée : table absente côté cloud (${error.message}).`); skipped = true; break; }
+        // Table absente côté cloud, OU table best-effort (journal d'événements dont
+        // l'insertion directe est bloquée par la RLS) → SKIP journalisé, sans casser le job.
+        if (isMissingTable(error) || BEST_EFFORT_TABLES.has(table)) {
+          appendLog(`${table} ignorée (${isMissingTable(error) ? 'absente côté cloud' : 'best-effort'}) : ${error.message}`); skipped = true; break;
+        }
         appendLog(`ÉCHEC ${table} (lot ${i}) : ${error.message}`); throw new Error(`Poussée ${table}: ${error.message}`);
       }
       pushedThisTable += batch.length;
@@ -233,10 +296,15 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
   return { ok: true, school: school.name, schoolId: school.id, counts };
 }
 
-// Retire les colonnes locales qui n'existent pas côté cloud (robustesse).
-function stripLocalOnly(row) {
+// Prépare une ligne pour l'upsert cloud : retire les colonnes locales absentes du
+// cloud, et REPARSE les colonnes jsonb (stockées en TEXT côté LAN) en objet.
+function stripLocalOnly(row, table) {
   const r = { ...row };
   delete r.updated_at; // certaines tables locales l'ont en DEFAULT ; laissé au cloud
+  for (const c of LOCAL_ONLY_COLUMNS[table] || []) delete r[c];
+  for (const c of JSON_PUSH_COLUMNS[table] || []) {
+    if (typeof r[c] === 'string') { try { r[c] = JSON.parse(r[c]); } catch { /* laisse la chaîne telle quelle */ } }
+  }
   return r;
 }
 function localUserByEmail(email) {

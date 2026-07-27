@@ -68,6 +68,10 @@ ensureColumn('classes',  'bulletin_engine', 'bulletin_engine TEXT'); // surcharg
 // En-tête officiel bilingue (Cameroun) ou mono-langue selon le choix de l'école.
 ensureColumn('schools',  'bulletin_bilingual', 'bulletin_bilingual INTEGER'); // 1/0 (null = bilingue par défaut)
 ensureColumn('schools',  'deployment_policy', 'deployment_policy TEXT');      // H1 : politique hybride par module (JSON ; null = comportement actuel)
+// Périmètre du surveillant (Vie Scolaire) — miroir des colonnes cloud (arrays → JSON en LAN).
+ensureColumn('school_users', 'scope_sections',  'scope_sections TEXT');
+ensureColumn('school_users', 'scope_cycles',    'scope_cycles TEXT');
+ensureColumn('school_users', 'scope_class_ids', 'scope_class_ids TEXT');
 // Conseil de classe (champs spéciaux `__…__`) : le schéma LAN d'origine ne gardait
 // qu'abs_j/abs_nj/conduite → décision, tableau d'honneur, avertissements ET
 // l'appréciation libre du travail de l'élève étaient avalés en LAN. On ajoute les

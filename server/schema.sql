@@ -1338,3 +1338,184 @@ CREATE TABLE IF NOT EXISTS signalement_history (
 );
 CREATE INDEX IF NOT EXISTS idx_sig_comments ON signalement_comments(signalement_id);
 CREATE INDEX IF NOT EXISTS idx_sig_history ON signalement_history(signalement_id);
+
+-- ============================================================
+-- Vie Scolaire (discipline) — miroir LAN de supabase_vie_scolaire.sql
+-- Le surveillant : retards, incidents, sanctions, avertissements, retenues,
+-- convocations, sorties, conseil de discipline. `recorded_by`/`responsible`
+-- pointent vers un compte (users.id) → remappés par l'ETL.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS late_arrivals (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  date          TEXT NOT NULL DEFAULT (date('now')),
+  arrival_time  TEXT,
+  reason        TEXT,
+  justified     INTEGER NOT NULL DEFAULT 0,
+  justification TEXT,
+  validated     INTEGER NOT NULL DEFAULT 0,
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_late_arrivals ON late_arrivals(school_id, date);
+
+CREATE TABLE IF NOT EXISTS disciplinary_incidents (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  incident_type TEXT NOT NULL DEFAULT 'autre',
+  custom_type   TEXT,
+  date          TEXT NOT NULL DEFAULT (date('now')),
+  incident_time TEXT,
+  location      TEXT,
+  description   TEXT,
+  witnesses     TEXT,
+  severity      TEXT NOT NULL DEFAULT 'mineur',
+  responsible   TEXT,
+  decision      TEXT,
+  status        TEXT NOT NULL DEFAULT 'ouvert',
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_disc_incidents ON disciplinary_incidents(school_id, date);
+
+CREATE TABLE IF NOT EXISTS disciplinary_actions (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  incident_id   TEXT REFERENCES disciplinary_incidents(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  action_type   TEXT NOT NULL DEFAULT 'avertissement_oral',
+  date          TEXT NOT NULL DEFAULT (date('now')),
+  reason        TEXT,
+  duration_days INTEGER,
+  start_date    TEXT,
+  end_date      TEXT,
+  decided_by    TEXT,
+  notes         TEXT,
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_disc_actions ON disciplinary_actions(school_id, date);
+
+CREATE TABLE IF NOT EXISTS student_warnings (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  warning_type  TEXT NOT NULL DEFAULT 'oral',
+  category      TEXT,
+  date          TEXT NOT NULL DEFAULT (date('now')),
+  reason        TEXT,
+  acknowledged  INTEGER NOT NULL DEFAULT 0,
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_student_warnings ON student_warnings(school_id, date);
+
+CREATE TABLE IF NOT EXISTS student_detentions (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id     TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id       TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  action_id      TEXT REFERENCES disciplinary_actions(id) ON DELETE SET NULL,
+  year_label     TEXT,
+  date           TEXT NOT NULL DEFAULT (date('now')),
+  start_time     TEXT,
+  end_time       TEXT,
+  duration_hours NUMERIC,
+  task           TEXT,
+  supervised_by  TEXT,
+  completed      INTEGER NOT NULL DEFAULT 0,
+  recorded_by    TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT,
+  version        INTEGER NOT NULL DEFAULT 1,
+  device_id      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_student_detentions ON student_detentions(school_id, date);
+
+CREATE TABLE IF NOT EXISTS parent_meetings (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  incident_id   TEXT REFERENCES disciplinary_incidents(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  target        TEXT NOT NULL DEFAULT 'parent',
+  reason        TEXT,
+  meeting_date  TEXT,
+  meeting_time  TEXT,
+  location      TEXT,
+  status        TEXT NOT NULL DEFAULT 'planifie',
+  outcome       TEXT,
+  convened_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_parent_meetings ON parent_meetings(school_id, meeting_date);
+
+CREATE TABLE IF NOT EXISTS exit_permissions (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id     TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id       TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  year_label     TEXT,
+  exit_type      TEXT NOT NULL DEFAULT 'parentale',
+  date           TEXT NOT NULL DEFAULT (date('now')),
+  exit_time      TEXT,
+  return_time    TEXT,
+  reason         TEXT,
+  authorized_by  TEXT,
+  accompanied_by TEXT,
+  returned       INTEGER NOT NULL DEFAULT 0,
+  signature      TEXT,
+  recorded_by    TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT,
+  version        INTEGER NOT NULL DEFAULT 1,
+  device_id      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_exit_permissions ON exit_permissions(school_id, date);
+
+CREATE TABLE IF NOT EXISTS discipline_statistics (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  incident_id   TEXT REFERENCES disciplinary_incidents(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  council_date  TEXT,
+  members       TEXT,
+  summary       TEXT,
+  decision      TEXT,
+  sanction_type TEXT,
+  status        TEXT NOT NULL DEFAULT 'convoque',
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_discipline_statistics ON discipline_statistics(school_id, council_date);

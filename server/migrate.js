@@ -24,12 +24,47 @@ const PAGE = 1000;
 
 // Ordre d'insertion = ordre des FK (parents avant enfants). users/school_users
 // sont (re)créés à part : auth.users n'est pas lisible (mots de passe).
+//
+// Couvre TOUS les modules (ETL complet) : structure académique + notes du moteur
+// officiel + catalogue de frais + budgets V3 + RH + gouvernance + immobilisations
+// + signalements + notifications + journal d'événements + vie scolaire.
+// EXCLUS volontairement : les référentiels GLOBAUX du moteur officiel (apc_*/sc_*/
+// mat_*/prim_* de configuration) que chaque édition installe via son propre seed
+// (build-officiel-seed) — seules les NOTES scolaires (school-scoped) migrent ;
+// et applied_decisions/applied_budget_ops (registres d'idempotence LOCAUX au LAN,
+// sans school_id — reconstruits par l'applicateur, jamais transportés).
 const TABLE_ORDER = [
-  'school_units',
-  'classes', 'subjects', 'students', 'teachers', 'grades',
-  'student_fees', 'fee_payments', 'attendance', 'student_absences',
+  // Structure de base
+  'school_units', 'academic_periods',
+  'classes', 'subjects', 'students', 'teachers', 'staff', 'grades',
+  'student_fees', 'class_fee_grids', 'fee_payments',
+  'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots', 'evaluation_system', 'country_education_config',
+  // Notes du moteur officiel (référentiels non migrés → installés par le seed LAN)
+  'apc_notes', 'mat_observations', 'prim_notes',
+  // Catalogue de frais
+  'fee_catalog', 'student_fee_items',
+  // Budgets V3 (ordre FK)
+  'budgets', 'budget_periods', 'budget_chapters',
+  'budget_line_periods', 'budget_line_sectors',
+  'budget_expenses', 'budget_unlock_requests',
+  'budget_reallocations', 'budget_revisions', 'budget_line_reallocations',
+  // Ressources humaines
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  // Gouvernance
+  'governance_roles', 'user_governance_roles', 'governance_role_history',
+  // Immobilisations
+  'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
+  // Signalements
+  'signalements', 'signalement_comments', 'signalement_history',
+  // Notifications
+  'notifications', 'notification_outbox',
+  // Journal d'événements / audit
+  'domain_events', 'audit_events',
+  // Vie scolaire (discipline) — incidents avant sanctions/convocations/conseil
+  'late_arrivals', 'disciplinary_incidents', 'student_warnings', 'exit_permissions',
+  'disciplinary_actions', 'parent_meetings', 'student_detentions', 'discipline_statistics',
 ];
 
 // Clé de conflit par table (les tables de config n'ont pas de colonne `id`).
@@ -37,6 +72,10 @@ const CONFLICT_KEYS = {
   country_education_config: 'country_system',
   evaluation_system: 'country_system',
 };
+
+// Colonnes JSON/jsonb côté cloud : stockées en TEXT côté LAN. À la lecture cloud
+// elles arrivent en objet/tableau JS → on les sérialise avant l'écriture SQLite
+// (géré génériquement dans writeRows : toute valeur objet → JSON.stringify).
 
 const ASSET_FIELDS = {
   schools: ['logo_url', 'stamp_url', 'signature_url'],
@@ -74,7 +113,12 @@ function writeRows(table, rows) {
       const upd = cols.filter((c) => c !== conflict).map((c) => `"${c}" = excluded."${c}"`).join(', ');
       const sql = `INSERT INTO "${table}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${ph})`
         + (upd ? ` ON CONFLICT("${conflict}") DO UPDATE SET ${upd}` : ` ON CONFLICT("${conflict}") DO NOTHING`);
-      db.prepare(sql).run(...cols.map((c) => rec[c]));
+      // jsonb/array côté cloud → objet/tableau JS : SQLite ne sait pas lier un objet,
+      // on sérialise (les colonnes concernées sont en TEXT côté LAN).
+      db.prepare(sql).run(...cols.map((c) => {
+        const v = rec[c];
+        return (v !== null && typeof v === 'object') ? JSON.stringify(v) : v;
+      }));
       n++;
     }
   });
@@ -178,6 +222,12 @@ export async function runMigration({ url, anonKey, email, password, localPasswor
   log(onProgress, 'write');
   const report = { tables: {}, users: 0 };
 
+  // Chargement EN MASSE : on suspend l'application des FK le temps de l'écriture.
+  // Cela rend l'ordre d'insertion et les self-références (budgets.parent_budget_id,
+  // budget_chapters.parent_id) non bloquants ; on RÉ-active + contrôle après (étape 5).
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+
   // 4a. École
   report.tables.schools = writeRows('schools', schoolArr);
 
@@ -210,6 +260,23 @@ export async function runMigration({ url, anonKey, email, password, localPasswor
     if (isAdmin) { try { await mirrorToCloud(localId, userEmail, pwd); } catch { /* file de repli */ } }
   }
 
+  // Remap générique des références UTILISATEUR (cloud → local) : les comptes sont
+  // RECRÉÉS avec de nouveaux ids locaux. Plutôt que de classer chaque colonne
+  // (`created_by`, `requester`, `decided_by_id`, `user_id`, `actor_id`,
+  // `recipient_id`, `reporter_id`…), on remplace TOUTE valeur qui est exactement
+  // un id de compte connu → le bon id local. Un nom, un id d'enseignant/d'élève ou
+  // un libellé ne peut jamais correspondre à un UUID de compte → jamais touché.
+  const remapUserRefs = (rows) => {
+    if (!rows) return rows;
+    for (const row of rows) {
+      for (const k in row) {
+        const v = row[k];
+        if (typeof v === 'string' && idMap.has(v)) row[k] = idMap.get(v);
+      }
+    }
+    return rows;
+  };
+
   // 4c. school_users avec les nouveaux user_id locaux
   const localMembers = allMembers.map((m) => ({
     ...m,
@@ -218,23 +285,28 @@ export async function runMigration({ url, anonKey, email, password, localPasswor
   }));
   report.tables.school_users = writeRows('school_users', localMembers);
 
-  // 4d. teachers : auth_user_id pointe vers users → remap, sinon null
-  for (const t of pulled.teachers || []) {
-    if (t.auth_user_id) t.auth_user_id = idMap.get(t.auth_user_id) || null;
-  }
+  // 4d. Toutes les tables métier (ordre FK), avec remap des références utilisateur.
+  //     Couvre teachers.auth_user_id, staff.auth_user_id, et toutes les colonnes
+  //     `*_by`/`user_id`/`actor_id`/… des nouveaux modules.
+  for (const t of TABLE_ORDER) report.tables[t] = writeRows(t, remapUserRefs(pulled[t]));
 
-  // 4e. Toutes les tables métier (ordre FK)
-  for (const t of TABLE_ORDER) report.tables[t] = writeRows(t, pulled[t]);
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');   // ré-active l'application des FK
+  }
 
   // ── Étape 5 : contrôle d'intégrité ───────────────────────────────────────
   log(onProgress, 'verify');
-  const integrity = { ok: true, mismatches: [] };
+  const integrity = { ok: true, mismatches: [], fkViolations: 0 };
   for (const t of TABLE_ORDER) {
     const scoped = tableColumns(t).has('school_id');
     const local = db.prepare(`SELECT COUNT(*) n FROM "${t}"` + (scoped ? ' WHERE school_id = ?' : ''))
       .get(...(scoped ? [schoolId] : [])).n;
     if (local < counts[t]) { integrity.ok = false; integrity.mismatches.push({ table: t, cloud: counts[t], local }); }
   }
+  // Contrôle FK global (advisory) : signale d'éventuelles références pendantes
+  // (ex. une note officielle dont le référentiel LAN n'a pas la même version).
+  // N'invalide PAS la migration — informe seulement le rapport.
+  try { integrity.fkViolations = db.prepare('PRAGMA foreign_key_check').all().length; } catch { /* ignore */ }
 
   // ── Étape 6 : activation mode local ──────────────────────────────────────
   db.prepare(`INSERT INTO migration_state (id, source, school_id, cloud_url, migrated_at, report)

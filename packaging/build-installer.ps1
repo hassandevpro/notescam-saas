@@ -109,6 +109,7 @@ try {
 # --- 5. Scripts de service -------------------------------------------
 Step "Copie des scripts de service"
 Copy-Item (Join-Path $Here 'start-server.cmd')      $Stage -Force
+Copy-Item (Join-Path $Here 'start-hybrid.cmd')      $Stage -Force
 Copy-Item (Join-Path $Here 'install-service.ps1')   $Stage -Force
 Copy-Item (Join-Path $Here 'uninstall-service.ps1') $Stage -Force
 

@@ -280,28 +280,35 @@ function doDelete(op) {
 // métier ET l'event d'outbox `domain_events` de façon indissociable → un crash
 // (coupure secteur) ne peut plus laisser la donnée sans son event. Aucune op de
 // lecture ici. Toute erreur d'une op fait échouer et annuler tout le lot.
+// Applique une LISTE d'ops d'écriture (mêmes GUARDS que runQuery/runBatch) SANS
+// ouvrir de transaction : à appeler DANS une transaction déjà ouverte par l'appelant.
+// C'est le point d'entrée que l'applicateur de gouvernance budgétaire (H3b-3) réutilise
+// pour appliquer une intention distante par le CHEMIN GUARDÉ (jamais rawUpsert), tout en
+// inscrivant l'idempotence + la confirmation dans la MÊME tx atomique. Lève sur violation.
+export function runOpsGuarded(ops = [], ctx = null) {
+  for (const op of ops) {
+    if (!ALLOWED_TABLES.has(op.table)) throw new Error(`Table non autorisée : ${op.table}`);
+    guardAppendOnly(op, ctx);
+    guardBudgetExpense(op, ctx);   // enforcement budgétaire serveur
+    guardBudgetStructure(op);      // P5 : structure/opérations protégées (RPC only)
+    guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
+    guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
+    let res;
+    switch (op.action) {
+      case 'insert': insertOrUpsertCore(op, false); break;
+      case 'upsert': insertOrUpsertCore(op, true); break;
+      case 'update': res = doUpdate(op); break;   // pas de tx interne
+      case 'delete': res = doDelete(op); break;    // pas de tx interne
+      default: throw new Error(`Action inconnue : ${op.action}`);
+    }
+    if (res?.error) throw new Error(res.error.message); // → rollback du lot
+  }
+}
+
 export function runBatch(ops = [], ctx = null) {
   if (!Array.isArray(ops) || !ops.length) return { data: { applied: 0 }, error: null };
   try {
-    tx(() => {
-      for (const op of ops) {
-        if (!ALLOWED_TABLES.has(op.table)) throw new Error(`Table non autorisée : ${op.table}`);
-        guardAppendOnly(op, ctx);
-        guardBudgetExpense(op, ctx);   // enforcement budgétaire serveur (dans la transaction du lot)
-        guardBudgetStructure(op);      // P5 : structure/opérations protégées
-        guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
-        guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
-        let res;
-        switch (op.action) {
-          case 'insert': insertOrUpsertCore(op, false); break;
-          case 'upsert': insertOrUpsertCore(op, true); break;
-          case 'update': res = doUpdate(op); break;   // pas de tx interne
-          case 'delete': res = doDelete(op); break;    // pas de tx interne
-          default: throw new Error(`Action inconnue : ${op.action}`);
-        }
-        if (res?.error) throw new Error(res.error.message); // → rollback du lot
-      }
-    });
+    tx(() => runOpsGuarded(ops, ctx));
     return { data: { applied: ops.length }, error: null };
   } catch (e) {
     return { data: null, error: { message: e.message } };

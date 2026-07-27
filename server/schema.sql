@@ -1237,6 +1237,23 @@ CREATE TABLE IF NOT EXISTS applied_decisions (
 );
 CREATE INDEX IF NOT EXISTS idx_applied_decisions_expense ON applied_decisions(expense_id);
 
+-- H3b-3 : registre des OPÉRATIONS BUDGÉTAIRES DISTANTES DÉJÀ TRAITÉES (idempotence +
+-- audit d'application). Clé = id de l'événement d'intention (BudgetOperationRequested).
+-- Chaque intention (appliquée OU rejetée) y est inscrite UNE fois → aucune double
+-- création / double activation même en cas de rejeu (reconnexion, reprise). Une
+-- intention DIFFÉRÉE (dépendance causale absente) N'Y est PAS inscrite → elle sera
+-- réessayée au prochain cycle. `result` trace l'issue
+-- (applied | rejected_version_conflict | rejected_unauthorized | rejected_rule | …).
+CREATE TABLE IF NOT EXISTS applied_budget_ops (
+  event_id     TEXT PRIMARY KEY,   -- id de l'événement d'intention (Cloud)
+  op           TEXT,               -- create | modify | allocate | activate | revise | reallocate
+  target       TEXT,               -- budget | line | allocation
+  aggregate_id TEXT,               -- identité autoritaire de l'agrégat visé (I5)
+  result       TEXT,               -- applied | rejected_*
+  applied_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_applied_budget_ops_agg ON applied_budget_ops(aggregate_id);
+
 CREATE TABLE IF NOT EXISTS signalements (
   id             TEXT PRIMARY KEY,
   school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,

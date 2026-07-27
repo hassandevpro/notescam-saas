@@ -24,9 +24,28 @@ import { governanceChannel } from '../src/lib/policyEngine.js';
 import { hasPermission, canValidateAmount } from '../src/governance/governanceEngine.js';
 import { GOV_PERM } from '../src/governance/permissions.js';
 import { canTransition } from '../src/lib/expenseEngine.js';
-import { EVT, DECISION_EVENT_ACTION } from '../src/domains/finance/events.js';
+import {
+  EVT, DECISION_EVENT_ACTION,
+  isBudgetOp, isBudgetOpTarget, budgetOpEventType,
+} from '../src/domains/finance/events.js';
+import { runOpsGuarded } from './query.js';
+import { createRevision, decideRevisionCore, createLineReallocation, decideLineReallocationCore } from './budgetOps.js';
 
 const DECISION_TYPES = Object.keys(DECISION_EVENT_ACTION);
+
+// H3b-3 — autorité d'APPLICATION requise (LAN) par type d'opération budgétaire. Plus
+// stricte que le filtre amont Cloud (BUDGET_OP_PERMISSION) : ici c'est le droit de
+// FAIRE MUTER l'argent. revise/reallocate = droit de DÉCISION (pas seulement proposer).
+const BUDGET_OP_APPLY_PERM = Object.freeze({
+  create:     GOV_PERM.BUDGET_PREPARE,
+  modify:     GOV_PERM.BUDGET_PREPARE,
+  allocate:   GOV_PERM.BUDGET_PREPARE,
+  activate:   GOV_PERM.BUDGET_APPROVE,
+  revise:     GOV_PERM.ANNUAL_REVISE,
+  reallocate: GOV_PERM.REALLOCATE_DECIDE,
+});
+// Table portant l'agrégat visé (pour existence/version). allocation → la LIGNE.
+const aggTable = (target) => (target === 'budget' ? 'budgets' : 'budget_chapters');
 
 function safeParse(s) { try { return typeof s === 'string' ? JSON.parse(s) : (s || {}); } catch { return {}; } }
 function localSchoolId() { return db.prepare('SELECT id FROM schools LIMIT 1').get()?.id || null; }
@@ -232,13 +251,190 @@ export function emitApprovalRequestForOp(op) {
   if (exp && exp.status === 'submitted') emitApprovalRequest(exp);
 }
 
-// Scheduler (gated NOTESCAM_CLOUD_SYNC=1) : draine les décisions distantes. No-op
-// tant que l'école n'est pas en mode gouvernance distante.
+// ════════════════════════════════════════════════════════════════════════════
+// H3b-3 — GESTION BUDGÉTAIRE À DISTANCE : application vérifiée des INTENTIONS.
+//
+// Le Cloud émet une intention (BudgetOperationRequested) ; le LAN, SEULE autorité,
+// re-vérifie ICI école + accès distant + permission + version + plafonds (via les
+// GUARDS budgetGuard) + idempotence + ordre causal, puis applique par le CHEMIN
+// GUARDÉ (runOpsGuarded / RPC tracées) — JAMAIS de rawUpsert — ou rejette (journalisé).
+// « Application directe après re-vérif LAN » : un décideur autorisé (Fondatrice/
+// Coordonnateur) applique sans second décideur local. Idempotent, ne lève jamais.
+// ════════════════════════════════════════════════════════════════════════════
+
+function opProcessed(eventId) {
+  return !!db.prepare('SELECT 1 FROM applied_budget_ops WHERE event_id = ?').get(eventId);
+}
+function recordBudgetOp(eventId, op, target, aggId, result) {
+  db.prepare(`INSERT INTO applied_budget_ops (event_id, op, target, aggregate_id, result, applied_at)
+              VALUES (?,?,?,?,?,?) ON CONFLICT(event_id) DO NOTHING`)
+    .run(eventId, op || null, target || null, aggId || null, result, new Date().toISOString());
+}
+function emitBudgetOutcome(kind, { school, aggId, event, corr, extra = {} }) {
+  return emitLocalEvent({
+    schoolId: school, aggregateType: 'budget', aggregateId: aggId,
+    eventType: budgetOpEventType(kind), // applied → BudgetOperationApplied ; rejected → …Rejected
+    actorId: event.actor_id || null, actorName: event.actor_name || null, correlationId: corr,
+    payload: {
+      ...extra, operation_event_id: event.id, correlation_id: corr,
+      ...(kind === 'applied' ? { applied_at: new Date().toISOString() } : {}),
+    },
+  });
+}
+
+// Construit les op(s) de STRUCTURE à passer au CHEMIN GUARDÉ (runOpsGuarded). Ces op
+// repassent par guardBudgetStructure/Line/Allocations → cap annuel, config, gel
+// enforcés. AUCUN rawUpsert. revise/reallocate ne passent PAS par ici (→ RPC tracées).
+function buildStructureOps({ op, target, aggId, data, school }) {
+  const d = data || {};
+  if (target === 'budget') {
+    if (op === 'create') return [{ table: 'budgets', action: 'upsert', values: { ...d, id: aggId, school_id: school } }];
+    if (op === 'modify') return [{ table: 'budgets', action: 'update', values: { ...d }, filters: [{ col: 'id', op: 'eq', val: aggId }] }];
+  }
+  if (target === 'line') {
+    if (op === 'create') return [{ table: 'budget_chapters', action: 'upsert', values: { ...d, id: aggId, school_id: school } }];
+    if (op === 'modify') return [{ table: 'budget_chapters', action: 'update', values: { ...d }, filters: [{ col: 'id', op: 'eq', val: aggId }] }];
+    if (op === 'activate') return [{ table: 'budget_chapters', action: 'update', values: { ...d, status: 'active' }, filters: [{ col: 'id', op: 'eq', val: aggId }] }];
+  }
+  if (target === 'allocation' && op === 'allocate') {
+    const ops = [];
+    const periods = Array.isArray(d.periods) ? d.periods : [];
+    const sectors = Array.isArray(d.sectors) ? d.sectors : [];
+    if (periods.length) ops.push({ table: 'budget_line_periods', action: 'upsert', values: periods.map((r) => ({ ...r, school_id: school, budget_chapter_id: aggId })) });
+    if (sectors.length) ops.push({ table: 'budget_line_sectors', action: 'upsert', values: sectors.map((r) => ({ ...r, school_id: school, budget_chapter_id: aggId })) });
+    if (!ops.length) throw new Error('Allocation vide (ni périodes ni secteurs).');
+    return ops;
+  }
+  throw new Error(`Combinaison op/target non supportée : ${op}/${target}.`);
+}
+
+// Applique l'effet métier (DANS la tx de l'appelant). Structure → chemin guardé ;
+// révision/réallocation → RPC tracées (create + decide, jamais un upsert — R-rpc).
+function applyBudgetEffect({ op, target, aggId, data, school, decider }) {
+  const ctx = { userId: decider };
+  const d = data || {};
+  if (op === 'revise') {
+    const rid = createRevision({ p_annual_budget_id: aggId, p_new_amount: d.new_amount, p_reason: d.reason, p_receipt: d.receipt ?? null }, ctx);
+    decideRevisionCore({ p_id: rid, p_decision: 'approve', p_note: d.note ?? null }, ctx);
+    return;
+  }
+  if (op === 'reallocate') {
+    const rid = createLineReallocation({ p_source_chapter_id: d.source_chapter_id ?? aggId, p_dest_chapter_id: d.dest_chapter_id, p_amount: d.amount, p_reason: d.reason, p_receipt: d.receipt ?? null }, ctx);
+    decideLineReallocationCore({ p_id: rid, p_decision: 'approve', p_note: d.note ?? null }, ctx);
+    return;
+  }
+  runOpsGuarded(buildStructureOps({ op, target, aggId, data: d, school }), ctx);
+}
+
+// ── CŒUR : vérifie + applique UNE intention budgétaire distante. Idempotent. ──
+// Renvoie { applied } | { deferred } (dépendance causale absente → réessai) | { skip }.
+export function verifyRemoteBudgetOperation(event) {
+  if (event?.event_type !== EVT.BUDGET_OP_REQUESTED) return { skip: true, reason: 'not_a_budget_op' };
+  const eventId = event.id;
+  if (!eventId) return { skip: true, reason: 'no_id' };
+  if (opProcessed(eventId)) return { skip: true, reason: 'already_applied' };
+
+  const p = safeParse(event.payload);
+  const op = p.op;
+  const target = p.target;
+  const aggId = p.aggregate_id || event.aggregate_id || null;
+  const expectedVersion = p.expected_version;
+  const data = p.data || {};
+  const corr = p.correlation_id || event.correlation_id || aggId;
+  const school = localSchoolId();
+
+  const reject = (result, reason, extra = {}) => {
+    tx(() => {
+      recordBudgetOp(eventId, op, target, aggId, result);
+      emitBudgetOutcome('rejected', { school, aggId, event, corr, extra: { op, target, reason, ...extra } });
+    });
+    return { applied: false, result };
+  };
+
+  // (1) Validité de la commande (op/cible connues, identité autoritaire présente).
+  if (!isBudgetOp(op) || !isBudgetOpTarget(target)) return reject('rejected_invalid', 'invalid_op');
+  if (!aggId) return reject('rejected_invalid', 'no_aggregate_id');
+
+  // (2) Périmètre école — une intention d'une AUTRE école est rejetée.
+  if (!school || event.school_id !== school) return reject('rejected_other_school', 'other_school');
+
+  // (3) H4 — ACCÈS DISTANT obligatoire (séparation droit financier / accès distant).
+  const decider = event.actor_id || null;
+  const su = decider
+    ? db.prepare('SELECT remote_access_allowed FROM school_users WHERE user_id = ? AND school_id = ? AND active = 1').get(decider, school)
+    : null;
+  if (!su || Number(su.remote_access_allowed) !== 1) return reject('rejected_no_remote_access', 'no_remote_access', { decider_id: decider });
+
+  // (4) PERMISSION d'application (autorité de mutation), depuis la gouvernance répliquée.
+  const { baseRole, catalog, assignments } = deciderCtx(school, decider);
+  const perm = BUDGET_OP_APPLY_PERM[op];
+  if (!perm || !hasPermission(baseRole, catalog, assignments, perm)) {
+    return reject('rejected_unauthorized', 'unauthorized', { decider_id: decider, perm: perm || null });
+  }
+
+  // (5) Existence de l'agrégat + ORDRE CAUSAL + VERSION.
+  const agg = db.prepare(`SELECT * FROM ${aggTable(target)} WHERE id = ?`).get(aggId);
+  if (op === 'create') {
+    if (agg) { // déjà matérialisé (rejeu après crash) → idempotent : confirmer une fois.
+      let cid = null;
+      tx(() => { recordBudgetOp(eventId, op, target, aggId, 'applied'); cid = emitBudgetOutcome('applied', { school, aggId, event, corr, extra: { op, target, idempotent: true } }); });
+      return { applied: true, result: 'applied', idempotent: true, confirmationEventId: cid };
+    }
+  } else {
+    // R-order : l'agrégat cible n'existe pas encore (create pas encore appliqué) →
+    // on DIFFÈRE (rien inscrit) ; l'intention sera réessayée au prochain cycle.
+    if (!agg) return { deferred: true, reason: 'missing_aggregate' };
+    // Version EXACTE si fournie (état inchangé depuis la vue distante) — sinon rejet.
+    if (expectedVersion != null && Number(expectedVersion) !== Number(agg.version)) {
+      return reject('rejected_version_conflict', 'version_conflict', { expected_version: expectedVersion, current_version: agg.version });
+    }
+  }
+
+  // (6) APPLICATION ATOMIQUE (mutation guardée + idempotence + confirmation) OU rejet
+  //     journalisé si un GUARD refuse (cap annuel dépassé, config incomplète, gel…).
+  let confirmId = null;
+  try {
+    tx(() => {
+      applyBudgetEffect({ op, target, aggId, data, school, decider });
+      recordBudgetOp(eventId, op, target, aggId, 'applied');
+      confirmId = emitBudgetOutcome('applied', { school, aggId, event, corr, extra: { op, target } });
+    });
+  } catch (e) {
+    return reject('rejected_rule', 'rule_violation', { message: e.message });
+  }
+  return { applied: true, result: 'applied', confirmationEventId: confirmId };
+}
+
+// ── DRAIN : applique les intentions budgétaires non traitées (robuste à la reprise). ──
+// Ordre d'arrivée (rowid) → respecte l'ordre causal d'une même source (créer avant
+// activer). Une intention différée reste non inscrite → réessayée au cycle suivant.
+export function applyPendingBudgetOps() {
+  if (!remoteFinanceGovernance()) return { applied: 0, deferred: 0, processed: 0 };
+  const rows = db.prepare(
+    `SELECT * FROM domain_events
+       WHERE event_type = ? AND replicated_from = 'cloud'
+         AND id NOT IN (SELECT event_id FROM applied_budget_ops)
+       ORDER BY rowid ASC`,
+  ).all(EVT.BUDGET_OP_REQUESTED);
+  let applied = 0; let deferred = 0;
+  for (const ev of rows) {
+    const r = verifyRemoteBudgetOperation(ev);
+    if (r.applied) applied++; else if (r.deferred) deferred++;
+  }
+  return { applied, deferred, processed: rows.length };
+}
+
+// Scheduler (gated NOTESCAM_CLOUD_SYNC=1) : draine décisions de dépense ET opérations
+// budgétaires distantes. No-op tant que l'école n'est pas en mode gouvernance distante.
 let _timer = null;
 export function scheduleDecisionApply(intervalMs = 60 * 1000) {
   if (process.env.NOTESCAM_CLOUD_SYNC !== '1') return false;
-  try { applyPendingDecisions(); } catch (e) { console.error('[gov-apply] initial:', e.message); }
-  _timer = setInterval(() => { try { applyPendingDecisions(); } catch (e) { console.error('[gov-apply]:', e.message); } }, intervalMs);
+  const drain = () => {
+    try { applyPendingDecisions(); } catch (e) { console.error('[gov-apply] decisions:', e.message); }
+    try { applyPendingBudgetOps(); } catch (e) { console.error('[gov-apply] budget-ops:', e.message); }
+  };
+  drain();
+  _timer = setInterval(drain, intervalMs);
   _timer.unref?.();
   return true;
 }

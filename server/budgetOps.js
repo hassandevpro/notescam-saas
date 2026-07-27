@@ -69,7 +69,10 @@ export function createLineReallocation(p, ctx) {
   return id;
 }
 
-export function decideLineReallocation(p, ctx) {
+// Cœur SANS transaction propre (l'appelant fournit la tx) — réutilisé par l'applicateur
+// de gouvernance budgétaire distante (H3b-3) pour composer create+decide + idempotence
+// dans UNE seule transaction atomique. La version publique enveloppe dans tx().
+export function decideLineReallocationCore(p, ctx) {
   const m = membership(ctx.userId); if (!m) throw new Error('Non autorisé');
   const schoolId = m.school_id;
   const a = actorCtx(schoolId, ctx.userId);
@@ -87,26 +90,25 @@ export function decideLineReallocation(p, ctx) {
   };
   if (decision === 'refuse') { stamp('refused'); return { status: 'refused' }; }
 
-  tx(() => {
-    const src = getLine(r.source_chapter_id, schoolId);
-    const dst = getLine(r.dest_chapter_id, schoolId);
-    if (!src || !dst) throw new Error('Ligne introuvable');
-    const amount = Number(r.amount) || 0;
-    const srcBefore = Number(src.planned_amount) || 0;
-    const dstBefore = Number(dst.planned_amount) || 0;
-    const srcAfter = srcBefore - amount;
-    const dstAfter = dstBefore + amount;
-    if (srcAfter < 0) throw new Error('Réallocation impossible : montant supérieur à la ligne source');
-    // JAMAIS en dessous des engagements déjà comptés (respect engagé/payé).
-    const srcCommitted = lineCommitted(src.id, schoolId);
-    if (srcAfter < srcCommitted) throw new Error(`Réallocation refusée : la ligne source tomberait sous ses engagements (${srcCommitted}).`);
-    // Écriture DIRECTE (contourne le gel E3 : chemin RPC serveur autorisé).
-    db.prepare('UPDATE budget_chapters SET planned_amount = ?, updated_at = ? WHERE id = ?').run(srcAfter, nowISO(), src.id);
-    db.prepare('UPDATE budget_chapters SET planned_amount = ?, updated_at = ? WHERE id = ?').run(dstAfter, nowISO(), dst.id);
-    stamp('applied', { source_before: srcBefore, source_after: srcAfter, dest_before: dstBefore, dest_after: dstAfter });
-  });
+  const src = getLine(r.source_chapter_id, schoolId);
+  const dst = getLine(r.dest_chapter_id, schoolId);
+  if (!src || !dst) throw new Error('Ligne introuvable');
+  const amount = Number(r.amount) || 0;
+  const srcBefore = Number(src.planned_amount) || 0;
+  const dstBefore = Number(dst.planned_amount) || 0;
+  const srcAfter = srcBefore - amount;
+  const dstAfter = dstBefore + amount;
+  if (srcAfter < 0) throw new Error('Réallocation impossible : montant supérieur à la ligne source');
+  // JAMAIS en dessous des engagements déjà comptés (respect engagé/payé).
+  const srcCommitted = lineCommitted(src.id, schoolId);
+  if (srcAfter < srcCommitted) throw new Error(`Réallocation refusée : la ligne source tomberait sous ses engagements (${srcCommitted}).`);
+  // Écriture DIRECTE (contourne le gel E3 : chemin RPC serveur autorisé).
+  db.prepare('UPDATE budget_chapters SET planned_amount = ?, updated_at = ? WHERE id = ?').run(srcAfter, nowISO(), src.id);
+  db.prepare('UPDATE budget_chapters SET planned_amount = ?, updated_at = ? WHERE id = ?').run(dstAfter, nowISO(), dst.id);
+  stamp('applied', { source_before: srcBefore, source_after: srcAfter, dest_before: dstBefore, dest_after: dstAfter });
   return { status: 'applied' };
 }
+export function decideLineReallocation(p, ctx) { return tx(() => decideLineReallocationCore(p, ctx)); }
 
 // ── RÉVISION DU BUDGET ANNUEL ─────────────────────────────────────────────────
 export function createRevision(p, ctx) {
@@ -135,7 +137,8 @@ export function createRevision(p, ctx) {
   return id;
 }
 
-export function decideRevision(p, ctx) {
+// Cœur SANS transaction propre (l'appelant fournit la tx) — cf. decideLineReallocationCore.
+export function decideRevisionCore(p, ctx) {
   const m = membership(ctx.userId); if (!m) throw new Error('Non autorisé');
   const schoolId = m.school_id;
   const a = actorCtx(schoolId, ctx.userId);
@@ -150,22 +153,21 @@ export function decideRevision(p, ctx) {
 
   if (decision === 'refuse') { stamp('refused'); return { status: 'refused' }; }
 
-  tx(() => {
-    const annual = getBudget(r.annual_budget_id, schoolId);
-    if (!annual || annual.tier !== 'annual') throw new Error('Budget annuel introuvable');
-    const newAmount = Number(r.new_amount) || 0;
-    // v3 : l'annuel ne peut passer sous la somme des montants des LIGNES finalisées
-    // (active/closed) déjà activées — sinon une combinaison de lignes dépasserait.
-    const sumLines = db.prepare("SELECT COALESCE(SUM(planned_amount),0) s FROM budget_chapters WHERE budget_id = ? AND scope IS NOT NULL AND status IN ('active','closed')").get(annual.id).s;
-    if (newAmount < sumLines) throw new Error(`Révision refusée : le nouvel annuel (${newAmount}) est inférieur aux lignes déjà activées (${sumLines}).`);
-    // Legacy : ni sous les enveloppes de période (nœuds hérités, s'il en reste).
-    const sumPeriods = db.prepare("SELECT COALESCE(SUM(envelope_amount),0) s FROM budgets WHERE parent_budget_id = ? AND tier = 'period'").get(annual.id).s;
-    if (newAmount < sumPeriods) throw new Error(`Révision refusée : le nouvel annuel (${newAmount}) est inférieur aux enveloppes de période déjà réparties (${sumPeriods}).`);
-    // …ni sous les engagements déjà comptés (engagé/payé) — v3 : agrégé depuis les dépenses.
-    const committed = db.prepare("SELECT COALESCE(SUM(e.amount),0) s FROM budget_expenses e JOIN budget_chapters c ON c.id = e.budget_chapter_id AND c.budget_id = ? WHERE e.school_id = ? AND e.status IN ('submitted','approved','paid')").get(annual.id, schoolId).s;
-    if (newAmount < committed) throw new Error(`Révision refusée : le nouvel annuel est inférieur aux engagements (${committed}).`);
-    db.prepare('UPDATE budgets SET envelope_amount = ?, updated_at = ? WHERE id = ?').run(newAmount, nowISO(), annual.id);
-    stamp('applied');
-  });
+  const annual = getBudget(r.annual_budget_id, schoolId);
+  if (!annual || annual.tier !== 'annual') throw new Error('Budget annuel introuvable');
+  const newAmount = Number(r.new_amount) || 0;
+  // v3 : l'annuel ne peut passer sous la somme des montants des LIGNES finalisées
+  // (active/closed) déjà activées — sinon une combinaison de lignes dépasserait.
+  const sumLines = db.prepare("SELECT COALESCE(SUM(planned_amount),0) s FROM budget_chapters WHERE budget_id = ? AND scope IS NOT NULL AND status IN ('active','closed')").get(annual.id).s;
+  if (newAmount < sumLines) throw new Error(`Révision refusée : le nouvel annuel (${newAmount}) est inférieur aux lignes déjà activées (${sumLines}).`);
+  // Legacy : ni sous les enveloppes de période (nœuds hérités, s'il en reste).
+  const sumPeriods = db.prepare("SELECT COALESCE(SUM(envelope_amount),0) s FROM budgets WHERE parent_budget_id = ? AND tier = 'period'").get(annual.id).s;
+  if (newAmount < sumPeriods) throw new Error(`Révision refusée : le nouvel annuel (${newAmount}) est inférieur aux enveloppes de période déjà réparties (${sumPeriods}).`);
+  // …ni sous les engagements déjà comptés (engagé/payé) — v3 : agrégé depuis les dépenses.
+  const committed = db.prepare("SELECT COALESCE(SUM(e.amount),0) s FROM budget_expenses e JOIN budget_chapters c ON c.id = e.budget_chapter_id AND c.budget_id = ? WHERE e.school_id = ? AND e.status IN ('submitted','approved','paid')").get(annual.id, schoolId).s;
+  if (newAmount < committed) throw new Error(`Révision refusée : le nouvel annuel est inférieur aux engagements (${committed}).`);
+  db.prepare('UPDATE budgets SET envelope_amount = ?, updated_at = ? WHERE id = ?').run(newAmount, nowISO(), annual.id);
+  stamp('applied');
   return { status: 'applied' };
 }
+export function decideRevision(p, ctx) { return tx(() => decideRevisionCore(p, ctx)); }

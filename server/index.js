@@ -20,6 +20,7 @@ import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './a
 import { scheduleCloudSync, syncOnce } from './cloudSync.js';
 import { scheduleEventSync } from './eventSync.js';
 import { scheduleDecisionApply } from './governanceApply.js';
+import { setSetting, isCloudSyncEnabled } from './syncFlag.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './cloudEnv.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -227,6 +228,35 @@ app.post('/api/migrate/cloud', async (req, reply) => {
   } catch (e) {
     return reply.code(400).send({ error: { message: e.message } });
   }
+});
+
+// ── Mode HYBRIDE (Cloud ↔ LAN) — activation EN QUELQUES CLICS depuis l'app ──────
+// Remplace la variable d'environnement NOTESCAM_CLOUD_SYNC + le lanceur dédié :
+// l'admin active/désactive la synchro Cloud continue + le drain des intentions
+// distantes depuis les Paramètres. Nécessite que l'école ait été MIGRÉE (jeton scellé).
+function hybridState() {
+  const migrated = existsSync(join(DATA_DIR, 'server-token.key'));
+  const row = db.prepare('SELECT school_id, cloud_url FROM migration_state WHERE id = 1').get() || null;
+  return { enabled: isCloudSyncEnabled(), migrated, schoolId: row?.school_id || null, cloudUrl: row?.cloud_url || null };
+}
+app.get('/api/hybrid/status', () => ({ data: hybridState(), error: null }));
+
+app.post('/api/hybrid/enable', (req, reply) => {
+  const st = hybridState();
+  if (!st.migrated) {
+    return reply.code(409).send({ error: { message: "L'école n'est pas encore migrée depuis le Cloud (jeton absent). Faites d'abord « Migrer depuis le Cloud »." } });
+  }
+  setSetting('cloud_sync', '1');
+  // Démarre immédiatement (sans redémarrage du serveur).
+  const sync = scheduleCloudSync();
+  const events = scheduleEventSync();
+  scheduleDecisionApply();
+  return { data: { ...hybridState(), syncStarted: sync, eventsStarted: events }, error: null };
+});
+
+app.post('/api/hybrid/disable', () => {
+  setSetting('cloud_sync', '0');
+  return { data: hybridState(), error: null };
 });
 
 // Clé publique RSA de CE serveur : l'app cloud l'utilise pour chiffrer les

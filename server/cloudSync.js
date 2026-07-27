@@ -16,6 +16,7 @@ import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId } from './db.js';
 import { EDGE_BASE } from './cloudEnv.js';
+import { isCloudSyncEnabled } from './syncFlag.js';
 import { shouldPush, shouldPull } from '../src/lib/policyEngine.js';
 
 // Politique de déploiement de l'établissement (H1). Absente/vide (cas actuel de
@@ -225,7 +226,7 @@ export async function syncOnce({ edge = edgeFetch, dryRun = false } = {}) {
 
 let _timer = null;
 export function scheduleCloudSync(intervalMs = 5 * 60 * 1000) {
-  if (process.env.NOTESCAM_CLOUD_SYNC !== '1' || !serverToken()) return false;
+  if (!isCloudSyncEnabled() || !serverToken()) return false;
   syncOnce().catch((e) => console.error('[sync] échec initial:', e.message));
   _timer = setInterval(() => { syncOnce().catch((e) => console.error('[sync] échec:', e.message)); }, intervalMs);
   _timer.unref?.();

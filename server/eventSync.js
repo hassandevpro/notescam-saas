@@ -24,6 +24,7 @@
 import { db } from './db.js';
 import { serverToken } from './cloudSync.js';
 import { EDGE_BASE } from './cloudEnv.js';
+import { isCloudSyncEnabled } from './syncFlag.js';
 
 const BATCH = 500;
 
@@ -131,7 +132,7 @@ export async function syncEventsOnce({ edge = edgeFetch, dryRun = false } = {}) 
 
 let _timer = null;
 export function scheduleEventSync(intervalMs = 5 * 60 * 1000) {
-  if (process.env.NOTESCAM_CLOUD_SYNC !== '1' || !serverToken()) return false;
+  if (!isCloudSyncEnabled() || !serverToken()) return false;
   syncEventsOnce().catch((e) => console.error('[event-sync] échec initial:', e.message));
   _timer = setInterval(() => { syncEventsOnce().catch((e) => console.error('[event-sync] échec:', e.message)); }, intervalMs);
   _timer.unref?.();

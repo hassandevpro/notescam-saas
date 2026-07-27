@@ -881,6 +881,13 @@ CREATE TABLE IF NOT EXISTS migration_state (
   report      TEXT                       -- JSON : counts + intégrité
 );
 
+-- Réglages LOCAUX (clé/valeur) — ex. activation du mode hybride depuis l'app,
+-- sans variable d'environnement. Non synchronisé (propre à ce poste).
+CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
+
 -- --- File de miroir des mots de passe (Local → Cloud) --------
 -- Empilée quand le cloud est injoignable au moment d'un login/changement ;
 -- rejouée à la reconnexion. Le secret est CHIFFRÉ (AES-256-GCM, clé locale).

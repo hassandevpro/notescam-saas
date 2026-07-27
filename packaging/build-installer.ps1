@@ -88,11 +88,12 @@ robocopy $srcServer $dstServer /E /XD data _test_data node_modules /XF *.log | O
 if ($LASTEXITCODE -ge 8) { throw "robocopy a échoué (code $LASTEXITCODE)" }
 $global:LASTEXITCODE = 0   # robocopy : 0-7 = succès
 
-# Moteurs PURS partagés importés par le serveur (enforcement budgétaire P3 :
-# budgetGuard.js -> ../src/lib/* et ../src/governance/*). Source unique = src/
-# (aucune duplication de logique). On embarque ces deux dossiers en préservant le
-# chemin relatif `app/src/...` attendu par les imports du serveur.
-foreach ($sub in @('lib', 'governance')) {
+# Moteurs PURS partagés importés par le serveur (enforcement budgétaire + gouvernance
+# hybride H1-H7) : budgetGuard.js -> ../src/lib/* et ../src/governance/* ;
+# governanceApply.js -> ../src/domains/finance/events.js. Source unique = src/
+# (aucune duplication de logique). On embarque ces dossiers en préservant le chemin
+# relatif `app/src/...` attendu par les imports du serveur.
+foreach ($sub in @('lib', 'governance', 'domains')) {
   robocopy (Join-Path $Root "src\$sub") (Join-Path $Stage "app\src\$sub") /E /XF *.log | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "robocopy src\$sub a échoué (code $LASTEXITCODE)" }
   $global:LASTEXITCODE = 0

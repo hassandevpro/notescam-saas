@@ -20,6 +20,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { db, deviceId, tx } from './db.js';
+import { isCloudSyncEnabled } from './syncFlag.js';
 import { governanceChannel } from '../src/lib/policyEngine.js';
 import { hasPermission, canValidateAmount } from '../src/governance/governanceEngine.js';
 import { GOV_PERM } from '../src/governance/permissions.js';
@@ -510,7 +511,7 @@ export function applyPendingBudgetOps({ dryRun = false } = {}) {
 // budgétaires distantes. No-op tant que l'école n'est pas en mode gouvernance distante.
 let _timer = null;
 export function scheduleDecisionApply(intervalMs = 60 * 1000) {
-  if (process.env.NOTESCAM_CLOUD_SYNC !== '1') return false;
+  if (!isCloudSyncEnabled()) return false;
   const drain = () => {
     try { applyPendingDecisions(); } catch (e) { console.error('[gov-apply] decisions:', e.message); }
     try { applyPendingBudgetOps(); } catch (e) { console.error('[gov-apply] budget-ops:', e.message); }

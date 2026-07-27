@@ -89,4 +89,8 @@ export const GOVERNANCE_GRANTS = {
   // Caissier : CONSULTE et EXÉCUTE le décaissement (approved → paid). Ne crée ni ne
   // modifie budget/dépense, n'est PAS un valideur (Phase F, décision + brief F1/F3/F4).
   caissier: [P.BUDGET_VIEW, P.EXPENSE_VIEW, P.EXPENSE_PAY],
+  // Contrôleur (H4) : CONSULTATION/audit seulement. AUCUNE permission d'approbation,
+  // de rejet, de paiement ni de mutation — « préparé sans droits excessifs ». Un droit
+  // de décision devra être accordé EXPLICITEMENT (autre affectation), jamais implicite.
+  controleur: [P.VIEW, P.BUDGET_VIEW, P.EXPENSE_VIEW],
 };

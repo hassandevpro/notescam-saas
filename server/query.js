@@ -7,6 +7,7 @@
 import { db, ALLOWED_TABLES, quoteIdent, tableColumns, pickColumns, normalizeValue, tx, SYNCED_TABLES, deviceId } from './db.js';
 import { randomUUID } from 'node:crypto';
 import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
+import { emitApprovalRequestForOp } from './governanceApply.js';
 
 // --- Suivi des changements pour la sync continue (Phase 2) ------------
 // Horodate la ligne écrite (updated_at/device_id) pour la résolution LWW.
@@ -119,14 +120,22 @@ export function runQuery(op, ctx = null) {
     guardBudgetStructure(op);      // P5 : pas de modif silencieuse / d'écriture directe des opérations
     guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
     guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
+    let result;
     switch (op.action) {
-      case 'select': return doSelect(op);
-      case 'insert': return doInsertOrUpsert(op, false);
-      case 'upsert': return doInsertOrUpsert(op, true);
-      case 'update': return doUpdate(op);
-      case 'delete': return doDelete(op);
+      case 'select': result = doSelect(op); break;
+      case 'insert': result = doInsertOrUpsert(op, false); break;
+      case 'upsert': result = doInsertOrUpsert(op, true); break;
+      case 'update': result = doUpdate(op); break;
+      case 'delete': result = doDelete(op); break;
       default: return { error: { message: `Action inconnue : ${op.action}` }, data: null };
     }
+    // H3-b : sur une écriture de dépense, émettre la DEMANDE d'approbation distante
+    // si la dépense est soumise (mode gouvernance distante). Best-effort strict :
+    // ne doit JAMAIS transformer une écriture réussie en erreur.
+    if (!result?.error && op.table === 'budget_expenses' && ['insert', 'upsert', 'update'].includes(op.action)) {
+      try { emitApprovalRequestForOp(op); } catch (e) { console.warn('[gov] demande d’approbation non émise:', e.message); }
+    }
+    return result;
   } catch (e) {
     return { error: { message: e.message }, data: null };
   }

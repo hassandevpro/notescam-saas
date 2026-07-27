@@ -4,6 +4,8 @@
 import { supabase } from './supabase';
 import { uuid } from './uuid';
 import { upsertBudgetChapter } from './budgetService';
+import { emitFinanceEvent } from '../domains/finance/emit';
+import { AGGREGATE, EVT, unlockEventType } from '../domains/finance/events';
 
 function nn(v) { return v === '' || v === undefined ? null : v; }
 
@@ -33,6 +35,12 @@ export async function createUnlockRequest(row) {
   const { data, error } = await supabase
     .from('budget_unlock_requests').upsert(payload, { onConflict: 'id' }).select().single();
   if (error) { console.error('createUnlockRequest', error); return null; }
+  // H2 (observation) : demande de déblocage émise comme fait.
+  emitFinanceEvent({
+    aggregateType: AGGREGATE.UNLOCK, aggregateId: data.id, correlationId: data.id,
+    schoolId: data.school_id, eventType: EVT.UNLOCK_REQUESTED,
+    payload: { budget_id: data.budget_id, budget_chapter_id: data.budget_chapter_id, requested_amount: data.requested_amount },
+  });
   return data;
 }
 
@@ -67,5 +75,11 @@ export async function decideUnlockRequest(request, decision, {
   const { data, error } = await supabase
     .from('budget_unlock_requests').upsert(patch, { onConflict: 'id' }).select().single();
   if (error) { console.error('decideUnlockRequest', error); return null; }
+  // H2 (observation) : décision de déblocage émise comme fait (refusée/autorisée/augmentée).
+  emitFinanceEvent({
+    aggregateType: AGGREGATE.UNLOCK, aggregateId: data.id, correlationId: data.id,
+    schoolId: data.school_id, eventType: unlockEventType(decision) || EVT.UNLOCK_REFUSED,
+    payload: { decision, granted_amount: data.granted_amount, decided_role: data.decided_role },
+  });
   return data;
 }

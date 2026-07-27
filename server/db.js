@@ -67,6 +67,7 @@ ensureColumn('classes',  'serie',           'serie TEXT');           // série l
 ensureColumn('classes',  'bulletin_engine', 'bulletin_engine TEXT'); // surcharge de moteur PAR CLASSE (null = hérite de l'école)
 // En-tête officiel bilingue (Cameroun) ou mono-langue selon le choix de l'école.
 ensureColumn('schools',  'bulletin_bilingual', 'bulletin_bilingual INTEGER'); // 1/0 (null = bilingue par défaut)
+ensureColumn('schools',  'deployment_policy', 'deployment_policy TEXT');      // H1 : politique hybride par module (JSON ; null = comportement actuel)
 // Conseil de classe (champs spéciaux `__…__`) : le schéma LAN d'origine ne gardait
 // qu'abs_j/abs_nj/conduite → décision, tableau d'honneur, avertissements ET
 // l'appréciation libre du travail de l'élève étaient avalés en LAN. On ajoute les
@@ -327,6 +328,15 @@ for (const t of SYNCED_TABLES) {
   ensureColumn(t, 'version',    'version INTEGER NOT NULL DEFAULT 1'); // compteur monotone (départage)
   ensureColumn(t, 'device_id',  'device_id TEXT');                    // origine du changement (anti-écho + départage)
 }
+// H3-a : réplication du journal d'événements (log shipping par curseur seq).
+// `replicated_from` marque un événement TIRÉ du cloud (anti-écho : jamais re-poussé).
+// Un événement d'origine locale a la colonne NULL → seul lui est poussé. L'ordre de
+// push local s'appuie sur le `rowid` natif (monotone : domain_events est append-only).
+ensureColumn('domain_events', 'replicated_from', 'replicated_from TEXT');
+// H4 : capacité « accès distant » (gouvernance financière via Internet), PAR COMPTE,
+// ORTHOGONALE au rôle. Défaut 0 = AUCUN accès distant (sécurisé par défaut). Le LAN
+// re-vérifie ce drapeau avant d'appliquer une décision distante (governanceApply).
+ensureColumn('school_users', 'remote_access_allowed', 'remote_access_allowed INTEGER NOT NULL DEFAULT 0');
 
 // Module Dépenses — annulation TRACÉE (statut terminal `cancelled`). Conservée en
 // base ; jamais supprimée. Motif obligatoire côté UI + auteur + date.

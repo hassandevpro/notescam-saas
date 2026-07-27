@@ -21,10 +21,17 @@ import {
 import { canTransition, isExpenseLocked, isCommitting, canHardDelete } from '../src/lib/expenseEngine.js';
 import { hasPermission, canValidateAmount } from '../src/governance/governanceEngine.js';
 import { GOV_PERM } from '../src/governance/permissions.js';
+import { governanceChannel } from '../src/lib/policyEngine.js';
 
 function budgetValidationOn(schoolId) {
   const s = db.prepare('SELECT budget_validation FROM schools WHERE id = ?').get(schoolId);
   return !!(s && Number(s.budget_validation) === 1);
+}
+
+// H3-b : l'école délègue-t-elle l'approbation des dépenses à la gouvernance distante ?
+function remoteFinanceGovernance(schoolId) {
+  const s = db.prepare('SELECT deployment_policy FROM schools WHERE id = ?').get(schoolId);
+  return governanceChannel(s?.deployment_policy, 'finance') === 'cloud';
 }
 
 function actorCtx(schoolId, userId) {
@@ -60,6 +67,14 @@ function enforceExpense({ incoming, existing, userId }) {
   // 1) Verrou terminal : une dépense payée/annulée ne se modifie plus.
   if (existing && isExpenseLocked(existing)) {
     throw new Error(`Dépense « ${existing.status} » verrouillée (lecture seule).`);
+  }
+
+  // 1bis) H3-b — GOUVERNANCE DISTANTE : en mode distant, un acteur LOCAL ne peut
+  // pas approuver une dépense. L'approbation n'arrive QUE par une décision distante
+  // vérifiée (server/governanceApply.verifyRemoteDecision), qui écrit hors de ce
+  // chemin. Vaut aussi pour une création directe en « approved ». (Défaut : inerte.)
+  if (toStatus === 'approved' && (!existing || fromStatus !== 'approved') && remoteFinanceGovernance(schoolId)) {
+    throw new Error('Approbation réservée à la gouvernance distante (Fondatrice/Coordonnateur) — décision émise depuis le Cloud, appliquée par le serveur de l’école.');
   }
 
   // 2) Machine à états sur MODIFICATION (mêmes transitions que le moteur Dépenses).

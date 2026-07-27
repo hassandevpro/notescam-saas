@@ -33,6 +33,11 @@ export const GOVERNANCE_ROLES = [
     label: ['Directrice adjointe du primaire', 'Deputy Primary Head', 'Subdirectora de primaria'] },
   { id: 'caissier',                      rank: 30,  scope: 'complex',
     label: ['Caissier', 'Cashier', 'Cajero'] },
+  // Contrôleur : autorité de CONSULTATION/audit à distance (H4). Rôle transverse
+  // mais SANS droit d'approbation par défaut (préparé « sans droits excessifs ») —
+  // ses permissions (view seulement) sont définies dans GOVERNANCE_GRANTS.
+  { id: 'controleur',                    rank: 70,  scope: 'complex',
+    label: ['Contrôleur', 'Controller', 'Controlador'] },
 ];
 
 export const GOVERNANCE_ROLE_IDS = GOVERNANCE_ROLES.map((r) => r.id);

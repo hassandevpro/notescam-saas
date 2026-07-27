@@ -1223,6 +1223,20 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_events_school ON audit_events(school_id, at);
 
+-- H3-b : registre des DÉCISIONS DISTANTES DÉJÀ TRAITÉES (idempotence + audit
+-- d'application). Clé = id de l'événement de décision (Cloud). Toute décision
+-- (appliquée OU rejetée) y est inscrite UNE fois → une même décision reçue deux
+-- fois (rejeu de sync, reconnexion) n'est jamais ré-appliquée. `result` trace
+-- l'issue (applied | rejected_version_conflict | rejected_unauthorized | …).
+CREATE TABLE IF NOT EXISTS applied_decisions (
+  event_id    TEXT PRIMARY KEY,   -- id de l'événement de décision distant
+  expense_id  TEXT,
+  decision    TEXT,               -- approve | refuse
+  result      TEXT,               -- applied | rejected_*
+  applied_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_applied_decisions_expense ON applied_decisions(expense_id);
+
 CREATE TABLE IF NOT EXISTS signalements (
   id             TEXT PRIMARY KEY,
   school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,

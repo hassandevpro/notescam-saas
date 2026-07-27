@@ -2,6 +2,8 @@
 // En LAN, `./supabase` est aliasé vers localClient (Vite) : mêmes appels.
 import { supabase } from './supabase';
 import { uuid } from './uuid';
+import { emitFinanceEvent } from '../domains/finance/emit';
+import { AGGREGATE, EVT, expenseEventType } from '../domains/finance/events';
 
 function nn(v) { return v === '' || v === undefined ? null : v; }
 
@@ -45,11 +47,23 @@ export async function upsertExpense(row) {
     .from('budget_expenses').upsert(payload, { onConflict: 'id' }).select().single();
   // Remonte le message serveur (enforcement E3 : imputation, chaîne, permissions).
   if (error) { console.error('upsertExpense', error); return { data: null, error }; }
+  // H2 (observation) : émet le fait accompli — statut résultant → type d'événement.
+  // Best-effort, n'altère ni ne retarde le retour ci-dessous.
+  emitFinanceEvent({
+    aggregateType: AGGREGATE.EXPENSE, aggregateId: data.id, correlationId: data.id,
+    schoolId: data.school_id, eventType: expenseEventType(data.status),
+    payload: {
+      status: data.status, amount: data.amount, budget_id: data.budget_id,
+      budget_chapter_id: data.budget_chapter_id, version: data.version,
+    },
+  });
   return { data, error: null };
 }
 
 export async function deleteExpense(id) {
   const { error } = await supabase.from('budget_expenses').delete().eq('id', id);
   if (error) { console.error('deleteExpense', error); return false; }
+  // H2 (observation) : suppression d'un brouillon tracée comme fait.
+  emitFinanceEvent({ aggregateType: AGGREGATE.EXPENSE, aggregateId: id, correlationId: id, eventType: EVT.EXPENSE_DELETED });
   return true;
 }

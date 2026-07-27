@@ -16,6 +16,15 @@ import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId } from './db.js';
 import { EDGE_BASE } from './cloudEnv.js';
+import { shouldPush, shouldPull } from '../src/lib/policyEngine.js';
+
+// Politique de déploiement de l'établissement (H1). Absente/vide (cas actuel de
+// tous les établissements) → policyEngine renvoie push/pull vrais partout, donc
+// la synchro se comporte EXACTEMENT comme avant (inertie garantie + testée).
+function currentPolicy() {
+  try { return db.prepare('SELECT deployment_policy FROM schools LIMIT 1').get()?.deployment_policy || null; }
+  catch { return null; }
+}
 
 const TOKEN_PATH = join(DATA_DIR, 'server-token.key');
 const BATCH = 500;
@@ -101,8 +110,12 @@ async function pull(edge, dryRun) {
   const j = await edge('sync-pull', { since: cursor('pull_at'), tomb_since: cursor('tomb_at') });
   const rows = j?.rows || {};
   const plan = { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] };
+  const policy = currentPolicy();
 
   for (const table of PULL_ORDER) {
+    // Politique de déploiement (H1) : un module en mode LAN-only n'intègre pas les
+    // lignes distantes de ses tables. Inerte tant qu'aucune politique n'est définie.
+    if (!shouldPull(policy, table)) continue;
     // `budgets` s'auto-référence : appliquer les parents (annual) avant les
     // enfants (period, puis sector) pour ne pas violer la FK parent_budget_id.
     const batch = table === 'budgets'
@@ -118,6 +131,7 @@ async function pull(edge, dryRun) {
   }
   for (const t of j?.tombstones || []) {
     if (!SYNCED_TABLES.has(t.tablename)) continue;
+    if (!shouldPull(policy, t.tablename)) continue; // module LAN-only : on ignore aussi ses suppressions distantes
     const local = db.prepare(`SELECT updated_at FROM "${t.tablename}" WHERE id = ?`).get(t.row_id);
     if (!local) continue;
     // La suppression gagne si elle est au moins aussi récente que le dernier
@@ -139,10 +153,15 @@ async function pull(edge, dryRun) {
 async function push(edge, dryRun) {
   const entries = db.prepare('SELECT * FROM sync_outbox ORDER BY id LIMIT ?').all(BATCH);
   if (!entries.length) return { pushed: 0, planned: [] };
+  const policy = currentPolicy();
   // Réduit à un changement par (table,row_id) — le dernier état gagne.
   const seen = new Set();
   const changes = [];
   for (const e of [...entries].reverse()) {
+    // Politique de déploiement (H1) : un module LAN-only ne pousse pas ses tables ;
+    // l'entrée d'outbox est simplement consommée (purge par maxId ci-dessous), pas
+    // renvoyée indéfiniment. Inerte tant qu'aucune politique n'est définie.
+    if (!shouldPush(policy, e.tablename)) continue;
     const k = `${e.tablename}|${e.row_id}`;
     if (seen.has(k)) continue;
     seen.add(k);

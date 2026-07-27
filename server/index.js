@@ -18,6 +18,8 @@ import { runMigration } from './migrate.js';
 import { mirrorToCloud, flushMirrorQueue, credentialPublicKey, publishCredentialKey } from './authBridge.js';
 import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
 import { scheduleCloudSync, syncOnce } from './cloudSync.js';
+import { scheduleEventSync } from './eventSync.js';
+import { scheduleDecisionApply } from './governanceApply.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './cloudEnv.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -328,6 +330,12 @@ const start = async () => {
     publishCredentialKey().catch(() => {});
     // Sync continue LAN ↔ Cloud (Phase 2) — gated : NOTESCAM_CLOUD_SYNC=1 + jeton présent.
     if (scheduleCloudSync()) console.log('  Sync continue LAN ↔ Cloud : activée');
+    // H3-a : réplication du journal d'événements (transport du canal de gouvernance).
+    // Même gate. INERTE tant que rien ne consomme les événements (H3-b appliquera).
+    if (scheduleEventSync()) console.log('  Réplication domain_events LAN ↔ Cloud : activée');
+    // H3-b : application des décisions distantes (approbation/refus). No-op tant que
+    // l'école n'est pas en mode gouvernance financière distante (deployment_policy).
+    if (scheduleDecisionApply()) console.log('  Application des décisions distantes : planifiée (inerte hors mode distant)');
     console.log(`\n  NotesCam LAN — http://localhost:${PORT}`);
     console.log(`  Accessible sur le réseau : http://<IP-du-PC>:${PORT}`);
     console.log(`  Données : ${DATA_DIR}\n`);

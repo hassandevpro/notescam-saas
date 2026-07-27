@@ -6,8 +6,10 @@ import {
   expenseEventType, unlockEventType,
   BUDGET_OP, BUDGET_OP_TARGET, BUDGET_OP_EVT_BY_RESULT,
   budgetOpEventType, isBudgetOp, isBudgetOpTarget,
+  BUDGET_OP_PERMISSION, budgetOpPermission,
 } from './events.js';
 import { EXPENSE_STATUSES, UNLOCK_STATUSES } from '../../lib/expenseEngine.js';
+import { GOV_PERM } from '../../governance/permissions.js';
 
 let failed = false;
 const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed = true; };
@@ -48,6 +50,19 @@ for (const t of ['budget', 'line', 'allocation']) {
 }
 ok(!isBudgetOpTarget('expense'), 'cible « expense » rejetée (dépense hors canal budget)');
 ok(BUDGET_OP.REVISE === 'revise' && BUDGET_OP.REALLOCATE === 'reallocate', 'révision/réalloc = op tracées (RPC, R-rpc)');
+
+// ── H3b-2 : mapping op → permission BUDGET_* (filtre amont Cloud) ──────────────
+// Chaque op a une permission ET cette permission existe dans le vrai catalogue.
+const govPerms = new Set(Object.values(GOV_PERM));
+for (const op of Object.values(BUDGET_OP)) {
+  const perm = budgetOpPermission(op);
+  ok(typeof perm === 'string' && govPerms.has(perm), `op « ${op} » → permission « ${perm} » (catalogue GOV_PERM)`);
+}
+ok(budgetOpPermission('activate') === GOV_PERM.BUDGET_APPROVE, 'activate → budget.approve (approbation finale)');
+ok(budgetOpPermission('create') === GOV_PERM.BUDGET_PREPARE, 'create → budget.prepare');
+ok(budgetOpPermission('revise') === GOV_PERM.ANNUAL_REVISE_REQUEST, 'revise → budget.annual.revise.request');
+ok(budgetOpPermission('inconnu') === null, 'op inconnue → aucune permission (null, refus)');
+ok(Object.keys(BUDGET_OP_PERMISSION).length === 6, 'les 6 op ont une permission mappée');
 
 // ── Tous les types sont au passé et distincts ─────────────────────────────────
 const all = Object.values(EVT);

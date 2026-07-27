@@ -134,3 +134,20 @@ export function isBudgetOp(op) {
 export function isBudgetOpTarget(target) {
   return Object.values(BUDGET_OP_TARGET).includes(target);
 }
+
+// Mapping op → permission BUDGET_* requise comme PREMIÈRE LIGNE de filtre côté
+// Cloud (RPC submit_budget_operation / can_operate_budget). Le LAN ré-impose
+// AUTORITAIREMENT permission + périmètre école + version + cap annuel +
+// idempotence + cohérence à l'application (H3b-3) ; ce mapping n'est qu'un filtre
+// amont. IMPÉRATIF : garder synchronisé avec supabase_budget_operations.sql.
+export const BUDGET_OP_PERMISSION = Object.freeze({
+  create:     'budget.prepare',                 // rédiger un budget / une ligne en préparation
+  modify:     'budget.prepare',                 // modifier la structure en préparation
+  allocate:   'budget.prepare',                 // définir les allocations période/secteur
+  activate:   'budget.approve',                 // activation = approbation finale → actif
+  revise:     'budget.annual.revise.request',   // proposer une révision d'enveloppe annuelle
+  reallocate: 'budget.reallocate.request',      // proposer un transfert entre enveloppes
+});
+export function budgetOpPermission(op) {
+  return BUDGET_OP_PERMISSION[op] || null;
+}

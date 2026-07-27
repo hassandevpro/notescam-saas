@@ -47,9 +47,13 @@ const TABLE_MODULE = new Map([
   // Frais de scolarité (opérationnel)
   ['student_fees', MODULE.FEES], ['fee_payments', MODULE.FEES],
   ['fee_catalog', MODULE.FEES], ['student_fee_items', MODULE.FEES],
-  // Notes / évaluation
+  // Notes / évaluation — TOUTE la surface « notes » suit la politique `notes`, y
+  // compris les notes du MOTEUR OFFICIEL (compétences/observations). Sinon, sous une
+  // politique { default: lan, notes: hybrid }, ces notes-là seraient classées `default`
+  // et bloquées à tort (H6 : « notes Cloud→LAN sous politique module », surface complète).
   ['grades', MODULE.NOTES], ['student_absences', MODULE.NOTES],
   ['attendance', MODULE.NOTES], ['sequence_dates', MODULE.NOTES],
+  ['apc_notes', MODULE.NOTES], ['mat_observations', MODULE.NOTES], ['prim_notes', MODULE.NOTES],
 ]);
 
 export function moduleOfTable(table) {

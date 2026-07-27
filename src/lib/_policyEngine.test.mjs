@@ -66,6 +66,35 @@ const P_DEFAULT_LAN = { default: { execution: 'lan' }, notes: { execution: 'hybr
 ok(!shouldPush(P_DEFAULT_LAN, 'students'), 'default=lan → students ne pousse pas');
 ok(shouldPush(P_DEFAULT_LAN, 'grades'), 'notes=hybrid surcharge default=lan → grades pousse');
 
+// ── H6 : NOTES Cloud→LAN sous politique module (surface COMPLÈTE) ─────────────
+// Toute la surface « notes » (saisie classique + moteur officiel) suit la politique
+// `notes`, indépendamment de `finance`.
+const NOTE_TABLES = ['grades', 'student_absences', 'attendance', 'sequence_dates', 'apc_notes', 'mat_observations', 'prim_notes'];
+for (const t of NOTE_TABLES) ok(moduleOfTable(t) === MODULE.NOTES, `H6 : ${t} → notes (surface complète)`);
+
+// (a) notes=hybrid ISOLÉ de finance=lan : les notes se répliquent quand même (les deux sens).
+const P_H6 = { finance: { execution: 'lan', governance: 'cloud' }, notes: { execution: 'hybrid' } };
+for (const t of NOTE_TABLES) {
+  ok(shouldPush(P_H6, t) && shouldPull(P_H6, t), `H6 : finance=lan n'affecte PAS ${t} (push+pull)`);
+}
+// La finance reste, elle, LAN-first (opérationnel non répliqué) — cloisonnement prouvé.
+ok(!shouldPull(P_H6, 'budget_expenses'), 'H6 : cloisonnement — finance opérationnelle reste LAN-only');
+
+// (b) notes=cloud (Cloud fait autorité, saisie en ligne) : PULL cloud→LAN pour TOUTES
+// les notes, jamais de push (le LAN reçoit). C'est le flux « Notes Cloud→LAN ».
+const P_H6_CLOUD = { finance: { execution: 'lan' }, notes: { execution: 'cloud' } };
+for (const t of NOTE_TABLES) {
+  ok(!shouldPush(P_H6_CLOUD, t) && shouldPull(P_H6_CLOUD, t), `H6 : notes=cloud → ${t} pull cloud→LAN seul`);
+}
+
+// (c) notes=hybrid SURCHARGE default=lan pour TOUTE la surface (y compris officiel) —
+// le trou historique (apc_notes/mat_observations/prim_notes classées `default`) est fermé.
+const P_H6_DEFLAN = { default: { execution: 'lan' }, notes: { execution: 'hybrid' } };
+for (const t of ['apc_notes', 'mat_observations', 'prim_notes']) {
+  ok(shouldPush(P_H6_DEFLAN, t) && shouldPull(P_H6_DEFLAN, t), `H6 : notes=hybrid surcharge default=lan pour ${t} (officiel)`);
+}
+ok(!shouldPush(P_H6_DEFLAN, 'students'), 'H6 : default=lan s\'applique toujours aux non-notes (students)');
+
 // ── Valeur d'exécution invalide → repli sûr (hybride) ─────────────────────────
 ok(executionMode({ finance: { execution: 'wtf' } }, MODULE.FINANCE) === 'hybrid', 'execution invalide → hybride (sûr)');
 

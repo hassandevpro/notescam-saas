@@ -21,6 +21,7 @@ import { scheduleCloudSync, syncOnce } from './cloudSync.js';
 import { scheduleEventSync } from './eventSync.js';
 import { scheduleDecisionApply } from './governanceApply.js';
 import { setSetting, isCloudSyncEnabled } from './syncFlag.js';
+import { syncHealth, hybridMode } from './syncHealth.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './cloudEnv.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -237,7 +238,21 @@ app.post('/api/migrate/cloud', async (req, reply) => {
 function hybridState() {
   const migrated = existsSync(join(DATA_DIR, 'server-token.key'));
   const row = db.prepare('SELECT school_id, cloud_url FROM migration_state WHERE id = 1').get() || null;
-  return { enabled: isCloudSyncEnabled(), migrated, schoolId: row?.school_id || null, cloudUrl: row?.cloud_url || null };
+  const enabled = isCloudSyncEnabled();
+  // Politique de déploiement répliquée depuis le Cloud (finance LAN-first + gouvernance
+  // distante) : présente = l'école est configurée hybride côté Cloud. Distinct de
+  // `enabled` (la synchro tourne-t-elle sur CE serveur). L'UI a besoin des deux.
+  let policy = null;
+  try { policy = db.prepare('SELECT deployment_policy FROM schools LIMIT 1').get()?.deployment_policy || null; } catch { /* pré-migration */ }
+  const health = syncHealth();
+  return {
+    enabled, migrated,
+    schoolId: row?.school_id || null,
+    cloudUrl: row?.cloud_url || null,
+    policy,
+    health,
+    mode: hybridMode(enabled, health),
+  };
 }
 app.get('/api/hybrid/status', () => ({ data: hybridState(), error: null }));
 

@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId } from './db.js';
 import { EDGE_BASE } from './cloudEnv.js';
 import { isCloudSyncEnabled } from './syncFlag.js';
+import { markSyncStart, markSyncSuccess, markSyncError } from './syncHealth.js';
 import { shouldPush, shouldPull } from '../src/lib/policyEngine.js';
 
 // Politique de déploiement de l'établissement (H1). Absente/vide (cas actuel de
@@ -224,11 +225,20 @@ export async function syncOnce({ edge = edgeFetch, dryRun = false } = {}) {
   return res;
 }
 
+// Cycle de synchro RÉEL (planifié) instrumenté pour la santé hybride. `syncOnce`
+// reste pur (utilisé tel quel par les tests + le dry-run) : la santé n'est
+// mesurée que pour les cycles effectivement joués par le planificateur.
+async function runScheduledSync() {
+  markSyncStart();
+  try { const r = await syncOnce(); markSyncSuccess(r); return r; }
+  catch (e) { markSyncError(e); throw e; }
+}
+
 let _timer = null;
 export function scheduleCloudSync(intervalMs = 5 * 60 * 1000) {
   if (!isCloudSyncEnabled() || !serverToken()) return false;
-  syncOnce().catch((e) => console.error('[sync] échec initial:', e.message));
-  _timer = setInterval(() => { syncOnce().catch((e) => console.error('[sync] échec:', e.message)); }, intervalMs);
+  runScheduledSync().catch((e) => console.error('[sync] échec initial:', e.message));
+  _timer = setInterval(() => { runScheduledSync().catch((e) => console.error('[sync] échec:', e.message)); }, intervalMs);
   _timer.unref?.();
   return true;
 }

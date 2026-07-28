@@ -14,7 +14,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useT } from '../lib/i18n';
-import { roleLabel } from '../lib/roleLabel';
+import { displayRoleLabel } from '../lib/roleLabel';
 import { uploadMyPhoto } from '../lib/userProfileService';
 import { ACCEPTED_IMAGE_TYPES } from '../lib/image';
 import UserAvatar from './UserAvatar';
@@ -53,6 +53,7 @@ export default function UserMenu({ onLogout }) {
   const fullName = useAuthStore((s) => s.fullName);
   const photoUrl = useAuthStore((s) => s.photoUrl);
   const role     = useAuthStore((s) => s.role);
+  const governanceRoleRows = useAuthStore((s) => s.governanceRoleRows);
   const applyProfile = useAuthStore((s) => s.applyProfile);
   const t = useT();
 
@@ -123,7 +124,7 @@ export default function UserMenu({ onLogout }) {
             <UserAvatar name={fullName} photoUrl={photoUrl} size={40} />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-800 truncate">{fullName || '—'}</p>
-              <p className="text-xs text-slate-400 truncate">{roleLabel(role, t)}</p>
+              <p className="text-xs text-slate-400 truncate">{displayRoleLabel(role, governanceRoleRows, t)}</p>
             </div>
           </div>
 

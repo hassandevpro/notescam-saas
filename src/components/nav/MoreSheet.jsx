@@ -7,12 +7,13 @@ import { usePlan } from '../../lib/plan';
 import { getNavGroups } from '../../config/navigation';
 import { ICONS, LockBadge } from './icons';
 import UserAvatar from '../UserAvatar';
-import { roleLabel } from '../../lib/roleLabel';
+import { displayRoleLabel } from '../../lib/roleLabel';
 
 // Bottom-sheet mobile : arborescence COMPLÈTE (même source que la sidebar).
 // Ouverte par le bouton « Plus » de la MobileNav.
 export default function MoreSheet({ open, onClose, onLogout }) {
   const role = useAuthStore((s) => s.role);
+  const governanceRoleRows = useAuthStore((s) => s.governanceRoleRows);
   const permissions = useAuthStore((s) => s.permissions);
   const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
   const governanceAssignments = useAuthStore((s) => s.governanceAssignments);
@@ -49,7 +50,7 @@ export default function MoreSheet({ open, onClose, onLogout }) {
             <UserAvatar name={fullName} photoUrl={photoUrl} size={36} />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-800 truncate leading-tight">{fullName || '—'}</p>
-              <p className="text-xs text-slate-400 leading-tight mt-0.5">{roleLabel(role, t)}</p>
+              <p className="text-xs text-slate-400 leading-tight mt-0.5">{displayRoleLabel(role, governanceRoleRows, t)}</p>
             </div>
             <span className="w-4 h-4 shrink-0 text-slate-300">{ICONS.chevron}</span>
           </NavLink>

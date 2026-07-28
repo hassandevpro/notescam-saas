@@ -1,0 +1,182 @@
+// server/pairing.js
+// Rattachement d'un serveur LAN à une école Cloud EXISTANTE via un CODE D'APPAIRAGE
+// (parcours industrialisé « Cloud → Hybride »). AUCUN school_id saisi, AUCUN secret
+// privilégié sur le PC : le code est échangé contre un JETON SCELLÉ borné à l'école
+// par une Edge Function (redeem-pairing-code, service_role confiné au Cloud).
+//
+// Machine à états FAIL-SAFE (décision Hassan) : on ne bascule en hybride QUE si
+//   appairage OK → synchronisation initiale OK → contrôles OK → admin local OK.
+// À la moindre erreur : on RESTE en mode Cloud (cloud_sync = 0), on NE planifie PAS
+// la synchro, on renvoie l'étape en échec. Aucune bascule « à moitié ».
+//
+// Ne DUPLIQUE rien : réutilise le jeton scellé + les edges de synchro (H1-H7,
+// cloudSync), policyEngine (via la policy migrée dans schools), syncFlag + les
+// planificateurs de index.js, et la table migration_state existante.
+
+import { writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { db, DATA_DIR, deviceId } from './db.js';
+import { hashPassword } from './security.js';
+import { EDGE_BASE } from './cloudEnv.js';
+import { setSetting } from './syncFlag.js';
+
+const TOKEN_PATH = join(DATA_DIR, 'server-token.key');
+
+// Étapes de la machine à états (exposées dans /api/pair/status pour l'assistant).
+export const PAIR_STAGES = ['redeem', 'sync', 'verify', 'admin', 'activate', 'done'];
+
+// ── Dépendances RÉELLES (injectables pour les tests hors-ligne) ────────────────
+
+// 1) Échange le code contre un jeton scellé + school_id via l'Edge (anon). L'Edge
+//    seule (service_role) consomme le code et émet le jeton ; le LAN ne voit jamais
+//    le service_role ni le school_id AVANT cet échange.
+async function edgeRedeem(code, device) {
+  const res = await fetch(`${EDGE_BASE}/redeem-pairing-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, device }),
+  });
+  const j = await res.json().catch(() => null);
+  if (!res.ok || !j?.token || !j?.school_id) {
+    throw new Error(j?.error?.message || j?.error || `redeem: HTTP ${res.status}`);
+  }
+  return { token: j.token, schoolId: j.school_id, cloudUrl: j.cloud_url || null };
+}
+
+// 2) Synchronisation initiale Cloud → LAN. Réutilise la synchro continue H1-H7
+//    (syncOnce : pull via le jeton scellé + sync-pull, LWW) — un premier passage
+//    depuis le curseur initial = pull complet de l'école. Import DYNAMIQUE pour ne
+//    pas coupler ce module (et ses tests) au planificateur.
+async function defaultInitialSync() {
+  const { syncOnce } = await import('./cloudSync.js');
+  return syncOnce();
+}
+
+// 3) Contrôle d'intégrité minimal : l'école est-elle bien arrivée localement ?
+function verifyAttached(schoolId) {
+  const school = db.prepare('SELECT id, name FROM schools WHERE id = ?').get(schoolId);
+  if (!school) throw new Error("Synchronisation initiale incomplète : l'école n'est pas présente localement.");
+  const users = db.prepare('SELECT COUNT(*) n FROM school_users WHERE school_id = ?').get(schoolId).n;
+  return { school: school.name, school_users: users };
+}
+
+// 4) Crée le compte ADMIN LOCAL de ce serveur (identifiant LOCAL, jamais un secret
+//    cloud) + le rattache à l'école en admin. Idempotent sur l'email.
+function createLocalAdmin({ email, password, fullName = 'Administrateur' }, schoolId) {
+  if (!email || !password || password.length < 6) throw new Error('Admin local : e-mail + mot de passe (≥ 6) requis.');
+  const localId = randomUUID();
+  db.prepare(`INSERT INTO users (id, email, password_hash, full_name, email_confirmed_at)
+              VALUES (?,?,?,?,?)
+              ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash, full_name = excluded.full_name`)
+    .run(localId, email, hashPassword(password), fullName, new Date().toISOString());
+  const uid = db.prepare('SELECT id FROM users WHERE email = ?').get(email).id;
+  const existing = db.prepare('SELECT id FROM school_users WHERE school_id = ? AND user_id = ?').get(schoolId, uid);
+  if (!existing) {
+    db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, active)
+                VALUES (?,?,?,?,1)`).run(randomUUID(), schoolId, uid, 'admin');
+  } else {
+    db.prepare(`UPDATE school_users SET role='admin', active=1 WHERE id = ?`).run(existing.id);
+  }
+  return uid;
+}
+
+// 5) Bascule hybride — RÉUTILISE strictement le chemin d'activation existant
+//    (drapeau persistant + planificateurs). Appelé UNIQUEMENT après succès complet.
+async function defaultEnableHybrid() {
+  setSetting('cloud_sync', '1');
+  const { scheduleCloudSync } = await import('./cloudSync.js');
+  const { scheduleEventSync } = await import('./eventSync.js');
+  const { scheduleDecisionApply } = await import('./governanceApply.js');
+  const sync = scheduleCloudSync();
+  const events = scheduleEventSync();
+  scheduleDecisionApply();
+  return { sync, events };
+}
+
+function persistAttachment(schoolId, cloudUrl, token, report) {
+  if (token) writeFileSync(TOKEN_PATH, token, { mode: 0o600 });
+  db.prepare(`INSERT INTO migration_state (id, source, school_id, cloud_url, migrated_at, report)
+              VALUES (1, 'pairing', ?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET source='pairing', school_id=excluded.school_id,
+                cloud_url=excluded.cloud_url, migrated_at=excluded.migrated_at, report=excluded.report`)
+    .run(schoolId, cloudUrl, new Date().toISOString(), JSON.stringify(report || {}));
+}
+
+// ── Orchestrateur ──────────────────────────────────────────────────────────────
+// deps injectables : { redeem, initialSync, enableHybrid, verify, makeAdmin, onStage }.
+// Renvoie { ok, stage, schoolId, integrity, hybrid, error }.
+export async function attachViaPairing({ code, localAdmin }, deps = {}) {
+  const redeem = deps.redeem || edgeRedeem;
+  const initialSync = deps.initialSync || defaultInitialSync;
+  const enableHybrid = deps.enableHybrid || defaultEnableHybrid;
+  const verify = deps.verify || verifyAttached;
+  const makeAdmin = deps.makeAdmin || createLocalAdmin;
+  const onStage = deps.onStage || (() => {});
+
+  if (!code || !String(code).trim()) return { ok: false, stage: 'redeem', error: 'Code d’appairage requis.' };
+
+  let schoolId = null;
+  const device = (() => { try { return deviceId(); } catch { return null; } })();
+
+  // (1) APPAIRAGE — échange du code contre jeton + school_id.
+  onStage('redeem');
+  let redeemed;
+  try {
+    redeemed = await redeem(String(code).trim(), device);
+    schoolId = redeemed.schoolId;
+  } catch (e) {
+    // Aucun effet de bord (pas de token écrit) → on reste 100 % Cloud.
+    return { ok: false, stage: 'redeem', error: `Appairage refusé : ${e.message}`, hybrid: false };
+  }
+
+  // Persiste le jeton + l'état (nécessaire pour la synchro). NE bascule PAS l'hybride.
+  setSetting('cloud_sync', '0'); // sécurité : la synchro ne tourne PAS tant que non validée
+  persistAttachment(schoolId, redeemed.cloudUrl, redeemed.token, { stage: 'redeemed' });
+
+  // (2) SYNCHRONISATION INITIALE Cloud → LAN.
+  onStage('sync');
+  try {
+    await initialSync();
+  } catch (e) {
+    return { ok: false, stage: 'sync', schoolId, error: `Synchronisation initiale échouée : ${e.message}`, hybrid: false };
+  }
+
+  // (3) CONTRÔLES.
+  onStage('verify');
+  let integrity;
+  try {
+    integrity = verify(schoolId);
+  } catch (e) {
+    return { ok: false, stage: 'verify', schoolId, error: e.message, hybrid: false };
+  }
+
+  // (4) ADMIN LOCAL.
+  onStage('admin');
+  try {
+    if (localAdmin) makeAdmin(localAdmin, schoolId);
+  } catch (e) {
+    return { ok: false, stage: 'admin', schoolId, error: e.message, hybrid: false };
+  }
+
+  // (5) ACTIVATION HYBRIDE — UNIQUEMENT ici, tout le reste ayant réussi.
+  onStage('activate');
+  try {
+    await enableHybrid();
+  } catch (e) {
+    // La synchro peut échouer à démarrer : on retombe en Cloud sûr (pas de bascule).
+    setSetting('cloud_sync', '0');
+    return { ok: false, stage: 'activate', schoolId, integrity, error: `Activation hybride échouée : ${e.message}`, hybrid: false };
+  }
+
+  onStage('done');
+  persistAttachment(schoolId, redeemed.cloudUrl, redeemed.token, { stage: 'done', integrity });
+  return { ok: true, stage: 'done', schoolId, integrity, hybrid: true };
+}
+
+// État courant (pour l'assistant) : déjà appairé ? mode ?
+export function pairingState() {
+  const migrated = existsSync(TOKEN_PATH);
+  const row = db.prepare('SELECT source, school_id FROM migration_state WHERE id = 1').get() || null;
+  return { migrated, source: row?.source || null, schoolId: row?.school_id || null };
+}

@@ -22,6 +22,7 @@ import { scheduleEventSync } from './eventSync.js';
 import { scheduleDecisionApply } from './governanceApply.js';
 import { setSetting, isCloudSyncEnabled } from './syncFlag.js';
 import { syncHealth, hybridMode } from './syncHealth.js';
+import { attachViaPairing, pairingState } from './pairing.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './cloudEnv.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -225,6 +226,25 @@ app.post('/api/migrate/cloud', async (req, reply) => {
     // URL + clé anon par défaut depuis l'env du serveur (cloudCfg) → l'école ne
     // saisit que ses identifiants cloud dans l'assistant.
     const res = await runMigration({ ...cloudCfg(req.body), email, password, localPassword });
+    return { data: res, error: null };
+  } catch (e) {
+    return reply.code(400).send({ error: { message: e.message } });
+  }
+});
+
+// ── APPAIRAGE (parcours industrialisé « Cloud → Hybride ») ──────────────────────
+// L'installateur saisit un CODE d'appairage (généré côté Cloud dans les Paramètres
+// de l'école). Le serveur l'échange contre un jeton scellé + school_id via l'Edge,
+// fait la synchro initiale, contrôle, crée l'admin local, puis — SI tout réussit —
+// bascule en hybride. Aucun school_id saisi, aucun secret privilégié sur le PC.
+app.get('/api/pair/status', () => ({ data: pairingState(), error: null }));
+
+app.post('/api/pair/redeem', async (req, reply) => {
+  if (!migrationOpen()) return reply.code(409).send({ error: { message: 'Base non vide : appairage impossible sur ce serveur.' } });
+  const { code, localAdmin } = req.body || {};
+  try {
+    const res = await attachViaPairing({ code, localAdmin });
+    if (!res.ok) return reply.code(400).send({ error: { message: res.error, stage: res.stage } });
     return { data: res, error: null };
   } catch (e) {
     return reply.code(400).send({ error: { message: e.message } });

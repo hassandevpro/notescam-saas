@@ -48,9 +48,25 @@ async function edgeRedeem(code, device) {
 //    (syncOnce : pull via le jeton scellé + sync-pull, LWW) — un premier passage
 //    depuis le curseur initial = pull complet de l'école. Import DYNAMIQUE pour ne
 //    pas coupler ce module (et ses tests) au planificateur.
+//    CHARGEMENT EN MASSE : comme runMigration (migrate.js), on SUSPEND les FK le
+//    temps du pull initial (ordre d'insertion et self-références non bloquants), puis
+//    on les RÉ-active. Sinon, sur une base vide, les lignes filles arrivent avant
+//    leurs parents → « FOREIGN KEY constraint failed » et données perdues.
 async function defaultInitialSync() {
   const { syncOnce } = await import('./cloudSync.js');
-  return syncOnce();
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    // DRAIN complet : sync-pull renvoie des LOTS (curseur). Un seul passage ne tire
+    // qu'un lot partiel — on répète jusqu'à ce que plus rien n'arrive, pour que la
+    // base locale soit COMPLÈTE avant les contrôles + l'activation hybride.
+    let total = 0, last;
+    for (let i = 0; i < 200; i++) {
+      last = await syncOnce();
+      total += last?.pulled || 0;
+      if (!last?.pulled) break;
+    }
+    return { ...(last || {}), pulledTotal: total };
+  } finally { db.exec('PRAGMA foreign_keys = ON'); }
 }
 
 // 3) Contrôle d'intégrité minimal : l'école est-elle bien arrivée localement ?

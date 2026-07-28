@@ -84,7 +84,10 @@ Deno.serve(async (req) => {
       .select('updated_at, version, device_id').eq('id', id).maybeSingle();
     if (existing && !wins(ch.row, existing)) { skipped++; continue; }
     const { error } = await admin.from(ch.table).upsert(ch.row, { onConflict: 'id' });
-    if (error) { skipped++; continue; }
+    // On LOGUE l'erreur (au lieu de l'avaler en silence) : une écriture cloud
+    // rejetée n'était pas diagnosticable auparavant. La ligne est tout de même
+    // ignorée (ne bloque pas le lot), mais l'erreur est désormais visible.
+    if (error) { console.log('[sync-push] upsert error', ch.table, id, error.message); skipped++; continue; }
     applied++;
   }
 

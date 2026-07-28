@@ -17,6 +17,7 @@ import { IS_LAN } from '../lib/edition';
 
 export default function CloudMigrationWizard() {
   const [open, setOpen] = useState(false);
+  const [forced, setForced] = useState(false); // ouvert manuellement (bouton accueil)
   const [stage, setStage] = useState('choice'); // choice | pair | pairing | pairDone | form | running | done | error
   const [dismissed, setDismissed] = useState(false);
   const [form, setForm] = useState({ email: '', password: '', localPassword: '' });
@@ -29,9 +30,15 @@ export default function CloudMigrationWizard() {
     if (!IS_LAN) return;
     fetch('/api/migrate/status').then((r) => r.json())
       .then((j) => setOpen(!!j?.data?.open)).catch(() => {});
+    // Ouverture MANUELLE depuis l'accueil (bouton « Connecter à une école Cloud ») :
+    // l'assistant s'ouvre directement sur la saisie du code, même si la base n'est
+    // pas vide (le serveur refusera alors proprement l'appairage : base non vide).
+    const openPair = () => { setDismissed(false); setForced(true); setStage('pair'); setError(''); setErrStage(''); };
+    window.addEventListener('open-cloud-pairing', openPair);
+    return () => window.removeEventListener('open-cloud-pairing', openPair);
   }, []);
 
-  if (!IS_LAN || !open || dismissed) return null;
+  if (!IS_LAN || (!open && !forced) || dismissed) return null;
 
   // ── Parcours 1 : code d'appairage (normal) ─────────────────────────────────
   async function runPairing() {
@@ -118,7 +125,10 @@ export default function CloudMigrationWizard() {
             </p>
             {error && <div className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">⚠️ {error}{errStage ? ` (étape : ${errStage})` : ''}</div>}
             <div className="flex gap-2">
-              <button className="flex-1 rounded border py-2 text-sm text-gray-600 hover:bg-gray-50" onClick={() => { setStage('choice'); setError(''); }}>Retour</button>
+              <button className="flex-1 rounded border py-2 text-sm text-gray-600 hover:bg-gray-50"
+                onClick={() => { if (forced) { setForced(false); setDismissed(true); } else { setStage('choice'); } setError(''); }}>
+                {forced ? 'Fermer' : 'Retour'}
+              </button>
               <button className="flex-[2] rounded bg-sky-600 py-2 font-semibold text-white disabled:opacity-50"
                 disabled={!pair.code.trim() || !pair.email.trim() || pair.password.length < 6}
                 onClick={runPairing}>Rattacher & activer l'hybride</button>

@@ -3,6 +3,7 @@ import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { useT } from '../lib/i18n';
+import { IS_LAN } from '../lib/edition';
 import LogoMark from '../components/LogoMark';
 
 function EyeIcon({ open }) {
@@ -183,6 +184,19 @@ export default function Login() {
               }
             </button>
           </form>
+
+          {/* Édition LAN : rattacher CE serveur à une école Cloud existante via un
+              code d'appairage (ouvre l'assistant). Aucun compte local, aucune école
+              recréée — l'école Cloud est récupérée avec son même school_id. */}
+          {IS_LAN && (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-cloud-pairing'))}
+              className="w-full mt-3 py-3 px-5 border-2 border-sky-500 text-sky-700 hover:bg-sky-50 font-semibold text-sm rounded-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+            >
+              🔗 {t('Connecter à une école Cloud', 'Connect to a Cloud school')}
+            </button>
+          )}
 
           {/* Liens */}
           <div className="mt-6 pt-5 border-t border-slate-100 space-y-2 text-center">

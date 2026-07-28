@@ -43,6 +43,14 @@ const PULL_ORDER = [
   'budgets', 'budget_periods', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',
   'budget_reallocations', 'budget_revisions', 'budget_line_periods', 'budget_line_sectors',
   'budget_line_reallocations',
+  // Modules additionnels renvoyés par sync-pull (étaient IGNORÉS ici → données
+  // absentes côté LAN). Ordre FK : parents avant enfants.
+  'governance_roles', 'user_governance_roles', 'governance_role_history',
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  'fee_catalog', 'student_fee_items',
+  'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
+  'signalement_comments', 'signalement_history',
+  'notifications', 'notification_outbox',
   'attendance', 'student_absences', 'student_class_assignments',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ];
@@ -82,6 +90,14 @@ function rawUpsert(table, row) {
   const rec = {};
   for (const [k, v] of Object.entries(row)) if (cols.has(k)) rec[k] = normalizeValue(v);
   if (!('id' in rec)) return false;
+  // Robustesse Cloud→LAN : des lignes cloud réelles ont created_at/updated_at NULL
+  // alors que ces colonnes d'audit sont NOT NULL côté LAN → sans ceci, la ligne est
+  // REJETÉE (perte de données : students, governance_roles…). On défaute au « maintenant »
+  // (neutre pour LWW : une valeur null équivalait déjà à epoch 0). Sans effet sur les
+  // lignes déjà horodatées.
+  const nowIso = new Date().toISOString();
+  if (cols.has('created_at') && rec.created_at == null) rec.created_at = nowIso;
+  if (cols.has('updated_at') && rec.updated_at == null) rec.updated_at = nowIso;
   const keys = Object.keys(rec);
   const ph = keys.map(() => '?').join(', ');
   const upd = keys.filter((c) => c !== 'id').map((c) => `"${c}" = excluded."${c}"`).join(', ');

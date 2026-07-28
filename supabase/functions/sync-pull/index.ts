@@ -44,25 +44,56 @@ Deno.serve(async (req) => {
   const rows: Record<string, unknown[]> = {};
   let maxCursor = since || '';
 
-  for (const t of TABLES) {
-    const scopeCol = t === 'schools' ? 'id' : 'school_id';
-    let q = admin.from(t).select('*').eq(scopeCol, schoolId).order('updated_at', { ascending: true }).limit(PAGE);
-    if (since) q = q.gt('updated_at', since);
-    const { data, error } = await q;
-    if (error) return json(400, { error: `${t}: ${error.message}` });
-    rows[t] = data || [];
-    for (const r of rows[t] as Array<{ updated_at?: string }>) {
-      if (r.updated_at && r.updated_at > maxCursor) maxCursor = r.updated_at;
+  // Drain COMPLET par table (pagination `range`, comme migrate.pullAll) : on ne
+  // s'arrête plus à PAGE=1000. Un seul curseur `updated_at` global reste correct
+  // car AUCUNE ligne n'est tronquée — les appels suivants (incrémental) ne
+  // renvoient donc que les vraies nouveautés (> curseur), sans saut ni perte.
+  async function drain(t: string, scopeCol: string): Promise<unknown[]> {
+    const out: unknown[] = [];
+    for (let from = 0; ; from += PAGE) {
+      // Ordre par updated_at seul (certaines tables ont une clé composite, sans
+      // colonne `id` → un .order('id') échouerait). `range` suffit à drainer la
+      // totalité (comme migrate.pullAll) sur un jeu de données stable pendant le pull.
+      let q = admin.from(t).select('*').eq(scopeCol, schoolId)
+        .order('updated_at', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (since) q = q.gt('updated_at', since);
+      const { data, error } = await q;
+      if (error) throw new Error(`${t}: ${error.message}`);
+      out.push(...(data || []));
+      if (!data || data.length < PAGE) break;
     }
+    return out;
   }
 
-  let tq = admin.from('sync_tombstones').select('*').eq('school_id', schoolId).order('deleted_at', { ascending: true }).limit(PAGE);
-  if (tomb_since) tq = tq.gt('deleted_at', tomb_since);
-  const { data: tombstones } = await tq;
+  try {
+    for (const t of TABLES) {
+      const scopeCol = t === 'schools' ? 'id' : 'school_id';
+      rows[t] = await drain(t, scopeCol);
+      for (const r of rows[t] as Array<{ updated_at?: string }>) {
+        if (r.updated_at && r.updated_at > maxCursor) maxCursor = r.updated_at;
+      }
+    }
+  } catch (e) {
+    return json(400, { error: (e as Error).message });
+  }
+
+  // Tombstones : drain complet aussi (pagination par `deleted_at`).
+  const tombstones: unknown[] = [];
   let tombCursor = tomb_since || '';
-  for (const t of (tombstones || []) as Array<{ deleted_at?: string }>) {
-    if (t.deleted_at && t.deleted_at > tombCursor) tombCursor = t.deleted_at;
+  for (let from = 0; ; from += PAGE) {
+    let tq = admin.from('sync_tombstones').select('*').eq('school_id', schoolId)
+      .order('deleted_at', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (tomb_since) tq = tq.gt('deleted_at', tomb_since);
+    const { data, error } = await tq;
+    if (error) return json(400, { error: `sync_tombstones: ${error.message}` });
+    tombstones.push(...(data || []));
+    for (const t of (data || []) as Array<{ deleted_at?: string }>) {
+      if (t.deleted_at && t.deleted_at > tombCursor) tombCursor = t.deleted_at;
+    }
+    if (!data || data.length < PAGE) break;
   }
 
-  return json(200, { rows, tombstones: tombstones || [], cursor: maxCursor || null, tomb_cursor: tombCursor || null });
+  return json(200, { rows, tombstones, cursor: maxCursor || null, tomb_cursor: tombCursor || null });
 });

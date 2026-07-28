@@ -94,6 +94,20 @@ function createLocalAdmin({ email, password, fullName = 'Administrateur' }, scho
   } else {
     db.prepare(`UPDATE school_users SET role='admin', active=1 WHERE id = ?`).run(existing.id);
   }
+  // Rôle de GOUVERNANCE : sans lui, l'admin local n'a AUCUNE permission métier
+  // (budget.prepare, etc.) → il ne peut ni créer un budget ni piloter la gouvernance.
+  // On lui attribue le rôle de rang le plus élevé du catalogue de l'école (typiquement
+  // « fondatrice »), déjà synchronisé avant cette étape. Idempotent, LAN-only.
+  try {
+    const top = db.prepare(
+      "SELECT code FROM governance_roles WHERE school_id = ? AND active = 1 ORDER BY rank DESC LIMIT 1"
+    ).get(schoolId);
+    if (top && !db.prepare('SELECT 1 FROM user_governance_roles WHERE school_id = ? AND user_id = ? AND role = ?').get(schoolId, uid, top.code)) {
+      const now = new Date().toISOString();
+      db.prepare(`INSERT INTO user_governance_roles (id, school_id, user_id, role, created_at, updated_at, status, version)
+                  VALUES (?,?,?,?,?,?,?,?)`).run(randomUUID(), schoolId, uid, top.code, now, now, 'active', 1);
+    }
+  } catch { /* pas de catalogue de gouvernance : admin local sans rôle métier (dégradé) */ }
   return uid;
 }
 

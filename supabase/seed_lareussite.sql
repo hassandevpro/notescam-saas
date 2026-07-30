@@ -408,4 +408,20 @@ FROM (VALUES
  ((SELECT coord FROM _fin),'coordonnateur_general','unlock.pending','Demande de déblocage de ligne','Sécurité : demande de 250 000 FCFA en attente de décision.')
 ) r(rid,role,type,title,body);
 
+-- ════ NORMALISATION updated_at ════
+-- Plusieurs tables n'ont pas de DEFAULT sur updated_at : sans valeur, une ligne à
+-- updated_at NULL n'est JAMAIS reprise par la synchro incrémentale (le curseur
+-- .gt('updated_at',…) exclut NULL) → le drain d'appairage ne converge pas. On
+-- garantit donc un updated_at sur toutes les lignes du seed.
+DO $$
+DECLARE t text;
+  tbls text[] := ARRAY['teachers','staff','fee_catalog','student_fee_items','budget_chapters','budget_expenses','budget_unlock_requests','notifications','user_governance_roles'];
+BEGIN
+  FOREACH t IN ARRAY tbls LOOP
+    EXECUTE format('UPDATE %I SET updated_at=now() WHERE school_id=%L AND device_id=%L AND updated_at IS NULL',
+                   t, '31c70a36-065e-4933-a40c-1e9c051d1afc', 'seed-lareussite-v1');
+  END LOOP;
+  UPDATE school_units SET updated_at=now() WHERE school_id='31c70a36-065e-4933-a40c-1e9c051d1afc' AND updated_at IS NULL;
+END $$;
+
 COMMIT;

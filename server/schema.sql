@@ -168,7 +168,7 @@ CREATE TABLE IF NOT EXISTS grades (
   student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
   sequence   INTEGER NOT NULL,
-  value      TEXT NOT NULL,
+  value      TEXT,               -- nullable : parité Cloud (une note vide = élève absent à l'évaluation) ; sinon le pull LAN rejette ces lignes (NOT NULL)
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(class_id, student_id, subject_id, sequence)
 );

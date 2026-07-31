@@ -22,20 +22,30 @@ const DIRECTION_PAGES = ['/app/groupe', '/app/reports', ...BUDGET_PAGES];
 // `permissions` = droits de consultation/préparation ; `workflows` = droits
 // d'approbation/validation/décaissement/décision (le moteur unit les deux).
 export const DEFAULT_CATALOG = [
+  // Fondatrice & Coordonnateur : mêmes CAPACITÉS FINANCIÈRES que l'Administrateur
+  // (créer/gérer budgets, lignes, allocations, dépenses, opérations) — via
+  // permissions configurables, jamais un test de rôle codé en dur. L'autorité de
+  // validation/approbation reste soumise aux règles de gouvernance existantes.
   {
     code: 'fondatrice', name: 'Fondatrice', description: 'Autorité suprême du complexe',
     rank: 100, scope: 'complex', sector: null,
-    permissions: [P.MANAGE, P.VIEW, P.BUDGET_VIEW, P.EXPENSE_VIEW],
+    permissions: [P.MANAGE, P.VIEW, P.BUDGET_VIEW, P.BUDGET_PREPARE, P.BUDGET_SUBMIT,
+      P.EXPENSE_VIEW, P.EXPENSE_PREPARE, P.EXPENSE_SUBMIT, P.UNLOCK_REQUEST,
+      P.REALLOCATE_REQUEST, P.ANNUAL_REVISE_REQUEST],
     workflows: [P.BUDGET_VALIDATE_SECTOR, P.BUDGET_VALIDATE_FINANCE, P.BUDGET_APPROVE,
-      P.BUDGET_CLOSE, P.BUDGET_REOPEN, P.EXPENSE_APPROVE, P.EXPENSE_REJECT, P.UNLOCK_DECIDE],
+      P.BUDGET_CLOSE, P.BUDGET_REOPEN, P.EXPENSE_APPROVE, P.EXPENSE_REJECT, P.EXPENSE_PAY,
+      P.UNLOCK_DECIDE, P.REALLOCATE_DECIDE, P.ANNUAL_REVISE],
     pages: DIRECTION_PAGES, dashboards: ['group', 'budget-global'],
   },
   {
     code: 'coordonnateur_general', name: 'Coordonnateur Général', description: 'Direction générale du complexe',
     rank: 90, scope: 'complex', sector: null,
-    permissions: [P.MANAGE, P.VIEW, P.BUDGET_VIEW, P.EXPENSE_VIEW],
+    permissions: [P.MANAGE, P.VIEW, P.BUDGET_VIEW, P.BUDGET_PREPARE, P.BUDGET_SUBMIT,
+      P.EXPENSE_VIEW, P.EXPENSE_PREPARE, P.EXPENSE_SUBMIT, P.UNLOCK_REQUEST,
+      P.REALLOCATE_REQUEST, P.ANNUAL_REVISE_REQUEST],
     workflows: [P.BUDGET_VALIDATE_SECTOR, P.BUDGET_VALIDATE_FINANCE, P.BUDGET_APPROVE,
-      P.BUDGET_CLOSE, P.BUDGET_REOPEN, P.EXPENSE_APPROVE, P.EXPENSE_REJECT, P.UNLOCK_DECIDE],
+      P.BUDGET_CLOSE, P.BUDGET_REOPEN, P.EXPENSE_APPROVE, P.EXPENSE_REJECT, P.EXPENSE_PAY,
+      P.UNLOCK_DECIDE, P.REALLOCATE_DECIDE, P.ANNUAL_REVISE],
     pages: DIRECTION_PAGES, dashboards: ['group', 'budget-global'],
   },
   {

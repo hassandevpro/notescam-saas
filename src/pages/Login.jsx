@@ -3,6 +3,8 @@ import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { useT } from '../lib/i18n';
+import { IS_LAN } from '../lib/edition';
+import { useLanHasSchool } from '../lib/lanSetup';
 import LogoMark from '../components/LogoMark';
 
 function EyeIcon({ open }) {
@@ -23,6 +25,9 @@ export default function Login() {
   const navigate = useNavigate();
   const session  = useAuthStore((s) => s.session);
   const loading  = useAuthStore((s) => s.loading);
+  // En LAN, masque « Créer un établissement » dès qu'une école existe sur le serveur.
+  const lanHasSchool = useLanHasSchool();
+  const showRegister = !(IS_LAN && lanHasSchool === true);
 
   const [email,       setEmail]       = useState('');
   const [password,    setPassword]    = useState('');
@@ -184,14 +189,29 @@ export default function Login() {
             </button>
           </form>
 
+          {/* Édition LAN : rattacher CE serveur à une école Cloud existante via un
+              code d'appairage (ouvre l'assistant). Aucun compte local, aucune école
+              recréée — l'école Cloud est récupérée avec son même school_id. */}
+          {IS_LAN && (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-cloud-pairing'))}
+              className="w-full mt-3 py-3 px-5 border-2 border-sky-500 text-sky-700 hover:bg-sky-50 font-semibold text-sm rounded-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+            >
+              🔗 {t('Connecter à une école Cloud', 'Connect to a Cloud school')}
+            </button>
+          )}
+
           {/* Liens */}
           <div className="mt-6 pt-5 border-t border-slate-100 space-y-2 text-center">
-            <p className="text-sm text-slate-500">
-              {t('Pas de compte ?', 'No account?')}{' '}
-              <Link to="/signup" className="text-terracotta-600 font-semibold hover:text-terracotta-700 transition-colors">
-                {t('Créer un établissement', 'Create a school')}
-              </Link>
-            </p>
+            {showRegister && (
+              <p className="text-sm text-slate-500">
+                {t('Pas de compte ?', 'No account?')}{' '}
+                <Link to="/signup" className="text-terracotta-600 font-semibold hover:text-terracotta-700 transition-colors">
+                  {t('Créer un établissement', 'Create a school')}
+                </Link>
+              </p>
+            )}
             <p className="text-sm text-slate-500">
               {t('Enseignant ?', 'Teacher?')}{' '}
               <Link to="/teacher-signup" className="text-terracotta-600 font-semibold hover:text-terracotta-700 transition-colors">

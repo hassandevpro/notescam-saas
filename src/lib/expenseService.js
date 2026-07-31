@@ -2,6 +2,8 @@
 // En LAN, `./supabase` est aliasé vers localClient (Vite) : mêmes appels.
 import { supabase } from './supabase';
 import { uuid } from './uuid';
+import { emitFinanceEvent } from '../domains/finance/emit';
+import { AGGREGATE, EVT, expenseEventType } from '../domains/finance/events';
 
 function nn(v) { return v === '' || v === undefined ? null : v; }
 
@@ -18,11 +20,14 @@ export async function upsertExpense(row) {
   const payload = {
     id: row.id || uuid(),
     school_id: row.school_id,
-    budget_id: row.budget_id,                    // rattachement obligatoire au budget
+    budget_id: row.budget_id,                    // rattachement obligatoire au budget (annuel en v3)
     budget_chapter_id: nn(row.budget_chapter_id),
+    // ── Modèle CIBLE v3 : imputation RÉELLE (période + secteur, NULL = Complexe/Global) ──
+    budget_period_id: nn(row.budget_period_id),
+    school_unit_id: nn(row.school_unit_id),
     category: nn(row.category),
     subcategory: nn(row.subcategory),
-    sector: nn(row.sector),
+    sector: nn(row.sector),                       // LEGACY (libellé dénormalisé)
     supplier: nn(row.supplier),
     amount: Number(row.amount) || 0,
     requester: nn(row.requester),
@@ -40,12 +45,25 @@ export async function upsertExpense(row) {
   };
   const { data, error } = await supabase
     .from('budget_expenses').upsert(payload, { onConflict: 'id' }).select().single();
-  if (error) { console.error('upsertExpense', error); return null; }
-  return data;
+  // Remonte le message serveur (enforcement E3 : imputation, chaîne, permissions).
+  if (error) { console.error('upsertExpense', error); return { data: null, error }; }
+  // H2 (observation) : émet le fait accompli — statut résultant → type d'événement.
+  // Best-effort, n'altère ni ne retarde le retour ci-dessous.
+  emitFinanceEvent({
+    aggregateType: AGGREGATE.EXPENSE, aggregateId: data.id, correlationId: data.id,
+    schoolId: data.school_id, eventType: expenseEventType(data.status),
+    payload: {
+      status: data.status, amount: data.amount, budget_id: data.budget_id,
+      budget_chapter_id: data.budget_chapter_id, version: data.version,
+    },
+  });
+  return { data, error: null };
 }
 
 export async function deleteExpense(id) {
   const { error } = await supabase.from('budget_expenses').delete().eq('id', id);
   if (error) { console.error('deleteExpense', error); return false; }
+  // H2 (observation) : suppression d'un brouillon tracée comme fait.
+  emitFinanceEvent({ aggregateType: AGGREGATE.EXPENSE, aggregateId: id, correlationId: id, eventType: EVT.EXPENSE_DELETED });
   return true;
 }

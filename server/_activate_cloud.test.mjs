@@ -54,7 +54,7 @@ const clientFactory = () => ({
 // --- Chargement modules (après env + stubs) ---------------------------
 const { db } = await import('./db.js');
 const { hashPassword } = await import('./security.js');
-const { signupCloud, verifyCloud, runCloudActivation, getActivation } = await import('./activateCloud.js');
+const { signupCloud, verifyCloud, runCloudActivation, getActivation, PUSH_ORDER } = await import('./activateCloud.js');
 
 let pass = 0, fail = 0;
 const ok = (c, label, got) => { if (c) { console.log(`✅ ${label}`); pass++; } else { console.log(`❌ ${label} (obtenu: ${JSON.stringify(got)})`); fail++; } };
@@ -111,7 +111,7 @@ ok(db.prepare("SELECT cloud_user_id FROM users WHERE id = 'u-prof'").get().cloud
 ok(existsSync(join(dir, 'server-token.key')) && readFileSync(join(dir, 'server-token.key'), 'utf8') === 'TESTTOKEN', 'jeton serveur stocké');
 ok(getActivation()?.phase === 'done', 'phase finale = done', getActivation()?.phase);
 ok((getActivation()?.log || '').includes('Activation Cloud terminée'), 'journal de migration renseigné');
-ok(db.prepare('SELECT COUNT(*) n FROM cloud_push_state WHERE done = 1').get().n === 16, '16 tables marquées terminées (reprise)', db.prepare('SELECT COUNT(*) n FROM cloud_push_state WHERE done = 1').get().n);
+ok(db.prepare('SELECT COUNT(*) n FROM cloud_push_state WHERE done = 1').get().n === PUSH_ORDER.length, `${PUSH_ORDER.length} tables marquées terminées (reprise) = longueur de PUSH_ORDER`, db.prepare('SELECT COUNT(*) n FROM cloud_push_state WHERE done = 1').get().n);
 
 // ===== REPRISE : 2e exécution ne re-pousse rien (tables déjà done) =====
 pushCalls = 0;

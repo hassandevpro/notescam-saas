@@ -14,14 +14,14 @@ import {
 let failed = false;
 const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed = true; };
 
-// --- Organigramme : 9 rôles attendus ----------------------------------------
+// --- Organigramme : 10 rôles attendus (H4 : + contrôleur) -------------------
 const EXPECTED = [
   'fondatrice', 'coordonnateur_general', 'responsable_maternelle',
   'directrice_primaire', 'directrice_adjointe_primaire', 'principal',
-  'vice_principal', 'raf', 'caissier',
+  'vice_principal', 'raf', 'caissier', 'controleur',
 ];
-ok(GOVERNANCE_ROLES.length === 9, '9 rôles de gouvernance définis');
-ok(EXPECTED.every((r) => GOVERNANCE_ROLE_IDS.includes(r)), 'les 9 rôles demandés sont présents');
+ok(GOVERNANCE_ROLES.length === 10, '10 rôles de gouvernance définis (contrôleur ajouté en H4)');
+ok(EXPECTED.every((r) => GOVERNANCE_ROLE_IDS.includes(r)), 'les 10 rôles demandés sont présents');
 ok(roleRank('fondatrice') > roleRank('coordonnateur_general')
   && roleRank('coordonnateur_general') > roleRank('caissier'), 'hiérarchie des rangs cohérente');
 ok(topRole(['caissier', 'raf', 'fondatrice']) === 'fondatrice', 'topRole = rôle de plus haut rang');

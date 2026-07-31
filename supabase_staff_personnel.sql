@@ -50,21 +50,25 @@ ALTER TABLE public.teachers ADD COLUMN IF NOT EXISTS documents jsonb;
 -- RLS — même modèle que les autres tables (membre actif de l'école)
 ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "school members read staff" ON public.staff;
 CREATE POLICY "school members read staff" ON public.staff
   FOR SELECT USING (
     school_id IN (SELECT school_id FROM public.school_users WHERE user_id = auth.uid() AND active = true)
   );
 
+DROP POLICY IF EXISTS "school members insert staff" ON public.staff;
 CREATE POLICY "school members insert staff" ON public.staff
   FOR INSERT WITH CHECK (
     school_id IN (SELECT school_id FROM public.school_users WHERE user_id = auth.uid() AND active = true)
   );
 
+DROP POLICY IF EXISTS "school members update staff" ON public.staff;
 CREATE POLICY "school members update staff" ON public.staff
   FOR UPDATE USING (
     school_id IN (SELECT school_id FROM public.school_users WHERE user_id = auth.uid() AND active = true)
   );
 
+DROP POLICY IF EXISTS "school members delete staff" ON public.staff;
 CREATE POLICY "school members delete staff" ON public.staff
   FOR DELETE USING (
     school_id IN (SELECT school_id FROM public.school_users WHERE user_id = auth.uid() AND active = true)

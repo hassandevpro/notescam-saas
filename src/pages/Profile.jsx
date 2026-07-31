@@ -13,7 +13,7 @@ import Layout from '../components/Layout';
 import UserAvatar from '../components/UserAvatar';
 import { useAuthStore } from '../store/authStore';
 import { useT, localeForLang } from '../lib/i18n';
-import { roleLabel } from '../lib/roleLabel';
+import { displayRoleLabel } from '../lib/roleLabel';
 import { supabase } from '../lib/supabase';
 import { getDaysUntilLicenseExpires } from '../lib/auth';
 import { updateMyProfile, uploadMyPhoto, removeMyPhoto } from '../lib/userProfileService';
@@ -65,6 +65,7 @@ export default function Profile() {
   const phone       = useAuthStore((s) => s.phone);
   const photoUrl    = useAuthStore((s) => s.photoUrl);
   const role        = useAuthStore((s) => s.role);
+  const governanceRoleRows = useAuthStore((s) => s.governanceRoleRows);
   const specialty   = useAuthStore((s) => s.specialty);
   const createdAt   = useAuthStore((s) => s.createdAt);
   const lastLogin   = useAuthStore((s) => s.lastLogin);
@@ -179,7 +180,7 @@ export default function Profile() {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-white truncate">{fullName || '—'}</h1>
-              <p className="text-sm text-white/80">{roleLabel(role, t)}{isTeacher && specialty ? ` · ${specialty}` : ''}</p>
+              <p className="text-sm text-white/80">{displayRoleLabel(role, governanceRoleRows, t)}{isTeacher && specialty ? ` · ${specialty}` : ''}</p>
             </div>
           </div>
           <input ref={fileRef} type="file" accept={ACCEPTED_IMAGE_TYPES.join(',')} className="hidden" onChange={onPickPhoto} />
@@ -200,7 +201,7 @@ export default function Profile() {
                 <InfoLine label={t('Nom complet', 'Full name', 'Nombre completo')} value={fullName} />
                 <InfoLine label={t('Email', 'Email', 'Correo')} value={user?.email} />
                 <InfoLine label={t('Téléphone', 'Phone', 'Teléfono')} value={phone} mono />
-                <InfoLine label={t('Rôle', 'Role', 'Rol')} value={roleLabel(role, t)} />
+                <InfoLine label={t('Rôle', 'Role', 'Rol')} value={displayRoleLabel(role, governanceRoleRows, t)} />
                 {isTeacher && <InfoLine label={t('Matière enseignée', 'Subject taught', 'Asignatura')} value={specialty} />}
                 {infoMsg?.type === 'ok' && <p className="text-sm text-emerald-600 mt-3">✓ {infoMsg.text}</p>}
               </div>

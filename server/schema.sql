@@ -168,7 +168,7 @@ CREATE TABLE IF NOT EXISTS grades (
   student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
   sequence   INTEGER NOT NULL,
-  value      TEXT NOT NULL,
+  value      TEXT,               -- nullable : parité Cloud (une note vide = élève absent à l'évaluation) ; sinon le pull LAN rejette ces lignes (NOT NULL)
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(class_id, student_id, subject_id, sequence)
 );
@@ -263,37 +263,82 @@ CREATE TABLE IF NOT EXISTS fee_payments (
 -- Enveloppe prévisionnelle : période (annuel/trimestriel/mensuel) + secteur +
 -- statut (draft/active/closed). Les chapitres/sous-chapitres portent les montants
 -- PRÉVUS. Dépenses réelles & validations = itérations suivantes (modèle extensible).
+-- Modèle CIBLE (hiérarchie) : un budget = un NŒUD arborescent typé par `tier`
+--   annual  → racine unique par (école, année). Porte `envelope_amount` (plafond).
+--   period  → enfant d'un `annual`, rattaché à une `academic_periods`. Porte `envelope_amount`.
+--   sector  → enfant d'un `period`, rattaché à une `school_units`. Porte `allocation_pct`
+--             (+ `sector_amount` résolu, conservé pour la traçabilité montant ET %).
+-- `tier` NULL = ancien budget « à plat » (transitoire : l'app y migre en P4, colonnes
+-- héritées retirées en P7). Les contraintes de forme (CHECK) + de cohérence inter-lignes
+-- (triggers `budgets_hier_guard_*`) ne s'appliquent QUE lorsque `tier` est renseigné,
+-- donc zéro régression pour les lignes héritées.
 CREATE TABLE IF NOT EXISTS budgets (
   id             TEXT PRIMARY KEY,
   school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
   academic_year  TEXT NOT NULL,
-  period_type    TEXT NOT NULL DEFAULT 'annuel',   -- annuel|trimestriel|mensuel
-  period_ref     INTEGER,                          -- trimestre 1..3 / mois 1..12 ; NULL en annuel
+  -- ── Hiérarchie cible ──────────────────────────────────────────────
+  tier               TEXT,                                                  -- annual|period|sector (NULL = hérité)
+  parent_budget_id   TEXT REFERENCES budgets(id) ON DELETE CASCADE,         -- annual←period←sector
+  academic_period_id TEXT REFERENCES academic_periods(id) ON DELETE RESTRICT, -- enveloppe de période
+  school_unit_id     TEXT REFERENCES school_units(id) ON DELETE RESTRICT,   -- allocation secteur
+  envelope_amount    INTEGER,                                               -- plafond saisi (annual/period)
+  allocation_pct     REAL,                                                  -- % du parent (sector)
+  sector_amount      INTEGER,                                               -- montant secteur résolu (traçabilité)
+  -- ── Ancien modèle « à plat » (transitoire — retiré en P7) ─────────
+  period_type    TEXT DEFAULT 'annuel',            -- LEGACY : annuel|trimestriel|mensuel
+  period_ref     INTEGER,                          -- LEGACY
   start_date     TEXT,                             -- date réelle de début d'exercice (Phase D)
   end_date       TEXT,                             -- date réelle de fin d'exercice (inclusive)
-  sector         TEXT NOT NULL DEFAULT 'general',
+  sector         TEXT DEFAULT 'general',           -- LEGACY (remplacé par school_unit_id)
   label          TEXT NOT NULL,
   status         TEXT NOT NULL DEFAULT 'draft',    -- draft|active|closed
   notes          TEXT,
   closed_at      TEXT,
   closed_by      TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  -- Bornes de valeurs
+  CHECK (tier IS NULL OR tier IN ('annual','period','sector')),
+  CHECK (allocation_pct IS NULL OR (allocation_pct >= 0 AND allocation_pct <= 100)),
+  CHECK (envelope_amount IS NULL OR envelope_amount >= 0),
+  CHECK (sector_amount   IS NULL OR sector_amount   >= 0),
+  -- Cohérence de FORME par niveau (les liens inter-lignes sont en triggers)
+  CHECK (tier IS NULL OR tier <> 'annual' OR (
+    parent_budget_id IS NULL AND academic_period_id IS NULL AND school_unit_id IS NULL
+    AND envelope_amount IS NOT NULL AND allocation_pct IS NULL AND sector_amount IS NULL)),
+  CHECK (tier IS NULL OR tier <> 'period' OR (
+    parent_budget_id IS NOT NULL AND academic_period_id IS NOT NULL AND school_unit_id IS NULL
+    AND envelope_amount IS NOT NULL AND allocation_pct IS NULL AND sector_amount IS NULL)),
+  CHECK (tier IS NULL OR tier <> 'sector' OR (
+    parent_budget_id IS NOT NULL AND school_unit_id IS NOT NULL AND academic_period_id IS NULL
+    AND allocation_pct IS NOT NULL AND envelope_amount IS NULL))
 );
 CREATE INDEX IF NOT EXISTS idx_budgets_school ON budgets(school_id, academic_year);
+-- NB : les objets qui référencent les colonnes de hiérarchie (idx_budgets_parent,
+-- index uniques partiels, triggers budgets_hier_guard_*/budgets_activate_guard)
+-- sont créés dans server/db.js APRÈS l'ajout des colonnes aux bases existantes
+-- (ensureColumn), pour ne pas échouer au chargement du schéma sur une base
+-- pré-hiérarchie. Sur une base fraîche, les colonnes ci-dessus existent déjà et
+-- ces objets s'appliquent de la même manière. Voir supabase_budget_hierarchy_v2.sql
+-- pour l'équivalent Cloud (Postgres).
 
 CREATE TABLE IF NOT EXISTS budget_chapters (
   id             TEXT PRIMARY KEY,
   school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
-  budget_id      TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
-  parent_id      TEXT REFERENCES budget_chapters(id) ON DELETE CASCADE, -- sous-chapitre (NULL = racine)
+  budget_id      TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE, -- CIBLE v3 : rattaché au budget ANNUEL
+  parent_id      TEXT REFERENCES budget_chapters(id) ON DELETE CASCADE, -- rubrique→ligne→sous-ligne (NULL = rubrique racine)
   code           TEXT,
   label          TEXT NOT NULL,
   kind           TEXT NOT NULL DEFAULT 'depense',  -- recette|depense (prévisionnel)
-  planned_amount INTEGER NOT NULL DEFAULT 0,
+  planned_amount INTEGER NOT NULL DEFAULT 0,       -- montant annuel de la LIGNE (feuille)
+  -- ── Modèle CIBLE v3 : portée + cycle de vie de la répartition d'une LIGNE ──
+  scope          TEXT,                             -- 'complex'|'sectors' (feuilles ; NULL = rubrique / non défini)
+  status         TEXT NOT NULL DEFAULT 'draft',    -- draft|active|closed (répartition de la ligne)
   position       INTEGER NOT NULL DEFAULT 0,
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (scope IS NULL OR scope IN ('complex','sectors')),
+  CHECK (status IN ('draft','active','closed'))
 );
 CREATE INDEX IF NOT EXISTS idx_budget_chapters_budget ON budget_chapters(budget_id);
 CREATE INDEX IF NOT EXISTS idx_budget_chapters_parent ON budget_chapters(parent_id);
@@ -305,10 +350,13 @@ CREATE TABLE IF NOT EXISTS budget_expenses (
   id                TEXT PRIMARY KEY,
   school_id         TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
   budget_id         TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
-  budget_chapter_id TEXT REFERENCES budget_chapters(id) ON DELETE SET NULL,
+  budget_chapter_id TEXT REFERENCES budget_chapters(id) ON DELETE SET NULL,   -- la LIGNE imputée
+  -- ── Modèle CIBLE v3 : imputation RÉELLE d'une dépense (≠ allocation prévisionnelle) ──
+  budget_period_id  TEXT REFERENCES budget_periods(id) ON DELETE RESTRICT,    -- période imputée
+  school_unit_id    TEXT REFERENCES school_units(id) ON DELETE SET NULL,      -- secteur imputé (NULL = Complexe/Global)
   category          TEXT,
   subcategory       TEXT,
-  sector            TEXT,
+  sector            TEXT,                          -- LEGACY (secteur dénormalisé — remplacé par school_unit_id)
   supplier          TEXT,
   amount            INTEGER NOT NULL DEFAULT 0,
   requester         TEXT,
@@ -347,6 +395,158 @@ CREATE TABLE IF NOT EXISTS budget_unlock_requests (
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_budget_unlocks_budget ON budget_unlock_requests(budget_id);
+
+-- --- Réallocation budgétaire (transfert entre enveloppes de MÊME parent) -----
+-- Opération métier DISTINCTE du déblocage de ligne et de la révision annuelle.
+-- Déplace un montant d'une enveloppe source vers une destination sœur (secteur↔
+-- secteur d'une même période, ou période↔période d'un même annuel). Le total du
+-- parent reste INCHANGÉ. Snapshots avant/après conservés (traçabilité immuable).
+-- La cohérence « source/dest = enveloppes sœurs » est vérifiée par l'enforcement
+-- serveur (RPC cloud / route LAN, P3), pas au niveau schéma (cross-row).
+CREATE TABLE IF NOT EXISTS budget_reallocations (
+  id                TEXT PRIMARY KEY,
+  school_id         TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  academic_year     TEXT NOT NULL,
+  source_budget_id  TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+  dest_budget_id    TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+  amount            INTEGER NOT NULL DEFAULT 0,
+  reason            TEXT,                            -- motif (obligatoire côté UI/RPC)
+  receipt           TEXT,                            -- justificatif éventuel
+  requester         TEXT,
+  requested_by      TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending', -- pending|approved|refused|applied
+  source_before     INTEGER, source_after INTEGER,  -- snapshot enveloppe source
+  dest_before       INTEGER, dest_after   INTEGER,  -- snapshot enveloppe destination
+  decision_note     TEXT,
+  decided_by        TEXT, decided_by_id TEXT, decided_role TEXT, decided_at TEXT,
+  created_by        TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (amount > 0),
+  CHECK (source_budget_id <> dest_budget_id),
+  CHECK (status IN ('pending','approved','refused','applied'))
+);
+CREATE INDEX IF NOT EXISTS idx_budget_realloc_school ON budget_reallocations(school_id, academic_year);
+CREATE INDEX IF NOT EXISTS idx_budget_realloc_source ON budget_reallocations(source_budget_id);
+CREATE INDEX IF NOT EXISTS idx_budget_realloc_dest   ON budget_reallocations(dest_budget_id);
+
+-- --- Révision du BUDGET ANNUEL (opération exceptionnelle, fortement tracée) --
+-- Modifie l'enveloppe annuelle (le total global CHANGE, contrairement à la
+-- réallocation). Capacité gouvernée par la permission configurable
+-- `budget.annual.revise` (aucun rôle codé en dur). Historique immuable :
+-- budget initial / avant / variation / nouveau + auteur / valideur / motif.
+CREATE TABLE IF NOT EXISTS budget_revisions (
+  id                TEXT PRIMARY KEY,
+  school_id         TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  academic_year     TEXT NOT NULL,
+  annual_budget_id  TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+  initial_amount    INTEGER,                         -- 1er budget voté (référence permanente)
+  old_amount        INTEGER,                         -- enveloppe avant cette révision
+  new_amount        INTEGER,                         -- nouvelle enveloppe demandée
+  reason            TEXT,                            -- motif OBLIGATOIRE (UI/RPC)
+  receipt           TEXT,
+  requester         TEXT,
+  requested_by      TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending', -- pending|approved|refused|applied
+  decision_note     TEXT,
+  decided_by        TEXT, decided_by_id TEXT, decided_role TEXT, decided_at TEXT,
+  created_by        TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (new_amount IS NULL OR new_amount >= 0),
+  CHECK (status IN ('pending','approved','refused','applied'))
+);
+CREATE INDEX IF NOT EXISTS idx_budget_revision_annual ON budget_revisions(annual_budget_id);
+
+-- ============================================================
+-- Modèle CIBLE v3 (client 2026-07-24) : annuel global → rubriques → LIGNES
+-- porteuses d'un montant annuel, réparties par PÉRIODE (%) et par SECTEUR (%).
+-- Périodes = table DÉDIÉE (découplée d'academic_periods / calendrier de notes).
+-- Miroir Cloud/Postgres : supabase_budget_lines_v3.sql. Gardes d'intégrité (chevauchement,
+-- portée sectorielle, activation Σ=100) dans server/budget-lines.sql.
+-- ============================================================
+
+-- --- Périodes budgétaires (configurées UNE FOIS par année) -----
+-- Nom libre + dates réelles + description + ordre d'affichage. Nombre libre.
+-- Réutilisées par TOUTES les lignes (elles ne recréent jamais leurs périodes).
+CREATE TABLE IF NOT EXISTS budget_periods (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  academic_year TEXT NOT NULL,
+  name          TEXT NOT NULL,                    -- libellé (ex. « Premier trimestre »)
+  start_date    TEXT NOT NULL,                    -- ISO 'YYYY-MM-DD'
+  end_date      TEXT NOT NULL,                    -- inclusive, strictement > start_date
+  description   TEXT,
+  position      INTEGER NOT NULL DEFAULT 0,       -- ordre d'affichage
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (end_date > start_date)
+);
+CREATE INDEX IF NOT EXISTS idx_budget_periods_school ON budget_periods(school_id, academic_year);
+-- Unicité logique du libellé dans une année.
+CREATE UNIQUE INDEX IF NOT EXISTS budget_periods_name_unique ON budget_periods(school_id, academic_year, name);
+
+-- --- Répartition TEMPORELLE d'une ligne (montant annuel → % par période) -----
+CREATE TABLE IF NOT EXISTS budget_line_periods (
+  id                TEXT PRIMARY KEY,
+  school_id         TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  budget_chapter_id TEXT NOT NULL REFERENCES budget_chapters(id) ON DELETE CASCADE, -- la LIGNE (feuille)
+  budget_period_id  TEXT NOT NULL REFERENCES budget_periods(id) ON DELETE RESTRICT,
+  pct               REAL NOT NULL DEFAULT 0,      -- % du montant annuel de la ligne (saisi)
+  amount            INTEGER,                       -- montant dérivé (tracé) — le % reste la vérité
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (pct >= 0 AND pct <= 100),
+  CHECK (amount IS NULL OR amount >= 0)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS budget_line_periods_unique ON budget_line_periods(budget_chapter_id, budget_period_id);
+CREATE INDEX IF NOT EXISTS idx_blp_chapter ON budget_line_periods(budget_chapter_id);
+CREATE INDEX IF NOT EXISTS idx_blp_period  ON budget_line_periods(budget_period_id);
+
+-- --- Répartition SECTORIELLE d'une ligne (uniquement si portée = 'sectors') ---
+CREATE TABLE IF NOT EXISTS budget_line_sectors (
+  id                TEXT PRIMARY KEY,
+  school_id         TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  budget_chapter_id TEXT NOT NULL REFERENCES budget_chapters(id) ON DELETE CASCADE, -- la LIGNE (feuille)
+  school_unit_id    TEXT NOT NULL REFERENCES school_units(id) ON DELETE RESTRICT,
+  pct               REAL NOT NULL DEFAULT 0,      -- % du montant annuel de la ligne (saisi)
+  amount            INTEGER,                       -- montant dérivé (tracé)
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (pct >= 0 AND pct <= 100),
+  CHECK (amount IS NULL OR amount >= 0)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS budget_line_sectors_unique ON budget_line_sectors(budget_chapter_id, school_unit_id);
+CREATE INDEX IF NOT EXISTS idx_bls_chapter ON budget_line_sectors(budget_chapter_id);
+
+-- --- Réallocation entre LIGNES (modèle CIBLE v3) — transfert de montant annuel --
+-- Opération TRACÉE distincte de la révision : redistribue l'enveloppe existante
+-- entre deux lignes du même budget annuel SANS changer le total annuel. Écrite
+-- UNIQUEMENT par les RPC (budgetOps) — jamais par l'API générique (budgetGuard).
+CREATE TABLE IF NOT EXISTS budget_line_reallocations (
+  id                TEXT PRIMARY KEY,
+  school_id         TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  academic_year     TEXT NOT NULL,
+  source_chapter_id TEXT NOT NULL REFERENCES budget_chapters(id) ON DELETE CASCADE, -- ligne source
+  dest_chapter_id   TEXT NOT NULL REFERENCES budget_chapters(id) ON DELETE CASCADE, -- ligne destination
+  amount            INTEGER NOT NULL DEFAULT 0,
+  reason            TEXT,
+  receipt           TEXT,
+  requester         TEXT,
+  requested_by      TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending',  -- pending|approved|refused|applied
+  source_before     INTEGER, source_after INTEGER,   -- montant annuel de la ligne source
+  dest_before       INTEGER, dest_after   INTEGER,    -- montant annuel de la ligne destination
+  decision_note     TEXT,
+  decided_by        TEXT, decided_by_id TEXT, decided_role TEXT, decided_at TEXT,
+  created_by        TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (amount > 0),
+  CHECK (source_chapter_id <> dest_chapter_id),
+  CHECK (status IN ('pending','approved','refused','applied'))
+);
+CREATE INDEX IF NOT EXISTS idx_blr_school ON budget_line_reallocations(school_id, academic_year);
 
 -- --- Ressources Humaines (satellites du dossier `staff`) -----
 -- Pas de paie. Chaque entité est rattachée à un agent (staff_id).
@@ -679,6 +879,13 @@ CREATE TABLE IF NOT EXISTS migration_state (
   cloud_url   TEXT,
   migrated_at TEXT,
   report      TEXT                       -- JSON : counts + intégrité
+);
+
+-- Réglages LOCAUX (clé/valeur) — ex. activation du mode hybride depuis l'app,
+-- sans variable d'environnement. Non synchronisé (propre à ce poste).
+CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
 );
 
 -- --- File de miroir des mots de passe (Local → Cloud) --------
@@ -1023,6 +1230,37 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_events_school ON audit_events(school_id, at);
 
+-- H3-b : registre des DÉCISIONS DISTANTES DÉJÀ TRAITÉES (idempotence + audit
+-- d'application). Clé = id de l'événement de décision (Cloud). Toute décision
+-- (appliquée OU rejetée) y est inscrite UNE fois → une même décision reçue deux
+-- fois (rejeu de sync, reconnexion) n'est jamais ré-appliquée. `result` trace
+-- l'issue (applied | rejected_version_conflict | rejected_unauthorized | …).
+CREATE TABLE IF NOT EXISTS applied_decisions (
+  event_id    TEXT PRIMARY KEY,   -- id de l'événement de décision distant
+  expense_id  TEXT,
+  decision    TEXT,               -- approve | refuse
+  result      TEXT,               -- applied | rejected_*
+  applied_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_applied_decisions_expense ON applied_decisions(expense_id);
+
+-- H3b-3 : registre des OPÉRATIONS BUDGÉTAIRES DISTANTES DÉJÀ TRAITÉES (idempotence +
+-- audit d'application). Clé = id de l'événement d'intention (BudgetOperationRequested).
+-- Chaque intention (appliquée OU rejetée) y est inscrite UNE fois → aucune double
+-- création / double activation même en cas de rejeu (reconnexion, reprise). Une
+-- intention DIFFÉRÉE (dépendance causale absente) N'Y est PAS inscrite → elle sera
+-- réessayée au prochain cycle. `result` trace l'issue
+-- (applied | rejected_version_conflict | rejected_unauthorized | rejected_rule | …).
+CREATE TABLE IF NOT EXISTS applied_budget_ops (
+  event_id     TEXT PRIMARY KEY,   -- id de l'événement d'intention (Cloud)
+  op           TEXT,               -- create | modify | allocate | activate | revise | reallocate
+  target       TEXT,               -- budget | line | allocation
+  aggregate_id TEXT,               -- identité autoritaire de l'agrégat visé (I5)
+  result       TEXT,               -- applied | rejected_*
+  applied_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_applied_budget_ops_agg ON applied_budget_ops(aggregate_id);
+
 CREATE TABLE IF NOT EXISTS signalements (
   id             TEXT PRIMARY KEY,
   school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -1107,3 +1345,184 @@ CREATE TABLE IF NOT EXISTS signalement_history (
 );
 CREATE INDEX IF NOT EXISTS idx_sig_comments ON signalement_comments(signalement_id);
 CREATE INDEX IF NOT EXISTS idx_sig_history ON signalement_history(signalement_id);
+
+-- ============================================================
+-- Vie Scolaire (discipline) — miroir LAN de supabase_vie_scolaire.sql
+-- Le surveillant : retards, incidents, sanctions, avertissements, retenues,
+-- convocations, sorties, conseil de discipline. `recorded_by`/`responsible`
+-- pointent vers un compte (users.id) → remappés par l'ETL.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS late_arrivals (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  date          TEXT NOT NULL DEFAULT (date('now')),
+  arrival_time  TEXT,
+  reason        TEXT,
+  justified     INTEGER NOT NULL DEFAULT 0,
+  justification TEXT,
+  validated     INTEGER NOT NULL DEFAULT 0,
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_late_arrivals ON late_arrivals(school_id, date);
+
+CREATE TABLE IF NOT EXISTS disciplinary_incidents (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  incident_type TEXT NOT NULL DEFAULT 'autre',
+  custom_type   TEXT,
+  date          TEXT NOT NULL DEFAULT (date('now')),
+  incident_time TEXT,
+  location      TEXT,
+  description   TEXT,
+  witnesses     TEXT,
+  severity      TEXT NOT NULL DEFAULT 'mineur',
+  responsible   TEXT,
+  decision      TEXT,
+  status        TEXT NOT NULL DEFAULT 'ouvert',
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_disc_incidents ON disciplinary_incidents(school_id, date);
+
+CREATE TABLE IF NOT EXISTS disciplinary_actions (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  incident_id   TEXT REFERENCES disciplinary_incidents(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  action_type   TEXT NOT NULL DEFAULT 'avertissement_oral',
+  date          TEXT NOT NULL DEFAULT (date('now')),
+  reason        TEXT,
+  duration_days INTEGER,
+  start_date    TEXT,
+  end_date      TEXT,
+  decided_by    TEXT,
+  notes         TEXT,
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_disc_actions ON disciplinary_actions(school_id, date);
+
+CREATE TABLE IF NOT EXISTS student_warnings (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  warning_type  TEXT NOT NULL DEFAULT 'oral',
+  category      TEXT,
+  date          TEXT NOT NULL DEFAULT (date('now')),
+  reason        TEXT,
+  acknowledged  INTEGER NOT NULL DEFAULT 0,
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_student_warnings ON student_warnings(school_id, date);
+
+CREATE TABLE IF NOT EXISTS student_detentions (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id     TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id       TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  action_id      TEXT REFERENCES disciplinary_actions(id) ON DELETE SET NULL,
+  year_label     TEXT,
+  date           TEXT NOT NULL DEFAULT (date('now')),
+  start_time     TEXT,
+  end_time       TEXT,
+  duration_hours NUMERIC,
+  task           TEXT,
+  supervised_by  TEXT,
+  completed      INTEGER NOT NULL DEFAULT 0,
+  recorded_by    TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT,
+  version        INTEGER NOT NULL DEFAULT 1,
+  device_id      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_student_detentions ON student_detentions(school_id, date);
+
+CREATE TABLE IF NOT EXISTS parent_meetings (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  incident_id   TEXT REFERENCES disciplinary_incidents(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  target        TEXT NOT NULL DEFAULT 'parent',
+  reason        TEXT,
+  meeting_date  TEXT,
+  meeting_time  TEXT,
+  location      TEXT,
+  status        TEXT NOT NULL DEFAULT 'planifie',
+  outcome       TEXT,
+  convened_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_parent_meetings ON parent_meetings(school_id, meeting_date);
+
+CREATE TABLE IF NOT EXISTS exit_permissions (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id     TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id       TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  year_label     TEXT,
+  exit_type      TEXT NOT NULL DEFAULT 'parentale',
+  date           TEXT NOT NULL DEFAULT (date('now')),
+  exit_time      TEXT,
+  return_time    TEXT,
+  reason         TEXT,
+  authorized_by  TEXT,
+  accompanied_by TEXT,
+  returned       INTEGER NOT NULL DEFAULT 0,
+  signature      TEXT,
+  recorded_by    TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT,
+  version        INTEGER NOT NULL DEFAULT 1,
+  device_id      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_exit_permissions ON exit_permissions(school_id, date);
+
+CREATE TABLE IF NOT EXISTS discipline_statistics (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id    TEXT REFERENCES students(id) ON DELETE CASCADE,
+  class_id      TEXT REFERENCES classes(id) ON DELETE SET NULL,
+  incident_id   TEXT REFERENCES disciplinary_incidents(id) ON DELETE SET NULL,
+  year_label    TEXT,
+  council_date  TEXT,
+  members       TEXT,
+  summary       TEXT,
+  decision      TEXT,
+  sanction_type TEXT,
+  status        TEXT NOT NULL DEFAULT 'convoque',
+  recorded_by   TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_discipline_statistics ON discipline_statistics(school_id, council_date);

@@ -12,7 +12,6 @@ import { consolidate } from '../lib/groupStatsEngine';
 import { fetchGroupData } from '../lib/groupDashboardService';
 import { canSeeDashboard } from '../governance/governanceEngine';
 import { catalogOrDefault } from '../governance/defaultCatalog';
-import { SECTOR_LABELS } from '../components/budgets/budgetUi';
 
 const ALERT_COLOR = {
   critical: 'border-rose-400 bg-rose-50 text-rose-700',
@@ -154,7 +153,7 @@ export default function GroupDashboard() {
                 return (
                   <div key={s.sector}>
                     <div className="flex justify-between text-xs text-gray-600 mb-0.5">
-                      <span>{t(...(SECTOR_LABELS[s.sector] || [s.sector]))}</span>
+                      <span>{s.label || s.sector}</span>
                       <span className="tabular-nums">{money(s.planned)} · {pct}%</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">

@@ -11,9 +11,11 @@ const json = (s: number, b: unknown) => new Response(JSON.stringify(b), { status
 async function sha256(s: string) { const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join(''); }
 
 const ALLOWED = new Set([
-  'schools', 'school_users', 'academic_periods', 'classes', 'subjects',
+  'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',
+  'budget_reallocations', 'budget_revisions',
+  'budget_periods', 'budget_line_periods', 'budget_line_sectors', 'budget_line_reallocations',
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
   'signalement_comments', 'signalement_history',
@@ -21,6 +23,8 @@ const ALLOWED = new Set([
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items',
   'attendance', 'student_absences', 'student_class_assignments',
+  'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
+  'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ]);
 
@@ -79,10 +83,17 @@ Deno.serve(async (req) => {
     // changement local gagne selon (updated_at, version, device_id)).
     if (!belongs(ch.table, ch.row, schoolId)) { skipped++; continue; }
     const { data: existing } = await admin.from(ch.table)
-      .select('updated_at, version, device_id').eq('id', id).maybeSingle();
+      .select(`updated_at, version, device_id, ${scopeCol}`).eq('id', id).maybeSingle();
+    // DÉFENSE EN PROFONDEUR (L1) : ne JAMAIS écraser une ligne qui appartient à une AUTRE
+    // école (collision d'id inter-écoles). Le périmètre de la ligne existante doit être
+    // celui du jeton, sinon on refuse (jamais de fuite/écrasement inter-tenant).
+    if (existing && (existing as any)[scopeCol] !== schoolId) { skipped++; continue; }
     if (existing && !wins(ch.row, existing)) { skipped++; continue; }
     const { error } = await admin.from(ch.table).upsert(ch.row, { onConflict: 'id' });
-    if (error) { skipped++; continue; }
+    // On LOGUE l'erreur (au lieu de l'avaler en silence) : une écriture cloud
+    // rejetée n'était pas diagnosticable auparavant. La ligne est tout de même
+    // ignorée (ne bloque pas le lot), mais l'erreur est désormais visible.
+    if (error) { console.log('[sync-push] upsert error', ch.table, id, error.message); skipped++; continue; }
     applied++;
   }
 

@@ -117,6 +117,8 @@ export async function importBundle(bundle, { schoolId, flush, onProgress } = {})
   const created = {
     classes: out.classes.length, subjects: out.subjects.length, students: out.students.length,
     grades: out.grades.length, teachers: out.teachers.length, fees: out.fees.length, payments: out.payments.length,
+    staff: (out.staff || []).length, fee_catalog: (out.fee_catalog || []).length, assets: (out.assets || []).length,
+    hr: (out.hr_contracts || []).length + (out.hr_leaves || []).length + (out.hr_career_events || []).length,
   };
   report('done', 100);
   return { created, reused, queued, sync, warnings };
@@ -141,6 +143,13 @@ function importTables(out) {
     { table: 'grades',       rows: gradeRows,     onConflict: 'class_id,student_id,subject_id,sequence' },
     { table: 'student_fees', rows: out.fees,      onConflict: 'id' },
     { table: 'fee_payments', rows: out.payments,  onConflict: 'id' },
+    // Nouveaux modules (ordre FK : staff avant ses satellites RH).
+    { table: 'staff',            rows: out.staff || [],            onConflict: 'id' },
+    { table: 'hr_contracts',     rows: out.hr_contracts || [],     onConflict: 'id' },
+    { table: 'hr_leaves',        rows: out.hr_leaves || [],        onConflict: 'id' },
+    { table: 'hr_career_events', rows: out.hr_career_events || [], onConflict: 'id' },
+    { table: 'fee_catalog',      rows: out.fee_catalog || [],      onConflict: 'id' },
+    { table: 'assets',           rows: out.assets || [],           onConflict: 'id' },
   ];
 }
 
@@ -188,6 +197,12 @@ async function enqueueImport(out, only = null) {
     ['grades',       out.grades,   'upsert'],
     ['student_fees', out.fees,     'upsert'],
     ['fee_payments', out.payments, 'insert'],
+    ['staff',            out.staff || [],            'upsert'],
+    ['hr_contracts',     out.hr_contracts || [],     'upsert'],
+    ['hr_leaves',        out.hr_leaves || [],        'upsert'],
+    ['hr_career_events', out.hr_career_events || [], 'upsert'],
+    ['fee_catalog',      out.fee_catalog || [],      'upsert'],
+    ['assets',           out.assets || [],           'upsert'],
   ];
   const ops = [];
   for (const [table, rows, operation] of map) {

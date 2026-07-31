@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { useT } from '../lib/i18n';
+import { IS_LAN } from '../lib/edition';
+import { useLanHasSchool } from '../lib/lanSetup';
 import LogoMark from '../components/LogoMark';
 import { COUNTRY_OPTIONS, defaultLangForCountry } from '../countries';
 import { CURRENCIES } from '../lib/currency';
@@ -65,6 +67,9 @@ export default function Signup() {
   const t        = useT();
   const session  = useAuthStore((s) => s.session);
   const loading  = useAuthStore((s) => s.loading);
+  // En LAN, si le serveur héberge déjà une école, la création d'établissement
+  // n'a plus lieu d'être : on renvoie vers la connexion (register masqué).
+  const lanHasSchool = useLanHasSchool();
 
   const SCHOOL_TYPES = [
     { value: 'Public',               label: t('Public', 'Public', 'Público') },
@@ -87,6 +92,10 @@ export default function Signup() {
 
   if (!loading && session) {
     return <Navigate to="/app" replace />;
+  }
+  // LAN déjà provisionné → pas de page register, on va au login.
+  if (IS_LAN && lanHasSchool === true) {
+    return <Navigate to="/login" replace />;
   }
 
   const update = (field) => (e) => setForm({ ...form, [field]: e.target.value });

@@ -6,6 +6,9 @@
 
 import { db, ALLOWED_TABLES, quoteIdent, tableColumns, pickColumns, normalizeValue, tx, SYNCED_TABLES, deviceId } from './db.js';
 import { randomUUID } from 'node:crypto';
+import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
+import { emitApprovalRequestForOp } from './governanceApply.js';
+import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
 
 // --- Suivi des changements pour la sync continue (Phase 2) ------------
 // Horodate la ligne écrite (updated_at/device_id) pour la résolution LWW.
@@ -114,14 +117,26 @@ export function runQuery(op, ctx = null) {
 
   try {
     guardAppendOnly(op, ctx);
+    guardBudgetExpense(op, ctx);   // enforcement budgétaire serveur (chaîne + workflow + permissions)
+    guardBudgetStructure(op);      // P5 : pas de modif silencieuse / d'écriture directe des opérations
+    guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
+    guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
+    let result;
     switch (op.action) {
-      case 'select': return doSelect(op);
-      case 'insert': return doInsertOrUpsert(op, false);
-      case 'upsert': return doInsertOrUpsert(op, true);
-      case 'update': return doUpdate(op);
-      case 'delete': return doDelete(op);
+      case 'select': result = doSelect(op); break;
+      case 'insert': result = doInsertOrUpsert(op, false); break;
+      case 'upsert': result = doInsertOrUpsert(op, true); break;
+      case 'update': result = doUpdate(op); break;
+      case 'delete': result = doDelete(op); break;
       default: return { error: { message: `Action inconnue : ${op.action}` }, data: null };
     }
+    // H3-b : sur une écriture de dépense, émettre la DEMANDE d'approbation distante
+    // si la dépense est soumise (mode gouvernance distante). Best-effort strict :
+    // ne doit JAMAIS transformer une écriture réussie en erreur.
+    if (!result?.error && op.table === 'budget_expenses' && ['insert', 'upsert', 'update'].includes(op.action)) {
+      try { emitApprovalRequestForOp(op); } catch (e) { console.warn('[gov] demande d’approbation non émise:', e.message); }
+    }
+    return result;
   } catch (e) {
     return { error: { message: e.message }, data: null };
   }
@@ -172,6 +187,7 @@ function doSelect(op) {
 function insertOrUpsertCore(op, isUpsert, inserted = []) {
   const { table } = op;
   const rows = Array.isArray(op.values) ? op.values : [op.values];
+  const tracked = isTracked(table); // maintenance Merkle (tables suivies uniquement)
   {
     for (const raw of rows) {
       const rec = pickColumns(table, raw);
@@ -195,7 +211,11 @@ function insertOrUpsertCore(op, isUpsert, inserted = []) {
           .map((c) => `${quoteIdent(c)} = excluded.${quoteIdent(c)}`);
         sql += ` ON CONFLICT(${conflict.map(quoteIdent).join(', ')}) DO UPDATE SET ${updates.join(', ')}`;
       }
+      // Snapshot AVANT (un upsert peut écraser une ligne existante → il faut retirer
+      // sa contribution Merkle avant d'ajouter la nouvelle).
+      const before = tracked ? snapshotRows(table, [rec.id]) : null;
       db.prepare(sql).run(...cols.map((c) => rec[c]));
+      if (tracked) maintainMerkle(table, before, snapshotRows(table, [rec.id]));
 
       if (op.returning && rec.id) {
         inserted.push(db.prepare(`SELECT * FROM ${quoteIdent(table)} WHERE id = ?`).get(rec.id));
@@ -231,8 +251,16 @@ function doUpdate(op) {
   if (SYNCED_TABLES.has(table) && tableColumns(table).has('version') && !cols.includes('version')) {
     setSql += `, ${quoteIdent('version')} = COALESCE(${quoteIdent('version')}, 0) + 1`;
   }
+  // Ids affectés + snapshot AVANT (capturés sur le prédicat courant, avant l'UPDATE).
+  const tracked = isTracked(table);
+  let affectedIds = null, before = null;
+  if (tracked) {
+    affectedIds = db.prepare(`SELECT id FROM ${quoteIdent(table)}${where.sql}`).all(...where.params).map((r) => r.id);
+    before = snapshotRows(table, affectedIds);
+  }
   const sql = `UPDATE ${quoteIdent(table)} SET ${setSql}${where.sql}`;
   db.prepare(sql).run(...cols.map((c) => rec[c]), ...where.params);
+  if (tracked) maintainMerkle(table, before, snapshotRows(table, affectedIds));
 
   if (SYNCED_TABLES.has(table) && tableColumns(table).has('id')) {
     for (const r of db.prepare(`SELECT id FROM ${quoteIdent(table)}${where.sql}`).all(...where.params)) recordOutbox(table, r.id, 'upsert');
@@ -255,7 +283,10 @@ function doDelete(op) {
   if (SYNCED_TABLES.has(table) && tableColumns(table).has('id')) {
     deletedIds = db.prepare(`SELECT id FROM ${quoteIdent(table)}${where.sql}`).all(...where.params).map((r) => r.id);
   }
+  const tracked = isTracked(table);
+  const before = tracked ? snapshotRows(table, deletedIds) : null;
   db.prepare(`DELETE FROM ${quoteIdent(table)}${where.sql}`).run(...where.params);
+  if (tracked) maintainMerkle(table, before, new Map()); // après = vide → contributions retirées
   for (const id of deletedIds) recordOutbox(table, id, 'delete');
   return { data: null, error: null };
 }
@@ -266,24 +297,35 @@ function doDelete(op) {
 // métier ET l'event d'outbox `domain_events` de façon indissociable → un crash
 // (coupure secteur) ne peut plus laisser la donnée sans son event. Aucune op de
 // lecture ici. Toute erreur d'une op fait échouer et annuler tout le lot.
+// Applique une LISTE d'ops d'écriture (mêmes GUARDS que runQuery/runBatch) SANS
+// ouvrir de transaction : à appeler DANS une transaction déjà ouverte par l'appelant.
+// C'est le point d'entrée que l'applicateur de gouvernance budgétaire (H3b-3) réutilise
+// pour appliquer une intention distante par le CHEMIN GUARDÉ (jamais rawUpsert), tout en
+// inscrivant l'idempotence + la confirmation dans la MÊME tx atomique. Lève sur violation.
+export function runOpsGuarded(ops = [], ctx = null) {
+  for (const op of ops) {
+    if (!ALLOWED_TABLES.has(op.table)) throw new Error(`Table non autorisée : ${op.table}`);
+    guardAppendOnly(op, ctx);
+    guardBudgetExpense(op, ctx);   // enforcement budgétaire serveur
+    guardBudgetStructure(op);      // P5 : structure/opérations protégées (RPC only)
+    guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
+    guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
+    let res;
+    switch (op.action) {
+      case 'insert': insertOrUpsertCore(op, false); break;
+      case 'upsert': insertOrUpsertCore(op, true); break;
+      case 'update': res = doUpdate(op); break;   // pas de tx interne
+      case 'delete': res = doDelete(op); break;    // pas de tx interne
+      default: throw new Error(`Action inconnue : ${op.action}`);
+    }
+    if (res?.error) throw new Error(res.error.message); // → rollback du lot
+  }
+}
+
 export function runBatch(ops = [], ctx = null) {
   if (!Array.isArray(ops) || !ops.length) return { data: { applied: 0 }, error: null };
   try {
-    tx(() => {
-      for (const op of ops) {
-        if (!ALLOWED_TABLES.has(op.table)) throw new Error(`Table non autorisée : ${op.table}`);
-        guardAppendOnly(op, ctx);
-        let res;
-        switch (op.action) {
-          case 'insert': insertOrUpsertCore(op, false); break;
-          case 'upsert': insertOrUpsertCore(op, true); break;
-          case 'update': res = doUpdate(op); break;   // pas de tx interne
-          case 'delete': res = doDelete(op); break;    // pas de tx interne
-          default: throw new Error(`Action inconnue : ${op.action}`);
-        }
-        if (res?.error) throw new Error(res.error.message); // → rollback du lot
-      }
-    });
+    tx(() => runOpsGuarded(ops, ctx));
     return { data: { applied: ops.length }, error: null };
   } catch (e) {
     return { data: null, error: { message: e.message } };

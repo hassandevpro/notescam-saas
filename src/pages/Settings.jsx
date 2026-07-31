@@ -22,6 +22,8 @@ import SchoolCalendar from '../components/SchoolCalendar';
 import StaffManager from '../components/StaffManager';
 import LicensePanel from '../components/LicensePanel';
 import SwitchToLocalCard from '../components/SwitchToLocalCard';
+import HybridModeCard from '../components/HybridModeCard';
+import PrepareHybridCard from '../components/PrepareHybridCard';
 import AcademicSetupWizard from '../components/setup/AcademicSetupWizard';
 
 // Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
@@ -535,6 +537,10 @@ export default function Settings() {
         <LicensePanel />
         {/* Passer en local (édition CLOUD, admin) — auto-masqué en LAN / hors admin */}
         <SwitchToLocalCard />
+        {/* Préparer un serveur LAN (édition CLOUD, admin) — auto-masqué en LAN / hors admin */}
+        <PrepareHybridCard />
+        {/* Mode hybride (édition LAN, admin) — auto-masqué en cloud / hors admin */}
+        <HybridModeCard />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Section title={t('Mon profil', 'My profile')} className="h-full">
             {role === 'teacher' ? (

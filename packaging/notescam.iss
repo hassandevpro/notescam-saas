@@ -46,6 +46,7 @@ Source: "{#StageDir}\node\*"; DestDir: "{app}\node"; Flags: recursesubdirs creat
 Source: "{#StageDir}\app\*";  DestDir: "{app}\app";  Flags: recursesubdirs createallsubdirs ignoreversion
 ; Scripts de service / lanceur
 Source: "{#StageDir}\start-server.cmd";     DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageDir}\start-hybrid.cmd";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\install-service.ps1";  DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\uninstall-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
 

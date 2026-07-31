@@ -121,18 +121,49 @@ export function generateSeed(scenarioKey = 'medium', { seed = 42, year = '2025-2
     });
   });
 
-  // — Budgets par secteur + chapitres + dépenses —
-  cfg.units.forEach((ukey) => {
-    const budgetId = uid();
-    push('budgets', { id: budgetId, school_id: schoolId, academic_year: year, period_type: 'annuel', sector: ukey === 'college' ? 'college' : ukey, label: `Budget ${ukey}`, status: 'active' });
-    const chapRecette = push('budget_chapters', { id: uid(), school_id: schoolId, budget_id: budgetId, label: 'Scolarités', kind: 'recette', planned_amount: 5000000, position: 0 });
-    const chapSalaires = push('budget_chapters', { id: uid(), school_id: schoolId, budget_id: budgetId, label: 'Salaires', kind: 'depense', planned_amount: 3000000, position: 1 });
-    const chapFourn = push('budget_chapters', { id: uid(), school_id: schoolId, budget_id: budgetId, label: 'Fournitures', kind: 'depense', planned_amount: 800000, position: 2 });
-    void chapRecette;
-    // Dépenses rattachées à des chapitres du budget.
-    push('budget_expenses', { id: uid(), school_id: schoolId, budget_id: budgetId, budget_chapter_id: chapSalaires.id, category: 'RH', supplier: 'Personnel', amount: int(rng, 500000, 2500000), requester: 'RAF', status: 'approved', expense_date: '2025-10-10', sector: ukey });
-    push('budget_expenses', { id: uid(), school_id: schoolId, budget_id: budgetId, budget_chapter_id: chapFourn.id, category: 'Fournitures', supplier: 'Librairie', amount: int(rng, 100000, 700000), requester: 'Caissier', status: 'paid', expense_date: '2025-10-12', sector: ukey });
+  // — Budget V3 : annuel global du complexe → périodes → rubriques/lignes →
+  //   allocations (période % + secteur %) → dépenses. Un SEUL budget annuel (plus
+  //   de budgets « à plat » par secteur). Lignes en BROUILLON + dépenses brouillon :
+  //   données valides sous l'enforcement (une ligne s'active manuellement depuis
+  //   Budgets ; l'imputation d'une dépense dérive sa période de sa date). —
+  const y1 = String(year).split('-')[0] || '2025';
+  const y2 = String(Number(y1) + 1);
+  const annualId = uid();
+  push('budgets', { id: annualId, school_id: schoolId, academic_year: year, tier: 'annual', envelope_amount: 20000000, label: `[DÉMO] Budget ${year}`, status: 'active' });
+
+  // Périodes budgétaires configurées une fois pour l'année (3 trimestres disjoints).
+  const periods = [
+    ['Premier trimestre', `${y1}-09-01`, `${y1}-12-20`],
+    ['Deuxième trimestre', `${y2}-01-05`, `${y2}-03-31`],
+    ['Troisième trimestre', `${y2}-04-06`, `${y2}-06-30`],
+  ].map(([name, start, end], i) => push('budget_periods', { id: uid(), school_id: schoolId, academic_year: year, name: `[DÉMO] ${name}`, start_date: start, end_date: end, position: i + 1 }));
+
+  // Recette (chapitre kind=recette, hors ligne) — pour la synthèse « recettes prévues ».
+  push('budget_chapters', { id: uid(), school_id: schoolId, budget_id: annualId, label: '[DÉMO] Scolarités', kind: 'recette', planned_amount: 15000000, position: 0 });
+
+  // Rubrique Fonctionnement → 1 ligne COMPLEXE (Salaires) + 1 ligne SECTORIELLE (Fournitures).
+  const rubFonc = push('budget_chapters', { id: uid(), school_id: schoolId, budget_id: annualId, label: '[DÉMO] Fonctionnement', kind: 'depense', position: 1 });
+  const ligneSal = push('budget_chapters', { id: uid(), school_id: schoolId, budget_id: annualId, parent_id: rubFonc.id, label: 'Salaires', kind: 'depense', scope: 'complex', status: 'draft', planned_amount: 6000000, position: 0 });
+  const ligneFour = push('budget_chapters', { id: uid(), school_id: schoolId, budget_id: annualId, parent_id: rubFonc.id, label: 'Fournitures', kind: 'depense', scope: 'sectors', status: 'draft', planned_amount: 3000000, position: 1 });
+
+  // Répartition TEMPORELLE (Σ = 100) — mêmes périodes pour toutes les lignes.
+  const pctP = [40, 30, 30];
+  [ligneSal, ligneFour].forEach((ln) => periods.forEach((p, i) =>
+    push('budget_line_periods', { id: uid(), school_id: schoolId, budget_chapter_id: ln.id, budget_period_id: p.id, pct: pctP[i] })));
+
+  // Répartition SECTORIELLE (Σ = 100) — ligne Fournitures répartie sur les unités du complexe.
+  const nU = units.length || 1;
+  units.forEach((u, i) => {
+    const base = Math.floor(100 / nU);
+    const pct = i === nU - 1 ? 100 - base * (nU - 1) : base; // la dernière unité absorbe le reste → Σ = 100
+    push('budget_line_sectors', { id: uid(), school_id: schoolId, budget_chapter_id: ligneFour.id, school_unit_id: u.id, pct });
   });
+
+  // Dépenses de démonstration (brouillons) — datées dans le 1er trimestre (période
+  // dérivée automatiquement de la date). Salaires = ligne complexe → global (aucun
+  // secteur) ; Fournitures = ligne sectorielle → un secteur concerné.
+  push('budget_expenses', { id: uid(), school_id: schoolId, budget_id: annualId, budget_chapter_id: ligneSal.id, budget_period_id: periods[0].id, school_unit_id: null, category: 'RH', subcategory: 'Salaires', supplier: 'Personnel', amount: int(rng, 300000, 1500000), requester: 'RAF', status: 'draft', expense_date: `${y1}-10-10` });
+  if (units.length) push('budget_expenses', { id: uid(), school_id: schoolId, budget_id: annualId, budget_chapter_id: ligneFour.id, budget_period_id: periods[0].id, school_unit_id: units[0].id, category: 'Fournitures', supplier: 'Librairie', amount: int(rng, 50000, 200000), requester: 'Caissier', status: 'draft', expense_date: `${y1}-10-12` });
 
   // — RH : contrats / congés / présences pour le personnel —
   (rec.staff || []).forEach((st) => {
@@ -160,7 +191,8 @@ export function generateSeed(scenarioKey = 'medium', { seed = 42, year = '2025-2
     'school_units', 'teachers', 'staff', 'user_governance_roles',
     'classes', 'subjects', 'students', 'grades', 'student_absences',
     'fee_catalog', 'student_fee_items', 'fee_payments',
-    'budgets', 'budget_chapters', 'budget_expenses',
+    // Budget V3 : périodes + annuel avant chapitres, allocations avant dépenses (FK).
+    'budget_periods', 'budgets', 'budget_chapters', 'budget_line_periods', 'budget_line_sectors', 'budget_expenses',
     'hr_contracts', 'hr_leaves', 'hr_attendance',
     'signalements', 'signalement_history', 'signalement_comments', 'notifications',
   ].filter((t) => rec[t]?.length);

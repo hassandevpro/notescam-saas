@@ -33,8 +33,22 @@ Exécuter, dans cet ordre :
 - [ ] **`supabase_credential_channel.sql`** — canal chiffré Cloud → Local pour les mots de passe.
 - [ ] **`supabase_sync_phase2.sql`** — colonnes de sync (`updated_at`/`version`/`device_id`),
       triggers `updated_at`, table `sync_tombstones`, triggers de suppression.
+- [ ] **`supabase_sync_integrity.sql`** — RPC `sync_integrity(school, tables[])` : empreinte
+      md5 par table (utilisée pour les PETITES tables lors de l'audit).
+- [ ] **`supabase_sync_merkle.sql`** — arbre de Merkle adaptatif : store `sync_merkle`, config,
+      fonctions + triggers sur les tables volumineuses (grades, paiements, présences…),
+      backfill initial, RPC `sync_merkle_tablelevel` / `sync_merkle_scope` (audit hiérarchique).
+      **Lourd au 1er run** (backfill des grosses tables) — à exécuter en heure creuse.
+- [ ] **`supabase_sync_merkle_selfcheck.sql`** — **GATE de parité** : à exécuter APRÈS les deux
+      scripts ci-dessus. Ne modifie rien ; `RAISE EXCEPTION` si la formule de checksum Postgres
+      diverge du LAN ou si un objet/trigger est manquant/dupliqué. **S'il passe sans erreur, la
+      parité Cloud ↔ LAN est garantie.**
+- [ ] **`supabase_app_releases.sql`** — manifeste de versions (fondations de la mise à jour OTA) ;
+      aucune donnée d'école. Mettre à jour la ligne `app_releases` à chaque nouvelle release.
 
 > Tous sont **idempotents** (`IF NOT EXISTS`, `CREATE OR REPLACE`) → ré-exécutables sans risque.
+> Avant tout déploiement, lancer **`npm run validate`** en local (validation statique des
+> migrations + tests Merkle/sync + échelle/perf) : le BUILD ne doit partir que si ce script passe.
 
 ---
 
@@ -46,6 +60,9 @@ supabase functions deploy issue-server-token
 supabase functions deploy provision-tenant
 supabase functions deploy sync-pull
 supabase functions deploy sync-push
+supabase functions deploy sync-verify
+supabase functions deploy sync-repair
+supabase functions deploy check-update
 supabase functions deploy publish-server-key
 ```
 

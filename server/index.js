@@ -18,6 +18,11 @@ import { runMigration } from './migrate.js';
 import { mirrorToCloud, flushMirrorQueue, credentialPublicKey, publishCredentialKey } from './authBridge.js';
 import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
 import { scheduleCloudSync, syncOnce } from './cloudSync.js';
+import { scheduleEventSync } from './eventSync.js';
+import { scheduleDecisionApply } from './governanceApply.js';
+import { setSetting, isCloudSyncEnabled } from './syncFlag.js';
+import { syncHealth, hybridMode } from './syncHealth.js';
+import { attachViaPairing, pairingState } from './pairing.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './cloudEnv.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -191,12 +196,66 @@ app.post('/api/license/activate', (req, reply) => {
 });
 
 // ====================== BACKUP (déclenchement manuel) =================
+// JAMAIS bloquée en désynchro (filet de sécurité) — mais renvoyée MARQUÉE « urgence ».
 app.post('/api/backup', async (req, reply) => {
   const { userId } = authOf(req);
   const m = userId && db.prepare('SELECT role FROM school_users WHERE user_id = ? AND active = 1').get(userId);
   if (!m || m.role !== 'admin') return reply.code(403).send({ error: { message: 'Admin requis' } });
-  const path = await runBackup();
-  return { data: { path }, error: null };
+  const res = await runBackup();
+  return { data: res, error: null };
+});
+
+// Liste des sauvegardes + drapeau d'urgence (l'outil de restauration prévient si la
+// sauvegarde provient d'un état non synchronisé + propose un contrôle d'intégrité).
+app.get('/api/backup/list', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { listBackups } = await import('./backup.js');
+  return { data: listBackups(), error: null };
+});
+
+// État de PARITÉ Cloud ↔ LAN (pour l'UI + les gardes update/version/restauration).
+app.get('/api/sync/parity', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { parityStatus } = await import('./parityGate.js');
+  return { data: parityStatus(), error: null };
+});
+
+// ====================== MISE À JOUR (OTA — fondations) ================
+// Version courante (publique : utile aux scripts + à l'UI, aucune donnée sensible).
+app.get('/api/version', async () => {
+  const { currentVersion } = await import('./updateService.js');
+  return { data: { version: currentVersion() }, error: null };
+});
+
+// PRÉ-VOL de mise à jour pour le script d'installation (localhost, sans auth) : verdict
+// de parité STRICTEMENT MINIMAL — booléens + COMPTE uniquement, JAMAIS les noms de tables
+// (L3 : pas de divulgation d'information sur un endpoint non authentifié). Le détail
+// (tables divergentes) reste réservé à l'admin via /api/sync/parity.
+app.get('/api/update/preflight', async () => {
+  const { parityStatus } = await import('./parityGate.js');
+  const st = parityStatus();
+  return { data: { ok: st.ok, applicable: st.applicable, desync: st.desync, mismatchCount: (st.mismatches || []).length }, error: null };
+});
+
+// Statut de mise à jour : disponibilité + GARDE DE PARITÉ (allowed=false si Cloud≠LAN).
+app.get('/api/update/status', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { updateStatus } = await import('./updateService.js');
+    return { data: await updateStatus(), error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Déclenche la mise à jour — BLOQUÉE (409 + tables divergentes) si désynchro.
+app.post('/api/update/apply', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { applyUpdate } = await import('./updateService.js');
+    return { data: await applyUpdate(), error: null };
+  } catch (e) {
+    if (e.blocked) return reply.code(409).send({ error: { message: e.message, parity: e.parity, blocked: true } });
+    return reply.code(400).send({ error: { message: e.message } });
+  }
 });
 
 // ====================== MIGRATION CLOUD → LOCAL/LAN ===================
@@ -225,6 +284,68 @@ app.post('/api/migrate/cloud', async (req, reply) => {
   } catch (e) {
     return reply.code(400).send({ error: { message: e.message } });
   }
+});
+
+// ── APPAIRAGE (parcours industrialisé « Cloud → Hybride ») ──────────────────────
+// L'installateur saisit un CODE d'appairage (généré côté Cloud dans les Paramètres
+// de l'école). Le serveur l'échange contre un jeton scellé + school_id via l'Edge,
+// fait la synchro initiale, contrôle, crée l'admin local, puis — SI tout réussit —
+// bascule en hybride. Aucun school_id saisi, aucun secret privilégié sur le PC.
+app.get('/api/pair/status', () => ({ data: pairingState(), error: null }));
+
+app.post('/api/pair/redeem', async (req, reply) => {
+  if (!migrationOpen()) return reply.code(409).send({ error: { message: 'Base non vide : appairage impossible sur ce serveur.' } });
+  const { code, localAdmin } = req.body || {};
+  try {
+    const res = await attachViaPairing({ code, localAdmin });
+    if (!res.ok) return reply.code(400).send({ error: { message: res.error, stage: res.stage } });
+    return { data: res, error: null };
+  } catch (e) {
+    return reply.code(400).send({ error: { message: e.message } });
+  }
+});
+
+// ── Mode HYBRIDE (Cloud ↔ LAN) — activation EN QUELQUES CLICS depuis l'app ──────
+// Remplace la variable d'environnement NOTESCAM_CLOUD_SYNC + le lanceur dédié :
+// l'admin active/désactive la synchro Cloud continue + le drain des intentions
+// distantes depuis les Paramètres. Nécessite que l'école ait été MIGRÉE (jeton scellé).
+function hybridState() {
+  const migrated = existsSync(join(DATA_DIR, 'server-token.key'));
+  const row = db.prepare('SELECT school_id, cloud_url FROM migration_state WHERE id = 1').get() || null;
+  const enabled = isCloudSyncEnabled();
+  // Politique de déploiement répliquée depuis le Cloud (finance LAN-first + gouvernance
+  // distante) : présente = l'école est configurée hybride côté Cloud. Distinct de
+  // `enabled` (la synchro tourne-t-elle sur CE serveur). L'UI a besoin des deux.
+  let policy = null;
+  try { policy = db.prepare('SELECT deployment_policy FROM schools LIMIT 1').get()?.deployment_policy || null; } catch { /* pré-migration */ }
+  const health = syncHealth();
+  return {
+    enabled, migrated,
+    schoolId: row?.school_id || null,
+    cloudUrl: row?.cloud_url || null,
+    policy,
+    health,
+    mode: hybridMode(enabled, health),
+  };
+}
+app.get('/api/hybrid/status', () => ({ data: hybridState(), error: null }));
+
+app.post('/api/hybrid/enable', (req, reply) => {
+  const st = hybridState();
+  if (!st.migrated) {
+    return reply.code(409).send({ error: { message: "L'école n'est pas encore migrée depuis le Cloud (jeton absent). Faites d'abord « Migrer depuis le Cloud »." } });
+  }
+  setSetting('cloud_sync', '1');
+  // Démarre immédiatement (sans redémarrage du serveur).
+  const sync = scheduleCloudSync();
+  const events = scheduleEventSync();
+  scheduleDecisionApply();
+  return { data: { ...hybridState(), syncStarted: sync, eventsStarted: events }, error: null };
+});
+
+app.post('/api/hybrid/disable', () => {
+  setSetting('cloud_sync', '0');
+  return { data: hybridState(), error: null };
 });
 
 // Clé publique RSA de CE serveur : l'app cloud l'utilise pour chiffrer les
@@ -297,6 +418,58 @@ app.post('/api/sync/dry-run', async (req, reply) => {
   } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
 });
 
+// ====================== SYNC : CONTRÔLE D'INTÉGRITÉ ==================
+// Contrôle LOURD (comptes + checksums TABLE PAR TABLE), réservé À LA DEMANDE de
+// l'admin / après une restauration (l'appairage le fait déjà). PAS exécuté en
+// fonctionnement normal : la synchro continue est purement incrémentale. Alimente
+// l'écran « État de synchronisation » + la santé (HYBRIDE_MISMATCH si divergence).
+app.get('/api/sync/verify', async (req, reply) => {
+  const userId = requireLocalAdmin(req, reply); if (!userId) return;
+  try {
+    const { verifyIntegrity } = await import('./syncVerify.js');
+    const { markVerification } = await import('./syncHealth.js');
+    const { recordSyncAudit } = await import('./syncAudit.js');
+    const report = await verifyIntegrity();
+    markVerification(report);
+    recordSyncAudit({ kind: 'verify', ok: report.ok, actor: userId, ip: req.ip, tables: report.summary?.total, hash: report.globalChecksum?.lan, report, detail: { trigger: 'ondemand', mismatches: report.mismatches } });
+    return { data: report, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// AUTO-RÉPARATION à la demande : répare uniquement les partitions divergentes puis
+// re-publie le rapport. Ne relance JAMAIS une synchro complète.
+app.post('/api/sync/repair', async (req, reply) => {
+  const userId = requireLocalAdmin(req, reply); if (!userId) return;
+  try {
+    const { autoRepair } = await import('./syncRepair.js');
+    const { markVerification } = await import('./syncHealth.js');
+    const { recordSyncAudit } = await import('./syncAudit.js');
+    const res = await autoRepair();
+    if (res?.report) markVerification(res.report);
+    recordSyncAudit({ kind: 'repair', ok: res.ok, actor: userId, ip: req.ip, hash: res.report?.globalChecksum?.lan, report: res.report, detail: { trigger: 'manual', rounds: res.rounds, partitions: res.repaired.length } });
+    return { data: { ok: res.ok, rounds: res.rounds, repaired: res.repaired, report: res.report }, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Journal d'audit PERSISTANT de la synchro (cycles incrémentaux + contrôles + erreurs).
+app.get('/api/sync/audit', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { listSyncAudit } = await import('./syncAudit.js');
+    return { data: listSyncAudit(req.query?.limit), error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Tableau de bord de SANTÉ : métriques + événements en attente + temps moyen de
+// réplication + détection des synchronisations bloquées. Bon marché (lecture seule).
+app.get('/api/sync/health', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { syncMetrics } = await import('./syncMetrics.js');
+    return { data: syncMetrics(), error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
 // ====================== STATIC + SPA fallback =========================
 if (existsSync(DIST_DIR)) {
   app.register(fastifyStatic, { root: DIST_DIR, prefix: '/' });
@@ -328,6 +501,12 @@ const start = async () => {
     publishCredentialKey().catch(() => {});
     // Sync continue LAN ↔ Cloud (Phase 2) — gated : NOTESCAM_CLOUD_SYNC=1 + jeton présent.
     if (scheduleCloudSync()) console.log('  Sync continue LAN ↔ Cloud : activée');
+    // H3-a : réplication du journal d'événements (transport du canal de gouvernance).
+    // Même gate. INERTE tant que rien ne consomme les événements (H3-b appliquera).
+    if (scheduleEventSync()) console.log('  Réplication domain_events LAN ↔ Cloud : activée');
+    // H3-b : application des décisions distantes (approbation/refus). No-op tant que
+    // l'école n'est pas en mode gouvernance financière distante (deployment_policy).
+    if (scheduleDecisionApply()) console.log('  Application des décisions distantes : planifiée (inerte hors mode distant)');
     console.log(`\n  NotesCam LAN — http://localhost:${PORT}`);
     console.log(`  Accessible sur le réseau : http://<IP-du-PC>:${PORT}`);
     console.log(`  Données : ${DATA_DIR}\n`);

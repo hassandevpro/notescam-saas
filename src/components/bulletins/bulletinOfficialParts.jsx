@@ -232,24 +232,68 @@ export function OfficialSignatures({ school, sys, profPrincipal, headLabel, teac
   const chef   = headLabel    || (sys === 'EN' ? 'The Principal' : sys === 'ES' ? 'El Director' : "Le Chef d'établissement");
   const parent = sys === 'EN' ? 'Parent / Guardian' : sys === 'ES' ? 'Padre / Tutor' : 'Visa du Parent / Tuteur';
   const pp     = teacherLabel || (sys === 'EN' ? 'The Form Master' : sys === 'ES' ? 'El Tutor' : 'Le Professeur Principal');
-  const colTop = { textAlign: 'center', verticalAlign: 'top', height: 72 };
+
+  // 3 colonnes de largeur ET de hauteur identiques, chacune bordée (B). Titres
+  // centrés, en gras ; taille et interligne uniformes (fidélité au modèle).
+  const cell  = { ...CELL, width: '33.33%', textAlign: 'center', verticalAlign: 'top', height: 92, padding: '4px 6px 6px' };
+  const title = { fontWeight: 'bold', fontSize: '10pt', lineHeight: 1.25 };
+  const name  = { color: '#666', fontSize: '9pt', lineHeight: 1.2, marginTop: 1 };
+  // Neutralisation du fond blanc des scans (`mix-blend-mode:multiply` porté par
+  // les classes .bulletin-*-img + print-color-adjust) : le tampon reste bleu et
+  // parfaitement circulaire, la signature transparente. `objectFit:contain` +
+  // largeur/hauteur cohérentes ⇒ aucune déformation ni étirement.
+  const ink   = { objectFit: 'contain', background: 'transparent' };
+
   return (
     <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
       <tbody>
         <tr>
-          <td style={{ ...CELL, width: '33%', ...colTop }}>{parent}</td>
-          <td style={{ ...CELL, width: '33%', ...colTop }}>
-            {pp}{profPrincipal ? <><br /><span style={{ color: '#666' }}>{profPrincipal}</span></> : null}
+          {/* Parent / Tuteur — espace de signature manuscrite (même hauteur) */}
+          <td style={cell}>
+            <div style={title}>{parent}</div>
           </td>
-          <td style={{ ...CELL, width: '34%', textAlign: 'center', verticalAlign: 'top' }}>
-            <div style={{ fontWeight: 'bold' }}>{chef}</div>
-            {school?.signature_url
-              ? <AssetImg src={school.signature_url} alt="" style={{ height: 34, display: 'block', margin: '3px auto', objectFit: 'contain' }} className="bulletin-sig-img" />
-              : <div style={{ height: 30 }} />}
-            {school?.stamp_url && (
-              <AssetImg src={school.stamp_url} alt="" style={{ height: 46, display: 'block', margin: '-2px auto 2px', objectFit: 'contain' }} className="bulletin-stamp-img" />
-            )}
-            <div style={{ borderTop: '1px solid #94a3b8', marginTop: 2, paddingTop: 2, minHeight: 12 }}>{school?.director || ''}</div>
+
+          {/* Professeur Principal — nom (grisé) centré sous le titre */}
+          <td style={cell}>
+            <div style={title}>{pp}</div>
+            {profPrincipal ? <div style={name}>{profPrincipal}</div> : null}
+          </td>
+
+          {/* Chef d'établissement — signature scellée : tampon circulaire centré,
+              légèrement descendu, signature superposée le traversant légèrement ;
+              nom du chef centré en bas. Positionnement absolu MAÎTRISÉ (inline) qui
+              neutralise le top/right/opacity de la classe .bulletin-stamp-img. */}
+          <td style={cell}>
+            <div style={title}>{chef}</div>
+            <div style={{ position: 'relative', height: 60, maxWidth: 190, margin: '2px auto 0' }}>
+              {school?.stamp_url && (
+                <AssetImg
+                  src={school.stamp_url}
+                  alt=""
+                  className="bulletin-stamp-img"
+                  style={{
+                    position: 'absolute', left: '50%', top: 8, right: 'auto',
+                    transform: 'translateX(-50%)',
+                    width: 54, height: 54, maxWidth: 'none', opacity: 0.95,
+                    margin: 0, ...ink, zIndex: 1,
+                  }}
+                />
+              )}
+              {school?.signature_url && (
+                <AssetImg
+                  src={school.signature_url}
+                  alt=""
+                  className="bulletin-sig-img"
+                  style={{
+                    position: 'absolute', left: '50%', top: 2,
+                    transform: 'translateX(-50%)',
+                    height: 34, width: 'auto', maxWidth: 150,
+                    margin: 0, ...ink, zIndex: 2,
+                  }}
+                />
+              )}
+            </div>
+            <div style={{ ...name, color: '#111', marginTop: 2, minHeight: 12 }}>{school?.director || ''}</div>
           </td>
         </tr>
       </tbody>

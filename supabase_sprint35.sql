@@ -29,6 +29,7 @@ CREATE INDEX IF NOT EXISTS attendance_student      ON public.attendance(student_
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 
 -- Lecture : tout membre actif de l'école
+DROP POLICY IF EXISTS "school members read attendance" ON public.attendance;
 CREATE POLICY "school members read attendance" ON public.attendance
   FOR SELECT USING (
     school_id IN (
@@ -38,6 +39,7 @@ CREATE POLICY "school members read attendance" ON public.attendance
   );
 
 -- Écriture : tout membre actif de l'école (admin + enseignants)
+DROP POLICY IF EXISTS "school members write attendance" ON public.attendance;
 CREATE POLICY "school members write attendance" ON public.attendance
   FOR INSERT WITH CHECK (
     school_id IN (
@@ -46,6 +48,7 @@ CREATE POLICY "school members write attendance" ON public.attendance
     )
   );
 
+DROP POLICY IF EXISTS "school members update attendance" ON public.attendance;
 CREATE POLICY "school members update attendance" ON public.attendance
   FOR UPDATE USING (
     school_id IN (
@@ -54,6 +57,7 @@ CREATE POLICY "school members update attendance" ON public.attendance
     )
   );
 
+DROP POLICY IF EXISTS "school members delete attendance" ON public.attendance;
 CREATE POLICY "school members delete attendance" ON public.attendance
   FOR DELETE USING (
     school_id IN (

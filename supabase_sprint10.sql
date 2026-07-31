@@ -21,6 +21,7 @@ create index if not exists teachers_school_id_idx on teachers(school_id);
 
 alter table teachers enable row level security;
 
+DROP POLICY IF EXISTS "teachers: lecture par membres de l'école" ON teachers;
 create policy "teachers: lecture par membres de l'école"
   on teachers for select
   using (
@@ -30,6 +31,7 @@ create policy "teachers: lecture par membres de l'école"
     )
   );
 
+DROP POLICY IF EXISTS "teachers: écriture par admins de l'école" ON teachers;
 create policy "teachers: écriture par admins de l'école"
   on teachers for all
   using (
@@ -69,11 +71,13 @@ values ('school-assets', 'school-assets', true)
 on conflict (id) do nothing;
 
 -- Politique : membres de l'école peuvent lire leurs propres assets
+DROP POLICY IF EXISTS "school-assets: lecture publique" ON storage;
 create policy "school-assets: lecture publique"
   on storage.objects for select
   using (bucket_id = 'school-assets');
 
 -- Politique : admins peuvent uploader dans leur dossier (schoolId/)
+DROP POLICY IF EXISTS "school-assets: upload par admins" ON storage;
 create policy "school-assets: upload par admins"
   on storage.objects for insert
   with check (
@@ -87,6 +91,7 @@ create policy "school-assets: upload par admins"
     )
   );
 
+DROP POLICY IF EXISTS "school-assets: mise à jour par admins" ON storage;
 create policy "school-assets: mise à jour par admins"
   on storage.objects for update
   using (
@@ -100,6 +105,7 @@ create policy "school-assets: mise à jour par admins"
     )
   );
 
+DROP POLICY IF EXISTS "school-assets: suppression par admins" ON storage;
 create policy "school-assets: suppression par admins"
   on storage.objects for delete
   using (

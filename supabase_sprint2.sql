@@ -24,6 +24,7 @@ create index if not exists classes_school_id_idx on classes(school_id);
 -- RLS
 alter table classes enable row level security;
 
+DROP POLICY IF EXISTS "classes: lecture par membres de l'école" ON classes;
 create policy "classes: lecture par membres de l'école"
   on classes for select
   using (
@@ -33,6 +34,7 @@ create policy "classes: lecture par membres de l'école"
     )
   );
 
+DROP POLICY IF EXISTS "classes: écriture par admins de l'école" ON classes;
 create policy "classes: écriture par admins de l'école"
   on classes for all
   using (
@@ -61,6 +63,7 @@ create index if not exists subjects_class_id_idx  on subjects(class_id);
 
 alter table subjects enable row level security;
 
+DROP POLICY IF EXISTS "subjects: lecture par membres de l'école" ON subjects;
 create policy "subjects: lecture par membres de l'école"
   on subjects for select
   using (
@@ -70,6 +73,7 @@ create policy "subjects: lecture par membres de l'école"
     )
   );
 
+DROP POLICY IF EXISTS "subjects: écriture par admins de l'école" ON subjects;
 create policy "subjects: écriture par admins de l'école"
   on subjects for all
   using (
@@ -99,6 +103,7 @@ create index if not exists students_class_id_idx  on students(class_id);
 
 alter table students enable row level security;
 
+DROP POLICY IF EXISTS "students: lecture par membres de l'école" ON students;
 create policy "students: lecture par membres de l'école"
   on students for select
   using (
@@ -108,6 +113,7 @@ create policy "students: lecture par membres de l'école"
     )
   );
 
+DROP POLICY IF EXISTS "students: écriture par admins et enseignants" ON students;
 create policy "students: écriture par admins et enseignants"
   on students for all
   using (
@@ -142,6 +148,7 @@ create index if not exists grades_student_id_idx  on grades(student_id);
 
 alter table grades enable row level security;
 
+DROP POLICY IF EXISTS "grades: lecture par membres de l'école" ON grades;
 create policy "grades: lecture par membres de l'école"
   on grades for select
   using (
@@ -151,6 +158,7 @@ create policy "grades: lecture par membres de l'école"
     )
   );
 
+DROP POLICY IF EXISTS "grades: écriture par admins et enseignants" ON grades;
 create policy "grades: écriture par admins et enseignants"
   on grades for all
   using (

@@ -1,0 +1,4 @@
+# Les scripts Windows DOIVENT rester en CRLF, sinon cmd.exe les analyse de
+# travers (labels/gotos/parentheses casses). Cf. purge-notescam.cmd.
+*.cmd text eol=crlf
+*.bat text eol=crlf

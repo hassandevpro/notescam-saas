@@ -477,6 +477,46 @@ export const useSchoolStore = create((set, get) => ({
     if (sbUnits            !== null) await schoolUnitsDB.putMany(sbUnits);
     if (sbAssignments      !== null) await assignmentsDB.putMany(sbAssignments);
 
+    // ── Réconciliation du cache IDB (anti-orphelins) ─────────────────────
+    // `putMany` n'écrit qu'en UPSERT : sans élagage, les lignes supprimées côté
+    // cloud (nettoyages / re-seeds) restaient indéfiniment en cache et étaient
+    // PEINTES au rechargement AVANT le refresh réseau → flash de compteurs
+    // gonflés (ex. 650 matières au lieu de 221, 52 classes au lieu de 29). On
+    // retire ici les lignes de CETTE école absentes du jeu autoritatif, en
+    // respectant le périmètre du fetch pour ne jamais toucher les archives
+    // d'autres années gardées volontairement en cache offline :
+    //   - école entière           : teachers / staff / units / assignments ;
+    //   - année active (current_year) : classes (fetchClasses est scopé année) ;
+    //   - orphelins de classe disparue OU retirés de l'année active : subjects /
+    //     students (les autres années, portées par des classes encore vivantes,
+    //     restent en cache). Best-effort : n'échoue jamais un refresh réussi.
+    try {
+      const idOf = (r) => r.id;
+      const prune = async (store, cached, isStale) => {
+        const ids = cached.filter(isStale).map(idOf);
+        if (ids.length) await store.deleteMany(ids);
+      };
+      if (sbTeachers !== null) { const keep = new Set(sbTeachers.map(idOf)); await prune(teachersDB, await teachersDB.getAll(), (r) => r.school_id === schoolId && !keep.has(r.id)); }
+      if (sbStaff    !== null) { const keep = new Set(sbStaff.map(idOf));    await prune(staffDB,    await staffDB.getAll(),    (r) => r.school_id === schoolId && !keep.has(r.id)); }
+      if (sbUnits    !== null) { const keep = new Set(sbUnits.map(idOf));    await prune(schoolUnitsDB, await schoolUnitsDB.getAll(), (r) => r.school_id === schoolId && !keep.has(r.id)); }
+      if (sbAssignments !== null) { const keep = new Set(sbAssignments.map(idOf)); await prune(assignmentsDB, await assignmentsDB.getAll(), (r) => r.school_id === schoolId && !keep.has(r.id)); }
+      if (sbClasses  !== null) { const keep = new Set(sbClasses.map(idOf));  await prune(classesDB,  await classesDB.getAll(),  (r) => r.school_id === schoolId && (!year || r.current_year === year) && !keep.has(r.id)); }
+      // Sous-collections : après réconciliation des classes. Un subject/student qui
+      // pointe vers une classe DISPARUE est un orphelin (quel que soit son année) ;
+      // sinon, il n'est élagué que s'il appartient à l'année active et manque du fetch.
+      const liveClassIds = new Set((await classesDB.getAll()).filter((c) => c.school_id === schoolId).map(idOf));
+      if (sbSubjects !== null) {
+        const keep = new Set(sbSubjects.map(idOf));
+        await prune(subjectsDB, await subjectsDB.getAll(),
+          (r) => r.school_id === schoolId && (!liveClassIds.has(r.class_id) || (activeClassIds.has(r.class_id) && !keep.has(r.id))));
+      }
+      if (normalizedStudents !== null) {
+        const keep = new Set(normalizedStudents.map(idOf));
+        await prune(studentsDB, await studentsDB.getAll(),
+          (r) => r.school_id === schoolId && (!liveClassIds.has(r.class_id) || (activeClassIds.has(r.class_id) && !keep.has(r.id))));
+      }
+    } catch (e) { console.warn('[store] élagage cache IDB ignoré:', e?.message); }
+
     // ── Grades ────────────────────────────────────────────────────────────
     const { gradeMap } = get();
     let newGradeMap = gradeMap;

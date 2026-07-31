@@ -31,12 +31,14 @@ const spyEnable = async () => { enableCalls++; setSetting('cloud_sync', '1'); };
 const okRedeem = async () => ({ token: 'seal-token-xyz', schoolId: 'sch1', cloudUrl: 'https://test.supabase.co' });
 const noop = async () => {};
 const goodAdmin = { email: 'admin@lan.test', password: 'secret123' };
+// Contrôle d'intégrité injecté (hors-ligne) : par défaut « identique au Cloud ».
+const okIntegrity = async () => ({ ok: true, mismatches: [] });
 
 // ── A. Succès complet → hybride activé ────────────────────────────────────────
 reset();
 {
   const r = await attachViaPairing({ code: 'AAAAA-BBBBB', localAdmin: goodAdmin },
-    { redeem: okRedeem, initialSync: noop, enableHybrid: spyEnable });
+    { redeem: okRedeem, initialSync: noop, enableHybrid: spyEnable, verifyIntegrity: okIntegrity });
   ok(r.ok === true && r.hybrid === true && r.stage === 'done', 'A: succès complet → ok+hybride', r);
   ok(enableCalls === 1, 'A: enableHybrid appelé exactement une fois', enableCalls);
   ok(hybridActivated(), 'A: cloud_sync = 1 (hybride actif)', getSetting('cloud_sync'));
@@ -77,7 +79,7 @@ reset();
 reset();
 {
   const r = await attachViaPairing({ code: 'AAAAA-BBBBB', localAdmin: { email: 'a@b.c', password: '123' } },
-    { redeem: okRedeem, initialSync: noop, enableHybrid: spyEnable });
+    { redeem: okRedeem, initialSync: noop, enableHybrid: spyEnable, verifyIntegrity: okIntegrity });
   ok(r.ok === false && r.stage === 'admin', 'E: admin local invalide → stage admin', r);
   ok(enableCalls === 0, 'E: enableHybrid JAMAIS appelé', enableCalls);
 }
@@ -86,9 +88,25 @@ reset();
 reset();
 {
   const r = await attachViaPairing({ code: 'AAAAA-BBBBB', localAdmin: goodAdmin },
-    { redeem: okRedeem, initialSync: noop, enableHybrid: async () => { throw new Error('sync KO'); } });
+    { redeem: okRedeem, initialSync: noop, enableHybrid: async () => { throw new Error('sync KO'); }, verifyIntegrity: okIntegrity });
   ok(r.ok === false && r.stage === 'activate' && r.hybrid === false, 'F: activation échouée → stage activate, hybride false', r);
   ok(!hybridActivated(), 'F: cloud_sync remis à 0 (fail-safe)', getSetting('cloud_sync'));
+}
+
+// ── H. Données NON IDENTIQUES au Cloud → pas de bascule (stage integrity) ──────
+reset();
+{
+  const mismatch = async () => {
+    const e = new Error('Données non identiques au Cloud : 2 table(s) divergente(s) (grades, students).');
+    e.report = { ok: false, mismatches: ['grades', 'students'] };
+    throw e;
+  };
+  const r = await attachViaPairing({ code: 'AAAAA-BBBBB', localAdmin: goodAdmin },
+    { redeem: okRedeem, initialSync: noop, enableHybrid: spyEnable, verifyIntegrity: mismatch });
+  ok(r.ok === false && r.stage === 'integrity' && r.hybrid === false, 'H: intégrité divergente → stage integrity, pas de bascule', r);
+  ok(enableCalls === 0, 'H: enableHybrid JAMAIS appelé', enableCalls);
+  ok(Array.isArray(r.report?.mismatches) && r.report.mismatches.includes('grades'), 'H: rapport des tables divergentes renvoyé', r.report);
+  ok(!hybridActivated(), 'H: reste en Cloud', getSetting('cloud_sync'));
 }
 
 // ── G. Code vide → refus immédiat ─────────────────────────────────────────────

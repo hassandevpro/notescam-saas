@@ -18,15 +18,18 @@ on conflict (id) do update
       allowed_mime_types = array['image/png','image/jpeg','image/webp','application/pdf'];
 
 -- RLS : admin de l'école peut uploader / lire
+DROP POLICY IF EXISTS "bulletin_templates_insert" ON storage;
 create policy "bulletin_templates_insert" on storage.objects
   for insert with check (
     bucket_id = 'bulletin-templates'
     and auth.uid() is not null
   );
 
+DROP POLICY IF EXISTS "bulletin_templates_select" ON storage;
 create policy "bulletin_templates_select" on storage.objects
   for select using (bucket_id = 'bulletin-templates');
 
+DROP POLICY IF EXISTS "bulletin_templates_update" ON storage;
 create policy "bulletin_templates_update" on storage.objects
   for update using (
     bucket_id = 'bulletin-templates'

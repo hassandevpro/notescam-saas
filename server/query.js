@@ -8,6 +8,7 @@ import { db, ALLOWED_TABLES, quoteIdent, tableColumns, pickColumns, normalizeVal
 import { randomUUID } from 'node:crypto';
 import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
 import { emitApprovalRequestForOp } from './governanceApply.js';
+import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
 
 // --- Suivi des changements pour la sync continue (Phase 2) ------------
 // Horodate la ligne écrite (updated_at/device_id) pour la résolution LWW.
@@ -186,6 +187,7 @@ function doSelect(op) {
 function insertOrUpsertCore(op, isUpsert, inserted = []) {
   const { table } = op;
   const rows = Array.isArray(op.values) ? op.values : [op.values];
+  const tracked = isTracked(table); // maintenance Merkle (tables suivies uniquement)
   {
     for (const raw of rows) {
       const rec = pickColumns(table, raw);
@@ -209,7 +211,11 @@ function insertOrUpsertCore(op, isUpsert, inserted = []) {
           .map((c) => `${quoteIdent(c)} = excluded.${quoteIdent(c)}`);
         sql += ` ON CONFLICT(${conflict.map(quoteIdent).join(', ')}) DO UPDATE SET ${updates.join(', ')}`;
       }
+      // Snapshot AVANT (un upsert peut écraser une ligne existante → il faut retirer
+      // sa contribution Merkle avant d'ajouter la nouvelle).
+      const before = tracked ? snapshotRows(table, [rec.id]) : null;
       db.prepare(sql).run(...cols.map((c) => rec[c]));
+      if (tracked) maintainMerkle(table, before, snapshotRows(table, [rec.id]));
 
       if (op.returning && rec.id) {
         inserted.push(db.prepare(`SELECT * FROM ${quoteIdent(table)} WHERE id = ?`).get(rec.id));
@@ -245,8 +251,16 @@ function doUpdate(op) {
   if (SYNCED_TABLES.has(table) && tableColumns(table).has('version') && !cols.includes('version')) {
     setSql += `, ${quoteIdent('version')} = COALESCE(${quoteIdent('version')}, 0) + 1`;
   }
+  // Ids affectés + snapshot AVANT (capturés sur le prédicat courant, avant l'UPDATE).
+  const tracked = isTracked(table);
+  let affectedIds = null, before = null;
+  if (tracked) {
+    affectedIds = db.prepare(`SELECT id FROM ${quoteIdent(table)}${where.sql}`).all(...where.params).map((r) => r.id);
+    before = snapshotRows(table, affectedIds);
+  }
   const sql = `UPDATE ${quoteIdent(table)} SET ${setSql}${where.sql}`;
   db.prepare(sql).run(...cols.map((c) => rec[c]), ...where.params);
+  if (tracked) maintainMerkle(table, before, snapshotRows(table, affectedIds));
 
   if (SYNCED_TABLES.has(table) && tableColumns(table).has('id')) {
     for (const r of db.prepare(`SELECT id FROM ${quoteIdent(table)}${where.sql}`).all(...where.params)) recordOutbox(table, r.id, 'upsert');
@@ -269,7 +283,10 @@ function doDelete(op) {
   if (SYNCED_TABLES.has(table) && tableColumns(table).has('id')) {
     deletedIds = db.prepare(`SELECT id FROM ${quoteIdent(table)}${where.sql}`).all(...where.params).map((r) => r.id);
   }
+  const tracked = isTracked(table);
+  const before = tracked ? snapshotRows(table, deletedIds) : null;
   db.prepare(`DELETE FROM ${quoteIdent(table)}${where.sql}`).run(...where.params);
+  if (tracked) maintainMerkle(table, before, new Map()); // après = vide → contributions retirées
   for (const id of deletedIds) recordOutbox(table, id, 'delete');
   return { data: null, error: null };
 }

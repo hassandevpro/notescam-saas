@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { IS_LAN } from '../lib/edition';
 import { useAuthStore } from '../store/authStore';
+import SyncStatePanel from './SyncStatePanel';
 
 // Rendu de chaque état : libellé, pastille, couleurs.
 const MODES = {
@@ -23,6 +24,7 @@ const MODES = {
   HYBRIDE_SYNC:      { label: 'Hybride — synchronisation…',  dot: '◍', badge: 'bg-blue-100 text-blue-700' },
   HYBRIDE_OFFLINE:   { label: 'Hybride — Internet indisponible', dot: '◌', badge: 'bg-amber-100 text-amber-800' },
   HYBRIDE_ERROR:     { label: 'Hybride — erreur de synchronisation', dot: '✕', badge: 'bg-red-100 text-red-700' },
+  HYBRIDE_MISMATCH:  { label: 'Hybride — données divergentes', dot: '⚠', badge: 'bg-red-100 text-red-700' },
 };
 
 function timeAgo(iso) {
@@ -113,6 +115,9 @@ export default function HybridModeCard() {
               {mode === 'HYBRIDE_ERROR' && (
                 <div className="text-red-700">⚠️ Erreur de synchronisation : {health.lastError?.message || 'inconnue'} ({timeAgo(health.lastErrorAt)}).</div>
               )}
+              {mode === 'HYBRIDE_MISMATCH' && (
+                <div className="text-red-700">⚠️ Données divergentes du Cloud sur {health.lastMismatches?.length || 0} table(s){health.lastMismatches?.length ? ` : ${health.lastMismatches.join(', ')}` : ''}. Lancez un contrôle ci-dessous.</div>
+              )}
               {st?.policy?.finance?.execution === 'lan' && (
                 <div className="text-gray-400">Politique Cloud : finance locale + gouvernance distante.</div>
               )}
@@ -135,6 +140,9 @@ export default function HybridModeCard() {
                 : 'La finance reste 100 % locale tant que ce n’est pas activé.'}
             </span>
           </div>
+
+          {/* Écran « État de synchronisation » — garantie d'intégrité Cloud ↔ LAN. */}
+          <SyncStatePanel />
         </>
       )}
 

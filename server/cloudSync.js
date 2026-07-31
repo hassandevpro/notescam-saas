@@ -14,10 +14,12 @@
 
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId } from './db.js';
+import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId, tx } from './db.js';
 import { EDGE_BASE } from './cloudEnv.js';
 import { isCloudSyncEnabled } from './syncFlag.js';
-import { markSyncStart, markSyncSuccess, markSyncError } from './syncHealth.js';
+import { markSyncStart, markSyncSuccess, markSyncError, markVerification } from './syncHealth.js';
+import { recordSyncAudit } from './syncAudit.js';
+import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
 import { shouldPush, shouldPull } from '../src/lib/policyEngine.js';
 
 // Politique de déploiement de l'établissement (H1). Absente/vide (cas actuel de
@@ -52,6 +54,9 @@ const PULL_ORDER = [
   'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
   'attendance', 'student_absences', 'student_class_assignments',
+  // Vie scolaire (discipline) — uniformité LAN↔Cloud des données élèves.
+  'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
+  'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ];
 
@@ -84,8 +89,9 @@ export function remoteWins(local, remote) {
   return String(remote.device_id || '') > String(local.device_id || '');
 }
 
-// Upsert direct (anti-écho : n'alimente PAS sync_outbox).
-function rawUpsert(table, row) {
+// Upsert direct (anti-écho : n'alimente PAS sync_outbox). Exporté pour l'auto-réparation
+// (server/syncRepair.js) : applique une ligne distante autoritaire + maintient le Merkle.
+export function rawUpsert(table, row) {
   const cols = tableColumns(table);
   const rec = {};
   for (const [k, v] of Object.entries(row)) if (cols.has(k)) rec[k] = normalizeValue(v);
@@ -103,8 +109,14 @@ function rawUpsert(table, row) {
   const upd = keys.filter((c) => c !== 'id').map((c) => `"${c}" = excluded."${c}"`).join(', ');
   const sql = `INSERT INTO "${table}" (${keys.map((c) => `"${c}"`).join(', ')}) VALUES (${ph})`
     + (upd ? ` ON CONFLICT(id) DO UPDATE SET ${upd}` : ' ON CONFLICT(id) DO NOTHING');
-  try { db.prepare(sql).run(...keys.map((c) => rec[c])); return true; }
+  // Maintenance Merkle de l'écriture RÉPLIQUÉE (dans la tx atomique du pull) : retirer
+  // la contribution de l'ancienne ligne locale, ajouter celle de la ligne distante.
+  const tracked = isTracked(table);
+  const before = tracked ? snapshotRows(table, [rec.id]) : null;
+  try { db.prepare(sql).run(...keys.map((c) => rec[c])); }
   catch (e) { console.warn(`[sync] upsert ${table} ignoré: ${e.message}`); return false; }
+  if (tracked) maintainMerkle(table, before, snapshotRows(table, [rec.id]));
+  return true;
 }
 
 // --- Transport edge (injectable pour les tests) -----------------------
@@ -130,38 +142,55 @@ async function pull(edge, dryRun) {
   const plan = { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] };
   const policy = currentPolicy();
 
-  for (const table of PULL_ORDER) {
-    // Politique de déploiement (H1) : un module en mode LAN-only n'intègre pas les
-    // lignes distantes de ses tables. Inerte tant qu'aucune politique n'est définie.
-    if (!shouldPull(policy, table)) continue;
-    // `budgets` s'auto-référence : appliquer les parents (annual) avant les
-    // enfants (period, puis sector) pour ne pas violer la FK parent_budget_id.
-    const batch = table === 'budgets'
-      ? [...(rows[table] || [])].sort((a, b) => tierRank(a) - tierRank(b))
-      : (rows[table] || []);
-    for (const row of batch) {
-      if (!row?.id) continue;
-      const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(row.id);
-      if (local && !remoteWins(local, row)) { plan.keepLocal.push({ table, id: row.id }); continue; }
-      plan.apply.push({ table, id: row.id });
-      if (!dryRun) rawUpsert(table, row);
+  // Application d'un lot de pull. En dry-run : ne fait QUE construire le plan (aucune
+  // écriture). En réel : appelée DANS une transaction (voir plus bas) pour que lignes
+  // + tombstones + avancement des curseurs soient ATOMIQUES — une coupure secteur en
+  // plein lot ⇒ rollback complet + rejeu propre au cycle suivant (curseur non avancé).
+  const applyBatch = () => {
+    for (const table of PULL_ORDER) {
+      // Politique de déploiement (H1) : un module en mode LAN-only n'intègre pas les
+      // lignes distantes de ses tables. Inerte tant qu'aucune politique n'est définie.
+      if (!shouldPull(policy, table)) continue;
+      // `budgets` s'auto-référence : appliquer les parents (annual) avant les
+      // enfants (period, puis sector) pour ne pas violer la FK parent_budget_id.
+      const batch = table === 'budgets'
+        ? [...(rows[table] || [])].sort((a, b) => tierRank(a) - tierRank(b))
+        : (rows[table] || []);
+      for (const row of batch) {
+        if (!row?.id) continue;
+        const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(row.id);
+        if (local && !remoteWins(local, row)) { plan.keepLocal.push({ table, id: row.id }); continue; }
+        plan.apply.push({ table, id: row.id });
+        if (!dryRun) rawUpsert(table, row);
+      }
     }
-  }
-  for (const t of j?.tombstones || []) {
-    if (!SYNCED_TABLES.has(t.tablename)) continue;
-    if (!shouldPull(policy, t.tablename)) continue; // module LAN-only : on ignore aussi ses suppressions distantes
-    const local = db.prepare(`SELECT updated_at FROM "${t.tablename}" WHERE id = ?`).get(t.row_id);
-    if (!local) continue;
-    // La suppression gagne si elle est au moins aussi récente que le dernier
-    // changement local connu (sinon une modif locale postérieure la ressuscite).
-    if ((Date.parse(local.updated_at || 0) || 0) <= (Date.parse(t.deleted_at || 0) || 0)) {
-      plan.remove.push({ table: t.tablename, id: t.row_id });
-      if (!dryRun) { try { db.prepare(`DELETE FROM "${t.tablename}" WHERE id = ?`).run(t.row_id); } catch { /* FK : ignore */ } }
-    } else {
-      plan.keepLocalVsDelete.push({ table: t.tablename, id: t.row_id });
+    for (const t of j?.tombstones || []) {
+      if (!SYNCED_TABLES.has(t.tablename)) continue;
+      if (!shouldPull(policy, t.tablename)) continue; // module LAN-only : on ignore aussi ses suppressions distantes
+      const local = db.prepare(`SELECT updated_at FROM "${t.tablename}" WHERE id = ?`).get(t.row_id);
+      if (!local) continue;
+      // La suppression gagne si elle est au moins aussi récente que le dernier
+      // changement local connu (sinon une modif locale postérieure la ressuscite).
+      if ((Date.parse(local.updated_at || 0) || 0) <= (Date.parse(t.deleted_at || 0) || 0)) {
+        plan.remove.push({ table: t.tablename, id: t.row_id });
+        if (!dryRun) {
+          const trackedT = isTracked(t.tablename);
+          const beforeT = trackedT ? snapshotRows(t.tablename, [t.row_id]) : null;
+          try { db.prepare(`DELETE FROM "${t.tablename}" WHERE id = ?`).run(t.row_id); } catch { /* FK : ignore */ }
+          if (trackedT) maintainMerkle(t.tablename, beforeT, new Map());
+        }
+      } else {
+        plan.keepLocalVsDelete.push({ table: t.tablename, id: t.row_id });
+      }
     }
-  }
-  if (!dryRun) { setCursor('pull_at', j?.cursor); setCursor('tomb_at', j?.tomb_cursor); }
+    // Curseurs avancés DANS la même transaction que les écritures : jamais d'avance
+    // de curseur sans les données correspondantes (ni l'inverse).
+    if (!dryRun) { setCursor('pull_at', j?.cursor); setCursor('tomb_at', j?.tomb_cursor); }
+  };
+
+  if (dryRun) applyBatch();  // aucune écriture : construit seulement le plan
+  else tx(applyBatch);       // ATOMIQUE : lignes + tombstones + curseurs (tout ou rien)
+
   return { pulled: Object.values(rows).reduce((a, r) => a + r.length, 0), deleted: plan.remove.length, plan };
 }
 
@@ -244,10 +273,50 @@ export async function syncOnce({ edge = edgeFetch, dryRun = false } = {}) {
 // Cycle de synchro RÉEL (planifié) instrumenté pour la santé hybride. `syncOnce`
 // reste pur (utilisé tel quel par les tests + le dry-run) : la santé n'est
 // mesurée que pour les cycles effectivement joués par le planificateur.
+// Cycle NORMAL = strictement INCRÉMENTAL et event-driven : push du seul lot d'outbox
+// + pull des seules lignes changées depuis le curseur (keyset). AUCUN checksum global
+// ici — le contrôle d'intégrité lourd est réservé à l'appairage / après restauration /
+// à la demande de l'admin (cf. syncVerify.js), pour tenir la charge à des centaines
+// d'établissements et des millions de lignes.
 async function runScheduledSync() {
   markSyncStart();
-  try { const r = await syncOnce(); markSyncSuccess(r); return r; }
-  catch (e) { markSyncError(e); throw e; }
+  const t0 = Date.now();
+  try {
+    const r = await syncOnce();
+    markSyncSuccess(r);
+    // RAPPORT DE SYNCHRO AUTOMATIQUE après CHAQUE cycle : compare Cloud ↔ LAN et
+    // publie le rapport (métriques + empreinte globale + verdict) pour l'UI, sans
+    // action de l'admin. Léger (`promote:false`) : lecture O(1) de l'arbre de Merkle
+    // maintenu + descente seulement sur divergence → aucun rescan global. Best-effort :
+    // ne transforme jamais une synchro réussie en erreur. Import dynamique (anti-cycle).
+    let report = null;
+    try {
+      const { verifyIntegrity } = await import('./syncVerify.js');
+      report = await verifyIntegrity({ promote: false });
+      markVerification(report);
+      if (!report.ok) {
+        // AUTO-RÉPARATION : ne JAMAIS relancer une synchro complète — répare seulement
+        // les partitions divergentes, puis re-publie le rapport. Best-effort.
+        try {
+          const { autoRepair } = await import('./syncRepair.js');
+          const rep = await autoRepair();
+          if (rep?.report) { report = rep.report; markVerification(report); }
+        } catch (re) { console.warn('[sync] auto-réparation indisponible:', re.message); }
+      }
+    } catch (ve) { console.warn('[sync] rapport d’intégrité indisponible:', ve.message); }
+    // Une seule entrée d'audit ENRICHIE par cycle (état de parité + empreinte + rapport).
+    recordSyncAudit({
+      kind: 'sync', pushed: r.pushed, pulled: r.pulled, deleted: r.deleted,
+      duration_ms: Date.now() - t0, ok: report ? report.ok : true,
+      rows: (r.pushed || 0) + (r.pulled || 0), tables: report?.summary?.total ?? null,
+      hash: report?.globalChecksum?.lan ?? null, report: report || null,
+    });
+    return r;
+  } catch (e) {
+    markSyncError(e);
+    recordSyncAudit({ kind: 'error', duration_ms: Date.now() - t0, ok: false, detail: { message: e.message } });
+    throw e;
+  }
 }
 
 let _timer = null;

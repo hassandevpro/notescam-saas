@@ -24,7 +24,9 @@ import { setSetting } from './syncFlag.js';
 const TOKEN_PATH = join(DATA_DIR, 'server-token.key');
 
 // Étapes de la machine à états (exposées dans /api/pair/status pour l'assistant).
-export const PAIR_STAGES = ['redeem', 'sync', 'verify', 'admin', 'activate', 'done'];
+// `integrity` : contrôle table par table que le LAN est IDENTIQUE au Cloud (comptes +
+// checksums). Sans ce feu vert, on NE bascule PAS en hybride (fail-safe renforcé).
+export const PAIR_STAGES = ['redeem', 'sync', 'verify', 'integrity', 'admin', 'activate', 'done'];
 
 // ── Dépendances RÉELLES (injectables pour les tests hors-ligne) ────────────────
 
@@ -54,7 +56,9 @@ async function edgeRedeem(code, device) {
 //    leurs parents → « FOREIGN KEY constraint failed » et données perdues.
 async function defaultInitialSync() {
   const { syncOnce } = await import('./cloudSync.js');
+  const { setBulkMode, backfillAllTracked } = await import('./syncMerkle.js');
   db.exec('PRAGMA foreign_keys = OFF');
+  setBulkMode(true); // pull initial massif : pas de maintenance Merkle par ligne
   try {
     // DRAIN complet : sync-pull renvoie des LOTS (curseur). Un seul passage ne tire
     // qu'un lot partiel — on répète jusqu'à ce que plus rien n'arrive, pour que la
@@ -66,7 +70,13 @@ async function defaultInitialSync() {
       if (!last?.pulled) break;
     }
     return { ...(last || {}), pulledTotal: total };
-  } finally { db.exec('PRAGMA foreign_keys = ON'); }
+  } finally {
+    setBulkMode(false);
+    db.exec('PRAGMA foreign_keys = ON');
+    // Reconstruit l'arbre de Merkle en UN bloc à partir des données fraîchement tirées,
+    // pour que le contrôle d'intégrité (étape `integrity`) soit immédiat et exact.
+    try { backfillAllTracked(); } catch (e) { console.warn('[merkle] backfill post-appairage:', e.message); }
+  }
 }
 
 // 3) Contrôle d'intégrité minimal : l'école est-elle bien arrivée localement ?
@@ -75,6 +85,24 @@ function verifyAttached(schoolId) {
   if (!school) throw new Error("Synchronisation initiale incomplète : l'école n'est pas présente localement.");
   const users = db.prepare('SELECT COUNT(*) n FROM school_users WHERE school_id = ?').get(schoolId).n;
   return { school: school.name, school_users: users };
+}
+
+// 3-bis) CONTRÔLE D'INTÉGRITÉ COMPLET : le LAN est-il IDENTIQUE au Cloud (chaque
+//    table synchronisée : nombre de lignes + checksum) ? Renvoie le rapport ; lève
+//    (avec le rapport attaché) si une seule divergence subsiste → pas de bascule.
+async function defaultVerifyIntegrity() {
+  const { verifyIntegrity } = await import('./syncVerify.js');
+  const { recordSyncAudit } = await import('./syncAudit.js');
+  const { markVerification } = await import('./syncHealth.js');
+  const report = await verifyIntegrity();
+  markVerification(report); // publie le rapport de la synchro INITIALE pour l'UI
+  recordSyncAudit({ kind: 'verify', ok: report.ok, detail: { trigger: 'pairing', mismatches: report.mismatches, total: report.summary?.total } });
+  if (!report.ok) {
+    const e = new Error(`Données non identiques au Cloud : ${report.mismatches.length} table(s) divergente(s) (${report.mismatches.join(', ')}).`);
+    e.report = report;
+    throw e;
+  }
+  return report;
 }
 
 // 4) Crée le compte ADMIN LOCAL de ce serveur (identifiant LOCAL, jamais un secret
@@ -141,6 +169,7 @@ export async function attachViaPairing({ code, localAdmin }, deps = {}) {
   const initialSync = deps.initialSync || defaultInitialSync;
   const enableHybrid = deps.enableHybrid || defaultEnableHybrid;
   const verify = deps.verify || verifyAttached;
+  const verifyIntegrity = deps.verifyIntegrity || defaultVerifyIntegrity;
   const makeAdmin = deps.makeAdmin || createLocalAdmin;
   const onStage = deps.onStage || (() => {});
 
@@ -181,6 +210,16 @@ export async function attachViaPairing({ code, localAdmin }, deps = {}) {
     return { ok: false, stage: 'verify', schoolId, error: e.message, hybrid: false };
   }
 
+  // (3-bis) CONTRÔLE D'INTÉGRITÉ COMPLET — le LAN doit être IDENTIQUE au Cloud.
+  onStage('integrity');
+  let integrityReport;
+  try {
+    integrityReport = await verifyIntegrity(schoolId);
+  } catch (e) {
+    // Données divergentes (ou Cloud injoignable) → on RESTE en Cloud, pas de bascule.
+    return { ok: false, stage: 'integrity', schoolId, integrity, error: e.message, report: e.report || null, hybrid: false };
+  }
+
   // (4) ADMIN LOCAL.
   onStage('admin');
   try {
@@ -200,8 +239,8 @@ export async function attachViaPairing({ code, localAdmin }, deps = {}) {
   }
 
   onStage('done');
-  persistAttachment(schoolId, redeemed.cloudUrl, redeemed.token, { stage: 'done', integrity });
-  return { ok: true, stage: 'done', schoolId, integrity, hybrid: true };
+  persistAttachment(schoolId, redeemed.cloudUrl, redeemed.token, { stage: 'done', integrity, verified: true });
+  return { ok: true, stage: 'done', schoolId, integrity, report: integrityReport, hybrid: true };
 }
 
 // État courant (pour l'assistant) : déjà appairé ? mode ?

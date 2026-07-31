@@ -63,6 +63,7 @@ const Landing           = lazy(() => import('./pages/Landing'));
 const Terms             = lazy(() => import('./pages/Terms'));
 const Help              = lazy(() => import('./pages/Help'));
 const History           = lazy(() => import('./pages/History'));
+const SyncHistory       = lazy(() => import('./pages/SyncHistory'));
 const HonorRoll         = lazy(() => import('./pages/HonorRoll'));
 // Module Vie scolaire (surveillant / discipline)
 const VieScolaire       = lazy(() => import('./pages/VieScolaire'));
@@ -286,6 +287,7 @@ export default function App() {
           <Route path="/app/timetable"        element={<ProtectedRoute allow={WITH_TEACHER}><Timetable /></ProtectedRoute>} />
           <Route path="/app/aide"             element={<ProtectedRoute allow={ALL_STAFF}><Help /></ProtectedRoute>} />
           <Route path="/app/historique"       element={<ProtectedRoute allow={ADMIN_ONLY}><History /></ProtectedRoute>} />
+          <Route path="/app/synchronisation"  element={<ProtectedRoute allow={ADMIN_ONLY}><SyncHistory /></ProtectedRoute>} />
           <Route path="/superadmin" element={<ProtectedRoute allow={['superadmin']}><SuperAdmin /></ProtectedRoute>} />
           <Route path="/parent/:token" element={<ParentPortal />} />
           <Route path="/verify/:code" element={<VerifyTranscript />} />

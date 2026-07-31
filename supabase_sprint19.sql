@@ -23,6 +23,7 @@ CREATE INDEX IF NOT EXISTS seq_dates_school_idx ON sequence_dates(school_id);
 
 ALTER TABLE sequence_dates ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "seq_dates: lecture membres" ON sequence_dates;
 CREATE POLICY "seq_dates: lecture membres"
   ON sequence_dates FOR SELECT
   USING (
@@ -32,6 +33,7 @@ CREATE POLICY "seq_dates: lecture membres"
     )
   );
 
+DROP POLICY IF EXISTS "seq_dates: écriture admin" ON sequence_dates;
 CREATE POLICY "seq_dates: écriture admin"
   ON sequence_dates FOR ALL
   USING (

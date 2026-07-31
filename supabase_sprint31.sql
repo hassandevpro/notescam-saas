@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS public.timetable_slots (
 ALTER TABLE public.timetable_slots ENABLE ROW LEVEL SECURITY;
 
 -- Membres de l'école peuvent lire les créneaux
+DROP POLICY IF EXISTS "school members read timetable" ON public.timetable_slots;
 CREATE POLICY "school members read timetable"
   ON public.timetable_slots FOR SELECT
   USING (
@@ -30,6 +31,7 @@ CREATE POLICY "school members read timetable"
   );
 
 -- Admins seulement peuvent modifier
+DROP POLICY IF EXISTS "admin manage timetable" ON public.timetable_slots;
 CREATE POLICY "admin manage timetable"
   ON public.timetable_slots FOR ALL
   USING (

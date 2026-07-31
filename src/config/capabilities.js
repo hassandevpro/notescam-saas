@@ -59,6 +59,7 @@ export const CAP_GROUPS = [
   ] },
   { module: ['Administration', 'Administration', 'Administración'], caps: [
     { to: '/app/year', label: ['Année scolaire', 'School year', 'Año escolar'] },
+    { to: '/app/synchronisation', label: ['Synchronisation', 'Synchronization', 'Sincronización'] },
     { to: '/app/settings', label: ['Paramètres', 'Settings', 'Ajustes'] },
   ] },
 ];

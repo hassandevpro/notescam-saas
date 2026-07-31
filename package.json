@@ -1,7 +1,7 @@
 {
   "name": "notescam-saas",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,9 @@
     "server": "node server/index.js",
     "lan": "npm run build:lan && node server/index.js",
     "lan:dev": "node server/index.js",
+    "validate": "node scripts/validate-sync.mjs",
+    "validate:full": "node scripts/validate-sync.mjs --full",
+    "validate:migrations": "node scripts/validate-migrations.mjs",
     "icons": "node scripts/generate-icons.mjs",
     "import:sqlite": "node scripts/sqlite-to-pivot.mjs",
     "import:csv": "node scripts/csv-to-pivot.mjs",

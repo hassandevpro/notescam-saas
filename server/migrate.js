@@ -294,6 +294,11 @@ export async function runMigration({ url, anonKey, email, password, localPasswor
     db.exec('PRAGMA foreign_keys = ON');   // ré-active l'application des FK
   }
 
+  // Reconstruit l'arbre de Merkle en un bloc : writeRows (import massif direct) n'a pas
+  // maintenu l'arbre → sans ceci, le contrôle d'intégrité ultérieur le verrait vide.
+  try { const { backfillAllTracked } = await import('./syncMerkle.js'); backfillAllTracked(); }
+  catch (e) { console.warn('[merkle] backfill post-migration:', e.message); }
+
   // ── Étape 5 : contrôle d'intégrité ───────────────────────────────────────
   log(onProgress, 'verify');
   const integrity = { ok: true, mismatches: [], fkViolations: 0 };

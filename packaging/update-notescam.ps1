@@ -131,6 +131,28 @@ if ($Force) {
   }
 }
 
+# --- 1c. Garde de PARITÉ Cloud <-> LAN (ne jamais mettre à jour en désynchro) ---
+# Garantie de parité (#9) : si les données Cloud et LAN divergent, on BLOQUE la mise à
+# jour et on dit exactement quelles tables diffèrent. -Force passe outre (déconseillé).
+Step "Contrôle de parité Cloud <-> LAN"
+if (-not $Force) {
+  try {
+    $pf = Invoke-RestMethod "http://localhost:$Port/api/update/preflight" -TimeoutSec 10
+    if ($pf.data.applicable -and $pf.data.desync) {
+      Write-Host ''
+      Warn 'MISE A JOUR BLOQUEE — Cloud et LAN ne sont pas identiques (desynchronisation).'
+      Write-Host ("   {0} table(s) divergente(s). Detail dans la page Synchronisation." -f $pf.data.mismatchCount) -ForegroundColor Yellow
+      Write-Host "Ouvre la page Synchronisation -> 'Forcer un controle' / 'Reparer', puis relance." -ForegroundColor Cyan
+      Write-Host "`nAppuie sur Entree pour fermer..."
+      [void](Read-Host); return
+    } else {
+      Ok 'Parite OK (ou mode hybride non actif) — mise a jour autorisee.'
+    }
+  } catch {
+    Warn 'Controle de parite indisponible (serveur injoignable) — poursuite prudente.'
+  }
+}
+
 # --- 2. Sauvegarde des données ---------------------------------------
 if (-not $NoBackup) {
   Step "Sauvegarde des données"

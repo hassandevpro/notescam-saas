@@ -35,6 +35,7 @@ CREATE INDEX IF NOT EXISTS teacher_notif_school_unread_idx
 ALTER TABLE teacher_notifications ENABLE ROW LEVEL SECURITY;
 
 -- Les admins lisent toutes les notifications de leur école
+DROP POLICY IF EXISTS "notif: lecture admin" ON teacher_notifications;
 CREATE POLICY "notif: lecture admin"
   ON teacher_notifications FOR SELECT
   USING (
@@ -45,6 +46,7 @@ CREATE POLICY "notif: lecture admin"
   );
 
 -- Les membres (teachers + admins) insèrent
+DROP POLICY IF EXISTS "notif: insertion membres" ON teacher_notifications;
 CREATE POLICY "notif: insertion membres"
   ON teacher_notifications FOR INSERT
   WITH CHECK (
@@ -55,6 +57,7 @@ CREATE POLICY "notif: insertion membres"
   );
 
 -- Les admins marquent comme lu (UPDATE)
+DROP POLICY IF EXISTS "notif: update admin" ON teacher_notifications;
 CREATE POLICY "notif: update admin"
   ON teacher_notifications FOR UPDATE
   USING (

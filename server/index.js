@@ -196,12 +196,66 @@ app.post('/api/license/activate', (req, reply) => {
 });
 
 // ====================== BACKUP (déclenchement manuel) =================
+// JAMAIS bloquée en désynchro (filet de sécurité) — mais renvoyée MARQUÉE « urgence ».
 app.post('/api/backup', async (req, reply) => {
   const { userId } = authOf(req);
   const m = userId && db.prepare('SELECT role FROM school_users WHERE user_id = ? AND active = 1').get(userId);
   if (!m || m.role !== 'admin') return reply.code(403).send({ error: { message: 'Admin requis' } });
-  const path = await runBackup();
-  return { data: { path }, error: null };
+  const res = await runBackup();
+  return { data: res, error: null };
+});
+
+// Liste des sauvegardes + drapeau d'urgence (l'outil de restauration prévient si la
+// sauvegarde provient d'un état non synchronisé + propose un contrôle d'intégrité).
+app.get('/api/backup/list', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { listBackups } = await import('./backup.js');
+  return { data: listBackups(), error: null };
+});
+
+// État de PARITÉ Cloud ↔ LAN (pour l'UI + les gardes update/version/restauration).
+app.get('/api/sync/parity', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { parityStatus } = await import('./parityGate.js');
+  return { data: parityStatus(), error: null };
+});
+
+// ====================== MISE À JOUR (OTA — fondations) ================
+// Version courante (publique : utile aux scripts + à l'UI, aucune donnée sensible).
+app.get('/api/version', async () => {
+  const { currentVersion } = await import('./updateService.js');
+  return { data: { version: currentVersion() }, error: null };
+});
+
+// PRÉ-VOL de mise à jour pour le script d'installation (localhost, sans auth) : verdict
+// de parité STRICTEMENT MINIMAL — booléens + COMPTE uniquement, JAMAIS les noms de tables
+// (L3 : pas de divulgation d'information sur un endpoint non authentifié). Le détail
+// (tables divergentes) reste réservé à l'admin via /api/sync/parity.
+app.get('/api/update/preflight', async () => {
+  const { parityStatus } = await import('./parityGate.js');
+  const st = parityStatus();
+  return { data: { ok: st.ok, applicable: st.applicable, desync: st.desync, mismatchCount: (st.mismatches || []).length }, error: null };
+});
+
+// Statut de mise à jour : disponibilité + GARDE DE PARITÉ (allowed=false si Cloud≠LAN).
+app.get('/api/update/status', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { updateStatus } = await import('./updateService.js');
+    return { data: await updateStatus(), error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Déclenche la mise à jour — BLOQUÉE (409 + tables divergentes) si désynchro.
+app.post('/api/update/apply', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { applyUpdate } = await import('./updateService.js');
+    return { data: await applyUpdate(), error: null };
+  } catch (e) {
+    if (e.blocked) return reply.code(409).send({ error: { message: e.message, parity: e.parity, blocked: true } });
+    return reply.code(400).send({ error: { message: e.message } });
+  }
 });
 
 // ====================== MIGRATION CLOUD → LOCAL/LAN ===================
@@ -361,6 +415,58 @@ app.post('/api/sync/dry-run', async (req, reply) => {
   try {
     const res = await syncOnce({ dryRun: true });
     return { data: res, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// ====================== SYNC : CONTRÔLE D'INTÉGRITÉ ==================
+// Contrôle LOURD (comptes + checksums TABLE PAR TABLE), réservé À LA DEMANDE de
+// l'admin / après une restauration (l'appairage le fait déjà). PAS exécuté en
+// fonctionnement normal : la synchro continue est purement incrémentale. Alimente
+// l'écran « État de synchronisation » + la santé (HYBRIDE_MISMATCH si divergence).
+app.get('/api/sync/verify', async (req, reply) => {
+  const userId = requireLocalAdmin(req, reply); if (!userId) return;
+  try {
+    const { verifyIntegrity } = await import('./syncVerify.js');
+    const { markVerification } = await import('./syncHealth.js');
+    const { recordSyncAudit } = await import('./syncAudit.js');
+    const report = await verifyIntegrity();
+    markVerification(report);
+    recordSyncAudit({ kind: 'verify', ok: report.ok, actor: userId, ip: req.ip, tables: report.summary?.total, hash: report.globalChecksum?.lan, report, detail: { trigger: 'ondemand', mismatches: report.mismatches } });
+    return { data: report, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// AUTO-RÉPARATION à la demande : répare uniquement les partitions divergentes puis
+// re-publie le rapport. Ne relance JAMAIS une synchro complète.
+app.post('/api/sync/repair', async (req, reply) => {
+  const userId = requireLocalAdmin(req, reply); if (!userId) return;
+  try {
+    const { autoRepair } = await import('./syncRepair.js');
+    const { markVerification } = await import('./syncHealth.js');
+    const { recordSyncAudit } = await import('./syncAudit.js');
+    const res = await autoRepair();
+    if (res?.report) markVerification(res.report);
+    recordSyncAudit({ kind: 'repair', ok: res.ok, actor: userId, ip: req.ip, hash: res.report?.globalChecksum?.lan, report: res.report, detail: { trigger: 'manual', rounds: res.rounds, partitions: res.repaired.length } });
+    return { data: { ok: res.ok, rounds: res.rounds, repaired: res.repaired, report: res.report }, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Journal d'audit PERSISTANT de la synchro (cycles incrémentaux + contrôles + erreurs).
+app.get('/api/sync/audit', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { listSyncAudit } = await import('./syncAudit.js');
+    return { data: listSyncAudit(req.query?.limit), error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Tableau de bord de SANTÉ : métriques + événements en attente + temps moyen de
+// réplication + détection des synchronisations bloquées. Bon marché (lecture seule).
+app.get('/api/sync/health', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { syncMetrics } = await import('./syncMetrics.js');
+    return { data: syncMetrics(), error: null };
   } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
 });
 

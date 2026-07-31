@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { useT } from '../lib/i18n';
 import { IS_LAN } from '../lib/edition';
+import { useLanHasSchool } from '../lib/lanSetup';
 import LogoMark from '../components/LogoMark';
 
 function EyeIcon({ open }) {
@@ -24,6 +25,9 @@ export default function Login() {
   const navigate = useNavigate();
   const session  = useAuthStore((s) => s.session);
   const loading  = useAuthStore((s) => s.loading);
+  // En LAN, masque « Créer un établissement » dès qu'une école existe sur le serveur.
+  const lanHasSchool = useLanHasSchool();
+  const showRegister = !(IS_LAN && lanHasSchool === true);
 
   const [email,       setEmail]       = useState('');
   const [password,    setPassword]    = useState('');
@@ -200,12 +204,14 @@ export default function Login() {
 
           {/* Liens */}
           <div className="mt-6 pt-5 border-t border-slate-100 space-y-2 text-center">
-            <p className="text-sm text-slate-500">
-              {t('Pas de compte ?', 'No account?')}{' '}
-              <Link to="/signup" className="text-terracotta-600 font-semibold hover:text-terracotta-700 transition-colors">
-                {t('Créer un établissement', 'Create a school')}
-              </Link>
-            </p>
+            {showRegister && (
+              <p className="text-sm text-slate-500">
+                {t('Pas de compte ?', 'No account?')}{' '}
+                <Link to="/signup" className="text-terracotta-600 font-semibold hover:text-terracotta-700 transition-colors">
+                  {t('Créer un établissement', 'Create a school')}
+                </Link>
+              </p>
+            )}
             <p className="text-sm text-slate-500">
               {t('Enseignant ?', 'Teacher?')}{' '}
               <Link to="/teacher-signup" className="text-terracotta-600 font-semibold hover:text-terracotta-700 transition-colors">

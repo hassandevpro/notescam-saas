@@ -23,6 +23,7 @@ create index if not exists idx_sca_assigned on public.student_class_assignments(
 alter table public.student_class_assignments enable row level security;
 
 -- Lecture : tous les membres actifs de l'établissement (admins + enseignants)
+DROP POLICY IF EXISTS "School members can read assignments" ON public.student_class_assignments;
 create policy "School members can read assignments"
   on public.student_class_assignments for select
   using (
@@ -33,6 +34,7 @@ create policy "School members can read assignments"
   );
 
 -- Insertion : uniquement les admins de l'établissement
+DROP POLICY IF EXISTS "School admin can insert assignments" ON public.student_class_assignments;
 create policy "School admin can insert assignments"
   on public.student_class_assignments for insert
   with check (

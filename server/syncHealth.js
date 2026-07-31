@@ -16,6 +16,13 @@ let state = {
   lastError: null,        // { kind: 'network'|'error', message } | null
   lastPushed: 0,          // # lignes poussées au dernier succès
   lastPulled: 0,          // # lignes tirées au dernier succès
+  // Dernier CONTRÔLE D'INTÉGRITÉ Cloud ↔ LAN (exécuté AUTOMATIQUEMENT après chaque
+  // synchro). Une synchro mécaniquement réussie mais qui laisse des tables DIVERGENTES
+  // n'est PAS « validée à 100 % ».
+  lastVerifyAt: null,     // ISO — dernier contrôle abouti
+  lastVerifyOk: null,     // true/false/null(jamais contrôlé)
+  lastMismatches: [],     // noms des tables divergentes au dernier contrôle
+  lastReport: null,       // rapport compact (dashboard + empreinte globale + verdict) pour l'UI
 };
 
 // Distingue « Internet indisponible » (réseau) d'une vraie erreur de synchro
@@ -48,6 +55,25 @@ export function markSyncError(err) {
   state.lastError = classify(err);
 }
 
+// Enregistre le résultat d'un contrôle d'intégrité (best-effort, ne lève jamais).
+// Conserve un rapport COMPACT (métriques + empreinte globale + verdict) pour que l'UI
+// affiche le « rapport de synchronisation » automatiquement, sans action de l'admin.
+export function markVerification(report) {
+  state.lastVerifyAt = report?.at || new Date().toISOString();
+  state.lastVerifyOk = !!report?.ok;
+  state.lastMismatches = Array.isArray(report?.mismatches) ? report.mismatches.slice() : [];
+  state.lastReport = report ? {
+    ok: !!report.ok,
+    at: report.at,
+    dashboard: report.dashboard || [],
+    globalChecksum: report.globalChecksum || null,
+    mismatches: report.mismatches || [],
+    mismatchLabels: report.mismatchLabels || [],
+    divergences: report.divergences || [],
+    summary: report.summary || null,
+  } : null;
+}
+
 export function syncHealth() {
   return { ...state };
 }
@@ -59,6 +85,8 @@ export function hybridMode(enabled, h = state) {
   if (h.inFlight) return 'HYBRIDE_SYNC';
   if (h.lastError?.kind === 'network') return 'HYBRIDE_OFFLINE';
   if (h.lastError) return 'HYBRIDE_ERROR';
+  // Synchro mécaniquement OK MAIS données divergentes : ce n'est PAS « connecté sain ».
+  if (h.lastVerifyOk === false) return 'HYBRIDE_MISMATCH';
   if (h.lastSuccessAt) return 'HYBRIDE_CONNECTED';
   return 'HYBRIDE_SYNC'; // activé mais aucun cycle abouti encore → en cours
 }

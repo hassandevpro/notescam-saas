@@ -61,6 +61,7 @@ create trigger student_fees_updated_at
 -- ============================================================
 alter table student_fees enable row level security;
 
+DROP POLICY IF EXISTS "student_fees: lecture par membres de l'école" ON student_fees;
 create policy "student_fees: lecture par membres de l'école"
   on student_fees for select
   using (
@@ -70,6 +71,7 @@ create policy "student_fees: lecture par membres de l'école"
     )
   );
 
+DROP POLICY IF EXISTS "student_fees: écriture par admins de l'école" ON student_fees;
 create policy "student_fees: écriture par admins de l'école"
   on student_fees for all
   using (

@@ -23,6 +23,8 @@ const ALLOWED = new Set([
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items',
   'attendance', 'student_absences', 'student_class_assignments',
+  'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
+  'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ]);
 
@@ -81,7 +83,11 @@ Deno.serve(async (req) => {
     // changement local gagne selon (updated_at, version, device_id)).
     if (!belongs(ch.table, ch.row, schoolId)) { skipped++; continue; }
     const { data: existing } = await admin.from(ch.table)
-      .select('updated_at, version, device_id').eq('id', id).maybeSingle();
+      .select(`updated_at, version, device_id, ${scopeCol}`).eq('id', id).maybeSingle();
+    // DÉFENSE EN PROFONDEUR (L1) : ne JAMAIS écraser une ligne qui appartient à une AUTRE
+    // école (collision d'id inter-écoles). Le périmètre de la ligne existante doit être
+    // celui du jeton, sinon on refuse (jamais de fuite/écrasement inter-tenant).
+    if (existing && (existing as any)[scopeCol] !== schoolId) { skipped++; continue; }
     if (existing && !wins(ch.row, existing)) { skipped++; continue; }
     const { error } = await admin.from(ch.table).upsert(ch.row, { onConflict: 'id' });
     // On LOGUE l'erreur (au lieu de l'avaler en silence) : une écriture cloud

@@ -32,6 +32,7 @@ CREATE INDEX IF NOT EXISTS school_messages_teacher_idx
 ALTER TABLE school_messages ENABLE ROW LEVEL SECURITY;
 
 -- Admin : lecture de tous les messages de son école
+DROP POLICY IF EXISTS "messages: lecture admin" ON school_messages;
 CREATE POLICY "messages: lecture admin"
   ON school_messages FOR SELECT
   USING (
@@ -42,6 +43,7 @@ CREATE POLICY "messages: lecture admin"
   );
 
 -- Admin : envoi de messages
+DROP POLICY IF EXISTS "messages: envoi admin" ON school_messages;
 CREATE POLICY "messages: envoi admin"
   ON school_messages FOR INSERT
   WITH CHECK (
@@ -52,6 +54,7 @@ CREATE POLICY "messages: envoi admin"
   );
 
 -- Enseignant : lecture de ses messages
+DROP POLICY IF EXISTS "messages: lecture enseignant" ON school_messages;
 CREATE POLICY "messages: lecture enseignant"
   ON school_messages FOR SELECT
   USING (
@@ -61,6 +64,7 @@ CREATE POLICY "messages: lecture enseignant"
   );
 
 -- Enseignant : marquer lu (UPDATE read = true uniquement)
+DROP POLICY IF EXISTS "messages: marquer lu enseignant" ON school_messages;
 CREATE POLICY "messages: marquer lu enseignant"
   ON school_messages FOR UPDATE
   USING (

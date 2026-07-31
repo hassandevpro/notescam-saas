@@ -36,6 +36,8 @@ const TABLES = [
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items',
   'attendance', 'student_absences', 'student_class_assignments',
+  'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
+  'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ];
 // Toutes ces tables possèdent `id` (uuid) ET `updated_at` → keyset (updated_at, id) uniforme.

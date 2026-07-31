@@ -61,6 +61,7 @@ CREATE POLICY budget_chapters_read ON budget_chapters FOR SELECT
          AND EXISTS (SELECT 1 FROM budgets b WHERE b.id = budget_chapters.budget_id
                       AND public.user_covers_sector(budget_chapters.school_id, b.sector))
          AND (NOT public.finance_lan_mode(school_id) OR public.has_remote_access(school_id)));
+DROP POLICY IF EXISTS budget_chapters_write ON budget_chapters;
 CREATE POLICY budget_chapters_write ON budget_chapters FOR ALL
   USING      (public.has_budget_access(school_id) AND NOT public.finance_lan_mode(school_id)
               AND EXISTS (SELECT 1 FROM budgets b WHERE b.id = budget_chapters.budget_id AND public.user_covers_sector(budget_chapters.school_id, b.sector)))
@@ -74,6 +75,7 @@ DROP POLICY IF EXISTS budget_expenses_write ON budget_expenses;
 CREATE POLICY budget_expenses_read ON budget_expenses FOR SELECT
   USING (public.has_budget_access(school_id) AND public.user_covers_sector(school_id, COALESCE(sector, 'general'))
          AND (NOT public.finance_lan_mode(school_id) OR public.has_remote_access(school_id)));
+DROP POLICY IF EXISTS budget_expenses_write ON budget_expenses;
 CREATE POLICY budget_expenses_write ON budget_expenses FOR ALL
   USING      (public.has_budget_access(school_id) AND public.user_covers_sector(school_id, COALESCE(sector, 'general')) AND NOT public.finance_lan_mode(school_id))
   WITH CHECK (public.has_budget_access(school_id) AND public.user_covers_sector(school_id, COALESCE(sector, 'general')) AND NOT public.finance_lan_mode(school_id));
@@ -87,6 +89,7 @@ CREATE POLICY budget_unlock_read ON budget_unlock_requests FOR SELECT
          AND EXISTS (SELECT 1 FROM budgets b WHERE b.id = budget_unlock_requests.budget_id
                       AND public.user_covers_sector(budget_unlock_requests.school_id, b.sector))
          AND (NOT public.finance_lan_mode(school_id) OR public.has_remote_access(school_id)));
+DROP POLICY IF EXISTS budget_unlock_write ON budget_unlock_requests;
 CREATE POLICY budget_unlock_write ON budget_unlock_requests FOR ALL
   USING      (public.has_budget_access(school_id) AND NOT public.finance_lan_mode(school_id)
               AND EXISTS (SELECT 1 FROM budgets b WHERE b.id = budget_unlock_requests.budget_id AND public.user_covers_sector(budget_unlock_requests.school_id, b.sector)))

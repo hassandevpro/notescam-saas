@@ -8,6 +8,7 @@ import { flushSyncQueue, clearSyncQueue, pruneExpiredItems } from '../lib/sync';
 import Sidebar from './nav/Sidebar';
 import MobileNav from './nav/MobileNav';
 import NotificationBell from './NotificationBell';
+import SyncBadge from './SyncBadge';
 import UserMenu from './UserMenu';
 import LanguageMenu from './LanguageMenu';
 import { localeForLang } from '../lib/i18n';
@@ -293,6 +294,7 @@ export default function Layout({ children, bleed = false }) {
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <HeaderClock />
           <LanguageMenu />
+          {!isArchive && <SyncBadge />}
           {!isArchive && <SyncIndicator />}
           {!isArchive && <NotificationBell />}
           <div className="w-px h-6 bg-slate-200 mx-0.5 hidden sm:block" />

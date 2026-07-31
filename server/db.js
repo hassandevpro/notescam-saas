@@ -317,6 +317,9 @@ export const SYNCED_TABLES = new Set([
   // Gouvernance du complexe — catalogue de rôles + attribution + historique.
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'attendance', 'student_absences', 'student_class_assignments',
+  // Vie scolaire (discipline / surveillant) — uniformité LAN↔Cloud des données élèves.
+  'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
+  'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
   // Notes du moteur officiel (compétences/observations). Synchro LAN↔LAN OK (même
   // seed = mêmes ids référentiel) ; la synchro LAN↔Cloud des notes reste un

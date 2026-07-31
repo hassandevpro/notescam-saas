@@ -315,6 +315,20 @@ async function idbDelete(store, key) {
   });
 }
 
+// Supprime plusieurs clés en UNE transaction. Utilisé par la réconciliation du
+// cache (élagage des lignes absentes du jeu cloud autoritatif) — cf. schoolStore.
+async function idbDeleteMany(store, keys) {
+  if (!keys.length) return true;
+  const db = await getDbInstance();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    const os = tx.objectStore(store);
+    keys.forEach((k) => os.delete(k));
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = (e) => reject(e.target.error);
+  });
+}
+
 async function idbAdd(store, record) {
   const db = await getDbInstance();
   return new Promise((resolve, reject) => {
@@ -345,6 +359,7 @@ export const classesDB = {
   put: (r) => idbPut('classes', r),
   putMany: (rs) => idbPutMany('classes', rs),
   delete: (id) => idbDelete('classes', id),
+  deleteMany: (ids) => idbDeleteMany('classes', ids),
 };
 
 export const subjectsDB = {
@@ -353,6 +368,7 @@ export const subjectsDB = {
   put: (r) => idbPut('subjects', r),
   putMany: (rs) => idbPutMany('subjects', rs),
   delete: (id) => idbDelete('subjects', id),
+  deleteMany: (ids) => idbDeleteMany('subjects', ids),
 };
 
 export const studentsDB = {
@@ -362,6 +378,7 @@ export const studentsDB = {
   put: (r) => idbPut('students', r),
   putMany: (rs) => idbPutMany('students', rs),
   delete: (id) => idbDelete('students', id),
+  deleteMany: (ids) => idbDeleteMany('students', ids),
 };
 
 export const assignmentsDB = {
@@ -370,6 +387,7 @@ export const assignmentsDB = {
   put: (r) => idbPut('student_class_assignments', r),
   putMany: (rs) => idbPutMany('student_class_assignments', rs),
   delete: (id) => idbDelete('student_class_assignments', id),
+  deleteMany: (ids) => idbDeleteMany('student_class_assignments', ids),
 };
 
 export const gradesDB = {
@@ -394,6 +412,7 @@ export const teachersDB = {
   put: (r) => idbPut('teachers', r),
   putMany: (rs) => idbPutMany('teachers', rs),
   delete: (id) => idbDelete('teachers', id),
+  deleteMany: (ids) => idbDeleteMany('teachers', ids),
 };
 
 export const feesDB = {
@@ -445,6 +464,7 @@ export const staffDB = {
   put: (r) => idbPut('staff', r),
   putMany: (rs) => idbPutMany('staff', rs),
   delete: (id) => idbDelete('staff', id),
+  deleteMany: (ids) => idbDeleteMany('staff', ids),
 };
 
 // --- Moteur APC ---
@@ -509,6 +529,7 @@ export const schoolUnitsDB = {
   put: (r) => idbPut('school_units', r),
   putMany: (rs) => idbPutMany('school_units', rs),
   delete: (id) => idbDelete('school_units', id),
+  deleteMany: (ids) => idbDeleteMany('school_units', ids),
 };
 
 export const documentLogDB = {

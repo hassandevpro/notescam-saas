@@ -21,6 +21,9 @@ DELETE FROM notifications WHERE school_id='31c70a36-065e-4933-a40c-1e9c051d1afc'
 DELETE FROM budget_unlock_requests WHERE school_id='31c70a36-065e-4933-a40c-1e9c051d1afc' AND device_id='seed-lareussite-v1';
 DELETE FROM budget_expenses WHERE school_id='31c70a36-065e-4933-a40c-1e9c051d1afc' AND device_id='seed-lareussite-v1';
 DELETE FROM budget_chapters WHERE school_id='31c70a36-065e-4933-a40c-1e9c051d1afc' AND device_id='seed-lareussite-v1';
+-- budget_line_periods/sectors partent en cascade avec les chapitres ; les périodes
+-- sont indépendantes (aucune FK depuis les chapitres) → suppression explicite.
+DELETE FROM budget_periods WHERE school_id='31c70a36-065e-4933-a40c-1e9c051d1afc' AND device_id='seed-lareussite-v1';
 DELETE FROM budgets WHERE school_id='31c70a36-065e-4933-a40c-1e9c051d1afc' AND device_id='seed-lareussite-v1';
 DELETE FROM fee_payments WHERE school_id='31c70a36-065e-4933-a40c-1e9c051d1afc' AND device_id='seed-lareussite-v1';
 DELETE FROM student_fee_items WHERE school_id='31c70a36-065e-4933-a40c-1e9c051d1afc' AND device_id='seed-lareussite-v1';
@@ -323,15 +326,54 @@ CREATE TEMP TABLE _fin ON COMMIT DROP AS SELECT
  (SELECT id FROM auth.users WHERE email='coordonnateur@lareussite.test') coord,
  (SELECT id FROM auth.users WHERE email='raf@lareussite.test') raf,
  (SELECT id FROM auth.users WHERE email='caissiere@lareussite.test') caiss;
-INSERT INTO budget_chapters (id,school_id,budget_id,code,label,kind,planned_amount,position,status,device_id)
-SELECT gen_random_uuid(),'31c70a36-065e-4933-a40c-1e9c051d1afc',(SELECT bid FROM _fin), v.code, v.label, v.kind, v.amt, v.pos,'active','seed-lareussite-v1'
+-- ── Modèle CIBLE v3 : ANNUEL → PÉRIODES → RUBRIQUES → LIGNES (scope='complex') ──
+-- Le seed historique créait des chapitres À PLAT (scope NULL) : l'UI v3 ne les
+-- reconnaît pas comme lignes (isLine = scope 'complex'|'sectors') → « Aucune ligne »,
+-- « Prévu 0 ». On génère désormais la hiérarchie réelle. Les RECETTES ne sont pas
+-- des lignes de l'enveloppe de DÉPENSE (elles gonfleraient « Réparti en lignes » vs
+-- l'enveloppe 30M) : ce budget démo modélise la dépense (lignes ≈ 29,2M ≤ 30M).
+
+-- Périodes budgétaires (3 trimestres) — table dédiée, découplée du calendrier notes.
+INSERT INTO budget_periods (id,school_id,academic_year,name,start_date,end_date,position,created_at,updated_at,version,device_id)
+SELECT gen_random_uuid(),'31c70a36-065e-4933-a40c-1e9c051d1afc','2026-2027',v.name,v.sd::date,v.ed::date,v.pos,now(),now(),1,'seed-lareussite-v1'
 FROM (VALUES
- ('R-SCOL','Frais de scolarité','recette',90000000,1),('R-INSC','Frais d''inscription','recette',12000000,2),('R-DON','Subventions & dons','recette',2000000,3),
- ('FOURN','Fournitures pédagogiques','depense',3000000,10),('ENTR','Entretien & maintenance','depense',3000000,11),('ELEC','Électricité & eau','depense',1800000,12),
- ('INFO','Informatique','depense',2500000,13),('COMM','Communication','depense',600000,14),('ACTI','Activités scolaires','depense',1200000,15),
- ('EXAM','Examens','depense',1500000,16),('TRANS','Transport','depense',1000000,17),('SECU','Sécurité','depense',900000,18),
- ('HYG','Hygiène','depense',700000,19),('IMPR','Imprévus','depense',1000000,20),('SAL','Salaires & charges','depense',12000000,21)
-) v(code,label,kind,amt,pos);
+ ('Trimestre 1','2026-09-01','2026-12-15',1),
+ ('Trimestre 2','2027-01-05','2027-03-31',2),
+ ('Trimestre 3','2027-04-06','2027-07-05',3)
+) v(name,sd,ed,pos);
+
+-- Rubriques (racines : scope NULL, montant porté par les lignes filles).
+INSERT INTO budget_chapters (id,school_id,budget_id,parent_id,code,label,kind,planned_amount,position,scope,status,device_id)
+SELECT gen_random_uuid(),'31c70a36-065e-4933-a40c-1e9c051d1afc',(SELECT bid FROM _fin),NULL,v.code,v.label,'depense',0,v.pos,NULL,'active','seed-lareussite-v1'
+FROM (VALUES ('RUB-FONC','Fonctionnement',1),('RUB-PERS','Personnel',2)) v(code,label,pos);
+
+-- Lignes (feuilles : scope 'complex', montant annuel porté ICI). Codes conservés
+-- (les dépenses s'y imputent par code). Insérées en 'draft' puis activées après
+-- leurs allocations (la garde d'activation exige Σ% temporel = 100).
+INSERT INTO budget_chapters (id,school_id,budget_id,parent_id,code,label,kind,planned_amount,position,scope,status,device_id)
+SELECT gen_random_uuid(),'31c70a36-065e-4933-a40c-1e9c051d1afc',(SELECT bid FROM _fin),
+ (SELECT id FROM budget_chapters r WHERE r.budget_id=(SELECT bid FROM _fin) AND r.code=v.rub AND r.device_id='seed-lareussite-v1'),
+ v.code,v.label,'depense',v.amt,v.pos,'complex','draft','seed-lareussite-v1'
+FROM (VALUES
+ ('RUB-FONC','FOURN','Fournitures pédagogiques',3000000,1),('RUB-FONC','ENTR','Entretien & maintenance',3000000,2),
+ ('RUB-FONC','ELEC','Électricité & eau',1800000,3),('RUB-FONC','INFO','Informatique',2500000,4),
+ ('RUB-FONC','COMM','Communication',600000,5),('RUB-FONC','ACTI','Activités scolaires',1200000,6),
+ ('RUB-FONC','EXAM','Examens',1500000,7),('RUB-FONC','TRANS','Transport',1000000,8),
+ ('RUB-FONC','SECU','Sécurité',900000,9),('RUB-FONC','HYG','Hygiène',700000,10),
+ ('RUB-FONC','IMPR','Imprévus',1000000,11),('RUB-PERS','SAL','Salaires & charges',12000000,12)
+) v(rub,code,label,amt,pos);
+
+-- Répartition temporelle : 40/30/30 sur les 3 trimestres (Σ = 100 % par ligne).
+INSERT INTO budget_line_periods (id,school_id,budget_chapter_id,budget_period_id,pct,amount,created_at,updated_at,version,device_id)
+SELECT gen_random_uuid(),'31c70a36-065e-4933-a40c-1e9c051d1afc',ch.id,p.id,a.pct,round(ch.planned_amount*a.pct/100.0),now(),now(),1,'seed-lareussite-v1'
+FROM budget_chapters ch
+JOIN (VALUES ('Trimestre 1',40),('Trimestre 2',30),('Trimestre 3',30)) a(pname,pct) ON true
+JOIN budget_periods p ON p.school_id='31c70a36-065e-4933-a40c-1e9c051d1afc' AND p.academic_year='2026-2027' AND p.name=a.pname AND p.device_id='seed-lareussite-v1'
+WHERE ch.budget_id=(SELECT bid FROM _fin) AND ch.scope='complex' AND ch.device_id='seed-lareussite-v1';
+
+-- Activation des lignes (leurs allocations somment 100 % → garde satisfaite).
+UPDATE budget_chapters SET status='active'
+WHERE budget_id=(SELECT bid FROM _fin) AND scope='complex' AND device_id='seed-lareussite-v1';
 -- dépenses de base (payées) → états de consommation variés (0 % .. ~94 %)
 INSERT INTO budget_expenses (id,school_id,budget_id,budget_chapter_id,category,amount,requester,status,expense_date,notes,created_by,created_at,device_id)
 SELECT gen_random_uuid(),'31c70a36-065e-4933-a40c-1e9c051d1afc',(SELECT bid FROM _fin), ch.id, ch.label, base.amt,'M. Fotso Landry (RAF)','paid',

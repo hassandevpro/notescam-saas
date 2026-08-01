@@ -25,6 +25,7 @@ import { db } from './db.js';
 import { serverToken } from './cloudSync.js';
 import { EDGE_BASE } from './cloudEnv.js';
 import { isCloudSyncEnabled } from './syncFlag.js';
+import { markSyncError } from './syncHealth.js';
 
 const BATCH = 500;
 
@@ -130,11 +131,34 @@ export async function syncEventsOnce({ edge = edgeFetch, dryRun = false } = {}) 
   };
 }
 
+// Un cycle planifié : exécute la réplication du journal ET remonte l'échec. AVANT,
+// syncEventsOnce() capturait pull/pushError et les RETOURNAIT sans jamais throw → le
+// `.catch` du scheduler ne se déclenchait jamais et l'échec était TOTALEMENT SILENCIEUX
+// (curseur figé, journal bloqué, aucun log, indicateur au vert). Désormais : on
+// inspecte le résultat, on LOGGUE, et on ALIMENTE la santé de sync (markSyncError) pour
+// que l'indicateur 🟢🟡🔴 et le journal reflètent aussi le canal d'événements.
+async function runScheduledEventSync(label) {
+  try {
+    const r = await syncEventsOnce();
+    const errs = [r.pullError && `pull: ${r.pullError}`, r.pushError && `push: ${r.pushError}`].filter(Boolean);
+    if (errs.length) {
+      const msg = errs.join(' · ');
+      console.error(`[event-sync] ${label}: ${msg}`);
+      markSyncError(new Error(`event-sync ${msg}`));
+    }
+    return r;
+  } catch (e) {
+    console.error(`[event-sync] ${label}:`, e.message);
+    markSyncError(e);
+    return null;
+  }
+}
+
 let _timer = null;
 export function scheduleEventSync(intervalMs = 5 * 60 * 1000) {
   if (!isCloudSyncEnabled() || !serverToken()) return false;
-  syncEventsOnce().catch((e) => console.error('[event-sync] échec initial:', e.message));
-  _timer = setInterval(() => { syncEventsOnce().catch((e) => console.error('[event-sync] échec:', e.message)); }, intervalMs);
+  runScheduledEventSync('échec initial');
+  _timer = setInterval(() => { runScheduledEventSync('échec'); }, intervalMs);
   _timer.unref?.();
   return true;
 }

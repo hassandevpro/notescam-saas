@@ -19,6 +19,15 @@ function pendingEvents() {
   try { return db.prepare('SELECT COUNT(*) c FROM sync_outbox').get()?.c || 0; }
   catch { return 0; }
 }
+// Backlog du JOURNAL d'événements (domain_events d'origine locale pas encore poussés) :
+// distinct de sync_outbox (changements de tables). Un push d'events bloqué (ex. lot
+// rejeté) laisse ce backlog gonfler → sans ceci, il était INVISIBLE dans la santé.
+function pendingEventLog() {
+  try {
+    const cur = Number(db.prepare("SELECT value FROM sync_cursor WHERE name = 'event_push_rowid'").get()?.value || 0);
+    return db.prepare('SELECT COUNT(*) c FROM domain_events WHERE replicated_from IS NULL AND rowid > ?').get(cur)?.c || 0;
+  } catch { return 0; }
+}
 function ageMs(iso) { return iso ? Math.max(0, Date.now() - new Date(iso).getTime()) : null; }
 
 // Détecte une synchro BLOQUÉE (ne progresse plus alors qu'elle devrait). Renvoie
@@ -40,12 +49,16 @@ function detectStuck(enabled, h, pending) {
 export function syncMetrics() {
   const enabled = isCloudSyncEnabled();
   const h = syncHealth();
-  const pending = pendingEvents();
+  const pendingTables = pendingEvents();
+  const pendingEventLogN = pendingEventLog();
+  const pending = pendingTables + pendingEventLogN; // « en attente de push », tous canaux
   const { stuck, reason } = detectStuck(enabled, h, pending);
   return {
     enabled,
     mode: hybridMode(enabled, h),
     pendingEvents: pending,
+    pendingTables,
+    pendingEventLog: pendingEventLogN,
     avgReplicationMs: avgReplicationMs(20),
     lastSuccessAt: h.lastSuccessAt,
     lastSuccessAgeMs: ageMs(h.lastSuccessAt),

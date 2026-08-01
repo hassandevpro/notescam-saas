@@ -19,6 +19,34 @@
 
 import { supabase } from './supabase';
 
+// PostgREST plafonne CHAQUE select à 1000 lignes par défaut. Les tables qui
+// dépassent ce seuil (grades, fee_payments, students d'un gros complexe…) étaient
+// SILENCIEUSEMENT tronquées : seules les ~1000 premières notes arrivaient au Cloud,
+// donc la plupart des classes affichaient 0 note alors que le build LAN (localClient,
+// sans plafond) montrait tout. `fetchAllRows` pagine le jeu complet via `.range()`.
+// En LAN, localClient n'a NI `.range()` NI plafond → un seul fetch renvoie tout.
+// `makeQuery` doit renvoyer un builder NEUF à chaque appel (le `.range()` d'une page
+// ne doit pas s'accumuler) et inclure un ordre déterministe (clé unique) pour que la
+// pagination ne saute ni ne duplique de ligne aux frontières de page.
+const PAGE_SIZE = 1000;
+async function fetchAllRows(makeQuery, label) {
+  if (typeof makeQuery().range !== 'function') {
+    // LAN (localClient) : aucun plafond, pas de pagination.
+    const { data, error } = await makeQuery();
+    if (error) { console.error(label, error); return null; }
+    return data;
+  }
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await makeQuery().range(from, from + PAGE_SIZE - 1);
+    if (error) { console.error(label, error); return from === 0 ? null : rows; }
+    if (!data?.length) break;
+    rows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
 // --- Classes ---
 
 export async function fetchClasses(schoolId, year) {
@@ -84,11 +112,11 @@ export async function deleteSubject(id) {
 // --- Students ---
 
 export async function fetchStudents(schoolId, classIds = null) {
-  let q = supabase.from('students').select('*').eq('school_id', schoolId);
-  if (classIds) q = q.in('class_id', classIds);
-  const { data, error } = await q.order('name');
-  if (error) { console.error('fetchStudents', error); return null; }
-  return data;
+  return fetchAllRows(() => {
+    let q = supabase.from('students').select('*').eq('school_id', schoolId);
+    if (classIds) q = q.in('class_id', classIds);
+    return q.order('name').order('id', { ascending: true });
+  }, 'fetchStudents');
 }
 
 // Fetch student rows by id, regardless of their current class. Used to rebuild an
@@ -134,11 +162,11 @@ export async function deleteStudent(id) {
 // The store uses a gradeMap keyed by "classId_studentId_sequence" for bulletinEngine.
 
 export async function fetchGrades(schoolId, classIds = null) {
-  let q = supabase.from('grades').select('*').eq('school_id', schoolId);
-  if (classIds) q = q.in('class_id', classIds);
-  const { data, error } = await q;
-  if (error) { console.error('fetchGrades', error); return null; }
-  return data;
+  return fetchAllRows(() => {
+    let q = supabase.from('grades').select('*').eq('school_id', schoolId);
+    if (classIds) q = q.in('class_id', classIds);
+    return q.order('id', { ascending: true });
+  }, 'fetchGrades');
 }
 
 // Converts Supabase grade rows → gradeMap { "cId_sId_seq": { subId: val } }
@@ -192,12 +220,11 @@ export async function deleteGradesForStudent(studentId) {
 // --- Student absences (abs_j, abs_nj, conduite) ---
 
 export async function fetchAbsences(schoolId) {
-  const { data, error } = await supabase
+  return fetchAllRows(() => supabase
     .from('student_absences')
     .select('*')
-    .eq('school_id', schoolId);
-  if (error) { console.error('fetchAbsences', error); return null; }
-  return data;
+    .eq('school_id', schoolId)
+    .order('id', { ascending: true }), 'fetchAbsences');
 }
 
 export async function upsertAbsenceEntry(classId, studentId, sequence, absData, schoolId) {
@@ -328,11 +355,11 @@ export async function deleteTeacher(id) {
 // --- Student fees ---
 
 export async function fetchFees(schoolId, year) {
-  let q = supabase.from('student_fees').select('*').eq('school_id', schoolId);
-  if (year) q = q.eq('academic_year', year);
-  const { data, error } = await q;
-  if (error) { console.error('fetchFees', error); return null; }
-  return data;
+  return fetchAllRows(() => {
+    let q = supabase.from('student_fees').select('*').eq('school_id', schoolId);
+    if (year) q = q.eq('academic_year', year);
+    return q.order('id', { ascending: true });
+  }, 'fetchFees');
 }
 
 export async function upsertFee(feeData) {
@@ -381,13 +408,12 @@ export async function deleteClassFeeGrid(id) {
 
 // Toutes les affectations de l'école (toutes années : c'est l'historique).
 export async function fetchAssignments(schoolId) {
-  const { data, error } = await supabase
+  return fetchAllRows(() => supabase
     .from('student_class_assignments')
     .select('*')
     .eq('school_id', schoolId)
-    .order('date_debut', { ascending: true });
-  if (error) { console.error('fetchAssignments', error); return null; }
-  return data;
+    .order('date_debut', { ascending: true })
+    .order('id', { ascending: true }), 'fetchAssignments');
 }
 
 // Upsert d'une ou plusieurs lignes d'affectation (clôture + ouverture d'un transfert).
@@ -404,11 +430,11 @@ export async function upsertAssignments(rows) {
 // --- Fee payments (individual installments) ---
 
 export async function fetchFeePayments(schoolId, year) {
-  let q = supabase.from('fee_payments').select('*').eq('school_id', schoolId);
-  if (year) q = q.eq('academic_year', year);
-  const { data, error } = await q.order('date', { ascending: false });
-  if (error) { console.error('fetchFeePayments', error); return null; }
-  return data;
+  return fetchAllRows(() => {
+    let q = supabase.from('fee_payments').select('*').eq('school_id', schoolId);
+    if (year) q = q.eq('academic_year', year);
+    return q.order('date', { ascending: false }).order('id', { ascending: true });
+  }, 'fetchFeePayments');
 }
 
 export async function insertFeePayment(payment) {

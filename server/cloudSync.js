@@ -133,6 +133,42 @@ async function edgeFetch(path, body) {
   return j;
 }
 
+// --- File de rejeu du pull (anti-perte silencieuse) ------------------
+// Quand rawUpsert échoue (FK parent absent, dérive de schéma…), le curseur avance
+// quand même (progrès) MAIS la ligne est mise en attente ici et REJOUÉE aux cycles
+// suivants (le parent peut arriver, la colonne être ajoutée). Best-effort : ne lève
+// jamais (une file cassée ne doit pas casser la synchro).
+function recordPullRetry(table, row) {
+  try {
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO sync_pull_retry (tablename, row_id, row_json, attempts, first_seen, last_at)
+                VALUES (?,?,?,1,?,?)
+                ON CONFLICT(tablename, row_id) DO UPDATE SET
+                  row_json = excluded.row_json, attempts = attempts + 1, last_at = excluded.last_at`)
+      .run(table, String(row.id), JSON.stringify(row), now, now);
+  } catch (e) { console.warn(`[sync] rejeu non enregistré ${table}/${row?.id}: ${e.message}`); }
+}
+function dropPullRetry(table, id) {
+  try { db.prepare('DELETE FROM sync_pull_retry WHERE tablename = ? AND row_id = ?').run(table, String(id)); } catch { /* best-effort */ }
+}
+// Rejoue les lignes précédemment sautées, dans l'ordre des tables (parents avant
+// enfants). Respecte LWW : ne réécrit jamais une version locale plus récente (une
+// ligne supersédée par un pull ultérieur est simplement retirée de la file).
+function retryPendingPull() {
+  for (const table of PULL_ORDER) {
+    let rows;
+    try { rows = db.prepare('SELECT row_id, row_json FROM sync_pull_retry WHERE tablename = ?').all(table); }
+    catch { return; }                       // table pas encore créée (vieux schéma) → no-op
+    for (const r of rows) {
+      let row; try { row = JSON.parse(r.row_json); } catch { dropPullRetry(table, r.row_id); continue; }
+      const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(r.row_id);
+      if (local && !remoteWins(local, row)) { dropPullRetry(table, r.row_id); continue; } // supersédé localement
+      if (rawUpsert(table, row)) dropPullRetry(table, r.row_id);
+      else { try { db.prepare('UPDATE sync_pull_retry SET attempts = attempts + 1, last_at = ? WHERE tablename = ? AND row_id = ?').run(new Date().toISOString(), table, r.row_id); } catch { /* best-effort */ } }
+    }
+  }
+}
+
 // --- Pull : cloud → local --------------------------------------------
 // En `dryRun`, l'appel sync-pull (lecture seule côté cloud) est fait pour
 // calculer les décisions LWW, mais RIEN n'est écrit ni les curseurs avancés.
@@ -147,6 +183,9 @@ async function pull(edge, dryRun) {
   // + tombstones + avancement des curseurs soient ATOMIQUES — une coupure secteur en
   // plein lot ⇒ rollback complet + rejeu propre au cycle suivant (curseur non avancé).
   const applyBatch = () => {
+    // Anti-perte silencieuse : rejouer d'abord les lignes précédemment sautées
+    // (un parent/colonne manquant a pu arriver depuis) AVANT d'appliquer le lot.
+    if (!dryRun) retryPendingPull();
     for (const table of PULL_ORDER) {
       // Politique de déploiement (H1) : un module en mode LAN-only n'intègre pas les
       // lignes distantes de ses tables. Inerte tant qu'aucune politique n'est définie.
@@ -161,7 +200,9 @@ async function pull(edge, dryRun) {
         const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(row.id);
         if (local && !remoteWins(local, row)) { plan.keepLocal.push({ table, id: row.id }); continue; }
         plan.apply.push({ table, id: row.id });
-        if (!dryRun) rawUpsert(table, row);
+        // Échec d'upsert (FK/dérive) → NE PAS perdre : mise en file de rejeu (le
+        // curseur avance quand même, mais la ligne sera ré-appliquée aux cycles suivants).
+        if (!dryRun && !rawUpsert(table, row)) recordPullRetry(table, row);
       }
     }
     for (const t of j?.tombstones || []) {

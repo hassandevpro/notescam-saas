@@ -28,6 +28,12 @@ function pendingEventLog() {
     return db.prepare('SELECT COUNT(*) c FROM domain_events WHERE replicated_from IS NULL AND rowid > ?').get(cur)?.c || 0;
   } catch { return 0; }
 }
+// Lignes distantes en attente de REJEU (upsert de pull ayant échoué : FK/dérive).
+// Un backlog non nul = des données du Cloud pas encore intégrées → à remonter.
+function pendingPullRetry() {
+  try { return db.prepare('SELECT COUNT(*) c FROM sync_pull_retry').get()?.c || 0; }
+  catch { return 0; }
+}
 function ageMs(iso) { return iso ? Math.max(0, Date.now() - new Date(iso).getTime()) : null; }
 
 // Détecte une synchro BLOQUÉE (ne progresse plus alors qu'elle devrait). Renvoie
@@ -51,7 +57,8 @@ export function syncMetrics() {
   const h = syncHealth();
   const pendingTables = pendingEvents();
   const pendingEventLogN = pendingEventLog();
-  const pending = pendingTables + pendingEventLogN; // « en attente de push », tous canaux
+  const pendingPullRetryN = pendingPullRetry();
+  const pending = pendingTables + pendingEventLogN + pendingPullRetryN; // en attente, tous canaux
   const { stuck, reason } = detectStuck(enabled, h, pending);
   return {
     enabled,
@@ -59,6 +66,7 @@ export function syncMetrics() {
     pendingEvents: pending,
     pendingTables,
     pendingEventLog: pendingEventLogN,
+    pendingPullRetry: pendingPullRetryN,
     avgReplicationMs: avgReplicationMs(20),
     lastSuccessAt: h.lastSuccessAt,
     lastSuccessAgeMs: ageMs(h.lastSuccessAt),

@@ -94,6 +94,22 @@ ok(remoteWins({ updated_at: OLD }, { updated_at: NEW }) === true, 'remoteWins : 
 ok(remoteWins({ updated_at: NEW }, { updated_at: OLD }) === false, 'remoteWins : local plus récent gagne');
 ok(remoteWins({ updated_at: NEW, device_id: 'a' }, { updated_at: NEW, device_id: 'b' }) === true, 'remoteWins : départage par device_id');
 
+// --- REJEU du pull (anti-perte silencieuse) --------------------------
+// Une ligne distante sautée (upsert échoué) est mise en file `sync_pull_retry` ; au
+// cycle suivant, elle est RE-APPLIQUÉE (le parent/colonne manquant a pu arriver) et
+// la file se vide. Ici on simule une entrée en file et on vérifie qu'elle s'applique.
+const retryRow = { id: 'stuRetry', school_id: 'sch1', class_id: 'clsX', name: 'Rejoué', updated_at: NEW };
+db.prepare('INSERT INTO sync_pull_retry (tablename, row_id, row_json, attempts, first_seen) VALUES (?,?,?,?,?)')
+  .run('students', 'stuRetry', JSON.stringify(retryRow), 1, OLD);
+const edgeEmpty = async (path, body) => {
+  if (path === 'sync-pull') return { rows: {}, tombstones: [], cursor: '2025-11-16T00:00:00.000Z', tomb_cursor: MID };
+  if (path === 'sync-push') { pushReceived.push(...body.changes); return { applied: body.changes.length }; }
+  throw new Error('path inattendu ' + path);
+};
+await syncOnce({ edge: edgeEmpty });
+ok(!!db.prepare("SELECT 1 FROM students WHERE id='stuRetry'").get(), 'rejeu : ligne en file appliquée au cycle suivant', db.prepare("SELECT name FROM students WHERE id='stuRetry'").get());
+ok(db.prepare('SELECT COUNT(*) n FROM sync_pull_retry').get().n === 0, 'rejeu : file vidée après application', db.prepare('SELECT COUNT(*) n FROM sync_pull_retry').get().n);
+
 console.log(`\n=== ${fail === 0 ? 'OK' : 'ÉCHEC'} : ${pass} ok, ${fail} ko ===`);
 try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
 process.exit(fail === 0 ? 0 : 1);

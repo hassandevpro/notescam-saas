@@ -939,6 +939,21 @@ CREATE TABLE IF NOT EXISTS sync_cursor (
   value TEXT
 );
 
+-- File de REJEU du pull : lignes distantes dont l'upsert a échoué (FK parent
+-- absent, dérive de schéma…). Le curseur avance quand même (progrès), mais ces
+-- lignes sont REJOUÉES à chaque cycle → aucune perte silencieuse ; un backlog qui
+-- ne se draine pas est REMONTÉ dans la santé (badge). Clé métier = (table, row_id).
+CREATE TABLE IF NOT EXISTS sync_pull_retry (
+  tablename  TEXT NOT NULL,
+  row_id     TEXT NOT NULL,
+  row_json   TEXT NOT NULL,          -- la ligne distante complète, à ré-appliquer
+  attempts   INTEGER NOT NULL DEFAULT 1,
+  first_seen TEXT NOT NULL,
+  last_at    TEXT,
+  last_error TEXT,
+  PRIMARY KEY (tablename, row_id)
+);
+
 -- Index utiles (les requêtes filtrent surtout par classe / élève / école)
 CREATE INDEX IF NOT EXISTS idx_subjects_class       ON subjects(class_id);
 CREATE INDEX IF NOT EXISTS idx_students_class        ON students(class_id);

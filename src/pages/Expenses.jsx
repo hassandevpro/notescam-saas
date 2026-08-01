@@ -35,6 +35,7 @@ import { getGovernanceRole } from '../governance/roles';
 import { hasPermission, canValidateAmount } from '../governance/governanceEngine';
 import { catalogOrDefault } from '../governance/defaultCatalog';
 import { GOV_PERM } from '../governance/permissions';
+import { financeRemoteMode } from '../lib/budgetRemote';
 
 const Badge = ({ ui, t }) => <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${ui.color}`}>{t(...ui.label)}</span>;
 
@@ -54,8 +55,20 @@ export default function Expenses() {
   const schoolId = school?.id;
   const year = school?.current_year || '';
 
-  const canManage = role === 'admin' || hasPermission(role, catalog, assignments, GOV_PERM.MANAGE);
-  const canPrepare = hasPermission(role, catalog, assignments, GOV_PERM.EXPENSE_PREPARE);
+  // Gouvernance financière distante (finance:lan + governance:cloud) SUR LE BUILD CLOUD :
+  // l'opérationnel (créer/modifier/annuler/payer/décider en direct) se fait AU LAN, jamais
+  // ici — sinon la dépense s'écrit dans le Cloud et ne redescend JAMAIS au LAN (orpheline).
+  // On rend donc la page LECTURE SEULE : toutes les capacités d'écriture sont neutralisées.
+  // Les décisions passent par l'écran « Décisions à approuver » (canal de gouvernance).
+  const [remote, setRemote] = useState(false);
+  useEffect(() => {
+    let ok = true;
+    financeRemoteMode(schoolId).then((v) => { if (ok) setRemote(v); });
+    return () => { ok = false; };
+  }, [schoolId]);
+
+  const canManage = (role === 'admin' || hasPermission(role, catalog, assignments, GOV_PERM.MANAGE)) && !remote;
+  const canPrepare = hasPermission(role, catalog, assignments, GOV_PERM.EXPENSE_PREPARE) && !remote;
   const canDecideUnlock = canManage || hasPermission(role, catalog, assignments, GOV_PERM.UNLOCK_DECIDE);
   const canRequestUnlock = canManage || hasPermission(role, catalog, assignments, GOV_PERM.UNLOCK_REQUEST);
 
@@ -150,13 +163,20 @@ export default function Expenses() {
 
   const failToast = (e) => toast.error(e?.message || t('Échec de l’opération — vérifiez votre connexion.', 'Operation failed — check your connection.', 'Error — verifique su conexión.'));
 
+  // Garde de défense en profondeur : en gouvernance distante, aucune écriture
+  // opérationnelle depuis le Cloud (les boutons sont déjà masqués ; ceci bloque tout
+  // chemin résiduel). La finance s'exécute sur le poste de l'école (LAN).
+  const blockedRemote = () => { toast.error(t('Action indisponible ici : les dépenses se gèrent sur le poste de l’école.', 'Unavailable here: expenses are managed on the school workstation.', 'No disponible aquí: los gastos se gestionan en el puesto de la escuela.')); return true; };
+
   const saveExpense = async (data) => {
+    if (remote) { setModal(null); return blockedRemote(); }
     const { data: saved, error } = await upsertExpense({ ...data, school_id: schoolId, created_by: data.created_by || fullName || '' });
     setModal(null);
     if (error) return failToast(error);
     if (saved) { await load(); toast.success(t('Dépense enregistrée', 'Expense saved', 'Gasto guardado')); }
   };
   const changeStatus = async (exp, to) => {
+    if (remote) return blockedRemote();
     if (!canTransition(exp.status, to)) return;
     const { data, error } = await upsertExpense({ ...exp, status: to });
     if (error) return failToast(error);
@@ -219,6 +239,14 @@ export default function Expenses() {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto">
+        {remote && (
+          <div className="mb-4 text-sm text-sky-800 bg-sky-50 border border-sky-200 rounded-lg px-4 py-3">
+            🛰️ <strong>{t('Gouvernance à distance', 'Remote governance', 'Gobernanza remota')}</strong> — {t(
+              'les dépenses sont saisies et exécutées sur le poste de l’école (LAN). Ici, la finance est en LECTURE SEULE ; les approbations passent par l’écran « Décisions à approuver ».',
+              'expenses are entered and executed on the school workstation (LAN). Finance is READ-ONLY here; approvals go through the “Decisions to approve” screen.',
+              'los gastos se registran y ejecutan en el puesto de la escuela (LAN). Aquí la finanza es de SOLO LECTURA; las aprobaciones se hacen en «Decisiones por aprobar».')}
+          </div>
+        )}
         <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
           <div>
             <h1 className="text-xl font-bold text-gray-900">{t('Dépenses', 'Expenses', 'Gastos')}</h1>

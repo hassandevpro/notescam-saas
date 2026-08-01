@@ -38,10 +38,22 @@ Deno.serve(async (req) => {
   let applied = 0, skipped = 0;
   const rows: Record<string, unknown>[] = [];
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   for (const ev of events || []) {
     if (!ev?.id || ev.school_id !== schoolId) { skipped++; continue; } // isolation école
     const row: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(ev)) if (COLS.has(k)) row[k] = v;
+    // Robustesse : le LAN estampille parfois un NOM (via expense.created_by) dans un
+    // champ uuid → un seul event pourri faisait échouer TOUT le lot (400) et bloquait
+    // la réplication du journal. On tolère : un uuid invalide est basculé en texte
+    // (actor_name) ou mis à NULL, jamais rejeté.
+    if (row.actor_id != null && !(typeof row.actor_id === 'string' && UUID_RE.test(row.actor_id))) {
+      if (row.actor_name == null) row.actor_name = String(row.actor_id);
+      row.actor_id = null;
+    }
+    if (row.correlation_id != null && !(typeof row.correlation_id === 'string' && UUID_RE.test(row.correlation_id))) {
+      row.correlation_id = null;
+    }
     rows.push(row);
   }
 
@@ -49,7 +61,16 @@ Deno.serve(async (req) => {
     // Idempotence : ON CONFLICT (id) DO NOTHING (append-only, jamais d'écrasement).
     const { error, count } = await admin.from('domain_events')
       .upsert(rows, { onConflict: 'id', ignoreDuplicates: true, count: 'exact' });
-    if (error) return json(400, { error: error.message });
+    if (error) {
+      // Repli LIGNE-PAR-LIGNE : une ligne défectueuse ne doit pas bloquer les autres
+      // (sinon le curseur de push LAN reste coincé et le journal ne remonte jamais).
+      for (const r of rows) {
+        const { error: e1 } = await admin.from('domain_events')
+          .upsert([r], { onConflict: 'id', ignoreDuplicates: true });
+        if (e1) skipped++; else applied++;
+      }
+      return json(200, { applied, skipped, degraded: true });
+    }
     applied = count ?? rows.length;
   }
   return json(200, { applied, skipped });

@@ -240,10 +240,17 @@ export function emitApprovalRequest(expense) {
        AND json_extract(payload, '$.expected_version') = ?`,
   ).get(expense.id, EVT.REMOTE_APPROVAL_REQUESTED, expense.version);
   if (dup) return null;
+  // `created_by` peut être un NOM libre (seed/UI), pas un uuid. Un actor_id non-uuid
+  // fait rejeter TOUT le lot d'events au push cloud (colonne uuid) → le journal reste
+  // bloqué. On ne met dans actor_id qu'un vrai uuid ; sinon le nom va en actor_name.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const creator = expense.created_by || null;
+  const creatorIsUuid = typeof creator === 'string' && UUID_RE.test(creator);
   const evId = emitLocalEvent({
     schoolId: expense.school_id, aggregateType: 'expense', aggregateId: expense.id,
     eventType: EVT.REMOTE_APPROVAL_REQUESTED, correlationId: expense.id,
-    actorId: expense.created_by || null, actorName: expense.requester || null,
+    actorId: creatorIsUuid ? creator : null,
+    actorName: expense.requester || (creatorIsUuid ? null : creator) || null,
     payload: {
       expense_id: expense.id, budget_id: expense.budget_id, budget_chapter_id: expense.budget_chapter_id,
       amount: expense.amount, requester: expense.requester, expense_date: expense.expense_date,

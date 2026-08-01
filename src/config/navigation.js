@@ -124,6 +124,9 @@ export const NAV_GROUPS = [
         roles: ['admin'], budgetAccess: true },
       { to: '/app/depenses', icon: 'fees', label: ['Dépenses', 'Expenses', 'Gastos'],
         roles: ['admin'], budgetAccess: true },
+      // Gouvernance financière distante (H3-b) : décisions à approuver depuis le Cloud.
+      { to: '/app/approbations', icon: 'conseil', label: ['Décisions à approuver', 'Decisions to approve', 'Decisiones por aprobar'],
+        roles: ['admin', 'censeur'] },
     ],
   },
   {

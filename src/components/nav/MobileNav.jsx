@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { useNotificationsStore } from '../../store/notificationsStore';
+import { useAppNotificationsStore } from '../../store/appNotificationsStore';
 import { useT } from '../../lib/i18n';
 import { usePlan } from '../../lib/plan';
 import { getMobilePrimary } from '../../config/navigation';
@@ -17,6 +18,7 @@ export default function MobileNav({ onLogout }) {
   const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
   const governanceAssignments = useAuthStore((s) => s.governanceAssignments);
   const unreadCount = useNotificationsStore((s) => s.unreadCount);
+  const appUnread   = useAppNotificationsStore((s) => s.unreadCount);
   const t = useT();
   const { f } = usePlan();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -37,11 +39,14 @@ export default function MobileNav({ onLogout }) {
           >
             <span className="relative w-6 h-6">
               {ICONS[it.icon]}
-              {it.badge && unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1.5 min-w-[14px] h-[14px] flex items-center justify-center bg-red-500 text-white text-[8px] font-bold rounded-full px-0.5 leading-none">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
+              {(() => {
+                const n = it.badge ? unreadCount : (it.appBadge ? appUnread : 0);
+                return n > 0 ? (
+                  <span className="absolute -top-1 -right-1.5 min-w-[14px] h-[14px] flex items-center justify-center bg-red-500 text-white text-[8px] font-bold rounded-full px-0.5 leading-none">
+                    {n > 9 ? '9+' : n}
+                  </span>
+                ) : null;
+              })()}
             </span>
             <span className="truncate max-w-full">{t(...it.label)}</span>
           </NavLink>

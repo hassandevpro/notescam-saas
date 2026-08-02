@@ -28,6 +28,15 @@ export function emitFinanceEvent({
     import('../../kernel/index.js')
       .then(({ uow }) => uow().emit(event).commit())
       .catch((e) => console.warn('[finance-event] émission best-effort ignorée (observation) —', eventType, e?.message));
+
+    // NOTIFICATION INTERNE — même fait, même garanties (fire-and-forget, jamais
+    // levée, hors du chemin d'écriture). Branchée ICI et pas dans chaque service :
+    // `emitFinanceEvent` est déjà le point de passage UNIQUE de tous les faits
+    // finance, donc le métier n'est pas touché. Le tri (qui notifier, ou personne)
+    // appartient au mapper pur notificationRules.js.
+    import('../../lib/notificationProducers.js')
+      .then(({ notifyFromFinanceEvent }) => notifyFromFinanceEvent(event))
+      .catch((e) => console.warn('[finance-event] notification best-effort ignorée —', eventType, e?.message));
   } catch (e) {
     console.warn('[finance-event] émission ignorée —', e?.message);
   }

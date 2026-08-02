@@ -55,6 +55,9 @@ export async function upsertExpense(row) {
     payload: {
       status: data.status, amount: data.amount, budget_id: data.budget_id,
       budget_chapter_id: data.budget_chapter_id, version: data.version,
+      // Identité du demandeur : permet de lui notifier le sort de SA dépense
+      // (notificationRules.js). Additif — aucun consommateur existant n'en dépend.
+      created_by: data.created_by,
     },
   });
   return { data, error: null };

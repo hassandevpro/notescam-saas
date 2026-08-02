@@ -32,7 +32,11 @@ export async function decideRevision({ id, decision, note }) {
   const res = await supabase.rpc('budget_decide_revision', { p_id: id, p_decision: decision, p_note: note || null });
   if (!res?.error) emitFinanceEvent({ // H2 observation
     aggregateType: AGGREGATE.BUDGET_REVISION, aggregateId: id, correlationId: id,
-    eventType: REVISION_EVT_BY_DECISION[decision] || EVT.REVISION_REJECTED, payload: { decision },
+    eventType: REVISION_EVT_BY_DECISION[decision] || EVT.REVISION_REJECTED,
+    // `requested_by` sert à notifier le demandeur du verdict. Il n'est présent que
+    // si la RPC renvoie la ligne ; sinon le mapper n'a pas de destinataire et se
+    // tait (dégradation silencieuse assumée, jamais de diffusion à toute l'école).
+    payload: { decision, requested_by: res?.data?.requested_by ?? null },
   });
   return res;
 }
@@ -59,7 +63,8 @@ export async function decideLineReallocation({ id, decision, note }) {
   const res = await supabase.rpc('budget_decide_line_realloc', { p_id: id, p_decision: decision, p_note: note || null });
   if (!res?.error) emitFinanceEvent({ // H2 observation
     aggregateType: AGGREGATE.BUDGET_REALLOCATION, aggregateId: id, correlationId: id,
-    eventType: REALLOCATION_EVT_BY_DECISION[decision] || EVT.REALLOCATION_REJECTED, payload: { decision },
+    eventType: REALLOCATION_EVT_BY_DECISION[decision] || EVT.REALLOCATION_REJECTED,
+    payload: { decision, requested_by: res?.data?.requested_by ?? null },
   });
   return res;
 }

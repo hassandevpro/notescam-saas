@@ -43,6 +43,14 @@ export async function createReport({ schoolId, category, severity = 'normal', ti
       body: `${category}${dept ? ` → ${dept}` : ''}`, link: '/app/signalements',
     });
   } catch (e) { console.warn('notify report_created', e); }
+  // L'affectation est AUTOMATIQUE dès la création (initialStatus = 'assigned' si
+  // la catégorie résout un département) : le département doit donc être prévenu
+  // ici aussi, pas seulement lors d'une réaffectation manuelle. On saute le cas
+  // `administration`, déjà couvert par la notification ci-dessus — inutile de la
+  // doubler.
+  if (dept && dept !== 'administration') {
+    notifyReport('report.assigned', { schoolId, title, department: dept });
+  }
   return data;
 }
 
@@ -54,6 +62,10 @@ export async function changeReportStatus(report, to, { actor = null, actorId = n
   const { data, error } = await supabase.from('signalements').upsert(patch, { onConflict: 'id' }).select().single();
   if (error) { console.error('changeReportStatus', error); return null; }
   await addHistory({ schoolId: report.school_id, signalementId: report.id, action: 'status_changed', from_status: report.status, to_status: to, actor, actorId });
+  // Le signaleur attend une suite : on lui annonce chaque avancement.
+  notifyReport('report.status_changed', {
+    schoolId: report.school_id, title: report.title, status: to, reporterId: report.reporter_id,
+  });
   return data;
 }
 
@@ -63,7 +75,16 @@ export async function reassignReport(report, department, { actor = null, actorId
   const { data, error } = await supabase.from('signalements').upsert(patch, { onConflict: 'id' }).select().single();
   if (error) { console.error('reassignReport', error); return null; }
   await addHistory({ schoolId: report.school_id, signalementId: report.id, action: 'reassigned', detail: department, actor, actorId });
+  notifyReport('report.assigned', { schoolId: report.school_id, title: report.title, department });
   return data;
+}
+
+// Notification interne d'un signalement (best-effort, jamais bloquant — même
+// contrat que le notifyRole déjà présent à la création).
+function notifyReport(kind, { schoolId, ...payload }) {
+  import('./notificationProducers.js')
+    .then(({ notifySchoolEvent }) => notifySchoolEvent({ kind, schoolId, payload }))
+    .catch(() => { /* notification best-effort */ });
 }
 
 export async function deleteReport(id) {

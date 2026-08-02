@@ -1,40 +1,28 @@
 // Notifications INTERNES (in-app). Le moteur multi-canaux (notificationEngine)
 // prévoit email/SMS/WhatsApp mais seul le canal interne est implémenté ici.
-import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { useAuthStore } from '../store/authStore';
 import { useT } from '../lib/i18n';
-import { fetchMyNotifications, markNotificationRead, markAllRead } from '../lib/notificationService';
+import { useAppNotificationsStore } from '../store/appNotificationsStore';
 
 export default function Notifications() {
   const t = useT();
   const navigate = useNavigate();
-  const school = useAuthStore((s) => s.school);
-  const role = useAuthStore((s) => s.role);
-  const userId = useAuthStore((s) => s.user?.id);
-  const schoolId = school?.id;
 
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    if (!schoolId) return;
-    setLoading(true);
-    setItems(await fetchMyNotifications(schoolId, userId, role));
-    setLoading(false);
-  }, [schoolId, userId, role]);
-  useEffect(() => { load(); }, [load]);
+  // MÊME source que la cloche : lire ici décrémente la pastille immédiatement.
+  // (Avant, cette page tenait son propre état local et les deux divergeaient.)
+  // Le chargement est fait une fois pour toutes par Layout à l'ouverture de
+  // l'école — inutile de refetcher à chaque visite.
+  const items      = useAppNotificationsStore((s) => s.items);
+  const loading    = useAppNotificationsStore((s) => s.loading);
+  const markRead   = useAppNotificationsStore((s) => s.markRead);
+  const readAll    = useAppNotificationsStore((s) => s.markAllRead);
 
   const unread = items.filter((n) => !n.read);
 
   const open = async (n) => {
-    if (!n.read) { await markNotificationRead(n.id); setItems((xs) => xs.map((x) => x.id === n.id ? { ...x, read: true } : x)); }
+    if (!n.read) await markRead(n.id);
     if (n.link) navigate(n.link);
-  };
-  const readAll = async () => {
-    await markAllRead(schoolId, unread.map((n) => n.id));
-    setItems((xs) => xs.map((x) => ({ ...x, read: true })));
   };
 
   return (

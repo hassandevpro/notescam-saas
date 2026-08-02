@@ -54,17 +54,37 @@ export function notifyRole(schoolId, role, msg) {
 
 // ── Lecture (canal interne) ───────────────────────────────────────────────────
 
-// Notifications visibles par l'utilisateur : ciblées sur lui, sur son rôle, ou
-// diffusées (ni destinataire ni rôle). Filtrage côté client (volumes faibles).
+// Cette notification me concerne-t-elle ? Ciblée sur moi, sur mon rôle, ou
+// diffusée (ni destinataire ni rôle). PUR — extrait du fetch pour que le temps
+// réel applique EXACTEMENT le même filtre qu'au chargement (sinon une ligne
+// arrivant en direct pourrait s'afficher chez quelqu'un qui ne la verrait pas
+// après rechargement).
+export function isNotificationForMe(n, userId, role) {
+  if (!n) return false;
+  return (n.recipient_id && n.recipient_id === userId)
+    || (n.recipient_role && n.recipient_role === role)
+    || (!n.recipient_id && !n.recipient_role);
+}
+
+// Notifications visibles par l'utilisateur. Filtrage côté client (volumes faibles).
 export async function fetchMyNotifications(schoolId, userId, role, limit = 100) {
   const { data, error } = await supabase
     .from('notifications').select('*').eq('school_id', schoolId)
     .order('created_at', { ascending: false }).limit(limit);
   if (error) { console.error('fetchMyNotifications', error); return []; }
-  return (data || []).filter((n) =>
-    (n.recipient_id && n.recipient_id === userId) ||
-    (n.recipient_role && n.recipient_role === role) ||
-    (!n.recipient_id && !n.recipient_role));
+  return (data || []).filter((n) => isNotificationForMe(n, userId, role));
+}
+
+// Temps réel : nouvelles notifications de l'école (INSERT + UPDATE, pour capter
+// le passage à « lu » fait depuis un autre appareil). En LAN, `./supabase` est
+// aliasé vers localClient qui émule `.channel()` par sondage — même code.
+export function subscribeToMyNotifications(schoolId, onChange) {
+  return supabase
+    .channel(`appnotif_${schoolId}_${Math.random().toString(36).slice(2)}`)
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'notifications', filter: `school_id=eq.${schoolId}` },
+      (payload) => onChange(payload.new))
+    .subscribe();
 }
 
 export async function markNotificationRead(id) {

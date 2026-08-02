@@ -16,6 +16,7 @@ import { academicPeriodsDB, syncQueueDB } from './db';
 import { fetchSequenceDates } from './sequenceDatesService';
 import { logAction } from './historyService';
 import { useUiStore } from '../store/uiStore';
+import { SCHOOL_EVENT } from './notificationRulesSchool';
 
 const TABLE = 'academic_periods';
 
@@ -95,13 +96,28 @@ export async function lockPeriod(period, userId) {
   const now = new Date().toISOString();
   const rec = await upsertPeriod({ ...period, is_locked: true, closed_at: period.closed_at || now, closed_by: period.closed_by || userId || null });
   await logAction({ action: 'validate', table: TABLE, target_id: period.id, details: { type: 'lock' } });
+  notifyPeriod(SCHOOL_EVENT.PERIOD_LOCKED, period);
   return rec;
 }
 
 export async function unlockPeriod(period) {
   const rec = await upsertPeriod({ ...period, is_locked: false });
   await logAction({ action: 'update', table: TABLE, target_id: period.id, details: { type: 'unlock' } });
+  notifyPeriod(SCHOOL_EVENT.PERIOD_UNLOCKED, period);
   return rec;
+}
+
+// Prévient les enseignants qu'ils peuvent (ou ne peuvent plus) saisir. Le verrou
+// est déjà écrit à ce stade : best-effort, jamais bloquant, import dynamique pour
+// ne rien charger tant qu'aucune période n'est verrouillée.
+function notifyPeriod(kind, period) {
+  import('./notificationProducers.js')
+    .then(({ notifySchoolEvent }) => notifySchoolEvent({
+      kind,
+      schoolId: period?.school_id || null,
+      payload: { label: period?.name || null },   // `name` = colonne réelle (ex. « Séquence 3 »)
+    }))
+    .catch(() => { /* notification best-effort */ });
 }
 
 // ── Migration / seed ─────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { useNotificationsStore } from '../../store/notificationsStore';
+import { useAppNotificationsStore } from '../../store/appNotificationsStore';
 import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { usePlan } from '../../lib/plan';
@@ -20,6 +21,7 @@ export default function MoreSheet({ open, onClose, onLogout }) {
   const fullName = useAuthStore((s) => s.fullName);
   const photoUrl = useAuthStore((s) => s.photoUrl);
   const unreadCount = useNotificationsStore((s) => s.unreadCount);
+  const appUnread   = useAppNotificationsStore((s) => s.unreadCount);
   const uiLang     = useUiStore((s) => s.uiLang);
   const toggleLang = useUiStore((s) => s.toggleLang);
   const t = useT();
@@ -77,11 +79,14 @@ export default function MoreSheet({ open, onClose, onLogout }) {
                   <span className="w-[20px] h-[20px] shrink-0">{ICONS[it.icon]}</span>
                   <span className="flex-1 truncate">{t(...it.label)}</span>
                   {it.locked && <LockBadge />}
-                  {it.badge && unreadCount > 0 && (
-                    <span className="min-w-[1.2rem] h-5 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 leading-none">
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </span>
-                  )}
+                  {(() => {
+                    const n = it.badge ? unreadCount : (it.appBadge ? appUnread : 0);
+                    return n > 0 ? (
+                      <span className="min-w-[1.2rem] h-5 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 leading-none">
+                        {n > 99 ? '99+' : n}
+                      </span>
+                    ) : null;
+                  })()}
                 </NavLink>
               ))}
             </div>

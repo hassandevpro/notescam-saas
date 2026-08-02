@@ -16,7 +16,10 @@
 //   roles         rôles autorisés (aligné sur ProtectedRoute dans App.jsx)
 //   feature?      flag de plan requis (clé de usePlan().f) → sinon affiché verrouillé
 //   end?          NavLink exact match (pour /app)
-//   badge?        affiche le compteur de notifications non lues
+//   badge?        compteur d'activité des ENSEIGNANTS non lue (teacher_notifications)
+//   appBadge?     compteur des notifications GÉNÉRIQUES non lues (table notifications :
+//                 finance, RH, discipline…). Distinct de `badge` : deux systèmes,
+//                 deux compteurs, portés par deux entrées de menu différentes.
 //   mobilePrimary? apparaît dans la bottom-nav mobile (sinon: dans « Plus »)
 //
 // NB cohérence métier vs ancienne sidebar :
@@ -105,7 +108,7 @@ export const NAV_GROUPS = [
       { to: '/app/signalements', icon: 'history', label: ['Signalements', 'Reports', 'Reportes'],
         roles: ALL },
       { to: '/app/notifications', icon: 'monitor', label: ['Notifications', 'Notifications', 'Notificaciones'],
-        roles: ALL },
+        roles: ALL, appBadge: true },
     ],
   },
   {

@@ -12,6 +12,7 @@
 
 import { supabase } from './supabase';
 import { uuid } from './uuid';
+import { isDisciplineTable } from './notificationRulesSchool';
 
 // Fabrique un trio { fetch, upsert, remove } pour une table donnée.
 function makeEntity(table) {
@@ -40,6 +41,7 @@ function makeEntity(table) {
         .select()
         .single();
       if (error) { console.error(`upsert ${table}`, error); return null; }
+      notifyDiscipline(table, data, row);
       return data;
     },
 
@@ -49,6 +51,23 @@ function makeEntity(table) {
       return true;
     },
   };
+}
+
+// Prévient le TITULAIRE de la classe qu'un fait disciplinaire touche un de ses
+// élèves. Uniquement à la CRÉATION (`row.id` absent) : une correction de faute de
+// frappe ne doit pas re-notifier. `isDisciplineTable` borne le périmètre — les
+// retards et les autorisations de sortie sont trop fréquents pour être notifiés.
+// Best-effort, jamais bloquant.
+function notifyDiscipline(table, data, row) {
+  if (!data || row?.id) return;                    // mise à jour → silence
+  if (!isDisciplineTable(table)) return;
+  import('./notificationProducers.js')
+    .then(({ notifySchoolEvent }) => notifySchoolEvent({
+      kind: 'discipline.recorded',
+      schoolId: data.school_id,
+      payload: { table, classId: data.class_id, studentId: data.student_id },
+    }))
+    .catch(() => { /* notification best-effort */ });
 }
 
 export const lateArrivals    = makeEntity('late_arrivals');

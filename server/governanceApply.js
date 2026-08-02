@@ -33,6 +33,13 @@ import { runOpsGuarded } from './query.js';
 import { createRevision, decideRevisionCore, createLineReallocation, decideLineReallocationCore } from './budgetOps.js';
 import { notify, remoteDeciders } from './notify.js';
 
+// Lien profond d'une notification de dépense. `/app/depenses/:id` N'EXISTE PAS
+// (App.jsx ne déclare que `/app/depenses`) : ces liens étaient morts. La page
+// accepte en revanche `?budget=<ligne>` et présélectionne la ligne concernée.
+function expenseLink(expense) {
+  return expense?.budget_chapter_id ? `/app/depenses?budget=${expense.budget_chapter_id}` : '/app/depenses';
+}
+
 const DECISION_TYPES = Object.keys(DECISION_EVENT_ACTION);
 
 // H3b-3 — autorité d'APPLICATION requise (LAN) par type d'opération budgétaire. Plus
@@ -209,7 +216,7 @@ export function verifyRemoteDecision(event) {
     type: toStatus === 'approved' ? 'expense_approved' : 'expense_rejected',
     title: toStatus === 'approved' ? 'Dépense approuvée' : 'Dépense refusée',
     body: `Votre dépense de ${expense.amount} a été ${toStatus === 'approved' ? 'approuvée' : 'refusée'}.`,
-    link: `/app/depenses/${expenseId}`,
+    link: expenseLink(expense),
   });
   return { applied: true, result: 'applied', status: toStatus, confirmationEventId: confirmId };
 }
@@ -264,7 +271,7 @@ export function emitApprovalRequest(expense) {
     type: 'approval_request',
     title: 'Dépense en attente d’approbation',
     body: `${expense.requester || 'Un agent'} demande l’approbation d’une dépense de ${expense.amount}.`,
-    link: `/app/depenses/${expense.id}`,
+    link: expenseLink(expense),
   });
   return evId;
 }

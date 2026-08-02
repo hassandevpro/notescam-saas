@@ -39,7 +39,11 @@ export async function createUnlockRequest(row) {
   emitFinanceEvent({
     aggregateType: AGGREGATE.UNLOCK, aggregateId: data.id, correlationId: data.id,
     schoolId: data.school_id, eventType: EVT.UNLOCK_REQUESTED,
-    payload: { budget_id: data.budget_id, budget_chapter_id: data.budget_chapter_id, requested_amount: data.requested_amount },
+    payload: {
+      budget_id: data.budget_id, budget_chapter_id: data.budget_chapter_id,
+      requested_amount: data.requested_amount,
+      requested_by: data.requested_by,   // → notification du sort de la demande
+    },
   });
   return data;
 }
@@ -79,7 +83,11 @@ export async function decideUnlockRequest(request, decision, {
   emitFinanceEvent({
     aggregateType: AGGREGATE.UNLOCK, aggregateId: data.id, correlationId: data.id,
     schoolId: data.school_id, eventType: unlockEventType(decision) || EVT.UNLOCK_REFUSED,
-    payload: { decision, granted_amount: data.granted_amount, decided_role: data.decided_role },
+    payload: {
+      decision, granted_amount: data.granted_amount, decided_role: data.decided_role,
+      // → notification au DEMANDEUR + lien profond vers la ligne concernée.
+      requested_by: data.requested_by, budget_chapter_id: data.budget_chapter_id,
+    },
   });
   return data;
 }

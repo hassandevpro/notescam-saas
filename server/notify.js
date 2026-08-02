@@ -46,11 +46,24 @@ function queueExternal(schoolId, channel, recipient, msg, notifId, now) {
 }
 
 // Émet une notification serveur (best-effort, ne lève jamais).
-// recipients : [{ id?, role?, email?, phone? }] — vide = diffusion (un seul envoi).
-export function notify({ schoolId, recipients = [], type = 'info', title, body = '', link = null, channels = ['internal'] }) {
+// recipients : [{ id?, role?, email?, phone? }].
+//
+// DIFFUSION : une notification sans destinataire (recipient_id ET recipient_role
+// à NULL) est visible par TOUT L'ÉTABLISSEMENT (cf. le filtre de
+// fetchMyNotifications). C'est une capacité RÉELLE mais dangereuse : tous les
+// appelants d'ici sont financiers, et une liste vide y est le symptôme d'une
+// résolution ratée (dépense sans `created_by`, école sans décideur distant), pas
+// d'une intention de diffuser. La diffusion est donc désormais OPT-IN explicite :
+// sans `allowBroadcast`, une liste vide n'envoie RIEN plutôt que de fuiter un
+// montant ou un refus à toute l'école.
+export function notify({ schoolId, recipients = [], type = 'info', title, body = '', link = null, channels = ['internal'], allowBroadcast = false }) {
   if (!schoolId || !title) return [];
   const chans = (channels.length ? channels : ['internal']).filter((c) => CHANNELS.includes(c));
   if (!chans.length) return [];
+  if (!recipients.length && !allowBroadcast) {
+    console.warn('[notify] aucun destinataire résolu — notification ignorée (diffusion non demandée) :', type);
+    return [];
+  }
   const targets = recipients.length ? recipients : [null];
   const now = new Date().toISOString();
   const msg = { type, title, body, link };

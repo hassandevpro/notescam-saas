@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { useMessagesStore } from '../store/messagesStore';
+import { useAppNotificationsStore } from '../store/appNotificationsStore';
 import { useAuthStore } from '../store/authStore';
 import { useT, tStatic } from '../lib/i18n';
 
@@ -156,13 +157,83 @@ function TeacherDropdown({ onClose }) {
   );
 }
 
+// ── Vue COMMUNE : notifications génériques (finance, RH, discipline…) ─────────
+// Troisième source de la cloche, alimentée par notificationProducers.js. Visible
+// par TOUS les rôles — contrairement aux deux vues ci-dessus qui sont réservées
+// à l'admin et à l'enseignant.
+function AppNotificationsSection({ onClose }) {
+  const t = useT();
+  const navigate = useNavigate();
+  const items       = useAppNotificationsStore((s) => s.items);
+  const unreadCount = useAppNotificationsStore((s) => s.unreadCount);
+  const markRead    = useAppNotificationsStore((s) => s.markRead);
+  const markAllRead = useAppNotificationsStore((s) => s.markAllRead);
+
+  const handleClick = async (n) => {
+    await markRead(n.id);
+    onClose();
+    if (n.link) navigate(n.link);
+  };
+
+  if (!items.length) return null;          // rien à dire = pas de section vide
+
+  return (
+    <>
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+        <p className="text-sm font-bold text-slate-800">
+          {t('Alertes', 'Alerts', 'Alertas')}
+          {unreadCount > 0 && (
+            <span className="ml-2 text-xs font-semibold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-full">
+              {unreadCount} {t('nouveau', 'new', 'nuevo')}{unreadCount > 1 ? 'x' : ''}
+            </span>
+          )}
+        </p>
+        {unreadCount > 0 && (
+          <button onClick={markAllRead}
+            className="text-xs text-slate-400 hover:text-brand-600 transition-colors">
+            {t('Tout lire', 'Mark all read', 'Marcar todo leído')}
+          </button>
+        )}
+      </div>
+
+      <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
+        {items.slice(0, 20).map((n) => (
+          <button key={n.id} onClick={() => handleClick(n)}
+            className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex gap-3 items-start ${!n.read ? 'bg-brand-50/40' : ''}`}>
+            <span className="text-base mt-0.5 shrink-0">🔔</span>
+            <div className="min-w-0 flex-1">
+              <p className={`text-sm leading-snug ${!n.read ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>
+                {n.title}
+              </p>
+              {n.body && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{n.body}</p>}
+              <p className="text-xs text-slate-400 mt-0.5">{timeAgo(n.created_at)}</p>
+            </div>
+            {!n.read && <span className="w-2 h-2 rounded-full bg-brand-500 shrink-0 mt-1.5" />}
+          </button>
+        ))}
+      </div>
+
+      <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50/50">
+        <button onClick={() => { onClose(); navigate('/app/notifications'); }}
+          className="text-xs text-brand-600 hover:text-brand-700 font-semibold transition-colors">
+          {t('Toutes les notifications', 'All notifications', 'Todas las notificaciones')} →
+        </button>
+      </div>
+    </>
+  );
+}
+
 // ── Composant principal ───────────────────────────────────────────────────────
 export default function NotificationBell() {
   const role        = useAuthStore((s) => s.role);
   const adminUnread = useNotificationsStore((s) => s.unreadCount);
   const teacherUnread = useMessagesStore((s) => s.unreadCount);
+  const appUnread   = useAppNotificationsStore((s) => s.unreadCount);
+  const appItems    = useAppNotificationsStore((s) => s.items);
 
-  const unreadCount = role === 'admin' ? adminUnread : teacherUnread;
+  // Compteur UNIFIÉ : la pastille annonce tout ce que la cloche contient.
+  const roleUnread = role === 'admin' ? adminUnread : (role === 'teacher' ? teacherUnread : 0);
+  const unreadCount = roleUnread + appUnread;
 
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -174,7 +245,11 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
 
-  if (role !== 'admin' && role !== 'teacher') return null;
+  // La cloche s'affiche dès qu'elle a quelque chose à montrer. Les rôles autres
+  // qu'admin/enseignant (caissier, censeur, surveillant…) n'ont pas de vue
+  // dédiée mais reçoivent bien des notifications génériques.
+  const hasRoleView = role === 'admin' || role === 'teacher';
+  if (!hasRoleView && !appItems.length) return null;
 
   return (
     <div ref={ref} className="relative">
@@ -196,11 +271,11 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
-          {role === 'admin'
-            ? <AdminDropdown onClose={() => setOpen(false)} />
-            : <TeacherDropdown onClose={() => setOpen(false)} />
-          }
+        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden max-h-[80vh] overflow-y-auto">
+          {/* Alertes d'abord : elles demandent une action (valider, décaisser…). */}
+          <AppNotificationsSection onClose={() => setOpen(false)} />
+          {role === 'admin' && <AdminDropdown onClose={() => setOpen(false)} />}
+          {role === 'teacher' && <TeacherDropdown onClose={() => setOpen(false)} />}
         </div>
       )}
     </div>

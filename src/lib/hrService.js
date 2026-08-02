@@ -19,6 +19,7 @@ function makeEntity(table, dateCol = 'created_at') {
       const payload = { id: row.id || uuid(), ...row, updated_at: new Date().toISOString(), version: (row.version || 0) + 1 };
       const { data, error } = await supabase.from(table).upsert(payload, { onConflict: 'id' }).select().single();
       if (error) { console.error(`upsert ${table}`, error); return null; }
+      if (table === 'hr_leaves') notifyLeave(data, row);
       return data;
     },
     async remove(id) {
@@ -27,6 +28,26 @@ function makeEntity(table, dateCol = 'created_at') {
       return true;
     },
   };
+}
+
+// Notification interne des congés — seul satellite RH qui concerne DEUX parties.
+// On distingue la DEMANDE (statut initial `pending` → l'administration) de la
+// DÉCISION (transition vers un autre statut → l'agent). Sans `before`, un upsert
+// qui ne change pas le statut ne notifie personne : on ne re-notifie pas une
+// simple correction de dates. Best-effort, jamais bloquant.
+function notifyLeave(data, before) {
+  if (!data) return;
+  const wasPending = !before?.status || before.status === 'pending';
+  const isPending = data.status === 'pending';
+  const kind = isPending && wasPending ? 'hr.leave.requested'
+    : (!isPending && wasPending ? 'hr.leave.decided' : null);
+  if (!kind) return;                       // statut inchangé → rien à annoncer
+  import('./notificationProducers.js')
+    .then(({ notifySchoolEvent }) => notifySchoolEvent({
+      kind, schoolId: data.school_id,
+      payload: { staffId: data.staff_id, status: data.status, type: data.type, days: data.days },
+    }))
+    .catch(() => { /* notification best-effort */ });
 }
 
 export const HR_ENTITIES = {

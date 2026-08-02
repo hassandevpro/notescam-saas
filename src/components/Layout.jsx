@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { useUiStore }   from '../store/uiStore';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { useMessagesStore } from '../store/messagesStore';
+import { useAppNotificationsStore } from '../store/appNotificationsStore';
 import { flushSyncQueue, clearSyncQueue, pruneExpiredItems } from '../lib/sync';
 import Sidebar from './nav/Sidebar';
 import MobileNav from './nav/MobileNav';
@@ -184,10 +185,14 @@ export default function Layout({ children, bleed = false }) {
   const role     = useAuthStore((s) => s.role);
   const teacherId = useAuthStore((s) => s.teacherId);
 
+  const userId   = useAuthStore((s) => s.user?.id);
+
   const initNotifications   = useNotificationsStore((s) => s.init);
   const cleanupNotifications = useNotificationsStore((s) => s.cleanup);
   const initMessages        = useMessagesStore((s) => s.init);
   const cleanupMessages     = useMessagesStore((s) => s.cleanup);
+  const initAppNotifications    = useAppNotificationsStore((s) => s.init);
+  const cleanupAppNotifications = useAppNotificationsStore((s) => s.cleanup);
 
   // Init selon le rôle quand l'école est connue
   useEffect(() => {
@@ -198,16 +203,22 @@ export default function Layout({ children, bleed = false }) {
     } else if (role === 'teacher') {
       initMessages(school.id, 'teacher', teacherId);
     }
+    // Notifications génériques : TOUS les rôles, pas seulement admin/enseignant.
+    // C'est le canal des producteurs finance et vie scolaire, et il vise aussi
+    // caissier, censeur, surveillant, comptable…
+    initAppNotifications(school.id, userId, role);
     return () => {
       cleanupNotifications();
       cleanupMessages();
+      cleanupAppNotifications();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [school?.id, role, teacherId]);
+  }, [school?.id, role, teacherId, userId]);
 
   const handleLogout = async () => {
     cleanupNotifications();
     cleanupMessages();
+    cleanupAppNotifications();
     await logout();
     navigate('/login');
   };

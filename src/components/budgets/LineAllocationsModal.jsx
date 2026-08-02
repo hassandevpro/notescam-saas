@@ -3,7 +3,7 @@
 // saisit les POURCENTAGES, le montant est DÉRIVÉ. Le logiciel ne répartit JAMAIS le
 // reste : « X % affectés, Y % restent à répartir ». Le brouillon se sauvegarde même
 // incomplet ; l'ACTIVATION (bloquée tant que Σ ≠ 100) se fait depuis la page.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
 import { useMoney } from '../../lib/useMoney';
@@ -15,11 +15,30 @@ import { toast } from '../../store/toastStore';
 const pctInput = 'w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right focus:ring-2 focus:ring-indigo-500 outline-none';
 const amt = (base, pct) => Math.round(((Number(base) || 0) * (Number(pct) || 0)) / 100);
 
-export default function LineAllocationsModal({ line, schoolId, periods = [], units = [], linePeriods = [], lineSectors = [], onChange, onClose }) {
+export default function LineAllocationsModal({ line, schoolId, periods = [], units = [], linePeriods = [], lineSectors = [], intents = [], onChange, onClose }) {
   const t = useT();
   const money = useMoney();
   const planned = Number(line?.planned_amount) || 0;
   const isSectors = line?.scope === 'sectors';
+
+  // GOUVERNANCE DISTANTE : ici, « Enregistrer » n'écrit RIEN — c'est une DEMANDE
+  // que seul le serveur LAN de l'école applique. Il faut le dire AVANT la saisie :
+  // sans ça, la modale rouvre à 0 % et l'utilisateur croit avoir perdu son travail
+  // (invariant #6 : l'UI doit montrer « en attente d'application par le serveur »).
+  const [remote, setRemote] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    financeRemoteMode(schoolId).then((r) => { if (alive) setRemote(!!r); }).catch(() => {});
+    return () => { alive = false; };
+  }, [schoolId]);
+
+  // Demande d'allocation déjà envoyée pour CETTE ligne et qui attend ENCORE le
+  // serveur de l'école. Strictement `pending` : une demande REJETÉE est tranchée,
+  // l'annoncer « en attente » ferait patienter indéfiniment devant un refus.
+  const pendingIntent = useMemo(
+    () => intents.find((i) => i.agg === line.id && i.op === 'allocate' && i.status === 'pending') || null,
+    [intents, line.id],
+  );
 
   const existingP = useMemo(() => new Map(linePeriods.filter((a) => a.budget_chapter_id === line.id).map((a) => [a.budget_period_id, a])), [linePeriods, line.id]);
   const existingS = useMemo(() => new Map(lineSectors.filter((a) => a.budget_chapter_id === line.id).map((a) => [a.school_unit_id, a])), [lineSectors, line.id]);
@@ -106,6 +125,29 @@ export default function LineAllocationsModal({ line, schoolId, periods = [], uni
           {t('Montant annuel', 'Annual amount', 'Monto anual')} : <b className="text-gray-800">{money(planned)}</b>
         </div>
 
+        {remote && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-1">
+            <p className="text-xs font-semibold text-amber-800">
+              🛰️ {t('Gouvernance à distance — « Enregistrer » envoie une DEMANDE',
+                    'Remote governance — “Save” sends a REQUEST',
+                    'Gobernanza remota — «Guardar» envía una SOLICITUD')}
+            </p>
+            <p className="text-xs text-amber-700/90">
+              {t('La répartition n’est pas enregistrée depuis le Cloud : seul le serveur de l’école (LAN) l’applique. Tant qu’il ne l’a pas fait, les champs ci-dessous restent à 0 % — votre saisie n’est pas perdue, elle est en attente.',
+                 'The breakdown is not saved from the Cloud: only the school server (LAN) applies it. Until then the fields below stay at 0% — your input is not lost, it is pending.',
+                 'El reparto no se guarda desde la nube: solo el servidor de la escuela (LAN) lo aplica. Hasta entonces los campos siguen en 0% — su entrada no se pierde, está pendiente.')}
+            </p>
+            {pendingIntent && (
+              <p className="text-xs font-semibold text-amber-900 pt-1 border-t border-amber-200/70">
+                ⏳ {t('Une demande de répartition est déjà en attente pour cette ligne',
+                      'A breakdown request is already pending for this line',
+                      'Ya hay una solicitud de reparto pendiente para esta línea')}
+                {pendingIntent.at ? ` · ${String(pendingIntent.at).slice(0, 16).replace('T', ' ')}` : ''}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Répartition temporelle */}
         <section>
           <div className="flex items-center justify-between mb-2">
@@ -161,7 +203,13 @@ export default function LineAllocationsModal({ line, schoolId, periods = [], uni
         <div className="flex justify-end gap-2 pt-1 border-t border-gray-100">
           <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">{t('Fermer', 'Close', 'Cerrar')}</button>
           <button type="button" onClick={save} disabled={saving} className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-            {saving ? t('Enregistrement…', 'Saving…', 'Guardando…') : t('Enregistrer la répartition', 'Save breakdown', 'Guardar reparto')}
+            {saving
+              ? (remote ? t('Envoi…', 'Sending…', 'Enviando…') : t('Enregistrement…', 'Saving…', 'Guardando…'))
+              : (remote
+                  // Le libellé doit dire ce qui se passe VRAIMENT : à distance, on
+                  // envoie une demande, on n'enregistre pas.
+                  ? t('Envoyer la demande', 'Send request', 'Enviar solicitud')
+                  : t('Enregistrer la répartition', 'Save breakdown', 'Guardar reparto'))}
           </button>
         </div>
       </div>

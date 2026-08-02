@@ -3,7 +3,7 @@
 //   PÉRIODE (%) et par SECTEUR concerné (%) → dépenses.
 // L'UI CONSOMME le moteur pur (budgetLinesEngine) et écrit via les services ; le
 // SERVEUR (E3) reste l'autorité finale (activation, plafond annuel, gel, chaîne).
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useAuthStore } from '../store/authStore';
@@ -22,7 +22,7 @@ import {
   createRevision, decideRevision, fetchRevisions,
 } from '../lib/budgetOpsService';
 import { financeRemoteMode } from '../lib/budgetRemote';
-import { fetchBudgetOperations, budgetOperationStatus } from '../lib/budgetOperationService';
+import { fetchBudgetOperations, budgetOperationOutcome, visibleIntents } from '../lib/budgetOperationService';
 import { AnnualBudgetModal } from '../components/budgets/BudgetHierarchyModals';
 import LineFormModal from '../components/budgets/LineFormModal';
 import LineAllocationsModal from '../components/budgets/LineAllocationsModal';
@@ -90,21 +90,10 @@ export default function Budgets() {
   // H3b-4 — gouvernance distante : mode « émission d'intention » + état en attente.
   const [remoteMode, setRemoteMode] = useState(false);
   const [intents, setIntents] = useState([]);          // intentions budgétaires + statut dérivé
-
-  const loadIntents = useCallback(async () => {
-    if (!schoolId) return;
-    const on = await financeRemoteMode(schoolId);
-    setRemoteMode(on);
-    if (!on) { setIntents([]); return; }
-    const evs = await fetchBudgetOperations(schoolId, { limit: 200 });
-    const parse = (e) => (typeof e.payload === 'object' ? e.payload : (() => { try { return JSON.parse(e.payload || '{}'); } catch { return {}; } })());
-    const rows = evs.filter((e) => e.event_type === 'BudgetOperationRequested').map((e) => {
-      const p = parse(e); const corr = p.correlation_id || e.correlation_id;
-      return { id: e.id, corr, op: p.op, target: p.target, at: e.occurred_at, status: budgetOperationStatus(evs, corr) };
-    });
-    setIntents(rows.slice(0, 20));
-  }, [schoolId]);
-  useEffect(() => { loadIntents(); }, [loadIntents]);
+  const [intentsBusy, setIntentsBusy] = useState(false);
+  const [intentsAt, setIntentsAt] = useState(null);    // dernier rafraîchissement réussi
+  const [nowTs, setNowTs] = useState(() => Date.now()); // horloge d'expiration des verdicts
+  const pendingRef = useRef(new Set());                // corrélations en attente au tour précédent
 
   const load = useCallback(async () => {
     if (!schoolId) { setLoading(false); return; }
@@ -130,6 +119,60 @@ export default function Budgets() {
   }, [schoolId, year]);
   useEffect(() => { load(); }, [load]);
 
+  const loadIntents = useCallback(async () => {
+    if (!schoolId) return;
+    setIntentsBusy(true);
+    try {
+      const on = await financeRemoteMode(schoolId);
+      setRemoteMode(on);
+      if (!on) { setIntents([]); pendingRef.current = new Set(); return; }
+      const evs = await fetchBudgetOperations(schoolId, { limit: 200 });
+      const parse = (e) => (typeof e.payload === 'object' ? e.payload : (() => { try { return JSON.parse(e.payload || '{}'); } catch { return {}; } })());
+      const rows = evs.filter((e) => e.event_type === 'BudgetOperationRequested').map((e) => {
+        const p = parse(e); const corr = p.correlation_id || e.correlation_id;
+        // `agg` = l'agrégat visé (ici : l'id de la LIGNE). Sans lui, impossible de
+        // dire à l'utilisateur QUELLE ligne a une demande en attente — c'est ce qui
+        // faisait passer une répartition en attente pour une saisie perdue.
+        const { status, resolvedAt } = budgetOperationOutcome(evs, corr);
+        return { id: e.id, corr, agg: p.aggregate_id || e.aggregate_id || null,
+          op: p.op, target: p.target, at: e.occurred_at, status, resolvedAt };
+      }).slice(0, 20);
+      setIntents(rows);
+      setIntentsAt(Date.now());
+      setNowTs(Date.now());
+      // Une demande qui vient d'être tranchée par le serveur de l'école a modifié
+      // le budget : on recharge les données, sinon l'écran annonce « Appliquée »
+      // au-dessus de chiffres périmés.
+      const stillPending = new Set(rows.filter((r) => r.status === 'pending').map((r) => r.corr));
+      const justResolved = [...pendingRef.current].some((c) => !stillPending.has(c));
+      pendingRef.current = stillPending;
+      if (justResolved) load();
+    } finally {
+      setIntentsBusy(false);
+    }
+  }, [schoolId, load]);
+  useEffect(() => { loadIntents(); }, [loadIntents]);
+
+  // Ce qui doit rester à l'écran maintenant : les demandes en attente + les
+  // verdicts récents. `nowTs` avance seul pour que les verdicts s'effacent sans
+  // qu'on ait à recharger la page.
+  const shownIntents = useMemo(() => visibleIntents(intents, nowTs), [intents, nowTs]);
+  const hasPendingIntent = useMemo(() => intents.some((i) => i.status === 'pending'), [intents]);
+
+  useEffect(() => {
+    if (!remoteMode || shownIntents.length === 0) return undefined;
+    const id = setInterval(() => setNowTs(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, [remoteMode, shownIntents.length]);
+
+  // Tant qu'une demande attend, c'est le serveur de l'école qui tranche : l'écran
+  // doit se mettre à jour tout seul, sans exiger un clic sur « Rafraîchir ».
+  useEffect(() => {
+    if (!remoteMode || !hasPendingIntent) return undefined;
+    const id = setInterval(() => { loadIntents(); }, 20000);
+    return () => clearInterval(id);
+  }, [remoteMode, hasPendingIntent, loadIntents]);
+
   const annual = useMemo(() => budgets.find((b) => b.tier === 'annual') || null, [budgets]);
   // Chapitres rattachés au budget annuel courant.
   const annualChapters = useMemo(() => (annual ? chapters.filter((c) => c.budget_id === annual.id) : []), [chapters, annual]);
@@ -143,6 +186,17 @@ export default function Budgets() {
   const envelope = Number(annual?.envelope_amount) || 0;
 
   const failToast = (e) => toast.error(e?.message || t('Échec de l’opération — vérifiez votre connexion.', 'Operation failed — check your connection.', 'Error — verifique su conexión.'));
+
+  // Manuel d'emploi en PDF. Généré à la demande (le module jsPDF n'est chargé
+  // qu'au clic) pour ne pas alourdir l'ouverture de la page.
+  const downloadManual = async () => {
+    try {
+      const { downloadBudgetManualPdf } = await import('../lib/budgetManualPdf');
+      downloadBudgetManualPdf({ schoolName: school?.name || null });
+    } catch (e) {
+      failToast(e);
+    }
+  };
   const pendingMsg = t('Demande envoyée · en attente d’application par le serveur de l’école', 'Request sent · awaiting the school server', 'Solicitud enviada · esperando al servidor');
 
   // Traite un résultat { data, error, pending } : erreur / intention distante (en
@@ -244,6 +298,12 @@ export default function Budgets() {
             <p className="text-sm text-gray-500 mt-1">{t('Annuel → rubriques → lignes → périodes & secteurs', 'Annual → categories → lines → periods & sectors', 'Anual → rúbricas → líneas')} — {year || '—'}</p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Manuel d'emploi — généré localement (jsPDF), donc disponible aussi
+                en LAN hors ligne. Accessible à TOUS, pas seulement à qui gère. */}
+            <button className={`${btn} text-gray-700 bg-gray-100 hover:bg-gray-200`} onClick={downloadManual}
+              title={t('Télécharger le manuel d’emploi (PDF)', 'Download the user manual (PDF)', 'Descargar el manual (PDF)')}>
+              📘 {t('Manuel', 'Manual', 'Manual')}
+            </button>
             {annual && (
               <button className={`${btn} text-indigo-700 bg-indigo-50 hover:bg-indigo-100`} onClick={() => setModal({ type: 'periods' })}>
                 📅 {t('Périodes', 'Periods', 'Períodos')} {periods.length ? `(${periods.length})` : ''}
@@ -264,13 +324,38 @@ export default function Budgets() {
               <p className="text-sm font-semibold text-amber-800">
                 🛰️ {t('Gouvernance à distance — les opérations sont appliquées par le serveur de l’école (LAN)', 'Remote governance — operations are applied by the school server (LAN)', 'Gobernanza remota — el servidor de la escuela (LAN) aplica las operaciones')}
               </p>
-              <button className="text-xs text-amber-700 underline whitespace-nowrap" onClick={loadIntents}>{t('Rafraîchir', 'Refresh', 'Actualizar')}</button>
+              <div className="flex items-center gap-2 shrink-0">
+                {intentsAt && !intentsBusy && (
+                  <span className="text-[11px] text-amber-700/70 tabular-nums hidden sm:inline">
+                    {t('à jour à', 'updated at', 'al día a las')} {new Date(intentsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={loadIntents}
+                  disabled={intentsBusy}
+                  aria-busy={intentsBusy}
+                  title={t('Recharger l’état des demandes', 'Reload request status', 'Recargar el estado de las solicitudes')}
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+                    className={`w-3.5 h-3.5 ${intentsBusy ? 'animate-spin' : ''}`}>
+                    <path d="M21 12a9 9 0 1 1-3.5-7.1" /><polyline points="21 3 21 9 15 9" />
+                  </svg>
+                  {intentsBusy ? t('Mise à jour…', 'Updating…', 'Actualizando…') : t('Rafraîchir', 'Refresh', 'Actualizar')}
+                </button>
+              </div>
             </div>
-            {intents.filter((i) => i.status !== 'applied').length > 0 ? (
+            {shownIntents.length > 0 ? (
               <ul className="mt-2 space-y-1">
-                {intents.filter((i) => i.status !== 'applied').slice(0, 6).map((i) => (
+                {shownIntents.slice(0, 6).map((i) => (
                   <li key={i.id} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-gray-700 truncate">{opLabel(t, i.op)} · {i.target}</span>
+                    <span className="flex items-center gap-1.5 min-w-0 text-gray-700">
+                      {i.status === 'pending' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" aria-hidden="true" />
+                      )}
+                      <span className="truncate">{opLabel(t, i.op)} · {i.target}</span>
+                    </span>
                     <span className={intentStatusPill(i.status)}>{intentStatusLabel(t, i.status)}</span>
                   </li>
                 ))}
@@ -387,7 +472,8 @@ export default function Budgets() {
       )}
       {modal?.type === 'alloc' && modal.node && (
         <LineAllocationsModal line={modal.node} schoolId={schoolId} periods={periods} units={units}
-          linePeriods={linePeriods} lineSectors={lineSectors} onChange={load} onClose={() => setModal(null)} />
+          linePeriods={linePeriods} lineSectors={lineSectors} intents={intents}
+          onChange={load} onClose={() => setModal(null)} />
       )}
       {confirmDialog}
     </Layout>

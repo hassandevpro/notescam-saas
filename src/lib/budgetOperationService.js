@@ -49,14 +49,10 @@ export async function fetchBudgetOperations(schoolId, { limit = 500 } = {}) {
   return data || [];
 }
 
-// État d'une intention (Invariant #6 : « appliqué » UNIQUEMENT sur confirmation LAN).
-// `pending` = transmise, pas encore appliquée par le serveur de l'école.
-export function budgetOperationStatus(events, correlationId) {
-  const isFor = (e, type) => e.event_type === type &&
-    (typeof e.payload === 'object' ? e.payload : safeParse(e.payload))?.correlation_id === correlationId;
-  if ((events || []).some((e) => isFor(e, 'BudgetOperationApplied'))) return 'applied';
-  if ((events || []).some((e) => isFor(e, 'BudgetOperationRejected'))) return 'rejected';
-  return 'pending';
-}
-
-function safeParse(s) { try { return JSON.parse(s); } catch { return {}; } }
+// Lecture du journal (statut, verdict, durée de vie d'affichage) : logique pure,
+// isolée dans budgetIntents.js pour rester testable en Node — ce fichier-ci importe
+// `supabase` et n'est donc pas importable hors navigateur. Ré-exporté ici pour que
+// les appelants gardent un point d'entrée unique.
+export {
+  budgetOperationOutcome, budgetOperationStatus, visibleIntents, INTENT_NOTICE_MS,
+} from './budgetIntents.js';

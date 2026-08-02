@@ -8,7 +8,8 @@ import LogoMark from '../components/LogoMark';
 //  Stack : Vite + React + Tailwind + Framer Motion.
 //  DA : fond clair premium · dégradés subtils · ombres douces · glassmorphism
 //       léger · charte ocre/terracotta + bleu confiance + accents verts.
-//  Le contenu commercial (titres, tarifs, offres, CTA) est conservé tel quel.
+//  AUCUN PRIX sur cette page : ni montant, ni pourcentage de remise, ni
+//  échéancier. La qualification passe par la demande de devis (WA_DEVIS_LINK).
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─── Coordonnées (À MODIFIER ICI UNIQUEMENT) ──────────────────────────────────
@@ -27,7 +28,7 @@ const MAIL_LINK = `mailto:${EMAIL}?subject=${encodeURIComponent('Demande de dém
 
 // ─── SEO ───────────────────────────────────────────────────────────────────────
 const SEO_TITLE = 'NotesCam — La gestion scolaire simple et fiable, même sans connexion';
-const SEO_DESC  = "Logiciel de gestion scolaire conçu pour les réalités africaines : Cloud ou Local, fonctionne avec ou sans Internet. Notes, bulletins et scolarité. Formules dès 125 000 FCFA/an.";
+const SEO_DESC  = "Logiciel de gestion scolaire conçu pour les réalités africaines : Cloud ou Local, fonctionne avec ou sans Internet. Notes, bulletins et scolarité. Devis sur demande.";
 
 // ─── Variants Framer Motion réutilisables ─────────────────────────────────────
 const EASE = [0.21, 0.47, 0.32, 0.98];
@@ -98,7 +99,6 @@ function Navbar() {
     { href: '#fonctionnalites', label: 'Fonctionnalités' },
     { href: '#demo',            label: 'Démo' },
     { href: '#versions',        label: 'Cloud & Local' },
-    { href: '#tarifs',          label: 'Tarifs' },
     { href: '#faq',             label: 'FAQ' },
   ];
 
@@ -614,95 +614,9 @@ function SolutionCameroon() {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  TARIFS — cartes SaaS premium (Standard en avant) — contenu/prix conservés
-// ═══════════════════════════════════════════════════════════════════════════
-const PLANS = [
-  { name: 'ESSENTIEL', target: 'Moins de 300 élèves', price: '125 000', priceMonthly: '10 417', featured: false,
-    features: ['Notes et bulletins automatiques', 'Gestion des élèves', 'Dossiers scolaires', 'Mode hors connexion', 'Installation complète', 'Formation initiale', '3 comptes utilisateurs', 'Support WhatsApp'] },
-  { name: 'STANDARD', target: '300 à 700 élèves', price: '250 000', priceMonthly: '20 833', featured: true, inheritsFrom: 'Essentiel',
-    features: ['Comptes utilisateurs illimités', 'Gestion des frais de scolarité', 'Paiements et suivi', 'Statistiques avancées', 'Support prioritaire', 'Réseau local multi-utilisateurs'] },
-  { name: 'PREMIUM', target: 'Plus de 700 élèves', price: '400 000', priceMonthly: '33 333', priceFrom: true, featured: false, inheritsFrom: 'Standard',
-    features: ['Formation sur site', 'Bulletins personnalisés', 'Accompagnement dédié', 'Interlocuteur unique', 'Déploiement LAN avancé', 'Assistance prioritaire'] },
-];
-
-function PlanCard({ plan }) {
-  const { name, target, price, priceMonthly, priceFrom, featured, inheritsFrom, features } = plan;
-  return (
-    <motion.div variants={fadeUp} whileHover={{ y: -8 }}
-      className={`relative rounded-3xl p-7 flex flex-col transition-shadow ${
-        featured
-          ? 'bg-gradient-to-br from-terracotta-500 to-terracotta-700 text-white shadow-2xl shadow-terracotta-500/40 md:-translate-y-4 ring-2 ring-ocre-300'
-          : 'bg-white text-slate-900 border border-slate-100 shadow-[0_10px_30px_-12px_rgba(15,23,42,0.15)]'
-      }`}>
-      {featured && (
-        <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-ocre-400 text-ocre-950 text-xs font-extrabold uppercase tracking-widest px-4 py-1.5 rounded-full shadow-lg">★ Recommandé</span>
-      )}
-      <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${featured ? 'text-ocre-200' : 'text-terracotta-600'}`}>{name}</p>
-      <p className={`text-sm mb-5 ${featured ? 'text-white/80' : 'text-slate-500'}`}>{target}</p>
-      <div className="flex items-end gap-1.5 mb-1.5">
-        {priceFrom && <span className={`text-sm mb-1.5 ${featured ? 'text-white/80' : 'text-slate-400'}`}>dès</span>}
-        <span className="text-4xl font-extrabold">{price}</span>
-        <span className={`mb-1.5 text-sm font-semibold ${featured ? 'text-white/80' : 'text-slate-400'}`}>FCFA / an</span>
-      </div>
-      {priceMonthly && (
-        <span className={`inline-block text-xs font-bold px-3 py-1 rounded-full ${featured ? 'bg-white/20 text-white' : 'bg-ocre-100 text-ocre-800'}`}>≈ {priceMonthly} FCFA / mois</span>
-      )}
-      <div className={`h-px my-5 ${featured ? 'bg-white/20' : 'bg-slate-100'}`} />
-      {inheritsFrom && <p className={`text-xs font-bold mb-3 ${featured ? 'text-ocre-200' : 'text-terracotta-600'}`}>Tout le pack {inheritsFrom}, plus :</p>}
-      <ul className="space-y-2.5 flex-1 mb-7">
-        {features.map((f) => (
-          <li key={f} className="flex items-start gap-2.5 text-sm">
-            <span className={`flex-shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${featured ? 'bg-white/20 text-white' : 'bg-green-100 text-green-700'}`}>✓</span>
-            <span className={featured ? 'text-white/95' : 'text-slate-700'}>{f}</span>
-          </li>
-        ))}
-      </ul>
-      <a href={WA_DEVIS_LINK} target="_blank" rel="noopener noreferrer"
-        className={`block text-center font-bold py-3.5 rounded-xl text-sm transition-all ${featured ? 'bg-white text-terracotta-700 hover:bg-ocre-50 shadow-lg' : 'bg-terracotta-500 text-white hover:bg-terracotta-600 shadow-md shadow-terracotta-500/25'}`}>
-        Choisir {name.charAt(0) + name.slice(1).toLowerCase()}
-      </a>
-    </motion.div>
-  );
-}
-
-function Pricing() {
-  return (
-    <section id="tarifs" className="py-20 md:py-28 bg-ocre-50">
-      <div className="max-w-7xl mx-auto px-5 md:px-10">
-        <SectionHead tag="Tarifs" title="Nos formules 2026 / 2027"
-          sub="Un tarif clair selon la taille de votre établissement. Sans surprise, tout inclus." />
-        <motion.div variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.15 }}
-          className="grid md:grid-cols-3 gap-6 md:gap-5 items-stretch md:pt-4">
-          {PLANS.map((plan) => <PlanCard key={plan.name} plan={plan} />)}
-        </motion.div>
-        <p className="text-center text-sm text-slate-400 mt-10">Paiement accepté : <strong className="text-slate-600">MTN Mobile Money</strong> · <strong className="text-slate-600">Orange Money</strong> · Virement bancaire</p>
-        <p className="text-center text-xs text-slate-400 mt-2">Facturation annuelle. Le tarif mensuel (≈) est indiqué à titre indicatif.</p>
-      </div>
-    </section>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  OFFRE RENTRÉE 2026 — bandeau (conservé)
-// ═══════════════════════════════════════════════════════════════════════════
-function PromoBanner() {
-  return (
-    <section id="offre" className="py-14 md:py-16 bg-gradient-to-r from-terracotta-600 via-terracotta-500 to-ocre-500 relative overflow-hidden">
-      <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(white 1.5px,transparent 1.5px)', backgroundSize: '26px 26px' }} aria-hidden="true" />
-      <Reveal className="relative max-w-5xl mx-auto px-5 md:px-10 text-center text-white">
-        <div className="inline-flex items-center gap-2 bg-white/20 border border-white/30 text-white text-xs font-bold uppercase tracking-widest px-4 py-1.5 rounded-full mb-4">🎉 Offre rentrée 2026</div>
-        <h2 className="text-3xl md:text-4xl font-extrabold leading-tight mb-3"><span className="text-ocre-100">−20 %</span> sur la première année</h2>
-        <p className="text-white/90 text-lg mb-2">Pour toute souscription avant le <strong>31 août 2026</strong>.</p>
-        <p className="text-white/80 text-sm mb-8">Paiement en deux tranches : <strong>50 % à l'installation</strong>, <strong>50 % en octobre</strong>.</p>
-        <a href={WA_DEVIS_LINK} target="_blank" rel="noopener noreferrer"
-          className="inline-flex items-center justify-center gap-2 bg-white text-terracotta-700 font-extrabold px-8 py-4 rounded-xl text-base hover:bg-ocre-50 transition-all shadow-2xl hover:-translate-y-0.5">
-          J'en profite — demander un devis
-        </a>
-      </Reveal>
-    </section>
-  );
-}
+// Sections TARIFS et OFFRE RENTRÉE retirées : plus aucun montant ni pourcentage
+// commercial sur la page publique. La demande de devis reste le point d'entrée
+// (WA_DEVIS_LINK, présent dans l'en-tête, le hero et l'appel à l'action final).
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  INCLUS DANS TOUTES LES FORMULES (conservé)
@@ -772,7 +686,7 @@ function Testimonials() {
 const FAQS = [
   { q: 'NotesCam fonctionne-t-il sans Internet ?', a: "Oui, totalement. NotesCam enregistre vos données localement et vous permet de saisir les notes, générer les bulletins et gérer la scolarité sans aucune connexion. La synchronisation se fait automatiquement lorsque la connexion revient (version Cloud) ou via votre serveur local (version LAN)." },
   { q: 'Comment installer NotesCam ?', a: "Pour la version Cloud, aucune installation : vous créez un compte et vous commencez. Pour la version Local, nous installons NotesCam sur votre ordinateur ou votre serveur local lors de la mise en place — c'est inclus dans toutes les formules." },
-  { q: 'Puis-je utiliser plusieurs ordinateurs ?', a: "Oui. En réseau local (LAN), plusieurs postes de l'établissement se connectent simultanément au même serveur, sans Internet. Le nombre de comptes utilisateurs dépend de votre formule (3 en Essentiel, illimités à partir de Standard)." },
+  { q: 'Puis-je utiliser plusieurs ordinateurs ?', a: "Oui. En réseau local (LAN), plusieurs postes de l'établissement se connectent simultanément au même serveur, sans Internet. Le nombre de comptes utilisateurs est défini avec vous lors du devis, selon la taille de votre établissement." },
   { q: 'Les données sont-elles sécurisées ?', a: "Vos données sont enregistrées localement et peuvent être synchronisées dans le cloud avec chiffrement et sauvegardes automatiques. Vous restez propriétaire de vos données, et en version locale elles ne quittent jamais votre établissement." },
 ];
 
@@ -896,8 +810,6 @@ export default function Landing() {
         <Comparison />
         <CloudLocal />
         <SolutionCameroon />
-        <Pricing />
-        <PromoBanner />
         <IncludedAll />
         <Testimonials />
         <FAQ />

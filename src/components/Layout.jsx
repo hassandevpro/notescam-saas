@@ -229,7 +229,7 @@ export default function Layout({ children, bleed = false }) {
   const isArchive = viewYear !== null;
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50 font-sans print:h-auto print:overflow-visible">
+    <div className="h-[100dvh] overflow-hidden bg-slate-50 font-sans print:h-auto print:overflow-visible">
 
       {/* Overlay mobile pour fermer la sidebar */}
       {sidebarOpen && (
@@ -317,7 +317,7 @@ export default function Layout({ children, bleed = false }) {
       <Sidebar mobileOpen={sidebarOpen} onClose={closeSidebar} />
 
       {/* Contenu principal scrollable */}
-      <main className={`ml-0 ${sidebarHidden ? 'md:ml-0' : 'md:ml-60'} ${isArchive ? 'mt-[calc(3.5rem+2.25rem)]' : 'mt-14'} ${isArchive ? 'h-[calc(100vh-3.5rem-2.25rem)]' : 'h-[calc(100vh-3.5rem)]'} overflow-y-auto transition-all print:ml-0 print:mt-0 print:h-auto print:overflow-visible`}>
+      <main className={`ml-0 ${sidebarHidden ? 'md:ml-0' : 'md:ml-60'} ${isArchive ? 'mt-[calc(3.5rem+2.25rem)]' : 'mt-14'} ${isArchive ? 'h-[calc(100dvh-3.5rem-2.25rem)]' : 'h-[calc(100dvh-3.5rem)]'} overflow-y-auto transition-all print:ml-0 print:mt-0 print:h-auto print:overflow-visible`}>
         {/* pb-24 sur mobile : dégage la bottom-nav fixe (h-16). En mode `bleed`
             (écran plein écran focalisé), la page gère elle-même son padding et
             occupe toute la hauteur disponible. */}

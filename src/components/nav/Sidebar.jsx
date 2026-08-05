@@ -112,7 +112,7 @@ export default function Sidebar({ mobileOpen, onClose }) {
 
   return (
     <aside className={`
-      fixed top-0 left-0 w-60 h-screen z-40
+      fixed top-0 left-0 w-60 h-[100dvh] z-40
       bg-white border-r border-slate-200/80
       flex flex-col
       transition-transform duration-200 ease-in-out

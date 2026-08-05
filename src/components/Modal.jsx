@@ -15,19 +15,20 @@ export default function Modal({ title, onClose, size = 'md', children }) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <style>{`@keyframes modal-in{from{opacity:0;transform:scale(.96) translateY(-10px)}to{opacity:1;transform:scale(1) translateY(0)}}`}</style>
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/55 backdrop-blur-md"
         onClick={onClose}
       />
-      {/* Panel */}
+      {/* Panel — feuille du bas sur mobile (pattern natif, cohérent avec MoreSheet),
+          dialogue centré ≥ md. `dvh` (pas `vh`) : évite que le panneau déborde sous
+          la barre d'adresse mobile et coince le contenu hors d'atteinte. */}
       <div
-        className={`relative bg-white rounded-2xl shadow-2xl w-full ${SIZE_CLASSES[size] ?? SIZE_CLASSES.md} max-h-[90vh] overflow-y-auto`}
-        style={{ animation: 'modal-in 0.18s ease-out' }}
+        className={`relative bg-white w-full ${SIZE_CLASSES[size] ?? SIZE_CLASSES.md} max-h-[85dvh] md:max-h-[90dvh] overflow-y-auto rounded-t-2xl md:rounded-2xl shadow-2xl animate-slide-up md:animate-fade-up`}
       >
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-200 md:hidden" />
+        <div className="flex items-center justify-between px-6 pt-3 md:pt-6 pb-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-900">{title}</h2>
           <button
             onClick={onClose}
@@ -39,7 +40,7 @@ export default function Modal({ title, onClose, size = 'md', children }) {
             </svg>
           </button>
         </div>
-        <div className="px-6 py-5">{children}</div>
+        <div className="px-6 py-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] md:pb-5">{children}</div>
       </div>
     </div>
   );

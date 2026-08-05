@@ -1227,7 +1227,8 @@ export default function Students() {
               </div>
             ) : (
               <>
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                {/* ── Desktop : tableau ── */}
+                <div className="hidden md:block bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-100">
@@ -1396,6 +1397,92 @@ export default function Students() {
                       })}
                     </tbody>
                   </table>
+                </div>
+
+                {/* ── Mobile : cartes ── */}
+                <div className="md:hidden space-y-2">
+                  {paginated.map((student) => {
+                    const age = calcAge(student.date_naissance);
+                    const cls = classes.find((c) => c.id === student.class_id);
+                    const isSelected = selectedIds.has(student.id);
+                    const { pct, status } = studentCompleteness(student);
+                    const dot = status === 'green' ? 'bg-emerald-500' : status === 'yellow' ? 'bg-amber-500' : 'bg-red-500';
+                    return (
+                      <div key={student.id} className={`bg-white rounded-xl border p-3 transition-colors ${isSelected ? 'border-brand-300 bg-brand-50/40' : 'border-gray-100'}`}>
+                        <div className="flex items-start gap-2.5">
+                          {canEdit && (
+                            <input type="checkbox"
+                              className="mt-2.5 rounded border-gray-300 text-brand-600 shrink-0"
+                              checked={isSelected}
+                              onChange={() => toggleSelect(student.id)} />
+                          )}
+                          <StudentAvatar student={student} size={40} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <Link to={`/app/students/${student.id}`} className="font-semibold text-gray-900 text-sm truncate">
+                                {student.name}
+                              </Link>
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} title={`${t('Dossier', 'File')} ${pct}%`} />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1">
+                              {cls
+                                ? <span className="px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded-full text-[11px] font-medium">{cls.name}</span>
+                                : <span className="text-gray-400 text-[11px]">{t('Non assigné', 'Unassigned')}</span>}
+                              {student.matricule && <span className="text-[11px] text-gray-400 font-mono">{student.matricule}</span>}
+                              {age !== null && <span className="text-[11px] text-gray-400">{age} {t('ans', 'yrs')}</span>}
+                            </div>
+                            {student.parent_phone && (
+                              <p className="text-xs text-gray-500 mt-1">{student.parent_phone}</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-1 mt-2 pt-2 border-t border-gray-50">
+                          {confirmDel?.id === student.id ? (
+                            <span className="flex items-center gap-2.5 text-xs">
+                              <span className="text-red-600">{t('Supprimer ?', 'Delete?')}</span>
+                              <button onClick={() => handleDelete(student)} className="text-red-600 font-semibold">{t('Oui', 'Yes')}</button>
+                              <button onClick={() => setConfirmDel(null)} className="text-gray-500">{t('Non', 'No')}</button>
+                            </span>
+                          ) : (
+                            <>
+                              <Link to={`/app/students/${student.id}`}
+                                className="p-2 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                                title="Voir la fiche">
+                                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/></svg>
+                              </Link>
+                              {canEdit && (
+                                <>
+                                  <button
+                                    onClick={() => setPhotoTarget(student)}
+                                    disabled={photoSavingId === student.id}
+                                    className="p-2 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors disabled:opacity-50"
+                                    title={t('Prendre une photo', 'Take a photo', 'Tomar una foto')}>
+                                    {photoSavingId === student.id ? (
+                                      <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-90" d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round"/></svg>
+                                    ) : (
+                                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" clipRule="evenodd"/><path fillRule="evenodd" d="M7.06 3a1 1 0 00-.84.46L5.4 4.72H4a2 2 0 00-2 2V15a2 2 0 002 2h12a2 2 0 002-2V6.72a2 2 0 00-2-2h-1.4l-.82-1.26A1 1 0 0012.94 3H7.06zM10 6a4 4 0 100 8 4 4 0 000-8z" clipRule="evenodd"/></svg>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => { setEditing(student); setShowForm(false); setShowImport(false); }}
+                                    className="p-2 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                                    title="Modifier">
+                                    <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+                                  </button>
+                                  <button onClick={() => setConfirmDel(student)}
+                                    className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                    title="Supprimer">
+                                    <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"/></svg>
+                                  </button>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* ── Pagination ─────────────────────────────────── */}

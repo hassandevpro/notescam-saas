@@ -33,7 +33,7 @@ export default function MoreSheet({ open, onClose, onLogout }) {
   return (
     <div className="fixed inset-0 z-[70] md:hidden" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="absolute bottom-0 left-0 right-0 max-h-[85vh] bg-white rounded-t-2xl shadow-2xl flex flex-col animate-slide-up">
+      <div className="absolute bottom-0 left-0 right-0 max-h-[85dvh] bg-white rounded-t-2xl shadow-2xl flex flex-col animate-slide-up">
         <div className="flex items-center justify-between px-5 pt-3 pb-2 border-b border-slate-100 shrink-0">
           <div className="absolute left-1/2 -translate-x-1/2 top-2 w-10 h-1 rounded-full bg-slate-200" />
           <p className="text-sm font-bold text-slate-800 mt-1">{t('Menu', 'Menu', 'Menú')}</p>

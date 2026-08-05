@@ -15,9 +15,25 @@ export const AGGREGATE = Object.freeze({
   BUDGET_REVISION: 'budget_revision',
   BUDGET_REALLOCATION: 'budget_reallocation',
   BUDGET_LINE: 'budget_line',
+  // ── RECETTES (encaissement des frais scolaires) ─────────────────────────────
+  FEE_PAYMENT: 'fee_payment',             // un versement encaissé (ou sa contre-passation)
+  STUDENT_FEE: 'student_fee',             // le DÛ d'un élève
+  FEE_GRID:    'class_fee_grid',          // le tarif d'une classe
+  CASH_SESSION: 'cash_session',           // arrêté de caisse (espèces ↔ écritures)
 });
 
 export const EVT = Object.freeze({
+  // ── RECETTES : tout mouvement d'argent ENTRANT est tracé ────────────────────
+  // Ces quatre faits couvrent les gestes par lesquels on peut détourner une
+  // recette : encaisser, annuler un encaissement, changer le dû d'un élève,
+  // changer le tarif d'une classe. Aucun n'était journalisé avant.
+  FEE_PAYMENT_RECORDED: 'FeePaymentRecorded',
+  FEE_PAYMENT_REVERSED: 'FeePaymentReversed',  // contre-passation (jamais une suppression)
+  STUDENT_FEE_CHANGED:  'StudentFeeAmountChanged',
+  FEE_GRID_CHANGED:     'ClassFeeGridChanged',
+  // Arrêté de caisse : la seule prise possible sur la recette JAMAIS SAISIE.
+  CASH_SESSION_DECLARED:  'CashSessionDeclared',
+  CASH_SESSION_VALIDATED: 'CashSessionValidated',
   // ── Cycle de vie d'une dépense (cible du canal H3) ──────────────────────────
   EXPENSE_DRAFTED:   'ExpenseDrafted',
   EXPENSE_SUBMITTED: 'ExpenseSubmitted',

@@ -54,8 +54,8 @@ export const PUSH_ORDER = [
   'sequence_dates', 'timetable_slots',
   // Notes du moteur officiel (référentiels déjà en cloud)
   'apc_notes', 'mat_observations', 'prim_notes',
-  // Catalogue de frais
-  'fee_catalog', 'student_fee_items',
+  // Catalogue de frais + arrêtés de caisse
+  'fee_catalog', 'student_fee_items', 'cash_sessions',
   // Budgets V3 (ordre FK)
   'budgets', 'budget_periods', 'budget_chapters',
   'budget_line_periods', 'budget_line_sectors',

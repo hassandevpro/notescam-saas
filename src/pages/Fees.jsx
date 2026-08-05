@@ -12,6 +12,7 @@ import { printReceipt, printTicket } from '../lib/receiptDoc';
 import FeeGridsTab from '../components/fees/FeeGridsTab';
 import FeeCatalog from './FeeCatalog';
 import FeeDashboard from '../components/fees/FeeDashboard';
+import CashControlTab from '../components/fees/CashControlTab';
 import { studentFeeSituation, inscriptionApplies } from '../lib/feeEngine';
 import { fetchStudentFeeItems, fetchCatalog, upsertStudentFeeItem, deleteStudentFeeItem } from '../lib/feeCatalogService';
 import { studentTotals, optionalItemsFor, snapshotItem, paidForItem } from '../lib/feeCatalogEngine';
@@ -84,7 +85,7 @@ const chronoPayment = (a, b) =>
   || String(a.created_at || '').localeCompare(String(b.created_at || ''))
   || String(a.id || '').localeCompare(String(b.id || ''));
 
-function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeletePayment, onClose, onPrintReceipt, onConfigureGrid,
+function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onReversePayment, onClose, onPrintReceipt, onConfigureGrid,
   studentItems = [], optionalItems = [], onAttachOptional, onDetachOptional }) {
   const t = useT();
   const money = useMoney();
@@ -124,7 +125,11 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
   const [date,     setDate]     = useState(todayISO());
   const [note,     setNote]     = useState('');
   const [saving,   setSaving]   = useState(false);
-  const [deleting, setDeleting] = useState(null);
+  const [voiding,  setVoiding]  = useState(null);   // id du versement en cours d'annulation
+
+  // Un versement annulé reste affiché : on le barre, et la contre-passation
+  // apparaît comme une ligne à part. Rien ne disparaît jamais de l'historique.
+  const reversedIds = new Set(payments.filter((p) => p.reversal_of).map((p) => p.reversal_of));
 
   const typed = parseInt(montant, 10) || 0;
   // Total dû : si le mode est déjà figé, on le respecte ; sinon on prévisualise
@@ -189,11 +194,29 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
     }
   };
 
-  const handleDeletePayment = async (paymentId) => {
-    setDeleting(paymentId);
-    await onDeletePayment(paymentId, student.id);
-    setDeleting(null);
-    if (paymentId === lastPaymentId) setLastPaymentId(null);
+  // Annulation = contre-passation. Le motif est OBLIGATOIRE : c'est lui qui
+  // distingue une erreur de saisie d'un encaissement escamoté, et il part dans
+  // l'audit avec le nom de celui qui annule.
+  const handleVoidPayment = async (p) => {
+    const motif = window.prompt(
+      t(`Annuler le versement de ${money(p.amount)} ?\n\nLe versement n'est PAS supprimé : une écriture d'annulation est ajoutée, et les deux restent visibles.\n\nMotif (obligatoire) :`,
+        `Void the payment of ${money(p.amount)}?\n\nThe payment is NOT deleted: a reversing entry is added and both stay visible.\n\nReason (required):`,
+        `¿Anular el pago de ${money(p.amount)}?\n\nEl pago NO se elimina: se añade un asiento de anulación y ambos siguen visibles.\n\nMotivo (obligatorio):`),
+      '',
+    );
+    if (motif == null) return;
+    if (!motif.trim()) {
+      window.alert(t('Motif obligatoire : annulation abandonnée.', 'Reason required: cancellation aborted.', 'Motivo obligatorio: anulación cancelada.'));
+      return;
+    }
+    setVoiding(p.id);
+    const rec = await onReversePayment(p.id, student.id, motif);
+    setVoiding(null);
+    if (!rec) {
+      window.alert(t('Annulation impossible (versement déjà annulé ?).', 'Cannot void (already voided?).', 'No se puede anular (¿ya anulado?).'));
+      return;
+    }
+    if (p.id === lastPaymentId) setLastPaymentId(null);
   };
 
   // Paiement RATTACHÉ à un frais optionnel précis (student_fee_item_id) : règle son
@@ -498,17 +521,25 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
                     </span>
                   </div>
                   <div className="divide-y divide-gray-50">
-                    {payments.map((p) => (
-                      <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/50 group">
-                        <div className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                    {payments.map((p) => {
+                      const isReversal = !!p.reversal_of;   // ligne d'annulation (montant négatif)
+                      const isVoided   = reversedIds.has(p.id); // versement annulé par une autre ligne
+                      return (
+                      <div key={p.id} className={`flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/50 group ${isReversal ? 'bg-rose-50/40' : ''}`}>
+                        <div className={`w-2 h-2 rounded-full shrink-0 ${isReversal ? 'bg-rose-400' : isVoided ? 'bg-gray-300' : 'bg-emerald-400'}`} />
                         <span className="text-xs text-gray-500 shrink-0 w-24">
                           {new Date(p.date).toLocaleDateString(localeForLang())}
                         </span>
-                        <span className="font-mono font-semibold text-emerald-700 text-sm shrink-0">
-                          + {money(p.amount)}
+                        <span className={`font-mono font-semibold text-sm shrink-0 ${isReversal ? 'text-rose-700' : isVoided ? 'text-gray-400 line-through' : 'text-emerald-700'}`}>
+                          {isReversal ? '−' : '+'} {money(Math.abs(p.amount))}
                         </span>
                         <span className="flex-1 min-w-0 truncate text-xs">
-                          {p.note && <span className="text-gray-500">{p.note}</span>}
+                          {isVoided && (
+                            <span className="mr-1.5 text-[10px] font-bold uppercase text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
+                              {t('annulé', 'voided', 'anulado')}
+                            </span>
+                          )}
+                          {p.note && <span className={isReversal ? 'text-rose-700 font-medium' : 'text-gray-500'}>{p.note}</span>}
                           {/* Qui a encaissé — figé à l'encaissement. Vide = versement
                               antérieur à la traçabilité (ou import). */}
                           {p.recorded_by_name && (
@@ -531,16 +562,22 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
                         >
                           A5
                         </button>
-                        <button
-                          onClick={() => handleDeletePayment(p.id)}
-                          disabled={deleting === p.id}
-                          title={t('Supprimer ce versement', 'Delete this payment')}
-                          className="shrink-0 opacity-0 group-hover:opacity-100 text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 transition-all disabled:opacity-50"
-                        >
-                          {deleting === p.id ? '…' : '✕'}
-                        </button>
+                        {/* Annulation : ADMIN uniquement, jamais sur une ligne déjà
+                            annulée ni sur une écriture d'annulation. Il n'existe
+                            plus aucun chemin de suppression d'un versement. */}
+                        {isAdmin && !isReversal && !isVoided && (
+                          <button
+                            onClick={() => handleVoidPayment(p)}
+                            disabled={voiding === p.id}
+                            title={t('Annuler ce versement (contre-passation tracée)', 'Void this payment (traced reversing entry)', 'Anular este pago (asiento de anulación trazado)')}
+                            className="shrink-0 opacity-0 group-hover:opacity-100 text-xs font-semibold text-rose-500 hover:text-rose-700 px-2 py-0.5 rounded hover:bg-rose-50 transition-all disabled:opacity-50"
+                          >
+                            {voiding === p.id ? '…' : t('Annuler', 'Void', 'Anular')}
+                          </button>
+                        )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <div className="px-4 py-2.5 border-t border-gray-50 bg-gray-50/40 text-right">
                     <span className="text-xs text-gray-500">
@@ -574,7 +611,7 @@ export default function Fees() {
   const classFeeGrids = useSchoolStore((s) => s.classFeeGrids);
   const feePayments  = useSchoolStore((s) => s.feePayments);
   const addPayment   = useSchoolStore((s) => s.addPayment);
-  const deletePayment = useSchoolStore((s) => s.deletePayment);
+  const reversePayment = useSchoolStore((s) => s.reversePayment);
   const saveFee      = useSchoolStore((s) => s.saveFee);
 
   const activeYear = school?.current_year || '';
@@ -888,6 +925,7 @@ export default function Fees() {
             { id: 'echeances', label: t('Échéances', 'Schedule', 'Vencimientos') },
             { id: 'catalogue', label: t('Catalogue des frais', 'Fee catalog', 'Catálogo de tasas') },
             { id: 'grilles',   label: t('Grilles tarifaires', 'Fee grids', 'Tarifas') },
+            { id: 'caisse',    label: t('Arrêté de caisse', 'Till closing', 'Arqueo de caja') },
           ].map(({ id, label }) => (
             <button
               key={id}
@@ -913,6 +951,9 @@ export default function Fees() {
 
         {/* ── Onglet Catalogue des frais (intégré, sans Layout) ── */}
         {mainTab === 'catalogue' && <FeeCatalog embedded />}
+
+        {/* ── Onglet Arrêté de caisse (rapprochement espèces ↔ écritures) ── */}
+        {mainTab === 'caisse' && <CashControlTab />}
 
         {/* ── Onglet Grilles tarifaires ── */}
         {mainTab === 'grilles' && (
@@ -1240,7 +1281,7 @@ export default function Fees() {
               onAttachOptional={attachOptional}
               onDetachOptional={detachOptional}
               onAddPayment={addPayment}
-              onDeletePayment={deletePayment}
+              onReversePayment={reversePayment}
               onClose={() => setOpenRow(null)}
               onConfigureGrid={isAdmin ? goConfigureGrid : null}
               // `data` porte déjà le caissier d'ORIGINE (figé sur la ligne de

@@ -14,6 +14,7 @@ import QrScanModal from '../components/QrScanModal';
 import { buildCardId } from '../lib/idCardService';
 const IdCardModal = lazy(() => import('../components/IdCardModal'));
 import { useT, getLang } from '../lib/i18n';
+import { toast } from '../store/toastStore';
 import { usePlan } from '../lib/plan';
 import { resolveCountryCode } from '../countries';
 import { classSectionKey, SECTIONS } from '../core/engineResolver';
@@ -920,7 +921,19 @@ export default function Students() {
     if (editing) setEditing(null); else setShowForm(false);
   };
 
-  const handleDelete = async (s) => { await deleteStudent(s.id); setConfirmDel(null); };
+  // Un élève porteur d'écritures de caisse est ARCHIVÉ, jamais supprimé (ses
+  // versements sont des pièces comptables). On l'annonce explicitement.
+  const handleDelete = async (s) => {
+    const res = await deleteStudent(s.id);
+    setConfirmDel(null);
+    if (res?.action === 'archive') {
+      toast.success(t(
+        `${s.name} a été archivé (et non supprimé) : ${res.trail.entries} écriture(s) de caisse lui sont rattachées.`,
+        `${s.name} was archived (not deleted): ${res.trail.entries} cash entries are attached.`,
+        `${s.name} fue archivado (no eliminado): tiene ${res.trail.entries} asiento(s) de caja.`,
+      ));
+    }
+  };
 
   const toggleSelect = (id) =>
     setSelectedIds((prev) => {

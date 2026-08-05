@@ -162,6 +162,12 @@ CREATE TABLE IF NOT EXISTS students (
   -- (le nom survit au renommage / à la suppression du compte).
   created_by      TEXT,
   created_by_name TEXT,
+  -- ARCHIVAGE : un élève porteur d'écritures de caisse ne se supprime pas, il
+  -- sort des listes actives. `archived_at` renseigné = archivé.
+  archived_at      TEXT,
+  archived_by      TEXT,
+  archived_by_name TEXT,
+  archive_reason   TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -264,8 +270,52 @@ CREATE TABLE IF NOT EXISTS fee_payments (
   -- doit porter le caissier d'origine, jamais l'utilisateur qui réimprime.
   recorded_by      TEXT,
   recorded_by_name TEXT,
+  -- CONTRE-PASSATION : un versement ne se supprime JAMAIS. L'annuler crée une
+  -- nouvelle ligne de montant NÉGATIF qui pointe l'originale via `reversal_of`,
+  -- avec son motif. Les deux lignes restent visibles et la somme reste juste.
+  reversal_of   TEXT REFERENCES fee_payments(id) ON DELETE RESTRICT,
+  void_reason   TEXT,
+  -- Numéro SÉQUENTIEL par (école, année). C'est lui qui rend visible la recette
+  -- escamotée : si le reçu n°47 manque alors que 46 et 48 existent, une somme a
+  -- été encaissée puis effacée du système. Attribué par le serveur, jamais par
+  -- le client (cf. allocateReceiptNo dans query.js).
+  receipt_no    INTEGER,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_fee_payments_receipt_no ON fee_payments(school_id, academic_year, receipt_no);
+
+-- --- Arrêté de caisse (rapprochement espèces ↔ écritures) ----------------
+-- Un versement immuable ne protège que ce qui a été SAISI. Pour détecter la
+-- recette jamais saisie, il faut confronter le tiroir physique aux écritures :
+-- c'est l'objet de cette table. Une ligne = un caissier, une journée.
+--   expected_cash = fond d'ouverture + encaissements − annulations (recalculé,
+--                   jamais cru sur parole : figé ici pour la traçabilité)
+--   counted_cash  = ce que le caissier a compté
+--   variance      = counted − expected  (>0 : encaissement non saisi)
+-- `validated_by` ne peut pas être `cashier_id` : personne ne valide son propre
+-- comptage (règle portée par cashSessionEngine.canValidate).
+CREATE TABLE IF NOT EXISTS cash_sessions (
+  id             TEXT PRIMARY KEY,
+  school_id      TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  academic_year  TEXT,
+  date           TEXT NOT NULL,
+  cashier_id     TEXT,
+  cashier_name   TEXT,
+  opening_float  INTEGER NOT NULL DEFAULT 0,
+  expected_cash  INTEGER NOT NULL DEFAULT 0,
+  counted_cash   INTEGER,
+  variance       INTEGER NOT NULL DEFAULT 0,
+  entry_count    INTEGER NOT NULL DEFAULT 0,
+  explanation    TEXT,
+  status         TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','declared','validated')),
+  declared_at    TEXT,
+  validated_by   TEXT,
+  validated_by_name TEXT,
+  validated_at   TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(school_id, date, cashier_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cash_sessions_school ON cash_sessions(school_id, date);
 
 -- --- Budgets (prévisionnel) ----------------------------------
 -- Enveloppe prévisionnelle : période (annuel/trimestriel/mensuel) + secteur +

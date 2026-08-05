@@ -31,6 +31,14 @@ import { formatMoney, currencyCode } from './currency.js';
 // utilisait l'heure courante — deux impressions du même versement donnaient deux
 // numéros différents, donc aucune pièce comptable reproductible.)
 export function receiptNumberFor(payment = {}, studentMatricule) {
+  // Numéro SÉQUENTIEL attribué par le serveur quand il existe : c'est lui qui
+  // rend visible un reçu manquant (le n°47 absent entre 46 et 48 = une recette
+  // encaissée puis escamotée). Le format dérivé de l'uuid ci-dessous identifie
+  // bien une pièce, mais ne dit rien d'un TROU dans la série.
+  if (payment.receipt_no != null) {
+    const year = String(payment.academic_year || '').slice(0, 4);
+    return `${year ? `${year}-` : ''}${String(payment.receipt_no).padStart(5, '0')}`;
+  }
   const raw = String(payment.date || payment.created_at || '').slice(0, 10);
   const d = (raw || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
   const code = (studentMatricule || 'STU').toUpperCase().replace(/\s/g, '').slice(0, 6);

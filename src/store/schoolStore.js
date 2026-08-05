@@ -33,14 +33,23 @@ import {
   fetchAbsences, upsertAbsenceEntry,
   fetchTeachers, upsertTeacher, deleteTeacher as sbDeleteTeacher,
   fetchFees, upsertFee, deleteFee as sbDeleteFee,
-  fetchFeePayments, insertFeePayment, deleteFeePayment as sbDeleteFeePayment,
+  // `deleteFeePayment` n'est plus importé : un versement ne se supprime plus
+  // (contre-passation obligatoire, cf. reversePayment).
+  fetchFeePayments, insertFeePayment,
   fetchClassFeeGrids, upsertClassFeeGrid, deleteClassFeeGrid as sbDeleteClassFeeGrid,
   fetchAssignments, upsertAssignments,
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
 import { moveToTrash, logAction } from '../lib/historyService';
+// Audit SERVEUR des mouvements d'argent (append-only, acteur estampillé par
+// kernel_emit côté Cloud). Complète logAction, qui n'est que local.
+import { emitFinanceEvent } from '../domains/finance/emit';
+import { AGGREGATE as FIN_AGG, EVT as FIN_EVT } from '../domains/finance/events';
 import { collectStudentBundle, collectSubjectBundle, collectClassBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
 import { sumPaidForStudent, derivePaid, reconcilePaid, computeTransferFeePatch } from '../lib/feeEngine';
+import { retentionDecision, RETENTION, splitArchived, archiveFields, unarchiveFields } from '../lib/studentRetention';
+import { expectedCash, reconcile, requiresExplanation, canValidate, SESSION_STATUS } from '../lib/cashSessionEngine';
+import { fetchCashSessions, upsertCashSession } from '../lib/cashSessionService';
 import { fetchStaff, upsertStaff, deleteStaff as sbDeleteStaff } from '../lib/staffService';
 import { buildTransfer, resolveTransferType } from '../core/transferEngine';
 import { flushSyncQueue } from '../lib/sync';
@@ -225,6 +234,11 @@ export const useSchoolStore = create((set, get) => ({
   classes:      [],
   subjects:     [],
   students:     [],
+  // Élèves ARCHIVÉS (sortis des listes actives, jamais supprimés) : ils portent
+  // des écritures de caisse, donc leur ligne doit survivre.
+  archivedStudents: [],
+  // Arrêtés de caisse (rapprochement espèces ↔ écritures), chargés à la demande.
+  cashSessions: [],
   teachers:     [],
   staff:        [],
   fees:         [],
@@ -259,7 +273,7 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     // Wipe stale data from any previous session immediately — prevents flash of wrong data
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
-          classes: [], subjects: [], students: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], schoolUnits: [], assignments: [], gradeMap: {},
+          classes: [], subjects: [], students: [], archivedStudents: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], schoolUnits: [], assignments: [], gradeMap: {},
           academicPeriods: [], activeSequence: null });
 
     try {
@@ -336,10 +350,17 @@ export const useSchoolStore = create((set, get) => ({
         allGrades   = allGrades.filter((g) => scopeIds.has(g.class_id));
       }
 
+      // Un élève ARCHIVÉ conserve toutes ses données mais sort des listes
+      // actives (classes, notes, bulletins, effectifs). Il reste joignable par
+      // `archivedStudents` — jamais supprimé, donc ses écritures de caisse
+      // restent rattachées à un élève existant.
+      const { active: liveStudents, archived: archivedList } = splitArchived(allStudents);
+
       set({
         classes:     allClasses,
         subjects:    allSubjects,
-        students:    allStudents,
+        students:    liveStudents,
+        archivedStudents: archivedList,
         teachers:    allTeachers,
         staff:       allStaff,
         fees:        allFees,
@@ -1498,6 +1519,65 @@ export const useSchoolStore = create((set, get) => ({
     }
   },
 
+  // ARCHIVAGE — retire l'élève des listes actives SANS toucher à une seule de ses
+  // lignes. C'est la seule sortie possible dès qu'il porte une écriture de caisse.
+  archiveStudent: async (id, reason) => {
+    const { students } = get();
+    const student = students.find((x) => x.id === id);
+    if (!student) return null;
+    const { userId, fullName } = useAuthStore.getState();
+    const record = {
+      ...student,
+      ...archiveFields({ at: new Date().toISOString(), actorId: userId, actorName: fullName, reason }),
+    };
+
+    await studentsDB.put(record);
+    set((s) => ({
+      students:         s.students.filter((x) => x.id !== id),
+      archivedStudents: [...s.archivedStudents.filter((x) => x.id !== id), record],
+    }));
+
+    if (backendOnline()) {
+      upsertStudent(record).then((saved) => { if (!saved) queueOffline({ table: 'students', operation: 'upsert', payload: record }); });
+    } else {
+      queueOffline({ table: 'students', operation: 'upsert', payload: record });
+    }
+
+    logAction({ action: 'archive', table: 'students', target_id: id,
+      details: { name: student.name, matricule: student.matricule, reason: record.archive_reason } });
+    return record;
+  },
+
+  // Remet un élève archivé dans les listes actives.
+  restoreArchivedStudent: async (id) => {
+    const { archivedStudents } = get();
+    const student = archivedStudents.find((x) => x.id === id);
+    if (!student) return null;
+    const record = { ...student, ...unarchiveFields() };
+
+    await studentsDB.put(record);
+    set((s) => ({
+      archivedStudents: s.archivedStudents.filter((x) => x.id !== id),
+      students:         [...s.students.filter((x) => x.id !== id), record],
+    }));
+
+    if (backendOnline()) {
+      upsertStudent(record).then((saved) => { if (!saved) queueOffline({ table: 'students', operation: 'upsert', payload: record }); });
+    } else {
+      queueOffline({ table: 'students', operation: 'upsert', payload: record });
+    }
+
+    logAction({ action: 'restore', table: 'students', target_id: id, details: { name: student.name } });
+    return record;
+  },
+
+  // Retire un élève de l'établissement.
+  //
+  // Renvoie { action: 'archive' | 'delete', trail } — l'appelant DOIT lire
+  // `action` pour informer l'utilisateur : dès qu'une écriture de caisse existe,
+  // l'élève est ARCHIVÉ et non supprimé. Sans cette bascule, supprimer l'élève
+  // effaçait ses versements par cascade FK — le contournement qui restait ouvert
+  // une fois les versements rendus immuables.
   deleteStudent: async (id) => {
     const snapshot = get().students.find((x) => x.id === id);
 
@@ -1511,6 +1591,13 @@ export const useSchoolStore = create((set, get) => ({
       feePaymentsDB.getAll().catch(() => []),
     ]);
     const bundle = collectStudentBundle(id, { grades: allGrades, fees: allFees, payments: allPayments });
+
+    // Verdict de rétention : de l'argent est passé ⇒ on n'efface rien.
+    const decision = retentionDecision(id, allPayments);
+    if (decision.action === RETENTION.ARCHIVE) {
+      await get().archiveStudent(id, 'Sortie de l’établissement (écritures de caisse conservées)');
+      return decision;
+    }
 
     if (snapshot) await moveToTrash({ table: 'students', payload: snapshot, related: bundle });
 
@@ -1538,6 +1625,7 @@ export const useSchoolStore = create((set, get) => ({
     } else {
       queueOffline({ table: 'students', operation: 'delete', payload: { id } });
     }
+    return decision;
   },
 
   // Réinjecte les données liées à un élève restauré depuis la corbeille
@@ -1889,12 +1977,28 @@ export const useSchoolStore = create((set, get) => ({
       // Rattachement à l'affectation en cours (traçabilité du contexte tarifaire).
       assignment_id: feeData.assignment_id ?? existing?.assignment_id ?? null,
     };
+    // Changer le DÛ d'un élève est un levier de détournement (baisser le dû,
+    // encaisser le vrai montant, en déclarer moins) : on ne trace donc PAS les
+    // simples mises à jour de `frais_payes` (routine d'encaissement, déjà tracée
+    // par addPayment), mais on trace tout changement du montant exigible.
+    const dueChanged = existing && Number(existing.frais_annuels || 0) !== Number(record.frais_annuels || 0);
+
     await feesDB.put(record);
     set((s) => ({
       fees: existing
         ? s.fees.map((f) => (f.id === existing.id ? record : f))
         : [...s.fees, record],
     }));
+
+    if (dueChanged) {
+      logAction({ action: 'update', table: 'student_fees', target_id: record.id,
+        details: { student_id: studentId, from: existing.frais_annuels, to: record.frais_annuels } });
+      emitFinanceEvent({
+        aggregateType: FIN_AGG.STUDENT_FEE, aggregateId: record.id, correlationId: record.id,
+        schoolId, eventType: FIN_EVT.STUDENT_FEE_CHANGED,
+        payload: { student_id: studentId, from: existing.frais_annuels, to: record.frais_annuels },
+      });
+    }
     if (backendOnline()) {
       upsertFee(record).then((saved) => { if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: record }); });
     } else {
@@ -1907,7 +2011,11 @@ export const useSchoolStore = create((set, get) => ({
     const { schoolId, activeYear, fees, feePayments } = get();
     const { userId, fullName } = useAuthStore.getState();
     const parsedAmount = parseInt(amount, 10) || 0;
-    if (!parsedAmount) return null;
+    // Strictement positif : un montant négatif ne peut naître que d'une
+    // contre-passation (reversePayment), jamais d'une saisie de guichet — sinon
+    // on pourrait « annuler » une recette en la saisissant à l'envers, sans motif
+    // ni lien vers l'écriture d'origine.
+    if (parsedAmount <= 0) return null;
 
     const record = {
       id:            uuid(),
@@ -1945,35 +2053,181 @@ export const useSchoolStore = create((set, get) => ({
     } else {
       queueOffline({ table: 'fee_payments', operation: 'insert', payload: record });
     }
+
+    // TRACE (les deux journaux, best-effort, hors du chemin d'écriture) :
+    //   • logAction  → journal local, instantané, fonctionne hors-ligne ;
+    //   • emitFinanceEvent → audit SERVEUR non-répudiable (kernel_emit estampille
+    //     l'acteur depuis auth.uid()), append-only, répliqué.
+    logAction({ action: 'create', table: 'fee_payments', target_id: record.id,
+      details: { student_id: studentId, amount: parsedAmount, date, note: record.note } });
+    emitFinanceEvent({
+      aggregateType: FIN_AGG.FEE_PAYMENT, aggregateId: record.id, correlationId: record.id,
+      schoolId, eventType: FIN_EVT.FEE_PAYMENT_RECORDED,
+      payload: { student_id: studentId, amount: parsedAmount, date, academic_year: activeYear },
+    });
     return record;
   },
 
-  deletePayment: async (paymentId, studentId) => {
-    const { feePayments, fees, activeYear } = get();
-    const payment = feePayments.find((p) => p.id === paymentId);
-    if (!payment) return;
+  // ── ARRÊTÉ DE CAISSE ──────────────────────────────────────────────────────
+  // Le caissier déclare ce qu'il a COMPTÉ ; le système recalcule l'attendu à
+  // partir des écritures et fige l'écart. L'attendu n'est jamais accepté depuis
+  // l'UI : sinon un caissier déclarerait un attendu sur mesure et l'écart
+  // tomberait toujours à zéro.
+  declareCashSession: async ({ date, openingFloat = 0, countedCash, explanation = null }) => {
+    const { schoolId, activeYear, feePayments, cashSessions } = get();
+    const { userId, fullName } = useAuthStore.getState();
+    if (countedCash == null || countedCash === '') return null;
 
-    // Dérive frais_payes des lignes restantes (source de vérité) en préservant le
-    // socle opaque importé (cf. feeEngine.derivePaid). rowsBefore inclut la ligne
-    // supprimée ; rowsAfter la retire.
+    const exp = expectedCash(feePayments, { cashierId: userId, date, openingFloat });
+    const rec = reconcile({ counted: countedCash, expected: exp.expected });
+    if (requiresExplanation(rec.variance) && !String(explanation || '').trim()) return null;
+
+    const existing = cashSessions.find((s) => s.date === date && s.cashier_id === userId);
+    // Un arrêté déjà VALIDÉ par un tiers ne se réécrit pas : ce serait défaire
+    // le contrôle après coup.
+    if (existing?.status === SESSION_STATUS.VALIDATED) return null;
+
+    const record = {
+      id: existing?.id || uuid(),
+      school_id: schoolId,
+      academic_year: activeYear,
+      date,
+      cashier_id: userId,
+      cashier_name: fullName || null,
+      opening_float: parseInt(openingFloat, 10) || 0,
+      expected_cash: rec.expected,
+      counted_cash:  rec.counted,
+      variance:      rec.variance,
+      entry_count:   exp.count,
+      explanation:   String(explanation || '').trim() || null,
+      status:        SESSION_STATUS.DECLARED,
+      declared_at:   new Date().toISOString(),
+      validated_by: null, validated_by_name: null, validated_at: null,
+    };
+
+    set((s) => ({
+      cashSessions: [...s.cashSessions.filter((x) => x.id !== record.id), record],
+    }));
+    const saved = await upsertCashSession(record);
+    if (!saved) queueOffline({ table: 'cash_sessions', operation: 'upsert', payload: record });
+
+    logAction({ action: 'validate', table: 'cash_sessions', target_id: record.id,
+      details: { date, expected: rec.expected, counted: rec.counted, variance: rec.variance } });
+    emitFinanceEvent({
+      aggregateType: FIN_AGG.CASH_SESSION, aggregateId: record.id, correlationId: record.id,
+      schoolId, eventType: FIN_EVT.CASH_SESSION_DECLARED,
+      payload: { date, expected: rec.expected, counted: rec.counted, variance: rec.variance, entries: exp.count },
+    });
+    return record;
+  },
+
+  // Contrôle par un TIERS. `canValidate` refuse que le caissier valide son
+  // propre comptage — c'est ce qui distingue un contrôle d'une auto-déclaration.
+  validateCashSession: async (sessionId) => {
+    const { schoolId, cashSessions } = get();
+    const { userId, fullName } = useAuthStore.getState();
+    const session = cashSessions.find((s) => s.id === sessionId);
+    if (!session || !canValidate(session, userId)) return null;
+
+    const record = {
+      ...session,
+      status: SESSION_STATUS.VALIDATED,
+      validated_by: userId,
+      validated_by_name: fullName || null,
+      validated_at: new Date().toISOString(),
+    };
+    set((s) => ({ cashSessions: s.cashSessions.map((x) => (x.id === sessionId ? record : x)) }));
+    const saved = await upsertCashSession(record);
+    if (!saved) queueOffline({ table: 'cash_sessions', operation: 'upsert', payload: record });
+
+    logAction({ action: 'validate', table: 'cash_sessions', target_id: sessionId,
+      details: { date: session.date, cashier: session.cashier_name, variance: session.variance } });
+    emitFinanceEvent({
+      aggregateType: FIN_AGG.CASH_SESSION, aggregateId: sessionId, correlationId: sessionId,
+      schoolId, eventType: FIN_EVT.CASH_SESSION_VALIDATED,
+      payload: { date: session.date, cashier_id: session.cashier_id, variance: session.variance },
+    });
+    return record;
+  },
+
+  loadCashSessions: async ({ from = null, to = null } = {}) => {
+    const { schoolId, activeYear } = get();
+    if (!schoolId) return [];
+    const rows = await fetchCashSessions(schoolId, { from, to, year: activeYear });
+    set({ cashSessions: rows });
+    return rows;
+  },
+
+  // CONTRE-PASSATION — annule un versement SANS jamais l'effacer.
+  //
+  // Une suppression pure laissait le détournement invisible : encaisser, remettre
+  // le reçu, supprimer la ligne, garder l'argent — et plus aucune trace qu'un
+  // versement avait existé. Ici, l'écriture d'origine reste intacte et une
+  // SECONDE ligne, de montant négatif, la neutralise en portant son motif et son
+  // auteur. Les deux restent lisibles, et `frais_payes` retombe juste tout seul
+  // (il est dérivé de la somme des lignes).
+  //
+  // Renvoie la ligne d'annulation, ou null si l'opération est refusée.
+  reversePayment: async (paymentId, studentId, reason) => {
+    const { schoolId, activeYear, fees, feePayments } = get();
+    const { userId, fullName } = useAuthStore.getState();
+    const payment = feePayments.find((p) => p.id === paymentId);
+    if (!payment) return null;
+    const motif = String(reason || '').trim();
+    if (!motif) return null;                       // le motif n'est pas décoratif : c'est la pièce justificative
+    if (payment.reversal_of) return null;          // on n'annule pas une annulation
+    if (feePayments.some((p) => p.reversal_of === paymentId)) return null; // déjà annulé
+    // Le recalcul de `frais_payes` ci-dessous raisonne sur l'année ACTIVE : annuler
+    // un versement d'une année close fausserait le total mis en cache de cette
+    // année-là. On refuse plutôt que de corrompre un exercice clos.
+    if (payment.academic_year && payment.academic_year !== activeYear) return null;
+
+    const amount = -Math.abs(Number(payment.amount) || 0);
+    if (!amount) return null;
+
+    const record = {
+      id:            uuid(),
+      school_id:     schoolId,
+      student_id:    studentId,
+      academic_year: payment.academic_year || activeYear,
+      amount,
+      date:          new Date().toISOString().slice(0, 10),  // date de l'ANNULATION, pas du versement
+      note:          `Annulation — ${motif}`,
+      recorded_by:   userId,
+      recorded_by_name: fullName || null,
+      student_fee_item_id: payment.student_fee_item_id || null,
+      reversal_of:   paymentId,
+      void_reason:   motif,
+      created_at:    new Date().toISOString(),
+    };
+
+    // Même dérivation que pour un encaissement : la ligne négative entre dans la
+    // somme, donc `frais_payes` se corrige sans soustraction en aveugle.
     const existing = fees.find((f) => f.student_id === studentId && f.academic_year === activeYear);
     const rowsBefore = sumPaidForStudent(feePayments, studentId, activeYear);
-    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore - payment.amount);
-    const remaining = feePayments.filter((p) => p.id !== paymentId && p.student_id === studentId);
-    const lastDate = remaining.sort((a, b) => b.date.localeCompare(a.date))[0]?.date ?? null;
+    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore + amount);
 
-    await feePaymentsDB.delete(paymentId);
-    set((s) => ({ feePayments: s.feePayments.filter((p) => p.id !== paymentId) }));
+    await feePaymentsDB.put(record);
+    set((s) => ({ feePayments: [record, ...s.feePayments] }));
 
-    await get().saveFee(studentId, { frais_payes: newPaid, date_dernier_paiement: lastDate });
+    await get().saveFee(studentId, { frais_payes: newPaid });
 
     if (backendOnline()) {
-      sbDeleteFeePayment(paymentId).then((ok) => {
-        if (!ok) queueOffline({ table: 'fee_payments', operation: 'delete', payload: { id: paymentId } });
+      insertFeePayment(record).then((saved) => {
+        if (!saved) queueOffline({ table: 'fee_payments', operation: 'insert', payload: record });
       });
     } else {
-      queueOffline({ table: 'fee_payments', operation: 'delete', payload: { id: paymentId } });
+      queueOffline({ table: 'fee_payments', operation: 'insert', payload: record });
     }
+
+    logAction({ action: 'void', table: 'fee_payments', target_id: paymentId,
+      details: { student_id: studentId, amount: payment.amount, reason: motif, reversal_id: record.id } });
+    emitFinanceEvent({
+      aggregateType: FIN_AGG.FEE_PAYMENT, aggregateId: paymentId, correlationId: paymentId,
+      schoolId, eventType: FIN_EVT.FEE_PAYMENT_REVERSED,
+      payload: { student_id: studentId, reversed_amount: payment.amount, reason: motif, reversal_id: record.id },
+    });
+    return record;
   },
 
   deleteFee: async (id) => {
@@ -2053,6 +2307,27 @@ export const useSchoolStore = create((set, get) => ({
       upsertClassFeeGrid(record).then((saved) => { if (!saved) queueOffline({ table: 'class_fee_grids', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'class_fee_grids', operation: 'upsert', payload: record });
+    }
+
+    // Le tarif d'une classe commande le dû de TOUS ses élèves : le baisser puis
+    // le remettre en place est le détournement le plus rentable et le plus
+    // discret. On journalise l'avant/après de chaque montant.
+    const changed = !existing
+      || existing.amount_comptant   !== record.amount_comptant
+      || existing.amount_echelonne  !== record.amount_echelonne
+      || existing.amount_inscription !== record.amount_inscription;
+    if (changed) {
+      const before = existing
+        ? { comptant: existing.amount_comptant, echelonne: existing.amount_echelonne, inscription: existing.amount_inscription }
+        : null;
+      const after = { comptant: record.amount_comptant, echelonne: record.amount_echelonne, inscription: record.amount_inscription };
+      logAction({ action: existing ? 'update' : 'create', table: 'class_fee_grids', target_id: record.id,
+        details: { class_id: record.class_id, before, after } });
+      emitFinanceEvent({
+        aggregateType: FIN_AGG.FEE_GRID, aggregateId: record.id, correlationId: record.id,
+        schoolId, eventType: FIN_EVT.FEE_GRID_CHANGED,
+        payload: { class_id: record.class_id, academic_year: year, before, after },
+      });
     }
     return record;
   },

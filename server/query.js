@@ -108,6 +108,76 @@ function guardAppendOnly(op, ctx) {
   }
 }
 
+// --- Immuabilité des RECETTES -----------------------------------------
+// Un versement encaissé ne se modifie pas et ne se supprime pas. Sans cette
+// garde, le geste de détournement le plus simple restait à un clic : encaisser,
+// remettre le reçu, supprimer la ligne — l'argent part, et il ne reste AUCUNE
+// trace qu'un versement a existé. L'annulation légitime passe par une
+// CONTRE-PASSATION (ligne négative portant `reversal_of` + `void_reason`), qui
+// laisse les deux écritures visibles.
+//
+// `recorded_by` est estampillé DEPUIS LE JETON, jamais depuis le payload : sinon
+// la traçabilité du caissier reste déclarative, donc falsifiable (on pourrait
+// signer un encaissement du nom d'un collègue).
+function guardFeePaymentImmutable(op, ctx) {
+  if (op.table !== 'fee_payments') return;
+  if (op.action === 'update' || op.action === 'delete') {
+    throw new Error('fee_payments est immuable : annulez par contre-passation (ligne négative), jamais par suppression');
+  }
+  if (ctx?.userId && op.values) {
+    const stamp = (v) => { if (v && typeof v === 'object') v.recorded_by = ctx.userId; };
+    if (Array.isArray(op.values)) op.values.forEach(stamp); else stamp(op.values);
+  }
+  allocateReceiptNo(op);
+}
+
+// --- Numérotation SÉQUENTIELLE des reçus -------------------------------
+// Le numéro de reçu dérivé de l'uuid identifie une pièce mais ne dit rien d'un
+// MANQUE : c'est une série continue qui rend visible la recette encaissée puis
+// escamotée (le n°47 absent entre 46 et 48). Le compteur est donc attribué ICI,
+// par le serveur, et jamais accepté depuis le client.
+//
+// `receipt_no` déjà renseigné = ligne venue de la synchro (le LAN l'avait déjà
+// numérotée) : on ne la renumérote pas, sinon le reçu papier ne correspondrait
+// plus. better-sqlite3 étant synchrone et mono-processus, le MAX+1 ci-dessous
+// n'a pas de course concurrente.
+function allocateReceiptNo(op) {
+  if (op.table !== 'fee_payments') return;
+  if (op.action !== 'insert' && op.action !== 'upsert') return;
+  const next = (v) => {
+    if (!v || typeof v !== 'object') return;
+    if (v.receipt_no != null) return;                  // déjà numéroté (sync)
+    const row = db.prepare(
+      'SELECT COALESCE(MAX(receipt_no), 0) AS m FROM fee_payments WHERE school_id = ? AND IFNULL(academic_year, \'\') = IFNULL(?, \'\')',
+    ).get(v.school_id ?? null, v.academic_year ?? null);
+    v.receipt_no = (row?.m || 0) + 1;
+  };
+  if (Array.isArray(op.values)) op.values.forEach(next); else next(op.values);
+}
+
+// --- L'élève qui porte de l'argent ne s'efface pas ---------------------
+// Rendre les versements immuables ne suffisait pas : la cascade FK
+// students → fee_payments offrait le même résultat par un autre chemin
+// (supprimer l'élève emportait ses écritures). Une cascade s'exécute au nom du
+// propriétaire de la table et ne repasse ni par la RLS ni par les GRANT — elle
+// doit donc être bloquée EN AMONT, sur la suppression de l'élève lui-même.
+// Sortie légitime : l'archivage (students.archived_at), qui n'efface rien.
+// Le filtre est résolu EXACTEMENT comme dans doDelete (op.filters, jamais un
+// champ inventé) : sinon la garde ne verrait rien passer et laisserait le
+// contournement grand ouvert. Passer par une sous-requête couvre aussi les
+// suppressions en lot (par classe, par exemple), pas seulement par id.
+function guardStudentDeletion(op) {
+  if (op.table !== 'students' || op.action !== 'delete') return;
+  const where = buildWhere(op.filters);
+  if (!where.sql) return;   // doDelete refuse déjà un DELETE sans filtre
+  const n = db.prepare(
+    `SELECT COUNT(*) AS n FROM fee_payments WHERE student_id IN (SELECT id FROM students${where.sql})`,
+  ).get(...where.params)?.n || 0;
+  if (n > 0) {
+    throw new Error(`Élève non supprimable : ${n} écriture(s) de caisse y sont rattachées. Archivez-le (ses données sont conservées).`);
+  }
+}
+
 // --- Opération principale ---------------------------------------------
 export function runQuery(op, ctx = null) {
   const { table } = op;
@@ -117,6 +187,8 @@ export function runQuery(op, ctx = null) {
 
   try {
     guardAppendOnly(op, ctx);
+    guardFeePaymentImmutable(op, ctx); // recettes : pas d'update/delete, caissier estampillé
+    guardStudentDeletion(op);      // pas d'effacement d'un élève porteur d'écritures
     guardBudgetExpense(op, ctx);   // enforcement budgétaire serveur (chaîne + workflow + permissions)
     guardBudgetStructure(op);      // P5 : pas de modif silencieuse / d'écriture directe des opérations
     guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel

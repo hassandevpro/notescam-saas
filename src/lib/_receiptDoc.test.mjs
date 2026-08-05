@@ -47,6 +47,12 @@ ok(sameDay !== n1, 'deux versements le même jour → deux n° différents');
 // Élève sans matricule : le n° reste émis (jamais de reçu sans numéro).
 ok(/^20260114-STU-/.test(receiptNumberFor(payment, null)), 'sans matricule → repli « STU », n° tout de même émis');
 
+// ── N° SÉQUENTIEL serveur : c'est lui qui rend un reçu manquant visible ──────
+const seq = { ...payment, receipt_no: 47, academic_year: '2025-2026' };
+ok(receiptNumberFor(seq, student.matricule) === '2025-00047', 'n° séquentiel serveur prioritaire sur le dérivé d\'uuid');
+ok(receiptNumberFor({ ...seq, receipt_no: 3 }, student.matricule) === '2025-00003', 'numéro zéro-paddé (série lisible, trous repérables)');
+ok(buildTicketHtml({ ...base, payment: seq }).includes('2025-00047'), 'le ticket imprime le n° séquentiel');
+
 // ── Ticket 80 mm ─────────────────────────────────────────────────────────────
 const ticket = buildTicketHtml(base);
 ok(ticket.includes('80mm auto'), 'ticket : page rouleau 80 mm, hauteur libre');

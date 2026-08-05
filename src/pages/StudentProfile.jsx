@@ -12,6 +12,7 @@ import { resizeImageToSquare } from '../lib/image';
 import { resolveTransferType, TRANSFER_TYPES, CLOTURE_MOTIFS } from '../core/transferEngine';
 import { copyText } from '../lib/clipboard';
 import { useT, localeForLang } from '../lib/i18n';
+import { toast } from '../store/toastStore';
 import { usePlan } from '../lib/plan';
 import { studentFeeSituation, FEE_STATUS, inscriptionApplies } from '../lib/feeEngine';
 import { STATUS_UI, MODE_LABEL } from '../components/fees/feeUi';
@@ -385,7 +386,17 @@ export default function StudentProfile() {
   };
 
   const handleDelete = async () => {
-    await deleteStudent(student.id);
+    // `deleteStudent` bascule en ARCHIVAGE dès que l'élève porte une écriture de
+    // caisse : ses versements sont des pièces comptables, ils ne peuvent pas
+    // partir avec lui. On le dit, sinon l'utilisateur croit avoir supprimé.
+    const res = await deleteStudent(student.id);
+    if (res?.action === 'archive') {
+      toast.success(t(
+        `${student.name} a été archivé (et non supprimé) : ${res.trail.entries} écriture(s) de caisse lui sont rattachées. Ses données sont conservées.`,
+        `${student.name} was archived (not deleted): ${res.trail.entries} cash entries are attached. All data is kept.`,
+        `${student.name} fue archivado (no eliminado): tiene ${res.trail.entries} asiento(s) de caja.`,
+      ));
+    }
     navigate('/app/students');
   };
 

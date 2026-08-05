@@ -115,9 +115,21 @@ ensureColumn('fee_payments', 'student_fee_item_id', 'student_fee_item_id TEXT');
 // renommé ou supprimé.
 ensureColumn('fee_payments', 'recorded_by',      'recorded_by TEXT');
 ensureColumn('fee_payments', 'recorded_by_name', 'recorded_by_name TEXT');
+// Contre-passation : annuler un versement = insérer une ligne négative qui
+// pointe l'originale, jamais un DELETE (cf. guardFeePaymentImmutable).
+ensureColumn('fee_payments', 'reversal_of', 'reversal_of TEXT');
+ensureColumn('fee_payments', 'void_reason', 'void_reason TEXT');
+// Numéro séquentiel du reçu : un trou dans la série = une recette escamotée.
+ensureColumn('fee_payments', 'receipt_no', 'receipt_no INTEGER');
 // Traçabilité de l'INSCRIPTION : qui a enregistré l'élève (même principe).
 ensureColumn('students', 'created_by',      'created_by TEXT');
 ensureColumn('students', 'created_by_name', 'created_by_name TEXT');
+// ARCHIVAGE : sortie d'un élève SANS suppression. Obligatoire dès qu'il porte
+// une écriture de caisse — sinon la cascade FK emporterait ses versements.
+ensureColumn('students', 'archived_at',      'archived_at TEXT');
+ensureColumn('students', 'archived_by',      'archived_by TEXT');
+ensureColumn('students', 'archived_by_name', 'archived_by_name TEXT');
+ensureColumn('students', 'archive_reason',   'archive_reason TEXT');
 ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
 // Attributions de gouvernance : fenêtre de validité + statut (Phase 1 rôles).
 ensureColumn('user_governance_roles', 'start_date', 'start_date TEXT');
@@ -324,6 +336,9 @@ export const SYNCED_TABLES = new Set([
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   // Catalogue de frais (obligatoires/optionnels) + liste par élève.
   'fee_catalog', 'student_fee_items',
+  // Arrêté de caisse : le rapprochement espèces↔écritures doit se répliquer,
+  // sinon un contrôle fait en LAN resterait invisible depuis le Cloud.
+  'cash_sessions',
   // Gouvernance du complexe — catalogue de rôles + attribution + historique.
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'attendance', 'student_absences', 'student_class_assignments',
@@ -431,7 +446,7 @@ export const ALLOWED_TABLES = new Set([
   'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
-  'fee_catalog', 'student_fee_items',
+  'fee_catalog', 'student_fee_items', 'cash_sessions',
   'attendance', 'student_absences',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots', 'country_education_config',

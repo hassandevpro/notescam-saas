@@ -108,6 +108,16 @@ ensureColumn('schools',  'budget_validation', 'budget_validation INTEGER NOT NUL
 ensureColumn('schools',  'validation_rules',  'validation_rules TEXT'); // barème seuils->rôle validateur (JSON ; null = défaut moteur)
 ensureColumn('signalements', 'assigned_department', 'assigned_department TEXT'); // affectation auto du module Reports (dérivée de la catégorie)
 ensureColumn('fee_payments', 'student_fee_item_id', 'student_fee_item_id TEXT'); // lien paiement->frais précis (null = paiement global hérité)
+// Traçabilité de la CAISSE : qui a encaissé. `recorded_by` (id du compte) était
+// déjà écrit par l'app mais pickColumns l'avalait en LAN → l'info était perdue.
+// `recorded_by_name` fige le NOM au moment de l'encaissement : un reçu réimprimé
+// des années plus tard doit porter le caissier d'origine, même si le compte a été
+// renommé ou supprimé.
+ensureColumn('fee_payments', 'recorded_by',      'recorded_by TEXT');
+ensureColumn('fee_payments', 'recorded_by_name', 'recorded_by_name TEXT');
+// Traçabilité de l'INSCRIPTION : qui a enregistré l'élève (même principe).
+ensureColumn('students', 'created_by',      'created_by TEXT');
+ensureColumn('students', 'created_by_name', 'created_by_name TEXT');
 ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
 // Attributions de gouvernance : fenêtre de validité + statut (Phase 1 rôles).
 ensureColumn('user_governance_roles', 'start_date', 'start_date TEXT');

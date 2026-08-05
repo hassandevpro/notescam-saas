@@ -1,28 +1,67 @@
 // ════════════════════════════════════════════════════════════════════════════
 // REÇU DE PAIEMENT — modèle UNIQUE, réutilisable pour toute l'application
 // ════════════════════════════════════════════════════════════════════════════
-// Format : A5 paysage, haute qualité, optimisé impression / export PDF.
-// Style  : épuré, moderne, professionnel (inspiration bancaire / logiciels de
-//          gestion scolaire haut de gamme). Couleurs de l'établissement.
+// DEUX formats, un seul contenu comptable (même n°, mêmes montants, même
+// caissier) — l'école choisit selon son imprimante :
+//   • printReceipt() → A5 paysage, épuré, couleurs de l'établissement (bureau) ;
+//   • printTicket()  → rouleau 80 mm monospace, style ticket de caisse
+//                      (imprimante thermique de guichet).
 //
-// Toute édition de reçu DOIT passer par printReceipt() afin de garantir une
-// présentation parfaitement uniforme partout dans l'app.
+// Toute édition de reçu DOIT passer par l'un de ces deux points d'entrée, afin
+// que la présentation reste uniforme partout dans l'app.
+//
+// RÈGLES NON NÉGOCIABLES (pièce comptable) :
+//   1. le n° de reçu est dérivé du VERSEMENT, jamais de l'heure d'impression →
+//      un reçu ressort à l'identique des années plus tard ;
+//   2. le reçu porte le caissier qui a ENCAISSÉ (fee_payments.recorded_by_name),
+//      jamais l'utilisateur qui réimprime ;
+//   3. toute réimpression est marquée DUPLICATA — sinon un second tirage peut
+//      être présenté comme la preuve d'un second paiement.
 // ════════════════════════════════════════════════════════════════════════════
-import { resolveCountryCode } from '../countries';
-import { getSchoolTheme } from './schoolTheme';
-import { formatMoney, currencyCode } from './currency';
+// Spécificateur explicite (et non '../countries') : ce module est couvert par un
+// test lancé sous Node nu, qui ne résout pas les imports de répertoire.
+import { resolveCountryCode } from '../countries/index.js';
+import { getSchoolTheme } from './schoolTheme.js';
+import { formatMoney, currencyCode } from './currency.js';
 
-// N° de reçu lisible et stable : AAAAMMJJ-MATRICULE(6) + suffixe horaire pour
-// distinguer deux versements le même jour.
-export function receiptNumber(studentMatricule, date) {
-  const d = (date || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
+// N° de reçu : AAAAMMJJ-MATRICULE(6)-SUFFIXE.
+//
+// Le suffixe est dérivé de l'ID du VERSEMENT, jamais de l'heure d'impression :
+// un reçu doit ressortir à l'identique des années plus tard. (L'ancienne version
+// utilisait l'heure courante — deux impressions du même versement donnaient deux
+// numéros différents, donc aucune pièce comptable reproductible.)
+export function receiptNumberFor(payment = {}, studentMatricule) {
+  const raw = String(payment.date || payment.created_at || '').slice(0, 10);
+  const d = (raw || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
   const code = (studentMatricule || 'STU').toUpperCase().replace(/\s/g, '').slice(0, 6);
-  const hm = new Date().toTimeString().slice(0, 5).replace(':', '');
-  return `${d}-${code}-${hm}`;
+  // 4 derniers caractères alphanumériques de l'uuid → stable, lisible, suffisant
+  // pour distinguer plusieurs versements d'un même élève le même jour.
+  const id = String(payment.id || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  const suffix = id ? id.slice(-4) : String(payment.amount ?? '').slice(-4).padStart(4, '0');
+  return `${d}-${code}-${suffix}`;
+}
+
+// Rétro-compat : ancien appel sans ligne de versement (aucun n° stable possible).
+export function receiptNumber(studentMatricule, date) {
+  return receiptNumberFor({ date }, studentMatricule);
 }
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// Langue + devise du reçu — partagé par les DEUX formats (A5 et ticket 80 mm),
+// pour qu'ils ne divergent jamais sur un libellé ou un arrondi.
+function receiptI18n(school, lang, currency) {
+  const isGE = resolveCountryCode(school) === 'guinea_eq';
+  const isEn = !isGE && lang === 'anglophone';
+  const cur  = currency || currencyCode(school);
+  return {
+    isGE, isEn, cur,
+    t:      (fr, en, es) => (isGE ? (es ?? fr) : isEn ? en : fr),
+    locale: isGE ? 'es-ES' : isEn ? 'en-GB' : 'fr-FR',
+    money:  (n) => formatMoney(n, cur),
+  };
 }
 
 /**
@@ -41,28 +80,29 @@ function esc(s) {
  * @param {string} [opts.designation]  libellé du frais payé (ex. « Cantine ») ; défaut « Frais de scolarité »
  * @param {string}  opts.lang          langue de l'école (anglophone…)
  * @param {string} [opts.currency]     devise (défaut FCFA)
+ * @param {object} [opts.payment]      ligne fee_payments (id/date) → n° de reçu stable
+ * @param {boolean}[opts.duplicate]    réimpression : marque la pièce « DUPLICATA »
+ * @param {string} [opts.reprintBy]    qui réimprime (mentionné sur le duplicata)
  */
 // Construit le HTML complet du reçu (fonction PURE — testable, sans DOM).
 export function buildReceiptHtml({
   school, student, className, versement, newTotal, fraisAnnuels,
   date, mode, cashierName, lang, currency, designation,
+  payment, duplicate, reprintBy,
 }) {
-  const isGE   = resolveCountryCode(school) === 'guinea_eq';
-  const isEn   = !isGE && lang === 'anglophone';
-  const t      = (fr, en, es) => (isGE ? (es ?? fr) : isEn ? en : fr);
-  const locale = isGE ? 'es-ES' : isEn ? 'en-GB' : 'fr-FR';
-  const cur    = currency || currencyCode(school);
-  const money  = (n) => formatMoney(n, cur);
+  const { isGE, isEn, t, locale, money } = receiptI18n(school, lang, currency);
 
   const total  = Number(fraisAnnuels || 0);
   const paid    = Number(newTotal || 0);
   const reste  = Math.max(0, total - paid);
-  const num    = receiptNumber(student.matricule, date);
+  const num    = receiptNumberFor(payment || { date }, student.matricule);
 
   const dateObj = date ? new Date(date) : new Date();
-  const now     = new Date();
   const dateStr = dateObj.toLocaleDateString(locale, { day: '2-digit', month: 'long', year: 'numeric' });
-  const timeStr = now.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  // Heure de l'ENCAISSEMENT (pas de l'impression) : sur un duplicata, l'heure
+  // courante n'aurait aucun sens comptable.
+  const stampAt = payment?.created_at ? new Date(payment.created_at) : new Date();
+  const timeStr = stampAt.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 
   const modeLabel = mode === 'comptant'
     ? t('Comptant', 'Lump sum', 'Al contado')
@@ -175,6 +215,12 @@ export function buildReceiptHtml({
   .thanks .ty { font-size: 11px; font-weight: 700; color: var(--primary); }
   .thanks .sub { font-size: 8px; color: #9ca3af; margin-top: 2px; }
 
+  /* Duplicata : une réimpression ne doit jamais pouvoir passer pour un 2e encaissement. */
+  .dup { margin: 8px 0 0; border: 1px dashed #f59e0b; background: #fffbeb; color: #92400e;
+         border-radius: 5px; padding: 4px 9px; font-size: 8.5px; font-weight: 700;
+         letter-spacing: 1px; text-transform: uppercase; text-align: center; }
+  .dup span { font-weight: 500; letter-spacing: 0; text-transform: none; }
+
   @media print { html, body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 </style>
 </head><body>
@@ -200,6 +246,10 @@ export function buildReceiptHtml({
         </table>
       </div>
     </header>
+
+    ${duplicate ? `<div class="dup">${t('Duplicata', 'Duplicate', 'Duplicado')}
+      <span>— ${t('réimpression du', 'reprinted on', 'reimpreso el')} ${esc(new Date().toLocaleDateString(locale))}${reprintBy ? ` ${t('par', 'by', 'por')} ${esc(reprintBy)}` : ''}. ${t('Ne vaut pas second paiement.', 'Not a second payment.', 'No constituye un segundo pago.')}</span>
+    </div>` : ''}
 
     <div class="divider"></div>
 
@@ -255,11 +305,163 @@ export function buildReceiptHtml({
 </body></html>`;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// TICKET DE CAISSE — rouleau 80 mm (imprimante thermique), style supermarché
+// ════════════════════════════════════════════════════════════════════════════
+// Même contenu comptable que le reçu A5, mais en colonne étroite monospace :
+// hauteur libre (`size: 80mm auto`), pas de cadre ni d'aplat de couleur (le
+// thermique n'imprime que du noir), séparateurs en tirets. Aucune signature :
+// un ticket ne se signe pas, c'est le n° de reçu qui l'identifie.
+//
+// Mêmes options que buildReceiptHtml(). Fonction PURE (testable, sans DOM).
+export function buildTicketHtml({
+  school, student, className, versement, newTotal, fraisAnnuels,
+  date, mode, cashierName, lang, currency, designation,
+  payment, duplicate, reprintBy,
+}) {
+  const { isGE, isEn, t, locale, money } = receiptI18n(school, lang, currency);
+
+  const total = Number(fraisAnnuels || 0);
+  const paid  = Number(newTotal || 0);
+  const reste = Math.max(0, total - paid);
+  const num   = receiptNumberFor(payment || { date }, student.matricule);
+
+  const dateObj = date ? new Date(date) : new Date();
+  const stampAt = payment?.created_at ? new Date(payment.created_at) : new Date();
+  const dateStr = dateObj.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = stampAt.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+
+  const modeLabel = mode === 'comptant'
+    ? t('COMPTANT', 'LUMP SUM', 'AL CONTADO')
+    : mode === 'echelonne'
+      ? t('ECHELONNE', 'INSTALLMENTS', 'A PLAZOS')
+      : t('LIBRE', 'FREE', 'LIBRE');
+
+  // Ligne « libellé ....... valeur » : le libellé peut passer à la ligne, la
+  // valeur reste collée à droite (pas de tabulation possible en 42 colonnes).
+  const row = (label, value, cls = '') =>
+    `<div class="row ${cls}"><span class="l">${label}</span><span class="v">${value}</span></div>`;
+
+  const contact = [school?.address, school?.phone].filter(Boolean).map(esc).join(' · ');
+
+  return `<!DOCTYPE html><html lang="${isEn ? 'en' : isGE ? 'es' : 'fr'}"><head>
+<meta charset="UTF-8">
+<title>${t('Reçu', 'Receipt', 'Recibo')} ${esc(num)} — ${esc(student.name)}</title>
+<style>
+  @page { size: 80mm auto; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #fff; color: #000; }
+  body {
+    width: 80mm; padding: 4mm 3.5mm 8mm;
+    font-family: 'Consolas', 'DejaVu Sans Mono', 'Courier New', monospace;
+    font-size: 11px; line-height: 1.45; -webkit-font-smoothing: none;
+  }
+  .c { text-align: center; }
+  .logo { display: block; margin: 0 auto 3px; max-width: 34mm; max-height: 16mm; object-fit: contain;
+          filter: grayscale(100%) contrast(180%); }
+  .school { font-size: 14px; font-weight: 700; text-transform: uppercase; line-height: 1.2; letter-spacing: .3px; }
+  .contact { font-size: 9.5px; margin-top: 2px; }
+  .kind { font-size: 12px; font-weight: 700; letter-spacing: 2px; margin: 3px 0 1px; }
+
+  /* Séparateurs : des tirets, pas des filets — un thermique bas de gamme rend
+     mal les bordures fines, jamais les caractères. */
+  .sep  { margin: 4px 0; overflow: hidden; white-space: nowrap; letter-spacing: .5px; }
+  .sep::after { content: "----------------------------------------"; }
+  .sep2 { margin: 4px 0; overflow: hidden; white-space: nowrap; letter-spacing: .5px; }
+  .sep2::after { content: "========================================"; }
+
+  .row { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+  .row .l { flex: 1; min-width: 0; word-break: break-word; }
+  .row .v { white-space: nowrap; font-weight: 700; text-align: right; }
+  .row.dim .l, .row.dim .v { font-weight: 400; }
+
+  .item { margin: 2px 0; }
+  .item .l { text-transform: uppercase; }
+
+  .grand { font-size: 15px; font-weight: 700; margin: 2px 0; }
+  .grand .v { font-size: 17px; }
+  .due { font-size: 12px; font-weight: 700; }
+
+  .dup { border: 1px dashed #000; padding: 3px 4px; margin: 4px 0; text-align: center;
+         font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .dup em { display: block; font-style: normal; font-weight: 400; text-transform: none; font-size: 9px; margin-top: 1px; }
+
+  .foot { margin-top: 5px; font-size: 9.5px; }
+  .thanks { font-size: 12px; font-weight: 700; letter-spacing: .5px; }
+  .no { font-family: inherit; letter-spacing: .5px; }
+
+  @media print { html, body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+</style>
+</head><body>
+
+  <div class="c">
+    ${school?.logo_url ? `<img src="${esc(school.logo_url)}" alt="" class="logo">` : ''}
+    <div class="school">${esc(school?.name || '—')}</div>
+    ${contact ? `<div class="contact">${contact}</div>` : ''}
+    <div class="kind">${t('REÇU', 'RECEIPT', 'RECIBO')}</div>
+    <div class="contact no">N° ${esc(num)}</div>
+  </div>
+
+  <div class="sep2"></div>
+
+  ${row(t('Date', 'Date', 'Fecha'), `${esc(dateStr)} ${esc(timeStr)}`, 'dim')}
+  ${row(t('Caissier', 'Cashier', 'Cajero'), esc(cashierName || '—'), 'dim')}
+  ${school?.current_year ? row(t('Année', 'Year', 'Año'), esc(school.current_year), 'dim') : ''}
+
+  <div class="sep"></div>
+
+  ${row(t('Élève', 'Student', 'Alumno'), esc(student.name), 'dim')}
+  ${student.matricule ? row(t('Matricule', 'ID', 'Matrícula'), esc(student.matricule), 'dim') : ''}
+  ${row(t('Classe', 'Class', 'Clase'), esc(className || '—'), 'dim')}
+
+  <div class="sep"></div>
+
+  <div class="item">
+    ${row(esc(designation || t('Frais de scolarité', 'Tuition fees', 'Cuota escolar')), money(versement))}
+  </div>
+
+  <div class="sep2"></div>
+
+  ${row(t('TOTAL VERSÉ', 'AMOUNT PAID', 'TOTAL PAGADO'), money(versement), 'grand')}
+
+  <div class="sep"></div>
+
+  ${total > 0 ? row(t('Total des frais', 'Total fees', 'Total'), money(total), 'dim') : ''}
+  ${row(t('Cumul versé', 'Total paid to date', 'Pagado acumulado'), money(paid), 'dim')}
+  ${total > 0 ? row(
+    reste > 0 ? t('RESTE À PAYER', 'BALANCE DUE', 'SALDO PENDIENTE') : t('SOLDÉ', 'FULLY PAID', 'SALDADO'),
+    money(reste), 'due',
+  ) : ''}
+  ${row(t('Mode', 'Method', 'Forma'), esc(modeLabel), 'dim')}
+
+  ${duplicate ? `<div class="dup">${t('*** DUPLICATA ***', '*** DUPLICATE ***', '*** DUPLICADO ***')}
+    <em>${t('Réimprimé le', 'Reprinted on', 'Reimpreso el')} ${esc(new Date().toLocaleDateString(locale))}${reprintBy ? ` ${t('par', 'by', 'por')} ${esc(reprintBy)}` : ''}.
+    ${t('Ne vaut pas second paiement.', 'Not a second payment.', 'No constituye un segundo pago.')}</em>
+  </div>` : '<div class="sep"></div>'}
+
+  <div class="c foot">
+    <div class="thanks">${t('MERCI !', 'THANK YOU!', '¡GRACIAS!')}</div>
+    <div>${t('Ce reçu fait foi de paiement.', 'This receipt is proof of payment.', 'Este recibo justifica el pago.')}</div>
+    <div>${t('Conservez-le.', 'Please keep it.', 'Consérvelo.')}</div>
+  </div>
+
+<script>window.onload = function(){ setTimeout(function(){ window.focus(); window.print(); }, 350); };</script>
+</body></html>`;
+}
+
 // Ouvre le reçu dans une fenêtre dédiée et lance l'impression (A5 paysage).
-// C'est le SEUL point d'entrée à utiliser dans l'app pour imprimer un reçu.
+// C'est le SEUL point d'entrée à utiliser dans l'app pour imprimer un reçu A5.
 export function printReceipt(opts) {
-  const html = buildReceiptHtml(opts);
-  const win = window.open('', '_blank');
+  openPrintWindow(buildReceiptHtml(opts));
+}
+
+// Idem, au format ticket de caisse 80 mm (imprimante thermique).
+export function printTicket(opts) {
+  openPrintWindow(buildTicketHtml(opts), 'width=380,height=760');
+}
+
+function openPrintWindow(html, features) {
+  const win = window.open('', '_blank', features);
   if (!win) return;
   win.document.write(html);
   win.document.close();

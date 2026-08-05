@@ -583,6 +583,9 @@ export default function StudentProfile() {
               <InfoRow label={t('Date de naissance', 'Date of birth')} value={fmtDate(student.date_naissance)} />
               <InfoRow label={t('Lieu de naissance', 'Place of birth')} value={student.lieu_naissance} />
               <InfoRow label={t("Date d'inscription", 'Enrollment date')} value={fmtDate(student.created_at)} />
+              {/* Auteur de l'inscription, figé au moment du geste. Absent sur les
+                  élèves inscrits avant la traçabilité (ou importés en masse). */}
+              <InfoRow label={t('Inscrit par', 'Enrolled by', 'Inscrito por')} value={student.created_by_name} />
               {!student.date_naissance && !student.lieu_naissance && (
                 <p className="text-xs text-gray-400 py-2">{t('Aucune information personnelle renseignée.', 'No personal information provided.')}</p>
               )}

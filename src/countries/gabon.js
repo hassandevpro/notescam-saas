@@ -2,7 +2,7 @@
 // Même structure pédagogique que le Cameroun francophone ; seul l'en-tête
 // officiel (mono-langue) et l'identité pays changent.
 
-import { cameroonFr } from './cameroon_fr';
+import { cameroonFr } from './cameroon_fr.js';
 
 export const gabon = {
   ...cameroonFr,

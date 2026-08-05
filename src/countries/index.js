@@ -6,12 +6,12 @@
 // Adding a new country (Gabon, Sénégal…) = creating a new file here and
 // referencing it in COUNTRIES below. No existing module needs to be touched.
 
-import { cameroonFr } from './cameroon_fr';
-import { cameroonEn } from './cameroon_en';
-import { guineaEq }   from './guinea_eq';
-import { ivoryCoast } from './ivory_coast';
-import { gabon }      from './gabon';
-import { congo }      from './congo';
+import { cameroonFr } from './cameroon_fr.js';
+import { cameroonEn } from './cameroon_en.js';
+import { guineaEq }   from './guinea_eq.js';
+import { ivoryCoast } from './ivory_coast.js';
+import { gabon }      from './gabon.js';
+import { congo }      from './congo.js';
 
 export const COUNTRIES = {
   cameroon_fr: cameroonFr,

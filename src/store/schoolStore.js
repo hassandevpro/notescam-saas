@@ -1448,7 +1448,16 @@ export const useSchoolStore = create((set, get) => ({
 
   addStudent: async (studentData) => {
     const { schoolId } = get();
-    const record = { id: uuid(), school_id: schoolId, ...sanitizeStudent(studentData) };
+    const { userId, fullName } = useAuthStore.getState();
+    const record = {
+      id: uuid(), school_id: schoolId,
+      ...sanitizeStudent(studentData),
+      // Auteur de l'INSCRIPTION, figé ici (l'import/la restauration passent leur
+      // propre valeur, qui l'emporte : on ne réécrit pas l'auteur d'origine).
+      created_by:      studentData.created_by      ?? userId ?? null,
+      created_by_name: studentData.created_by_name ?? fullName ?? null,
+      created_at:      studentData.created_at      ?? new Date().toISOString(),
+    };
     await studentsDB.put(record);
     set((s) => ({ students: [...s.students, record] }));
     if (backendOnline()) {
@@ -1896,7 +1905,7 @@ export const useSchoolStore = create((set, get) => ({
 
   addPayment: async (studentId, { amount, date, note, student_fee_item_id = null }) => {
     const { schoolId, activeYear, fees, feePayments } = get();
-    const userId = useAuthStore.getState().userId;
+    const { userId, fullName } = useAuthStore.getState();
     const parsedAmount = parseInt(amount, 10) || 0;
     if (!parsedAmount) return null;
 
@@ -1908,7 +1917,10 @@ export const useSchoolStore = create((set, get) => ({
       amount:        parsedAmount,
       date:          date,
       note:          note || '',
+      // Caissier FIGÉ à l'encaissement : le reçu réimprimé porte ce nom-là, pas
+      // celui de l'utilisateur qui réimprime (cf. receiptDoc.cashierName).
       recorded_by:   userId,
+      recorded_by_name: fullName || null,
       // Lien optionnel vers un frais précis du catalogue (null = paiement global).
       student_fee_item_id: student_fee_item_id || null,
       created_at:    new Date().toISOString(),

@@ -8,7 +8,7 @@ import Modal from '../components/Modal';
 import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
-import { printReceipt } from '../lib/receiptDoc';
+import { printReceipt, printTicket } from '../lib/receiptDoc';
 import FeeGridsTab from '../components/fees/FeeGridsTab';
 import FeeCatalog from './FeeCatalog';
 import FeeDashboard from '../components/fees/FeeDashboard';
@@ -77,12 +77,19 @@ function PayProgress({ fee, due }) {
 
 // ── Panneau de gestion étendu ─────────────────────────────────────────────────
 
+// Ordre CHRONOLOGIQUE d'encaissement (date, puis heure d'insertion, puis id pour
+// départager) — sert à recalculer le cumul versé au moment d'un versement donné.
+const chronoPayment = (a, b) =>
+  String(a.date || '').localeCompare(String(b.date || ''))
+  || String(a.created_at || '').localeCompare(String(b.created_at || ''))
+  || String(a.id || '').localeCompare(String(b.id || ''));
+
 function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeletePayment, onClose, onPrintReceipt, onConfigureGrid,
   studentItems = [], optionalItems = [], onAttachOptional, onDetachOptional }) {
   const t = useT();
   const money = useMoney();
 
-  const [lastPayment,  setLastPayment]  = useState(null);
+  const [lastPaymentId, setLastPaymentId] = useState(null);
 
   const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
   const setStudentPaymentMode = useSchoolStore((s) => s.setStudentPaymentMode);
@@ -136,6 +143,32 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
   const remaining = previewTotal > 0 ? Math.max(0, previewTotal - (fee?.frais_payes ?? 0)) : Infinity;
   const overpay = typed > remaining;
 
+  // Reconstitue le reçu d'un versement DONNÉ — récent ou vieux de trois ans.
+  // Le cumul versé est recalculé à la position chronologique du versement, pour
+  // que le reçu réimprimé affiche ce qu'il affichait le jour de l'encaissement.
+  // Le caissier vient de la LIGNE (recorded_by_name figé), jamais de la session
+  // en cours. Réserve connue : `fraisAnnuels` est le total dû ACTUEL — la grille
+  // tarifaire n'est pas historisée par versement.
+  const receiptDataFor = (p) => {
+    const ordered = [...payments].sort(chronoPayment);
+    const idx = ordered.findIndex((x) => x.id === p.id);
+    const upTo = idx >= 0 ? ordered.slice(0, idx + 1) : [...ordered, p];
+    return {
+      payment:      p,
+      versement:    Number(p.amount) || 0,
+      newTotal:     upTo.reduce((s, x) => s + (Number(x.amount) || 0), 0),
+      fraisAnnuels: previewTotal,
+      mode:         mode || 'libre',
+      date:         p.date,
+      designation:  (p.note || '').trim() || null,
+      cashierName:  p.recorded_by_name || null,
+    };
+  };
+
+  // `duplicate` : tout tirage fait depuis l'HISTORIQUE est un duplicata. Seul le
+  // tirage qui suit immédiatement l'encaissement est l'original.
+  const print = (p, format, duplicate) => onPrintReceipt({ ...receiptDataFor(p), duplicate }, format);
+
   const handleAddPayment = async () => {
     const parsed = parseInt(montant, 10) || 0;
     if (!parsed) return;
@@ -151,14 +184,7 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
     const rec = await onAddPayment(student.id, { amount: parsed, date, note });
     setSaving(false);
     if (rec) {
-      setLastPayment({
-        versement: parsed,
-        newTotal: (fee?.frais_payes ?? 0) + parsed,
-        fraisAnnuels: previewTotal,
-        mode: appliedMode,
-        date,
-        designation: note.trim() || null, // le reçu porte le nom saisi (ex. « Cantine »)
-      });
+      setLastPaymentId(rec.id);
       setMontant(''); setNote('');
     }
   };
@@ -167,7 +193,7 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
     setDeleting(paymentId);
     await onDeletePayment(paymentId, student.id);
     setDeleting(null);
-    setLastPayment(null);
+    if (paymentId === lastPaymentId) setLastPaymentId(null);
   };
 
   // Paiement RATTACHÉ à un frais optionnel précis (student_fee_item_id) : règle son
@@ -178,16 +204,7 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
     setSaving(true);
     const rec = await onAddPayment(student.id, { amount: bal, date: todayISO(), note: item.name, student_fee_item_id: item.id });
     setSaving(false);
-    if (rec) {
-      setLastPayment({
-        versement: bal,
-        newTotal: (fee?.frais_payes ?? 0) + bal,
-        fraisAnnuels: previewTotal,
-        mode: mode || 'libre',
-        date: todayISO(),
-        designation: item.name,
-      });
-    }
+    if (rec) setLastPaymentId(rec.id);
   };
 
   return (
@@ -443,24 +460,34 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
                 </button>
               </div>
 
-              {/* Confirmation + reçu */}
-              {lastPayment && (
-                <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                  <svg className="w-5 h-5 text-emerald-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
-                  </svg>
-                  <span className="text-sm text-emerald-700 font-medium flex-1">
-                    {t('Versement enregistré', 'Payment saved')} — {money(lastPayment.versement)}
-                  </span>
-                  <button
-                    onClick={() => onPrintReceipt(lastPayment)}
-                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 transition-colors"
-                  >
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a1 1 0 001 1h8a1 1 0 001-1v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a1 1 0 00-1-1H6a1 1 0 00-1 1zm2 0h6v3H7V4zm-1 9v-1h8v1H6zm8-4a1 1 0 110 2 1 1 0 010-2z" clipRule="evenodd"/></svg>
-                    {t('Imprimer le reçu', 'Print receipt')}
-                  </button>
-                </div>
-              )}
+              {/* Confirmation + reçu (original : ni l'un ni l'autre n'est marqué duplicata) */}
+              {lastPaymentId && (() => {
+                const rec = payments.find((p) => p.id === lastPaymentId);
+                if (!rec) return null;
+                return (
+                  <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex-wrap">
+                    <svg className="w-5 h-5 text-emerald-500 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
+                    </svg>
+                    <span className="text-sm text-emerald-700 font-medium flex-1 min-w-[8rem]">
+                      {t('Versement enregistré', 'Payment saved')} — {money(rec.amount)}
+                    </span>
+                    <button
+                      onClick={() => print(rec, 'ticket', false)}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a1 1 0 001 1h8a1 1 0 001-1v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a1 1 0 00-1-1H6a1 1 0 00-1 1zm2 0h6v3H7V4zm-1 9v-1h8v1H6zm8-4a1 1 0 110 2 1 1 0 010-2z" clipRule="evenodd"/></svg>
+                      {t('Imprimer le ticket', 'Print ticket', 'Imprimir tique')}
+                    </button>
+                    <button
+                      onClick={() => print(rec, 'a5', false)}
+                      className="text-xs font-semibold px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 transition-colors"
+                    >
+                      {t('Reçu A5', 'A5 receipt', 'Recibo A5')}
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Historique */}
               {payments.length > 0 && (
@@ -477,17 +504,38 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onDeleteP
                         <span className="text-xs text-gray-500 shrink-0 w-24">
                           {new Date(p.date).toLocaleDateString(localeForLang())}
                         </span>
-                        <span className="font-mono font-semibold text-emerald-700 text-sm">
+                        <span className="font-mono font-semibold text-emerald-700 text-sm shrink-0">
                           + {money(p.amount)}
                         </span>
-                        {p.note && (
-                          <span className="text-xs text-gray-400 flex-1 truncate">{p.note}</span>
-                        )}
+                        <span className="flex-1 min-w-0 truncate text-xs">
+                          {p.note && <span className="text-gray-500">{p.note}</span>}
+                          {/* Qui a encaissé — figé à l'encaissement. Vide = versement
+                              antérieur à la traçabilité (ou import). */}
+                          {p.recorded_by_name && (
+                            <span className="text-gray-400">{p.note ? ' · ' : ''}{t('par', 'by', 'por')} {p.recorded_by_name}</span>
+                          )}
+                        </span>
+                        {/* Réimpression à tout moment : ces deux boutons restent
+                            disponibles des années après l'encaissement. */}
+                        <button
+                          onClick={() => print(p, 'ticket', true)}
+                          title={t('Réimprimer le ticket (duplicata)', 'Reprint ticket (duplicate)', 'Reimprimir tique (duplicado)')}
+                          className="shrink-0 text-xs font-semibold text-gray-500 hover:text-emerald-700 px-2 py-0.5 rounded hover:bg-emerald-50 transition-colors"
+                        >
+                          🧾 {t('Ticket', 'Ticket', 'Tique')}
+                        </button>
+                        <button
+                          onClick={() => print(p, 'a5', true)}
+                          title={t('Réimprimer le reçu A5 (duplicata)', 'Reprint A5 receipt (duplicate)', 'Reimprimir recibo A5 (duplicado)')}
+                          className="shrink-0 text-xs font-semibold text-gray-400 hover:text-brand-700 px-2 py-0.5 rounded hover:bg-brand-50 transition-colors"
+                        >
+                          A5
+                        </button>
                         <button
                           onClick={() => handleDeletePayment(p.id)}
                           disabled={deleting === p.id}
                           title={t('Supprimer ce versement', 'Delete this payment')}
-                          className="opacity-0 group-hover:opacity-100 text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 transition-all disabled:opacity-50"
+                          className="shrink-0 opacity-0 group-hover:opacity-100 text-xs text-red-400 hover:text-red-600 px-2 py-0.5 rounded hover:bg-red-50 transition-all disabled:opacity-50"
                         >
                           {deleting === p.id ? '…' : '✕'}
                         </button>
@@ -1195,15 +1243,16 @@ export default function Fees() {
               onDeletePayment={deletePayment}
               onClose={() => setOpenRow(null)}
               onConfigureGrid={isAdmin ? goConfigureGrid : null}
-              onPrintReceipt={(payment) =>
-                printReceipt({
+              // `data` porte déjà le caissier d'ORIGINE (figé sur la ligne de
+              // versement) ; `reprintBy` n'apparaît que sur un duplicata.
+              onPrintReceipt={(data, format) =>
+                (format === 'a5' ? printReceipt : printTicket)({
                   school,
                   student,
                   className: classNameById(student.class_id),
                   lang: school?.language,
-                  mode: feeMap[student.id]?.payment_mode,
-                  cashierName: fullName,
-                  ...payment,
+                  reprintBy: fullName,
+                  ...data,
                 })
               }
             />

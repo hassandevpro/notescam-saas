@@ -158,6 +158,10 @@ CREATE TABLE IF NOT EXISTS students (
   date_naissance TEXT,
   parent_token   TEXT,
   photo_url      TEXT,
+  -- Qui a inscrit cet élève : id du compte + NOM figé au moment de l'inscription
+  -- (le nom survit au renommage / à la suppression du compte).
+  created_by      TEXT,
+  created_by_name TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -256,6 +260,10 @@ CREATE TABLE IF NOT EXISTS fee_payments (
   amount        INTEGER NOT NULL DEFAULT 0,
   date          TEXT,
   note          TEXT,
+  -- Qui a encaissé : id du compte + NOM figé à l'encaissement. Le reçu réimprimé
+  -- doit porter le caissier d'origine, jamais l'utilisateur qui réimprime.
+  recorded_by      TEXT,
+  recorded_by_name TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

@@ -18,6 +18,7 @@ import {
 import { FEE_CATEGORY_LABELS } from '../components/fees/feeCatalogUi';
 import FeeCatalogItemModal from '../components/fees/FeeCatalogItemModal';
 import { loadWithCache } from '../lib/offlineCache';
+import { printTicket } from '../lib/receiptDoc';
 import { classSectionKey } from '../core/engineResolver';
 import { uuid } from '../lib/uuid';
 
@@ -126,7 +127,26 @@ export default function FeeCatalog({ embedded = false }) {
     if (v == null) return;
     const amount = Number(v) || 0;
     if (amount <= 0) return;
-    await addPayment(studentId, { amount, date: todayISO(), note: item.name, student_fee_item_id: item.id });
+    const rec = await addPayment(studentId, { amount, date: todayISO(), note: item.name, student_fee_item_id: item.id });
+    // Tout encaissement donne son ticket, quel que soit l'écran d'où il part.
+    // Le totaux portés par le ticket sont ceux du CATALOGUE de l'élève (c'est le
+    // périmètre de cet écran), pas la scolarité globale.
+    if (rec && selectedStudent) {
+      printTicket({
+        school,
+        student: selectedStudent,
+        className: classById[selectedStudent.class_id]?.name || '',
+        lang: school?.language,
+        payment: rec,
+        versement: amount,
+        newTotal: totals.paid + amount,
+        fraisAnnuels: totals.due,
+        mode: 'libre',
+        designation: item.name,
+        date: rec.date,
+        cashierName: rec.recorded_by_name || null,
+      });
+    }
   };
 
   // — Reçu détaillé (frais payés) —

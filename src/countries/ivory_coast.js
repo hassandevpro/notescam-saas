@@ -3,7 +3,7 @@
 // évaluation /20) et ne redéfinit que l'identité pays + l'en-tête officiel,
 // mono-langue (français). Aucun module existant n'est modifié.
 
-import { cameroonFr } from './cameroon_fr';
+import { cameroonFr } from './cameroon_fr.js';
 
 export const ivoryCoast = {
   ...cameroonFr,

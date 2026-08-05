@@ -1,0 +1,11 @@
+-- TÉMOIN — ne contient volontairement AUCUN SQL.
+--
+-- Cette migration a été appliquée directement dans l'éditeur SQL du dashboard
+-- (version 20260801083044 enregistrée dans supabase_migrations.schema_migrations),
+-- avant que le dépôt n'utilise supabase/migrations/. Son contenu réel n'est
+-- donc pas connu ici.
+--
+-- Ce fichier existe UNIQUEMENT pour que `supabase db push` retrouve la version
+-- côté local et la considère comme déjà appliquée. Il n'est jamais exécuté :
+-- push ne rejoue pas une version déjà présente dans l'historique distant.
+-- Ne rien ajouter ici — écrire une nouvelle migration à la place.

@@ -128,6 +128,21 @@ function guardFeePaymentImmutable(op, ctx) {
     const stamp = (v) => { if (v && typeof v === 'object') v.recorded_by = ctx.userId; };
     if (Array.isArray(op.values)) op.values.forEach(stamp); else stamp(op.values);
   }
+  // Règle de SIGNE, miroir de la contrainte Postgres `fee_payments_amount_sign` :
+  // un encaissement est strictement positif, une contre-passation strictement
+  // négative ET reliée à l'écriture qu'elle annule. Sans elle, un « versement
+  // négatif » sans lien ni motif serait une annulation déguisée, intraçable.
+  const checkSign = (v) => {
+    if (!v || typeof v !== 'object' || v.amount == null) return;
+    const amount = Number(v.amount);
+    if (v.reversal_of) {
+      if (!(amount < 0)) throw new Error('Contre-passation invalide : le montant doit être négatif.');
+      if (!String(v.void_reason || '').trim()) throw new Error('Contre-passation invalide : motif obligatoire.');
+    } else if (!(amount > 0)) {
+      throw new Error('Versement invalide : le montant doit être strictement positif (une annulation passe par une contre-passation).');
+    }
+  };
+  if (Array.isArray(op.values)) op.values.forEach(checkSign); else checkSign(op.values);
   allocateReceiptNo(op);
 }
 

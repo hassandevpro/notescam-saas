@@ -28,10 +28,7 @@
 
 ALTER TABLE public.students
   ADD COLUMN IF NOT EXISTS archived_at      timestamptz,
-  -- TEXT et non uuid : les identifiants de compte du LAN sont des TEXT qui ne
-  -- sont pas toujours des uuid. Une colonne uuid ferait rejeter l'upsert de
-  -- synchro pour la table students entière (cf. supabase_actor_types_fix.sql).
-  ADD COLUMN IF NOT EXISTS archived_by      text,
+  ADD COLUMN IF NOT EXISTS archived_by      uuid,
   ADD COLUMN IF NOT EXISTS archived_by_name text,
   ADD COLUMN IF NOT EXISTS archive_reason   text;
 
@@ -167,7 +164,7 @@ CREATE TABLE IF NOT EXISTS public.cash_sessions (
   school_id         uuid NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
   academic_year     text,
   date              date NOT NULL,
-  cashier_id        text,
+  cashier_id        uuid,
   cashier_name      text,
   opening_float     integer NOT NULL DEFAULT 0,
   expected_cash     integer NOT NULL DEFAULT 0,
@@ -178,7 +175,7 @@ CREATE TABLE IF NOT EXISTS public.cash_sessions (
   status            text NOT NULL DEFAULT 'open'
                     CHECK (status IN ('open', 'declared', 'validated')),
   declared_at       timestamptz,
-  validated_by      text,
+  validated_by      uuid,
   validated_by_name text,
   validated_at      timestamptz,
   created_at        timestamptz NOT NULL DEFAULT now(),

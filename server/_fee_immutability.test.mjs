@@ -74,6 +74,33 @@ const revRow = db.prepare('SELECT * FROM fee_payments WHERE id = ?').get('rev1')
 ok(revRow?.reversal_of === 'pay1', 'la contre-passation pointe le versement annulé');
 ok(revRow?.void_reason === 'Chèque sans provision', 'le motif est conservé');
 
+// ── Règle de SIGNE (miroir de la contrainte Postgres fee_payments_amount_sign) ─
+// Sans elle, un « versement négatif » sans lien ni motif serait une annulation
+// déguisée : l'argent sort des totaux sans laisser de justification.
+const negNoLink = runQuery({
+  table: 'fee_payments', action: 'insert',
+  values: { id: 'bad1', school_id: 'sch1', student_id: 'stu1', amount: -5000, date: '2026-02-06' },
+}, { userId: CAISSIER });
+ok(!!negNoLink.error, 'montant négatif sans contre-passation REFUSÉ', negNoLink.error);
+
+const zero = runQuery({
+  table: 'fee_payments', action: 'insert',
+  values: { id: 'bad2', school_id: 'sch1', student_id: 'stu1', amount: 0, date: '2026-02-06' },
+}, { userId: CAISSIER });
+ok(!!zero.error, 'versement à zéro REFUSÉ', zero.error);
+
+const noMotif = runQuery({
+  table: 'fee_payments', action: 'insert',
+  values: { id: 'bad3', school_id: 'sch1', student_id: 'stu1', amount: -1000, date: '2026-02-06', reversal_of: 'pay2' },
+}, { userId: CAISSIER });
+ok(!!noMotif.error, 'contre-passation sans motif REFUSÉE', noMotif.error);
+
+const posReversal = runQuery({
+  table: 'fee_payments', action: 'insert',
+  values: { id: 'bad4', school_id: 'sch1', student_id: 'stu1', amount: 1000, date: '2026-02-06', reversal_of: 'pay2', void_reason: 'x' },
+}, { userId: CAISSIER });
+ok(!!posReversal.error, 'contre-passation à montant positif REFUSÉE', posReversal.error);
+
 // ── Numérotation SÉQUENTIELLE des reçus ─────────────────────────────────────
 // C'est ce qui rend visible la recette encaissée puis escamotée : un numéro
 // manquant dans la série est un trou que l'on peut constater.

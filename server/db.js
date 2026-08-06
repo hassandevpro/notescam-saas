@@ -126,6 +126,10 @@ ensureColumn('fee_payments', 'reversal_of', 'reversal_of TEXT');
 ensureColumn('fee_payments', 'void_reason', 'void_reason TEXT');
 // Numéro séquentiel du reçu : un trou dans la série = une recette escamotée.
 ensureColumn('fee_payments', 'receipt_no', 'receipt_no INTEGER');
+// Index créé ICI et non dans schema.sql : ce dernier s'exécute AVANT les
+// ensureColumn, donc sur une base déjà installée l'index porterait sur une
+// colonne inexistante et db.exec ferait échouer TOUT le démarrage du serveur.
+db.exec('CREATE INDEX IF NOT EXISTS idx_fee_payments_receipt_no ON fee_payments(school_id, academic_year, receipt_no)');
 // Traçabilité de l'INSCRIPTION : qui a enregistré l'élève (même principe).
 ensureColumn('students', 'created_by',      'created_by TEXT');
 ensureColumn('students', 'created_by_name', 'created_by_name TEXT');

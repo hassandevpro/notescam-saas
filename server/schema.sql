@@ -282,7 +282,11 @@ CREATE TABLE IF NOT EXISTS fee_payments (
   receipt_no    INTEGER,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_fee_payments_receipt_no ON fee_payments(school_id, academic_year, receipt_no);
+-- ⚠ AUCUN INDEX ICI sur une colonne ajoutée par `ensureColumn` (receipt_no,
+-- reversal_of, recorded_by…). Ce fichier est exécuté AVANT les ensureColumn :
+-- sur une base DÉJÀ INSTALLÉE la colonne n'existe pas encore, `db.exec` lève
+-- « no such column » et le serveur ne démarre plus. Ces index sont créés dans
+-- server/db.js, après les ensureColumn. Vérifié par _schema_upgrade.test.mjs.
 
 -- --- Arrêté de caisse (rapprochement espèces ↔ écritures) ----------------
 -- Un versement immuable ne protège que ce qui a été SAISI. Pour détecter la

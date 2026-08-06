@@ -1,0 +1,70 @@
+# ============================================================================
+# NotesCam — configuration Supabase CLI
+#
+# RAISON D'ÊTRE DE CE FICHIER : `verify_jwt = false` sur TOUTES les fonctions.
+#
+# Les edge functions de NotesCam ne sont PAS authentifiées par un JWT Supabase
+# mais par le JETON SCELLÉ DE L'ÉCOLE (`school_server_tokens`), envoyé par le
+# serveur LAN dans l'en-tête `Authorization: Bearer <token>`. Ce jeton n'est pas
+# un JWT : si la passerelle vérifie le JWT, elle rejette l'appel AVANT qu'il
+# n'atteigne le code de la fonction, avec `UNAUTHORIZED_INVALID_JWT_FORMAT`.
+# Chaque fonction fait elle-même son contrôle (`schoolOfToken` → `bad_token`).
+#
+# PIÈGE VÉCU (2026-08-03) : `supabase functions deploy sync-pull` SANS ce fichier
+# ni `--no-verify-jwt` a réactivé la vérification JWT côté serveur → toute la
+# synchro LAN↔Cloud est tombée (la fonction renvoyait l'erreur de passerelle et
+# non plus `bad_token`). Symptôme trompeur : ressemble à un problème de jeton
+# désaligné, alors que la cause est un simple flag de déploiement.
+#
+# Ce fichier rend le réglage DÉCLARATIF : `supabase functions deploy <nom>` le
+# relit désormais et préserve verify_jwt = false, sans avoir à y penser.
+#
+# CONTRÔLE APRÈS TOUT DÉPLOIEMENT (doit renvoyer `bad_token`, pas `INVALID_JWT`) :
+#   curl -s -X POST https://<ref>.supabase.co/functions/v1/<nom> \
+#        -H "Authorization: Bearer invalide" -H "Content-Type: application/json" -d '{}'
+# ============================================================================
+
+project_id = "ltxopwoxvgslsgzixbpx"
+
+# ── Synchronisation LAN↔Cloud (jeton scellé de l'école) ─────────────────────
+[functions.sync-pull]
+verify_jwt = false
+
+[functions.sync-push]
+verify_jwt = false
+
+[functions.sync-verify]
+verify_jwt = false
+
+[functions.sync-repair]
+verify_jwt = false
+
+# ── Gouvernance distante / architecture hybride ─────────────────────────────
+[functions.events-pull]
+verify_jwt = false
+
+[functions.events-push]
+verify_jwt = false
+
+# ── Appairage, jetons, provisioning ─────────────────────────────────────────
+[functions.issue-server-token]
+verify_jwt = false
+
+[functions.publish-server-key]
+verify_jwt = false
+
+[functions.redeem-pairing-code]
+verify_jwt = false
+
+[functions.provision-tenant]
+verify_jwt = false
+
+# ── Divers ──────────────────────────────────────────────────────────────────
+[functions.check-update]
+verify_jwt = false
+
+[functions.set-password]
+verify_jwt = false
+
+[functions.sign-document]
+verify_jwt = false

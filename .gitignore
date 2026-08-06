@@ -72,3 +72,4 @@ _commitmsg.txt
 
 # Clones de référence externes (ERPNext / Frappe) — lecture seule, hors app
 /reference/
+supabase/.temp/

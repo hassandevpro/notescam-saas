@@ -52,6 +52,24 @@ export const BLOCK_ROUTE = {
   [BLOCK.QUICK_ACCESS]:    null,       // jamais gardé : c'est la sortie de secours
 };
 
+// Route RÉELLE d'un bloc, selon le mode de gouvernance financière.
+//
+// En « gouvernance financière distante » (deployment_policy finance.governance=cloud),
+// le Cloud N'ÉCRIT PAS la finance : /app/depenses y est en LECTURE SEULE et l'approbation
+// se fait sur /app/approbations (émission d'intention, appliquée par le LAN).
+// Renvoyer la file de validation vers /app/depenses menait donc à un cul-de-sac :
+// la page elle-même se contente d'écrire « les approbations passent par l'écran
+// Décisions à approuver ».
+//
+// ⚠ Ne concerne QUE la file de validation : le canal distant ne gère que les
+// dépenses (submit_governance_decision → approve|refuse sur un expense_id).
+// Les déblocages n'ont AUCUN canal distant — ils sont masqués en mode distant
+// plutôt que renvoyés vers une page qui ne les affichera jamais (cf. availableBlocks).
+export function blockRoute(id, financeRemote = false) {
+  if (financeRemote && id === BLOCK.QUEUE_VALIDATE) return '/app/approbations';
+  return BLOCK_ROUTE[id];
+}
+
 // Ordre d'affichage par DOMAINE dominant. Le premier bloc est ce que la personne
 // vient faire ici ; le reste est du contexte. Un bloc absent de la liste d'un
 // domaine n'est jamais affiché pour ce domaine, même s'il est « disponible ».
@@ -114,7 +132,7 @@ export function primaryDomain(role, profile, hasGovernance) {
 // Les blocs scolaires (notes, classes, frais) sont ouverts par le RÔLE DE BASE
 // (cf. App.jsx : ACADEMIC/DISCIPLINE) ; les blocs financiers par la gouvernance,
 // dont les drapeaux de `profile` sont le miroir exact des pages du catalogue.
-function availableBlocks(role, profile) {
+function availableBlocks(role, profile, financeRemote = false) {
   const set = new Set([BLOCK.QUICK_ACCESS]);
   const oversight = role === 'admin' || role === 'censeur';
 
@@ -125,7 +143,12 @@ function availableBlocks(role, profile) {
   if (oversight) set.add(BLOCK.FEES);
 
   if (profile.showValidationQueue) set.add(BLOCK.QUEUE_VALIDATE);
-  if (profile.showUnlockQueue)     set.add(BLOCK.QUEUE_UNLOCK);
+  // Déblocages : aucun canal de décision distant n'existe (le RPC de gouvernance
+  // ne traite que les dépenses, et /app/approbations ne lit que les événements
+  // aggregate_type='expense' — une demande 'budget_unlock' y est INVISIBLE).
+  // En gouvernance distante, la décision se prend donc sur le poste de l'école :
+  // on masque la file plutôt que d'exposer une action impossible depuis le Cloud.
+  if (profile.showUnlockQueue && !financeRemote) set.add(BLOCK.QUEUE_UNLOCK);
   if (profile.showPaymentQueue)    set.add(BLOCK.QUEUE_PAY);
   if (profile.showGlobalFigures)   set.add(BLOCK.BUDGET_FIGURES);
   if (profile.showGroupDashboard)  set.add(BLOCK.GROUP_LINK);
@@ -143,16 +166,20 @@ function availableBlocks(role, profile) {
  */
 export function dashboardLayout({
   role = 'teacher', catalog = [], assignments = [], permissions = null, now = new Date(),
+  financeRemote = false,
 } = {}) {
   const profile = dashboardProfile(role, catalog, assignments);
   const hasGovernance = activeAssignments(assignments, now).length > 0;
   const domain = primaryDomain(role, profile, hasGovernance);
-  const available = availableBlocks(role, profile);
+  const available = availableBlocks(role, profile, financeRemote);
 
   // Compte délégué : ses capacités font autorité, comme dans la navigation.
+  // On teste la route EFFECTIVE (donc /app/approbations en gouvernance distante),
+  // sinon un délégué autorisé sur /app/depenses verrait une carte qui l'envoie
+  // vers une page qui lui est fermée.
   const delegated = Array.isArray(permissions) && permissions.length > 0;
   const permitted = (id) => {
-    const route = BLOCK_ROUTE[id];
+    const route = blockRoute(id, financeRemote);
     if (!route) return true;
     return !delegated || isPathPermitted(route, permissions);
   };

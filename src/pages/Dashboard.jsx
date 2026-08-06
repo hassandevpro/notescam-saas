@@ -6,7 +6,7 @@
 // bloc qui n'a pas été retenu (un surveillant n'interroge jamais le budget, un
 // enseignant jamais la discipline).
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
@@ -17,6 +17,7 @@ import { roleLabel, displayRoleLabel } from '../lib/roleLabel';
 import { catalogOrDefault } from '../governance/defaultCatalog';
 import { roleBudgetQueues } from '../governance/dashboard';
 import { dashboardLayout, BLOCK } from '../lib/dashboardBlocks';
+import { financeRemoteMode } from '../lib/budgetRemote';
 import Layout from '../components/Layout';
 
 import { SchoolBadge, LicenseBadge, SetupChecklist } from '../components/dashboard/shared';
@@ -52,9 +53,21 @@ export default function Dashboard() {
   const loading  = useSchoolStore((s) => s.loading);
 
   const catalog = useMemo(() => catalogOrDefault(governanceCatalog), [governanceCatalog]);
+
+  // Gouvernance financière distante : la composition du tableau de bord en dépend
+  // (cible de la file de validation, masquage des déblocages). Tant que la réponse
+  // n'est pas là on reste sur `false` = comportement historique.
+  const [financeRemote, setFinanceRemote] = useState(false);
+  useEffect(() => {
+    let ok = true;
+    if (!school?.id) { setFinanceRemote(false); return undefined; }
+    financeRemoteMode(school.id).then((v) => { if (ok) setFinanceRemote(!!v); }).catch(() => {});
+    return () => { ok = false; };
+  }, [school?.id]);
+
   const { domain, blocks, profile } = useMemo(
-    () => dashboardLayout({ role, catalog, assignments: governanceAssignments, permissions }),
-    [role, catalog, governanceAssignments, permissions],
+    () => dashboardLayout({ role, catalog, assignments: governanceAssignments, permissions, financeRemote }),
+    [role, catalog, governanceAssignments, permissions, financeRemote],
   );
   const show = (id) => blocks.includes(id);
 
@@ -75,16 +88,29 @@ export default function Dashboard() {
     schoolId: school?.id,
     year: school?.current_year || '',
     withFigures: show(BLOCK.BUDGET_FIGURES),
+    financeRemote,
   });
 
   // Files d'action : ce sur quoi CE rôle peut agir maintenant (moteur pur —
   // permission, palier de montant et secteur appliqués).
-  const queues = useMemo(() => roleBudgetQueues({
-    role, catalog, assignments: governanceAssignments,
-    expenses: finance.expenses, unlockRequests: finance.unlockRequests,
-    validationRules: school?.validation_rules, covered: profile.covered,
-  }), [role, catalog, governanceAssignments, finance.expenses, finance.unlockRequests,
-    school?.validation_rules, profile.covered]);
+  const queues = useMemo(() => {
+    const q = roleBudgetQueues({
+      role, catalog, assignments: governanceAssignments,
+      expenses: finance.expenses, unlockRequests: finance.unlockRequests,
+      validationRules: school?.validation_rules, covered: profile.covered,
+    });
+    // Gouvernance distante : la file « à approuver » devient celle des demandes
+    // DISTANTES en attente — le seul ensemble sur lequel /app/approbations (donc
+    // le lien du bloc) permet réellement d'agir. Le palier de montant et le
+    // secteur restent appliqués par le LAN, qui revalide chaque décision.
+    if (!financeRemote) return q;
+    return {
+      ...q,
+      toValidate: finance.remoteApprovals,
+      counts: { ...q.counts, toValidate: finance.remoteApprovals.length },
+    };
+  }, [role, catalog, governanceAssignments, finance.expenses, finance.unlockRequests,
+    finance.remoteApprovals, financeRemote, school?.validation_rules, profile.covered]);
 
   if (!school) {
     return (
@@ -116,7 +142,7 @@ export default function Dashboard() {
       />
     ),
     [BLOCK.QUEUE_VALIDATE]: () => (
-      <ValidateQueue loading={finance.loading} queues={queues} scopedToSector={profile.scopedToSector} />
+      <ValidateQueue loading={finance.loading} queues={queues} scopedToSector={profile.scopedToSector} financeRemote={financeRemote} />
     ),
     [BLOCK.QUEUE_UNLOCK]: () => <UnlockQueue loading={finance.loading} queues={queues} />,
     [BLOCK.QUEUE_PAY]: () => <PayQueue loading={finance.loading} queues={queues} />,

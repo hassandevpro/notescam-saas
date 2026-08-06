@@ -15,7 +15,12 @@ import { GOV_PERM as P } from './permissions.js';
 // Pages budgétaires de base ouvertes à tout rôle porteur d'un droit budget.
 const BUDGET_PAGES = ['/app/budgets', '/app/budget-global', '/app/depenses'];
 // Pages « direction générale » (consolidation du groupe).
-const DIRECTION_PAGES = ['/app/groupe', '/app/reports', ...BUDGET_PAGES];
+// `/app/approbations` : en gouvernance financière distante, c'est LÀ que se prend
+// l'approbation d'une dépense (le Cloud émet une intention, le LAN applique).
+// Sans cette page, un porteur de rôle non-admin voyait la file « Dépenses à
+// approuver » sur son tableau de bord mais était REDIRIGÉ en cliquant — la route
+// est gardée allow={['admin','censeur']} et seul le catalogue peut l'ouvrir.
+const DIRECTION_PAGES = ['/app/groupe', '/app/reports', '/app/approbations', ...BUDGET_PAGES];
 
 // Un rôle = { code, name, description, rank, scope, sector, permissions, pages,
 //             dashboards, workflows, active, is_system }.

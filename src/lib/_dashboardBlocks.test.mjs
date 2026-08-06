@@ -1,7 +1,7 @@
 // Tests de la COMPOSITION du tableau de bord par rôle (module pur).
 //   node src/lib/_dashboardBlocks.test.mjs
 import assert from 'node:assert/strict';
-import { dashboardLayout, primaryDomain, BLOCK, BLOCK_ROUTE, DOMAINS } from './dashboardBlocks.js';
+import { dashboardLayout, primaryDomain, BLOCK, BLOCK_ROUTE, DOMAINS, blockRoute } from './dashboardBlocks.js';
 import { DEFAULT_CATALOG } from '../governance/defaultCatalog.js';
 
 let passed = 0;
@@ -194,4 +194,43 @@ test('appel sans argument → repli enseignant, aucune exception', () => {
   assert.ok(l.blocks.includes(BLOCK.QUICK_ACCESS));
 });
 
-console.log(passed === 24 ? '\n✅ Tous les tests passent' : `\n⚠️ ${passed}/24`);
+// ── Gouvernance financière distante ─────────────────────────────────────────
+// /app/depenses est en LECTURE SEULE dans ce mode : la file de validation doit
+// pointer vers /app/approbations, et les déblocages (aucun canal distant) sortir.
+const remote = (role, assignments = [], permissions = null) =>
+  dashboardLayout({ role, catalog: CAT, assignments, permissions, financeRemote: true });
+
+test('distant : la file de validation pointe vers /app/approbations', () => {
+  assert.equal(blockRoute(BLOCK.QUEUE_VALIDATE, true), '/app/approbations');
+  assert.equal(blockRoute(BLOCK.QUEUE_VALIDATE, false), '/app/depenses');
+});
+
+test('distant : les déblocages sont masqués (aucun canal de décision distant)', () => {
+  const l = remote('teacher', [A('fondatrice')]);
+  assert.ok(!has(l, BLOCK.QUEUE_UNLOCK), 'la file de déblocage ne doit pas être proposée');
+  assert.ok(has(l, BLOCK.QUEUE_VALIDATE), 'la file de validation reste proposée');
+});
+
+test('local : les déblocages restent affichés (non-régression)', () => {
+  assert.ok(has(layout('teacher', [A('fondatrice')]), BLOCK.QUEUE_UNLOCK));
+});
+
+test('tout bloc affiché a une route ouverte au porteur du rôle', () => {
+  // Garde anti « lien mort » : la route d'un bloc financier doit figurer dans les
+  // pages que le catalogue ouvre réellement à ce rôle, sinon le clic redirige.
+  for (const code of ['fondatrice', 'coordonnateur_general', 'raf', 'caissier']) {
+    const def = CAT.find((r) => r.code === code);
+    if (!def) continue;
+    for (const financeRemote of [false, true]) {
+      const l = dashboardLayout({ role: 'teacher', catalog: CAT, assignments: [A(code)], financeRemote });
+      for (const b of l.blocks) {
+        const route = blockRoute(b, financeRemote);
+        if (!route || route === '/app/grades' || route === '/app/settings') continue;
+        assert.ok(def.pages.includes(route),
+          `${code} voit ${b} → ${route} mais ce chemin n'est pas dans ses pages`);
+      }
+    }
+  }
+});
+
+console.log(passed === 28 ? '\n✅ Tous les tests passent' : `\n⚠️ ${passed}/28`);

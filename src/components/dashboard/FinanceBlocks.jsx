@@ -47,21 +47,29 @@ function OpenLink({ label, to }) {
 }
 
 // ── Dépenses à approuver PAR CE RÔLE (permission ET montant ET secteur) ──────
-export function ValidateQueue({ loading, queues, scopedToSector }) {
+// `financeRemote` : en gouvernance distante, /app/depenses est en LECTURE SEULE —
+// l'approbation se fait sur /app/approbations. Le lien suit donc le mode, sinon la
+// carte renvoyait vers une page qui se contente d'écrire « allez ailleurs ».
+export function ValidateQueue({ loading, queues, scopedToSector, financeRemote = false }) {
   const t = useT();
   const money = useMoney();
   if (loading) return <LoadingCard />;
   const rows = queues.toValidate;
+  const to = financeRemote ? '/app/approbations' : '/app/depenses';
   return (
     <BlockCard
       tone={rows.length ? 'amber' : 'plain'}
       title={<span className="inline-flex items-center gap-2">{t('Dépenses à approuver', 'Expenses to approve', 'Gastos por aprobar')} {rows.length > 0 && <CountPill n={rows.length} />}</span>}
-      subtitle={scopedToSector
-        ? t('Dans votre secteur, à votre palier de validation', 'In your sector, at your approval tier', 'En su sector, en su nivel')
-        : t('À votre palier de validation', 'At your approval tier', 'En su nivel de validación')}
-      action={<OpenLink to="/app/depenses" label={t('Ouvrir les dépenses →', 'Open expenses →', 'Abrir gastos →')} />}
+      subtitle={financeRemote
+        ? t('Décision transmise au serveur de l’école', 'Decision sent to the school server', 'Decisión enviada al servidor de la escuela')
+        : (scopedToSector
+          ? t('Dans votre secteur, à votre palier de validation', 'In your sector, at your approval tier', 'En su sector, en su nivel')
+          : t('À votre palier de validation', 'At your approval tier', 'En su nivel de validación'))}
+      action={<OpenLink to={to} label={financeRemote
+        ? t('Décider →', 'Decide →', 'Decidir →')
+        : t('Ouvrir les dépenses →', 'Open expenses →', 'Abrir gastos →')} />}
     >
-      <QueueList rows={rows} money={money} to="/app/depenses"
+      <QueueList rows={rows} money={money} to={to}
         actionLabel={t('Dépense', 'Expense', 'Gasto')}
         emptyLabel={t('Rien à approuver pour le moment.', 'Nothing to approve right now.', 'Nada por aprobar.')} />
     </BlockCard>

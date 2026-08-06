@@ -1,6 +1,6 @@
 // Test du cœur pur du second cycle : coef par (série,classe) distinct, groupement,
 // matières optionnelles, + résolution du moteur par classe. Aucune dépendance.
-import { matieresForSerieClasse, groupSubtotals, subjectsFromReferentiel } from './scEngine.js';
+import { matieresForSerieClasse, groupSubtotals, subjectsFromReferentiel, vieScolaireAutoConduite } from './scEngine.js';
 import { resolveClassEngine, isFirstCycle, isSecondCycle, secondCycleClasseSlug } from './engineResolver.js';
 
 let failed = false;
@@ -61,6 +61,24 @@ ok(resolveClassEngine(school('classic'), { level: '6e' }) === 'classic', 'classi
 ok(isFirstCycle('6e') && !isSecondCycle('6e'), '6e = premier cycle');
 ok(isSecondCycle('', 'Terminale C') && !isFirstCycle('', 'Terminale C'), 'Terminale = second cycle');
 ok(secondCycleClasseSlug('', 'Première D') === '1ere', 'Première → 1ere');
+
+// 7) Agrégation Vie scolaire → compteurs de conduite du bulletin.
+const vsRows = [
+  { class_id: 'K', student_id: 'E1', sequence_order: 3, action_type: 'avertissement_ecrit' },
+  { class_id: 'K', student_id: 'E1', sequence_order: 3, action_type: 'avertissement_oral' },
+  { class_id: 'K', student_id: 'E1', sequence_order: 4, action_type: 'blame' },
+  { class_id: 'K', student_id: 'E1', sequence_order: 3, action_type: 'exclusion_temporaire', duration_days: 2 },
+  { class_id: 'K', student_id: 'E1', sequence_order: 3, action_type: 'exclusion_definitive' }, // pas de durée → 1 j par défaut
+  { class_id: 'K', student_id: 'E1', sequence_order: 3, action_type: 'retenue' }, // non mappé
+  { class_id: 'K', student_id: 'E2', sequence_order: 3, action_type: 'blame' }, // autre élève, ignoré
+  { class_id: 'K', student_id: 'E1', sequence_order: 5, action_type: 'blame' }, // hors séquences demandées, ignoré
+];
+const vsAuto = vieScolaireAutoConduite(vsRows, 'K', 'E1', [3, 4]);
+ok(vsAuto.averConduiteAuto === 2, 'aver_conduite auto = 2 (oral + écrit)');
+ok(vsAuto.blameConduiteAuto === 1, 'blame_conduite auto = 1 (blâme seq 4 uniquement)');
+ok(vsAuto.exclusionsAuto === 3, 'exclusions auto = 3 j (2 + défaut 1)');
+const vsEmpty = vieScolaireAutoConduite([], 'K', 'E1', [1, 2]);
+ok(vsEmpty.averConduiteAuto === 0 && vsEmpty.blameConduiteAuto === 0 && vsEmpty.exclusionsAuto === 0, 'aucune sanction → tout à zéro');
 
 console.log(failed ? '\n❌ DES TESTS ONT ÉCHOUÉ' : '\n✅ Tous les tests SC passent');
 process.exit(failed ? 1 : 0);

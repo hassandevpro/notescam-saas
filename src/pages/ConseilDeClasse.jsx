@@ -1,7 +1,9 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { buildRanks } from '../core/bulletinEngine';
+import { vieScolaireAutoConduite } from '../core/scEngine';
+import { vieScolaire } from '../lib/vieScolaireService';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { resolveCountryCode } from '../countries';
@@ -126,6 +128,26 @@ function Toggle({ on, onChange, label, hint, accent = 'brand' }) {
   );
 }
 
+// ── Indication Vie scolaire — sanctions officielles agrégées pour la séquence,
+// à côté du champ manuel correspondant. Jamais d'écrasement silencieux : le
+// bouton Appliquer copie la valeur, le conseil garde la main.
+function AutoHint({ auto, current, onApply, t }) {
+  const n = num(current);
+  if (!auto) return null;
+  return (
+    <div className="flex items-center justify-between px-1 -mt-1.5 mb-1.5">
+      <span className="text-[11px] text-slate-400">
+        {t('Vie scolaire', 'Student life')} : <strong className={auto > 0 ? 'text-slate-600' : ''}>{auto}</strong>
+      </span>
+      {auto !== n && (
+        <button type="button" onClick={onApply} className="text-[11px] font-semibold text-brand-600 hover:text-brand-700">
+          {t('Appliquer', 'Apply')}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Stepper compact pour les champs comptés (avert./blâmes/exclusions/abs) ────
 function Stepper({ value, onChange, label, accent = 'slate' }) {
   const n = num(value);
@@ -159,6 +181,19 @@ export default function ConseilDeClasse() {
   const [view,    setView]    = useState('cards');    // cards | table
   const [showPreview, setShowPreview] = useState(false);
   const [assistId, setAssistId] = useState(null);     // élève ouvert dans l'assistant
+
+  // Sanctions Vie scolaire de l'année active — chargées une fois, agrégées à la
+  // volée par élève/séquence (vieScolaireAutoConduite). Alimente les suggestions
+  // du drawer de décision, jamais un écrasement automatique des champs saisis.
+  const [vsActions, setVsActions] = useState([]);
+  useEffect(() => {
+    if (!school?.id) return;
+    let alive = true;
+    vieScolaire.actions.fetch(school.id, { yearLabel: school.current_year }).then((rows) => {
+      if (alive) setVsActions(rows || []);
+    });
+    return () => { alive = false; };
+  }, [school?.id, school?.current_year]);
 
   const cls      = classes.find((c) => c.id === classId) || null;
   const sys      = cls?.system || 'FR';
@@ -254,6 +289,7 @@ export default function ConseilDeClasse() {
   const classAvg = stats.moy !== null ? stats.moy.toFixed(2) : '—';
 
   const assistRow = analyzed.find((r) => r.stu.id === assistId) || null;
+  const assistAuto = assistRow ? vieScolaireAutoConduite(vsActions, classId, assistRow.stu.id, [seq]) : null;
 
   // ── KPI du tableau de bord pédagogique ─────────────────────────────────────
   const KPIS = [
@@ -727,6 +763,7 @@ export default function ConseilDeClasse() {
             row={assistRow} pass={pass} scale={scale} honorMode={honorMode}
             DECISIONS={DECISIONS} onClose={() => setAssistId(null)}
             onField={(field, value) => setField(assistRow.stu.id, field, value)}
+            vsAuto={assistAuto}
             t={t} isGE={isGE}
           />
         )}
@@ -894,7 +931,7 @@ function StudentCard({ row, idx, pass, scale, honorMode, DECISIONS, onAssist, on
 }
 
 // ── 6. ASSISTANT DE DÉCISION — drawer ────────────────────────────────────────
-function DecisionAssistant({ row, pass, scale, honorMode, DECISIONS, onClose, onField, t, isGE }) {
+function DecisionAssistant({ row, pass, scale, honorMode, DECISIONS, onClose, onField, vsAuto, t, isGE }) {
   const { stu, scores, avg, rang, a } = row;
   const isTrue = (f) => scores[f] === 'true';
   const passVal = isGE ? 'aprobado' : 'admis';
@@ -956,8 +993,14 @@ function DecisionAssistant({ row, pass, scale, honorMode, DECISIONS, onClose, on
               <Stepper accent="amber"  label={t('Avertissement travail', 'Work warning')}     value={scores['__aver_travail__']}  onChange={(v) => onField('__aver_travail__', v)} />
               <Stepper accent="red"    label={t('Blâme travail', 'Work reprimand')}            value={scores['__blame_travail__']} onChange={(v) => onField('__blame_travail__', v)} />
               <Stepper accent="amber"  label={t('Avertissement conduite', 'Conduct warning')}  value={scores['__aver_conduite__']} onChange={(v) => onField('__aver_conduite__', v)} />
+              <AutoHint auto={vsAuto?.averConduiteAuto} current={scores['__aver_conduite__']} t={t}
+                onApply={() => onField('__aver_conduite__', String(vsAuto.averConduiteAuto))} />
               <Stepper accent="red"    label={t('Blâme conduite', 'Conduct reprimand')}        value={scores['__blame_conduite__']} onChange={(v) => onField('__blame_conduite__', v)} />
+              <AutoHint auto={vsAuto?.blameConduiteAuto} current={scores['__blame_conduite__']} t={t}
+                onApply={() => onField('__blame_conduite__', String(vsAuto.blameConduiteAuto))} />
               <Stepper accent="orange" label={isGE ? 'Expulsiones' : t('Exclusions', 'Exclusions')} value={scores['__exclusions__']} onChange={(v) => onField('__exclusions__', v)} />
+              <AutoHint auto={vsAuto?.exclusionsAuto} current={scores['__exclusions__']} t={t}
+                onApply={() => onField('__exclusions__', String(vsAuto.exclusionsAuto))} />
             </div>
           </section>
 

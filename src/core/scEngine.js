@@ -192,6 +192,33 @@ export function scDisciplineConseil(allGrades, classId, studentId, seqs) {
   };
 }
 
+// Agrégation des SANCTIONS Vie scolaire (disciplinary_actions, module surveillant)
+// vers les compteurs de conduite du bulletin, pour la/les séquence(s) `seqs`.
+// Règle simple et sans ambiguïté :
+//   avertissement_oral / avertissement_ecrit → averConduiteAuto
+//   blame                                    → blameConduiteAuto
+//   exclusion_temporaire / exclusion_definitive → exclusionsAuto (somme des
+//     jours ; 1 jour par défaut si duration_days n'est pas renseigné)
+// `retenue` et `travail_interet` n'ont pas de champ bulletin correspondant —
+// ils restent visibles uniquement dans le rapport Discipline (/app/reports).
+// Seule source auto : les sanctions officielles (disciplinary_actions) — jamais
+// les avertissements informels, pour éviter tout double comptage.
+export function vieScolaireAutoConduite(actionsRows, classId, studentId, seqs) {
+  const seqSet = new Set(seqs);
+  const rows = (actionsRows || []).filter((a) =>
+    a.class_id === classId && a.student_id === studentId && seqSet.has(a.sequence_order));
+
+  let averConduiteAuto = 0, blameConduiteAuto = 0, exclusionsAuto = 0;
+  for (const a of rows) {
+    if (a.action_type === 'avertissement_oral' || a.action_type === 'avertissement_ecrit') averConduiteAuto++;
+    else if (a.action_type === 'blame') blameConduiteAuto++;
+    else if (a.action_type === 'exclusion_temporaire' || a.action_type === 'exclusion_definitive') {
+      exclusionsAuto += parseInt(a.duration_days, 10) || 1;
+    }
+  }
+  return { averConduiteAuto, blameConduiteAuto, exclusionsAuto };
+}
+
 // Convertit les lignes du référentiel en `subjects` à créer pour une classe.
 // schoolId/classId/gradeMax viennent de la classe ; le reste du référentiel.
 // (id généré par l'appelant via uuid pour rester pur ici.)

@@ -25,9 +25,6 @@ const TERMS_EN = [
 const COMPETENCES  = ['A', 'EA', 'NA'];
 const COMP_COLORS  = { A: '#059669', EA: '#d97706', NA: '#dc2626' };
 
-const CONDUITES       = ['TB', 'B', 'AB', 'P', 'M'];
-const CONDUITE_COLORS = { TB: '#7c3aed', B: '#059669', AB: '#0284c7', P: '#d97706', M: '#dc2626' };
-
 // validateGrade / gradeColor sont désormais partagés via ../lib/gradeEntry.
 
 // ── GradeCell ─────────────────────────────────────────────────────────────────
@@ -88,62 +85,8 @@ function CompetenceCell({ initialValue, onCommit }) {
   );
 }
 
-// ── AbsCell ───────────────────────────────────────────────────────────────────
-function AbsCell({ value, onCommit }) {
-  const [local, setLocal] = useState(value ?? '');
-  useEffect(() => { setLocal(value ?? ''); }, [value]);
-
-  const handleBlur = () => {
-    const n = parseInt(local, 10);
-    const val = local === '' ? '' : (isNaN(n) || n < 0) ? null : String(n);
-    if (val === null) { setLocal(value ?? ''); return; }
-    if (val !== (value ?? '')) onCommit(val);
-  };
-
-  return (
-    <input
-      type="text"
-      inputMode="numeric"
-      value={local}
-      onChange={(e) => setLocal(e.target.value)}
-      onBlur={handleBlur}
-      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
-      placeholder="0"
-      className="w-12 text-center rounded border border-gray-200 px-1 py-1 text-sm focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300 placeholder:text-gray-200"
-    />
-  );
-}
-
-// ── ConduiteCell ──────────────────────────────────────────────────────────────
-function ConduiteCell({ value, onCommit }) {
-  const t = useT();
-  const CONDUITE_LABELS = {
-    TB: t('Très Bien', 'Very Good'),
-    B:  t('Bien', 'Good'),
-    AB: t('Assez Bien', 'Fairly Good'),
-    P:  t('Passable', 'Pass'),
-    M:  t('Mauvaise', 'Poor'),
-  };
-
-  return (
-    <select
-      value={value ?? ''}
-      onChange={(e) => onCommit(e.target.value)}
-      className="rounded border border-gray-200 px-1 py-1 text-xs focus:outline-none focus:border-brand-500"
-      style={{ color: value ? CONDUITE_COLORS[value] : '#9ca3af', fontWeight: value ? 700 : 400, minWidth: 60 }}
-    >
-      <option value="">—</option>
-      {CONDUITES.map((c) => (
-        <option key={c} value={c} style={{ color: CONDUITE_COLORS[c], fontWeight: 700 }}>
-          {c} — {CONDUITE_LABELS[c]}
-        </option>
-      ))}
-    </select>
-  );
-}
-
 // ── Ligne élève — une matière ─────────────────────────────────────────────────
-function StudentRowSingle({ index, student, subject, scores, sys, onSave, showExtras = true }) {
+function StudentRowSingle({ index, student, subject, scores, sys, onSave }) {
   const t = useT();
   const score = scores[subject.id] ?? '';
 
@@ -175,19 +118,6 @@ function StudentRowSingle({ index, student, subject, scores, sys, onSave, showEx
           onCommit={(val) => onSave(student.id, subject.id, val)}
         />
       </td>
-      {showExtras && (
-        <>
-          <td className="px-2 py-2 text-center">
-            <AbsCell value={scores['__abs_j__']} onCommit={(v) => onSave(student.id, '__abs_j__', v)} />
-          </td>
-          <td className="px-2 py-2 text-center">
-            <AbsCell value={scores['__abs_nj__']} onCommit={(v) => onSave(student.id, '__abs_nj__', v)} />
-          </td>
-          <td className="px-2 py-2 text-center">
-            <ConduiteCell value={scores['__conduite__']} onCommit={(v) => onSave(student.id, '__conduite__', v)} />
-          </td>
-        </>
-      )}
     </tr>
   );
 }
@@ -303,110 +233,8 @@ function SubjectStatsBar({ students, subject, gradeMap, classId, sequence, sys }
 }
 
 // GradeImportPanel est désormais un composant partagé : ../components/grades/GradeImportPanel.
-
-// ── Conseil de Classe ─────────────────────────────────────────────────────────
-const HONOR_KEYS = ['__th__', '__encouragement__', '__felicitation__'];
-
-function ConseillDeClasse({ classStudents, gradeMap, classId, sequence, onSaveMultiple, sys }) {
-  const t = useT();
-  const HONOR_LABELS = {
-    '__th__':            t('T.H', 'H.R.'),
-    '__encouragement__': t('T.H + Encour.', 'H.R. + Encour.'),
-    '__felicitation__':  t('T.H + Félic.', 'H.R. + Congrat.'),
-  };
-  const isEN = sys === 'EN';
-  const periodLabel = isEN ? `Term ${sequence}` : `${t('Séquence', 'Sequence')} ${sequence}`;
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-6">
-      <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center gap-3">
-        <div>
-          <h3 className="text-sm font-bold text-gray-800">{t('Conseil de Classe', 'Class Council')}</h3>
-          <p className="text-xs text-gray-400 mt-0.5">{t('Décisions et sanctions', 'Decisions and sanctions')} — {periodLabel}</p>
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="text-xs border-collapse w-full">
-          <thead>
-            <tr className="bg-gray-50/80 border-b border-gray-100">
-              <th className="px-4 py-2 text-left font-semibold text-gray-600 min-w-[160px]">{t('Élève', 'Student')}</th>
-              {HONOR_KEYS.map((k) => (
-                <th key={k} className="px-2 py-2 text-center font-semibold text-emerald-700 min-w-[56px]">{HONOR_LABELS[k]}</th>
-              ))}
-              <th className="px-2 py-2 text-center font-semibold text-amber-700 min-w-[60px]">{t('Aver.', 'Warn.')}<br/>{t('Trav.', 'Work')}</th>
-              <th className="px-2 py-2 text-center font-semibold text-red-700 min-w-[60px]">{t('Blâme', 'Reprim.')}<br/>{t('Trav.', 'Work')}</th>
-              <th className="px-2 py-2 text-center font-semibold text-gray-500 min-w-[56px]">Abs. Tot.<br/>(H)</th>
-              <th className="px-2 py-2 text-center font-semibold text-gray-500 min-w-[56px]">Abs. {t('NJ', 'Unex.')}<br/>(H)</th>
-              <th className="px-2 py-2 text-center font-semibold text-orange-700 min-w-[60px]">{t('Exclus.', 'Excl.')}<br/>({t('Jrs', 'Days')})</th>
-              <th className="px-2 py-2 text-center font-semibold text-amber-700 min-w-[60px]">{t('Aver.', 'Warn.')}<br/>{t('Cond.', 'Cond.')}</th>
-              <th className="px-2 py-2 text-center font-semibold text-red-700 min-w-[60px]">{t('Blâme', 'Reprim.')}<br/>{t('Cond.', 'Cond.')}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {classStudents.map((student) => {
-              const scores  = gradeMap[`${classId}_${student.id}_${sequence}`] || {};
-              const absJ    = parseInt(scores['__abs_j__']  || '0', 10) || 0;
-              const absNJ   = parseInt(scores['__abs_nj__'] || '0', 10) || 0;
-
-              const handleHonor = (honorKey) => {
-                const isActive = scores[honorKey] === 'true';
-                const fields = {};
-                HONOR_KEYS.forEach((k) => { fields[k] = (!isActive && k === honorKey) ? 'true' : 'false'; });
-                onSaveMultiple(student.id, fields);
-              };
-
-              return (
-                <tr key={student.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-2 font-medium text-gray-900 whitespace-nowrap text-sm">
-                    {student.name}
-                    {student.matricule && <span className="block text-xs text-gray-400 font-mono font-normal">{student.matricule}</span>}
-                  </td>
-
-                  {HONOR_KEYS.map((honorKey) => {
-                    const active = scores[honorKey] === 'true';
-                    return (
-                      <td key={honorKey} className="px-2 py-2 text-center">
-                        <button
-                          onClick={() => handleHonor(honorKey)}
-                          className={`w-6 h-6 rounded border-2 flex items-center justify-center mx-auto text-xs font-bold transition-colors ${
-                            active ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300 text-gray-300 hover:border-emerald-400 hover:text-emerald-400'
-                          }`}
-                        >
-                          {active ? '✓' : ''}
-                        </button>
-                      </td>
-                    );
-                  })}
-
-                  <td className="px-2 py-2 text-center">
-                    <AbsCell value={scores['__aver_travail__']} onCommit={(v) => onSaveMultiple(student.id, { '__aver_travail__': v })} />
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <AbsCell value={scores['__blame_travail__']} onCommit={(v) => onSaveMultiple(student.id, { '__blame_travail__': v })} />
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <span className="font-medium text-gray-700">{absJ + absNJ} h</span>
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <span className="font-medium text-gray-700">{absNJ} h</span>
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <AbsCell value={scores['__exclusions__']} onCommit={(v) => onSaveMultiple(student.id, { '__exclusions__': v })} />
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <AbsCell value={scores['__aver_conduite__']} onCommit={(v) => onSaveMultiple(student.id, { '__aver_conduite__': v })} />
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <AbsCell value={scores['__blame_conduite__']} onCommit={(v) => onSaveMultiple(student.id, { '__blame_conduite__': v })} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
+// Conseil de Classe (honneurs, avertissements/blâmes, absences, exclusions) est
+// entièrement géré côté surveillant sur /app/conseil (ConseilDeClasse.jsx).
 
 // ── Page principale ───────────────────────────────────────────────────────────
 // ── Barre de progression de saisie (X/N · % · restants) ───────────────────────
@@ -875,14 +703,6 @@ function PrincipalGrades() {
     await saveGrade(classId, studentId, sequence, { [fieldId]: value });
   }, [classId, sequence, saveGrade, locked, isSubjectTeacher, classSubjects]);
 
-  const handleSaveMultiple = useCallback(async (studentId, fields) => {
-    if (locked) return;
-    // Mode 1 : les champs « multiples » sont conseil/conduite — hors périmètre
-    // de l'enseignant de matière.
-    if (isSubjectTeacher) return;
-    await saveGrade(classId, studentId, sequence, fields);
-  }, [classId, sequence, saveGrade, locked, isSubjectTeacher]);
-
   const getScores = (studentId) => gradeMap[`${classId}_${studentId}_${sequence}`] || {};
 
   const noSubjects = classId && classSubjects.length === 0;
@@ -1310,21 +1130,6 @@ function PrincipalGrades() {
                           </div>
                         )}
                       </th>
-                      {!isMaternelle && !isSubjectTeacher && (
-                        <>
-                          <th className="px-2 py-3 text-center font-semibold text-gray-600 min-w-[52px]">
-                            <div className="text-xs leading-tight">Abs.</div>
-                            <div className="text-gray-400 font-normal text-xs">{t('J.', 'Exc.')}</div>
-                          </th>
-                          <th className="px-2 py-3 text-center font-semibold text-gray-600 min-w-[52px]">
-                            <div className="text-xs leading-tight">Abs.</div>
-                            <div className="text-gray-400 font-normal text-xs">{t('NJ.', 'Unex.')}</div>
-                          </th>
-                          <th className="px-2 py-3 text-center font-semibold text-gray-600 min-w-[72px]">
-                            <div className="text-xs">{t('Conduite', 'Conduct')}</div>
-                          </th>
-                        </>
-                      )}
                     </tr>
                   </thead>
 
@@ -1348,7 +1153,6 @@ function PrincipalGrades() {
                           scores={getScores(student.id)}
                           sys={sys}
                           onSave={handleSave}
-                          showExtras={!isSubjectTeacher}
                         />
                       )
                     ))}
@@ -1369,7 +1173,6 @@ function PrincipalGrades() {
                             {subjectClassAvg}/{currentSubject.max}
                           </span>
                         </td>
-                        {!isSubjectTeacher && <td colSpan={3} />}
                       </tr>
                     </tfoot>
                   )}
@@ -1415,21 +1218,6 @@ function PrincipalGrades() {
                 )}
               </div>
             </div>
-            )}
-
-            {/* Conseil de classe = tableau d'honneur / blâmes (concepts camerounais).
-                Masqué pour la Guinée Équatoriale, qui n'utilise pas ce dispositif.
-                Masqué aussi pour l'enseignant de matière (Mode 1) : domaine du
-                titulaire / de l'administration. */}
-            {!isMaternelle && !isGE && !isSubjectTeacher && (
-              <ConseillDeClasse
-                classStudents={classStudents}
-                gradeMap={gradeMap}
-                classId={classId}
-                sequence={sequence}
-                onSaveMultiple={handleSaveMultiple}
-                sys={sys}
-              />
             )}
           </>
         )}

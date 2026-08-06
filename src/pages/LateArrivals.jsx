@@ -2,13 +2,17 @@
 import { useT } from '../lib/i18n';
 import RecordsPage from '../components/vieScolaire/RecordsPage';
 import { lateArrivals } from '../lib/vieScolaireService';
+import { useActivePeriod } from '../lib/useActivePeriod';
+import { sequenceField, sequenceColumn } from '../components/vieScolaire/vsCommon';
 
 export default function LateArrivals() {
   const t = useT();
+  const { activeSequence, periods } = useActivePeriod();
   return (
     <RecordsPage
       entity={lateArrivals}
       title={t('Retards', 'Late arrivals')}
+      defaults={{ sequence_order: activeSequence }}
       fields={[
         { key: 'date',          label: ['Date', 'Date', 'Fecha'], type: 'date' },
         { key: 'arrival_time',  label: ["Heure d'arrivée", 'Arrival time', 'Hora de llegada'], type: 'time' },
@@ -16,6 +20,7 @@ export default function LateArrivals() {
         { key: 'justification', label: ['Justificatif', 'Justification', 'Justificante'], type: 'text', full: true },
         { key: 'justified',     label: ['Justifié', 'Justified', 'Justificado'], type: 'checkbox' },
         { key: 'validated',     label: ['Validé', 'Validated', 'Validado'], type: 'checkbox' },
+        sequenceField(periods),
       ]}
       columns={[
         { label: ['Date', 'Date', 'Fecha'], render: (r, c) => c.fmtDate(r.date) },
@@ -23,6 +28,7 @@ export default function LateArrivals() {
         { label: ['Motif', 'Reason', 'Motivo'], render: (r) => r.reason || '—' },
         { label: ['Justifié', 'Justified', 'Justificado'], render: (r, c) => (r.justified ? '✅' : '—') },
         { label: ['Validé', 'Validated', 'Validado'], render: (r) => (r.validated ? '✅' : '⏳') },
+        sequenceColumn(periods),
       ]}
     />
   );

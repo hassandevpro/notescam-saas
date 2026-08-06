@@ -10,6 +10,7 @@ import { resolveCountryCode } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import { resolveClassEngine, SECTIONS } from '../core/engineResolver';
+import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
 
 const PERIODS_EN = [
   { value: 'term_1', label: 'Term 1', seqs: [1], group: 'terms' },
@@ -313,6 +314,137 @@ function printReportsBatch({ title, classesToPrint, period, cols, ctx }) {
   return bodies.length;
 }
 
+// ── Onglet DISCIPLINE — rapport Vie scolaire (surveillant), périodisé ─────────
+// Un enregistrement (incident/sanction/retard) est rattaché à la période si sa
+// séquence est dans `period.seqs`. Les enregistrements SANS séquence (saisies
+// avant l'ajout de ce champ) ne sont comptés qu'en vue Annuel — jamais
+// silencieusement ignorés — et signalés par `unclassifiedCount` sinon.
+function isAnnualPeriodValue(value) { return value === 'annual' || value === 'anual'; }
+
+function computeClassDiscipline(cls, period, { students, vsData }) {
+  const classId = cls.id;
+  const classStudents = students.filter((s) => s.class_id === classId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const annual = isAnnualPeriodValue(period.value);
+  const inPeriod = (r) => (r.sequence_order == null ? annual : period.seqs.includes(r.sequence_order));
+
+  const byClass = (list) => list.filter((r) => r.class_id === classId);
+  const incidentsAll = byClass(vsData.incidents);
+  const actionsAll   = byClass(vsData.actions);
+  const lateAll      = byClass(vsData.lateArrivals);
+
+  const rows = classStudents.map((student) => {
+    const incidents = incidentsAll.filter((r) => r.student_id === student.id && inPeriod(r));
+    const sanctions = actionsAll.filter((r) => r.student_id === student.id && inPeriod(r));
+    const lateArrivals = lateAll.filter((r) => r.student_id === student.id && inPeriod(r));
+    const exclusionDays = sanctions
+      .filter((a) => a.action_type === 'exclusion_temporaire' || a.action_type === 'exclusion_definitive')
+      .reduce((sum, a) => sum + (parseInt(a.duration_days, 10) || 1), 0);
+    return { student, incidents, sanctions, lateArrivals, exclusionDays };
+  });
+
+  const totals = rows.reduce((acc, r) => ({
+    incidents:     acc.incidents + r.incidents.length,
+    sanctions:     acc.sanctions + r.sanctions.length,
+    lateArrivals:  acc.lateArrivals + r.lateArrivals.length,
+    exclusionDays: acc.exclusionDays + r.exclusionDays,
+  }), { incidents: 0, sanctions: 0, lateArrivals: 0, exclusionDays: 0 });
+
+  const unclassifiedCount = annual ? 0 :
+    [...incidentsAll, ...actionsAll, ...lateAll].filter((r) => r.sequence_order == null).length;
+
+  if (!classStudents.length) return null;
+  return { classStudents, rows, totals, unclassifiedCount };
+}
+
+function disciplineReportBodyHtml({ school, selectedClass, period, isGE, rows, totals, unclassifiedCount }) {
+  const Lp = (fr, es) => (isGE ? es : fr);
+  const today = new Date().toLocaleDateString(isGE ? 'es-ES' : 'fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const logoTag = school?.logo_url ? `<img src="${school.logo_url}" alt="Logo" class="rc-logo" />` : '';
+
+  const studentRows = rows.map(({ student, incidents, sanctions, lateArrivals, exclusionDays }) => `<tr>
+      <td style="font-weight:600">${student.name}</td>
+      <td style="text-align:center">${incidents.length || '—'}</td>
+      <td style="text-align:center">${sanctions.length || '—'}</td>
+      <td style="text-align:center">${lateArrivals.length || '—'}</td>
+      <td style="text-align:center;font-weight:${exclusionDays ? 700 : 400};color:${exclusionDays ? '#dc2626' : '#9ca3af'}">${exclusionDays || '—'}</td>
+    </tr>`).join('');
+
+  return `<div class="page">
+  <table class="rc-head"><tbody><tr>
+    <td class="rc-center" colspan="3">
+      ${logoTag}
+      <strong class="rc-school">${(school?.name || Lp('Établissement', 'Centro educativo')).toUpperCase()}</strong>
+      <br/><span class="rc-meta">${Lp('Année scolaire', 'Año escolar')} : <strong>${school?.current_year || '—'}</strong></span>
+    </td>
+  </tr></tbody></table>
+
+  <div class="title-bar">${Lp('RAPPORT DE DISCIPLINE', 'INFORME DE DISCIPLINA')} — ${(selectedClass?.name || '').toUpperCase()} — ${period.label.toUpperCase()}</div>
+
+  <table class="doc-info"><tbody><tr>
+    <td><strong>${Lp('Classe', 'Curso')} :</strong> ${selectedClass?.name || '—'}</td>
+    <td><strong>${Lp('Période', 'Período')} :</strong> ${period.label}</td>
+    <td><strong>${Lp('Effectif', 'Efectivo')} :</strong> ${rows.length}</td>
+    <td><strong>${Lp('Date', 'Fecha')} :</strong> ${today}</td>
+  </tr></tbody></table>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-val">${totals.incidents}</div><div class="stat-lbl">${Lp('Incidents', 'Incidentes')}</div></div>
+    <div class="stat"><div class="stat-val">${totals.sanctions}</div><div class="stat-lbl">${Lp('Sanctions', 'Sanciones')}</div></div>
+    <div class="stat"><div class="stat-val">${totals.lateArrivals}</div><div class="stat-lbl">${Lp('Retards', 'Retrasos')}</div></div>
+    <div class="stat"><div class="stat-val">${totals.exclusionDays}</div><div class="stat-lbl">${Lp('Jours d’exclusion', 'Días de expulsión')}</div></div>
+  </div>
+
+  <h3>${Lp('Détail par élève', 'Detalle por alumno')}</h3>
+  <table>
+    <thead><tr>
+      <th>${Lp('Nom complet', 'Apellidos y nombre')}</th>
+      <th style="width:75px">${Lp('Incidents', 'Incidentes')}</th>
+      <th style="width:75px">${Lp('Sanctions', 'Sanciones')}</th>
+      <th style="width:75px">${Lp('Retards', 'Retrasos')}</th>
+      <th style="width:90px">${Lp('Jours excl.', 'Días exp.')}</th>
+    </tr></thead>
+    <tbody>${studentRows}</tbody>
+  </table>
+
+  ${unclassifiedCount ? `<p class="notice" style="font-style:normal;color:#b45309">${Lp(
+    `${unclassifiedCount} enregistrement(s) sans séquence renseignée — exclus de cette vue périodisée (visibles en Annuel).`,
+    `${unclassifiedCount} registro(s) sin secuencia indicada — excluidos de esta vista (visibles en Anual).`
+  )}</p>` : ''}
+
+  <table class="foot"><tbody><tr>
+    <td style="border:none;width:55%"></td>
+    <td class="foot-head" style="width:45%">
+      ${Lp('Le Surveillant Général', 'El Jefe de Disciplina')}
+      ${school?.signature_url ? `<img src="${school.signature_url}" alt="Signature" />` : ''}
+      ${school?.stamp_url ? `<img src="${school.stamp_url}" alt="Cachet" />` : ''}
+    </td>
+  </tr></tbody></table>
+</div>`;
+}
+
+function printDisciplineReport({ school, selectedClass, period, isGE, rows, totals, unclassifiedCount }) {
+  const title = `${isGE ? 'Informe' : 'Rapport'} — ${selectedClass?.name || ''} — ${period?.label || ''}`;
+  openPrintWindow(reportDocShell({
+    isGE, title,
+    bodies: [disciplineReportBodyHtml({ school, selectedClass, period, isGE, rows, totals, unclassifiedCount })],
+  }));
+}
+
+function printDisciplineBatch({ title, classesToPrint, period, vsData, students, school }) {
+  const isGE = resolveCountryCode(school) === 'guinea_eq';
+  const bodies = classesToPrint
+    .map((cls) => {
+      const rep = computeClassDiscipline(cls, period, { students, vsData });
+      if (!rep) return null;
+      return disciplineReportBodyHtml({ school, selectedClass: cls, period, isGE, ...rep });
+    })
+    .filter(Boolean);
+  if (!bodies.length) return 0;
+  openPrintWindow(reportDocShell({ isGE, title, bodies }));
+  return bodies.length;
+}
+
 // ── Stat badge ────────────────────────────────────────────────────────────────
 function StatBadge({ value, total, label, accent = 'brand' }) {
   const colors = {
@@ -466,7 +598,8 @@ function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isEN, isGE, isF
 // ── Page principale ───────────────────────────────────────────────────────────
 export default function Reports() {
   const t = useT();
-  const { school } = useAuthStore();
+  const { school, role } = useAuthStore();
+  const isSurveillant = role === 'surveillant';
   const schoolLanguage = school?.language || 'francophone';
   const classes  = useSchoolStore((s) => s.classes);
   const subjects = useSchoolStore((s) => s.subjects);
@@ -499,6 +632,21 @@ export default function Reports() {
   const [sectionF,    setSectionF]    = useState('');
   const [periodKey,   setPeriodKey]   = useState('seq_1');
   const [showPrintOpts, setShowPrintOpts] = useState(false);
+  const [tab, setTab] = useState('academique');    // 'academique' | 'discipline'
+  const activeTab = isSurveillant ? 'discipline' : tab; // le surveillant n'a jamais accès aux notes
+
+  // Vie scolaire (incidents/sanctions/retards) de l'année active — pour l'onglet
+  // Discipline. Chargé une seule fois par école/année, filtré côté client par
+  // classe + période (computeClassDiscipline).
+  const [vsData, setVsData] = useState({ incidents: [], actions: [], lateArrivals: [] });
+  useEffect(() => {
+    if (!school?.id) return;
+    let alive = true;
+    fetchVieScolaireSnapshot(school.id, school.current_year).then((snap) => {
+      if (alive) setVsData(snap);
+    });
+    return () => { alive = false; };
+  }, [school?.id, school?.current_year]);
 
   // Arrivée depuis la fiche d'un élève (/app/reports?class=<id>) :
   // pré-sélectionner la classe de l'élève.
@@ -624,6 +772,42 @@ export default function Reports() {
   const handlePrintAll = () =>
     runBatch(classes, `${isGE ? 'Informe' : 'Rapport'} — ${school?.name || ''} — ${period.label}`);
 
+  // ── Onglet Discipline (surveillant) — même classe/période que l'académique,
+  // aucune moyenne ni note n'y transite.
+  const disciplineReport = useMemo(() => {
+    if (!selectedClass) return null;
+    return computeClassDiscipline(selectedClass, period, { students, vsData });
+  }, [selectedClass, period, students, vsData]);
+
+  const runDisciplineBatch = (classesToPrint, title) => {
+    if (!classesToPrint.length) {
+      alert(t('Aucune classe à imprimer.', 'No class to print.', 'Ninguna clase para imprimir.'));
+      return;
+    }
+    const n = printDisciplineBatch({ title, classesToPrint, period, vsData, students, school });
+    if (!n) alert(t('Aucune classe avec des élèves à imprimer.', 'No class with students to print.', 'Ninguna clase con alumnos.'));
+  };
+  const handlePrintDisciplineSection = () => {
+    const target = classes.filter((c) => inSection(c, sectionF));
+    const label  = sectionF ? sectionLabel(sectionF) : t('Toutes les classes', 'All classes');
+    runDisciplineBatch(target, `${isGE ? 'Informe' : 'Rapport'} — ${label} — ${period.label}`);
+  };
+  const handlePrintDisciplineAll = () =>
+    runDisciplineBatch(classes, `${isGE ? 'Informe' : 'Rapport'} — ${school?.name || ''} — ${period.label}`);
+
+  const handleExportDiscipline = () => {
+    if (!disciplineReport) return;
+    const rows = [
+      [t('Élève', 'Student'), t('Incidents', 'Incidents'), t('Sanctions', 'Sanctions'),
+        t('Retards', 'Late arrivals'), t('Jours exclusion', 'Exclusion days')],
+      ...disciplineReport.rows.map(({ student, incidents, sanctions, lateArrivals, exclusionDays }) => [
+        student.name, incidents.length, sanctions.length, lateArrivals.length, exclusionDays,
+      ]),
+    ];
+    const cn = selectedClass?.name?.replace(/\s+/g, '_') || 'classe';
+    downloadCSV(`discipline_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  };
+
   const distribution = useMemo(() => {
     if (!hasData) return [];
     const bands = sys === 'FR'
@@ -679,11 +863,30 @@ export default function Reports() {
       <div className="max-w-6xl space-y-5">
 
         {/* ── Header ── */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('Rapports', 'Reports')}</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {t('Résultats détaillés par classe et période.', 'Detailed results by class and period.')}
-          </p>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">{t('Rapports', 'Reports')}</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              {activeTab === 'academique'
+                ? t('Résultats détaillés par classe et période.', 'Detailed results by class and period.')
+                : t('Incidents, sanctions et retards par classe et période.', 'Incidents, sanctions and late arrivals by class and period.')}
+            </p>
+          </div>
+          {!isSurveillant && (
+            <div className="flex gap-1.5 bg-gray-100 rounded-xl p-1">
+              {[
+                { key: 'academique', label: t('Académique', 'Academic') },
+                { key: 'discipline', label: t('Discipline', 'Discipline') },
+              ].map((o) => (
+                <button key={o.key} onClick={() => setTab(o.key)}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    tab === o.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── Barre de filtres ── */}
@@ -721,7 +924,7 @@ export default function Reports() {
           )}
 
           {/* Impression en lot — toujours disponible dès qu'il y a des classes. */}
-          {classes.length > 0 && (
+          {classes.length > 0 && activeTab === 'academique' && (
             <div className="flex gap-2 flex-wrap ml-auto items-end">
               <button
                 onClick={handlePrintSection}
@@ -742,7 +945,28 @@ export default function Reports() {
             </div>
           )}
 
-          {hasData && (
+          {classes.length > 0 && activeTab === 'discipline' && (
+            <div className="flex gap-2 flex-wrap ml-auto items-end">
+              <button
+                onClick={handlePrintDisciplineSection}
+                className="btn-secondary text-xs"
+                style={{ width: 'auto' }}
+                title={t('Imprimer le rapport de toutes les classes de la section', 'Print the report of every class in the section')}
+              >
+                🖨 {sectionF ? t('Section', 'Section') : t('Toutes les classes', 'All classes')}
+              </button>
+              <button
+                onClick={handlePrintDisciplineAll}
+                className="btn-secondary text-xs"
+                style={{ width: 'auto' }}
+                title={t('Imprimer le rapport de toutes les classes de l\'établissement', 'Print the report of every class in the school')}
+              >
+                🏫 {t('Tout l\'établissement', 'Whole school')}
+              </button>
+            </div>
+          )}
+
+          {activeTab === 'academique' && hasData && (
             <div className="flex gap-2 flex-wrap items-end">
               <button onClick={handleExportResults} className="btn-secondary text-xs">
                 CSV {t('résultats', 'results')}
@@ -767,10 +991,25 @@ export default function Reports() {
               </button>
             </div>
           )}
+
+          {activeTab === 'discipline' && classId && disciplineReport && (
+            <div className="flex gap-2 flex-wrap items-end">
+              <button onClick={handleExportDiscipline} className="btn-secondary text-xs">
+                CSV {t('discipline', 'discipline')}
+              </button>
+              <button
+                onClick={() => printDisciplineReport({ school, selectedClass, period, isGE, ...disciplineReport })}
+                className="btn-primary text-xs"
+                style={{ width: 'auto', paddingInline: '1.25rem' }}
+              >
+                🖨 {t('Imprimer / PDF', 'Print / PDF')}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ── Options d'impression ── */}
-        {hasData && showPrintOpts && (
+        {activeTab === 'academique' && hasData && showPrintOpts && (
           <div className="bg-gray-50 border border-gray-200 rounded-xl px-5 py-4 flex flex-wrap gap-5 items-center">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0">
               {t('Options PDF', 'PDF options')}
@@ -847,14 +1086,14 @@ export default function Reports() {
           </div>
         )}
 
-        {classId && !hasData && (
+        {activeTab === 'academique' && classId && !hasData && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm text-amber-800">
             <strong>{selectedClass?.name}</strong> {t("n'a pas encore de matières ou d'élèves.", 'has no subjects or students yet.')}
           </div>
         )}
 
-        {/* ── Données ── */}
-        {hasData && (
+        {/* ── Données académiques ── */}
+        {activeTab === 'academique' && hasData && (
           <>
             {/* Titre de section */}
             <div className="flex items-center gap-3">
@@ -1035,6 +1274,77 @@ export default function Reports() {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Données discipline (surveillant) ── */}
+        {activeTab === 'discipline' && classId && !disciplineReport && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm text-amber-800">
+            <strong>{selectedClass?.name}</strong> {t("n'a pas encore d'élèves.", 'has no students yet.')}
+          </div>
+        )}
+
+        {activeTab === 'discipline' && disciplineReport && (
+          <>
+            <div className="flex items-center gap-3">
+              <h2 className="text-base font-bold text-gray-800">
+                {selectedClass?.name}
+                <span className="ml-2 text-sm font-normal text-gray-400">· {period.label}</span>
+              </h2>
+            </div>
+
+            {disciplineReport.unclassifiedCount > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800">
+                {t(
+                  `${disciplineReport.unclassifiedCount} enregistrement(s) sans séquence renseignée, exclus de cette vue — visibles en Annuel.`,
+                  `${disciplineReport.unclassifiedCount} record(s) with no sequence set, excluded from this view — visible in Annual.`
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatBadge label={t('Incidents', 'Incidents')} value={disciplineReport.totals.incidents} accent="brand" />
+              <StatBadge label={t('Sanctions', 'Sanctions')} value={disciplineReport.totals.sanctions} accent="purple" />
+              <StatBadge label={t('Retards', 'Late arrivals')} value={disciplineReport.totals.lateArrivals} accent="brand" />
+              <StatBadge label={t('Jours d’exclusion', 'Exclusion days')} value={disciplineReport.totals.exclusionDays} accent="red" />
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-800">{t('Détail par élève', 'Detail by student')}</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {disciplineReport.classStudents.length} {t('élèves', 'students')}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      <th className="px-5 py-3 text-left">{t('Élève', 'Student')}</th>
+                      <th className="px-4 py-3 text-center">{t('Incidents', 'Incidents')}</th>
+                      <th className="px-4 py-3 text-center">{t('Sanctions', 'Sanctions')}</th>
+                      <th className="px-4 py-3 text-center">{t('Retards', 'Late arrivals')}</th>
+                      <th className="px-4 py-3 text-center">{t('Jours excl.', 'Excl. days')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {disciplineReport.rows.map(({ student, incidents, sanctions, lateArrivals, exclusionDays }) => (
+                      <tr key={student.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-3 font-semibold text-gray-900">{student.name}</td>
+                        <td className="px-4 py-3 text-center text-gray-700">{incidents.length || <span className="text-gray-300">—</span>}</td>
+                        <td className="px-4 py-3 text-center text-gray-700">{sanctions.length || <span className="text-gray-300">—</span>}</td>
+                        <td className="px-4 py-3 text-center text-gray-700">{lateArrivals.length || <span className="text-gray-300">—</span>}</td>
+                        <td className="px-4 py-3 text-center">
+                          {exclusionDays > 0
+                            ? <span className="font-bold text-red-600">{exclusionDays}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

@@ -72,6 +72,11 @@ ensureColumn('schools',  'deployment_policy', 'deployment_policy TEXT');      //
 ensureColumn('school_users', 'scope_sections',  'scope_sections TEXT');
 ensureColumn('school_users', 'scope_cycles',    'scope_cycles TEXT');
 ensureColumn('school_users', 'scope_class_ids', 'scope_class_ids TEXT');
+// Séquence (1-6) d'un retard/incident/sanction — alimente le rapport Discipline
+// et, pour les sanctions, les compteurs de conduite du bulletin (auto-agrégation).
+ensureColumn('late_arrivals',          'sequence_order', 'sequence_order INTEGER');
+ensureColumn('disciplinary_incidents', 'sequence_order', 'sequence_order INTEGER');
+ensureColumn('disciplinary_actions',   'sequence_order', 'sequence_order INTEGER');
 // Conseil de classe (champs spéciaux `__…__`) : le schéma LAN d'origine ne gardait
 // qu'abs_j/abs_nj/conduite → décision, tableau d'honneur, avertissements ET
 // l'appréciation libre du travail de l'élève étaient avalés en LAN. On ajoute les
@@ -460,6 +465,11 @@ export const ALLOWED_TABLES = new Set([
   'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_notes',
   // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
   'domain_events', 'audit_events', 'signalements',
+  // Vie scolaire (surveillant/discipline) — absentes depuis la création du
+  // module : toute écriture y échouait en LAN ("Table non autorisée"),
+  // silencieusement avalée côté client (vieScolaireService catch+console.error).
+  'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions', 'student_warnings',
+  'student_detentions', 'parent_meetings', 'exit_permissions', 'discipline_statistics',
 ]);
 
 // Quote sûr d'un identifiant SQLite (table / colonne) : double les guillemets.

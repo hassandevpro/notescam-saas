@@ -97,3 +97,23 @@ export function Field({ label, children }) {
 }
 
 export const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400';
+
+// ── Rattachement séquence (retards/incidents/sanctions) ────────────────────
+// `periods` vient de useActivePeriod() : noms déjà localisés par l'école
+// (« Séquence 3 », « Term 2 »…) → on les réutilise tels quels comme libellé,
+// pas de re-traduction nécessaire.
+export function sequenceField(periods) {
+  return {
+    key: 'sequence_order',
+    label: ['Séquence', 'Sequence', 'Secuencia'],
+    type: 'select',
+    optionList: (periods || []).map((p) => ({ value: p.sequence_order, label: [p.name, p.name, p.name] })),
+  };
+}
+
+export function sequenceColumn(periods) {
+  return {
+    label: ['Séquence', 'Sequence', 'Secuencia'],
+    render: (r) => (periods || []).find((p) => p.sequence_order === r.sequence_order)?.name || '—',
+  };
+}

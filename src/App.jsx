@@ -268,7 +268,7 @@ export default function App() {
           <Route path="/app/settings"       element={<ProtectedRoute allow={ALL_STAFF}><Settings /></ProtectedRoute>} />
           <Route path="/app/profile"        element={<ProtectedRoute allow={ALL_STAFF}><Profile /></ProtectedRoute>} />
           <Route path="/app/year"           element={<ProtectedRoute allow={ADMIN_ONLY}><AcademicYear /></ProtectedRoute>} />
-          <Route path="/app/reports"        element={<ProtectedRoute allow={ACADEMIC}><Reports /></ProtectedRoute>} />
+          <Route path="/app/reports"        element={<ProtectedRoute allow={[...ACADEMIC, 'surveillant']}><Reports /></ProtectedRoute>} />
           <Route path="/app/fees"            element={<ProtectedRoute allow={ACADEMIC}><Fees /></ProtectedRoute>} />
           <Route path="/app/frais-catalogue" element={<ProtectedRoute allow={ACADEMIC}><FeeCatalog /></ProtectedRoute>} />
           <Route path="/app/budgets"         element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><Budgets /></ProtectedRoute>} />

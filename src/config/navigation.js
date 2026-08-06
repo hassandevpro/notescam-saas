@@ -155,7 +155,7 @@ export const NAV_GROUPS = [
     icon: 'reports',
     items: [
       { to: '/app/reports', icon: 'reports', label: ['Rapports', 'Reports', 'Informes'],
-        roles: ['admin', 'censeur'], mobilePrimary: true },
+        roles: ['admin', 'censeur', 'surveillant'], mobilePrimary: true },
       { to: '/app/groupe', icon: 'home', label: ['Tableau de bord du groupe', 'Group dashboard', 'Panel del grupo'],
         roles: ['admin'] },
     ],

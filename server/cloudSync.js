@@ -129,7 +129,16 @@ async function edgeFetch(path, body) {
     body: JSON.stringify(body),
   });
   const j = await res.json().catch(() => null);
-  if (!res.ok || !j) throw new Error(`${path}: HTTP ${res.status}`);
+  if (!res.ok || !j) {
+    // On attache le CORPS parsé à l'erreur : sans ça, un refus métier explicite du
+    // Cloud (ex. `rebuild_required`) se réduit à un « HTTP 409 » opaque et l'admin
+    // n'a aucun moyen de savoir quoi faire. Cf. l'incident du jeton désaligné, où
+    // un 401 générique a fait passer un problème d'appairage pour une panne réseau.
+    const err = new Error(j?.error ? `${path}: ${j.error}` : `${path}: HTTP ${res.status}`);
+    err.status = res.status;
+    err.body = j;
+    throw err;
+  }
   return j;
 }
 
@@ -292,10 +301,32 @@ function journalDryRun(r) {
 // courant). En `dryRun`, RIEN n'est écrit (base, outbox, curseurs, cloud) : on
 // journalise seulement ce qui SERAIT poussé/tiré. @param edge transport.
 export async function syncOnce({ edge = edgeFetch, dryRun = false } = {}) {
-  let p, pullError = null;
+  let p, pullError = null, rebuildRequired = null;
   try {
     p = await pull(edge, dryRun);
   } catch (e) {
+    // RECONSTRUCTION REQUISE : le Cloud a purgé des tombstones que ce LAN n'avait
+    // pas consommés → il ignore des suppressions et ses lignes locales
+    // correspondantes ressusciteraient au push. On NE POUSSE SURTOUT PAS : on
+    // arrête le cycle et on remonte une consigne explicite à l'admin.
+    // (Un push « pour ne pas bloquer » serait ici exactement le bug de La Réussite.)
+    if (e?.body?.error === 'rebuild_required') {
+      rebuildRequired = {
+        reason: e.body.reason || 'tombstones_purged',
+        tombSince: e.body.tomb_since ?? null,
+        purgedBefore: e.body.purged_before ?? null,
+        message: e.body.message
+          || 'Reconstruction du LAN depuis le Cloud requise (suppressions manquées).',
+      };
+      const res = {
+        dryRun, at: new Date().toISOString(),
+        pulled: 0, deleted: 0, pushed: 0,
+        pullPlan: { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] },
+        pushPlan: [], pullError: e.message, rebuildRequired,
+      };
+      if (dryRun) journalDryRun(res);
+      return res;
+    }
     if (!dryRun) throw e;  // hors dry-run, un échec de pull interrompt le cycle
     pullError = e.message; // en dry-run, on rapporte quand même la poussée (offline OK)
     p = { pulled: 0, deleted: 0, plan: { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] } };
@@ -305,7 +336,7 @@ export async function syncOnce({ edge = edgeFetch, dryRun = false } = {}) {
   const res = {
     dryRun, at: new Date().toISOString(),
     pulled: p.pulled, deleted: p.deleted, pushed: q.pushed,
-    pullPlan: p.plan, pushPlan: q.planned, pullError,
+    pullPlan: p.plan, pushPlan: q.planned, pullError, rebuildRequired,
   };
   if (dryRun) journalDryRun(res);
   return res;

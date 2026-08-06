@@ -117,6 +117,38 @@ Deno.serve(async (req) => {
 
   // Tombstones : drain complet par (deleted_at) — lignes minuscules, volume faible.
   const { tomb_since } = body || {};
+
+  // ── GARDE ANTI-RÉSURRECTION (cf. supabase_sync_tombstone_gc.sql) ────────────
+  // Les tombstones purgés ne peuvent plus être servis. Si le curseur du LAN est
+  // antérieur au filigrane de purge, il a définitivement manqué des suppressions :
+  // ses lignes locales correspondantes RESSUSCITERAIENT au prochain push. On
+  // refuse donc le pull incrémental et on exige une reconstruction complète.
+  // (Un pull tronqué en silence est bien pire qu'une erreur explicite.)
+  if (tomb_since) {
+    const { data: gc } = await admin.from('sync_tombstone_gc')
+      .select('purged_before').eq('school_id', schoolId).maybeSingle();
+    if (gc?.purged_before && String(tomb_since) < String(gc.purged_before)) {
+      return json(409, {
+        error: 'rebuild_required',
+        reason: 'tombstones_purged',
+        tomb_since,
+        purged_before: gc.purged_before,
+        message: 'Curseur antérieur à la purge des tombstones : des suppressions '
+               + 'ont été manquées. Reconstruire le LAN depuis le Cloud.',
+      });
+    }
+  }
+
+  // Position CONFIRMÉE du LAN = le curseur qu'il ENVOIE (preuve de ce qu'il a
+  // déjà appliqué), jamais celui qu'on lui renvoie : s'il plante avant de le
+  // persister, le Cloud le croirait plus avancé qu'il ne l'est → purge trop
+  // agressive. C'est cette valeur qui borne sync_tombstones_gc().
+  await admin.from('sync_client_state').upsert({
+    school_id: schoolId,
+    tomb_cursor: tomb_since || null,
+    last_pull_at: new Date().toISOString(),
+  }, { onConflict: 'school_id' });
+
   const tombstones: unknown[] = [];
   let tombCursor = tomb_since || '';
   for (let from = 0; ; from += PAGE) {

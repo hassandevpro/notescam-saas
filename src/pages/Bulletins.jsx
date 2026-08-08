@@ -19,11 +19,15 @@ import BulletinApcOfficial from '../components/bulletins/BulletinApcOfficial';
 import BulletinApcAnnual from '../components/bulletins/BulletinApcAnnual';
 import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
 import BulletinPrimOfficial from '../components/bulletins/BulletinPrimOfficial';
+import BulletinPrimAnnualUA from '../components/bulletins/BulletinPrimAnnualUA';
 import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
 import { mkCell, mkTH, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
 import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
 import { classIdentity } from '../lib/schoolIdentity';
-import { competencesForNiveau, bulletinRows as primBulletinRows, competenceAverage as primCompetenceAverage, generalAverage as primGeneralAverage, primCote, buildPrimRanks, PRIM_COTE_DEFAULT } from '../core/primEngine';
+import {
+  competencesForNiveau, bulletinRows as primBulletinRows, generalAverage as primGeneralAverage,
+  primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresForCompetence, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
+} from '../core/primEngine';
 import { domainesForMaternelle } from '../core/matEngine';
 import { obsNkey } from '../lib/matService';
 import { primNkey } from '../lib/primService';
@@ -1889,33 +1893,54 @@ export default function Bulletins() {
   useEffect(() => { if (isPrim) loadPrim(); }, [isPrim, loadPrim]);
   const primNiveauSlug = isPrim ? primaireNiveauSlug(selectedClass?.level, selectedClass?.name) : null;
   const PRIM_GRADE_MAX = 10;
-  const primAnnual = isPrim && period.value === 'annuel'; // moyenne annuelle = T1·T2·T3
-  // Trimestre(s) couvert(s) par la période courante.
-  const primTrimIds = primAnnual ? ['t1', 't2', 't3'] : [`t${period.seqs?.[0] || 1}`];
-  const primCriteres = useMemo(
-    () => (primReferentiel?.criteres || []).slice().sort((a, b) => (a.ordre || 0) - (b.ordre || 0)),
-    [primReferentiel],
-  );
+  const primAnnual = isPrim && period.value === 'annuel'; // moyenne annuelle = UA1..UA8
+  // UA (Unité d'Apprentissage, 1-8) couvertes par la période courante — la saisie
+  // se fait par UA, pas par trimestre (carnet officiel MINEDUB).
+  const primUAs = primAnnual ? [1, 2, 3, 4, 5, 6, 7, 8] : (UA_PAR_TRIMESTRE[period.seqs?.[0] || 1] || [1, 2, 3]);
   const primBareme = primReferentiel?.bareme?.length ? primReferentiel.bareme : PRIM_COTE_DEFAULT;
 
-  // Notes { [critere_id]: note } d'un élève, pour une compétence × un trimestre.
-  const primNotesForComp = (eleveId, compId, trimId) => {
-    const out = {};
-    for (const cr of primCriteres) {
-      const r = primNotes[primNkey(eleveId, compId, cr.id, trimId)];
-      if (r?.note != null && r.note !== '') out[cr.id] = r.note;
-    }
-    return out;
+  // Barème (critères + points_max) d'UNE compétence pour UN élève — l'aptitude
+  // sportive ne joue que pour '6a' (deux profils de barème possibles).
+  const primCriteresFor = (compId, student) => {
+    const aptitude = compId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte';
+    return criteresForCompetence(primReferentiel, primNiveauSlug, compId, aptitude);
   };
 
-  // Moyenne d'une compétence sur la période : trimestre unique OU moyenne des
-  // moyennes trimestrielles notées (annuel).
-  const primCompAvg = (eleveId, compId) => {
-    const perTrim = primTrimIds
-      .map((tid) => primCompetenceAverage(primNotesForComp(eleveId, compId, tid), primCriteres))
-      .filter((v) => v != null);
-    if (!perTrim.length) return null;
-    return Math.round((perTrim.reduce((a, b) => a + b, 0) / perTrim.length) * 100) / 100;
+  // Moyenne /10 d'une compétence sur la période : moyenne des pourcentages
+  // (points obtenus / points du barème officiel, variable par compétence) de
+  // chaque UA notée — ramenée à /10 pour rester comparable à l'échelle historique
+  // du bulletin (cote, classement, moyenne générale inchangés).
+  const primCompAvg = (eleveId, compId, student) => {
+    const criteres = primCriteresFor(compId, student);
+    if (!criteres.length) return null;
+    const pcts = primUAs.map((ua) => {
+      const notesByCritere = {};
+      for (const cr of criteres) {
+        const r = primNotes[primNkey(eleveId, compId, cr.id, ua)];
+        if (r?.note != null && r.note !== '') notesByCritere[cr.id] = r.note;
+      }
+      const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
+      return achieved != null && possible ? (achieved / possible) * 100 : null;
+    }).filter((v) => v != null);
+    if (!pcts.length) return null;
+    const avgPct = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+    return Math.round((avgPct / 100 * PRIM_GRADE_MAX) * 100) / 100;
+  };
+
+  // Détail par critère (moyenne simple des UA de la période, sur l'échelle du
+  // barème officiel de ce critère) — pour l'affichage détaillé du bulletin
+  // trimestriel. { [critere_id]: { note, max, nom } }.
+  const primNotesByCritereFor = (eleveId, compId, student) => {
+    const criteres = primCriteresFor(compId, student);
+    const out = {};
+    for (const cr of criteres) {
+      const vals = primUAs
+        .map((ua) => primNotes[primNkey(eleveId, compId, cr.id, ua)]?.note)
+        .filter((v) => v != null && v !== '')
+        .map(Number);
+      if (vals.length) out[cr.id] = { note: Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100, max: cr.points_max, nom: cr.nom };
+    }
+    return out;
   };
 
   const primDataById = useMemo(() => {
@@ -1924,19 +1949,20 @@ export default function Bulletins() {
     const out = {};
     for (const s of classStudents) {
       const rows = comps.map((c) => {
-        const moyenne = primCompAvg(s.id, c.id);
+        const moyenne = primCompAvg(s.id, c.id, s);
         const coef = c.coefficient == null ? 1 : Number(c.coefficient) || 1;
         const cote = primCote(moyenne, PRIM_GRADE_MAX, primBareme);
         // L'appréciation APC = le libellé de la cote (« Acquis », « En cours
         // d'acquisition »…) — dérivée, jamais saisie. Absente sur compétence non notée.
-        return { code: c.code, intitule: c.intitule, moyenne, coef, cote: cote ? cote.cote : null, appreciation: cote ? cote.libelle : '' };
+        const notesByCritere = primNotesByCritereFor(s.id, c.id, s);
+        return { code: c.code, intitule: c.intitule, moyenne, coef, cote: cote ? cote.cote : null, appreciation: cote ? cote.libelle : '', notesByCritere };
       });
       const moyenneGenerale = primGeneralAverage(rows.map((r) => ({ moyenne: r.moyenne, coef: r.coef })));
       const cg = primCote(moyenneGenerale, PRIM_GRADE_MAX, primBareme);
       out[s.id] = { rows, moyenneGenerale, coteGenerale: cg ? cg.cote : null, appreciationGenerale: cg ? cg.libelle : '' };
     }
     return out;
-  }, [isPrim, primReferentiel, primNiveauSlug, primCriteres, classStudents, primNotes, primTrimIds.join(',')]);
+  }, [isPrim, primReferentiel, primNiveauSlug, classStudents, primNotes, primUAs.join(',')]);
 
   const primRanks = useMemo(() => {
     if (!isPrim) return {};
@@ -1956,6 +1982,35 @@ export default function Bulletins() {
       rate: Math.round((avgs.filter((a) => a >= PRIM_GRADE_MAX / 2).length / avgs.length) * 100),
     };
   }, [isPrim, primDataById]);
+
+  // Détail annuel par compétence × UA (bulletin annuel uniquement) — un
+  // mini-tableau par compétence avec Notes/Cote par UA (1-8), TOTAL et COTE,
+  // fidèle au carnet officiel MINEDUB. Calculé à la demande (pas en useMemo :
+  // seulement quelques élèves affichés à la fois, coût négligeable).
+  const primAnnualRowsFor = (student) => {
+    if (!isPrim || !primReferentiel || !primNiveauSlug) return [];
+    const comps = competencesForNiveau(primReferentiel, primNiveauSlug);
+    return comps.map((c) => {
+      const criteres = primCriteresFor(c.id, student);
+      const uas = [1, 2, 3, 4, 5, 6, 7, 8].map((ua) => {
+        const notesByCritere = {};
+        for (const cr of criteres) {
+          const r = primNotes[primNkey(student.id, c.id, cr.id, ua)];
+          if (r?.note != null && r.note !== '') notesByCritere[cr.id] = r.note;
+        }
+        const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
+        const cote = achieved != null ? primCote(achieved, possible, primBareme) : null;
+        return { ua, trimestre: trimestreOfUA(ua), notesByCritere, achieved, possible, cote: cote?.cote || null };
+      });
+      const notedUAs = uas.filter((u) => u.achieved != null);
+      const totalPossible = criteres.reduce((a, cr) => a + (cr.points_max || 0), 0);
+      const totalAchieved = notedUAs.length
+        ? Math.round((notedUAs.reduce((a, u) => a + u.achieved, 0) / notedUAs.length) * 100) / 100
+        : null;
+      const totalCote = totalAchieved != null ? primCote(totalAchieved, totalPossible, primBareme) : null;
+      return { code: c.code, intitule: c.intitule, criteres, uas, totalAchieved, totalPossible, totalCote: totalCote?.cote || null };
+    });
+  };
 
   const primTitle = (() => {
     const n = period.seqs?.[0] || 1;
@@ -2278,21 +2333,34 @@ export default function Bulletins() {
     );
   };
 
-  // Rend le bulletin PRIMAIRE APC officiel d'un élève.
+  // Rend le bulletin PRIMAIRE APC officiel d'un élève — vue annuelle détaillée par
+  // UA (BulletinPrimAnnualUA) ou vue trimestrielle standard (BulletinPrimOfficial).
   const renderPrimBulletin = (student) => {
     const d = primDataById[student.id];
     if (!d) return null;
     return (
       <WatermarkWrap key={student.id} active={f.watermark}>
-        <BulletinPrimOfficial
-          school={school} sys={sys} title={primTitle}
-          student={student} classLabel={selectedClass?.name || ''}
-          effectif={classStudents.length} profPrincipal={apcProfPrincipal}
-          rows={d.rows} moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
-          rang={primRanks[student.id]} classStats={primClassStats}
-          appreciation={d.appreciationGenerale}
-          decision={period?.seqs?.length >= 3 ? apcDecisionLabel(student.id) : ''}
-        />
+        {primAnnual ? (
+          <BulletinPrimAnnualUA
+            school={school} sys={sys} title={primTitle}
+            student={student} classLabel={selectedClass?.name || ''}
+            effectif={classStudents.length} profPrincipal={apcProfPrincipal}
+            competenceRows={primAnnualRowsFor(student)}
+            moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
+            rang={primRanks[student.id]} classStats={primClassStats}
+            appreciation={d.appreciationGenerale}
+          />
+        ) : (
+          <BulletinPrimOfficial
+            school={school} sys={sys} title={primTitle}
+            student={student} classLabel={selectedClass?.name || ''}
+            effectif={classStudents.length} profPrincipal={apcProfPrincipal}
+            rows={d.rows} criteres={primReferentiel?.criteres || []} moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
+            rang={primRanks[student.id]} classStats={primClassStats}
+            appreciation={d.appreciationGenerale}
+            decision={period?.seqs?.length >= 3 ? apcDecisionLabel(student.id) : ''}
+          />
+        )}
       </WatermarkWrap>
     );
   };

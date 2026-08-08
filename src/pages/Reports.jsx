@@ -41,13 +41,14 @@ function subjectAvgForStudent(subjectId, studentId, classId, seqs, gradeMap) {
 // ── Impression dans une nouvelle fenêtre (propre, sans sidebar) ───────────────
 // cols : { matricule, appreciation, decision, subjectTable, distribution }
 function reportBodyHtml({ school, selectedClass, period, stats, studentResults, subjectStats,
-                       classStudents, maxScale, passThreshold, sys, cols = {}, isGE = false }) {
+                       classStudents, classSubjects = [], maxScale, passThreshold, sys, cols = {}, isGE = false }) {
   const {
-    matricule    = true,
-    appreciation = true,
-    decision     = true,
-    subjectTable = true,
-    distribution = false,
+    matricule     = true,
+    appreciation  = true,
+    decision      = true,
+    subjectTable  = true,
+    subjectScores = true,
+    distribution  = false,
   } = cols;
 
   // Étiquettes du document : espagnol pour la Guinée Équatoriale, français sinon.
@@ -61,17 +62,26 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
   const thMatricule    = matricule    ? `<th style="width:90px">${Lp('Matricule', 'Matrícula')}</th>` : '';
   const thAppreciation = appreciation ? `<th style="width:80px">${Lp('Appréciation', 'Apreciación')}</th>` : '';
   const thDecision     = decision     ? `<th style="width:85px">${Lp('Décision', 'Decisión')}</th>` : '';
+  // Une colonne par matière — note de chaque élève, pas seulement sa moyenne
+  // générale (façon PV/relevé de classe papier).
+  const thSubjects = subjectScores
+    ? classSubjects.map((sub) => `<th style="width:32px;font-size:7px;line-height:1.2">${sub.name}<br/>/${sub.max}</th>`).join('')
+    : '';
 
-  const rankRows = studentResults.map(({ student, avg, rank, appr }) => {
+  const rankRows = studentResults.map(({ student, avg, rank, appr, scores = {} }) => {
     const passed = avg !== null && avg >= passThreshold;
     const avgColor = avg !== null ? (passed ? '#059669' : '#ef4444') : '#9ca3af';
     const tdMatricule    = matricule    ? `<td style="text-align:center;font-family:monospace;color:#6b7280">${student.matricule || '—'}</td>` : '';
     const tdAppreciation = appreciation ? `<td style="text-align:center;color:#374151">${sys === 'EN' ? (appr ? appr.g : '—') : (appr?.text || '—')}</td>` : '';
     const tdDecision     = decision     ? `<td style="text-align:center;font-weight:700;color:${passed ? '#059669' : '#dc2626'}">${passed ? Lp('Admis(e)', 'Aprobado') : Lp('Ajourné(e)', 'Suspenso')}</td>` : '';
+    const tdSubjects     = subjectScores
+      ? classSubjects.map((sub) => `<td style="text-align:center;font-size:8.5px;color:#374151">${scores[sub.id] ?? '—'}</td>`).join('')
+      : '';
     return `<tr>
       <td style="text-align:center;font-weight:700">${rank?.rankD ? rank.rankN : '—'}</td>
       <td style="font-weight:600">${student.name}</td>
       ${tdMatricule}
+      ${tdSubjects}
       <td style="text-align:center;font-weight:800;color:${avgColor}">${avg ?? '—'}</td>
       ${tdAppreciation}
       ${tdDecision}
@@ -147,6 +157,7 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
       <th style="width:36px">${Lp('Rang', 'Puesto')}</th>
       <th>${Lp('Nom complet', 'Apellidos y nombre')}</th>
       ${thMatricule}
+      ${thSubjects}
       <th style="width:75px">${Lp('Moy.', 'Media')} /${maxScale}</th>
       ${thAppreciation}
       ${thDecision}
@@ -189,7 +200,7 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
 
 // Enveloppe HTML commune (styles) : un ou plusieurs corps de rapport concaténés,
 // chaque classe sur sa propre page (`.page + .page` → saut de page).
-function reportDocShell({ isGE, title, bodies }) {
+function reportDocShell({ isGE, title, bodies, landscape = false }) {
   return `<!DOCTYPE html>
 <html lang="${isGE ? 'es' : 'fr'}">
 <head>
@@ -231,7 +242,7 @@ function reportDocShell({ isGE, title, bodies }) {
     .foot td.foot-head img{height:34px;display:block;margin:2px auto;object-fit:contain;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .notice{font-size:7.5px;color:#9ca3af;text-align:center;font-style:italic;margin-top:6px}
     @media print{
-      @page{margin:10mm;size:A4 portrait}
+      @page{margin:10mm;size:A4 ${landscape ? 'landscape' : 'portrait'}}
       body{padding:0}
       .page{padding:0}
     }
@@ -254,7 +265,8 @@ function openPrintWindow(html) {
 // Impression d'UN rapport de classe (enveloppe + un seul corps).
 function printReport(args) {
   const title = `${args.isGE ? 'Informe' : 'Rapport'} — ${args.selectedClass?.name || ''} — ${args.period?.label || ''}`;
-  openPrintWindow(reportDocShell({ isGE: args.isGE, title, bodies: [reportBodyHtml(args)] }));
+  const landscape = args.cols?.subjectScores !== false && (args.classSubjects?.length || 0) > 6;
+  openPrintWindow(reportDocShell({ isGE: args.isGE, title, bodies: [reportBodyHtml(args)], landscape }));
 }
 
 // Calcule le payload de rapport d'UNE classe pour une période (pur, réutilisable
@@ -283,7 +295,7 @@ function computeClassReport(cls, period, { school, students, subjects, gradeMap 
     const avg  = getAvg(scores, classSubjects, sys, gOpts);
     const rank = ranks.find((r) => r.id === student.id) || null;
     const appr = avg !== null ? (sys === 'ES' ? esGrade(avg, maxScale) : sys === 'FR' ? frApp(avg) : enGrade(avg)) : null;
-    return { student, avg, rank, appr };
+    return { student, avg, rank, appr, scores };
   }).sort((a, b) => (a.avg === null && b.avg === null) ? 0 : a.avg === null ? 1 : b.avg === null ? -1 : b.avg - a.avg);
   const subjectStats = classSubjects.map((sub) => {
     const vals = classStudents
@@ -295,22 +307,25 @@ function computeClassReport(cls, period, { school, students, subjects, gradeMap 
     return { sub, avg, min: Math.min(...vals), max: Math.max(...vals),
       passCount: vals.filter((v) => v >= pass).length, total: vals.length };
   });
-  return { stats, studentResults, subjectStats, classStudents, maxScale, passThreshold, sys, isGE };
+  return { stats, studentResults, subjectStats, classStudents, classSubjects, maxScale, passThreshold, sys, isGE };
 }
 
 // Impression EN LOT : un rapport par classe (période courante), une page chacun.
 // Ignore les classes sans données. Renvoie le nombre de classes imprimées.
 function printReportsBatch({ title, classesToPrint, period, cols, ctx }) {
   const isGE = resolveCountryCode(ctx.school) === 'guinea_eq';
+  let maxSubjects = 0;
   const bodies = classesToPrint
     .map((cls) => {
       const rep = computeClassReport(cls, period, ctx);
       if (!rep) return null;
+      maxSubjects = Math.max(maxSubjects, rep.classSubjects?.length || 0);
       return reportBodyHtml({ school: ctx.school, selectedClass: cls, period, cols, ...rep });
     })
     .filter(Boolean);
   if (!bodies.length) return 0;
-  openPrintWindow(reportDocShell({ isGE, title, bodies }));
+  const landscape = cols?.subjectScores !== false && maxSubjects > 6;
+  openPrintWindow(reportDocShell({ isGE, title, bodies, landscape }));
   return bodies.length;
 }
 
@@ -661,11 +676,12 @@ export default function Reports() {
     setClassId(cid);
   }, [searchParams, classes]);
   const [cols, setCols] = useState({
-    matricule:    true,
-    appreciation: true,
-    decision:     true,
-    subjectTable: true,
-    distribution: false,
+    matricule:     true,
+    appreciation:  true,
+    decision:      true,
+    subjectTable:  true,
+    subjectScores: true,
+    distribution:  false,
   });
   const toggleCol = (key) => setCols((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -720,7 +736,7 @@ export default function Reports() {
       const avg  = getAvg(scores, classSubjects, sys, gOpts);
       const rank = ranks.find((r) => r.id === student.id) || null;
       const appr = avg !== null ? (sys === 'ES' ? esGrade(avg, maxScale) : sys === 'FR' ? frApp(avg) : enGrade(avg)) : null;
-      return { student, avg, rank, appr };
+      return { student, avg, rank, appr, scores };
     }).sort((a, b) => {
       if (a.avg === null && b.avg === null) return 0;
       if (a.avg === null) return 1;
@@ -983,7 +999,7 @@ export default function Reports() {
                 ⚙
               </button>
               <button
-                onClick={() => printReport({ school, selectedClass, period, stats, studentResults, subjectStats, classStudents, maxScale, passThreshold, sys, cols, isGE })}
+                onClick={() => printReport({ school, selectedClass, period, stats, studentResults, subjectStats, classStudents, classSubjects, maxScale, passThreshold, sys, cols, isGE })}
                 className="btn-primary text-xs"
                 style={{ width: 'auto', paddingInline: '1.25rem' }}
               >
@@ -1015,10 +1031,11 @@ export default function Reports() {
               {t('Options PDF', 'PDF options')}
             </span>
             {[
-              { key: 'matricule',    label: t('Matricule', 'Student ID') },
-              { key: 'appreciation', label: t('Appréciation', 'Grade') },
-              { key: 'decision',     label: t('Décision admis/ajourné', 'Pass/Fail decision') },
-              { key: 'subjectTable', label: t('Tableau matières', 'Subject table') },
+              { key: 'matricule',     label: t('Matricule', 'Student ID') },
+              { key: 'subjectScores', label: t('Notes par matière (par élève)', 'Per-subject scores (per student)') },
+              { key: 'appreciation',  label: t('Appréciation', 'Grade') },
+              { key: 'decision',      label: t('Décision admis/ajourné', 'Pass/Fail decision') },
+              { key: 'subjectTable',  label: t('Tableau matières (moyennes classe)', 'Subject table (class averages)') },
             ].map(({ key, label }) => (
               <label key={key} className="flex items-center gap-2 cursor-pointer select-none text-sm text-gray-700">
                 <input

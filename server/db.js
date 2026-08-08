@@ -139,6 +139,11 @@ ensureColumn('students', 'archived_at',      'archived_at TEXT');
 ensureColumn('students', 'archived_by',      'archived_by TEXT');
 ensureColumn('students', 'archived_by_name', 'archived_by_name TEXT');
 ensureColumn('students', 'archive_reason',   'archive_reason TEXT');
+ensureColumn('students', 'sport_aptitude', "sport_aptitude TEXT NOT NULL DEFAULT 'apte'"); // carnet MINEDUB primaire : barème compétence 6A
+// UA (Unité d'Apprentissage 1-8) remplace trimestre_id comme clé de saisie du primaire APC —
+// installs existantes : colonne ajoutée nullable (aucune vraie donnée de notes primaire APC en
+// prod à ce jour ; trimestre_id reste en base, simplement plus référencé par le code).
+ensureColumn('prim_notes', 'ua', 'ua INTEGER');
 ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
 // Attributions de gouvernance : fenêtre de validité + statut (Phase 1 rôles).
 ensureColumn('user_governance_roles', 'start_date', 'start_date TEXT');
@@ -466,7 +471,7 @@ export const ALLOWED_TABLES = new Set([
   'sc_referentiel_versions', 'sc_series', 'sc_groupes', 'sc_matieres', 'sc_serie_matieres',
   'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines', 'mat_observations',
   'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
-  'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_notes',
+  'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_bareme_criteres', 'prim_notes',
   // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
   'domain_events', 'audit_events', 'signalements',
   // Vie scolaire (surveillant/discipline) — absentes depuis la création du

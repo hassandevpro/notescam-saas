@@ -60,6 +60,7 @@ const EMPTY_FORM = {
   adresse: '', parent_phone: '', contact_urgence: '',
   nom_pere: '', profession_pere: '', nom_mere: '', profession_mere: '',
   tuteur: '', class_id: '', statut: '', statut_etablissement: '',
+  sport_aptitude: 'apte',
 };
 
 // Score de complétude du dossier élève (matricule, classe, sexe, naissance,
@@ -250,6 +251,14 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
           <label className="form-label">{t('Lieu de naissance', 'Place of birth')}</label>
           <input type="text" className="form-input" placeholder={t('Ex : Yaoundé', 'E.g. Yaoundé', 'Ej. : Malabo')}
             value={form.lieu_naissance || ''} onChange={set('lieu_naissance')} />
+        </div>
+        <div>
+          <label className="form-label">{t('Aptitude sportive', 'Sport fitness')}</label>
+          <select className="form-input" value={form.sport_aptitude || 'apte'} onChange={set('sport_aptitude')}>
+            <option value="apte">{t('Apte', 'Fit')}</option>
+            <option value="inapte">{t('Inapte', 'Unfit')}</option>
+          </select>
+          <p className="text-[11px] text-gray-400 mt-1">{t('Carnet MINEDUB primaire — barème EPS (compétence 6A).', 'Primary MINEDUB record — PE scale (competency 6A).')}</p>
         </div>
       </div>
 

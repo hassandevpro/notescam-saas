@@ -39,6 +39,45 @@ export function primCote(avg, gradeMax = 10, bareme = PRIM_COTE_DEFAULT) {
   return { cote: hit.cote, libelle: hit.libelle };
 }
 
+// UA (Unité d'Apprentissage, 1-8/an) → trimestre (1-3). Fixe, identique à tous les
+// niveaux du carnet officiel (UA1-3 = 1er trimestre, UA4-6 = 2e, UA7-8 = 3e).
+export const UA_PAR_TRIMESTRE = { 1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8] };
+export function trimestreOfUA(ua) {
+  const n = Number(ua);
+  return n <= 3 ? 1 : n <= 6 ? 2 : 3;
+}
+
+// Barème (points) des critères d'UNE sous-compétence, pour un niveau donné. Pour la
+// compétence '6a' (sport), le profil dépend de l'aptitude de l'élève ('apte' par
+// défaut) — 'inapte' n'a en général pas de critère "pratique". Renvoie
+// [{ id: critere_id, nom, points_max, ordre }], triés par ordre.
+export function criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude = 'apte') {
+  const bareme = referentiel?.baremeCriteres || [];
+  const criteresById = new Map((referentiel?.criteres || []).map((c) => [c.id, c]));
+  return bareme
+    .filter((b) => b.niveau_id === niveauSlug && b.competence_id === competenceId && (b.aptitude || 'apte') === aptitude)
+    .map((b) => ({ id: b.critere_id, nom: criteresById.get(b.critere_id)?.nom || b.critere_id, points_max: Number(b.points_max) || 0, ordre: b.ordre || 0 }))
+    .sort((a, b) => a.ordre - b.ordre);
+}
+
+// Points obtenus pour UNE occurrence (une UA) d'une sous-compétence : SOMME des
+// notes déjà saisies pour ses critères (pas une moyenne pondérée — le barème
+// officiel note chaque sous-compétence sur un total de points variable, ex. 40 pour
+// 1A). Les critères non encore notés sont ignorés. { achieved: null } si rien saisi.
+//   notesByCritere : { [critere_id]: note }
+//   criteres       : [{ id, points_max }] (criteresForCompetence)
+export function competencePointsTotal(notesByCritere, criteres) {
+  let achieved = 0, possible = 0, any = false;
+  for (const cr of criteres || []) {
+    const n = _num(notesByCritere?.[cr.id]);
+    if (n === null) continue;
+    any = true;
+    achieved += n;
+    possible += cr.points_max || 0;
+  }
+  return any ? { achieved: Math.round(achieved * 100) / 100, possible } : { achieved: null, possible: null };
+}
+
 // Compétences actives applicables à un niveau, triées par ordre. Par défaut TOUTES
 // (les 11 sont fixes) ; `niveauComp` permet des exceptions/surcharges de coef.
 export function competencesForNiveau(referentiel, niveauSlug) {

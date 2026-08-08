@@ -6,29 +6,33 @@
 //     Chargé en bloc et mis en cache IDB (`primRefDB`).
 //   • Transactionnel (par école) : prim_notes (+ RPC de calcul de bulletins).
 //
-// Identité d'une note = (eleve_id, competence_id, critere_id, trimestre_id). Côté
-// client `nkey = ${eleve_id}_${competence_id}_${critere_id}_${trimestre_id}`.
-// L'écriture cloud upsert sur ce quadruplet (anti-doublon).
+// Identité d'une note = (eleve_id, competence_id, critere_id, ua). Côté client
+// `nkey = ${eleve_id}_${competence_id}_${critere_id}_${ua}`. L'écriture cloud
+// upsert sur ce quadruplet (anti-doublon).
 
 import { supabase } from './supabase';
 import { uuid } from './uuid';
+import { trimestreOfUA } from '../core/primEngine';
 
-export const primNkey = (eleveId, competenceId, critereId, trimestreId) =>
-  `${eleveId}_${competenceId}_${critereId}_${trimestreId}`;
+// UA (Unité d'Apprentissage, 1-8) remplace trimestre_id comme clé de saisie —
+// le carnet officiel MINEDUB note par UA, pas par trimestre.
+export const primNkey = (eleveId, competenceId, critereId, ua) =>
+  `${eleveId}_${competenceId}_${critereId}_${ua}`;
 
 // --- Référentiel --------------------------------------------------------------
 export async function fetchPrimReferentiel() {
   try {
-    const [cycles, niveaux, competences, niveauCompetences, criteres, bareme] = await Promise.all([
+    const [cycles, niveaux, competences, niveauCompetences, criteres, bareme, baremeCriteres] = await Promise.all([
       supabase.from('prim_cycles').select('*').order('ordre'),
       supabase.from('prim_niveaux').select('*').order('ordre'),
       supabase.from('prim_competences').select('*').eq('actif', true).order('ordre'),
       supabase.from('prim_niveau_competences').select('*'),
       supabase.from('prim_criteres').select('*').order('ordre'),
       supabase.from('prim_cote_bareme').select('*').order('seuil_min', { ascending: false }),
+      supabase.from('prim_bareme_criteres').select('*').order('ordre'),
     ]);
     const err = cycles.error || niveaux.error || competences.error
-      || niveauCompetences.error || criteres.error || bareme.error;
+      || niveauCompetences.error || criteres.error || bareme.error || baremeCriteres.error;
     if (err) { console.error('fetchPrimReferentiel', err); return null; }
     return {
       cycles: cycles.data || [],
@@ -37,6 +41,7 @@ export async function fetchPrimReferentiel() {
       niveauCompetences: niveauCompetences.data || [],
       criteres: criteres.data || [],
       bareme: bareme.data || [],
+      baremeCriteres: baremeCriteres.data || [],
     };
   } catch (e) {
     console.error('fetchPrimReferentiel', e);
@@ -52,18 +57,23 @@ export async function fetchPrimNotes(schoolId) {
 }
 
 // Record canonique d'une note (colonnes cloud + nkey local).
-export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, critereId, trimestreId, enseignantId, note }) {
+//   trimestre_id : dérivé de `ua`, envoyé UNIQUEMENT pour satisfaire la contrainte
+//   NOT NULL héritée de prim_notes côté Supabase (colonne vestige, plus utilisée
+//   en lecture — cf. trimestreOfUA). Ignoré silencieusement côté LAN (colonne
+//   absente du schéma récent, filtrée par pickColumns).
+export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, critereId, ua, enseignantId, note }) {
   return {
     id: id || uuid(),
     school_id: schoolId,
     eleve_id: eleveId,
     competence_id: competenceId,
     critere_id: critereId,
-    trimestre_id: trimestreId,
+    ua,
+    trimestre_id: `t${trimestreOfUA(ua)}`,
     enseignant_id: enseignantId || null,
     note: note === '' || note === undefined ? null : note,
     date_saisie: new Date().toISOString(),
-    nkey: primNkey(eleveId, competenceId, critereId, trimestreId),
+    nkey: primNkey(eleveId, competenceId, critereId, ua),
   };
 }
 
@@ -71,7 +81,7 @@ export async function upsertPrimNote(record) {
   const { nkey, ...row } = record;
   const { error } = await supabase
     .from('prim_notes')
-    .upsert(row, { onConflict: 'eleve_id,competence_id,critere_id,trimestre_id' });
+    .upsert(row, { onConflict: 'eleve_id,competence_id,critere_id,ua' });
   if (error) { console.error('upsertPrimNote', error); return false; }
   return true;
 }

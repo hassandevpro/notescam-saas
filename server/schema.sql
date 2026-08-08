@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS students (
   archived_by      TEXT,
   archived_by_name TEXT,
   archive_reason   TEXT,
+  sport_aptitude TEXT NOT NULL DEFAULT 'apte', -- carnet MINEDUB primaire : 'apte' | 'inapte' (compétence 6A)
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -1216,6 +1217,22 @@ CREATE TABLE IF NOT EXISTS prim_cote_bareme (
   seuil_min    NUMERIC NOT NULL,
   ordre        INTEGER NOT NULL
 );
+-- Barème OFFICIEL (points) d'un critère pour une sous-compétence, PAR NIVEAU —
+-- remplace le poids uniforme /10 : chaque sous-compétence a son propre total de
+-- points (ex. 1A = Orale 20 + Écrite 15 + Savoir-être 5 = 40 en SIL/CP), variable
+-- par niveau. Compétence '6a' (sport) a DEUX profils, sélectionnés par l'aptitude
+-- de l'élève (students.sport_aptitude) — cf. server/db.js/primEngine.js.
+CREATE TABLE IF NOT EXISTS prim_bareme_criteres (
+  id            TEXT PRIMARY KEY,
+  niveau_id     TEXT NOT NULL REFERENCES prim_niveaux(id)     ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES prim_competences(id) ON DELETE CASCADE,
+  critere_id    TEXT NOT NULL REFERENCES prim_criteres(id),
+  aptitude      TEXT NOT NULL DEFAULT 'apte', -- 'apte' | 'inapte' ; sans objet hors '6a'
+  points_max    NUMERIC NOT NULL,
+  ordre         INTEGER NOT NULL,
+  CONSTRAINT prim_bareme_criteres_uniq UNIQUE (niveau_id, competence_id, critere_id, aptitude)
+);
+CREATE INDEX IF NOT EXISTS idx_prim_bareme_lookup ON prim_bareme_criteres(niveau_id, competence_id, aptitude);
 
 -- ── Transactionnel officiel (par école, synchronisé LAN↔Cloud) ───────────────
 CREATE TABLE IF NOT EXISTS apc_notes (
@@ -1254,20 +1271,24 @@ CREATE TABLE IF NOT EXISTS mat_observations (
 CREATE INDEX IF NOT EXISTS idx_mat_obs_school  ON mat_observations(school_id);
 CREATE INDEX IF NOT EXISTS idx_mat_obs_student ON mat_observations(eleve_id);
 
+-- `ua` (Unité d'Apprentissage, 1-8) remplace `trimestre_id` : le référentiel officiel
+-- note par UA, pas par trimestre. Le trimestre reste dérivable (ua<=3→t1, <=6→t2,
+-- sinon→t3) via primEngine.trimestreOfUA — jamais stocké, pour éviter toute
+-- incohérence UA/trimestre.
 CREATE TABLE IF NOT EXISTS prim_notes (
   id            TEXT PRIMARY KEY,
   school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
   eleve_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   competence_id TEXT NOT NULL REFERENCES prim_competences(id),
   critere_id    TEXT NOT NULL REFERENCES prim_criteres(id),
-  trimestre_id  TEXT NOT NULL REFERENCES apc_trimestres(id),
+  ua            INTEGER NOT NULL CHECK (ua BETWEEN 1 AND 8),
   note          NUMERIC,
   enseignant_id TEXT,
   date_saisie   TEXT,
   updated_at    TEXT,
   version       INTEGER NOT NULL DEFAULT 1,
   device_id     TEXT,
-  CONSTRAINT prim_notes_uniq UNIQUE (eleve_id, competence_id, critere_id, trimestre_id)
+  CONSTRAINT prim_notes_uniq UNIQUE (eleve_id, competence_id, critere_id, ua)
 );
 CREATE INDEX IF NOT EXISTS idx_prim_notes_school  ON prim_notes(school_id);
 CREATE INDEX IF NOT EXISTS idx_prim_notes_student ON prim_notes(eleve_id);

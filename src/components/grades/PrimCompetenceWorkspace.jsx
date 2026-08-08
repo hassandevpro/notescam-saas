@@ -1,9 +1,15 @@
 // Écran de saisie PRIMAIRE APC (moteur MINEDUB — compétences nationales).
 //
-// L'enseignant choisit Classe + Trimestre + Critère (Oral/Écrit/Pratique/Savoir-
-// être). Le système charge AUTOMATIQUEMENT les 11 compétences nationales (non
-// modifiables) du niveau. Pour chaque élève × compétence, on saisit une NOTE /10.
-// La moyenne (tous critères) et la COTE (A+/A/ECA/NA) sont calculées et affichées.
+// L'enseignant choisit Classe + Unité d'Apprentissage (UA 1-8/an) + Compétence
+// (parmi les 11 nationales, chargées automatiquement). La grille affiche alors UN
+// ÉLÈVE PAR LIGNE et UNE COLONNE PAR CRITÈRE applicable à cette compétence (barème
+// officiel : chaque sous-compétence a son propre total de points par critère —
+// ex. 1A = Oral/20 + Écrit/15 + Savoir-être/5). Le TOTAL et la COTE (A+/A/ECA/NA)
+// sont calculés et affichés par élève.
+//
+// Cas particulier '6a' (activités physiques/sportives) : le barème dépend de
+// l'aptitude sportive de l'élève (students.sport_aptitude) — la colonne "Pratique"
+// est grisée pour un élève inapte (son barème n'en a pas).
 //
 // Monté par Grades.jsx quand la classe est résolue 'apc_primaire'.
 
@@ -17,21 +23,25 @@ import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { gradeEntryMode } from '../../lib/useCountry';
 import { primNkey } from '../../lib/primService';
 import { resolveClassEngine, primaireNiveauSlug } from '../../core/engineResolver';
-import { competencesForNiveau, competenceAverage, primCote, PRIM_COTE_DEFAULT } from '../../core/primEngine';
+import {
+  competencesForNiveau, criteresForCompetence, competencePointsTotal, primCote,
+  trimestreOfUA, PRIM_COTE_DEFAULT,
+} from '../../core/primEngine';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 
-const PRIM_MAX = 10; // barème officiel de saisie du primaire APC (/10)
-
-// ── Cellule note /10 ────────────────────────────────────────────────────────────
-function NoteCell({ value, onCommit }) {
+// ── Cellule note (bornée au barème /points_max du critère) ─────────────────────
+function NoteCell({ value, max, disabled, onCommit }) {
   const [local, setLocal] = useState(value ?? '');
   useEffect(() => { setLocal(value ?? ''); }, [value]);
   const commit = () => {
-    const v = validateGrade(local, PRIM_MAX);
+    const v = validateGrade(local, max);
     if (v === null) { setLocal(value ?? ''); return; }
     if (v !== (value ?? '')) onCommit(v);
   };
+  if (disabled) {
+    return <input type="text" value="—" disabled className="w-16 text-center rounded border border-gray-100 px-1 py-1 text-sm text-gray-300 bg-gray-50" />;
+  }
   return (
     <input
       type="text"
@@ -42,7 +52,7 @@ function NoteCell({ value, onCommit }) {
       placeholder="—"
       className={`w-16 text-center rounded border border-gray-200 px-1 py-1 text-sm
         focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
-        placeholder:text-gray-300 ${gradeColor(local, PRIM_MAX, 'ES')}`}
+        placeholder:text-gray-300 ${gradeColor(local, max, 'ES')}`}
     />
   );
 }
@@ -67,21 +77,12 @@ export default function PrimCompetenceWorkspace() {
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
-  const [trimestre, setTrimestre] = useState(1);
-  const [critereId, setCritereId] = useState('');
+  const [ua, setUa] = useState(1);
+  const [competenceId, setCompetenceId] = useState('');
 
   useEffect(() => { loadPrim(); }, [loadPrim]);
 
-  const trimestreId = `t${trimestre}`;
-  const criteres = useMemo(
-    () => (referentiel?.criteres || []).slice().sort((a, b) => (a.ordre || 0) - (b.ordre || 0)),
-    [referentiel],
-  );
   const bareme = referentiel?.bareme?.length ? referentiel.bareme : PRIM_COTE_DEFAULT;
-
-  useEffect(() => {
-    if (criteres.length && !criteres.some((c) => c.id === critereId)) setCritereId(criteres[0].id);
-  }, [criteres, critereId]);
 
   // Classes primaire APC. En Mode 1, on restreint aux classes où l'enseignant a
   // au moins une compétence affectée.
@@ -112,25 +113,44 @@ export default function PrimCompetenceWorkspace() {
     return all.filter((c) => mine.has(c.id));
   }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId]);
 
+  useEffect(() => {
+    if (competences.length && !competences.some((c) => c.id === competenceId)) setCompetenceId(competences[0].id);
+  }, [competences, competenceId]);
+
   const classStudents = useMemo(
     () => students.filter((s) => s.class_id === classId).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
     [students, classId],
   );
 
-  // Note d'une cellule (compétence × critère courant) ; moyenne compétence (tous critères).
-  const noteFor = (eleveId, competenceId) => {
-    const r = primNotes[primNkey(eleveId, competenceId, critereId, trimestreId)];
+  // Colonnes de critères pour la compétence sélectionnée. Pour '6a' (sport), le
+  // barème dépend de l'aptitude — on affiche l'UNION apte/inapte (la colonne
+  // "Pratique" sera grisée ligne par ligne pour un élève inapte, cf. criteresForStudent).
+  const criteresApte   = niveauSlug ? criteresForCompetence(referentiel, niveauSlug, competenceId, 'apte')   : [];
+  const criteresInapte = niveauSlug ? criteresForCompetence(referentiel, niveauSlug, competenceId, 'inapte') : [];
+  const criteres = useMemo(() => {
+    if (competenceId !== '6a') return criteresApte;
+    const byId = new Map(criteresApte.map((c) => [c.id, c]));
+    for (const c of criteresInapte) if (!byId.has(c.id)) byId.set(c.id, c);
+    return [...byId.values()].sort((a, b) => a.ordre - b.ordre);
+  }, [competenceId, criteresApte, criteresInapte]);
+  // Barème réellement applicable à UN élève (dépend de son aptitude pour '6a').
+  const criteresForStudent = (stu) =>
+    competenceId === '6a' ? (stu.sport_aptitude === 'inapte' ? criteresInapte : criteresApte) : criteresApte;
+
+  // Note d'une cellule (compétence × critère × UA courante).
+  const noteFor = (eleveId, critereId) => {
+    const r = primNotes[primNkey(eleveId, competenceId, critereId, ua)];
     return r?.note != null ? String(r.note) : '';
   };
-  const notesByCritere = (eleveId, competenceId) => {
+  const notesByCritereFor = (eleveId) => {
     const out = {};
     for (const cr of criteres) {
-      const r = primNotes[primNkey(eleveId, competenceId, cr.id, trimestreId)];
+      const r = primNotes[primNkey(eleveId, competenceId, cr.id, ua)];
       if (r?.note != null && r.note !== '') out[cr.id] = r.note;
     }
     return out;
   };
-  const competenceAvg = (eleveId, competenceId) => competenceAverage(notesByCritere(eleveId, competenceId), criteres);
+  const competenceTotal = (stu) => competencePointsTotal(notesByCritereFor(stu.id), criteresForStudent(stu));
 
   function renderClassPicker() {
     return (
@@ -161,8 +181,8 @@ export default function PrimCompetenceWorkspace() {
         {BackBtn}
         <h1 className="text-xl font-bold text-gray-800">{t('Saisie primaire APC (par compétences)', 'Primary APC entry (by competencies)')}</h1>
         <p className="text-sm text-gray-500">
-          {t('Compétences nationales MINEDUB — chargées automatiquement. Saisie /10 par critère ; cote calculée.',
-             'National MINEDUB competencies — loaded automatically. Entry /10 per criterion; grade computed.')}
+          {t('Compétences nationales MINEDUB — chargées automatiquement. Saisie par Unité d’Apprentissage (UA) ; barème et cote calculés.',
+             'National MINEDUB competencies — loaded automatically. Entry per Learning Unit (UA); scale and grade computed.')}
         </p>
       </div>
 
@@ -173,36 +193,38 @@ export default function PrimCompetenceWorkspace() {
           {renderClassPicker()}
         </label>
         <label className="text-sm">
-          <span className="block text-gray-500 mb-1">{t('Trimestre', 'Term')}</span>
-          <select value={trimestre} onChange={(e) => setTrimestre(Number(e.target.value))}
+          <span className="block text-gray-500 mb-1">{t('Unité d’apprentissage', 'Learning unit')}</span>
+          <select value={ua} onChange={(e) => setUa(Number(e.target.value))}
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
-            {[1, 2, 3].map((n) => <option key={n} value={n}>{t('Trimestre', 'Term')} {n}</option>)}
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+              <option key={n} value={n}>UA{n} ({t('Trim.', 'Term')} {trimestreOfUA(n)})</option>
+            ))}
           </select>
         </label>
         <label className="text-sm">
-          <span className="block text-gray-500 mb-1">{t('Critère', 'Criterion')}</span>
-          <select value={critereId} onChange={(e) => setCritereId(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm min-w-[10rem]">
-            {criteres.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+          <span className="block text-gray-500 mb-1">{t('Compétence', 'Competency')}</span>
+          <select value={competenceId} onChange={(e) => setCompetenceId(e.target.value)}
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm min-w-[16rem]">
+            {competences.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.intitule}</option>)}
           </select>
         </label>
       </div>
 
       <div className="text-xs text-gray-500">
-        {t('Barème /10 · la note saisie porte sur le critère choisi · la moyenne agrège tous les critères du trimestre.',
-           'Scale /10 · the entered mark applies to the chosen criterion · the average aggregates all criteria of the term.')}
+        {t('Barème officiel par critère (points) — variable selon la compétence · le total et la cote se calculent sur les critères déjà saisis.',
+           'Official per-criterion scale (points) — varies by competency · total and grade are computed from criteria already entered.')}
       </div>
 
-      {niveauSlug && competences.length > 0 && classStudents.length > 0 && (
+      {niveauSlug && criteres.length > 0 && classStudents.length > 0 && (
         <CompetenceGradeIO
-          filename={`notes_primaire_${selectedClass?.name || ''}_${(criteres.find((c) => c.id === critereId)?.nom || 'critere').replace(/[\\/:*?"<>|]/g, '-')}_T${trimestre}`}
-          sheetName={criteres.find((c) => c.id === critereId)?.nom || `T${trimestre}`}
+          filename={`notes_primaire_${selectedClass?.name || ''}_${(competences.find((c) => c.id === competenceId)?.code || 'competence')}_UA${ua}`}
+          sheetName={`UA${ua}`}
           students={classStudents}
-          columns={competences.map((c) => ({ id: c.id, label: c.intitule }))}
+          columns={criteres.map((c) => ({ id: c.id, label: `${c.nom} /${c.points_max}` }))}
           getCell={(sid, cid) => noteFor(sid, cid)}
-          normalize={(raw) => validateGrade(raw, PRIM_MAX)}
-          onImport={(sid, cid, v) => savePrimNote({ eleveId: sid, competenceId: cid, critereId, trimestreId, note: v })}
-          valueHint={`/10 · ${criteres.find((c) => c.id === critereId)?.nom || ''}`}
+          normalize={(raw, cid) => validateGrade(raw, criteres.find((c) => c.id === cid)?.points_max ?? 20)}
+          onImport={(sid, cid, v) => savePrimNote({ eleveId: sid, competenceId, critereId: cid, ua, note: v })}
+          valueHint={t('barème variable par critère (voir en-tête)', 'scale varies by criterion (see header)')}
         />
       )}
 
@@ -219,41 +241,55 @@ export default function PrimCompetenceWorkspace() {
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
           {t('Aucun élève dans cette classe.', 'No student in this class.')}
         </div>
+      ) : criteres.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
+          {t('Barème non chargé pour cette compétence à ce niveau.', 'Scale not loaded for this competency at this level.')}
+        </div>
       ) : (
         <div className="overflow-auto rounded-lg border border-gray-200">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
                 <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
-                {competences.map((c) => (
-                  <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600 max-w-[14rem]" title={c.intitule}>
-                    <span className="block text-[11px] text-gray-400">{c.code}</span>
-                    <span className="block truncate">{c.intitule}</span>
+                {criteres.map((c) => (
+                  <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600">
+                    <span className="block truncate">{c.nom}</span>
+                    <span className="block text-[11px] text-gray-400">/{c.points_max}</span>
                   </th>
                 ))}
+                <th className="px-3 py-2 text-left font-medium text-gray-600">{t('Total · Cote', 'Total · Grade')}</th>
               </tr>
             </thead>
             <tbody>
-              {classStudents.map((stu) => (
-                <tr key={stu.id} className="border-t border-gray-100">
-                  <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{stu.name}</td>
-                  {competences.map((c) => {
-                    const avg = competenceAvg(stu.id, c.id);
-                    const cote = primCote(avg, PRIM_MAX, bareme);
-                    return (
+              {classStudents.map((stu) => {
+                const studentCriteres = criteresForStudent(stu);
+                const studentCritereIds = new Set(studentCriteres.map((c) => c.id));
+                const { achieved, possible } = competenceTotal(stu);
+                const cote = achieved != null ? primCote(achieved, possible, bareme) : null;
+                return (
+                  <tr key={stu.id} className="border-t border-gray-100">
+                    <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">
+                      {stu.name}
+                      {competenceId === '6a' && stu.sport_aptitude === 'inapte' && (
+                        <span className="ml-1.5 text-[10px] text-amber-600 font-normal">({t('inapte', 'unfit')})</span>
+                      )}
+                    </td>
+                    {criteres.map((c) => (
                       <td key={c.id} className="px-3 py-1.5">
-                        <div className="flex items-center gap-2">
-                          <NoteCell value={noteFor(stu.id, c.id)}
-                            onCommit={(v) => savePrimNote({ eleveId: stu.id, competenceId: c.id, critereId, trimestreId, note: v })} />
-                          <span className="text-[11px] text-gray-400 whitespace-nowrap">
-                            {avg != null ? `${avg} · ` : ''}{cote ? cote.cote : '—'}
-                          </span>
-                        </div>
+                        <NoteCell
+                          value={noteFor(stu.id, c.id)}
+                          max={c.points_max}
+                          disabled={!studentCritereIds.has(c.id)}
+                          onCommit={(v) => savePrimNote({ eleveId: stu.id, competenceId, critereId: c.id, ua, note: v })}
+                        />
                       </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                    ))}
+                    <td className="px-3 py-1.5 text-[11px] text-gray-500 whitespace-nowrap">
+                      {achieved != null ? `${achieved}/${possible} · ` : '—'}{cote ? cote.cote : ''}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -55,6 +55,24 @@ async function replayItem(item) {
       .from('apc_notes')
       .upsert(row, { onConflict: 'eleve_id,competence_id,sequence_id' });
     if (error) throw error;
+  } else if (table === 'mat_observations') {
+    // payload = record IDB { id, school_id, eleve_id, domaine_id, trimestre_id,
+    //   …, nkey }. `nkey` est local : on le retire et on upsert sur le triplet
+    //   officiel (anti-doublon, comme le chemin online direct — matService.js).
+    const { nkey, ...row } = payload;
+    const { error } = await supabase
+      .from('mat_observations')
+      .upsert(row, { onConflict: 'eleve_id,domaine_id,trimestre_id' });
+    if (error) throw error;
+  } else if (table === 'prim_notes') {
+    // payload = record IDB { id, school_id, eleve_id, competence_id, critere_id,
+    //   ua, …, nkey }. `nkey` est local : on le retire et on upsert sur le
+    //   quadruplet officiel (anti-doublon, comme le chemin online direct — primService.js).
+    const { nkey, ...row } = payload;
+    const { error } = await supabase
+      .from('prim_notes')
+      .upsert(row, { onConflict: 'eleve_id,competence_id,critere_id,ua' });
+    if (error) throw error;
   } else if (table === 'student_absences') {
     // payload = record IDB { key, class_id, student_id, sequence, school_id, scores }
     // → mappe les clés spéciales (__abs_j__, __conduite__, …) vers les vraies

@@ -23,11 +23,16 @@ const PRIM_TH_TXT = '#065f46';
 
 export default function BulletinPrimOfficial({
   school, sys = 'FR', title, student, classLabel, effectif, profPrincipal = '',
-  rows = [], moyenneGenerale = null, coteGenerale = null, rang, classStats, appreciation = '', decision = '',
+  rows = [], criteres = [], moyenneGenerale = null, coteGenerale = null, rang, classStats, appreciation = '', decision = '',
 }) {
   const cell = mkCell(10);
   const th   = { ...mkTH(11), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
   const noted = rows.filter((r) => r.moyenne != null);
+  // Note de chaque critère (Oral/Écrit/Pratique/Savoir-être) en plus de la moyenne
+  // de compétence — absente (colonnes masquées) en vue annuelle, où chaque
+  // trimestre a son propre jeu de notes (cf. Bulletins.jsx : notesByCritere null).
+  const showCriteres = criteres.length > 0 && rows.some((r) => r.notesByCritere != null);
+  const critWidth = showCriteres ? Math.floor(32 / criteres.length) : 0;
 
   // Fondamental MINEDUB : l'enseignant titulaire n'est pas un « professeur
   // principal » et le chef d'établissement est un directeur/directrice (jamais
@@ -44,17 +49,20 @@ export default function BulletinPrimOfficial({
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            <th style={{ ...th, width: '6%' }}>N°</th>
-            <th style={{ ...th, width: '55%', textAlign: 'left' }}>{L(sys, 'COMPÉTENCES NATIONALES', 'NATIONAL COMPETENCIES', 'COMPETENCIAS NACIONALES')}</th>
-            <th style={{ ...th, width: '11%' }}>{L(sys, 'Moy. /10', 'Avg. /10', 'Prom. /10')}</th>
-            <th style={{ ...th, width: '7%' }}>Coef</th>
-            <th style={{ ...th, width: '9%' }}>{L(sys, 'COTE', 'GRADE', 'NOTA')}</th>
-            <th style={{ ...th, width: '12%' }}>{L(sys, 'Appréciation', 'Remarks', 'Apreciación')}</th>
+            <th style={{ ...th, width: '5%' }}>N°</th>
+            <th style={{ ...th, width: showCriteres ? '23%' : '55%', textAlign: 'left' }}>{L(sys, 'COMPÉTENCES NATIONALES', 'NATIONAL COMPETENCIES', 'COMPETENCIAS NACIONALES')}</th>
+            {showCriteres && criteres.map((cr) => (
+              <th key={cr.id} style={{ ...th, width: `${critWidth}%`, fontSize: 8 }}>{cr.nom}</th>
+            ))}
+            <th style={{ ...th, width: '9%' }}>{L(sys, 'Moy. /10', 'Avg. /10', 'Prom. /10')}</th>
+            <th style={{ ...th, width: '5%' }}>Coef</th>
+            <th style={{ ...th, width: '7%' }}>{L(sys, 'COTE', 'GRADE', 'NOTA')}</th>
+            <th style={{ ...th, width: '10%' }}>{L(sys, 'Appréciation', 'Remarks', 'Apreciación')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 && (
-            <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>
+            <tr><td colSpan={showCriteres ? 6 + criteres.length : 6} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>
               {L(sys, 'Aucune compétence évaluée pour cette période.', 'No competency assessed for this period.', 'Ninguna competencia evaluada en este periodo.')}
             </td></tr>
           )}
@@ -62,6 +70,14 @@ export default function BulletinPrimOfficial({
             <tr key={r.code}>
               <td style={{ ...cell, textAlign: 'center' }}>{r.code}</td>
               <td style={cell}>{r.intitule}</td>
+              {showCriteres && criteres.map((cr) => {
+                const d = r.notesByCritere?.[cr.id]; // { note, max } — barème variable par compétence
+                return (
+                  <td key={cr.id} style={{ ...cell, textAlign: 'center', color: '#4b5563' }}>
+                    {d ? `${fix2(d.note)}/${d.max}` : ''}
+                  </td>
+                );
+              })}
               <td style={{ ...cell, textAlign: 'center', fontWeight: 'bold' }}>{fix2(r.moyenne)}</td>
               <td style={{ ...cell, textAlign: 'center' }}>{String(r.coef ?? 1)}</td>
               <td style={{ ...cell, textAlign: 'center' }}>

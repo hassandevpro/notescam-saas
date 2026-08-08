@@ -93,7 +93,7 @@ export default function CompetenceGradeIO({
       for (const { colId, fileIdx } of colMap) {
         const rawv = String(cells[fileIdx] ?? '').trim();
         if (!rawv) continue;
-        const v = normalize(rawv);
+        const v = normalize(rawv, colId);
         if (v !== null && v !== '') entries[colId] = v;
       }
       return { student, name, entries };

@@ -719,7 +719,11 @@ export const useSchoolStore = create((set, get) => ({
     if (!schoolId) return;
     const teacherId = useAuthStore.getState().teacherId || null;
     const nkey = obsNkey(eleveId, domaineId, trimestreId);
-    const existing = matObservations[nkey];
+    // L'état mémoire peut être désynchronisé d'IDB (rechargement partiel, onglet
+    // resté ouvert pendant un changement de schéma…) : sans ce filet, un id neuf
+    // serait généré pour un nkey déjà présent en IDB → rejet silencieux par
+    // l'index unique 'by_nkey' (la note « disparaît » sans erreur visible).
+    const existing = matObservations[nkey] || (await matObsDB.getByNkey(nkey).catch(() => []))[0];
     const record = buildObsRecord({
       id: existing?.id, schoolId, eleveId, domaineId, trimestreId,
       enseignantId: teacherId, niveauAcquis, observation,
@@ -757,22 +761,25 @@ export const useSchoolStore = create((set, get) => ({
     }
     if (notes) {
       const fresh = {};
-      const records = notes.map((n) => ({ ...n, nkey: primNkey(n.eleve_id, n.competence_id, n.critere_id, n.trimestre_id) }));
+      const records = notes.map((n) => ({ ...n, nkey: primNkey(n.eleve_id, n.competence_id, n.critere_id, n.ua) }));
       for (const n of records) fresh[n.nkey] = n;
       await primNotesDB.putMany(records).catch(() => {});
       set({ primNotes: fresh });
     }
   },
 
-  // Enregistre/écrase une note (compétence × critère × trimestre). IDB → cloud/queue.
-  savePrimNote: async ({ eleveId, competenceId, critereId, trimestreId, note }) => {
+  // Enregistre/écrase une note (compétence × critère × UA 1-8). IDB → cloud/queue.
+  savePrimNote: async ({ eleveId, competenceId, critereId, ua, note }) => {
     const { schoolId, primNotes } = get();
     if (!schoolId) return;
     const teacherId = useAuthStore.getState().teacherId || null;
-    const nkey = primNkey(eleveId, competenceId, critereId, trimestreId);
-    const existing = primNotes[nkey];
+    const nkey = primNkey(eleveId, competenceId, critereId, ua);
+    // Filet anti-désynchronisation mémoire/IDB — voir commentaire équivalent
+    // dans saveMatObservation (même bug : un id neuf sur un nkey déjà en IDB
+    // se fait rejeter par l'index unique 'by_nkey', la note « disparaît »).
+    const existing = primNotes[nkey] || (await primNotesDB.getByNkey(nkey).catch(() => []))[0];
     const record = buildPrimNoteRecord({
-      id: existing?.id, schoolId, eleveId, competenceId, critereId, trimestreId,
+      id: existing?.id, schoolId, eleveId, competenceId, critereId, ua,
       enseignantId: teacherId, note,
     });
     await primNotesDB.put(record);

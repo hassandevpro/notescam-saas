@@ -18,7 +18,6 @@ import BulletinTheme from '../components/bulletins/BulletinTheme';
 import BulletinApcOfficial from '../components/bulletins/BulletinApcOfficial';
 import BulletinApcAnnual from '../components/bulletins/BulletinApcAnnual';
 import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
-import BulletinPrimOfficial from '../components/bulletins/BulletinPrimOfficial';
 import BulletinPrimAnnualUA from '../components/bulletins/BulletinPrimAnnualUA';
 import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
 import { mkCell, mkTH, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
@@ -1983,16 +1982,18 @@ export default function Bulletins() {
     };
   }, [isPrim, primDataById]);
 
-  // Détail annuel par compétence × UA (bulletin annuel uniquement) — un
-  // mini-tableau par compétence avec Notes/Cote par UA (1-8), TOTAL et COTE,
-  // fidèle au carnet officiel MINEDUB. Calculé à la demande (pas en useMemo :
-  // seulement quelques élèves affichés à la fois, coût négligeable).
+  // Détail par compétence × UA — un mini-tableau par compétence avec Notes/Cote
+  // par UA, TOTAL et COTE, fidèle au carnet officiel MINEDUB. Affiché sur TOUS
+  // les bulletins (trimestriel ET annuel) : `primUAs` borne déjà les UA à la
+  // période courante (UA1-3 pour le Trimestre 1, les 8 en vue Annuel). Calculé
+  // à la demande (pas en useMemo : seulement quelques élèves affichés à la fois,
+  // coût négligeable).
   const primAnnualRowsFor = (student) => {
     if (!isPrim || !primReferentiel || !primNiveauSlug) return [];
     const comps = competencesForNiveau(primReferentiel, primNiveauSlug);
     return comps.map((c) => {
       const criteres = primCriteresFor(c.id, student);
-      const uas = [1, 2, 3, 4, 5, 6, 7, 8].map((ua) => {
+      const uas = primUAs.map((ua) => {
         const notesByCritere = {};
         for (const cr of criteres) {
           const r = primNotes[primNkey(student.id, c.id, cr.id, ua)];
@@ -2333,34 +2334,24 @@ export default function Bulletins() {
     );
   };
 
-  // Rend le bulletin PRIMAIRE APC officiel d'un élève — vue annuelle détaillée par
-  // UA (BulletinPrimAnnualUA) ou vue trimestrielle standard (BulletinPrimOfficial).
+  // Rend le bulletin PRIMAIRE APC officiel d'un élève — détail par UA
+  // (BulletinPrimAnnualUA), borné aux UA de la période choisie (`primUAs` :
+  // UA1-3 pour le Trimestre 1, etc., les 8 en vue Annuel). Le détail par UA est
+  // visible dès le premier trimestre, pas seulement en fin d'année.
   const renderPrimBulletin = (student) => {
     const d = primDataById[student.id];
     if (!d) return null;
     return (
       <WatermarkWrap key={student.id} active={f.watermark}>
-        {primAnnual ? (
-          <BulletinPrimAnnualUA
-            school={school} sys={sys} title={primTitle}
-            student={student} classLabel={selectedClass?.name || ''}
-            effectif={classStudents.length} profPrincipal={apcProfPrincipal}
-            competenceRows={primAnnualRowsFor(student)}
-            moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
-            rang={primRanks[student.id]} classStats={primClassStats}
-            appreciation={d.appreciationGenerale}
-          />
-        ) : (
-          <BulletinPrimOfficial
-            school={school} sys={sys} title={primTitle}
-            student={student} classLabel={selectedClass?.name || ''}
-            effectif={classStudents.length} profPrincipal={apcProfPrincipal}
-            rows={d.rows} criteres={primReferentiel?.criteres || []} moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
-            rang={primRanks[student.id]} classStats={primClassStats}
-            appreciation={d.appreciationGenerale}
-            decision={period?.seqs?.length >= 3 ? apcDecisionLabel(student.id) : ''}
-          />
-        )}
+        <BulletinPrimAnnualUA
+          school={school} sys={sys} title={primTitle}
+          student={student} classLabel={selectedClass?.name || ''}
+          effectif={classStudents.length} profPrincipal={apcProfPrincipal}
+          competenceRows={primAnnualRowsFor(student)}
+          moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
+          rang={primRanks[student.id]} classStats={primClassStats}
+          appreciation={d.appreciationGenerale}
+        />
       </WatermarkWrap>
     );
   };

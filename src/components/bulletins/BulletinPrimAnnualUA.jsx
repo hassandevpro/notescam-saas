@@ -1,16 +1,17 @@
-// Bulletin PRIMAIRE APC officiel (MINEDUB) — VUE ANNUELLE détaillée par Unité
-// d'Apprentissage (UA), fidèle au carnet officiel : un mini-tableau par
-// compétence, une colonne Notes+Cote par UA (1-8, regroupées par trimestre),
-// une ligne TOTAL (points obtenus/possibles ce UA) et une ligne COTE annuelle.
-//
-// Distinct de BulletinPrimOfficial (vue trimestrielle, une moyenne/10 par
-// compétence) — ce composant ne sert QUE pour period === 'annuel'. En-tête /
-// identité / signatures mutualisés via bulletinOfficialParts (mêmes styles).
+// Bulletin PRIMAIRE APC officiel (MINEDUB) — détail par Unité d'Apprentissage
+// (UA), fidèle au carnet officiel : un mini-tableau par compétence, une colonne
+// Notes+Cote par UA, une ligne TOTAL (points obtenus/possibles) et une ligne
+// COTE. Utilisé pour TOUS les bulletins primaire (trimestriel ET annuel) :
+// `competenceRows[].uas` ne porte que les UA de la période choisie (UA1-3 pour
+// le Trimestre 1, les 8 en vue Annuel — cf. Bulletins.jsx `primUAs`) ; les
+// en-têtes de colonnes (trimestre, largeur du tableau) s'adaptent en
+// conséquence. En-tête / identité / signatures mutualisés via
+// bulletinOfficialParts (mêmes styles).
 //
 // Rendu piloté par PROPS déjà calculées (Bulletins.jsx, primAnnualRowsFor) :
 //   competenceRows = [{ code, intitule, criteres, uas, totalAchieved, totalPossible, totalCote }]
 //     criteres = [{ id, nom, points_max }]
-//     uas      = [{ ua, trimestre, notesByCritere, achieved, possible, cote }]
+//     uas      = [{ ua, trimestre, notesByCritere, achieved, possible, cote }]  (sous-ensemble borné à la période)
 
 import { Fragment } from 'react';
 import {
@@ -25,25 +26,35 @@ const PRIM_TH_TXT = '#065f46';
 const TRIM_LABELS = { fr: ['Premier', 'Deuxième', 'Troisième'], en: ['First', 'Second', 'Third'], es: ['Primer', 'Segundo', 'Tercer'] };
 
 // ── Un mini-tableau (une compétence) ────────────────────────────────────────────
+// `row.uas` peut être un sous-ensemble (bulletin trimestriel : UA1-3, UA4-6 ou
+// UA7-8) ou les 8 UA (vue annuelle) — la largeur du tableau et le regroupement
+// par trimestre s'adaptent au nombre d'UA réellement présentes (2 colonnes,
+// Notes+Cote, par UA).
 function CompetenceUATable({ sys, row }) {
   const cell = mkCell(7, 1.1, 1);
   const th   = { ...mkTH(7, 1.1, 1), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
   const trimLabels = TRIM_LABELS[sys === 'EN' ? 'en' : sys === 'ES' ? 'es' : 'fr'];
   const labelCol = { width: '16%', textAlign: 'left' };
+  const colCount = 1 + row.uas.length * 2;
+  // Regroupe les UA présentes par trimestre (1/2/3), dans l'ordre, en ne
+  // gardant que les trimestres réellement couverts par `row.uas`.
+  const trimGroups = [1, 2, 3]
+    .map((tn) => ({ tn, uas: row.uas.filter((u) => u.trimestre === tn) }))
+    .filter((g) => g.uas.length > 0);
 
   return (
     <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 8 }}>
       <thead>
         <tr>
-          <td colSpan={17} style={{ ...th, textAlign: 'left', fontSize: 8 }}>
+          <td colSpan={colCount} style={{ ...th, textAlign: 'left', fontSize: 8 }}>
             {L(sys, 'COMPÉTENCE', 'COMPETENCY', 'COMPETENCIA')} {row.code} : {row.intitule.toUpperCase()}
             {row.totalPossible ? ` (${row.totalPossible} ${L(sys, 'points', 'points', 'puntos')})` : ''}
           </td>
         </tr>
         <tr>
           <th style={{ ...th, ...labelCol }}>{L(sys, 'Trimestre', 'Term', 'Trimestre')}</th>
-          {[0, 1, 2].map((i) => (
-            <th key={i} colSpan={i === 2 ? 4 : 6} style={th}>{trimLabels[i]}</th>
+          {trimGroups.map((g) => (
+            <th key={g.tn} colSpan={g.uas.length * 2} style={th}>{trimLabels[g.tn - 1]}</th>
           ))}
         </tr>
         <tr>
@@ -90,8 +101,8 @@ function CompetenceUATable({ sys, row }) {
           ))}
         </tr>
         <tr>
-          <td colSpan={17} style={{ ...cell, background: '#f8fafc' }}>
-            <strong>{L(sys, 'Cote annuelle', 'Annual grade', 'Nota anual')} :</strong>{' '}
+          <td colSpan={colCount} style={{ ...cell, background: '#f8fafc' }}>
+            <strong>{L(sys, 'Cote de la période', 'Period grade', 'Nota del período')} :</strong>{' '}
             <span style={{ color: row.totalCote ? PRIM_COTE_COLORS[row.totalCote] : undefined, fontWeight: 'bold' }}>
               {row.totalAchieved != null ? `${fix2(row.totalAchieved)}/${row.totalPossible} — ${row.totalCote || ''}` : '—'}
             </span>

@@ -3,7 +3,7 @@
 // Libellés en triplets i18n (fr, en, es) -> résolus par t(...triplet).
 import {
   HR_CONTRACT_TYPES, HR_CONTRACT_STATUSES, HR_LEAVE_TYPES, HR_LEAVE_STATUSES,
-  HR_ATTENDANCE_STATUSES, HR_CAREER_TYPES, HR_EVAL_STATUSES,
+  HR_ATTENDANCE_STATUSES, HR_CAREER_TYPES, HR_EVAL_STATUSES, HR_PAYROLL_STATUSES,
 } from '../../lib/hrEngine';
 
 // Libellés des valeurs d'énumération.
@@ -31,6 +31,8 @@ export const OPTION_LABELS = {
   changement_poste: ['Changement de poste', 'Role change', 'Cambio de puesto'], autre: ['Autre', 'Other', 'Otro'],
   // évaluations
   draft: ['Brouillon', 'Draft', 'Borrador'], final: ['Finale', 'Final', 'Final'],
+  // paie
+  paid: ['Payé', 'Paid', 'Pagado'],
 };
 
 const opts = (values) => values.map((v) => ({ value: v, label: OPTION_LABELS[v] || [v] }));
@@ -101,6 +103,20 @@ export const HR_TABS = [
     ],
     columns: ['event_date', 'type', 'title'],
   },
+  {
+    key: 'payroll', label: ['Paie', 'Payroll', 'Nómina'],
+    fields: [
+      { key: 'period', label: ['Période', 'Period', 'Período'], type: 'month' },
+      { key: 'base_salary', label: ['Salaire de base', 'Base salary', 'Salario base'], type: 'number' },
+      { key: 'bonuses', label: ['Primes', 'Bonuses', 'Primas'], type: 'number' },
+      { key: 'deductions', label: ['Retenues', 'Deductions', 'Retenciones'], type: 'number' },
+      { key: 'net_salary', label: ['Net (calculé)', 'Net (computed)', 'Neto (calculado)'], type: 'number', readOnly: true },
+      { key: 'status', label: ['Statut', 'Status', 'Estado'], type: 'select', options: opts(HR_PAYROLL_STATUSES) },
+      { key: 'paid_date', label: ['Date de paiement', 'Payment date', 'Fecha de pago'], type: 'date' },
+      { key: 'notes', label: ['Notes', 'Notes', 'Notas'], type: 'textarea' },
+    ],
+    columns: ['period', 'base_salary', 'net_salary', 'status', 'paid_date'],
+  },
 ];
 
 export const HR_TAB_BY_KEY = Object.fromEntries(HR_TABS.map((tb) => [tb.key, tb]));
@@ -109,6 +125,7 @@ export const HR_TAB_BY_KEY = Object.fromEntries(HR_TABS.map((tb) => [tb.key, tb]
 export function sanitizeRecord(fields, values) {
   const out = {};
   for (const f of fields) {
+    if (f.readOnly) continue;                              // calculé côté page, jamais saisi
     let v = values[f.key];
     if (v === '' || v === undefined) v = null;            // '' -> null (Postgres date/int)
     else if (f.type === 'number' && v !== null) v = Number(v);

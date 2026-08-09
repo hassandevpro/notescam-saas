@@ -1,6 +1,7 @@
 // Module RESSOURCES HUMAINES. Réutilise le DOSSIER PERSONNEL existant (staff /
 // module Personnel) et lui adjoint : contrats, congés, évaluations, présences,
-// historique professionnel. PAS de paie.
+// historique professionnel, paie. La paie reste un registre INDICATIF (net
+// calculé côté hrEngine) : aucun calcul fiscal/CNPS.
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import Layout from '../components/Layout';
 import { useSchoolStore } from '../store/schoolStore';
@@ -9,15 +10,16 @@ import { useT } from '../lib/i18n';
 import { useMoney } from '../lib/useMoney';
 import { HR_ENTITIES } from '../lib/hrService';
 import {
-  currentContract, isContractActive, leaveBalance, attendanceSummary, evaluationAverage,
+  currentContract, isContractActive, leaveBalance, attendanceSummary, evaluationAverage, payrollSummary, computeNetPay,
 } from '../lib/hrEngine';
 import { HR_TABS, HR_TAB_BY_KEY, OPTION_LABELS } from '../components/hr/hrEntities';
 import HrRecordModal from '../components/hr/HrRecordModal';
 import { useConfirm } from '../components/ConfirmDialog';
 import { toast } from '../store/toastStore';
-import { printStaffFile, printWorkCertificate } from '../lib/hrDoc';
+import { printStaffFile, printWorkCertificate, printPayslip } from '../lib/hrDoc';
 
-const EMPTY = { contracts: [], leaves: [], evaluations: [], attendance: [], career: [] };
+const EMPTY = { contracts: [], leaves: [], evaluations: [], attendance: [], career: [], payroll: [] };
+const MONEY_COLS = new Set(['salary', 'base_salary', 'bonuses', 'deductions', 'net_salary']);
 
 export default function HR() {
   const t = useT();
@@ -68,6 +70,7 @@ export default function HR() {
       leave: leaveBalance(30, data.leaves, year, 'annuel'),
       att: attendanceSummary(data.attendance),
       evalAvg: evaluationAverage(data.evaluations),
+      payroll: payrollSummary(data.payroll),
     };
   }, [data, year]);
 
@@ -77,9 +80,9 @@ export default function HR() {
   const failToast = () => toast.error(t('Échec de l’opération — vérifiez votre connexion.', 'Operation failed — check your connection.', 'Error — verifique su conexión.'));
 
   const saveRecord = async (rec) => {
-    const saved = await HR_ENTITIES[tabKey].upsert({
-      ...rec, school_id: schoolId, staff_id: staffId,
-    });
+    const payload = { ...rec, school_id: schoolId, staff_id: staffId };
+    if (tabKey === 'payroll') payload.net_salary = computeNetPay(payload.base_salary, payload.bonuses, payload.deductions);
+    const saved = await HR_ENTITIES[tabKey].upsert(payload);
     setModal(null);
     if (saved) { await load(staffId); toast.success(t('Enregistré', 'Saved', 'Guardado')); }
     else failToast();
@@ -115,15 +118,20 @@ export default function HR() {
     const ok = printWorkCertificate({ school, t, staff: selected, contract: summary.contract, optionLabel });
     if (!ok) popupError();
   };
+  const printPayslipFor = (record) => {
+    if (!selected) return;
+    const ok = printPayslip({ school, t, money, staff: selected, record, optionLabel });
+    if (!ok) popupError();
+  };
 
   return (
     <Layout>
       <div className="max-w-6xl mx-auto">
         <div className="mb-5">
           <h1 className="text-xl font-bold text-gray-900">{t('Ressources Humaines', 'Human Resources', 'Recursos Humanos')}</h1>
-          <p className="text-sm text-gray-500 mt-1">{t('Dossiers du personnel — contrats, congés, évaluations, présences, carrière.',
-            'Staff files — contracts, leaves, evaluations, attendance, career.',
-            'Expedientes — contratos, permisos, evaluaciones, asistencia, carrera.')}</p>
+          <p className="text-sm text-gray-500 mt-1">{t('Dossiers du personnel — contrats, congés, évaluations, présences, carrière, paie.',
+            'Staff files — contracts, leaves, evaluations, attendance, career, payroll.',
+            'Expedientes — contratos, permisos, evaluaciones, asistencia, carrera, nómina.')}</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
@@ -175,11 +183,12 @@ export default function HR() {
                       </span>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-center">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3 text-center">
                     <Stat label={t('Contrat', 'Contract', 'Contrato')} value={summary.contract ? (OPTION_LABELS[summary.contract.type] ? t(...OPTION_LABELS[summary.contract.type]) : summary.contract.type) : '—'} />
                     <Stat label={t('Congés restants', 'Leave balance', 'Saldo permisos')} value={`${summary.leave.remaining} ${t('j', 'd', 'd')}`} />
                     <Stat label={t('Taux de présence', 'Presence rate', 'Asistencia')} value={summary.att.total ? `${summary.att.presenceRate}%` : '—'} />
                     <Stat label={t('Note moyenne', 'Avg. score', 'Nota media')} value={summary.evalAvg == null ? '—' : `${summary.evalAvg}/20`} />
+                    <Stat label={t('Dernier net payé', 'Last net paid', 'Último neto pagado')} value={summary.payroll.lastPaid ? money(summary.payroll.lastPaid.net_salary) : '—'} />
                   </div>
                 </div>
 
@@ -223,16 +232,21 @@ export default function HR() {
                           <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50/50">
                             {tab.columns.map((c) => (
                               <td key={c} className="px-4 py-2 text-gray-700">
-                                {c === 'salary' ? (r.salary != null ? money(r.salary) : '—') : cell(c, r)}
+                                {MONEY_COLS.has(c) ? (r[c] != null ? money(r[c]) : '—') : cell(c, r)}
                               </td>
                             ))}
                             <td className="px-4 py-2 text-right">
-                              {canManage && (
-                                <span className="flex items-center justify-end gap-2">
-                                  <button onClick={() => setModal({ record: r })} className="text-xs text-gray-400 hover:text-gray-700">✎</button>
-                                  <button onClick={() => removeRecord(r)} className="text-xs text-rose-400 hover:text-rose-600">✕</button>
-                                </span>
-                              )}
+                              <span className="flex items-center justify-end gap-2">
+                                {tabKey === 'payroll' && (
+                                  <button onClick={() => printPayslipFor(r)} className="text-xs text-indigo-400 hover:text-indigo-700">🖨</button>
+                                )}
+                                {canManage && (
+                                  <>
+                                    <button onClick={() => setModal({ record: r })} className="text-xs text-gray-400 hover:text-gray-700">✎</button>
+                                    <button onClick={() => removeRecord(r)} className="text-xs text-rose-400 hover:text-rose-600">✕</button>
+                                  </>
+                                )}
+                              </span>
                             </td>
                           </tr>
                         ))}

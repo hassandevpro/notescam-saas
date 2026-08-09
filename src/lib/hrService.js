@@ -1,5 +1,5 @@
 // Couche CRUD Supabase du module RH. Une fabrique par entité satellite du
-// dossier `staff` (contrats, congés, évaluations, présences, historique).
+// dossier `staff` (contrats, congés, évaluations, présences, historique, paie).
 // En LAN, `./supabase` est aliasé vers localClient : mêmes appels. Les colonnes
 // inconnues sont filtrées côté serveur (pickColumns), donc l'upsert générique
 // ne casse pas si le payload porte des clés d'UI.
@@ -56,4 +56,5 @@ export const HR_ENTITIES = {
   evaluations: makeEntity('hr_evaluations', 'eval_date'),
   attendance:  makeEntity('hr_attendance', 'att_date'),
   career:      makeEntity('hr_career_events', 'event_date'),
+  payroll:     makeEntity('hr_payroll', 'period'),
 };

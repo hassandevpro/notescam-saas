@@ -33,7 +33,7 @@ export default function HrRecordModal({ tab, record, onSave, onClose }) {
       onClose={onClose} size="lg"
     >
       <form onSubmit={submit} className="grid grid-cols-2 gap-3">
-        {tab.fields.map((f) => (
+        {tab.fields.filter((f) => !f.readOnly).map((f) => (
           <div key={f.key} className={f.type === 'textarea' ? 'col-span-2' : ''}>
             <label className={lbl}>{t(...f.label)}</label>
             {f.type === 'select' ? (
@@ -43,7 +43,8 @@ export default function HrRecordModal({ tab, record, onSave, onClose }) {
             ) : f.type === 'textarea' ? (
               <textarea className={field} rows={2} value={values[f.key] ?? ''} onChange={(e) => set(f.key, e.target.value)} />
             ) : (
-              <input className={field} type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : f.type === 'time' ? 'time' : 'text'}
+              <input className={field}
+                type={f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : f.type === 'time' ? 'time' : f.type === 'month' ? 'month' : 'text'}
                 value={values[f.key] ?? ''} onChange={(e) => set(f.key, e.target.value)} />
             )}
           </div>

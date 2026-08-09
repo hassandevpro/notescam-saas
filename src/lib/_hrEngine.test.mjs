@@ -1,7 +1,7 @@
 // Tests du moteur pur RH.  node src/lib/_hrEngine.test.mjs
 import {
   computeLeaveDays, isContractActive, currentContract, leaveBalance,
-  attendanceSummary, evaluationAverage,
+  attendanceSummary, evaluationAverage, computeNetPay, payrollSummary,
   HR_CONTRACT_TYPES, HR_LEAVE_TYPES, HR_ATTENDANCE_STATUSES, HR_CAREER_TYPES,
 } from './hrEngine.js';
 
@@ -59,6 +59,23 @@ ok(evaluationAverage([]) === null, 'aucune évaluation = null');
 
 ok(HR_CONTRACT_TYPES.length >= 4 && HR_LEAVE_TYPES.includes('annuel')
   && HR_ATTENDANCE_STATUSES.includes('present') && HR_CAREER_TYPES.includes('promotion'), 'énumérations exposées');
+
+// --- Paie (registre indicatif) ------------------------------------------------
+ok(computeNetPay(200000, 20000, 5000) === 215000, 'net = base + primes − retenues');
+ok(computeNetPay(100000, 0, 150000) === 0, 'net jamais négatif');
+ok(computeNetPay() === 0, 'sans arguments = 0');
+{
+  const records = [
+    { period: '2026-01', status: 'paid', net_salary: 200000 },
+    { period: '2026-02', status: 'paid', net_salary: 210000 },
+    { period: '2026-03', status: 'draft', net_salary: 220000 },
+  ];
+  const s = payrollSummary(records);
+  ok(s.count === 3 && s.paidCount === 2, 'compte les bulletins et les payés');
+  ok(s.totalPaid === 410000, 'cumul net des seuls bulletins payés');
+  ok(s.lastPaid?.period === '2026-02', 'dernier payé = période la plus récente');
+}
+ok(payrollSummary([]).lastPaid === null, 'aucun bulletin = pas de dernier payé');
 
 console.log(failed ? '\n❌ HR engine KO' : '\n✅ HR engine OK');
 process.exit(failed ? 1 : 0);

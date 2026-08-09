@@ -1,6 +1,7 @@
 // Documents imprimables du module RH (Phase C).
 //   C.5 — Fiche de dossier personnel (synthèse + contrat + congés).
 //   C.6 — Attestation de travail (document simple, signé).
+//   C.7 — Bulletin de paie (registre indicatif, un bulletin = une impression).
 // Socle lib/printDoc (window.print, offline). Aucun générateur d'attestation
 // n'existait dans l'app (seuls exportStaff CSV + printStaffList liste).
 import { openPrintDocument, docRef, esc } from './printDoc.js';
@@ -94,5 +95,56 @@ export function printWorkCertificate({ school, t, staff, contract, optionLabel }
     school, t: tr,
     title: tr('Attestation de travail', 'Certificate of employment', 'Certificado de trabajo'),
     ref, subtitle: staff?.name, bodyHtml,
+  });
+}
+
+// ── C.7 — Bulletin de paie ────────────────────────────────────────────────────
+// Registre INDICATIF (net = base + primes − retenues côté hrEngine.computeNetPay) :
+// aucun calcul fiscal/CNPS, comme le salaire déjà présent sur les contrats.
+export function printPayslip({ school, t, money, staff, record, optionLabel }) {
+  const tr = t || ((fr) => fr);
+  const opt = optionLabel || ((v) => v || '—');
+  const year = String(record?.period || school?.current_year || '').slice(0, 4);
+  const ref = docRef('PAIE', year, record?.id);
+  const row = (k, v) => v ? `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
+  const amountRow = (k, v) => `<tr><td class="k">${esc(k)}</td><td class="num">${esc(v != null ? money(v) : '—')}</td></tr>`;
+
+  const bodyHtml = `
+    <table class="kv avoid-break">
+      ${row(tr('Nom & prénom', 'Full name', 'Nombre completo'), staff?.name)}
+      ${row(tr('Fonction', 'Role', 'Función'), staff?.fonction)}
+      ${row(tr('Département', 'Department', 'Departamento'), staff?.department)}
+      ${row(tr('Période', 'Period', 'Período'), record?.period)}
+      ${row(tr('Statut', 'Status', 'Estado'), opt(record?.status))}
+      ${row(tr('Date de paiement', 'Payment date', 'Fecha de pago'), record?.paid_date)}
+    </table>
+
+    <div class="box avoid-break">
+      <h3>${esc(tr('Détail de la rémunération', 'Pay breakdown', 'Detalle de la remuneración'))}</h3>
+      <table class="kv">
+        ${amountRow(tr('Salaire de base', 'Base salary', 'Salario base'), record?.base_salary)}
+        ${amountRow(tr('Primes', 'Bonuses', 'Primas'), record?.bonuses)}
+        ${amountRow(tr('Retenues', 'Deductions', 'Retenciones'), record?.deductions != null ? -Math.abs(record.deductions) : record?.deductions)}
+      </table>
+      <p class="amount-hero" style="margin-top:8px">${esc(tr('Net', 'Net', 'Neto'))} : ${esc(record?.net_salary != null ? money(record.net_salary) : '—')}</p>
+    </div>
+
+    ${record?.notes ? `<p style="font-size:11px;color:#555;margin-top:4px">${esc(record.notes)}</p>` : ''}
+
+    <div class="sign-area avoid-break">
+      <div class="sign-box"><div class="sign-line"></div><div class="sign-label">${esc(tr('Signature de l’agent', 'Employee signature', 'Firma del empleado'))}</div></div>
+      <div class="sign-box"><div class="sign-line"></div><div class="sign-label">${esc(tr("Le Chef d'établissement", 'The Head of institution', 'El Director'))}</div></div>
+    </div>
+
+    <p style="font-size:9.5px;color:#888;margin-top:10px">
+      ${esc(tr('Bulletin indicatif — aucun calcul fiscal ou de cotisations sociales.',
+        'Indicative payslip — no tax or social security computation.',
+        'Nómina indicativa — sin cálculo fiscal ni de cotizaciones sociales.'))}
+    </p>`;
+
+  return openPrintDocument({
+    school, t: tr,
+    title: tr('Bulletin de paie', 'Payslip', 'Nómina'),
+    ref, subtitle: `${staff?.name || ''}${record?.period ? ` — ${record.period}` : ''}`, bodyHtml,
   });
 }

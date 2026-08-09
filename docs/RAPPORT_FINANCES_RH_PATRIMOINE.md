@@ -90,14 +90,19 @@ message dédié (utiliser l'édition LAN pour un hors-ligne complet).
 
 ## 5. RH (dossiers du personnel)
 
-**But** : enrichir le dossier `staff` (module Personnel) — **PAS de paie**.
+**But** : enrichir le dossier `staff` (module Personnel), y compris un registre de
+**paie INDICATIF** (net = base + primes − retenues, calculé côté app) — **aucun
+calcul fiscal/CNPS**.
 
 **Parcours** : liste du personnel (recherche par nom) → **dossier** avec **synthèse**
-(contrat courant, congés restants, taux de présence, note moyenne) puis **onglets** :
-Contrats, Congés, Évaluations, Présences, Carrière. Chaque onglet est un tableau
-**générique piloté par schéma** (`HR_ENTITIES` + `HrRecordModal`).
+(contrat courant, congés restants, taux de présence, note moyenne, dernier net payé)
+puis **onglets** : Contrats, Congés, Évaluations, Présences, Carrière, **Paie**.
+Chaque onglet est un tableau **générique piloté par schéma** (`HR_ENTITIES` +
+`HrRecordModal`) ; le champ `net_salary` de l'onglet Paie est **calculé** (flag
+`readOnly` sur le champ, non saisi dans le modal) et imprimable en bulletin
+(`printPayslip`, `lib/hrDoc.js`).
 Moteur `hrEngine` : `currentContract`, `isContractActive`, `leaveBalance`,
-`attendanceSummary`, `evaluationAverage`.
+`attendanceSummary`, `evaluationAverage`, `computeNetPay`, `payrollSummary`.
 
 ---
 

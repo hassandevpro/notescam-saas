@@ -2,7 +2,8 @@
 //
 // Le RH s'articule autour du DOSSIER PERSONNEL existant (table `staff`, module
 // Personnel) via des entités satellites : contrats, congés, évaluations,
-// présences, historique professionnel. AUCUNE paie ici (déférée).
+// présences, historique professionnel, paie. La paie reste un registre
+// INDICATIF (net = base + primes − retenues) : aucun calcul fiscal/CNPS.
 
 // ── Énumérations (extensibles) ────────────────────────────────────────────────
 export const HR_CONTRACT_TYPES    = ['cdi', 'cdd', 'stage', 'vacation', 'prestation'];
@@ -12,6 +13,7 @@ export const HR_LEAVE_STATUSES    = ['pending', 'approved', 'refused'];
 export const HR_ATTENDANCE_STATUSES = ['present', 'absent', 'retard', 'conge', 'mission'];
 export const HR_CAREER_TYPES      = ['recrutement', 'promotion', 'mutation', 'formation', 'sanction', 'distinction', 'changement_poste', 'autre'];
 export const HR_EVAL_STATUSES     = ['draft', 'final'];
+export const HR_PAYROLL_STATUSES  = ['draft', 'paid'];
 
 // Nombre de jours ENTRE deux dates ISO (bornes incluses). 0 si invalide/incohérent.
 export function computeLeaveDays(startISO, endISO) {
@@ -62,4 +64,19 @@ export function evaluationAverage(evals = []) {
   const scores = evals.map((e) => Number(e.score)).filter((n) => Number.isFinite(n));
   if (!scores.length) return null;
   return Math.round((scores.reduce((s, n) => s + n, 0) / scores.length) * 10) / 10;
+}
+
+// Net d'un bulletin de paie — registre INDICATIF, aucun calcul fiscal/CNPS.
+export function computeNetPay(base, bonuses = 0, deductions = 0) {
+  const net = (Number(base) || 0) + (Number(bonuses) || 0) - (Number(deductions) || 0);
+  return Math.max(0, net);
+}
+
+// Synthèse paie d'un agent : nombre de bulletins, cumul net des bulletins
+// payés, et dernier bulletin payé (le plus récent par période).
+export function payrollSummary(records = []) {
+  const paid = records.filter((r) => r.status === 'paid');
+  const totalPaid = paid.reduce((s, r) => s + (Number(r.net_salary) || 0), 0);
+  const lastPaid = [...paid].sort((a, b) => String(b.period || '').localeCompare(String(a.period || '')))[0] || null;
+  return { count: records.length, paidCount: paid.length, totalPaid, lastPaid };
 }

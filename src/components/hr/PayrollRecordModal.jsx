@@ -54,7 +54,7 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
     e.preventDefault();
     if (saving) return;
     setSaving(true);
-    const resolvedItems = [...resolved.primes, ...resolved.retenues].map((r) => ({
+    const resolvedItems = [...resolved.primes, ...resolved.retenues, ...resolved.patronales].map((r) => ({
       catalog_id: r.orphan ? null : r.id, code: r.code || null, kind: r.kind, name: r.name,
       calc_type: r.calc_type || null, rate: r.rate ?? null, base_ref: r.base_ref || null, resolved: r.resolved,
     }));
@@ -79,7 +79,7 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
             // Aperçu indicatif par ligne (brut approximé au seul salaire de base tant
             // que la sélection n'est pas connue) — le total exact reste le bloc du bas.
             const preview = resolvePayrollItemAmount(r, { baseSalary: Number(baseSalary) || 0, brut: Number(baseSalary) || 0 });
-            const live = [...resolved.primes, ...resolved.retenues].find((x) => x.id === r.id)?.resolved;
+            const live = [...resolved.primes, ...resolved.retenues, ...resolved.patronales].find((x) => x.id === r.id)?.resolved;
             return (
               <label key={r.id} className="flex items-center justify-between gap-2 text-sm px-1 py-0.5 rounded hover:bg-gray-50">
                 <span className="flex items-center gap-2 min-w-0">
@@ -115,6 +115,7 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
 
         <ItemGroup kind="prime" label={t('Primes', 'Bonuses', 'Primas')} />
         <ItemGroup kind="retenue" label={t('Retenues', 'Deductions', 'Retenciones')} />
+        <ItemGroup kind="patronale" label={t('Charges patronales (info — hors net)', 'Employer charges (info — excluded from net)', 'Cargas patronales (info — fuera del neto)')} />
         {!rows.length && (
           <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             {t('Catalogue vide — ouvrez « ⚙ Catalogue » pour configurer vos primes/retenues.',
@@ -146,6 +147,11 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
           <div><div className="text-sm font-bold text-gray-800">{money(resolved.brut)}</div><div className="text-[10px] font-semibold text-gray-400 uppercase">{t('Brut', 'Gross', 'Bruto')}</div></div>
           <div><div className="text-sm font-bold text-gray-800">{money(resolved.deductions)}</div><div className="text-[10px] font-semibold text-gray-400 uppercase">{t('Retenues', 'Deductions', 'Retenciones')}</div></div>
           <div><div className="text-sm font-bold text-indigo-600">{money(resolved.net)}</div><div className="text-[10px] font-semibold text-gray-400 uppercase">{t('Net', 'Net', 'Neto')}</div></div>
+          {resolved.employerTotal > 0 && (
+            <div className="col-span-3 pt-2 mt-1 border-t border-gray-200 text-[11px] text-gray-500">
+              {t('Charges patronales', 'Employer charges', 'Cargas patronales')} : {money(resolved.employerTotal)}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

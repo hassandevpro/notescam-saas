@@ -35,6 +35,19 @@ export const OPTION_LABELS = {
   paid: ['Payé', 'Paid', 'Pagado'],
 };
 
+// Types de ligne du catalogue de paie. `patronale` = charge employeur : figure
+// sur le bulletin (bloc informatif) mais n'entre jamais dans le net du salarié.
+export const PAYROLL_KIND_LABELS = {
+  prime:     ['Prime', 'Bonus', 'Prima'],
+  retenue:   ['Retenue', 'Deduction', 'Retención'],
+  patronale: ['Charge patronale', 'Employer charge', 'Carga patronal'],
+};
+export const PAYROLL_KIND_BADGE = {
+  prime:     'bg-emerald-100 text-emerald-700',
+  retenue:   'bg-rose-100 text-rose-700',
+  patronale: 'bg-slate-100 text-slate-600',
+};
+
 const opts = (values) => values.map((v) => ({ value: v, label: OPTION_LABELS[v] || [v] }));
 
 // Ordre des onglets = ordre demandé.

@@ -100,5 +100,18 @@ ok(resolvePayrollItemAmount({ calc_type: 'percent', rate: 4.2, base_ref: 'brut' 
 }
 ok(resolvePayrollItems([], 250000).net === 250000, 'aucune ligne cochée = net = salaire de base');
 
+// Charges patronales : totalisées à part, JAMAIS retranchées du net.
+{
+  const r = resolvePayrollItems([
+    { kind: 'prime', calc_type: 'fixed', amount: 20000 },
+    { kind: 'retenue', calc_type: 'fixed', amount: 5000 },
+    { kind: 'patronale', calc_type: 'percent', rate: 4.2, base_ref: 'brut' },
+  ], 250000);
+  ok(r.employerTotal === Math.round(270000 * 4.2 / 100), 'charge patronale calculée sur le brut');
+  ok(r.deductions === 5000, 'la charge patronale n’entre pas dans les retenues salariales');
+  ok(r.net === 265000, 'le net du salarié ignore les charges patronales');
+  ok(r.patronales.length === 1, 'les charges patronales sont exposées séparément');
+}
+
 console.log(failed ? '\n❌ HR engine KO' : '\n✅ HR engine OK');
 process.exit(failed ? 1 : 0);

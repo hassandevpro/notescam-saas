@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
 import { HR_PAYROLL_ITEM_KINDS, HR_PAYROLL_CALC_TYPES, HR_PAYROLL_BASE_REFS } from '../../lib/hrEngine';
+import { PAYROLL_KIND_LABELS, PAYROLL_KIND_BADGE } from './hrEntities';
 
 // Lignes de DÉPART reprenant les libellés/codes/taux visibles sur un bulletin
 // camerounais réel (capture fournie par l'utilisateur) — PAS des taux garantis
@@ -10,11 +11,20 @@ import { HR_PAYROLL_ITEM_KINDS, HR_PAYROLL_CALC_TYPES, HR_PAYROLL_BASE_REFS } fr
 // absents : ce sont des barèmes progressifs (pas un simple % d'une seule base),
 // donc hors de portée du modèle fixe/pourcentage de ce catalogue.
 const STARTER_ITEMS = [
-  { code: '651', name: 'CNPS Pension Vieillesse', kind: 'retenue', calc_type: 'percent', rate: 4.2, base_ref: 'brut' },
-  { code: '671', name: 'Participation C.F.C. (Part Salariale)', kind: 'retenue', calc_type: 'percent', rate: 1.0, base_ref: 'brut' },
-  { code: '670', name: 'Taxe de Développement Local', kind: 'retenue', calc_type: 'fixed', amount: 0 },
-  { code: '672', name: 'Redevance Audio-Visuelle', kind: 'retenue', calc_type: 'fixed', amount: 0 },
   { code: '205', name: "Prime d'Ancienneté", kind: 'prime', calc_type: 'fixed', amount: 0 },
+  // Retenues salariales
+  { code: '651', name: 'CNPS Pension Vieillesse', kind: 'retenue', calc_type: 'percent', rate: 4.2, base_ref: 'brut' },
+  { code: '670', name: 'Taxe de Développement Local', kind: 'retenue', calc_type: 'fixed', amount: 0 },
+  { code: '671', name: 'Participation C.F.C. (Part Salariale)', kind: 'retenue', calc_type: 'percent', rate: 1.0, base_ref: 'brut' },
+  { code: '672', name: 'Redevance Audio-Visuelle', kind: 'retenue', calc_type: 'fixed', amount: 0 },
+  { code: '684', name: 'I.R.P.P.', kind: 'retenue', calc_type: 'fixed', amount: 0 },
+  { code: '685', name: 'Centimes Additionnels (CAC)', kind: 'retenue', calc_type: 'fixed', amount: 0 },
+  // Charges patronales (bloc informatif du bulletin — n'entrent pas dans le net)
+  { name: 'Crédit Foncier Patronal', kind: 'patronale', calc_type: 'percent', rate: 1.5, base_ref: 'brut' },
+  { name: "Fonds National de l'Emploi", kind: 'patronale', calc_type: 'percent', rate: 1.0, base_ref: 'brut' },
+  { name: 'Accident de Travail', kind: 'patronale', calc_type: 'percent', rate: 1.75, base_ref: 'brut' },
+  { name: 'Allocations Familiales', kind: 'patronale', calc_type: 'percent', rate: 7.0, base_ref: 'brut' },
+  { name: 'CNPS Patronale (PVID)', kind: 'patronale', calc_type: 'percent', rate: 4.2, base_ref: 'brut' },
 ];
 
 const calcLabel = (t, item) => (item.calc_type === 'percent'
@@ -109,8 +119,8 @@ export default function PayrollCatalogModal({ catalog = [], onSave, onDelete, on
                     <tr key={item.id} className="border-t border-gray-100">
                       <td className="px-3 py-2 text-gray-700">{item.code ? `${item.code} — ` : ''}{item.name}</td>
                       <td className="px-3 py-2">
-                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${item.kind === 'prime' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                          {item.kind === 'prime' ? t('Prime', 'Bonus', 'Prima') : t('Retenue', 'Deduction', 'Retención')}
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${PAYROLL_KIND_BADGE[item.kind] || PAYROLL_KIND_BADGE.retenue}`}>
+                          {t(...(PAYROLL_KIND_LABELS[item.kind] || [item.kind]))}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-gray-500">{calcLabel(t, item)}</td>
@@ -139,7 +149,7 @@ export default function PayrollCatalogModal({ catalog = [], onSave, onDelete, on
             <label className={lbl}>{t('Type', 'Type', 'Tipo')}</label>
             <select className={fld} value={editing.kind} onChange={(e) => set('kind', e.target.value)}>
               {HR_PAYROLL_ITEM_KINDS.map((k) => (
-                <option key={k} value={k}>{k === 'prime' ? t('Prime', 'Bonus', 'Prima') : t('Retenue', 'Deduction', 'Retención')}</option>
+                <option key={k} value={k}>{t(...PAYROLL_KIND_LABELS[k])}</option>
               ))}
             </select>
           </div>

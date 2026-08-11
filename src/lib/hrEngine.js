@@ -14,7 +14,9 @@ export const HR_ATTENDANCE_STATUSES = ['present', 'absent', 'retard', 'conge', '
 export const HR_CAREER_TYPES      = ['recrutement', 'promotion', 'mutation', 'formation', 'sanction', 'distinction', 'changement_poste', 'autre'];
 export const HR_EVAL_STATUSES     = ['draft', 'final'];
 export const HR_PAYROLL_STATUSES  = ['draft', 'paid'];
-export const HR_PAYROLL_ITEM_KINDS = ['prime', 'retenue'];
+// `patronale` = charge de l'EMPLOYEUR : figure sur le bulletin à titre indicatif
+// (bloc « Charges patronales » du modèle légal) mais n'entre JAMAIS dans le net.
+export const HR_PAYROLL_ITEM_KINDS = ['prime', 'retenue', 'patronale'];
 export const HR_PAYROLL_CALC_TYPES = ['fixed', 'percent'];
 export const HR_PAYROLL_BASE_REFS  = ['salaire_base', 'brut'];
 
@@ -88,19 +90,27 @@ export function resolvePayrollItemAmount(item, { baseSalary, brut } = {}) {
 }
 
 // Résout TOUTES les lignes cochées d'un bulletin : les primes d'abord
-// (déterminent le brut = base + primes), puis les retenues (peuvent se
-// baser sur ce brut). Chaque item ressort enrichi de son montant `resolved`.
+// (déterminent le brut = base + primes), puis les retenues et les charges
+// patronales (qui peuvent se baser sur ce brut). Chaque item ressort enrichi
+// de son montant `resolved`. Les charges patronales sont totalisées À PART :
+// information employeur, jamais retranchée du net du salarié.
 export function resolvePayrollItems(checkedItems = [], baseSalary) {
   const primes = checkedItems
     .filter((i) => i.kind === 'prime')
     .map((i) => ({ ...i, resolved: resolvePayrollItemAmount(i, { baseSalary, brut: baseSalary }) }));
   const bonuses = primes.reduce((s, i) => s + i.resolved, 0);
   const brut = (Number(baseSalary) || 0) + bonuses;
-  const retenues = checkedItems
-    .filter((i) => i.kind === 'retenue')
+  const resolveOn = (kind) => checkedItems
+    .filter((i) => i.kind === kind)
     .map((i) => ({ ...i, resolved: resolvePayrollItemAmount(i, { baseSalary, brut }) }));
+  const retenues = resolveOn('retenue');
+  const patronales = resolveOn('patronale');
   const deductions = retenues.reduce((s, i) => s + i.resolved, 0);
-  return { primes, retenues, bonuses, deductions, brut, net: computeNetPay(baseSalary, bonuses, deductions) };
+  const employerTotal = patronales.reduce((s, i) => s + i.resolved, 0);
+  return {
+    primes, retenues, patronales, bonuses, deductions, employerTotal, brut,
+    net: computeNetPay(baseSalary, bonuses, deductions),
+  };
 }
 
 // Synthèse paie d'un agent : nombre de bulletins, cumul net des bulletins

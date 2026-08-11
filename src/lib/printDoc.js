@@ -90,6 +90,29 @@ export function openPrintDocument({ school, t, title, ref, subtitle, bodyHtml, o
   </div>
 </div></body></html>`;
 
+  return openPrintWindow(html);
+}
+
+// Document d'impression SANS l'en-tête/pied partagés : l'appelant fournit tout
+// (CSS + corps). Réservé aux pièces dont la mise en page est imposée de
+// l'extérieur et ne peut pas s'accommoder du bandeau maison — aujourd'hui le
+// seul cas est le BULLETIN DE PAIE, calqué sur le modèle légal camerounais
+// (en-tête employeur NIU/CNPS, tableau CODE/DÉSIGNATION/BASE/TAUX/GAINS/
+// RETENUES). Toute la mécanique popup/print reste ici, en un seul endroit.
+export function openRawPrintDocument({ title, css = '', bodyHtml, orientation = 'portrait', lang = 'fr' }) {
+  const html = `<!DOCTYPE html>
+<html lang="${esc(lang)}"><head><meta charset="utf-8"/>
+<title>${esc(title)}</title>
+<style>${css}
+  @media print{@page{margin:8mm;size:A4 ${orientation}}body{padding:0}.page{padding:0}}
+</style></head>
+<body><div class="page">${bodyHtml}</div></body></html>`;
+  return openPrintWindow(html);
+}
+
+// Ouverture + impression d'un document HTML complet. Renvoie false si le popup
+// est bloqué (l'appelant affiche alors le message « autorisez les pop-ups »).
+function openPrintWindow(html) {
   const win = window.open('', '_blank', 'width=980,height=740');
   if (!win) return false; // popup bloqué
   win.document.open();

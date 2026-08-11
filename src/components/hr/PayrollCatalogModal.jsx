@@ -33,7 +33,7 @@ const calcLabel = (t, item) => (item.calc_type === 'percent'
 
 const EMPTY_ITEM = { code: '', name: '', kind: 'prime', calc_type: 'fixed', amount: '', rate: '', base_ref: 'brut', active: true };
 
-export default function PayrollCatalogModal({ catalog = [], onSave, onDelete, onLoadStarters, confirm, onClose }) {
+export default function PayrollCatalogModal({ catalog = [], loadError = false, onSave, onDelete, onLoadStarters, confirm, onClose }) {
   const t = useT();
   const [editing, setEditing] = useState(null); // null = liste | objet = formulaire
   const [saving, setSaving] = useState(false);
@@ -100,7 +100,15 @@ export default function PayrollCatalogModal({ catalog = [], onSave, onDelete, on
               + {t('Ajouter', 'Add', 'Añadir')}
             </button>
           </div>
-          {catalog.length === 0 ? (
+          {loadError ? (
+            <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-3">
+              <p className="font-semibold">{t('Catalogue inaccessible.', 'Catalog unavailable.', 'Catálogo no disponible.')}</p>
+              <p className="text-xs mt-1">{t(
+                'La table du catalogue n’a pas répondu. En édition Cloud, vérifiez que la migration « supabase_hr_payroll_catalog.sql » a bien été exécutée dans Supabase (SQL Editor). Sinon, vérifiez votre connexion.',
+                'The catalog table did not respond. On Cloud, check that the “supabase_hr_payroll_catalog.sql” migration has been run in Supabase (SQL Editor). Otherwise check your connection.',
+                'La tabla del catálogo no respondió. En Cloud, compruebe que la migración «supabase_hr_payroll_catalog.sql» se ejecutó en Supabase (SQL Editor). Si no, revise su conexión.')}</p>
+            </div>
+          ) : catalog.length === 0 ? (
             <p className="text-sm text-gray-400 py-8 text-center">{t('Catalogue vide.', 'Empty catalog.', 'Catálogo vacío.')}</p>
           ) : (
             <div className="overflow-x-auto border border-gray-200 rounded-xl">

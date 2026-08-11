@@ -45,10 +45,16 @@ export default function HR() {
   const [modal, setModal] = useState(null); // { record, items? } | { record:null }
   const [catalog, setCatalog] = useState([]);
   const [catalogModalOpen, setCatalogModalOpen] = useState(false);
+  // Une lecture EN ÉCHEC (table absente, hors ligne) rendait exactement le même
+  // écran qu'un catalogue vide — impossible de distinguer « rien à afficher »
+  // de « ça ne marche pas ». On garde donc l'échec pour l'annoncer.
+  const [catalogError, setCatalogError] = useState(false);
 
   const loadCatalog = useCallback(async () => {
     if (!schoolId) { setCatalog([]); return; }
-    setCatalog((await fetchPayrollCatalog(schoolId)) || []);
+    const rows = await fetchPayrollCatalog(schoolId);
+    setCatalogError(rows === null);
+    setCatalog(rows || []);
   }, [schoolId]);
   useEffect(() => { loadCatalog(); }, [loadCatalog]);
 
@@ -126,9 +132,17 @@ export default function HR() {
     if (await deletePayrollCatalogItem(id)) { await loadCatalog(); toast.success(t('Ligne supprimée', 'Line deleted', 'Línea eliminada')); }
     else failToast();
   };
+  // Ne JAMAIS annoncer un succès sans l'avoir constaté : on compte les lignes
+  // réellement enregistrées (upsert renvoie null en cas d'échec).
   const loadCatalogStarters = async (starters) => {
-    for (const item of starters) await upsertPayrollCatalogItem({ ...item, school_id: schoolId });
+    const saved = await Promise.all(starters.map((item) => upsertPayrollCatalogItem({ ...item, school_id: schoolId })));
     await loadCatalog();
+    const added = saved.filter(Boolean).length;
+    if (!added) { failToast(); return; }
+    if (added < saved.length) {
+      toast.error(t(`${added}/${saved.length} lignes ajoutées seulement.`, `Only ${added}/${saved.length} lines added.`, `Solo ${added}/${saved.length} líneas añadidas.`));
+      return;
+    }
     toast.success(t('Valeurs chargées', 'Values loaded', 'Valores cargados'));
   };
   const removeRecord = async (rec) => {
@@ -319,7 +333,7 @@ export default function HR() {
         <HrRecordModal tab={tab} record={modal.record} onSave={saveRecord} onClose={() => setModal(null)} />
       ))}
       {catalogModalOpen && (
-        <PayrollCatalogModal catalog={catalog} confirm={confirm}
+        <PayrollCatalogModal catalog={catalog} confirm={confirm} loadError={catalogError}
           onSave={saveCatalogItem} onDelete={deleteCatalogItemHandler} onLoadStarters={loadCatalogStarters}
           onClose={() => setCatalogModalOpen(false)} />
       )}

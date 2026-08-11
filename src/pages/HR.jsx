@@ -8,12 +8,17 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { useT } from '../lib/i18n';
 import { useMoney } from '../lib/useMoney';
-import { HR_ENTITIES } from '../lib/hrService';
 import {
-  currentContract, isContractActive, leaveBalance, attendanceSummary, evaluationAverage, payrollSummary, computeNetPay,
+  HR_ENTITIES, fetchPayrollCatalog, upsertPayrollCatalogItem, deletePayrollCatalogItem,
+  fetchPayrollItems, replacePayrollItems,
+} from '../lib/hrService';
+import {
+  currentContract, isContractActive, leaveBalance, attendanceSummary, evaluationAverage, payrollSummary,
 } from '../lib/hrEngine';
 import { HR_TABS, HR_TAB_BY_KEY, OPTION_LABELS } from '../components/hr/hrEntities';
 import HrRecordModal from '../components/hr/HrRecordModal';
+import PayrollRecordModal from '../components/hr/PayrollRecordModal';
+import PayrollCatalogModal from '../components/hr/PayrollCatalogModal';
 import { useConfirm } from '../components/ConfirmDialog';
 import { toast } from '../store/toastStore';
 import { printStaffFile, printWorkCertificate, printPayslip } from '../lib/hrDoc';
@@ -37,7 +42,15 @@ export default function HR() {
   const [staffId, setStaffId] = useState(null);
   const [tabKey, setTabKey] = useState('contracts');
   const [data, setData] = useState(EMPTY);
-  const [modal, setModal] = useState(null); // { record } | { record:null }
+  const [modal, setModal] = useState(null); // { record, items? } | { record:null }
+  const [catalog, setCatalog] = useState([]);
+  const [catalogModalOpen, setCatalogModalOpen] = useState(false);
+
+  const loadCatalog = useCallback(async () => {
+    if (!schoolId) { setCatalog([]); return; }
+    setCatalog((await fetchPayrollCatalog(schoolId)) || []);
+  }, [schoolId]);
+  useEffect(() => { loadCatalog(); }, [loadCatalog]);
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -81,11 +94,42 @@ export default function HR() {
 
   const saveRecord = async (rec) => {
     const payload = { ...rec, school_id: schoolId, staff_id: staffId };
-    if (tabKey === 'payroll') payload.net_salary = computeNetPay(payload.base_salary, payload.bonuses, payload.deductions);
     const saved = await HR_ENTITIES[tabKey].upsert(payload);
     setModal(null);
     if (saved) { await load(staffId); toast.success(t('Enregistré', 'Saved', 'Guardado')); }
     else failToast();
+  };
+
+  // Paie : le modal a déjà résolu bonuses/deductions/net_salary depuis le
+  // catalogue coché — ici on persiste le bulletin PUIS on remplace ses lignes
+  // attachées (tout ou rien niveau UI, cohérent avec un formulaire à un seul bouton Enregistrer).
+  const savePayrollRecord = async (fields, items) => {
+    const saved = await HR_ENTITIES.payroll.upsert({ ...fields, school_id: schoolId, staff_id: staffId });
+    if (!saved) { failToast(); return; }
+    const ok = await replacePayrollItems(schoolId, saved.id, items);
+    setModal(null);
+    if (ok) { await load(staffId); toast.success(t('Enregistré', 'Saved', 'Guardado')); }
+    else failToast();
+  };
+
+  const openPayrollRecordModal = async (record) => {
+    const items = record?.id ? ((await fetchPayrollItems(schoolId, record.id)) || []) : [];
+    setModal({ record, items });
+  };
+
+  const saveCatalogItem = async (item) => {
+    const saved = await upsertPayrollCatalogItem({ ...item, school_id: schoolId });
+    if (saved) { await loadCatalog(); toast.success(t('Enregistré', 'Saved', 'Guardado')); return true; }
+    failToast(); return false;
+  };
+  const deleteCatalogItemHandler = async (id) => {
+    if (await deletePayrollCatalogItem(id)) { await loadCatalog(); toast.success(t('Ligne supprimée', 'Line deleted', 'Línea eliminada')); }
+    else failToast();
+  };
+  const loadCatalogStarters = async (starters) => {
+    for (const item of starters) await upsertPayrollCatalogItem({ ...item, school_id: schoolId });
+    await loadCatalog();
+    toast.success(t('Valeurs chargées', 'Values loaded', 'Valores cargados'));
   };
   const removeRecord = async (rec) => {
     if (!(await confirm({
@@ -118,9 +162,10 @@ export default function HR() {
     const ok = printWorkCertificate({ school, t, staff: selected, contract: summary.contract, optionLabel });
     if (!ok) popupError();
   };
-  const printPayslipFor = (record) => {
+  const printPayslipFor = async (record) => {
     if (!selected) return;
-    const ok = printPayslip({ school, t, money, staff: selected, record, optionLabel });
+    const items = (await fetchPayrollItems(schoolId, record.id)) || [];
+    const ok = printPayslip({ school, t, money, staff: selected, record, items, optionLabel, leave: summary.leave });
     if (!ok) popupError();
   };
 
@@ -205,9 +250,15 @@ export default function HR() {
 
                 {/* Tableau générique de l'onglet */}
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="px-4 py-2 flex justify-end border-b border-gray-100">
+                  <div className="px-4 py-2 flex justify-end gap-2 border-b border-gray-100">
+                    {canManage && tabKey === 'payroll' && (
+                      <button onClick={() => setCatalogModalOpen(true)}
+                        className="text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded-lg">
+                        ⚙ {t('Catalogue', 'Catalog', 'Catálogo')}
+                      </button>
+                    )}
                     {canManage && (
-                      <button onClick={() => setModal({ record: null })}
+                      <button onClick={() => (tabKey === 'payroll' ? openPayrollRecordModal(null) : setModal({ record: null }))}
                         className="text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg">
                         + {t('Ajouter', 'Add', 'Añadir')}
                       </button>
@@ -242,7 +293,7 @@ export default function HR() {
                                 )}
                                 {canManage && (
                                   <>
-                                    <button onClick={() => setModal({ record: r })} className="text-xs text-gray-400 hover:text-gray-700">✎</button>
+                                    <button onClick={() => (tabKey === 'payroll' ? openPayrollRecordModal(r) : setModal({ record: r }))} className="text-xs text-gray-400 hover:text-gray-700">✎</button>
                                     <button onClick={() => removeRecord(r)} className="text-xs text-rose-400 hover:text-rose-600">✕</button>
                                   </>
                                 )}
@@ -261,8 +312,16 @@ export default function HR() {
         </div>
       </div>
 
-      {modal && selected && (
+      {modal && selected && (tabKey === 'payroll' ? (
+        <PayrollRecordModal record={modal.record} items={modal.items || []} catalog={catalog}
+          onSave={savePayrollRecord} onClose={() => setModal(null)} />
+      ) : (
         <HrRecordModal tab={tab} record={modal.record} onSave={saveRecord} onClose={() => setModal(null)} />
+      ))}
+      {catalogModalOpen && (
+        <PayrollCatalogModal catalog={catalog} confirm={confirm}
+          onSave={saveCatalogItem} onDelete={deleteCatalogItemHandler} onLoadStarters={loadCatalogStarters}
+          onClose={() => setCatalogModalOpen(false)} />
       )}
       {confirmDialog}
     </Layout>

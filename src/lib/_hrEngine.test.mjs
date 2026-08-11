@@ -2,6 +2,7 @@
 import {
   computeLeaveDays, isContractActive, currentContract, leaveBalance,
   attendanceSummary, evaluationAverage, computeNetPay, payrollSummary,
+  resolvePayrollItemAmount, resolvePayrollItems,
   HR_CONTRACT_TYPES, HR_LEAVE_TYPES, HR_ATTENDANCE_STATUSES, HR_CAREER_TYPES,
 } from './hrEngine.js';
 
@@ -76,6 +77,28 @@ ok(computeNetPay() === 0, 'sans arguments = 0');
   ok(s.lastPaid?.period === '2026-02', 'dernier payé = période la plus récente');
 }
 ok(payrollSummary([]).lastPaid === null, 'aucun bulletin = pas de dernier payé');
+
+// --- Catalogue paie (fixe / pourcentage) --------------------------------------
+ok(resolvePayrollItemAmount({ calc_type: 'fixed', amount: 20000 }, { baseSalary: 250000, brut: 250000 }) === 20000,
+  'montant fixe = valeur telle quelle');
+ok(resolvePayrollItemAmount({ calc_type: 'percent', rate: 4.2, base_ref: 'brut' }, { baseSalary: 250000, brut: 270000 }) === 11340,
+  'pourcentage du brut : 4,2% de 270 000 = 11 340');
+ok(resolvePayrollItemAmount({ calc_type: 'percent', rate: 10, base_ref: 'salaire_base' }, { baseSalary: 250000, brut: 270000 }) === 25000,
+  'pourcentage du salaire de base (ignore le brut) : 10% de 250 000 = 25 000');
+ok(resolvePayrollItemAmount({ calc_type: 'percent', rate: 4.2, base_ref: 'brut' }, {}) === 0, 'base manquante = 0');
+
+{
+  const checked = [
+    { kind: 'prime', calc_type: 'fixed', amount: 20000 },                       // prime fixe
+    { kind: 'retenue', calc_type: 'percent', rate: 4.2, base_ref: 'brut' },     // CNPS-like, % du brut
+  ];
+  const r = resolvePayrollItems(checked, 250000);
+  ok(r.bonuses === 20000, 'primes sommées = 20 000');
+  ok(r.brut === 270000, 'brut = base + primes = 270 000');
+  ok(r.deductions === Math.round(270000 * 4.2 / 100), 'retenue % calculée sur le brut recalculé (pas la base seule)');
+  ok(r.net === computeNetPay(250000, r.bonuses, r.deductions), 'net cohérent avec computeNetPay');
+}
+ok(resolvePayrollItems([], 250000).net === 250000, 'aucune ligne cochée = net = salaire de base');
 
 console.log(failed ? '\n❌ HR engine KO' : '\n✅ HR engine OK');
 process.exit(failed ? 1 : 0);

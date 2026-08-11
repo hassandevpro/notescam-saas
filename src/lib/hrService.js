@@ -58,3 +58,50 @@ export const HR_ENTITIES = {
   career:      makeEntity('hr_career_events', 'event_date'),
   payroll:     makeEntity('hr_payroll', 'period'),
 };
+
+// ── Catalogue de primes/retenues (configuré une fois par l'école) ────────────
+// Pas de staff_id (portée école) et ordre croissant par position → la fabrique
+// générique (staff_id optionnel, tri décroissant) ne convient pas telle quelle.
+export async function fetchPayrollCatalog(schoolId) {
+  const { data, error } = await supabase
+    .from('hr_payroll_catalog').select('*').eq('school_id', schoolId).order('position', { ascending: true });
+  if (error) { console.error('fetchPayrollCatalog', error); return null; }
+  return data;
+}
+export async function upsertPayrollCatalogItem(row) {
+  const payload = { id: row.id || uuid(), ...row, updated_at: new Date().toISOString(), version: (row.version || 0) + 1 };
+  const { data, error } = await supabase.from('hr_payroll_catalog').upsert(payload, { onConflict: 'id' }).select().single();
+  if (error) { console.error('upsertPayrollCatalogItem', error); return null; }
+  return data;
+}
+export async function deletePayrollCatalogItem(id) {
+  const { error } = await supabase.from('hr_payroll_catalog').delete().eq('id', id);
+  if (error) { console.error('deletePayrollCatalogItem', error); return false; }
+  return true;
+}
+
+// ── Lignes attachées à UN bulletin (snapshot du catalogue au moment de la
+// saisie — indépendant des évolutions futures du catalogue) ──────────────────
+export async function fetchPayrollItems(schoolId, payrollId) {
+  const { data, error } = await supabase
+    .from('hr_payroll_items').select('*').eq('school_id', schoolId).eq('payroll_id', payrollId);
+  if (error) { console.error('fetchPayrollItems', error); return null; }
+  return data;
+}
+// Remplace TOUTES les lignes d'un bulletin par la sélection courante (le
+// formulaire de bulletin est un tout : pas de fusion incrémentale à gérer).
+export async function replacePayrollItems(schoolId, payrollId, items = []) {
+  const { error: delErr } = await supabase.from('hr_payroll_items').delete().eq('payroll_id', payrollId);
+  if (delErr) { console.error('replacePayrollItems (delete)', delErr); return false; }
+  if (!items.length) return true;
+  const rows = items.map((it) => ({
+    id: uuid(), school_id: schoolId, payroll_id: payrollId,
+    catalog_id: it.catalog_id || it.id || null, code: it.code || null,
+    kind: it.kind, name: it.name, calc_type: it.calc_type || null,
+    rate: it.rate ?? null, base_ref: it.base_ref || null, amount: Number(it.resolved ?? it.amount) || 0,
+    updated_at: new Date().toISOString(),
+  }));
+  const { error: insErr } = await supabase.from('hr_payroll_items').insert(rows);
+  if (insErr) { console.error('replacePayrollItems (insert)', insErr); return false; }
+  return true;
+}

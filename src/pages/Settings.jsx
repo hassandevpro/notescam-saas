@@ -387,6 +387,8 @@ export default function Settings() {
         school_year_start_month: school.school_year_start_month || 9,
         currency:     school.currency     || 'XAF',
         establishment_no: school.establishment_no || '',
+        niu:              school.niu              || '',
+        cnps_number:      school.cnps_number       || '',
         grade_entry_mode: school.grade_entry_mode === 'subject' ? 'subject' : 'principal',
         // Deux mondes présentés à l'admin : Classique vs Officiel (unifié). Tout
         // drapeau officiel « historique » (minesec/minedub…) est remonté sur 'officiel'.
@@ -707,6 +709,15 @@ export default function Settings() {
                   <label className="form-label">{t("N° d'établissement", 'School number', 'N.º de centro')}</label>
                   <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" placeholder={t("Ex : 123/MINESEC", 'E.g. 123/MINEDUC')} value={form.establishment_no} onChange={set('establishment_no')} />
                   <p className="text-xs text-gray-400 mt-1">{t("Apparaît sous les officiels de délégation, en en-tête du bulletin.", 'Shown under the delegation officials, in the report card header.')}</p>
+                </div>
+                <div>
+                  <label className="form-label">{t('N.I.U.', 'Tax ID (NIU)', 'N.I.U.')}</label>
+                  <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.niu} onChange={set('niu')} />
+                  <p className="text-xs text-gray-400 mt-1">{t('Numéro d’identifiant unique fiscal — affiché sur les bulletins de paie.', 'Tax identification number — shown on payslips.')}</p>
+                </div>
+                <div>
+                  <label className="form-label">{t('N° CNPS', 'CNPS no.', 'N.° CNPS')}</label>
+                  <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.cnps_number} onChange={set('cnps_number')} />
                 </div>
 
                 {/* Séparateur coordonnées */}

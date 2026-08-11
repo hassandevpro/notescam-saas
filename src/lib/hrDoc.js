@@ -99,37 +99,124 @@ export function printWorkCertificate({ school, t, staff, contract, optionLabel }
 }
 
 // ── C.7 — Bulletin de paie ────────────────────────────────────────────────────
-// Registre INDICATIF (net = base + primes − retenues côté hrEngine.computeNetPay) :
-// aucun calcul fiscal/CNPS, comme le salaire déjà présent sur les contrats.
-export function printPayslip({ school, t, money, staff, record, optionLabel }) {
+// Registre INDICATIF (net résolu depuis le catalogue primes/retenues côté
+// hrEngine.resolvePayrollItems) : les taux/montants viennent ENTIÈREMENT de la
+// configuration de l'école (PayrollCatalogModal) — aucun calcul fiscal/CNPS
+// supposé ici. `items` = lignes hr_payroll_items attachées à ce bulletin
+// (vide sur un bulletin créé avant cette fonctionnalité → repli sur les deux
+// totaux bruts `record.bonuses`/`record.deductions`, mise en page inchangée
+// pour ne pas faire régresser un bulletin déjà émis).
+function seniorityLabel(hireDate, tr) {
+  if (!hireDate) return null;
+  const start = new Date(hireDate);
+  if (isNaN(start)) return null;
+  const now = new Date();
+  let months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+  if (now.getDate() < start.getDate()) months -= 1;
+  if (months < 0) return null;
+  const years = Math.floor(months / 12);
+  const rem = months % 12;
+  return tr(`${years} an${years > 1 ? 's' : ''} ${rem} mois`, `${years} yr${years > 1 ? 's' : ''} ${rem} mo`, `${years} año${years > 1 ? 's' : ''} ${rem} m`);
+}
+
+export function printPayslip({ school, t, money, staff, record, items = [], optionLabel, leave }) {
   const tr = t || ((fr) => fr);
   const opt = optionLabel || ((v) => v || '—');
   const year = String(record?.period || school?.current_year || '').slice(0, 4);
   const ref = docRef('PAIE', year, record?.id);
   const row = (k, v) => v ? `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
-  const amountRow = (k, v) => `<tr><td class="k">${esc(k)}</td><td class="num">${esc(v != null ? money(v) : '—')}</td></tr>`;
 
-  const bodyHtml = `
+  const legalLine = (school?.niu || school?.cnps_number) ? `
+    <p style="font-size:10px;color:#666;margin:-6px 0 10px">
+      ${school?.niu ? `${esc(tr('NIU', 'Tax ID', 'N.I.U.'))} : ${esc(school.niu)}` : ''}
+      ${school?.niu && school?.cnps_number ? ' &middot; ' : ''}
+      ${school?.cnps_number ? `${esc(tr('N° CNPS', 'CNPS no.', 'N.° CNPS'))} : ${esc(school.cnps_number)}` : ''}
+    </p>` : '';
+
+  const employeeBox = `
     <table class="kv avoid-break">
+      ${row(tr('Matricule', 'Staff ID', 'Matrícula'), staff?.matricule)}
       ${row(tr('Nom & prénom', 'Full name', 'Nombre completo'), staff?.name)}
-      ${row(tr('Fonction', 'Role', 'Función'), staff?.fonction)}
+      ${row(tr('Poste', 'Position', 'Puesto'), staff?.fonction)}
       ${row(tr('Département', 'Department', 'Departamento'), staff?.department)}
+      ${row(tr('Convention collective', 'Collective agreement', 'Convenio colectivo'), staff?.convention_collective)}
+      ${row(tr('Catégorie / échelon', 'Category / grade', 'Categoría / escalón'), staff?.categorie_echelon)}
+      ${row(tr('N° CNPS (agent)', 'CNPS no. (staff)', 'N.° CNPS (empleado)'), staff?.cnps_number)}
+      ${row(tr('Situation familiale', 'Family status', 'Situación familiar'), staff?.situation_familiale)}
       ${row(tr('Période', 'Period', 'Período'), record?.period)}
       ${row(tr('Statut', 'Status', 'Estado'), opt(record?.status))}
-      ${row(tr('Date de paiement', 'Payment date', 'Fecha de pago'), record?.paid_date)}
-    </table>
+    </table>`;
 
-    <div class="box avoid-break">
-      <h3>${esc(tr('Détail de la rémunération', 'Pay breakdown', 'Detalle de la remuneración'))}</h3>
+  const base = Number(record?.base_salary) || 0;
+  const primes = items.filter((i) => i.kind === 'prime');
+  const retenues = items.filter((i) => i.kind === 'retenue');
+  const hasItems = items.length > 0;
+
+  const primesTotal = primes.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const retenuesTotal = retenues.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const brut = hasItems ? base + primesTotal : base + (Number(record?.bonuses) || 0);
+  const net = record?.net_salary != null ? Number(record.net_salary) : (brut - retenuesTotal);
+
+  const lineRow = (code, name, item) => {
+    const base_ref = item.base_ref === 'salaire_base' ? base : brut;
+    const baseCell = item.calc_type === 'percent' ? money(base_ref) : '';
+    const tauxCell = item.calc_type === 'percent' ? `${item.rate ?? 0}%` : '';
+    const isPrime = item.kind === 'prime';
+    return `<tr>
+      <td>${esc(code || '')}</td><td>${esc(name)}</td>
+      <td class="num">${esc(baseCell)}</td><td class="num">${esc(tauxCell)}</td>
+      <td class="num">${isPrime ? money(item.amount) : ''}</td>
+      <td class="num">${!isPrime ? money(item.amount) : ''}</td>
+    </tr>`;
+  };
+
+  const detailTable = hasItems ? `
+    <table class="avoid-break">
+      <thead><tr>
+        <th>${esc(tr('Code', 'Code', 'Código'))}</th><th>${esc(tr('Désignation', 'Description', 'Designación'))}</th>
+        <th class="right">${esc(tr('Base', 'Base', 'Base'))}</th><th class="right">${esc(tr('Taux', 'Rate', 'Tasa'))}</th>
+        <th class="right">${esc(tr('Gains', 'Earnings', 'Ganancias'))}</th><th class="right">${esc(tr('Retenues', 'Deductions', 'Retenciones'))}</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>100</td><td>${esc(tr('SALAIRE DE BASE', 'BASE SALARY', 'SALARIO BASE'))}</td><td class="num"></td><td class="num"></td><td class="num">${money(base)}</td><td class="num"></td></tr>
+        ${primes.map((i) => lineRow(i.code, i.name, i)).join('')}
+        <tr class="even"><td>500</td><td><b>${esc(tr('SALAIRE BRUT GLOBAL', 'GROSS SALARY', 'SALARIO BRUTO'))}</b></td><td class="num"></td><td class="num"></td><td class="num"><b>${money(brut)}</b></td><td class="num"></td></tr>
+        ${retenues.map((i) => lineRow(i.code, i.name, i)).join('')}
+      </tbody>
+      <tfoot><tr>
+        <td colspan="4">${esc(tr('Totaux', 'Totals', 'Totales'))}</td>
+        <td class="num">${money(brut)}</td><td class="num">${money(retenuesTotal)}</td>
+      </tr></tfoot>
+    </table>` : `
+    <table class="kv avoid-break">
+      <tr><td class="k">${esc(tr('Salaire de base', 'Base salary', 'Salario base'))}</td><td class="num">${money(base)}</td></tr>
+      <tr><td class="k">${esc(tr('Primes', 'Bonuses', 'Primas'))}</td><td class="num">${money(record?.bonuses)}</td></tr>
+      <tr><td class="k">${esc(tr('Retenues', 'Deductions', 'Retenciones'))}</td><td class="num">${money(record?.deductions != null ? -Math.abs(record.deductions) : 0)}</td></tr>
+    </table>`;
+
+  const seniority = seniorityLabel(staff?.hire_date, tr);
+  const footRow = (k, v) => v ? `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
+  const footerBox = (leave || staff?.hire_date || staff?.niu || staff?.cni_number || staff?.bank_account) ? `
+    <div class="box avoid-break" style="margin-top:10px">
       <table class="kv">
-        ${amountRow(tr('Salaire de base', 'Base salary', 'Salario base'), record?.base_salary)}
-        ${amountRow(tr('Primes', 'Bonuses', 'Primas'), record?.bonuses)}
-        ${amountRow(tr('Retenues', 'Deductions', 'Retenciones'), record?.deductions != null ? -Math.abs(record.deductions) : record?.deductions)}
+        ${leave ? footRow(tr('Congés acquis', 'Leave accrued', 'Permisos adquiridos'), `${leave.entitlement} ${tr('j', 'd', 'd')}`) : ''}
+        ${leave ? footRow(tr('Congés pris', 'Leave taken', 'Permisos tomados'), `${leave.used} ${tr('j', 'd', 'd')}`) : ''}
+        ${leave ? footRow(tr('Solde congés', 'Leave balance', 'Saldo de permisos'), `${leave.remaining} ${tr('j', 'd', 'd')}`) : ''}
+        ${footRow(tr('Date d’entrée', 'Hire date', 'Fecha de entrada'), staff?.hire_date)}
+        ${footRow(tr('Ancienneté', 'Seniority', 'Antigüedad'), seniority)}
+        ${footRow(tr('N.I.U. (salarié)', 'Tax ID (staff)', 'N.I.U. (empleado)'), staff?.niu)}
+        ${footRow(tr('N° CNI', 'ID card no.', 'N.° CNI'), staff?.cni_number)}
+        ${footRow(tr('Banque / Compte', 'Bank / Account', 'Banco / Cuenta'), staff?.bank_account)}
       </table>
-      <p class="amount-hero" style="margin-top:8px">${esc(tr('Net', 'Net', 'Neto'))} : ${esc(record?.net_salary != null ? money(record.net_salary) : '—')}</p>
-    </div>
+    </div>` : '';
 
-    ${record?.notes ? `<p style="font-size:11px;color:#555;margin-top:4px">${esc(record.notes)}</p>` : ''}
+  const bodyHtml = `
+    ${legalLine}
+    ${employeeBox}
+    ${detailTable}
+    <p class="amount-hero" style="margin-top:8px">${esc(tr('NET À PAYER', 'NET PAY', 'NETO A PAGAR'))} : ${money(net)}</p>
+    ${footerBox}
+    ${record?.notes ? `<p style="font-size:11px;color:#555;margin-top:8px">${esc(record.notes)}</p>` : ''}
 
     <div class="sign-area avoid-break">
       <div class="sign-box"><div class="sign-line"></div><div class="sign-label">${esc(tr('Signature de l’agent', 'Employee signature', 'Firma del empleado'))}</div></div>
@@ -137,9 +224,9 @@ export function printPayslip({ school, t, money, staff, record, optionLabel }) {
     </div>
 
     <p style="font-size:9.5px;color:#888;margin-top:10px">
-      ${esc(tr('Bulletin indicatif — aucun calcul fiscal ou de cotisations sociales.',
-        'Indicative payslip — no tax or social security computation.',
-        'Nómina indicativa — sin cálculo fiscal ni de cotizaciones sociales.'))}
+      ${esc(tr('Bulletin indicatif — montants issus du catalogue configuré par l’établissement, aucun calcul fiscal/CNPS garanti par NotesCam.',
+        'Indicative payslip — amounts come from the school’s own catalog configuration, no tax/social security computation guaranteed by NotesCam.',
+        'Nómina indicativa — montos del catálogo configurado por el centro, sin cálculo fiscal/CNPS garantizado por NotesCam.'))}
     </p>`;
 
   return openPrintDocument({

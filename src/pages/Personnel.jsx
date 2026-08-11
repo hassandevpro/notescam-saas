@@ -43,6 +43,8 @@ function StaffForm({ initial, department, onSave, onCancel }) {
   const [form, setForm] = useState({
     matricule: '', first_name: '', last_name: '', gender: '', phone: '',
     email: '', address: '', fonction: '', hire_date: '', status: '',
+    convention_collective: '', categorie_echelon: '', situation_familiale: '',
+    cnps_number: '', niu: '', cni_number: '', bank_account: '',
     ...initial,
   });
   const [photoFile, setPhotoFile] = useState(null);
@@ -151,6 +153,43 @@ function StaffForm({ initial, department, onSave, onCancel }) {
             <label className="form-label">{t('Statut', 'Status', 'Estado')}</label>
             <input type="text" className="form-input" placeholder={t('Titulaire, vacataire…', 'Permanent, contract…', 'Titular, contratado…')}
               value={form.status} onChange={set('status')} />
+          </div>
+        </div>
+
+        {/* Identité légale (bulletin de paie) — tous optionnels */}
+        <div className="border-t border-gray-100 pt-2">
+          <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+            {t('Paie / légal (optionnel)', 'Payroll / legal (optional)', 'Nómina / legal (opcional)')}
+          </p>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="form-label">{t('Convention collective', 'Collective agreement', 'Convenio colectivo')}</label>
+              <input type="text" className="form-input" value={form.convention_collective} onChange={set('convention_collective')} />
+            </div>
+            <div>
+              <label className="form-label">{t('Catégorie / échelon', 'Category / grade', 'Categoría / escalón')}</label>
+              <input type="text" className="form-input" placeholder="5 / A" value={form.categorie_echelon} onChange={set('categorie_echelon')} />
+            </div>
+            <div>
+              <label className="form-label">{t('Situation familiale', 'Family status', 'Situación familiar')}</label>
+              <input type="text" className="form-input" value={form.situation_familiale} onChange={set('situation_familiale')} />
+            </div>
+            <div>
+              <label className="form-label">{t('N° CNPS', 'CNPS no.', 'N.° CNPS')}</label>
+              <input type="text" className="form-input" value={form.cnps_number} onChange={set('cnps_number')} />
+            </div>
+            <div>
+              <label className="form-label">{t('N.I.U.', 'Tax ID', 'N.I.U.')}</label>
+              <input type="text" className="form-input" value={form.niu} onChange={set('niu')} />
+            </div>
+            <div>
+              <label className="form-label">{t('N° CNI', 'ID card no.', 'N.° CNI')}</label>
+              <input type="text" className="form-input" value={form.cni_number} onChange={set('cni_number')} />
+            </div>
+            <div className="col-span-3">
+              <label className="form-label">{t('Banque / Compte', 'Bank / Account', 'Banco / Cuenta')}</label>
+              <input type="text" className="form-input" value={form.bank_account} onChange={set('bank_account')} />
+            </div>
           </div>
         </div>
 

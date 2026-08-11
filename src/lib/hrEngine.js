@@ -14,6 +14,9 @@ export const HR_ATTENDANCE_STATUSES = ['present', 'absent', 'retard', 'conge', '
 export const HR_CAREER_TYPES      = ['recrutement', 'promotion', 'mutation', 'formation', 'sanction', 'distinction', 'changement_poste', 'autre'];
 export const HR_EVAL_STATUSES     = ['draft', 'final'];
 export const HR_PAYROLL_STATUSES  = ['draft', 'paid'];
+export const HR_PAYROLL_ITEM_KINDS = ['prime', 'retenue'];
+export const HR_PAYROLL_CALC_TYPES = ['fixed', 'percent'];
+export const HR_PAYROLL_BASE_REFS  = ['salaire_base', 'brut'];
 
 // Nombre de jours ENTRE deux dates ISO (bornes incluses). 0 si invalide/incohérent.
 export function computeLeaveDays(startISO, endISO) {
@@ -70,6 +73,34 @@ export function evaluationAverage(evals = []) {
 export function computeNetPay(base, bonuses = 0, deductions = 0) {
   const net = (Number(base) || 0) + (Number(bonuses) || 0) - (Number(deductions) || 0);
   return Math.max(0, net);
+}
+
+// Montant résolu d'UNE ligne du catalogue paie pour un salaire de base/brut
+// donnés. Fixe = valeur telle quelle ; pourcentage = taux × base choisie
+// (salaire de base ou brut). Aucun taux fiscal/CNPS supposé : `item.rate` /
+// `item.amount` viennent entièrement de la configuration de l'école.
+export function resolvePayrollItemAmount(item, { baseSalary, brut } = {}) {
+  if (item?.calc_type === 'percent') {
+    const base = item.base_ref === 'salaire_base' ? baseSalary : brut;
+    return Math.round(((Number(base) || 0) * (Number(item.rate) || 0)) / 100);
+  }
+  return Number(item?.amount) || 0;
+}
+
+// Résout TOUTES les lignes cochées d'un bulletin : les primes d'abord
+// (déterminent le brut = base + primes), puis les retenues (peuvent se
+// baser sur ce brut). Chaque item ressort enrichi de son montant `resolved`.
+export function resolvePayrollItems(checkedItems = [], baseSalary) {
+  const primes = checkedItems
+    .filter((i) => i.kind === 'prime')
+    .map((i) => ({ ...i, resolved: resolvePayrollItemAmount(i, { baseSalary, brut: baseSalary }) }));
+  const bonuses = primes.reduce((s, i) => s + i.resolved, 0);
+  const brut = (Number(baseSalary) || 0) + bonuses;
+  const retenues = checkedItems
+    .filter((i) => i.kind === 'retenue')
+    .map((i) => ({ ...i, resolved: resolvePayrollItemAmount(i, { baseSalary, brut }) }));
+  const deductions = retenues.reduce((s, i) => s + i.resolved, 0);
+  return { primes, retenues, bonuses, deductions, brut, net: computeNetPay(baseSalary, bonuses, deductions) };
 }
 
 // Synthèse paie d'un agent : nombre de bulletins, cumul net des bulletins

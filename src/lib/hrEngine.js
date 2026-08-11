@@ -71,6 +71,11 @@ export function evaluationAverage(evals = []) {
   return Math.round((scores.reduce((s, n) => s + n, 0) / scores.length) * 10) / 10;
 }
 
+// Drapeau « actif » d'une ligne : booléen au Cloud, INTEGER (0/1) en LAN.
+// Tester la VÉRACITÉ, jamais `!== false` — `0 !== false` est vrai, ce qui
+// rendait toute désactivation sans effet en LAN (cf. server/_hr_payroll.test.mjs).
+export const isActiveRow = (row) => !!row?.active;
+
 // Net d'un bulletin de paie — registre INDICATIF, aucun calcul fiscal/CNPS.
 export function computeNetPay(base, bonuses = 0, deductions = 0) {
   const net = (Number(base) || 0) + (Number(bonuses) || 0) - (Number(deductions) || 0);

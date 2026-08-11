@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
-import { HR_PAYROLL_ITEM_KINDS, HR_PAYROLL_CALC_TYPES, HR_PAYROLL_BASE_REFS } from '../../lib/hrEngine';
+import { HR_PAYROLL_ITEM_KINDS, HR_PAYROLL_CALC_TYPES, HR_PAYROLL_BASE_REFS, isActiveRow } from '../../lib/hrEngine';
 import { PAYROLL_KIND_LABELS, PAYROLL_KIND_BADGE } from './hrEntities';
 
 // Lignes de DÉPART reprenant les libellés/codes/taux visibles sur un bulletin
@@ -124,7 +124,7 @@ export default function PayrollCatalogModal({ catalog = [], onSave, onDelete, on
                         </span>
                       </td>
                       <td className="px-3 py-2 text-gray-500">{calcLabel(t, item)}</td>
-                      <td className="px-3 py-2 text-center">{item.active === false ? '—' : '✓'}</td>
+                      <td className="px-3 py-2 text-center">{isActiveRow(item) ? '✓' : '—'}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         <button onClick={() => setEditing({ ...item, amount: item.amount ?? '', rate: item.rate ?? '' })} className="text-xs text-gray-400 hover:text-gray-700 mr-2">✎</button>
                         <button onClick={() => remove(item)} className="text-xs text-rose-400 hover:text-rose-600">✕</button>
@@ -188,7 +188,7 @@ export default function PayrollCatalogModal({ catalog = [], onSave, onDelete, on
           )}
           <div className="col-span-2">
             <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input type="checkbox" checked={editing.active !== false} onChange={(e) => set('active', e.target.checked)} className="w-4 h-4" />
+              <input type="checkbox" checked={isActiveRow(editing)} onChange={(e) => set('active', e.target.checked)} className="w-4 h-4" />
               {t('Actif', 'Active', 'Activo')}
             </label>
           </div>

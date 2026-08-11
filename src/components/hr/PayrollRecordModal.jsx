@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
 import { useMoney } from '../../lib/useMoney';
-import { resolvePayrollItems, resolvePayrollItemAmount, HR_PAYROLL_STATUSES } from '../../lib/hrEngine';
+import { resolvePayrollItems, resolvePayrollItemAmount, isActiveRow, HR_PAYROLL_STATUSES } from '../../lib/hrEngine';
 
 // Bulletin de paie — remplace HrRecordModal pour l'onglet Paie : primes et
 // retenues ne sont plus tapées à la main mais COCHÉES depuis le catalogue de
@@ -23,23 +23,26 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
   const [notes, setNotes] = useState(record?.notes || '');
   const [saving, setSaving] = useState(false);
 
-  // Lignes actives du catalogue + lignes déjà attachées mais hors catalogue
-  // (source désactivée/supprimée depuis) — union affichée, jamais perdue.
+  // Lignes ACTIVES du catalogue + lignes déjà attachées au bulletin dont
+  // l'entrée catalogue a depuis été supprimée OU désactivée : ces dernières
+  // sont réinjectées telles quelles (snapshot) pour ne jamais perdre en
+  // silence une donnée déjà émise.
   const rows = useMemo(() => {
-    const active = catalog.filter((c) => c.active !== false);
-    const orphans = items
-      .filter((it) => !it.catalog_id || !catalog.some((c) => c.id === it.catalog_id))
+    const active = catalog.filter(isActiveRow).map((c) => ({ ...c, catalogId: c.id }));
+    const activeIds = new Set(active.map((c) => c.id));
+    const detached = items
+      .filter((it) => !it.catalog_id || !activeIds.has(it.catalog_id))
       .map((it) => ({
-        id: it.catalog_id || `orphan-${it.id}`, code: it.code, name: it.name, kind: it.kind,
-        calc_type: it.calc_type, rate: it.rate, base_ref: it.base_ref, amount: it.amount, orphan: true,
+        id: it.catalog_id || `detached-${it.id}`, catalogId: it.catalog_id || null,
+        code: it.code, name: it.name, kind: it.kind,
+        calc_type: it.calc_type, rate: it.rate, base_ref: it.base_ref, amount: it.amount, detached: true,
       }));
-    return [...active, ...orphans];
+    return [...active, ...detached];
   }, [catalog, items]);
 
-  const [checked, setChecked] = useState(() => new Set([
-    ...items.filter((it) => it.catalog_id).map((it) => it.catalog_id),
-    ...rows.filter((r) => r.orphan).map((r) => r.id),
-  ]));
+  const [checked, setChecked] = useState(() => new Set(rows
+    .filter((r) => r.detached || items.some((it) => it.catalog_id === r.id))
+    .map((r) => r.id)));
   const toggle = (id) => setChecked((s) => {
     const next = new Set(s);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -55,7 +58,7 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
     if (saving) return;
     setSaving(true);
     const resolvedItems = [...resolved.primes, ...resolved.retenues, ...resolved.patronales].map((r) => ({
-      catalog_id: r.orphan ? null : r.id, code: r.code || null, kind: r.kind, name: r.name,
+      catalog_id: r.catalogId ?? null, code: r.code || null, kind: r.kind, name: r.name,
       calc_type: r.calc_type || null, rate: r.rate ?? null, base_ref: r.base_ref || null, resolved: r.resolved,
     }));
     await onSave({
@@ -68,11 +71,14 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
   const fld = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none';
   const lbl = 'block text-xs font-semibold text-gray-500 mb-1';
 
-  const ItemGroup = ({ kind, label }) => {
+  // Fonction, PAS un composant déclaré dans le rendu : un composant recréé à
+  // chaque rendu est un nouveau type pour React, qui démonte puis remonte toute
+  // la liste à chaque frappe dans « Salaire de base ».
+  const itemGroup = (kind, label) => {
     const list = rows.filter((r) => r.kind === kind);
     if (!list.length) return null;
     return (
-      <div>
+      <div key={kind}>
         <p className={lbl}>{label}</p>
         <div className="space-y-1 border border-gray-200 rounded-lg p-2 max-h-40 overflow-y-auto">
           {list.map((r) => {
@@ -84,10 +90,10 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
               <label key={r.id} className="flex items-center justify-between gap-2 text-sm px-1 py-0.5 rounded hover:bg-gray-50">
                 <span className="flex items-center gap-2 min-w-0">
                   <input type="checkbox" className="w-4 h-4 shrink-0" checked={checked.has(r.id)} onChange={() => toggle(r.id)} />
-                  <span className={`truncate ${r.orphan ? 'text-gray-400 italic' : 'text-gray-700'}`}>
+                  <span className={`truncate ${r.detached ? 'text-gray-400 italic' : 'text-gray-700'}`}>
                     {r.code ? `${r.code} — ` : ''}{r.name}
-                    {r.orphan && ` (${t('hors catalogue', 'not in catalog', 'fuera del catálogo')})`}
-                    {!r.orphan && r.calc_type === 'percent' && ` (${r.rate}%)`}
+                    {r.detached && ` (${t('hors catalogue', 'not in catalog', 'fuera del catálogo')})`}
+                    {!r.detached && r.calc_type === 'percent' && ` (${r.rate}%)`}
                   </span>
                 </span>
                 <span className="text-xs text-gray-500 shrink-0">{money(live ?? preview)}</span>
@@ -113,9 +119,9 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
           </div>
         </div>
 
-        <ItemGroup kind="prime" label={t('Primes', 'Bonuses', 'Primas')} />
-        <ItemGroup kind="retenue" label={t('Retenues', 'Deductions', 'Retenciones')} />
-        <ItemGroup kind="patronale" label={t('Charges patronales (info — hors net)', 'Employer charges (info — excluded from net)', 'Cargas patronales (info — fuera del neto)')} />
+        {itemGroup('prime', t('Primes', 'Bonuses', 'Primas'))}
+        {itemGroup('retenue', t('Retenues', 'Deductions', 'Retenciones'))}
+        {itemGroup('patronale', t('Charges patronales (info — hors net)', 'Employer charges (info — excluded from net)', 'Cargas patronales (info — fuera del neto)'))}
         {!rows.length && (
           <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             {t('Catalogue vide — ouvrez « ⚙ Catalogue » pour configurer vos primes/retenues.',

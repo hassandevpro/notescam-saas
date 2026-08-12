@@ -11,6 +11,11 @@ export const NOTIFICATION_CHANNELS = ['internal', 'email', 'sms', 'whatsapp'];
 // État d'implémentation par canal (piloté par le service ; défaut = interne seul).
 export const CHANNEL_IMPLEMENTED = { internal: true, email: false, sms: false, whatsapp: false };
 
+// Priorité d'une notification — décide si le SMS (coûteux) est autorisé :
+// 'normal' (défaut) ne l'atteint jamais ; 'important'/'urgent' cf. externalHandler
+// (mise en file) et l'edge notify-dispatch (décision finale, budget compris).
+export const NOTIFICATION_PRIORITIES = ['normal', 'important', 'urgent'];
+
 // Normalise un message + filtre les canaux inconnus (défaut : interne).
 export function normalizeMessage(msg = {}) {
   const channels = (msg.channels && msg.channels.length ? msg.channels : ['internal'])
@@ -22,6 +27,7 @@ export function normalizeMessage(msg = {}) {
     link: msg.link || null,
     channels: channels.length ? channels : ['internal'],
     recipients: Array.isArray(msg.recipients) ? msg.recipients : [],
+    priority: NOTIFICATION_PRIORITIES.includes(msg.priority) ? msg.priority : 'normal',
   };
 }
 

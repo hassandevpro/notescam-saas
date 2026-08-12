@@ -1,0 +1,56 @@
+📘 NotesCam — Installation sur le serveur Ubuntu de l'école
+
+Bonjour 👋
+Ce dossier contient tout le nécessaire pour installer NotesCam sur le serveur
+Ubuntu de l'école. L'installation prend 2-3 minutes et ne nécessite pas
+d'internet une fois installée.
+
+✅ Ce qu'il vous faut
+- Ce dossier (notescam-linux-x64) copié sur le serveur Ubuntu
+- Un accès administrateur sur ce serveur (mot de passe "sudo")
+
+📥 Étapes d'installation
+
+1️⃣ Copier ce dossier sur le serveur (clé USB, ou depuis un autre PC avec) :
+      scp -r notescam-linux-x64 utilisateur@ADRESSE-IP-DU-SERVEUR:~
+
+2️⃣ Se connecter au serveur (directement au clavier, ou à distance) :
+      ssh utilisateur@ADRESSE-IP-DU-SERVEUR
+
+3️⃣ Aller dans le dossier et lancer l'installation :
+      cd notescam-linux-x64
+      sudo ./install.sh
+
+4️⃣ Le script affiche à la fin un message comme :
+      [OK] NotesCam démarré et actif au boot.
+        Local  : http://localhost:8080
+        Réseau : http://192.168.1.XX:8080
+   👉 Notez cette adresse "Réseau" : c'est elle que tout le monde utilisera.
+
+👤 Première utilisation
+Depuis un navigateur (sur le serveur ou n'importe quel PC de l'école),
+ouvrir l'adresse ci-dessus, puis cliquer sur « Inscription » pour créer :
+- le compte de l'administrateur (directeur/directrice)
+- l'établissement (nom, type, région, système : francophone/anglophone/bilingue)
+Ensuite, ajouter les classes, matières et élèves comme d'habitude.
+
+🌐 Accès depuis les autres ordinateurs de l'école
+Tous les PC connectés au même réseau (Wi-Fi/câble de l'école) ouvrent un
+navigateur et tapent l'adresse « Réseau » notée à l'étape 4
+(ex. http://192.168.1.XX:8080).
+
+⚠️ Important
+- Ce serveur doit rester allumé et connecté au réseau (au moins pendant les
+  heures de saisie). Redémarrage automatique après un redémarrage électrique.
+- Les sauvegardes sont automatiques (toutes les 2h) — rien à faire.
+- En cas de coupure/plantage, le logiciel redémarre tout seul.
+- Ne jamais lancer "uninstall.sh --purge" sans être sûr : cette commande peut
+  effacer les données. La commande "uninstall.sh" simple les garde toujours.
+
+🔧 Pour l'IT de l'école (commandes utiles une fois installé)
+   État du service     : sudo systemctl status notescam
+   Voir les journaux    : journalctl -u notescam -f
+   Redémarrer           : sudo systemctl restart notescam
+   Changer le port/config : modifier /etc/notescam/notescam.env puis redémarrer
+
+📞 Besoin d'aide ? Répondez simplement à ce message sur WhatsApp.

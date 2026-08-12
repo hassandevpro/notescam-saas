@@ -59,6 +59,16 @@ verify_jwt = false
 [functions.provision-tenant]
 verify_jwt = false
 
+# ── Notifications externes (SMS/email) ───────────────────────────────────────
+# Appelée par un scheduler (pg_cron ou invocation manuelle), pas par un
+# navigateur : authentifiée par secret partagé (DISPATCH_SECRET), pas un JWT.
+[functions.notify-dispatch]
+verify_jwt = false
+
+# Appelée par le serveur LAN (jeton scellé de l'école), pas par un navigateur.
+[functions.sms-settings]
+verify_jwt = false
+
 # ── Divers ──────────────────────────────────────────────────────────────────
 [functions.check-update]
 verify_jwt = false

@@ -144,6 +144,18 @@ ensureColumn('students', 'sport_aptitude', "sport_aptitude TEXT NOT NULL DEFAULT
 // installs existantes : colonne ajoutée nullable (aucune vraie donnée de notes primaire APC en
 // prod à ce jour ; trimestre_id reste en base, simplement plus référencé par le code).
 ensureColumn('prim_notes', 'ua', 'ua INTEGER');
+// Priorité d'une notification (normal|important|urgent) — décide côté Cloud si
+// le canal SMS est autorisé (coût maîtrisé). Doit exister en LAN pour que les
+// SMS déclenchés depuis le serveur LAN (server/notify.js) gardent leur priorité
+// en remontant au Cloud (SELECT * FROM notification_outbox pousse tel quel :
+// sans cette colonne, la valeur serait perdue et retomberait au défaut Postgres
+// 'normal', qui n'est JAMAIS envoyé par SMS — un SMS urgent LAN ne partirait pas).
+ensureColumn('notification_outbox', 'priority', "priority TEXT NOT NULL DEFAULT 'normal'");
+// Téléphone du parent/tuteur — miroir de la colonne Cloud (supabase_sprint15.sql,
+// supabase_fix_schema.sql). Sans elle, les nouveaux déclencheurs SMS (absence,
+// incident grave, rappel de paiement, bulletin disponible) ne trouveraient jamais
+// d'adresse en édition LAN (select() reviendrait toujours undefined).
+ensureColumn('students', 'parent_phone', 'parent_phone TEXT');
 ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
 // Attributions de gouvernance : fenêtre de validité + statut (Phase 1 rôles).
 ensureColumn('user_governance_roles', 'start_date', 'start_date TEXT');
@@ -340,8 +352,11 @@ export const SYNCED_TABLES = new Set([
   // Modèle CIBLE v3 : périodes budgétaires dédiées + allocations par ligne (période/secteur)
   // + réallocation entre lignes (transfert de montant annuel, tracé).
   'budget_periods', 'budget_line_periods', 'budget_line_sectors', 'budget_line_reallocations',
-  // Ressources Humaines (satellites du dossier staff ; pas de paie).
-  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  // Ressources Humaines (satellites du dossier staff). hr_payroll = registre
+  // indicatif (net calculé côté app) ; hr_payroll_catalog/hr_payroll_items =
+  // catalogue primes/retenues (fixe ou % configuré par l'école) + snapshot par bulletin.
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events', 'hr_payroll',
+  'hr_payroll_catalog', 'hr_payroll_items',
   // Reports (Signalements) — commentaires + historique.
   'signalement_comments', 'signalement_history',
   // Notifications (moteur multi-canaux ; interne + file d'envoi externe prévue).
@@ -389,6 +404,22 @@ ensureColumn('school_users', 'remote_access_allowed', 'remote_access_allowed INT
 ensureColumn('budget_expenses', 'cancel_reason', 'cancel_reason TEXT');
 ensureColumn('budget_expenses', 'cancelled_by',  'cancelled_by TEXT');
 ensureColumn('budget_expenses', 'cancelled_at',  'cancelled_at TEXT');
+
+// Identité légale (bulletin de paie façon Cameroun) — toutes optionnelles,
+// aucune saisie obligatoire, le bulletin omet la ligne si vide.
+ensureColumn('schools', 'niu',          'niu TEXT');          // numéro d'identifiant unique fiscal (employeur)
+ensureColumn('schools', 'cnps_number',  'cnps_number TEXT');  // n° immatriculation CNPS employeur
+ensureColumn('schools', 'payslip_font_size', 'payslip_font_size TEXT'); // small|normal|large|xlarge (null = normal)
+// Jours payés du mois : reproduit le décompte « 30,00 j × 2 500,00 » de la
+// ligne SALAIRE DE BASE du bulletin légal. Optionnel (null = pas de décompte).
+ensureColumn('hr_payroll', 'worked_days', 'worked_days REAL');
+ensureColumn('staff', 'convention_collective', 'convention_collective TEXT');
+ensureColumn('staff', 'categorie_echelon',     'categorie_echelon TEXT'); // ex. "5/A"
+ensureColumn('staff', 'situation_familiale',   'situation_familiale TEXT');
+ensureColumn('staff', 'cnps_number',           'cnps_number TEXT'); // n° CNPS de l'agent
+ensureColumn('staff', 'niu',                   'niu TEXT');
+ensureColumn('staff', 'cni_number',            'cni_number TEXT');
+ensureColumn('staff', 'bank_account',          'bank_account TEXT');
 
 // Module Budgets — dates réelles d'exercice (Phase D) + mois de début d'année
 // scolaire configurable par établissement (défaut septembre).
@@ -456,7 +487,8 @@ export const ALLOWED_TABLES = new Set([
   'budget_reallocations', 'budget_revisions',
   'budget_periods', 'budget_line_periods', 'budget_line_sectors', 'budget_line_reallocations',
   'governance_roles', 'user_governance_roles', 'governance_role_history',
-  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events', 'hr_payroll',
+  'hr_payroll_catalog', 'hr_payroll_items',
   'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',

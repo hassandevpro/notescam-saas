@@ -612,7 +612,9 @@ CREATE TABLE IF NOT EXISTS budget_line_reallocations (
 CREATE INDEX IF NOT EXISTS idx_blr_school ON budget_line_reallocations(school_id, academic_year);
 
 -- --- Ressources Humaines (satellites du dossier `staff`) -----
--- Pas de paie. Chaque entité est rattachée à un agent (staff_id).
+-- Chaque entité est rattachée à un agent (staff_id). `hr_payroll` est un
+-- registre INDICATIF (net = base + primes − retenues, saisi/calculé) : aucun
+-- calcul fiscal/CNPS, comme le salaire déjà présent sur hr_contracts.
 CREATE TABLE IF NOT EXISTS hr_contracts (
   id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
   staff_id TEXT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
@@ -647,11 +649,43 @@ CREATE TABLE IF NOT EXISTS hr_career_events (
   event_date TEXT, type TEXT NOT NULL DEFAULT 'autre', title TEXT, description TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS hr_payroll (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  staff_id TEXT NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  period TEXT, base_salary INTEGER, worked_days REAL, bonuses INTEGER NOT NULL DEFAULT 0,
+  deductions INTEGER NOT NULL DEFAULT 0, net_salary INTEGER,
+  status TEXT NOT NULL DEFAULT 'draft', paid_date TEXT, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE INDEX IF NOT EXISTS idx_hr_contracts_staff ON hr_contracts(staff_id);
 CREATE INDEX IF NOT EXISTS idx_hr_leaves_staff ON hr_leaves(staff_id);
 CREATE INDEX IF NOT EXISTS idx_hr_evaluations_staff ON hr_evaluations(staff_id);
 CREATE INDEX IF NOT EXISTS idx_hr_attendance_staff ON hr_attendance(staff_id);
 CREATE INDEX IF NOT EXISTS idx_hr_career_staff ON hr_career_events(staff_id);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_staff ON hr_payroll(staff_id);
+
+-- Catalogue de primes/retenues (configuré une fois par l'école) + snapshot par
+-- bulletin. `amount` (calc_type='fixed') ou `rate`% d'une base (calc_type=
+-- 'percent', base_ref='salaire_base'|'brut') — RÉSOLU côté app (hrEngine),
+-- AUCUN taux fiscal/CNPS supposé par défaut ici.
+CREATE TABLE IF NOT EXISTS hr_payroll_catalog (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  code TEXT, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'prime',
+  calc_type TEXT NOT NULL DEFAULT 'fixed',
+  amount INTEGER, rate REAL, base_ref TEXT NOT NULL DEFAULT 'brut',
+  active INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL DEFAULT 0, notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS hr_payroll_items (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  payroll_id TEXT NOT NULL REFERENCES hr_payroll(id) ON DELETE CASCADE,
+  catalog_id TEXT REFERENCES hr_payroll_catalog(id) ON DELETE SET NULL,
+  code TEXT, kind TEXT NOT NULL, name TEXT NOT NULL,
+  calc_type TEXT, rate REAL, base_ref TEXT, amount INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_catalog_school ON hr_payroll_catalog(school_id);
+CREATE INDEX IF NOT EXISTS idx_hr_payroll_items_payroll ON hr_payroll_items(payroll_id);
 
 -- --- Gouvernance du complexe (rôles de direction) ------------
 -- Rôles cumulables au rôle de base (school_users.role INCHANGÉ). Servent aux

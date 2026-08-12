@@ -28,6 +28,18 @@ export function parentWhatsappUrl(student, school, schoolYear) {
   return `${base}?text=${encodeURIComponent(msg)}`;
 }
 
+// Lien WhatsApp pré-rempli pour un message ARBITRAIRE (pas seulement le lien
+// portail) — sert les campagnes « WhatsApp d'abord, SMS en secours » (rappels
+// de paiement, bulletins disponibles, cf. WhatsappFirstModal). Gratuit, aucun
+// fournisseur à brancher : le destinataire ouvre WhatsApp avec le texte prêt,
+// c'est un humain (le staff) qui appuie sur envoyer — donc pas automatisable en
+// masse, contrairement au SMS qui reste le canal de repli pour ça.
+export function whatsappLinkFor(phone, message) {
+  const num = waNumber(phone);
+  if (!num) return null;
+  return `https://wa.me/${num}?text=${encodeURIComponent(message)}`;
+}
+
 // Construit la liste des liens parents pour un ensemble d'élèves générables.
 export function buildParentLinks(students, school, schoolYear) {
   return students.map((s) => ({

@@ -11,6 +11,8 @@ import Modal from '../components/Modal';
 import AssetImg from '../components/AssetImg';
 import '../styles/bulletin.css';
 import { useT } from '../lib/i18n';
+import { supabase } from '../lib/supabase';
+import WhatsappFirstModal from '../components/notify/WhatsappFirstModal';
 import BulletinPhoto from '../components/bulletins/BulletinPhoto';
 import BoletinGE from '../components/bulletins/BoletinGE';
 import BoletinGEDetalle from '../components/bulletins/BoletinGEDetalle';
@@ -1686,6 +1688,9 @@ export default function Bulletins() {
   const [sidebarSearch,   setSidebarSearch]   = useState('');
   const [screenshotBlur,  setScreenshotBlur]  = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [notifyingBulletins, setNotifyingBulletins] = useState(false);
+  const [notifyBulletinsMsg, setNotifyBulletinsMsg] = useState(null);
+  const [waBulletinFamilies, setWaBulletinFamilies] = useState(null); // WhatsApp d'abord, SMS en secours
   const [printCount,      setPrintCount]      = useState(() => {
     if (typeof window === 'undefined') return 0;
     try {
@@ -2269,6 +2274,42 @@ export default function Bulletins() {
     setPrintAll(true);
   };
 
+  // Rappel « bulletins disponibles » — action EXPLICITE de l'admin/direction,
+  // JAMAIS automatique (un bulletin devient visible côté ParentPortal dès la
+  // saisie, sans notion de « publication »). WhatsApp D'ABORD (lien wa.me
+  // prérempli, gratuit) : le staff ouvre un lien par famille et l'envoie
+  // lui-même. Le SMS reste le repli pour les familles non jointes — un fan-out
+  // SMS à toute une classe à chaque séquence exploserait le budget sinon (cf.
+  // maîtrise des coûts SMS, WhatsappFirstModal).
+  const handleOpenNotifyBulletinsReady = async () => {
+    if (!school?.id || !classStudents.length) return;
+    setNotifyingBulletins(true); setNotifyBulletinsMsg(null);
+    const ids = classStudents.map((s) => s.id);
+    const { data: phones } = await supabase.from('students').select('id, parent_phone').in('id', ids);
+    const phoneById = new Map((phones || []).map((r) => [r.id, r.parent_phone]));
+    let noPhone = 0;
+    const families = [];
+    for (const student of classStudents) {
+      const phone = phoneById.get(student.id);
+      if (!phone) { noPhone++; continue; }
+      families.push({
+        id: student.id, name: student.name, phone,
+        message: `Le bulletin de ${student.name} est disponible. Consultez-le via l'espace parent de l'établissement.`,
+      });
+    }
+    setNotifyingBulletins(false);
+    if (!families.length) {
+      setNotifyBulletinsMsg(t('Aucun numéro de téléphone connu.', 'No known phone number.'));
+      setTimeout(() => setNotifyBulletinsMsg(null), 6000);
+      return;
+    }
+    if (noPhone) {
+      setNotifyBulletinsMsg(t(`${noPhone} famille(s) sans numéro connu, ignorée(s).`, `${noPhone} famili(es) without a known number, skipped.`));
+      setTimeout(() => setNotifyBulletinsMsg(null), 6000);
+    }
+    setWaBulletinFamilies(families);
+  };
+
   const handleChangeFormat = (key) => {
     setFormat(key);
   };
@@ -2400,6 +2441,15 @@ export default function Bulletins() {
                       <span className="ml-1 text-xs text-amber-500">🔒</span>
                     )}
                   </button>
+                  {role === 'admin' && (
+                    <button
+                      onClick={handleOpenNotifyBulletinsReady} disabled={notifyingBulletins}
+                      className="btn-secondary disabled:opacity-50"
+                      title={t('Notifier les parents de cette classe (WhatsApp puis SMS)', 'Notify this class\'s parents (WhatsApp then SMS)')}
+                    >
+                      {notifyingBulletins ? t('Préparation…', 'Preparing…') : t('Notifier les parents', 'Notify parents')}
+                    </button>
+                  )}
                   {selectedStudent && (
                     <button
                       onClick={handlePrintSingle}
@@ -2422,6 +2472,17 @@ export default function Bulletins() {
             </div>
           )}
         </div>
+        {notifyBulletinsMsg && (
+          <p className="text-xs text-emerald-600 -mt-2 mb-3 no-print">{notifyBulletinsMsg}</p>
+        )}
+        {waBulletinFamilies && (
+          <Modal title={t('Bulletin disponible', 'Report card available')} onClose={() => setWaBulletinFamilies(null)} size="lg">
+            <WhatsappFirstModal
+              schoolId={school.id} families={waBulletinFamilies} smsType="bulletin_ready" smsTitle="Bulletin disponible"
+              t={t} onClose={() => setWaBulletinFamilies(null)}
+            />
+          </Modal>
+        )}
 
         {/* Sélecteur de format — masqué pour Guinea Ecuatorial (un seul format
             officiel). Pour les classes MINESEC, on AJOUTE l'option officielle

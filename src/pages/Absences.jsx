@@ -113,6 +113,7 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
     setSaving(true);
 
     const ops = [];
+    const newlyAbsent = []; // élèves nouvellement marqués 'absent' (pas une correction) → SMS parent
     for (const student of classStudents) {
       const newStatus  = marks[student.id] ?? null;
       const existingId = existing[student.id];
@@ -133,6 +134,7 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
           status:      newStatus,
           recorded_by: userId,
         }));
+        if (newStatus === 'absent') newlyAbsent.push(student);
       }
     }
 
@@ -142,6 +144,20 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
+
+    // SMS parent — uniquement pour une absence NOUVELLE (pas une correction de
+    // marque déjà existante) : évite de renotifier à chaque re-sauvegarde.
+    if (newlyAbsent.length) {
+      import('../lib/notificationProducers').then(({ notifyParent }) => {
+        for (const student of newlyAbsent) {
+          notifyParent({
+            schoolId, studentId: student.id, priority: 'important', type: 'absence',
+            title: 'Absence signalée',
+            body: `${student.name} a été marqué(e) absent(e) le ${date}${session ? ` (${session})` : ''}.`,
+          });
+        }
+      }).catch(() => { /* notification best-effort */ });
+    }
   };
 
   const markedCount = Object.values(marks).filter(Boolean).length;

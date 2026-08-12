@@ -57,6 +57,12 @@ packaging/_cache/
 packaging/_verify/
 packaging/Output/
 
+# Idem pour le paquet Linux (runtime Node téléchargé + build + tarball) :
+# ~440 Mo régénérés par packaging/linux/build-package.sh, jamais dans le dépôt.
+packaging/linux/_stage/
+packaging/linux/_cache/
+packaging/linux/Output/
+
 # Vercel
 .vercel/
 

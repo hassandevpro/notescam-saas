@@ -10,7 +10,7 @@ import { mkdirSync, createReadStream, existsSync, writeFileSync, unlinkSync } fr
 import { randomUUID } from 'node:crypto';
 
 import { db, getSchool, DATA_DIR } from './db.js';
-import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey, licensingEnabled, machineFingerprint } from './security.js';
+import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey, licensingEnabled, machineFingerprint, machineFingerprints } from './security.js';
 import { runQuery, runBatch } from './query.js';
 import { runRpc } from './rpc.js';
 import { scheduleBackups, runBackup } from './backup.js';
@@ -171,11 +171,18 @@ const LICENSE_ERR = {
 
 app.post('/api/license/activate', (req, reply) => {
   const { license_key } = req.body || {};
-  const here = machineFingerprint();
-  const res = verifyLicenseKey(license_key, { machineId: here });
+  const candidates = machineFingerprints();
+  const res = verifyLicenseKey(license_key, { machineIds: candidates });
   if (!res.ok) {
-    return reply.code(400).send({ data: null, error: { message: LICENSE_ERR[res.reason] || `Licence invalide : ${res.reason}` } });
+    // Sur un refus de verrou machine, on affiche les DEUX identifiants : sans
+    // ça le support ne peut pas distinguer « mauvaise clé » de « empreinte du
+    // poste qui a changé », les deux donnant exactement le même message.
+    const detail = res.reason === 'machine_mismatch'
+      ? ` (clé émise pour ${res.payload?.machine_id} — ce poste : ${candidates[0]})`
+      : '';
+    return reply.code(400).send({ data: null, error: { message: (LICENSE_ERR[res.reason] || `Licence invalide : ${res.reason}`) + detail } });
   }
+  const here = res.machineId || candidates[0];
   db.prepare(`INSERT INTO license_activation (id, license_key, payload, activated_at, machine_id)
               VALUES (1, ?, ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET license_key=excluded.license_key, payload=excluded.payload, activated_at=excluded.activated_at, machine_id=excluded.machine_id`)

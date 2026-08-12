@@ -38,7 +38,7 @@ import { assembleScBulletin, scDisciplineConseil, matieresForSerieClasse } from 
 import { perSubjectRanksAndStats, classProfile } from '../lib/scBulletinPdf';
 import { teacherByMatiere as teacherByMatiereMap, teacherIndexById, normName } from '../lib/teacherNames';
 import { resolveCountryCode, bulletinOfficials } from '../countries';
-import { gradingOpts, geGradeMax } from '../lib/useCountry';
+import { gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
 import { bulletinFontFamily } from '../lib/schoolTheme';
 import { buildCardId, qrDataUrl } from '../lib/idCardService';
 
@@ -265,9 +265,20 @@ const CM_PAPER_STYLE = { fontFamily: 'Arial, sans-serif', fontSize: '10px', maxW
 // Applique la police de bulletin choisie par l'école (Settings) au papier A4.
 const cmPaper = (school) => ({ ...CM_PAPER_STYLE, fontFamily: bulletinFontFamily(school) });
 
+// Maternelle & primaire relèvent du FONDAMENTAL : tutelle MINEDUB (Éducation de
+// Base) et non MINESEC, et l'établissement est dirigé par un directeur/directrice
+// et non un principal. Détection robuste : la section déduite du nom de la classe
+// prime, `cycle` en base ne sert que de repli (il est parfois faux en import).
+function isBasicClass(cls) {
+  const sec = classSectionKey(cls);
+  return sec === 'maternelle' || sec === 'primaire'
+    || (!!cls?.cycle && cls.cycle !== 'secondaire');
+}
+
 // ── En-tête institutionnel partagé (ex-APC) ───────────────────────────────────
-// Disposition République du Cameroun / MINESEC / Délégations + logo + infos élève.
-function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period, qrSrc }) {
+// Disposition République du Cameroun / MINESEC ou MINEDUB / Délégations + logo
+// + infos élève. `basic` bascule la tutelle vers l'Éducation de Base.
+function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period, qrSrc, basic }) {
   const isEnSys     = sys === 'EN';
   const isAnnuel    = period.value === 'annuel';
   const isTrimestre = !isAnnuel && period.seqs.length > 1;
@@ -283,7 +294,7 @@ function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period, 
   // En-tête officiel hérité du PAYS choisi à la configuration (Cameroun bilingue,
   // Côte d'Ivoire / Gabon / Congo mono-langue…). Le N° d'établissement apparaît
   // sous les délégations. Repli Cameroun si la config pays n'expose rien.
-  const officials = bulletinOfficials(school, { sys });
+  const officials = bulletinOfficials(school, { sys, basic });
   const blocks    = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
   const leftW     = bilingual ? '33%' : '50%';
@@ -386,7 +397,7 @@ function BulletinPrimaryHeader({ school, qrSrc }) {
 
 // ── Pied institutionnel partagé (ex-APC) ──────────────────────────────────────
 // 4 colonnes (Résultat / Profil classe / Travail / Conduite) + signatures + mention.
-function BulletinCMFooter({ school, sys, studentAvg, maxScale, passed, decision, apprGlobal, rank, stats, abs }) {
+function BulletinCMFooter({ school, sys, studentAvg, maxScale, passed, decision, apprGlobal, rank, stats, abs, basic }) {
   const isEnSys = sys === 'EN';
   const { absJ, absNJ, conduite, th, encouragement, felicitation, averTravail, blameTravail, exclusions, averConduite, blameConduite } = abs;
 
@@ -455,7 +466,11 @@ function BulletinCMFooter({ school, sys, studentAvg, maxScale, passed, decision,
               <strong style={{ fontSize: '9px' }}>{L(sys, 'Le Conseil de Classe', 'Class Council')}</strong>
             </td>
             <td style={{ ...CM_CELL, width: '33%', textAlign: 'center', verticalAlign: 'top', paddingTop: 5 }}>
-              <strong style={{ fontSize: '9px' }}>{L(sys, 'LE PRINCIPAL', 'THE PRINCIPAL')}</strong>
+              <strong style={{ fontSize: '9px' }}>
+                {basic
+                  ? L(sys, 'LA DIRECTRICE / LE DIRECTEUR', 'THE HEAD TEACHER')
+                  : L(sys, 'LE PRINCIPAL', 'THE PRINCIPAL')}
+              </strong>
               {school?.signature_url && (
                 <AssetImg src={school.signature_url} alt="Signature" style={{ height: 32, display: 'block', margin: '2px auto' }} />
               )}
@@ -484,11 +499,15 @@ function BulletinClassic({ school, cls, student, subjects, subjectGrades, studen
   const decision      = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
   const apprGlobal    = getAppreciation(studentAvg, school?.grade_scale, sys);
   const abs           = getAbsCond(gradeMap, classId, student.id, period.seqs);
+  // Une classe de maternelle/primaire atterrit ici pour ses bulletins TRIMESTRIELS
+  // (BulletinPrimaire ne prend que l'annuel). Elle doit alors porter la tutelle
+  // MINEDUB et la signature du directeur, pas l'en-tête MINESEC du secondaire.
+  const basic         = isBasicClass(cls);
 
   return (
     <div className="bulletin-paper" style={cmPaper(school)}>
       {/* En-tête institutionnel mutualisé (ex-APC) */}
-      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} qrSrc={qrSrc} />
+      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} qrSrc={qrSrc} basic={basic} />
 
       {/* Tableau détaillé des matières — design Classique conservé (notes, coef, M×C, appréciations, couleurs, calculs) */}
       <table className="bulletin-table">
@@ -539,7 +558,7 @@ function BulletinClassic({ school, cls, student, subjects, subjectGrades, studen
       <BulletinCMFooter
         school={school} sys={sys} studentAvg={studentAvg} maxScale={maxScale}
         passed={passed} decision={decision} apprGlobal={apprGlobal}
-        rank={rank} stats={stats} abs={abs}
+        rank={rank} stats={stats} abs={abs} basic={basic}
       />
     </div>
   );
@@ -1485,7 +1504,10 @@ function BulletinRenderer({ format, gradeMap, classId, cycle, period, countryCod
   if (cycle === 'maternelle') {
     return <BulletinMaternelle {...props} gradeMap={gradeMap} classId={classId} />;
   }
-  if (cycle === 'primaire' && period.seqs.length === 3) {
+  // Bulletin primaire de SYNTHÈSE = l'annuel. On teste la période elle-même et
+  // non le nombre de séquences agrégées : en mode séquences l'annuel en compte 6
+  // et non 3, ce que l'ancien test « length === 3 » ratait silencieusement.
+  if (cycle === 'primaire' && period.value === 'annuel') {
     return <BulletinPrimaire {...props} gradeMap={gradeMap} classId={classId} />;
   }
   if (cycle === 'secondaire' && period.value === 'annuel' && format !== 'modern' && format !== 'apc') {
@@ -1777,6 +1799,13 @@ export default function Bulletins() {
   const isFundamentalClass = isMat || isPrim || selClassSection === 'maternelle' || selClassSection === 'primaire';
   const isSecondaryClass   = !isFundamentalClass && (isApc || isSc || cycle === 'secondaire' || selClassSection === 'premier_cycle' || selClassSection === 'second_cycle');
 
+  // Primaire CLASSIQUE suivant le rythme séquentiel choisi par l'établissement
+  // (Paramètres → Mode d'évaluation du primaire). Le primaire APC (`isPrim`) et
+  // la maternelle gardent leurs propres écrans et restent trimestriels.
+  const primSequences = !isPrim && !isMat
+    && (selClassSection === 'primaire' || cycle === 'primaire')
+    && primaryPeriodMode(school) === 'sequences';
+
   const periodsForClass =
     // APC officiel : 6 séquences + 3 trimestres + annuel, quel que soit le système
     // (le référentiel MINESEC est trimestriel à 2 séquences ; l'annuel agrège T1/T2/T3).
@@ -1785,7 +1814,7 @@ export default function Bulletins() {
       : schoolCountryCode === 'guinea_eq'
         ? PERIODS_GE
         : isFundamentalClass
-          ? PERIODS_PRIMAIRE
+          ? (primSequences ? PERIODS : PERIODS_PRIMAIRE)
           : sys === 'EN' ? PERIODS_EN : PERIODS;
   const period = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0];
 
@@ -2151,7 +2180,14 @@ export default function Bulletins() {
     // (ou terms) pour collège/lycée. Robuste même si `cycle` en base est erroné.
     const newSection = classSectionKey(cls);
     const newFundamental = newSection === 'maternelle' || newSection === 'primaire' || (cls?.cycle && cls.cycle !== 'secondaire');
+    // Primaire classique en mode séquences : ses périodes viennent de PERIODS,
+    // pas de PERIODS_PRIMAIRE — 'tri_1' n'y existe pas et laisserait le sélecteur
+    // retomber en silence sur la première option.
+    const newPrimSeq = newFundamental && newSection === 'primaire'
+      && resolveClassEngine(school, cls) !== 'apc_primaire'
+      && primaryPeriodMode(school) === 'sequences';
     if (schoolCountryCode === 'guinea_eq') setPeriodKey('trim_1');
+    else if (newPrimSeq)                   setPeriodKey('seq_1');
     else if (newFundamental)               setPeriodKey('tri_1');
     else if (newSys === 'EN')              setPeriodKey('term_1');
     else                                   setPeriodKey('seq_1');
@@ -2636,7 +2672,7 @@ export default function Bulletins() {
                       <option value="annuel">Annual (Term 1 + Term 2 + Term 3)</option>
                     </optgroup>
                   </>
-                ) : isSecondaryClass ? (
+                ) : (isSecondaryClass || primSequences) ? (
                   <>
                     <optgroup label={t('Séquences', 'Sequences')}>
                       {PERIODS.filter((p) => p.seqs.length === 1).map((p) => (

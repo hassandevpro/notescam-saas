@@ -45,6 +45,10 @@ yarn-error.log*
 # Données du serveur LAN (base SQLite, sauvegardes, fichiers, secret JWT)
 server/data/
 server/_test_data/
+# Base de démonstration régénérable (scripts/seed-college-la-retraite.mjs).
+# Le commentaire doit être sur SA PROPRE ligne : en fin de motif, le « # » est
+# pris au pied de la lettre et la règle ne filtre plus rien.
+server/data-demo/
 server/*.log
 
 # Clé privée de signature des licences — NE JAMAIS COMMITER (la publique, si)

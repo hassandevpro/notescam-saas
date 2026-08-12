@@ -451,6 +451,7 @@ export default function Settings() {
         cnps_number:      school.cnps_number       || '',
         payslip_font_size: school.payslip_font_size || 'normal',
         grade_entry_mode: school.grade_entry_mode === 'subject' ? 'subject' : 'principal',
+        primary_period_mode: school.primary_period_mode === 'sequences' ? 'sequences' : 'trimestres',
         // Deux mondes présentés à l'admin : Classique vs Officiel (unifié). Tout
         // drapeau officiel « historique » (minesec/minedub…) est remonté sur 'officiel'.
         bulletin_engine: isOfficialEngine(school.bulletin_engine) ? 'officiel' : 'classic',
@@ -886,6 +887,57 @@ export default function Settings() {
                     "Pensez à affecter chaque matière à un enseignant dans Matières. Une matière sans enseignant ne sera saisissable par aucun professeur de matière.",
                     'Remember to assign each subject to a teacher in Subjects. A subject without a teacher cannot be entered by any subject teacher.',
                     'Asigne cada asignatura a un profesor en Asignaturas.',
+                  )}
+                </div>
+              )}
+            </Section>
+
+            {/* ── Rythme d'évaluation du primaire classique ────────────────── */}
+            <Section title={t("Rythme d'évaluation du primaire", 'Primary assessment rhythm', 'Ritmo de evaluación de primaria')} className="mt-6">
+              <p className="text-sm text-gray-500 mb-4">
+                {t(
+                  "Ne concerne que le primaire classique. Le primaire APC (compétences) et la maternelle (domaines) gardent leurs propres écrans, toujours trimestriels.",
+                  'Applies to classic primary only. Competency-based primary and nursery keep their own screens, always per term.',
+                  'Solo afecta a la primaria clásica. La primaria por competencias y preescolar no cambian.',
+                )}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { value: 'trimestres',
+                    title: t('Trimestres', 'Terms', 'Trimestres'),
+                    desc:  t('3 périodes — une note par trimestre.', '3 periods — one mark per term.', '3 periodos — una nota por trimestre.') },
+                  { value: 'sequences',
+                    title: t('Séquences', 'Sequences', 'Secuencias'),
+                    desc:  t('6 séquences, 2 par trimestre — le rythme du collège.', '6 sequences, 2 per term — the secondary rhythm.', '6 secuencias, 2 por trimestre.') },
+                ].map((opt) => {
+                  const active = (form.primary_period_mode || 'trimestres') === opt.value;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      disabled={!isAdmin}
+                      onClick={() => setForm((f) => ({ ...f, primary_period_mode: opt.value }))}
+                      className={`text-left rounded-xl border p-4 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                        active ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-brand-600' : 'border-gray-300'}`}>
+                          {active && <span className="w-2 h-2 rounded-full bg-brand-600" />}
+                        </span>
+                        <span className="font-semibold text-gray-900 text-sm">{opt.title}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1.5 ml-6">{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {(form.primary_period_mode || 'trimestres') === 'sequences' && (
+                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                  {t(
+                    "À ne basculer qu'avant de commencer les saisies. Les notes primaires déjà enregistrées en trimestres 1, 2 et 3 seraient relues comme les séquences 1, 2 et 3 : l'ancien Trimestre 2 se retrouverait alors dans le Trimestre 1, qui couvre les séquences 1 et 2.",
+                    'Switch before you start entering marks. Primary marks already saved as terms 1, 2 and 3 would be read as sequences 1, 2 and 3: the old Term 2 would land inside Term 1, which covers sequences 1 and 2.',
+                    'Cambie antes de capturar notas: las notas ya guardadas cambiarían de trimestre.',
                   )}
                 </div>
               )}

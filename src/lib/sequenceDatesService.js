@@ -1,16 +1,16 @@
 import { supabase } from './supabase';
+import { ALL_CALENDAR_PERIODS } from './calendarTracks';
 
-export const SEQ_DEFINITIONS = [
-  { key: 'fr_seq_1',  label: 'Séq 1'   },
-  { key: 'fr_seq_2',  label: 'Séq 2'   },
-  { key: 'fr_seq_3',  label: 'Séq 3'   },
-  { key: 'fr_seq_4',  label: 'Séq 4'   },
-  { key: 'fr_seq_5',  label: 'Séq 5'   },
-  { key: 'fr_seq_6',  label: 'Séq 6'   },
-  { key: 'en_term_1', label: 'Term 1'  },
-  { key: 'en_term_2', label: 'Term 2'  },
-  { key: 'en_term_3', label: 'Term 3'  },
-];
+// Les lignes persistables du calendrier scolaire, toutes tutelles confondues :
+// séquences MINESEC, terms anglophones, UA du primaire MINEDUB, trimestres de
+// maternelle. La liste vit dans `calendarTracks` (source unique) ; l'ordre des
+// 9 clés historiques (fr_seq_1…6, en_term_1…3) est conservé en tête.
+export const SEQ_DEFINITIONS = ALL_CALENDAR_PERIODS.map((p) => ({
+  key:   p.key,
+  label: p.fr,
+  track: p.track,
+  order: p.order,
+}));
 
 export async function fetchSequenceDates(schoolId) {
   const { data, error } = await supabase
@@ -19,6 +19,13 @@ export async function fetchSequenceDates(schoolId) {
     .eq('school_id', schoolId);
   if (error) { console.error('fetchSequenceDates', error); return []; }
   return data || [];
+}
+
+// Les dates indexées par `seq_key` — la forme attendue par `currentPeriodOfTrack`.
+export function indexSequenceDates(rows) {
+  const map = {};
+  for (const r of rows || []) map[r.seq_key] = r;
+  return map;
 }
 
 export async function upsertSequenceDates(schoolId, rows) {

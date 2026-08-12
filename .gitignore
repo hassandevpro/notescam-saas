@@ -54,6 +54,11 @@ server/*.log
 # Clé privée de signature des licences — NE JAMAIS COMMITER (la publique, si)
 packaging/license/private-key.pem
 
+# Scripts d'intervention contenant un identifiant client en clair. Ce dépôt est
+# PUBLIC : un mot de passe poussé ici doit être considéré comme fuité, même
+# retiré ensuite (forks, caches, archives tierces).
+supabase_reset_admin_*.sql
+
 # Artefacts de packaging de l'installateur .exe
 packaging/_stage/
 packaging/_stage_*/

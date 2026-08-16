@@ -171,12 +171,35 @@ const handlers = {
     return null;
   },
 
+  // Parité avec le cloud (admin_list_staff, supabase_staff_scope_admin.sql) :
+  // rôle, capacités et PÉRIMÈTRE. Sans les colonnes de périmètre, l'éditeur se
+  // rouvrait vide et l'enregistrer effaçait la répartition en place.
   admin_list_staff(p, ctx) {
     const schoolId = requireAdmin(ctx);
     return db.prepare(
-      `SELECT id, user_id, full_name, active FROM school_users
-       WHERE school_id = ? AND role = ? ORDER BY full_name`
+      `SELECT id, user_id, full_name, active, role, permissions,
+              scope_sections, scope_cycles, scope_class_ids
+         FROM school_users
+        WHERE school_id = ? AND role = ? ORDER BY full_name`
     ).all(schoolId, p.p_role);
+  },
+
+  // Périmètre de responsabilité d'un membre : sections / cycles / classes.
+  // Dans un complexe scolaire, il répartit la configuration entre le directeur
+  // du fondamental (MINEDUB) et le proviseur du secondaire (MINESEC) ; tableaux
+  // vides = tout l'établissement.
+  //
+  // SQLite n'a pas de type tableau : on stocke du JSON en TEXT. Côté client,
+  // `normalizeScope` (core/surveillantScope) accepte les deux formes.
+  admin_set_staff_scope(p, ctx) {
+    const schoolId = requireAdmin(ctx);
+    const arr = (v) => JSON.stringify(Array.isArray(v) ? v : []);
+    db.prepare(
+      `UPDATE school_users
+          SET scope_sections = ?, scope_cycles = ?, scope_class_ids = ?
+        WHERE id = ? AND school_id = ? AND role IN ('admin','censeur','surveillant')`
+    ).run(arr(p.p_sections), arr(p.p_cycles), arr(p.p_class_ids), p.p_school_user_id, schoolId);
+    return null;
   },
 
   admin_set_staff_active(p, ctx) {

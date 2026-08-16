@@ -1,6 +1,6 @@
 // Tests du calcul « X/Y notes saisies » par moteur (module pur) :
 //   node src/lib/_gradeEntryProgress.test.mjs
-import { classEntryProgress, latestPeriodWithData } from './gradeEntryProgress.js';
+import { classEntryProgress, latestPeriodWithData, indexPrimNotes } from './gradeEntryProgress.js';
 
 let failed = false;
 const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed = true; };
@@ -69,6 +69,19 @@ const studs = [{ id: 'e1' }, { id: 'e2' }];
     'primaire : l’UA 5 a bien sa propre saisie');
   eq(latestPeriodWithData({ engine: 'apc_primaire', cls, subs, studs, maxOrder: 8, primNotes }), 5,
     'repli primaire : dernière UA renseignée = 5');
+
+  // L'index évite de rebalayer `primNotes` à chaque (classe × UA) ; il doit
+  // donner EXACTEMENT le même résultat que le calcul direct.
+  const primIndex = indexPrimNotes(primNotes);
+  eq(primIndex[4].size, 1, 'index UA4 : une seule paire (élève, compétence) notée');
+  ok(primIndex[4].has('e1_k1'), 'index UA4 : la paire attendue');
+  ok(!primIndex[4].has('e2_k2'), 'index : une note nulle n’entre pas dans l’index');
+  eq(classEntryProgress({ engine: 'apc_primaire', cls, subs, studs, order: 4, primIndex }).entered,
+     classEntryProgress({ engine: 'apc_primaire', cls, subs, studs, order: 4, primNotes }).entered,
+     'index et balayage direct donnent le même compte');
+  eq(classEntryProgress({ engine: 'apc_primaire', cls, subs, studs, order: 7, primIndex }).entered, 0,
+     'UA sans aucune note via l’index');
+  eq(Object.keys(indexPrimNotes(null)).length, 0, 'index d’un jeu de notes absent');
 }
 
 // ── APC premier cycle : compétences du référentiel ───────────────────────────

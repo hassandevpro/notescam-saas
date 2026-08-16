@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
@@ -6,11 +6,12 @@ import { useNotificationsStore } from '../store/notificationsStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { buildWhatsAppUrl } from '../lib/messagesService';
 import { fetchSequenceDates, indexSequenceDates } from '../lib/sequenceDatesService';
-import { TRACKS, tracksForSchool, trackKeyForClass, currentPeriodOfTrack, periodAt, effectiveDeadline } from '../lib/calendarTracks';
-import { classEntryProgress, subjectEntryRate } from '../lib/gradeEntryProgress';
+import { TRACKS, tracksInUse, trackKeyForClass, currentPeriodOfTrack, periodAt, effectiveDeadline } from '../lib/calendarTracks';
+import { classEntryProgress, subjectEntryRate, indexPrimNotes } from '../lib/gradeEntryProgress';
 import { resolveClassEngine } from '../core/engineResolver';
 import Layout from '../components/Layout';
 import HubTabs from '../components/hubs/HubTabs';
+import SchoolCalendar from '../components/SchoolCalendar';
 import { useT, getLang, localeForLang } from '../lib/i18n';
 import { useCountry } from '../lib/useCountry';
 
@@ -192,17 +193,20 @@ export default function TeacherMonitor() {
     try { return localStorage.getItem('nc_monitor_tab') || 'cockpit'; } catch { return 'cockpit'; }
   });
 
-  useEffect(() => {
+  // Rechargeable : régler les dates dans l'onglet Calendrier doit reprendre
+  // l'écran (période ouverte, échéances, retards) sans passer par un F5.
+  const refreshSeqDates = useCallback(() => {
     if (!school?.id) return;
     fetchSequenceDates(school.id).then((rows) => setSeqDatesMap(indexSequenceDates(rows)));
   }, [school?.id]);
+  useEffect(() => { refreshSeqDates(); }, [refreshSeqDates]);
 
   // ── Piste suivie ──────────────────────────────────────────────────────────
   // Un établissement complet suit plusieurs découpages en parallèle (séquences
   // MINESEC, UA du primaire MINEDUB, trimestres de maternelle, terms). On en
   // surveille UN à la fois : mélanger « Séq 4 » et « Trim 2 » dans les mêmes
   // pourcentages ne voudrait rien dire.
-  const trackKeys   = useMemo(() => tracksForSchool(school, allClasses, country.code),
+  const trackKeys   = useMemo(() => tracksInUse(school, allClasses, country.code),
     [school, allClasses, country.code]);
   const activeTrack = (pickedTrack && trackKeys.includes(pickedTrack)) ? pickedTrack : trackKeys[0];
   const track       = TRACKS[activeTrack];
@@ -229,7 +233,8 @@ export default function TeacherMonitor() {
   useEffect(() => { if (engines.prim) loadPrim(); }, [engines.prim, loadPrim]);
 
   const sources = useMemo(
-    () => ({ gradeMap, apcNotes, primNotes, matObservations, apcReferentiel }),
+    () => ({ gradeMap, apcNotes, primNotes, matObservations, apcReferentiel,
+             primIndex: indexPrimNotes(primNotes) }),
     [gradeMap, apcNotes, primNotes, matObservations, apcReferentiel],
   );
 
@@ -466,10 +471,15 @@ export default function TeacherMonitor() {
     </div>
   );
 
+  // Le calendrier vit aussi ICI, pas seulement dans les Paramètres (réservés à
+  // l'administrateur) : c'est de cette page que le directeur du fondamental ou le
+  // proviseur du secondaire pilote les saisies, et ce sont ses échéances qui
+  // décident des retards. Chacun n'y voit que sa part (périmètre du compte).
   const tabs = [
     { id: 'cockpit',  label: t('Cockpit', 'Cockpit', 'Cabina'),                   render: renderCockpit },
     { id: 'teachers', label: t('Enseignants', 'Teachers', 'Profesores'),          render: renderTeachers },
     { id: 'journal',  label: t("Journal d'activité", 'Activity log', 'Registro'), render: renderJournal },
+    { id: 'calendar', label: t('Calendrier scolaire', 'School calendar', 'Calendario'), render: renderCalendar },
   ];
 
   return (
@@ -485,7 +495,7 @@ export default function TeacherMonitor() {
             {' · '}{t('Pilotage des saisies', 'Grade-entry control', 'Control de entradas')} — {school?.current_year}
           </>
         )}
-        right={seqSelector}
+        right={activeTab === 'calendar' ? null : seqSelector}
         tabs={tabs}
         storageKey="nc_monitor_tab"
         activeTab={activeTab}
@@ -653,6 +663,17 @@ export default function TeacherMonitor() {
   // ════════════════════════════════════════════════════════════════════════════
   // ONGLET 3 — JOURNAL D'ACTIVITÉ (feed professionnel)
   // ════════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════════════════
+  // ONGLET 4 — CALENDRIER SCOLAIRE : les échéances qui pilotent tout l'écran
+  // ════════════════════════════════════════════════════════════════════════════
+  function renderCalendar() {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        <SchoolCalendar onSaved={refreshSeqDates} />
+      </div>
+    );
+  }
+
   function renderJournal() {
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">

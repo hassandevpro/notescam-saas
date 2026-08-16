@@ -8,7 +8,7 @@ import { clsStat } from '../../core/bulletinEngine';
 import { resolveClassEngine } from '../../core/engineResolver';
 import { feeDashboard } from '../../lib/feeEngine';
 import { TRACKS, trackKeyForClass, currentPeriodOfTrack, periodAt } from '../../lib/calendarTracks';
-import { classEntryProgress, latestPeriodWithData } from '../../lib/gradeEntryProgress';
+import { classEntryProgress, latestPeriodWithData, indexPrimNotes } from '../../lib/gradeEntryProgress';
 import { StatCard, BlockCard, CountPill, EmptyHint } from './shared';
 
 // Moteurs dont les notes vivent dans `gradeMap` : les seuls pour lesquels une
@@ -30,8 +30,11 @@ export function useAcademicStats({
   gradeMap, apcNotes, primNotes, matObservations, apcReferentiel,
   seqDates, fees, getClassFeeGrid, today,
 }) {
+  // Index des notes primaires construit UNE fois : sans lui, chaque (classe × UA)
+  // rebalaierait tout `primNotes`.
   const sources = useMemo(
-    () => ({ gradeMap, apcNotes, primNotes, matObservations, apcReferentiel }),
+    () => ({ gradeMap, apcNotes, primNotes, matObservations, apcReferentiel,
+             primIndex: indexPrimNotes(primNotes) }),
     [gradeMap, apcNotes, primNotes, matObservations, apcReferentiel],
   );
 

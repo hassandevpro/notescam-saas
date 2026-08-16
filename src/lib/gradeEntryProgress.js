@@ -50,19 +50,35 @@ function maternelleProgress({ subs, studs, order, matObservations }) {
 // de ses critères porte une note) : le nombre de critères varie par niveau et par
 // aptitude de l'élève, un dénominateur au grain critère serait illisible.
 // Les compétences sont matérialisées en `subjects.prim_competence_id`.
-function primaireProgress({ subs, studs, order, primNotes }) {
+function primaireProgress({ subs, studs, order, primNotes, primIndex }) {
   const competences = subs.map((s) => s.prim_competence_id).filter(Boolean);
   const expected = studs.length * competences.length;
-  const done = new Set();
-  for (const n of Object.values(primNotes || {})) {
-    if (Number(n?.ua) !== Number(order) || !filled(n?.note)) continue;
-    done.add(`${n.eleve_id}_${n.competence_id}`);
-  }
+  const done = (primIndex || indexPrimNotes(primNotes))[order] || EMPTY_SET;
   let entered = 0;
   for (const stu of studs) {
     for (const comp of competences) if (done.has(`${stu.id}_${comp}`)) entered++;
   }
   return { expected, entered };
+}
+
+const EMPTY_SET = new Set();
+
+/**
+ * Index des notes primaires : { [ua]: Set<'eleve_competence'> }.
+ *
+ * Sans lui, chaque (classe × UA) rebalaye l'intégralité de `primNotes` — soit,
+ * pour une école primaire complète, des dizaines de balayages d'un objet à
+ * plusieurs dizaines de milliers d'entrées à chaque rendu du tableau de bord.
+ * À construire UNE fois par jeu de notes et à passer en `primIndex`.
+ */
+export function indexPrimNotes(primNotes) {
+  const byUa = {};
+  for (const n of Object.values(primNotes || {})) {
+    if (!filled(n?.note)) continue;
+    const ua = Number(n.ua);
+    (byUa[ua] || (byUa[ua] = new Set())).add(`${n.eleve_id}_${n.competence_id}`);
+  }
+  return byUa;
 }
 
 // ── APC premier cycle : notes par (élève, compétence, séquence) ──────────────
@@ -98,12 +114,12 @@ function apcProgress({ cls, studs, order, apcNotes, apcReferentiel }) {
  */
 export function classEntryProgress({
   engine, cls, subs = [], studs = [], order,
-  gradeMap, apcNotes, primNotes, matObservations, apcReferentiel,
+  gradeMap, apcNotes, primNotes, matObservations, apcReferentiel, primIndex,
 }) {
   if (order == null) return { expected: null, entered: null };
   switch (engine) {
     case 'maternelle':   return maternelleProgress({ subs, studs, order, matObservations });
-    case 'apc_primaire': return primaireProgress({ subs, studs, order, primNotes });
+    case 'apc_primaire': return primaireProgress({ subs, studs, order, primNotes, primIndex });
     case 'apc':          return apcProgress({ cls, studs, order, apcNotes, apcReferentiel });
     default:             return classicProgress({ cls, subs, studs, order, gradeMap });
   }

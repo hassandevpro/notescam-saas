@@ -4,17 +4,8 @@ import { useNotificationsStore } from '../store/notificationsStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { useAppNotificationsStore } from '../store/appNotificationsStore';
 import { useAuthStore } from '../store/authStore';
-import { useT, tStatic } from '../lib/i18n';
-
-function timeAgo(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1)  return tStatic("À l'instant", 'Just now', 'Ahora mismo');
-  if (mins < 60) return `${mins} min`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24)  return `${hrs} h`;
-  return `${Math.floor(hrs / 24)} ${tStatic('j', 'd', 'd')}`;
-}
+import { useT } from '../lib/i18n';
+import { timeAgo } from '../lib/timeAgo';
 
 // ── Vue ADMIN : activité notes des profs ──────────────────────────────────────
 function AdminDropdown({ onClose }) {

@@ -3,9 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Police Inter : chargée SANS BLOQUER le rendu. Elle était demandée par une
+         feuille de style classique, donc bloquante : sur une connexion d'école,
+         l'écran restait blanc le temps d'un aller-retour DNS + TLS + CSS vers
+         Google, puis d'un second vers fonts.gstatic.com — et hors ligne la
+         requête échouait, dans une application dont l'argument principal est de
+         fonctionner sans connexion.
+         L'astuce `media="print"` fait charger la feuille en tâche de fond ; elle
+         s'applique une fois arrivée. Le texte s'affiche immédiatement avec la
+         pile système (Segoe UI / -apple-system, déjà déclarée dans
+         tailwind.config.js), puis bascule sur Inter. Hors ligne : la pile
+         système, sans requête en attente.
+         Pour supprimer complètement la dépendance à Google : héberger deux
+         graisses d'Inter en woff2 dans public/ et les déclarer en @font-face. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    </noscript>
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />

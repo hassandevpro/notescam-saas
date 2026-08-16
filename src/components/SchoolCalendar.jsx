@@ -7,9 +7,15 @@
 // On affiche donc un tableau par PISTE réellement utilisée (déduite des classes
 // et du moteur pédagogique de chacune) — cf. `lib/calendarTracks`.
 //
-// Composant réutilisable : affiché dans Paramètres (admin) et sur la page
-// Surveillance enseignants (/app/monitor).
+// Deux filtres, et deux seulement :
+//   • le MOTEUR DE BULLETIN de l'école décide des découpages possibles
+//     (« Classique » n'a jamais de tableau MINEDUB) ;
+//   • le PÉRIMÈTRE du compte décide de la part que cette personne règle — dans un
+//     complexe scolaire, le directeur du fondamental et le proviseur du
+//     secondaire ne touchent pas aux mêmes lignes.
 //
+// Monté depuis Paramètres → Calendrier scolaire (admin) et Surveillance →
+// Calendrier scolaire (admin + censeur, donc les chefs d'unité).
 // `canEdit` = false → tableaux en lecture seule (pas de bouton d'enregistrement).
 import { useState, useEffect, useMemo } from 'react';
 import { useAuthStore } from '../store/authStore';
@@ -18,13 +24,19 @@ import { useCountry } from '../lib/useCountry';
 import { useT } from '../lib/i18n';
 import { SEQ_DEFINITIONS, fetchSequenceDates, upsertSequenceDates } from '../lib/sequenceDatesService';
 import { TRACKS, tracksForSchool, effectiveDeadline, todayStr } from '../lib/calendarTracks';
+import { isOfficialEngine } from '../core/engineResolver';
+import { scopeSummary } from '../core/surveillantScope';
 import DateField from './DateField';
 
-export default function SchoolCalendar({ canEdit = true }) {
+export default function SchoolCalendar({ canEdit = true, onSaved }) {
   const t = useT();
   // Libellés localisés portés par les pistes (données, pas UI) : { fr, en, es }.
   const tp = (o) => (o ? t(o.fr, o.en, o.es) : '');
   const school = useAuthStore((s) => s.school);
+  // Périmètre du compte (school_users.scope) : dans un complexe scolaire, le
+  // directeur du fondamental et le proviseur du secondaire ne règlent pas les
+  // mêmes dates. Périmètre vide = tout l'établissement (comportement historique).
+  const scope = useAuthStore((s) => s.scope);
   const classes = useSchoolStore((s) => s.classes);
   const country = useCountry();
 
@@ -56,12 +68,15 @@ export default function SchoolCalendar({ canEdit = true }) {
     });
   }, [school?.id]);
 
-  // Les pistes à afficher : celles que les classes de l'école utilisent vraiment.
+  // Les pistes à afficher : le moteur de bulletin décide des découpages
+  // possibles, le PÉRIMÈTRE du compte décide de la part que cette personne règle.
   const trackKeys = useMemo(
-    () => tracksForSchool(school, classes, country.code),
-    [school, classes, country.code],
+    () => tracksForSchool(school, classes, country.code, scope),
+    [school, classes, country.code, scope],
   );
+  const scopeLabel = scopeSummary(scope, t);
 
+  const isOfficial = isOfficialEngine(school?.bulletin_engine);
   const today = todayStr();
 
   const setDate = (key, field, val) =>
@@ -70,8 +85,10 @@ export default function SchoolCalendar({ canEdit = true }) {
   const handleSave = async () => {
     if (!school?.id) return;
     setSaving(true); setError(null); setSaved(false);
-    // On n'enregistre que les clés des pistes affichées : une école qui n'a plus
-    // de maternelle n'écrase pas ses lignes maternelle par des dates vides.
+    // On n'enregistre QUE les clés des pistes affichées. Deux propriétés en
+    // dépendent : une école qui n'a plus de maternelle n'écrase pas ses lignes
+    // maternelle par des dates vides, et le directeur du fondamental ne peut pas
+    // effacer les séquences réglées par le proviseur (ni l'inverse).
     const shown = new Set(trackKeys.flatMap((k) => TRACKS[k].periods.map((p) => p.key)));
     const payload = SEQ_DEFINITIONS
       .filter((d) => shown.has(d.key))
@@ -79,18 +96,59 @@ export default function SchoolCalendar({ canEdit = true }) {
     const { error: err } = await upsertSequenceDates(school.id, payload);
     setSaving(false);
     if (err) setError(err.message);
-    else { setSaved(true); setTimeout(() => setSaved(false), 3500); }
+    else { setSaved(true); onSaved?.(); setTimeout(() => setSaved(false), 3500); }
   };
 
   const FIELDS = ['exam_date', 'deadline_date', 'conseil_date'];
 
   return (
     <>
-      <p className="text-xs text-gray-500 mb-4">
+      <p className="text-xs text-gray-500">
         {t('Dates de chaque période pour le suivi automatique des retards et alertes enseignants. Chaque niveau suit le découpage de sa tutelle.',
            'Dates for each period for automatic tracking of delays and teacher alerts. Each level follows its own ministry’s breakdown.',
            'Fechas de cada periodo para el seguimiento automático de retrasos y alertas.')}
       </p>
+
+      {/* Les découpages proposés découlent du MOTEUR DE BULLETIN choisi : seul le
+          cas de l'école retenue est affiché. On le rappelle ici, sinon un
+          administrateur ne comprend pas pourquoi les tableaux MINEDUB
+          apparaissent — ou n'apparaissent pas. */}
+      <p className="text-xs mb-4 mt-1.5 text-gray-400">
+        {t('Moteur de bulletin', 'Report-card engine', 'Motor de boletín')} :{' '}
+        <span className="font-semibold text-gray-600">
+          {isOfficial ? t('Officiel Cameroun', 'Official Cameroon', 'Oficial Camerún') : t('Classique', 'Classic', 'Clásico')}
+        </span>
+        {' — '}
+        {isOfficial
+          ? t('maternelle et primaire suivent le MINEDUB, le secondaire le MINESEC.',
+              'nursery and primary follow MINEDUB, secondary follows MINESEC.',
+              'preescolar y primaria siguen MINEDUB.')
+          : t('toutes les classes suivent les séquences (aucun référentiel officiel).',
+              'every class follows sequences (no official framework).',
+              'todas las clases siguen las secuencias.')}
+        {canEdit && ` ${t('Il se change dans l’onglet Établissement.', 'Change it in the School tab.', 'Se cambia en la pestaña Centro.')}`}
+      </p>
+
+      {/* Complexe scolaire : chacun règle sa part. Le directeur du fondamental
+          tient les dates MINEDUB, le proviseur celles du secondaire — le
+          périmètre du compte fait foi. */}
+      {scopeLabel && (
+        <p className="text-xs -mt-2 mb-4 px-3 py-2 rounded-lg bg-brand-50 border border-brand-100 text-brand-800">
+          {t('Votre périmètre', 'Your scope', 'Su ámbito')} : <span className="font-semibold">{scopeLabel}</span>
+          {' — '}
+          {t('vous ne réglez que les dates de cette partie du complexe ; les autres responsables gardent les leurs.',
+             'you only set the dates for this part of the complex; other heads keep theirs.',
+             'usted solo fija las fechas de esta parte; los demás conservan las suyas.')}
+        </p>
+      )}
+
+      {trackKeys.length === 0 && (
+        <p className="text-sm text-gray-500 py-6">
+          {t('Aucune classe dans votre périmètre : il n’y a pas de dates à régler ici.',
+             'No class in your scope: there are no dates to set here.',
+             'Ninguna clase en su ámbito: no hay fechas que fijar aquí.')}
+        </p>
+      )}
 
       {trackKeys.map((trackKey) => {
         const track = TRACKS[trackKey];
@@ -140,7 +198,7 @@ export default function SchoolCalendar({ canEdit = true }) {
         );
       })}
 
-      {canEdit && (
+      {canEdit && trackKeys.length > 0 && (
         <div className="flex items-center gap-4 pt-3 mt-3 border-t border-gray-100">
           <button onClick={handleSave} disabled={saving}
             className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>

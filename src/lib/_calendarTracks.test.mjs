@@ -1,7 +1,7 @@
 // Tests des PISTES DE CALENDRIER (module pur) :
 //   node src/lib/_calendarTracks.test.mjs
 import {
-  TRACKS, ALL_CALENDAR_PERIODS, trackKeyForClass, tracksForSchool,
+  TRACKS, ALL_CALENDAR_PERIODS, trackKeyForClass, tracksForSchool, tracksInUse,
   currentPeriodOfTrack, overduePeriods, todayStr, effectiveDeadline, periodAt,
 } from './calendarTracks.js';
 
@@ -54,15 +54,90 @@ const mixed = [
   { level: 'Petite Section' }, { level: 'CM2' }, { level: '6ème' }, { level: 'Form 1', system: 'EN' },
 ];
 ok(tracksForSchool(officiel, mixed).join(',') === 'mat_trim,prim_ua,fr_seq,en_term',
-  'école complète : les 4 pistes, du préscolaire au secondaire');
-ok(tracksForSchool(officiel, [{ level: '3ème' }]).join(',') === 'fr_seq',
-  'collège seul : une seule piste (pas de tableau maternelle parasite)');
-ok(tracksForSchool(officiel, []).join(',') === 'fr_seq,en_term',
-  'aucune classe : repli sur le comportement historique');
+  'école officielle complète : les 4 pistes, du préscolaire au secondaire');
+ok(tracksForSchool(officiel, [{ level: '3ème' }]).join(',') === 'fr_seq,en_term',
+  'collège officiel : aucun tableau MINEDUB parasite');
+
+// Règle 1 — le MOTEUR DE BULLETIN commande les pistes MINEDUB.
+ok(tracksForSchool(classic, mixed).join(',') === 'fr_seq,en_term',
+  'école « Classique » : jamais de maternelle ni d’UA, même avec PS et CM2 au tableau');
+ok(!tracksForSchool(classic, [{ level: 'Petite Section' }]).includes('mat_trim'),
+  'Classique + Petite Section : pas de trimestres de maternelle');
+ok(!tracksForSchool(classic, [{ level: 'CM2' }]).includes('prim_ua'),
+  'Classique + CM2 : pas d’unités d’apprentissage');
+ok(tracksForSchool({ bulletin_engine: 'minedub', language: 'francophone' }, [{ level: 'CM2' }, { level: 'Petite Section' }])
+  .join(',') === 'mat_trim,prim_ua,fr_seq,en_term',
+  'école MINEDUB : maternelle + primaire, en plus des sous-systèmes linguistiques');
+ok(tracksForSchool(officiel, [{ level: 'CM2', bulletin_engine: 'classic' }]).join(',') === 'fr_seq,en_term',
+  'surcharge classe en classique : son UA disparaît du calendrier');
+
+// Règle 2 — le sous-système anglophone reste toujours proposé.
+ok(tracksForSchool(officiel, [{ level: '3ème' }]).includes('en_term'),
+  'école francophone : le calendrier anglophone reste proposé');
+ok(tracksForSchool(classic, []).join(',') === 'fr_seq,en_term',
+  'aucune classe : les deux sous-systèmes linguistiques');
 ok(tracksForSchool({ language: 'anglophone' }, []).join(',') === 'en_term',
-  'aucune classe, école anglophone : terms seuls');
+  'école purement anglophone : terms seuls, pas de séquences');
+ok(tracksForSchool({ bulletin_engine: 'officiel', language: 'anglophone' }, [{ level: 'Nursery 1' }])
+  .join(',') === 'mat_trim,en_term',
+  'officiel anglophone : la Nursery suit le MINEDUB, pas de séquences francophones');
+
 ok(tracksForSchool(officiel, mixed, 'guinea_eq').join(',') === 'ge_trim',
   'Guinée équatoriale : piste unique');
+
+// ── Pistes RÉELLEMENT peuplées (écrans de suivi) ────────────────────────────
+// Le calendrier PROPOSE l'anglophone en permanence ; un écran de surveillance ne
+// doit pas ouvrir un onglet vide.
+ok(tracksInUse(officiel, [{ level: '3ème' }]).join(',') === 'fr_seq',
+  'suivi : pas d’onglet Term si aucune classe anglophone');
+ok(tracksForSchool(officiel, [{ level: '3ème' }]).includes('en_term'),
+  'calendrier : l’anglophone reste proposé sur la même école');
+ok(tracksInUse(officiel, mixed).join(',') === 'mat_trim,prim_ua,fr_seq,en_term',
+  'suivi : toutes les pistes peuplées');
+ok(tracksInUse(officiel, []).join(',') === 'fr_seq',
+  'suivi sans classe : découpage par défaut de la langue');
+ok(tracksInUse({ language: 'anglophone' }, []).join(',') === 'en_term',
+  'suivi sans classe, école anglophone : terms');
+ok(tracksInUse(classic, [{ level: 'Petite Section' }]).join(',') === 'fr_seq',
+  'suivi : école Classique, la PS est suivie en séquences');
+
+// ── Règle 3 : chaque responsable ne configure QUE sa part ───────────────────
+// Complexe scolaire : le directeur tient le fondamental (MINEDUB), le proviseur
+// le secondaire (MINESEC). Le périmètre est celui du compte (school_users.scope).
+const complexe = [
+  { id: 'c1', level: 'Petite Section' }, { id: 'c2', level: 'CM2' },
+  { id: 'c3', level: '6ème' }, { id: 'c4', level: 'Terminale C' },
+  { id: 'c5', level: 'Form 3', system: 'EN' },
+];
+const directeur = { cycles: ['fondamental'] };
+const proviseur = { cycles: ['secondaire'] };
+
+ok(tracksForSchool(officiel, complexe, null, directeur).join(',') === 'mat_trim,prim_ua',
+  'directeur (fondamental) : maternelle + primaire, RIEN du secondaire');
+ok(tracksForSchool(officiel, complexe, null, proviseur).join(',') === 'fr_seq,en_term',
+  'proviseur (secondaire) : séquences + terms, aucun tableau MINEDUB');
+ok(tracksForSchool(officiel, complexe, null, null).join(',') === 'mat_trim,prim_ua,fr_seq,en_term',
+  'administrateur du complexe (périmètre global) : tout le calendrier');
+ok(tracksForSchool(officiel, complexe, null, {}).join(',') === 'mat_trim,prim_ua,fr_seq,en_term',
+  'périmètre vide = global (rétro-compatible)');
+
+// Périmètre par SECTION, plus fin que le cycle.
+ok(tracksForSchool(officiel, complexe, null, { sections: ['maternelle'] }).join(',') === 'mat_trim',
+  'responsable de la seule maternelle : un unique tableau');
+ok(tracksForSchool(officiel, complexe, null, { sections: ['second_cycle'] }).join(',') === 'fr_seq',
+  'proviseur du seul lycée francophone : pas de tableau anglophone à blanc');
+ok(tracksForSchool(officiel, complexe, null, { classIds: ['c5'] }).join(',') === 'en_term',
+  'périmètre sur une classe anglophone : ses terms seuls');
+
+// Le périmètre restreint ne fabrique pas de piste par défaut quand il est vide.
+ok(tracksForSchool(officiel, complexe, null, { sections: ['autre'] }).length === 0,
+  'périmètre sans aucune classe : aucun tableau à régler');
+ok(tracksForSchool(officiel, [], null, null).join(',') === 'fr_seq,en_term',
+  'école vide, périmètre global : les deux sous-systèmes restent proposés');
+
+// Une école « Classique » reste classique quel que soit le périmètre.
+ok(tracksForSchool(classic, complexe, null, directeur).join(',') === 'fr_seq',
+  'directeur d’un fondamental Classique : séquences, pas d’UA MINEDUB');
 
 // ── Période courante lue dans le calendrier ─────────────────────────────────
 const cal = {

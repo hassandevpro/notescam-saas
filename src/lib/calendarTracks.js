@@ -20,6 +20,7 @@
 // rien, et se teste en Node (`node src/lib/_calendarTracks.test.mjs`).
 
 import { resolveClassEngine } from '../core/engineResolver.js';
+import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope.js';
 import { trimestreOfUA } from '../core/primEngine.js';
 
 const range = (n) => Array.from({ length: n }, (_, i) => i + 1);
@@ -116,16 +117,54 @@ export function trackKeyForClass(school, cls, countryCode = null) {
   }
 }
 
-// Les pistes RÉELLEMENT utilisées par un établissement, dans l'ordre d'affichage.
-// Sans classe configurée, on retombe sur la piste par défaut de la langue/du pays
-// (comportement historique de l'écran calendrier).
-export function tracksForSchool(school, classes, countryCode = null) {
+// Les pistes de calendrier à proposer à un établissement, dans l'ordre
+// d'affichage. Deux règles, et deux seulement :
+//
+//  1. Les pistes MINEDUB (maternelle, primaire APC) ne sont proposées QUE si le
+//     MOTEUR DE BULLETIN les fait tourner sur une classe réelle. Une école
+//     « Classique » ne voit donc jamais de trimestres de maternelle ni d'UA,
+//     même si elle a une classe nommée « Petite Section » ou « CM2 » : chez elle
+//     ces niveaux sont notés /20 comme le reste (cf. resolveClassEngine).
+//
+//  2. Les deux SOUS-SYSTÈMES linguistiques restent toujours ouverts : le
+//     découpage anglophone en terms est proposé en permanence (le Cameroun est
+//     bilingue et une section anglaise peut s'ouvrir en cours d'année), et les
+//     séquences francophones dès que l'école n'est pas purement anglophone.
+//  3. Un responsable au PÉRIMÈTRE restreint ne configure que sa part : dans un
+//     complexe scolaire, le directeur du fondamental règle les dates MINEDUB
+//     (maternelle, primaire) et le proviseur celles du secondaire. Le périmètre
+//     est celui déjà porté par le compte (`school_users.scope`, cf.
+//     core/surveillantScope). Périmètre global ⇒ tout le calendrier.
+export function tracksForSchool(school, classes, countryCode = null, scope = null) {
+  if (countryCode === 'guinea_eq') return ['ge_trim'];
+
+  const inScope = filterClassesByScope(scope, classes || []);
+  const used = new Set(tracksInUse(school, inScope, countryCode, { fallback: isGlobalScope(scope) }));
+
+  // Les sous-systèmes linguistiques ne sont proposés « à blanc » qu'à qui règle
+  // TOUT l'établissement. Un responsable de cycle n'a que ses propres pistes —
+  // celles de ses classes suffisent, et elles couvrent déjà son cas anglophone.
+  if (isGlobalScope(scope)) {
+    if (school?.language !== 'anglophone') used.add('fr_seq');
+    used.add('en_term');
+  }
+
+  return TRACK_ORDER.filter((k) => used.has(k));
+}
+
+// Les pistes portées par AU MOINS UNE classe. À distinguer de `tracksForSchool` :
+// le calendrier PROPOSE des découpages à remplir (dont l'anglophone, toujours),
+// alors qu'un écran de suivi ne doit montrer que des pistes où il y a réellement
+// des classes à surveiller — sinon l'onglet ouvre sur une liste vide.
+export function tracksInUse(school, classes, countryCode = null, { fallback = true } = {}) {
   if (countryCode === 'guinea_eq') return ['ge_trim'];
   const used = new Set((classes || []).map((c) => trackKeyForClass(school, c, countryCode)));
-  if (used.size === 0) {
-    return school?.language === 'anglophone' ? ['en_term'] : ['fr_seq', 'en_term'];
-  }
-  return TRACK_ORDER.filter((k) => used.has(k));
+  const list = TRACK_ORDER.filter((k) => used.has(k));
+  // Aucune classe : on retombe sur le découpage par défaut de la langue — sauf
+  // pour un périmètre restreint, où « aucune classe » veut dire « rien à régler
+  // ici », pas « proposer les séquences ».
+  if (!list.length && fallback) return school?.language === 'anglophone' ? ['en_term'] : ['fr_seq'];
+  return list;
 }
 
 // ── Période courante, lue DANS le calendrier ────────────────────────────────

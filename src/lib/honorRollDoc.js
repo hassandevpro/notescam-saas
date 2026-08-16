@@ -6,8 +6,8 @@
 // (couleur, police, logo, signature, tampon, textes), donc zéro code par école.
 
 import { bulletinOfficials, resolveCountryCode } from '../countries';
-import { bulletinFontFamily } from './schoolTheme';
 import { createDocumentScale, pageDimsPx } from './documentScale';
+import { sheetOpen, SHEET_CLOSE, esc, CLASS } from './print';
 
 // Dimensionnement « standard » (listes A4 : table collective / affiche). Les
 // documents individuels (certificat / diplôme) passent par <HonorAward/> (prestige).
@@ -15,11 +15,6 @@ const S = createDocumentScale({ category: 'standard', orientation: 'portrait', .
 
 const FLAG = { cameroon_fr: '🇨🇲', cameroon_en: '🇨🇲', guinea_eq: '🇬🇶', gabon: '🇬🇦', ivory_coast: '🇨🇮', congo: '🇨🇬' };
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
-}
 const L = (sys, fr, en, es) => (sys === 'EN' ? en : sys === 'ES' ? (es || fr) : fr);
 const fmt = (v) => (v === null || v === undefined || v === '' ? '—' : v);
 
@@ -41,7 +36,7 @@ function headerHtml(school, sys, year, primary) {
       <tbody><tr>
         ${block(blocks[0])}
         <td style="width:${centerW};text-align:center;padding:2px;vertical-align:top">
-          ${school?.logo_url ? `<img src="${esc(school.logo_url)}" alt="" style="width:${S.logoSm}px;height:${S.logoSm}px;object-fit:contain;display:block;margin:0 auto 3px"/>` : ''}
+          ${school?.logo_url ? `<img data-part="logo" src="${esc(school.logo_url)}" alt="" style="width:${S.logoSm}px;height:${S.logoSm}px;object-fit:contain;display:block;margin:0 auto 3px"/>` : ''}
           <strong style="font-size:12px;display:block;color:${esc(primary)}">${esc((school?.name || '').toUpperCase())}</strong>
           <span style="font-size:8.5px">${L(sys, 'Année scolaire', 'Academic year', 'Año escolar')} : <strong>${esc(year || '')}</strong></span>
         </td>
@@ -54,17 +49,17 @@ function headerHtml(school, sys, year, primary) {
 function bannerHtml(p, sys, subtitle) {
   const title = p.title || L(sys, "TABLEAU D'HONNEUR", 'HONOUR ROLL', 'CUADRO DE HONOR');
   return `
-    <div style="background:${esc(p.primaryColor)};color:#fff;text-align:center;padding:6px 8px;font-weight:bold;font-size:14px;letter-spacing:.5px;margin-bottom:6px;border-radius:4px">
+    <div class="${CLASS.keep}" data-part="title" style="background:${esc(p.primaryColor)};color:#fff;text-align:center;padding:6px 8px;font-weight:bold;font-size:14px;letter-spacing:.5px;margin-bottom:6px;border-radius:4px">
       🏆 ${esc(title)}${subtitle ? ` — ${esc(subtitle)}` : ''}
     </div>`;
 }
 
 // Bloc signature + tampon (pied de page).
 function signatureHtml(school, sys) {
-  const stamp = school?.stamp_url ? `<img src="${esc(school.stamp_url)}" alt="" style="width:${S.stamp}px;height:${S.stamp}px;object-fit:contain;opacity:.9;mix-blend-mode:multiply"/>` : '';
-  const sign = school?.signature_url ? `<img src="${esc(school.signature_url)}" alt="" style="height:${S.signatureHeight}px;object-fit:contain;display:block;margin:0 auto;mix-blend-mode:multiply"/>` : `<div style="height:${S.signatureHeight}px"></div>`;
+  const stamp = school?.stamp_url ? `<img data-part="stamp" src="${esc(school.stamp_url)}" alt="" style="width:${S.stamp}px;height:${S.stamp}px;object-fit:contain;opacity:.9;mix-blend-mode:multiply"/>` : '';
+  const sign = school?.signature_url ? `<img data-part="signature" src="${esc(school.signature_url)}" alt="" style="height:${S.signatureHeight}px;object-fit:contain;display:block;margin:0 auto;mix-blend-mode:multiply"/>` : `<div style="height:${S.signatureHeight}px"></div>`;
   return `
-    <table style="width:100%;border-collapse:collapse;margin-top:14px">
+    <table class="${CLASS.keep}" data-part="signature-block" style="width:100%;border-collapse:collapse;margin-top:14px">
       <tbody><tr>
         <td style="width:50%;text-align:center;vertical-align:bottom">${stamp}</td>
         <td style="width:50%;text-align:center;vertical-align:bottom;font-size:10px">
@@ -108,8 +103,6 @@ export function tableSheet(school, year, p, group, sys) {
   const CELL = 'border:1px solid #374151;padding:4px 6px;font-size:10px';
   const TH = `${CELL};background:${p.primaryColor};color:#fff;text-align:center;font-weight:bold;font-size:9px`;
   const landscape = p.orientation === 'landscape';
-  const W = landscape ? '297mm' : '210mm';
-  const H = landscape ? '200mm' : '296mm';
 
   const head = cols.map((c) => `<th style="${TH}${COLS[c].w ? `;width:${COLS[c].w}` : ''};text-align:${COLS[c].align}">${COLS[c].th(sys)}</th>`).join('');
   const body = group.rows.map((r) => `
@@ -118,7 +111,7 @@ export function tableSheet(school, year, p, group, sys) {
     </tr>`).join('');
 
   return `
-    <div class="nc-sheet" style="font-family:${bulletinFontFamily(school)};font-size:10px;color:#111;width:${W};min-height:${H};box-sizing:border-box;padding:10mm;background:#fff;margin:0 auto">
+    ${sheetOpen({ school, profile: landscape ? 'large' : 'standard', fontSize: 10 })}
       ${headerHtml(school, sys, year, p.primaryColor)}
       ${bannerHtml(p, sys, group.title)}
       ${p.introText ? `<p style="font-size:10px;text-align:center;margin:4px 0 8px;font-style:italic;color:#475569">${esc(p.introText)}</p>` : ''}
@@ -129,13 +122,14 @@ export function tableSheet(school, year, p, group, sys) {
       ${p.congratsText ? `<p style="font-size:10px;text-align:center;margin-top:10px;color:${esc(p.primaryColor)};font-weight:600">${esc(p.congratsText)}</p>` : ''}
       ${p.specialMention ? `<p style="font-size:9px;text-align:center;margin-top:4px;font-style:italic;color:#64748b">${esc(p.specialMention)}</p>` : ''}
       ${signatureHtml(school, sys)}
-    </div>`;
+    ${SHEET_CLOSE}`;
 }
 
 // ── Modèle 2 : CERTIFICAT INDIVIDUEL (une feuille par élève) ──────────────────
 export function certificateSheet(school, year, p, row, sys) {
   return `
-    <div class="nc-sheet" style="font-family:${bulletinFontFamily(school)};color:#111;width:210mm;min-height:296mm;box-sizing:border-box;padding:18mm;background:#fff;margin:0 auto;border:6px double ${esc(p.primaryColor)};outline:1px solid ${esc(p.primaryColor)};outline-offset:6mm">
+    ${sheetOpen({ school, fontSize: 12 })}
+      <div class="nc-frame" style="min-height:265mm;box-sizing:border-box;padding:10mm;border:6px double ${esc(p.primaryColor)}">
       ${headerHtml(school, sys, year, p.primaryColor)}
       <div style="text-align:center;margin-top:18mm">
         <div style="font-size:30px;font-weight:bold;letter-spacing:2px;color:${esc(p.primaryColor)}">${esc(p.title || L(sys, "CERTIFICAT D'HONNEUR", 'CERTIFICATE OF HONOUR', 'CERTIFICADO DE HONOR'))}</div>
@@ -153,7 +147,8 @@ export function certificateSheet(school, year, p, row, sys) {
         ${p.specialMention ? `<p style="font-size:11px;margin-top:10px;font-style:italic;color:#64748b">${esc(p.specialMention)}</p>` : ''}
       </div>
       ${signatureHtml(school, sys)}
-    </div>`;
+      </div>
+    ${SHEET_CLOSE}`;
 }
 
 // ── Modèle 3 : AFFICHE MURALE (grand format, top élèves) ──────────────────────
@@ -169,7 +164,8 @@ export function posterSheet(school, year, p, group, sys) {
       <span style="font-size:20px;font-weight:bold;color:${esc(p.primaryColor)}">${r.avg == null ? '—' : `${esc(r.avg)}/${esc(r.scaleMax)}`}</span>
     </li>`).join('');
   return `
-    <div class="nc-sheet" style="font-family:${bulletinFontFamily(school)};color:#111;width:210mm;min-height:296mm;box-sizing:border-box;padding:16mm;background:#fff;margin:0 auto">
+    ${sheetOpen({ school, fontSize: 12 })}
+      <div style="padding:4mm">
       ${headerHtml(school, sys, year, p.primaryColor)}
       <div style="text-align:center;margin:10mm 0 6mm">
         <div style="font-size:34px;font-weight:bold;color:${esc(p.primaryColor)}">🏆 ${esc(p.title || L(sys, "TABLEAU D'HONNEUR", 'HONOUR ROLL', 'CUADRO DE HONOR'))}</div>
@@ -179,7 +175,8 @@ export function posterSheet(school, year, p, group, sys) {
       <ul style="list-style:none;padding:0;margin:0;border:2px solid ${esc(p.primaryColor)};border-radius:8px;overflow:hidden">${items}</ul>
       ${p.congratsText ? `<p style="font-size:14px;text-align:center;margin-top:12px;color:${esc(p.primaryColor)};font-weight:600">${esc(p.congratsText)}</p>` : ''}
       ${signatureHtml(school, sys)}
-    </div>`;
+      </div>
+    ${SHEET_CLOSE}`;
 }
 
 // ── Modèle 4 : DIPLÔME D'EXCELLENCE (paysage, riche, par élève) ───────────────
@@ -221,8 +218,8 @@ export function diplomaSheet(school, year, p, row, sys) {
     </td>`;
 
   return `
-    <div class="nc-sheet" style="font-family:${bulletinFontFamily(school)};color:#111;width:297mm;min-height:208mm;box-sizing:border-box;background:#fff;margin:0 auto;padding:6mm">
-      <div style="border:3px solid ${NAVY};border-radius:6px;height:100%;box-sizing:border-box;padding:4mm">
+    ${sheetOpen({ school, profile: 'large', fontSize: 12 })}
+      <div style="border:3px solid ${NAVY};border-radius:6px;min-height:186mm;box-sizing:border-box;padding:4mm">
        <div style="border:1px solid ${GOLD};border-radius:4px;box-sizing:border-box;padding:6mm;position:relative">
 
         <!-- En-tête -->
@@ -320,7 +317,7 @@ export function diplomaSheet(school, year, p, row, sys) {
 
        </div>
       </div>
-    </div>`;
+    ${SHEET_CLOSE}`;
 }
 
 // ── Orchestrateur : modèle + groupes → feuilles HTML ──────────────────────────

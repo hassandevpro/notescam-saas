@@ -7,6 +7,10 @@
 // Pagination EXPLICITE (mutualisée via `paginateScGroups`) : une `.bulletin-paper`
 // = une page physique, numérotée « Page i / N » PAR ÉLÈVE. En-tête répété sur
 // chaque page ; synthèse + signature sur la dernière.
+//
+// Cette maquette sert AUSSI au bulletin « Classique » (toutes sections) : seuls
+// l'en-tête (`basic` → tutelle MINEDUB au fondamental), les libellés de signature
+// et le barème (`maxScale`) changent — voir BulletinClassic dans pages/Bulletins.
 
 import {
   CELL, TH, HEAD, fix2, L,
@@ -14,14 +18,14 @@ import {
 } from './bulletinOfficialParts';
 import { paginateScGroups } from '../../lib/scBulletinDoc';
 
-function TableHead({ sys }) {
+function TableHead({ sys, maxScale = 20 }) {
   return (
     <thead>
       <tr>
         <th style={{ ...TH, width: '30%' }}>{L(sys, "MATIÈRES ET NOM DE L'ENSEIGNANT", "SUBJECTS & TEACHER'S NAME", 'ASIGNATURAS Y DOCENTE')}</th>
         <th style={{ ...TH, width: '6%' }}>Coef</th>
         <th style={{ ...TH, width: '7%' }}>{L(sys, 'Charge h', 'Periods', 'Horas')}</th>
-        <th style={{ ...TH, width: '8%' }}>{L(sys, 'Moy/20', 'Avg/20', 'Prom/20')}</th>
+        <th style={{ ...TH, width: '8%' }}>{L(sys, `Moy/${maxScale}`, `Avg/${maxScale}`, `Prom/${maxScale}`)}</th>
         <th style={{ ...TH, width: '9%' }}>{L(sys, 'Moy×Coef', 'Avg×Coef', 'Prom×Coef')}</th>
         <th style={{ ...TH, width: '7%' }}>{L(sys, 'Rang', 'Rank', 'Puesto')}</th>
         <th style={{ ...TH, width: '10%' }}>[Min–Max]</th>
@@ -64,7 +68,7 @@ function GroupBlock({ g, sys }) {
 }
 
 // Synthèse : Travail | Discipline/conduite | Profil de la classe + décision.
-function Synthesis({ data, discipline, decision, sys }) {
+function Synthesis({ data, discipline, decision, sys, maxScale = 20 }) {
   const d = discipline || {};
   const KV = ({ k, v, strong }) => (
     <tr><td style={CELL}>{k}</td><td style={{ ...CELL, textAlign: 'center' }}>{strong ? <strong>{v}</strong> : v}</td></tr>
@@ -83,7 +87,7 @@ function Synthesis({ data, discipline, decision, sys }) {
               <Mini title={L(sys, "Travail de l'élève", "Student's work", 'Trabajo del alumno')}>
                 <KV k={L(sys, 'Total général (M×coef)', 'Grand total (M×coef)', 'Total general (M×coef)')} v={fix2(data.mxSum)} />
                 <KV k={L(sys, 'Total coefficients', 'Total coefficients', 'Total coeficientes')} v={fix2(data.coefSum)} />
-                <KV k={L(sys, 'MOYENNE GÉNÉRALE', 'GENERAL AVERAGE', 'PROMEDIO GENERAL')} v={`${fix2(data.moyenneGenerale)}/20`} strong />
+                <KV k={L(sys, 'MOYENNE GÉNÉRALE', 'GENERAL AVERAGE', 'PROMEDIO GENERAL')} v={`${fix2(data.moyenneGenerale)}/${maxScale}`} strong />
                 <KV k={L(sys, 'Rang', 'Rank', 'Puesto')} v={data.generalRank || ''} strong />
                 <KV k={L(sys, 'Appréciation', 'Remarks', 'Apreciación')} v={data.appreciation} />
               </Mini>
@@ -124,13 +128,23 @@ function Synthesis({ data, discipline, decision, sys }) {
 }
 
 // ── Bulletin Second Cycle officiel (1..N pages numérotées par élève) ──────────
+// `basic` : tutelle Éducation de Base (MINEDUB) dans l'en-tête — utilisé par le
+// bulletin Classique des sections maternelle/primaire. `headLabel`/`teacherLabel`/
+// `ppLabel` renomment le chef d'établissement et l'enseignant en conséquence.
 export default function BulletinScOfficial({
   school, sys = 'FR', title, student, classLabel, serieLabel, effectif,
   profPrincipal = '', data, discipline, decision,
+  basic = false, accent, headLabel, teacherLabel, ppLabel, maxScale = 20, qrSrc,
 }) {
   const { pages, footerOwnPage } = paginateScGroups(data.groups);
   const total = pages.length + (footerOwnPage ? 1 : 0);
-  const idProps = { student, classLabel, serieLabel, effectif, profPrincipal, sys };
+  const idProps = { student, classLabel, serieLabel, effectif, profPrincipal, sys, ppLabel, qrSrc };
+  const footer = (
+    <>
+      <Synthesis data={data} discipline={discipline} decision={decision} sys={sys} maxScale={maxScale} />
+      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} />
+    </>
+  );
 
   const sheets = pages.map((slice, i) => {
     const withFooter = i === pages.length - 1 && !footerOwnPage;
@@ -138,21 +152,20 @@ export default function BulletinScOfficial({
       <OfficialSheet key={`p${i}`} school={school} pageNo={i + 1} total={total}>
         {i === 0 ? (
           <>
-            <OfficialHeader school={school} sys={sys} title={title} />
+            <OfficialHeader school={school} sys={sys} title={title} basic={basic} {...(accent ? { accent } : {})} />
             <OfficialIdentity {...idProps} />
           </>
         ) : (
           <ContinuationHeader title={title} student={student} classLabel={classLabel} serieLabel={serieLabel} sys={sys} />
         )}
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <TableHead sys={sys} />
+          <TableHead sys={sys} maxScale={maxScale} />
           {slice.map((g) => <GroupBlock key={g.ordre} g={g} sys={sys} />)}
           {data.groups.length === 0 && (
             <tbody><tr><td colSpan={8} style={{ ...CELL, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>{L(sys, 'Aucune matière notée pour cette période.', 'No subject graded for this period.', 'Ninguna asignatura calificada en este periodo.')}</td></tr></tbody>
           )}
         </table>
-        {withFooter && <Synthesis data={data} discipline={discipline} decision={decision} sys={sys} />}
-        {withFooter && <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />}
+        {withFooter && footer}
       </OfficialSheet>
     );
   });
@@ -161,8 +174,7 @@ export default function BulletinScOfficial({
     sheets.push(
       <OfficialSheet key="pf" school={school} pageNo={total} total={total}>
         <ContinuationHeader title={title} student={student} classLabel={classLabel} serieLabel={serieLabel} sys={sys} />
-        <Synthesis data={data} discipline={discipline} decision={decision} sys={sys} />
-        <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />
+        {footer}
       </OfficialSheet>
     );
   }

@@ -90,7 +90,7 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
 
   const subRows = subjectStats.map(({ sub, avg, min, max, passCount, total }) => {
     const passRate = total ? Math.round((passCount / total) * 100) : null;
-    const pass = sys === 'FR' ? (passThreshold / maxScale) * sub.max : passThreshold;
+    const pass = sub.max ? (passThreshold / maxScale) * sub.max : passThreshold;
     const avgOk = avg !== null && avg >= pass;
     return `<tr>
       <td><strong>${sub.name}</strong> <span style="color:#9ca3af;font-size:10px">/${sub.max}</span></td>
@@ -1342,14 +1342,14 @@ export default function Reports() {
                       <th className="px-4 py-3 text-center w-12">{t('Rang', 'Rank')}</th>
                       <th className="px-5 py-3 text-left">{t('Élève', 'Student')}</th>
                       <th className="px-4 py-3 text-center">{t('Matricule', 'ID')}</th>
-                      <th className="px-4 py-3 text-center">{t('Moyenne', 'Avg')} /{maxScale}</th>
+                      <th className="px-4 py-3 text-center">{t('Moyenne', 'Avg')} /{reportScale}</th>
                       <th className="px-4 py-3 text-center">{t('Appréciation', 'Grade')}</th>
                       <th className="px-4 py-3 text-center">{t('Décision', 'Decision')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {studentResults.map(({ student, avg, rank, appr }, idx) => {
-                      const passed = avg !== null && avg >= passThreshold;
+                      const passed = avg !== null && avg >= reportPass;
                       return (
                         <tr key={student.id} className={`hover:bg-gray-50 transition-colors ${idx % 2 === 0 ? '' : 'bg-gray-50/30'}`}>
                           <td className="px-4 py-3 text-center">
@@ -1399,7 +1399,7 @@ export default function Reports() {
                 <h2 className="font-semibold text-gray-800 mb-4">{t('Distribution des moyennes', 'Grade distribution')}</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {distribution.map((b) => {
-                    const isPass = sys === 'FR' ? b.min >= 10 : b.min >= 50;
+                    const isPass = b.min >= reportPass;
                     return (
                       <div key={b.label} className="space-y-2">
                         <div className="flex items-end justify-between">
@@ -1439,7 +1439,7 @@ export default function Reports() {
                   <tbody className="divide-y divide-gray-50">
                     {subjectStats.map(({ sub, avg, min, max, passCount, total }) => {
                       const passRate = total ? Math.round((passCount / total) * 100) : null;
-                      const pass = sys === 'FR' ? (passThreshold / maxScale) * sub.max : passThreshold;
+                      const pass = sub.max ? (reportPass / reportScale) * sub.max : reportPass;
                       return (
                         <tr key={sub.id} className="hover:bg-gray-50 transition-colors">
                           <td className="px-5 py-3 font-semibold text-gray-900">

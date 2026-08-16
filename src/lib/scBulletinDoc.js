@@ -8,9 +8,10 @@
 // rang, et décision du conseil de classe.
 //
 // Réutilise le MOTEUR DE NOTES CLASSIQUE (bulletinEngine.js) — pas de table de
-// notes dédiée — et le pipeline partagé HTML→PNG→jsPDF (exportTranscriptsPdf),
-// exactement comme le bulletin APC du premier cycle ([[apc_minesec_engine]]).
+// notes dédiée — et le SOCLE D'IMPRESSION (lib/print) en vectoriel, exactement
+// comme le bulletin APC du premier cycle ([[apc_minesec_engine]]).
 
+import { sheetOpen, SHEET_CLOSE as SHEET_END, num } from './print';
 import { officialHeaderHtml, officialSignatureHtml } from './officialDocHeader';
 import { assembleScBulletin } from '../core/scEngine';
 
@@ -19,10 +20,11 @@ export { assembleScBulletin };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
-const fix2 = (v) => (v == null ? '' : (Math.round(v * 100) / 100).toString());
+// Nombre imprimable : NaN et Infinity ne peuvent pas atteindre le papier.
+const fix2 = (v) => (v == null ? '' : num(Math.round(v * 100) / 100, { fallback: '' }));
 
-const SHEET_OPEN = '<div class="nc-sheet" style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#111;width:210mm;min-height:296mm;box-sizing:border-box;padding:9mm;background:#fff;margin:0 auto">';
-const SHEET_CLOSE = '</div>';
+const SHEET_OPEN = sheetOpen({ profile: 'bulletin', fontSize: 10 });
+const SHEET_CLOSE = SHEET_END;
 const C = 'border:1px solid #374151;padding:2px 4px;font-size:9px;vertical-align:top';
 
 const TRIM_TITLE = {

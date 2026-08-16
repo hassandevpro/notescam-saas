@@ -1,11 +1,14 @@
-// Socle d'IMPRESSION partagé (Finances / RH / Patrimoine).
-// Approche « maison » déjà en place dans l'app (cf. lib/staffExport.printStaffList) :
-// window.open + document HTML autonome + CSS @media print + window.print().
-// → Zéro dépendance, 100 % hors-ligne, aucune requête réseau pour générer le doc.
+// Pièces administratives (Finances / RH / Patrimoine) — gabarit d'en-tête et de
+// pied maison, monté sur le SOCLE D'IMPRESSION partagé (lib/print) :
+// géométrie de page, marges, stratégie de couleur, règles de saut et ouverture
+// de la fenêtre viennent de là. Ce fichier ne décrit que l'habillage propre aux
+// pièces administratives.
 //
 // L'en-tête établissement est lu depuis l'objet `school` existant (nom, logo,
 // adresse, contact…) — éventuellement déjà surchargé par unité via
 // lib/schoolIdentity.documentIdentity() côté appelant.
+
+import { printCss, openPrintWindow, BOOT_SCRIPT, PRINT_RESULT } from './print';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
@@ -66,8 +69,9 @@ export function openPrintDocument({ school, t, title, ref, subtitle, bodyHtml, o
   const html = `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="utf-8"/>
 <title>${esc(title)} — ${esc(school?.name || 'Établissement')}</title>
-<style>${SHARED_CSS}
-  @media print{@page{margin:12mm;size:A4 ${orientation}}body{padding:0}.page{padding:0}}
+<style>${printCss({ profile: orientation === 'landscape' ? 'large' : 'standard', screen: false })}
+${SHARED_CSS}
+  @media print{ .page{ padding:0 } }
 </style></head>
 <body><div class="page">
   <div class="doc-header">
@@ -88,9 +92,9 @@ export function openPrintDocument({ school, t, title, ref, subtitle, bodyHtml, o
     <span>${esc(footNote)}</span>
     <span>${esc(title)}${ref ? ' · ' + esc(ref) : ''} · ${esc(tr('Imprimé le', 'Printed on', 'Impreso el'))} ${today}</span>
   </div>
-</div></body></html>`;
+</div>${BOOT_SCRIPT}</body></html>`;
 
-  return openPrintWindow(html);
+  return openPrintWindow(html) === PRINT_RESULT.PRINTED;
 }
 
 // Document d'impression SANS l'en-tête/pied partagés : l'appelant fournit tout
@@ -103,21 +107,10 @@ export function openRawPrintDocument({ title, css = '', bodyHtml, orientation = 
   const html = `<!DOCTYPE html>
 <html lang="${esc(lang)}"><head><meta charset="utf-8"/>
 <title>${esc(title)}</title>
-<style>${css}
-  @media print{@page{margin:8mm;size:A4 ${orientation}}body{padding:0}.page{padding:0}}
+<style>${printCss({ profile: orientation === 'landscape' ? 'large' : 'dense', screen: false })}
+${css}
+  @media print{ .page{ padding:0 } }
 </style></head>
-<body><div class="page">${bodyHtml}</div></body></html>`;
-  return openPrintWindow(html);
-}
-
-// Ouverture + impression d'un document HTML complet. Renvoie false si le popup
-// est bloqué (l'appelant affiche alors le message « autorisez les pop-ups »).
-function openPrintWindow(html) {
-  const win = window.open('', '_blank', 'width=980,height=740');
-  if (!win) return false; // popup bloqué
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 400);
-  return true;
+<body><div class="page">${bodyHtml}</div>${BOOT_SCRIPT}</body></html>`;
+  return openPrintWindow(html) === PRINT_RESULT.PRINTED;
 }

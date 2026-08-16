@@ -29,11 +29,12 @@ import {
 import {
   classContext, evaluateClass, evaluateSchool, collectAnomalies, buildChecklist,
 } from '../lib/transcriptReadiness';
-import { recordGeneration, recentGenerations } from '../lib/documentLog';
+import { recentGenerations } from '../lib/documentLog';
+import { estimateSeconds } from '../lib/print';
+import usePrintJob from '../components/documents/usePrintJob';
 import { buildParentLinks } from '../lib/parentLinks';
-import { transcriptSheetHtml, multiYearSheetHtml, printSheets } from '../lib/transcriptDoc';
+import { transcriptSheetHtml, multiYearSheetHtml } from '../lib/transcriptDoc';
 import { classIdentity } from '../lib/schoolIdentity';
-import { exportTranscriptsPdf } from '../lib/transcriptPdf';
 import { loadYearAcademics, matchStudent, listYears } from '../lib/transcriptHistory';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -49,12 +50,14 @@ import PdfDiagnostic from '../components/transcripts/PdfDiagnostic';
 import GenerationHistory from '../components/transcripts/GenerationHistory';
 import ParentLinksModal from '../components/transcripts/ParentLinksModal';
 import CertificateWorkspace from '../components/documents/CertificateWorkspace';
+import PvWorkspace from '../components/documents/PvWorkspace';
 
 const decisionText = (sys, d) => (sys === 'EN' ? d.en : sys === 'ES' ? (d.es || d.fr) : d.fr);
 
 // Types de document proposés par le hub « Documents ».
 const DOC_TYPES = [
   { key: 'transcript',  icon: '📄', label: ['Relevé de notes', 'Transcript', 'Certificación'],     desc: ['Notes, moyennes, rang', 'Grades, averages, rank', 'Notas y media'] },
+  { key: 'pv',          icon: '⚖️', label: ['Procès-verbal de délibération', 'Deliberation minutes', 'Acta de deliberación'], desc: ['Par classe ou établissement', 'By class or whole school', 'Por clase o centro'] },
   { key: 'certificate', icon: '📜', label: ['Certificat de scolarité', 'Enrollment certificate', 'Certificado de escolaridad'], desc: ["Attestation d'inscription", 'Proof of enrollment', 'Comprobante de matrícula'] },
 ];
 
@@ -95,7 +98,6 @@ function TranscriptWorkspace() {
   const [search,    setSearch]    = useState('');
   const [sheets,    setSheets]    = useState([]);  // aperçu (1 feuille représentative)
   const [building,  setBuilding]  = useState(false);
-  const [pdfProg,   setPdfProg]   = useState(null);
   const [err,       setErr]       = useState(null);
   const [history,   setHistory]   = useState([]);
   const [parentLinks, setParentLinks] = useState(null);
@@ -284,82 +286,54 @@ function TranscriptWorkspace() {
     }
   }, [mode, classId, studentId, level, scopeTargets.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Construit TOUTES les feuilles du périmètre (téléchargement / impression) ──
-  const buildAll = useCallback(async (onProgress) => {
+  // ── Construit les feuilles d'une liste de cibles (impression) ────────────────
+  // `skipped` compte TOUT ce qui n'a pas été produit : erreur de rendu comme
+  // élève sans moyenne. Un document manquant est signalé à l'utilisateur et
+  // journalisé en PARTIEL — il ne disparaît plus en silence.
+  const buildAll = useCallback(async (items, onProgress) => {
     if (mode === 'multi') {
       const s = await buildMultiSheet(selectedStudent, selectedClass);
       onProgress?.(1, 1);
-      return { sheets: [s], failed: 0 };
+      return { sheets: [s], skipped: 0 };
     }
     const cache = new Map();
     const out = [];
-    let done = 0, failed = 0;
-    for (const { cls, studentId: sid } of scopeTargets) {
+    let done = 0, skipped = 0;
+    for (const { cls, studentId: sid } of items) {
       try {
         if (!cache.has(cls.id)) cache.set(cls.id, classTranscripts(cls));
         const { sys, data } = cache.get(cls.id);
         const d = data.find((x) => x.student.id === sid);
         if (d && d.generalAvg !== null) out.push(await sheetFromData(d, cls, sys));
+        else skipped++;
       } catch (e) {
         // Un élève en erreur ne doit pas faire échouer tout le lot.
         console.error('buildAll sheet', sid, e);
-        failed++;
+        skipped++;
       }
-      onProgress?.(++done, scopeTargets.length);
+      onProgress?.(++done, items.length);
     }
-    return { sheets: out, failed };
-  }, [mode, selectedStudent, selectedClass, scopeTargets, classTranscripts, sheetFromData, buildMultiSheet]);
+    return { sheets: out, skipped };
+  }, [mode, selectedStudent, selectedClass, classTranscripts, sheetFromData, buildMultiSheet]);
 
-  // ── Actions ──────────────────────────────────────────────────────────────────
-  const logAndRefresh = useCallback(async (status, count, detail) => {
-    const scope = mode === 'level' ? level : mode === 'class' ? selectedClass?.name : mode === 'all' ? '' : selectedStudent?.name;
-    await recordGeneration({ schoolId: school.id, userName, type: mode, scope, count, status, detail });
-    recentGenerations(school.id).then(setHistory);
-  }, [mode, level, selectedClass, selectedStudent, school, userName]);
+  // ── Impression ───────────────────────────────────────────────────────────────
+  // Génération = impression. La fenêtre du navigateur laisse choisir
+  // « Enregistrer au format PDF » — pas besoin d'un second bouton.
+  // Le travail (progression, lots, statuts, journal) est tenu par usePrintJob.
+  const job = usePrintJob({
+    targets: scopeTargets,
+    buildSheets: buildAll,
+    title: () => `${t('Relevés', 'Transcripts', 'Certificaciones')} — ${school?.name || ''}`,
+    logType: mode,
+    scope: () => (mode === 'level' ? level : mode === 'class' ? selectedClass?.name || '' : mode === 'all' ? '' : selectedStudent?.name || ''),
+    schoolId: school?.id,
+    userName,
+    t,
+    onLogged: () => { if (school?.id) recentGenerations(school.id).then(setHistory); },
+  });
 
-  const handleDownload = async () => {
-    setErr(null);
-    setPdfProg({ done: 0, total: scopeTargets.length || 1 });
-    try {
-      const { sheets: all, failed } = await buildAll((done, total) => setPdfProg({ done, total }));
-      if (!all.length) throw new Error(t('Aucun relevé générable — vérifiez les notes et les moyennes.', 'No generable transcript — check grades and averages.', 'Sin certificaciones generables — verifique notas.'));
-      const fileBase = mode === 'class' ? `releves-${selectedClass?.name || 'classe'}`
-        : mode === 'level' ? `releves-niveau-${level}`
-        : mode === 'all' ? 'releves-etablissement'
-        : `releve-${(selectedStudent?.name || 'eleve').replace(/\s+/g, '-')}`;
-      // Au-delà d'une centaine de pages, on réduit la résolution pour éviter de
-      // saturer la mémoire du navigateur (rasterisation A4 plein écran).
-      const ratio = all.length > 150 ? 1.5 : all.length > 50 ? 2 : 3;
-      await exportTranscriptsPdf(all, {
-        fileName: `${fileBase}.pdf`.toLowerCase(), mode: 'save', pixelRatio: ratio,
-        onProgress: (done, total) => setPdfProg({ done, total }),
-      });
-      if (failed) setErr(t(`${failed} relevé(s) ignoré(s) (données incomplètes).`, `${failed} transcript(s) skipped (incomplete data).`, `${failed} omitida(s).`));
-      await logAndRefresh('success', all.length, failed ? `${failed} skipped` : '');
-    } catch (e) {
-      console.error('download', e);
-      setErr(e?.message || String(e));
-      await logAndRefresh('error', 0, e?.message || String(e));
-    } finally {
-      setPdfProg(null);
-    }
-  };
-
-  const handlePrintAll = async () => {
-    setErr(null);
-    setPdfProg({ done: 0, total: scopeTargets.length || 1 });
-    try {
-      const { sheets: all } = await buildAll((done, total) => setPdfProg({ done, total }));
-      if (!all.length) throw new Error(t('Aucun relevé générable — vérifiez les notes et les moyennes.', 'No generable transcript — check grades and averages.', 'Sin certificaciones generables — verifique notas.'));
-      printSheets(all, `${t('Relevés', 'Transcripts', 'Certificaciones')} — ${school?.name || ''}`);
-      await logAndRefresh('success', all.length, 'print');
-    } catch (e) {
-      console.error('print', e);
-      setErr(e?.message || String(e));
-    } finally {
-      setPdfProg(null);
-    }
-  };
+  // Une nouvelle sélection repart du premier lot.
+  useEffect(() => { job.reset(); }, [mode, classId, studentId, level]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleParents = () => {
     const ids = new Set(scopeTargets.map((x) => x.studentId));
@@ -398,7 +372,6 @@ function TranscriptWorkspace() {
 
   const docCount = scopeTargets.length;
   const canGenerate = docCount > 0 && canPrint;
-  const estimateSeconds = docCount ? Math.max(1, Math.round(docCount * 0.5)) : 0;
 
   const left = {
     schoolName: school?.name,
@@ -417,14 +390,22 @@ function TranscriptWorkspace() {
           </div>
         )}
 
+        {/* Information non bloquante (documents ignorés, valeurs manquantes) */}
+        {job.notice && (
+          <div className="flex items-start justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <span className="flex items-start gap-2"><span className="mt-0.5">⚠</span><span>{job.notice}</span></span>
+            <button type="button" onClick={() => job.setNotice(null)} className="shrink-0 text-amber-400 hover:text-amber-600" aria-label={t('Fermer', 'Close', 'Cerrar')}>✕</button>
+          </div>
+        )}
+
         {/* Bandeau d'erreur global (toujours visible) */}
-        {err && (
+        {(err || job.error) && (
           <div className="flex items-start justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             <span className="flex items-start gap-2">
               <span className="mt-0.5">⚠</span>
-              <span>{err}</span>
+              <span>{err || job.error}</span>
             </span>
-            <button type="button" onClick={() => setErr(null)} className="shrink-0 text-red-400 hover:text-red-600" aria-label={t('Fermer', 'Close', 'Cerrar')}>✕</button>
+            <button type="button" onClick={() => { setErr(null); job.setError(null); }} className="shrink-0 text-red-400 hover:text-red-600" aria-label={t('Fermer', 'Close', 'Cerrar')}>✕</button>
           </div>
         )}
 
@@ -471,13 +452,15 @@ function TranscriptWorkspace() {
         {/* SECTION 9 — Génération de masse */}
         <MassGenerationBar
           count={docCount}
-          progress={pdfProg}
-          estimateSeconds={estimateSeconds}
+          progress={job.progress}
+          estimateSeconds={estimateSeconds(docCount)}
           canGenerate={canGenerate}
           canPrint={canPrint}
-          onDownload={handleDownload}
-          onPrint={handlePrintAll}
+          onPrint={() => job.run()}
           onParentLinks={handleParents}
+          batches={job.batches.length}
+          batchIndex={job.batchIndex}
+          batched={job.batched}
           t={t}
         />
 
@@ -522,7 +505,7 @@ export default function Documents() {
         </div>
 
         {/* Sélecteur de type de document */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {DOC_TYPES.map((d) => {
             const active = docType === d.key;
             return (
@@ -541,7 +524,9 @@ export default function Documents() {
           })}
         </div>
 
-        {docType === 'transcript' ? <TranscriptWorkspace /> : <CertificateWorkspace t={t} />}
+        {docType === 'transcript' ? <TranscriptWorkspace />
+          : docType === 'pv' ? <PvWorkspace t={t} />
+          : <CertificateWorkspace t={t} />}
       </div>
     </Layout>
   );

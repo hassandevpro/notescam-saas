@@ -7,9 +7,15 @@ import { flushSyncQueue, getQueueCount, pruneExpiredItems } from './lib/sync';
 import { requestPersistentStorage } from './lib/db';
 import { backendOnline, IS_LAN } from './lib/edition';
 import { installDocumentScaleVars } from './lib/documentScaleVars';
+import { installPrintStyles } from './lib/print';
 
 // Dimensionnement des éléments graphiques (variables CSS) — installé une fois.
 installDocumentScaleVars();
+// Socle d'impression : les documents rendus DANS l'application (bulletins,
+// conseil de classe, aperçus) héritent des mêmes règles de couleur et de saut
+// de page que ceux imprimés en fenêtre séparée. La géométrie @page reste au
+// document hôte (bulletin.css a la sienne).
+installPrintStyles();
 import ProtectedRoute from './components/ProtectedRoute';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import ToastHost from './components/ToastHost';
@@ -177,11 +183,17 @@ export default function App() {
 
     useUiStore.getState().setSyncing();
     try {
-      const { synced, failed, failedItems = [] } = await flushSyncQueue();
+      const { failed, failedItems = [] } = await flushSyncQueue();
       if (failed === 0) {
         useUiStore.getState().setSynced();
         setTimeout(() => useUiStore.getState().setIdle(), 3000);
-        if (synced > 0) useSchoolStore.getState()._refreshFromSupabase(schoolId);
+        // PAS de rechargement complet ici. La file vient de POUSSER des lignes
+        // que l'application connaît déjà (elles sont en IndexedDB et dans le
+        // store) : les re-télécharger, c'est reprendre les 144 000 notes de
+        // l'établissement — ~35 s en 4G — après la saisie d'une seule note.
+        // Le rafraîchissement depuis le cloud reste déclenché à l'ouverture de
+        // session et au retour de connexion, là où d'autres postes ont pu
+        // écrire.
       } else {
         useUiStore.getState().setSyncError(failed, failedItems);
       }

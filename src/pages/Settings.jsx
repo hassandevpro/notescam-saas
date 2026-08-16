@@ -1174,9 +1174,18 @@ export default function Settings() {
 
   function renderCalendar() {
     return (
-      <Section title={t('Calendrier scolaire', 'School calendar', 'Calendario escolar')}>
-        <SchoolCalendar />
-      </Section>
+      <div className="space-y-6">
+        <Section title={t('Calendrier scolaire', 'School calendar', 'Calendario escolar')}>
+          <SchoolCalendar />
+        </Section>
+
+        {/* Complexe scolaire : qui règle quoi. Un administrateur sans périmètre
+            pilote tout ; avec un périmètre, il ne configure que sa partie du
+            calendrier (fondamental MINEDUB / secondaire MINESEC). */}
+        <Section title={t('Répartition entre responsables', 'Split between heads', 'Reparto entre responsables')}>
+          <StaffManager roles={['admin']} scopeOnly />
+        </Section>
+      </div>
     );
   }
 

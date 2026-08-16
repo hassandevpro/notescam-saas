@@ -35,6 +35,16 @@ node scripts/seed-college-la-retraite.mjs --reset    # régénérer à neuf
 node scripts/seed-college-la-retraite.mjs --data-dir <dossier>
 ```
 
+Puis **construire l'édition LAN** — étape obligatoire, souvent oubliée :
+
+```bash
+npm run build:lan
+```
+
+Sans elle, `dist/` contient le build cloud : l'écran de connexion interroge
+Supabase et **aucun compte `@laretraite.demo` ne fonctionne**, même serveur
+allumé. Vérification : `dist/assets/vendor-supabase-*.js` ne doit pas exister.
+
 Puis démarrer le serveur sur cette base :
 
 ```bash
@@ -43,6 +53,18 @@ NOTESCAM_DATA_DIR=server/data-demo npm run server
 # PowerShell
 $env:NOTESCAM_DATA_DIR="server/data-demo"; npm run server
 ```
+
+Enfin, **activer la licence** sur la base de démo : elle est neuve, donc non
+activée, et l'édition LAN affiche un écran d'activation bloquant avant le
+`/login`. Générer une clé pour ce poste, puis la coller dans cet écran :
+
+```bash
+node server/machine-id.mjs        # empreinte de ce poste
+npm run license                   # école / plan / expiration / empreinte
+```
+
+À faire **une seule fois par dossier de données** : `--reset` ne purge pas
+`license_activation`, l'activation survit aux régénérations.
 
 ### Édition cloud (Supabase)
 
@@ -239,6 +261,7 @@ Ce sont les cinq qui montrent le plus vite ce que le produit fait de différent.
 
 ```bash
 node scripts/seed-college-la-retraite.mjs --reset
+npm run build:lan                    # si dist/ a servi à un build cloud
 NOTESCAM_DATA_DIR=server/data-demo npm run server
 ```
 

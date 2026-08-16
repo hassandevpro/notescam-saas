@@ -178,3 +178,10 @@ export function subjectsFromPrimReferentiel(competences, { schoolId, classId, gr
     prim_competence_id: c.id,
   }));
 }
+
+// ── Clé locale d'une note du primaire APC ────────────────────────────────────
+// Identité d'une note = (élève, compétence, critère, UA). Définie ICI (module
+// pur) pour être lisible par les assembleurs de documents sans dépendre de la
+// couche Supabase ; `lib/primService` la réexporte.
+export const primNkey = (eleveId, competenceId, critereId, ua) =>
+  `${eleveId}_${competenceId}_${critereId}_${ua}`;

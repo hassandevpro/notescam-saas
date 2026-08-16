@@ -253,6 +253,32 @@ app.get('/api/update/status', async (req, reply) => {
   } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
 });
 
+// Réglage de la mise à jour AUTOMATIQUE : état détaillé (pourquoi elle n'a pas
+// encore eu lieu) et interrupteur. Le « pourquoi » compte autant que l'état :
+// sans lui, une école voit « à jour » sans savoir qu'elle attend la fenêtre de
+// maintenance, la parité, ou une clé de publication.
+app.get('/api/update/auto', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const m = await import('./updateInstaller.js');
+    return { data: {
+      enabled:    m.autoUpdateEnabled(),
+      configured: m.releaseSigningConfigured(),
+      inWindow:   m.inMaintenanceWindow(),
+      idle:       m.serverIdle(),
+    }, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+app.post('/api/update/auto', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { setAutoUpdate, autoUpdateEnabled } = await import('./updateInstaller.js');
+    setAutoUpdate(req.body?.enabled !== false);
+    return { data: { enabled: autoUpdateEnabled() }, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
 // Déclenche la mise à jour — BLOQUÉE (409 + tables divergentes) si désynchro.
 app.post('/api/update/apply', async (req, reply) => {
   if (!requireLocalAdmin(req, reply)) return;
@@ -514,6 +540,13 @@ const start = async () => {
     // H3-b : application des décisions distantes (approbation/refus). No-op tant que
     // l'école n'est pas en mode gouvernance financière distante (deployment_policy).
     if (scheduleDecisionApply()) console.log('  Application des décisions distantes : planifiée (inerte hors mode distant)');
+    // Mise à jour automatique (OTA). Inerte tant qu'aucune clé publique de
+    // publication n'est livrée avec l'installation : l'école reste alors sur
+    // l'installeur manuel, exactement comme avant. Jamais bloquant au démarrage.
+    try {
+      const { startAutoUpdate } = await import('./updateInstaller.js');
+      startAutoUpdate({ everyHours: 6 });
+    } catch (e) { console.log('  Mise à jour automatique indisponible :', e.message); }
     console.log(`\n  NotesCam LAN — http://localhost:${PORT}`);
     console.log(`  Accessible sur le réseau : http://<IP-du-PC>:${PORT}`);
     console.log(`  Données : ${DATA_DIR}\n`);

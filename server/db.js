@@ -4,7 +4,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
@@ -12,7 +12,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Emplacement des données : configurable pour l'installation packagée
 // (C:\ProgramData\NotesCam). Par défaut, ./server/data en développement.
-export const DATA_DIR = process.env.NOTESCAM_DATA_DIR || join(__dirname, 'data');
+// `resolve` : NOTESCAM_DATA_DIR peut être donné en relatif (server/data-demo) ;
+// @fastify/static exige une racine absolue pour DATA_DIR/files et refuse de
+// démarrer sinon.
+export const DATA_DIR = resolve(process.env.NOTESCAM_DATA_DIR || join(__dirname, 'data'));
 mkdirSync(DATA_DIR, { recursive: true });
 
 export const DB_PATH = join(DATA_DIR, 'notescam.db');

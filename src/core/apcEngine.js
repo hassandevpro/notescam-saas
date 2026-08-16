@@ -257,3 +257,10 @@ export const buildApcRanks = (students, avgById, excl = {}) => {
   });
   return wa;
 };
+
+// ── Clé locale d'une note APC ────────────────────────────────────────────────
+// Identité d'une note = (élève, compétence, séquence). Définie ICI (module pur)
+// pour que les assembleurs de bulletins et de procès-verbaux puissent la lire
+// sans dépendre de la couche Supabase ; `lib/apcService` la réexporte.
+export const noteNkey = (eleveId, competenceId, sequenceId) =>
+  `${eleveId}_${competenceId}_${sequenceId}`;

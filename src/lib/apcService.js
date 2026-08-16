@@ -12,9 +12,10 @@
 
 import { supabase } from './supabase';
 import { uuid } from './uuid';
+// Définition canonique dans le moteur pur (lisible sans la couche Supabase).
+import { noteNkey } from '../core/apcEngine';
 
-export const noteNkey = (eleveId, competenceId, sequenceId) =>
-  `${eleveId}_${competenceId}_${sequenceId}`;
+export { noteNkey };
 
 // --- Référentiel --------------------------------------------------------------
 // Charge l'intégralité de la structure + les compétences de la version active.

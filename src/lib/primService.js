@@ -12,12 +12,12 @@
 
 import { supabase } from './supabase';
 import { uuid } from './uuid';
-import { trimestreOfUA } from '../core/primEngine';
-
 // UA (Unité d'Apprentissage, 1-8) remplace trimestre_id comme clé de saisie —
-// le carnet officiel MINEDUB note par UA, pas par trimestre.
-export const primNkey = (eleveId, competenceId, critereId, ua) =>
-  `${eleveId}_${competenceId}_${critereId}_${ua}`;
+// le carnet officiel MINEDUB note par UA, pas par trimestre. Définition
+// canonique dans le moteur pur (lisible sans la couche Supabase).
+import { trimestreOfUA, primNkey } from '../core/primEngine';
+
+export { primNkey };
 
 // --- Référentiel --------------------------------------------------------------
 export async function fetchPrimReferentiel() {

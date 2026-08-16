@@ -150,14 +150,35 @@ INSERT INTO _acct VALUES
  ('ens_prim',    'ens.primaire@laretraite.demo',     'M. NKOULOU Bertrand',      'teacher',     NULL,                           false,'Masculin','enseignants',   'Enseignant — Primaire',                        240000, 'primaire',  'Polyvalent primaire'),
  ('ens_sec',     'ens.secondaire@laretraite.demo',   'Mme TCHUENTE Léonie',      'teacher',     NULL,                           false,'Feminin', 'enseignants',   'Enseignante — Secondaire',                     280000, 'college',   'Mathématiques');
 
+-- Les colonnes de jetons DOIVENT valoir '' et non NULL : GoTrue les lit dans des
+-- chaînes Go non-nullables. Un NULL fait échouer le scan et toute connexion
+-- répond « Database error querying schema » — l'erreur ne cite jamais la vraie
+-- cause. C'est le piège classique d'un compte créé en SQL plutôt que par l'API.
 INSERT INTO auth.users (instance_id, id, aud, role, email, encrypted_password,
-                        email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data)
+                        email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data,
+                        confirmation_token, recovery_token, email_change_token_new,
+                        email_change, email_change_token_current, phone_change,
+                        phone_change_token, reauthentication_token)
 SELECT '00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
        a.email, crypt('Retraite2026!', gen_salt('bf')), now(), now(), now(),
        '{"provider":"email","providers":["email"]}'::jsonb,
-       jsonb_build_object('full_name', a.full_name)
+       jsonb_build_object('full_name', a.full_name),
+       '', '', '', '', '', '', '', ''
 FROM _acct a
 WHERE NOT EXISTS (SELECT 1 FROM auth.users u WHERE lower(u.email) = lower(a.email));
+
+-- Réparation des comptes déjà créés par une version antérieure de ce script
+-- (le INSERT ci-dessus les ignore : ils existent déjà, mais avec des NULL).
+UPDATE auth.users SET
+  confirmation_token         = COALESCE(confirmation_token, ''),
+  recovery_token             = COALESCE(recovery_token, ''),
+  email_change_token_new     = COALESCE(email_change_token_new, ''),
+  email_change               = COALESCE(email_change, ''),
+  email_change_token_current = COALESCE(email_change_token_current, ''),
+  phone_change               = COALESCE(phone_change, ''),
+  phone_change_token         = COALESCE(phone_change_token, ''),
+  reauthentication_token     = COALESCE(reauthentication_token, '')
+WHERE email LIKE '%@laretraite.demo';
 
 INSERT INTO auth.identities (id, user_id, provider, provider_id, identity_data, created_at, updated_at, last_sign_in_at)
 SELECT gen_random_uuid(), u.id, 'email', u.id::text,

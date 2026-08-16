@@ -113,6 +113,10 @@ Copy-Item (Join-Path $Here 'start-server.cmd')      $Stage -Force
 Copy-Item (Join-Path $Here 'start-hybrid.cmd')      $Stage -Force
 Copy-Item (Join-Path $Here 'install-service.ps1')   $Stage -Force
 Copy-Item (Join-Path $Here 'uninstall-service.ps1') $Stage -Force
+# Embarqué pour la MISE À JOUR AUTOMATIQUE : le serveur télécharge l'installeur
+# signé puis passe la main à ce script (sauvegarde, arrêt, installation, relance).
+# Sans lui dans l'installation, l'OTA retombe sur la mise à jour manuelle.
+Copy-Item (Join-Path $Here 'update-notescam.ps1')   $Stage -Force
 
 # --- 6. Compilation de l'installateur (Inno Setup) -------------------
 Step "Compilation de l'installateur (Inno Setup)"

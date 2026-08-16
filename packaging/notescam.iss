@@ -49,6 +49,8 @@ Source: "{#StageDir}\start-server.cmd";     DestDir: "{app}"; Flags: ignoreversi
 Source: "{#StageDir}\start-hybrid.cmd";     DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\install-service.ps1";  DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\uninstall-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
+; Script de mise à jour — utilisé par l'OTA (le serveur lui passe l'installeur signé).
+Source: "{#StageDir}\update-notescam.ps1";  DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; Raccourci = ouvrir l'app dans le navigateur (c'est une web-app servie en local)

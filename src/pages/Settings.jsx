@@ -13,6 +13,7 @@ import { copyText } from '../lib/clipboard';
 import { BULLETIN_FONTS } from '../lib/schoolTheme';
 import { CURRENCIES } from '../lib/currency';
 import { supabase } from '../lib/supabase';
+import { fetchSmsSettings, updateSmsSettings, fetchSmsOutboxStatus, resetSmsSpend, maskPhone } from '../lib/smsSettingsService';
 import { DEFAULT_GRADE_SCALE } from '../core/bulletinEngine';
 import { apcBulletinCols, APC_BULLETIN_COLS_DEFAULT } from '../core/apcEngine';
 import { isOfficialEngine } from '../core/engineResolver';
@@ -324,6 +325,65 @@ export default function Settings() {
     else { setGeOptSaved(true); setTimeout(() => setGeOptSaved(false), 3000); }
   };
 
+  // ── Configuration SMS (fournisseur non encore choisi — cf. Settings SMS) ──
+  // budget_fcfa/cost_per_sms_fcfa/soft_threshold_pct : maîtrise des coûts (cf.
+  // supabase_sms_budget.sql) — appliqués par l'edge notify-dispatch, pas ici.
+  // spent_fcfa n'est PAS dans le formulaire éditable : c'est le dispatcher qui
+  // l'incrémente (sms_record_spend) ; seule une remise à zéro explicite est permise.
+  const SMS_FORM_DEFAULTS = {
+    provider: '', sender_id: '', api_key: '', api_secret: '', enabled: false,
+    budget_fcfa: 20000, cost_per_sms_fcfa: 20, soft_threshold_pct: 85,
+  };
+  const [smsForm,    setSmsForm]    = useState(SMS_FORM_DEFAULTS);
+  const [smsSpent,    setSmsSpent]    = useState(0);
+  const [smsOutbox,  setSmsOutbox]  = useState([]);
+  const [smsSaving,  setSmsSaving]  = useState(false);
+  const [smsSaved,   setSmsSaved]   = useState(false);
+  const [smsError,   setSmsError]   = useState(null);
+  const [smsResetting, setSmsResetting] = useState(false);
+
+  const reloadSmsData = () => {
+    if (!school?.id) return Promise.resolve();
+    return Promise.all([fetchSmsSettings(school.id), fetchSmsOutboxStatus(school.id)]).then(([settings, outbox]) => {
+      setSmsForm({
+        provider: settings?.provider || '', sender_id: settings?.sender_id || '',
+        api_key: settings?.api_key || '', api_secret: settings?.api_secret || '',
+        enabled: settings?.enabled === true,
+        budget_fcfa: settings?.budget_fcfa ?? SMS_FORM_DEFAULTS.budget_fcfa,
+        cost_per_sms_fcfa: settings?.cost_per_sms_fcfa ?? SMS_FORM_DEFAULTS.cost_per_sms_fcfa,
+        soft_threshold_pct: settings?.soft_threshold_pct ?? SMS_FORM_DEFAULTS.soft_threshold_pct,
+      });
+      setSmsSpent(Number(settings?.spent_fcfa) || 0);
+      setSmsOutbox(outbox);
+    });
+  };
+
+  useEffect(() => {
+    if (!school?.id || !isAdmin) return;
+    let cancelled = false;
+    reloadSmsData().then(() => { if (cancelled) return; });
+    return () => { cancelled = true; };
+  }, [school?.id, isAdmin]);
+
+  const handleSmsSave = async () => {
+    setSmsSaving(true); setSmsSaved(false); setSmsError(null);
+    const res = await updateSmsSettings(school.id, smsForm);
+    setSmsSaving(false);
+    if (res?.error) setSmsError(res.error);
+    else { setSmsSaved(true); setTimeout(() => setSmsSaved(false), 3000); }
+  };
+
+  const handleSmsResetSpend = async () => {
+    if (!window.confirm(t(
+      'Remettre le compteur de dépense SMS à zéro ?',
+      'Reset the SMS spend counter to zero?',
+    ))) return;
+    setSmsResetting(true);
+    await resetSmsSpend(school.id);
+    await reloadSmsData();
+    setSmsResetting(false);
+  };
+
   // ── Profil enseignant ────────────────────────────────────────────────────
   const teacherId = useAuthStore((s) => s.teacherId);
   const [tProfile,     setTProfile]     = useState({ name: '', phone: '' });
@@ -389,7 +449,9 @@ export default function Settings() {
         establishment_no: school.establishment_no || '',
         niu:              school.niu              || '',
         cnps_number:      school.cnps_number       || '',
+        payslip_font_size: school.payslip_font_size || 'normal',
         grade_entry_mode: school.grade_entry_mode === 'subject' ? 'subject' : 'principal',
+        primary_period_mode: school.primary_period_mode === 'sequences' ? 'sequences' : 'trimestres',
         // Deux mondes présentés à l'admin : Classique vs Officiel (unifié). Tout
         // drapeau officiel « historique » (minesec/minedub…) est remonté sur 'officiel'.
         bulletin_engine: isOfficialEngine(school.bulletin_engine) ? 'officiel' : 'classic',
@@ -517,6 +579,7 @@ export default function Settings() {
     { id: 'units',         label: t('Complexe scolaire', 'School complex', 'Complejo'),              render: renderUnits,       hidden: !isAdmin },
     { id: 'users',         label: t('Utilisateurs', 'Users', 'Usuarios'),                           render: renderUsers,       hidden: !isAdmin },
     { id: 'calendar',      label: t('Calendrier scolaire', 'School calendar', 'Calendario'),        render: renderCalendar,    hidden: !isAdmin },
+    { id: 'sms',           label: t('SMS', 'SMS', 'SMS'),                                           render: renderSms,        hidden: !isAdmin },
     { id: 'advanced',      label: t('Paramètres avancés', 'Advanced settings', 'Avanzado'),         render: renderAdvanced,    hidden: !isAdmin },
   ];
 
@@ -719,6 +782,16 @@ export default function Settings() {
                   <label className="form-label">{t('N° CNPS', 'CNPS no.', 'N.° CNPS')}</label>
                   <input type="text" disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.cnps_number} onChange={set('cnps_number')} />
                 </div>
+                <div>
+                  <label className="form-label">{t('Taille du bulletin de paie', 'Payslip font size', 'Tamaño de la nómina')}</label>
+                  <select disabled={!isAdmin} className="form-input disabled:bg-gray-50 disabled:text-gray-500" value={form.payslip_font_size} onChange={set('payslip_font_size')}>
+                    <option value="small">{t('Petite', 'Small', 'Pequeña')}</option>
+                    <option value="normal">{t('Normale', 'Normal', 'Normal')}</option>
+                    <option value="large">{t('Grande', 'Large', 'Grande')}</option>
+                    <option value="xlarge">{t('Très grande', 'Extra large', 'Muy grande')}</option>
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">{t("Échelle d'impression du bulletin de paie (RH → Paie).", 'Print scale of the payslip (HR → Payroll).')}</p>
+                </div>
 
                 {/* Séparateur coordonnées */}
                 <div className="md:col-span-2 border-t border-gray-100 pt-2">
@@ -814,6 +887,57 @@ export default function Settings() {
                     "Pensez à affecter chaque matière à un enseignant dans Matières. Une matière sans enseignant ne sera saisissable par aucun professeur de matière.",
                     'Remember to assign each subject to a teacher in Subjects. A subject without a teacher cannot be entered by any subject teacher.',
                     'Asigne cada asignatura a un profesor en Asignaturas.',
+                  )}
+                </div>
+              )}
+            </Section>
+
+            {/* ── Rythme d'évaluation du primaire classique ────────────────── */}
+            <Section title={t("Rythme d'évaluation du primaire", 'Primary assessment rhythm', 'Ritmo de evaluación de primaria')} className="mt-6">
+              <p className="text-sm text-gray-500 mb-4">
+                {t(
+                  "Ne concerne que le primaire classique. Le primaire APC (compétences) et la maternelle (domaines) gardent leurs propres écrans, toujours trimestriels.",
+                  'Applies to classic primary only. Competency-based primary and nursery keep their own screens, always per term.',
+                  'Solo afecta a la primaria clásica. La primaria por competencias y preescolar no cambian.',
+                )}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { value: 'trimestres',
+                    title: t('Trimestres', 'Terms', 'Trimestres'),
+                    desc:  t('3 périodes — une note par trimestre.', '3 periods — one mark per term.', '3 periodos — una nota por trimestre.') },
+                  { value: 'sequences',
+                    title: t('Séquences', 'Sequences', 'Secuencias'),
+                    desc:  t('6 séquences, 2 par trimestre — le rythme du collège.', '6 sequences, 2 per term — the secondary rhythm.', '6 secuencias, 2 por trimestre.') },
+                ].map((opt) => {
+                  const active = (form.primary_period_mode || 'trimestres') === opt.value;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      disabled={!isAdmin}
+                      onClick={() => setForm((f) => ({ ...f, primary_period_mode: opt.value }))}
+                      className={`text-left rounded-xl border p-4 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                        active ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-brand-600' : 'border-gray-300'}`}>
+                          {active && <span className="w-2 h-2 rounded-full bg-brand-600" />}
+                        </span>
+                        <span className="font-semibold text-gray-900 text-sm">{opt.title}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1.5 ml-6">{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {(form.primary_period_mode || 'trimestres') === 'sequences' && (
+                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                  {t(
+                    "À ne basculer qu'avant de commencer les saisies. Les notes primaires déjà enregistrées en trimestres 1, 2 et 3 seraient relues comme les séquences 1, 2 et 3 : l'ancien Trimestre 2 se retrouverait alors dans le Trimestre 1, qui couvre les séquences 1 et 2.",
+                    'Switch before you start entering marks. Primary marks already saved as terms 1, 2 and 3 would be read as sequences 1, 2 and 3: the old Term 2 would land inside Term 1, which covers sequences 1 and 2.',
+                    'Cambie antes de capturar notas: las notas ya guardadas cambiarían de trimestre.',
                   )}
                 </div>
               )}
@@ -1050,9 +1174,181 @@ export default function Settings() {
 
   function renderCalendar() {
     return (
-      <Section title={t('Calendrier scolaire', 'School calendar', 'Calendario escolar')}>
-        <SchoolCalendar />
-      </Section>
+      <div className="space-y-6">
+        <Section title={t('Calendrier scolaire', 'School calendar', 'Calendario escolar')}>
+          <SchoolCalendar />
+        </Section>
+
+        {/* Complexe scolaire : qui règle quoi. Un administrateur sans périmètre
+            pilote tout ; avec un périmètre, il ne configure que sa partie du
+            calendrier (fondamental MINEDUB / secondaire MINESEC). */}
+        <Section title={t('Répartition entre responsables', 'Split between heads', 'Reparto entre responsables')}>
+          <StaffManager roles={['admin']} scopeOnly />
+        </Section>
+      </div>
+    );
+  }
+
+  const SMS_STATUS_STYLES = {
+    pending: 'bg-slate-100 text-slate-600', sending: 'bg-blue-100 text-blue-700',
+    sent: 'bg-emerald-100 text-emerald-700', failed: 'bg-red-100 text-red-700',
+    skipped: 'bg-amber-100 text-amber-700',
+  };
+
+  function renderSms() {
+    return (
+      <div className="space-y-6">
+        <Section title={t('Fournisseur SMS', 'SMS provider', 'Proveedor SMS')}>
+          <p className="text-sm text-slate-500 mb-4">
+            {t(
+              "Aucun fournisseur SMS n'est encore branché : les messages sont mis en file d'attente mais pas envoyés tant que ces informations ne sont pas renseignées et validées.",
+              'No SMS provider is wired up yet: messages are queued but not sent until these details are filled in and confirmed.',
+              'Ningún proveedor de SMS está conectado todavía: los mensajes se ponen en cola pero no se envían hasta que se complete esta información.',
+            )}
+          </p>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">{t('Fournisseur', 'Provider')}</label>
+              <input
+                type="text" className="form-input" placeholder={t('Non défini', 'Not set')}
+                value={smsForm.provider} onChange={(e) => setSmsForm((f) => ({ ...f, provider: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="form-label">{t('Expéditeur (Sender ID)', 'Sender ID')}</label>
+              <input
+                type="text" className="form-input"
+                value={smsForm.sender_id} onChange={(e) => setSmsForm((f) => ({ ...f, sender_id: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="form-label">{t('Clé API', 'API key')}</label>
+              <input
+                type="password" className="form-input" autoComplete="off"
+                value={smsForm.api_key} onChange={(e) => setSmsForm((f) => ({ ...f, api_key: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="form-label">{t('Secret API', 'API secret')}</label>
+              <input
+                type="password" className="form-input" autoComplete="off"
+                value={smsForm.api_secret} onChange={(e) => setSmsForm((f) => ({ ...f, api_secret: e.target.value }))}
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm mt-4 cursor-pointer">
+            <input
+              type="checkbox" className="w-4 h-4 accent-emerald-600"
+              checked={smsForm.enabled} onChange={(e) => setSmsForm((f) => ({ ...f, enabled: e.target.checked }))}
+            />
+            <span className="font-medium text-gray-700">{t('Activer l\'envoi de SMS', 'Enable SMS sending')}</span>
+          </label>
+          <div className="flex items-center gap-3 mt-4">
+            <button onClick={handleSmsSave} disabled={smsSaving} className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+              {smsSaving ? t('Enregistrement…', 'Saving…') : t('Enregistrer', 'Save')}
+            </button>
+            {smsSaved && <span className="text-sm text-emerald-600 font-medium">✓ {t('Enregistré', 'Saved')}</span>}
+            {smsError && <span className="text-sm text-red-600">{smsError}</span>}
+          </div>
+        </Section>
+
+        <Section title={t('Budget SMS', 'SMS budget', 'Presupuesto SMS')}>
+          <p className="text-sm text-slate-500 mb-4">
+            {t(
+              "Le SMS coûte cher : il est réservé aux communications importantes (priorité 'important'/'urgent'), jamais aux notifications ordinaires. À l'approche de la limite, les SMS 'important' sont automatiquement suspendus (in-app uniquement) ; seuls les 'urgent' continuent jusqu'à épuisement complet.",
+              "SMS is expensive: it's reserved for important communications ('important'/'urgent' priority), never for routine notifications. As the budget nears its limit, 'important' SMS are automatically suspended (in-app only); only 'urgent' ones keep going until the budget is fully exhausted.",
+            )}
+          </p>
+          <div className="grid md:grid-cols-3 gap-4">
+            <div>
+              <label className="form-label">{t('Enveloppe (FCFA)', 'Budget (FCFA)')}</label>
+              <input
+                type="number" min="0" className="form-input"
+                value={smsForm.budget_fcfa}
+                onChange={(e) => setSmsForm((f) => ({ ...f, budget_fcfa: Number(e.target.value) }))}
+              />
+            </div>
+            <div>
+              <label className="form-label">{t('Coût par SMS (FCFA)', 'Cost per SMS (FCFA)')}</label>
+              <input
+                type="number" min="0" className="form-input"
+                value={smsForm.cost_per_sms_fcfa}
+                onChange={(e) => setSmsForm((f) => ({ ...f, cost_per_sms_fcfa: Number(e.target.value) }))}
+              />
+            </div>
+            <div>
+              <label className="form-label">{t('Seuil de réduction (%)', 'Reduction threshold (%)')}</label>
+              <input
+                type="number" min="1" max="100" className="form-input"
+                value={smsForm.soft_threshold_pct}
+                onChange={(e) => setSmsForm((f) => ({ ...f, soft_threshold_pct: Number(e.target.value) }))}
+              />
+            </div>
+          </div>
+          {(() => {
+            const budget = Number(smsForm.budget_fcfa) || 0;
+            const pct = budget > 0 ? Math.min(100, (smsSpent / budget) * 100) : 0;
+            const barColor = pct >= 100 ? 'bg-red-500' : pct >= (Number(smsForm.soft_threshold_pct) || 85) ? 'bg-amber-500' : 'bg-emerald-500';
+            return (
+              <div className="mt-4">
+                <div className="flex justify-between text-sm text-slate-600 mb-1">
+                  <span>{smsSpent.toLocaleString()} FCFA {t('dépensés', 'spent')}</span>
+                  <span>{Math.max(0, budget - smsSpent).toLocaleString()} FCFA {t('restants', 'remaining')}</span>
+                </div>
+                <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                  <div className={`h-full ${barColor}`} style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            );
+          })()}
+          <div className="flex items-center gap-3 mt-4">
+            <button onClick={handleSmsSave} disabled={smsSaving} className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+              {smsSaving ? t('Enregistrement…', 'Saving…') : t('Enregistrer', 'Save')}
+            </button>
+            <button
+              onClick={handleSmsResetSpend} disabled={smsResetting}
+              className="text-sm text-slate-500 hover:text-red-600 underline underline-offset-2"
+            >
+              {smsResetting ? t('Réinitialisation…', 'Resetting…') : t('Réinitialiser le compteur', 'Reset counter')}
+            </button>
+          </div>
+        </Section>
+
+        <Section title={t('Derniers envois', 'Recent sends', 'Envíos recientes')}>
+          {smsOutbox.length === 0 ? (
+            <p className="text-sm text-slate-400">{t('Aucun SMS en file pour le moment.', 'No SMS queued yet.')}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase text-slate-400 border-b border-slate-100">
+                    <th className="py-2 pr-4">{t('Destinataire', 'Recipient')}</th>
+                    <th className="py-2 pr-4">{t('Priorité', 'Priority')}</th>
+                    <th className="py-2 pr-4">{t('Statut', 'Status')}</th>
+                    <th className="py-2 pr-4">{t('Erreur', 'Error')}</th>
+                    <th className="py-2 pr-4">{t('Créé le', 'Created')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {smsOutbox.map((row) => (
+                    <tr key={row.id} className="border-b border-slate-50">
+                      <td className="py-2 pr-4 font-mono text-xs">{maskPhone(row.address)}</td>
+                      <td className="py-2 pr-4 text-xs text-slate-500">{row.priority || 'normal'}</td>
+                      <td className="py-2 pr-4">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${SMS_STATUS_STYLES[row.status] || 'bg-slate-100 text-slate-600'}`}>
+                          {row.status}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-xs text-slate-400">{row.error || '—'}</td>
+                      <td className="py-2 pr-4 text-xs text-slate-400">{new Date(row.created_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+      </div>
     );
   }
 

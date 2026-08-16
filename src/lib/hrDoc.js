@@ -155,41 +155,49 @@ function periodLabel(period) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-const PAYSLIP_CSS = `
+// Taille d'impression du bulletin, choisie par l'établissement (Paramètres →
+// Établissement). Sert de base à TOUTE la feuille : les dimensions ci-dessous
+// sont en `rem`, donc l'ensemble du document s'échelonne d'un seul réglage
+// (les marges de page restent en mm — physiques, indépendantes du texte).
+export const PAYSLIP_FONT_SIZES = ['small', 'normal', 'large', 'xlarge'];
+const PAYSLIP_FONT_PX = { small: 8, normal: 9, large: 10.5, xlarge: 12 };
+
+const payslipCss = (size) => `
+  html{font-size:${PAYSLIP_FONT_PX[size] || PAYSLIP_FONT_PX.normal}px}
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Courier New',Courier,monospace;font-size:9px;color:#000;background:#fff}
+  body{font-family:'Courier New',Courier,monospace;font-size:1rem;color:#000;background:#fff}
   .page{padding:8mm 7mm}
   table{border-collapse:collapse;width:100%}
   .r{text-align:right}
-  .ps-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:12px}
-  .ps-emp{flex:0 0 34%;line-height:1.45;font-size:8px}
-  .ps-emp .nm{font-size:9.5px;font-weight:bold}
-  .ps-title{flex:1;text-align:center;font-size:13px;font-weight:bold;letter-spacing:2.5px;text-decoration:underline;padding-top:3px}
+  .ps-head{display:flex;align-items:flex-start;gap:1.6rem;margin-bottom:1.4rem}
+  .ps-emp{flex:0 0 34%;line-height:1.5;font-size:.89rem}
+  .ps-emp .nm{font-size:1.06rem;font-weight:bold;letter-spacing:.02em}
+  .ps-title{flex:1;text-align:center;font-size:1.45rem;font-weight:bold;letter-spacing:.22em;text-decoration:underline;text-underline-offset:.25em;padding-top:.3rem}
   .ps-logo{flex:0 0 34%;text-align:right}
-  .ps-logo img{max-width:130px;max-height:46px;object-fit:contain}
-  .ps-grid{table-layout:fixed}
-  .ps-grid td{border:1px solid #000;padding:2px 5px;vertical-align:top}
-  .ps-grid .lbl{display:block;font-size:6px;letter-spacing:.3px}
-  .ps-grid .val{display:block;font-size:9px;font-weight:bold;min-height:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ps-main{margin-top:7px;table-layout:fixed}
-  .ps-main th{border:1px solid #000;padding:2px 5px;font-size:6px;font-weight:normal;text-align:left;letter-spacing:.2px}
-  .ps-main td{border-left:1px solid #000;border-right:1px solid #000;padding:1px 5px;font-size:8.5px;height:13px;white-space:nowrap;overflow:hidden}
-  .ps-main tbody tr:first-child td{padding-top:4px}
+  .ps-logo img{max-width:14rem;max-height:5rem;object-fit:contain}
+  .ps-grid{table-layout:fixed;border:1.3px solid #000}
+  .ps-grid td{border:1px solid #000;padding:.22rem .55rem;vertical-align:top}
+  .ps-grid .lbl{display:block;font-size:.66rem;letter-spacing:.05em;line-height:1.3}
+  .ps-grid .val{display:block;font-size:1rem;font-weight:bold;line-height:1.4;min-height:1.4rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ps-main{margin-top:.85rem;table-layout:fixed;border:1.3px solid #000}
+  .ps-main th{border:1px solid #000;padding:.22rem .55rem;font-size:.66rem;font-weight:normal;text-align:left;letter-spacing:.05em}
+  .ps-main td{border-left:1px solid #000;border-right:1px solid #000;padding:.08rem .55rem;font-size:.95rem;line-height:1.55;white-space:nowrap;overflow:hidden}
+  .ps-main tbody tr:first-child td{padding-top:.5rem}
   .ps-main .strong td{font-weight:bold}
-  .ps-main .fill td{border-bottom:1px solid #000}
-  .ps-main tfoot td{border:1px solid #000;font-size:8.5px;padding:2px 5px}
-  .ps-net{margin:8px 0 0 auto;width:52%;border:1.5px solid #000}
-  .ps-net .l{border-bottom:1.5px solid #000;padding:2px 6px;font-size:8px;font-weight:bold}
-  .ps-net .v{padding:6px 10px;text-align:center;font-size:20px;font-weight:bold;letter-spacing:1px}
-  .ps-net .v em{font-size:9px;font-weight:normal;font-style:normal;letter-spacing:0;margin-left:5px}
-  .ps-pat{margin-top:16px;width:74%}
-  .ps-pat .t{font-size:6.5px;letter-spacing:.4px;margin-bottom:2px}
-  .ps-pat th{border-bottom:1px solid #000;font-size:6.5px;font-weight:normal;text-align:left;padding:1px 5px}
-  .ps-pat td{padding:1px 5px;font-size:8px}
+  .ps-main .fill td{border-bottom:1.3px solid #000}
+  .ps-main tfoot td{border:1px solid #000;font-size:.95rem;padding:.28rem .55rem}
+  .ps-net{margin:.95rem 0 0 auto;width:52%;border:1.6px solid #000}
+  .ps-net .l{border-bottom:1.6px solid #000;padding:.25rem .6rem;font-size:.89rem;font-weight:bold;letter-spacing:.05em}
+  .ps-net .v{padding:.6rem 1rem;text-align:center;font-size:2.2rem;font-weight:bold;letter-spacing:.06em}
+  .ps-net .v em{font-size:1rem;font-weight:normal;font-style:normal;letter-spacing:0;margin-left:.5rem}
+  .ps-pat{margin-top:1.8rem;width:74%}
+  .ps-pat .t{font-size:.72rem;letter-spacing:.06em;margin-bottom:.25rem}
+  .ps-pat th{border-bottom:1px solid #000;font-size:.72rem;font-weight:normal;text-align:left;padding:.12rem .55rem}
+  .ps-pat td{padding:.12rem .55rem;font-size:.89rem}
   .ps-pat .tot td{border-top:1px solid #000;font-weight:bold}
-  .ps-foot{margin-top:14px}
+  .ps-foot{margin-top:1.6rem}
   .ps-foot td{width:25%}
-  .ps-note{margin-top:8px;text-align:center;font-size:7px;font-style:italic;color:#444}
+  .ps-note{margin-top:.95rem;text-align:center;font-size:.78rem;font-style:italic;color:#333}
 `;
 
 export function printPayslip({ school, t, money, staff, record, items = [], leave }) {
@@ -200,8 +208,16 @@ export function printPayslip({ school, t, money, staff, record, items = [], leav
   // il n'apparaît qu'une fois, dans l'encart NET À PAYER).
   const amt = (n) => (typeof money?.amount === 'function' ? money.amount(n) : String(Number(n) || 0));
   const cur = money?.code || '';
+  // Jours et taux journalier s'affichent à 2 décimales (« 30,00 » × « 2 500,00 »)
+  // là où les montants suivent les décimales de la devise (0 pour le XAF).
+  const dec2 = (n) => new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n) || 0);
 
   const base = Number(record?.base_salary) || 0;
+  // Décompte du modèle : NOMBRE = jours payés, TAUX = salaire ÷ jours. Le taux
+  // n'est jamais stocké — il découle des deux valeurs saisies.
+  const days = Number(record?.worked_days) || 0;
+  const baseNombre = days > 0 ? dec2(days) : '';
+  const baseTaux = days > 0 ? dec2(base / days) : '';
 
   // Un bulletin antérieur au catalogue n'a pas de lignes détaillées : on
   // synthétise deux lignes depuis les totaux enregistrés pour qu'il s'imprime
@@ -291,13 +307,13 @@ export function printPayslip({ school, t, money, staff, record, items = [], leav
         <th class="r">${esc(tr('RETENUES', 'DEDUCTIONS', 'RETENCIONES'))}</th>
       </tr></thead>
       <tbody>
-        <tr><td>100</td><td>${esc(tr('SALAIRE DE BASE', 'BASE SALARY', 'SALARIO BASE'))}</td><td class="r"></td><td class="r"></td><td class="r">${esc(amt(base))}</td><td class="r"></td></tr>
+        <tr><td>100</td><td>${esc(tr('SALAIRE DE BASE', 'BASE SALARY', 'SALARIO BASE'))}</td><td class="r">${esc(baseNombre)}</td><td class="r">${esc(baseTaux)}</td><td class="r">${esc(amt(base))}</td><td class="r"></td></tr>
         ${primes.map(itemRow).join('')}
         ${summaryRow('500', tr('SALAIRE BRUT GLOBAL', 'TOTAL GROSS SALARY', 'SALARIO BRUTO GLOBAL'), brut)}
         ${summaryRow('505', tr('BASE TAXABLE', 'TAXABLE BASE', 'BASE IMPONIBLE'), 0, brut)}
         ${retenues.map(itemRow).join('')}
         ${summaryRow('700', tr('SALAIRE NET', 'NET SALARY', 'SALARIO NETO'), net)}
-        <tr class="fill"><td style="height:${lines.length > 12 ? 24 : 150}px"></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr class="fill"><td style="height:${lines.length > 12 ? 2.5 : 16}rem"></td><td></td><td></td><td></td><td></td><td></td></tr>
       </tbody>
       <tfoot><tr>
         <td colspan="4" class="r">${esc(tr('Totaux', 'Totals', 'Totales'))}</td>
@@ -357,6 +373,6 @@ export function printPayslip({ school, t, money, staff, record, items = [], leav
 
   return openRawPrintDocument({
     title: `${tr('Bulletin de paie', 'Payslip', 'Nómina')} — ${staff?.name || ''}`,
-    css: PAYSLIP_CSS, bodyHtml,
+    css: payslipCss(school?.payslip_font_size), bodyHtml,
   });
 }

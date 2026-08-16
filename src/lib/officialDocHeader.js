@@ -9,7 +9,7 @@
 // rapports, listes, conseil, emploi du temps…). Calé sur officialsHeaderHtml de
 // transcriptDoc.js pour un rendu identique au bulletin.
 
-import { bulletinOfficials } from '../countries';
+import { bulletinOfficials } from '../countries/index.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]

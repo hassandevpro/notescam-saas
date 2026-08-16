@@ -6,25 +6,29 @@
 //   M×coef / COTE / [Min–Max] / Appréciations · ligne TOTAL/MOYENNE · pieds
 //   Discipline | Travail de l'élève | Profil de la classe · signatures.
 //
-// Rendu via le pipeline partagé HTML→PNG→jsPDF (exportTranscriptsPdf). Chaque
-// `.nc-sheet` = une page A4 ; le tableau est paginé par matières (jamais coupé
-// au milieu d'une matière), l'en-tête est répété sur chaque page (comme l'officiel).
+// Rendu par le SOCLE D'IMPRESSION (lib/print), en vectoriel : chaque feuille est
+// une page A4 du profil « bulletin », le tableau est paginé par matières (jamais
+// coupé au milieu d'une matière) et l'en-tête est répété sur chaque page, comme
+// sur l'officiel. Géométrie, marges, couleurs et sauts viennent du socle — ce
+// fichier ne décrit que le contenu.
 
-import { officialHeaderHtml, officialSignatureHtml } from './officialDocHeader';
-import { noteNkey } from './apcService';
+import { sheetOpen, SHEET_CLOSE as SHEET_END, num } from './print/index.js';
+import { officialHeaderHtml, officialSignatureHtml } from './officialDocHeader.js';
+import { noteNkey } from '../core/apcEngine.js';
 import {
   competencesFor, sequencesOfTrimestre, matiereAverage, weightedMatiere,
   generalAverage, apcCoteFromScale, apcBulletinCols, coefFor, APC_COTE_CODES,
-} from '../core/apcEngine';
-import { gradeScaleBand } from '../core/bulletinEngine';
+} from '../core/apcEngine.js';
+import { gradeScaleBand } from '../core/bulletinEngine.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
-const fix2 = (v) => (v == null ? '' : (Math.round(v * 100) / 100).toString());
+// Nombre imprimable : NaN et Infinity ne peuvent pas atteindre le papier.
+const fix2 = (v) => (v == null ? '' : num(Math.round(v * 100) / 100, { fallback: '' }));
 
-const SHEET_OPEN = '<div class="nc-sheet" style="font-family:Arial,Helvetica,sans-serif;font-size:10px;color:#111;width:210mm;min-height:296mm;box-sizing:border-box;padding:9mm;background:#fff;margin:0 auto">';
-const SHEET_CLOSE = '</div>';
+const SHEET_OPEN = sheetOpen({ profile: 'bulletin', fontSize: 10 });
+const SHEET_CLOSE = SHEET_END;
 const C = 'border:1px solid #374151;padding:2px 4px;font-size:9px;vertical-align:top';
 
 const TRIM_TITLE = {

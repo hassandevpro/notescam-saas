@@ -1,8 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSchoolStore } from '../../store/schoolStore';
+import { useAuthStore } from '../../store/authStore';
 import { useT, localeForLang } from '../../lib/i18n';
 import { feeDashboard } from '../../lib/feeEngine';
 import { useMoney } from '../../lib/useMoney';
+import { supabase } from '../../lib/supabase';
+import Modal from '../Modal';
+import WhatsappFirstModal from '../notify/WhatsappFirstModal';
 
 function StatCard({ accent, value, unit, label, sub }) {
   return (
@@ -22,6 +26,10 @@ export default function FeeDashboard({ students, feeMap, classNameById, onOpenSt
   const t = useT();
   const money = useMoney();
   const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
+  const schoolId = useAuthStore((s) => s.school?.id);
+  const [reminding, setReminding] = useState(false);
+  const [reminderMsg, setReminderMsg] = useState(null);
+  const [waFamilies, setWaFamilies] = useState(null); // familles à notifier (WhatsApp d'abord, SMS en secours)
 
   const dash = useMemo(() => {
     const entries = students.map((s) => ({
@@ -33,6 +41,40 @@ export default function FeeDashboard({ students, feeMap, classNameById, onOpenSt
   }, [students, feeMap, getClassFeeGrid]);
 
   const recovery = dash.expected > 0 ? Math.round((dash.collected / dash.expected) * 100) : 0;
+
+  // Rappel manuel — action EXPLICITE (jamais automatique). WhatsApp D'ABORD (lien
+  // wa.me prérempli, gratuit, aucun fournisseur) : le staff ouvre un lien par
+  // famille et l'envoie lui-même depuis l'app. Le SMS reste le canal de repli
+  // pour les familles non jointes par WhatsApp (cf. WhatsappFirstModal) — coûteux
+  // en masse, donc jamais déclenché sans que l'admin voie qui reste à contacter.
+  const handleOpenReminders = async () => {
+    if (!schoolId || !dash.late.length) return;
+    setReminding(true); setReminderMsg(null);
+    const ids = dash.late.map((l) => l.student.id);
+    const { data: phones } = await supabase.from('students').select('id, parent_phone').in('id', ids);
+    const phoneById = new Map((phones || []).map((r) => [r.id, r.parent_phone]));
+    let noPhone = 0;
+    const families = [];
+    for (const { student, situation } of dash.late) {
+      const phone = phoneById.get(student.id);
+      if (!phone) { noPhone++; continue; }
+      families.push({
+        id: student.id, name: student.name, phone,
+        message: `Frais de scolarité de ${student.name} : ${money(situation.overdueAmount)} en retard. Merci de régulariser rapidement.`,
+      });
+    }
+    setReminding(false);
+    if (!families.length) {
+      setReminderMsg(t('Aucun numéro de téléphone connu.', 'No known phone number.'));
+      setTimeout(() => setReminderMsg(null), 6000);
+      return;
+    }
+    if (noPhone) {
+      setReminderMsg(t(`${noPhone} famille(s) sans numéro connu, ignorée(s).`, `${noPhone} famili(es) without a known number, skipped.`));
+      setTimeout(() => setReminderMsg(null), 6000);
+    }
+    setWaFamilies(families);
+  };
 
   return (
     <div className="space-y-6">
@@ -61,8 +103,26 @@ export default function FeeDashboard({ students, feeMap, classNameById, onOpenSt
         <div className="bg-white rounded-xl border border-gray-100 p-4 text-center">
           <div className="text-2xl font-bold text-red-500">{dash.counts.late}</div>
           <div className="text-xs text-gray-500 mt-1">🔴 {t('En retard', 'Overdue', 'Atrasados')}</div>
+          {dash.late.length > 0 && (
+            <button
+              onClick={handleOpenReminders} disabled={reminding}
+              className="mt-2 text-[11px] font-semibold text-red-600 hover:text-red-700 underline underline-offset-2 disabled:opacity-50"
+            >
+              {reminding ? t('Préparation…', 'Preparing…') : t('Envoyer un rappel', 'Send a reminder')}
+            </button>
+          )}
+          {reminderMsg && <div className="text-[11px] text-emerald-600 mt-1">{reminderMsg}</div>}
         </div>
       </div>
+
+      {waFamilies && (
+        <Modal title={t('Rappel de paiement', 'Payment reminder')} onClose={() => setWaFamilies(null)} size="lg">
+          <WhatsappFirstModal
+            schoolId={schoolId} families={waFamilies} smsType="fee_reminder" smsTitle="Rappel de paiement"
+            t={t} onClose={() => setWaFamilies(null)}
+          />
+        </Modal>
+      )}
 
       {/* Échéances dans les 7 prochains jours */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">

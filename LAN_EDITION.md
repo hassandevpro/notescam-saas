@@ -94,6 +94,47 @@ En production, pointer ailleurs via variables d'env :
   pas à ce poste (`machine_mismatch`). Une licence **sans** `machine_id` reste
   valable partout (rétrocompatible).
 
+## Mise à jour automatique (OTA)
+
+Un serveur d'école se met à jour seul : il interroge le manifeste `app_releases`,
+télécharge l'installeur signé, le vérifie, puis passe la main à
+`packaging/update-notescam.ps1` (sauvegarde → arrêt → installation → relance).
+
+**Chaîne de confiance — les deux verrous sont obligatoires :**
+
+1. le `sha256` du fichier téléchargé doit être exactement celui du manifeste ;
+2. une signature **Ed25519** de l'éditeur sur `notescam-release:<version>:<sha256>`
+   doit être valide. Lier la version à l'empreinte interdit de rejouer la
+   signature d'une ancienne publication sur un autre binaire.
+
+La clé de publication est **distincte** de celle des licences : une compromission
+de la clé de licence ne doit jamais permettre d'exécuter du code sur les serveurs
+d'école. Un binaire refusé est **supprimé** immédiatement.
+
+**Sans clé publique de publication livrée dans l'installation, l'OTA est inactive**
+et l'école reste sur l'installeur manuel — c'est le défaut, et c'est voulu.
+
+**Procédure de publication (éditeur) :**
+
+```bash
+node packaging/release/keygen-release.mjs            # UNE FOIS — clé privée hors dépôt
+node packaging/release/sign-release.mjs \
+  --file dist-installer/NotesCam-Setup.exe \
+  --version 0.3.0 --url https://cdn.exemple.cm/NotesCam-Setup-0.3.0.exe
+# → affiche l'INSERT à coller dans Supabase, APRÈS mise en ligne du fichier
+```
+
+**Garde-fous côté école** (chacun a son motif, lisible sur `/api/update/auto`) :
+
+- **parité** — aucune mise à jour tant que Cloud ≠ LAN (les notes doivent être
+  remontées avant de remplacer le binaire) ;
+- **fenêtre de maintenance** — `auto_update_window`, défaut `19-05` ;
+- **serveur au repos** — aucune écriture depuis 15 min (même signal que le script
+  manuel : la date du journal WAL) ;
+- **interrupteur** — réglage `auto_update`, ou `POST /api/update/auto`.
+
+Une version marquée `mandatory` passe outre fenêtre et repos, jamais la parité.
+
 ## Sécurité — points de vigilance
 
 - **HTTP sur le LAN** : `http://<IP>` n'est pas un contexte sécurisé → le Service

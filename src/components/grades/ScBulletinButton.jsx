@@ -9,6 +9,7 @@ import { useUiStore } from '../../store/uiStore';
 import { resolveClassEngine } from '../../core/engineResolver';
 import { classIdentity } from '../../lib/schoolIdentity';
 import { exportScTrimesterBulletins } from '../../lib/scBulletinPdf';
+import { PRINT_RESULT } from '../../lib/print';
 
 const TRIMS = [
   { id: 't1', label: 'Trimestre 1', seqs: [1, 2] },
@@ -30,6 +31,7 @@ export default function ScBulletinButton() {
   const [trim, setTrim] = useState('t1');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg]   = useState('');
+  const [batch, setBatch] = useState({ index: 0, total: 1 });
 
   const cls = classes.find((c) => c.id === classId) || null;
   // N'apparaît que pour une classe dont le moteur résolu est le second cycle.
@@ -53,14 +55,25 @@ export default function ScBulletinButton() {
     const docSchool = classIdentity(school, cls, schoolUnits);
     setBusy(true); setMsg('');
     try {
-      await exportScTrimesterBulletins({
+      const { result, batches } = await exportScTrimesterBulletins({
         subjects: classSubjects, allGrades: gradeMap, classId, seqs: t.seqs,
         students: classStudents, teachers, school: docSchool, sys, trimestreId: t.id,
         classLabel: cls.name, serieLabel, gradeScale: school?.grade_scale,
-        fileName: `bulletins_${cls.name || classId}_${t.id}.pdf`,
+        title: `Bulletins ${cls.name || ''} — ${t.label}`,
+        batchIndex: batch.index,
       });
+      if (result === PRINT_RESULT.BLOCKED) {
+        setMsg("Fenêtre d'impression bloquée — autorisez les pop-ups.");
+        setTimeout(() => setMsg(''), 6000);
+      } else if (result === PRINT_RESULT.EMPTY) {
+        setMsg('Aucun bulletin à imprimer.');
+        setTimeout(() => setMsg(''), 4000);
+      } else {
+        setBatch({ index: batch.index + 1, total: batches });
+      }
     } catch (e) {
-      setMsg('Erreur lors de la génération du PDF.');
+      console.error('bulletins SC', e);
+      setMsg("Erreur lors de la préparation des bulletins.");
       setTimeout(() => setMsg(''), 4000);
     } finally {
       setBusy(false);
@@ -72,13 +85,16 @@ export default function ScBulletinButton() {
       {msg
         ? <span className="text-red-600 px-1">{msg}</span>
         : <span className="text-gray-500 hidden sm:inline">Bulletins MINESEC</span>}
-      <select value={trim} onChange={(e) => setTrim(e.target.value)}
+      <select value={trim} onChange={(e) => { setTrim(e.target.value); setBatch({ index: 0, total: 1 }); }}
         className="border border-gray-200 rounded px-2 py-1 bg-white" disabled={busy}>
         {TRIMS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
       </select>
-      <button onClick={run} disabled={busy}
+      <button onClick={run} disabled={busy || (batch.total > 1 && batch.index >= batch.total)}
         className="px-3 py-1 rounded-full bg-brand-500 text-white disabled:opacity-50">
-        {busy ? 'Génération…' : 'Exporter PDF'}
+        {busy ? 'Préparation…'
+          : batch.total > 1 && batch.index >= batch.total ? '✓ Terminé'
+          : batch.total > 1 ? `Imprimer le lot ${batch.index + 1}/${batch.total}`
+          : 'Imprimer'}
       </button>
     </div>
   );

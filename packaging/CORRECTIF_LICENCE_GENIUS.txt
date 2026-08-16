@@ -1,0 +1,68 @@
+🔧 NotesCam Genius — Clé de licence refusée (« verrouillée sur une autre machine »)
+
+────────────────────────────────────────────────────────────────────
+CE QUI S'EST PASSÉ (pour l'éditeur — ne pas envoyer à l'école)
+────────────────────────────────────────────────────────────────────
+La clé Genius est bonne : signature valide, expire le 2027-08-11, verrouillée
+sur 1096-96B7-3FEF-3B1C — exactement l'identifiant affiché par l'écran
+d'activation. Ce n'était donc pas un problème de clé publique (le fichier
+server/license-pubkey.txt contenait déjà la bonne).
+
+Le vrai défaut est l'empreinte machine sous Linux. Elle était calculée sur la
+1ʳᵉ adresse MAC remontée par os.networkInterfaces() — qui ne liste QUE les
+interfaces ayant déjà une adresse IP. L'unité systemd démarrant sur
+`After=network.target` (qui n'attend rien), un serveur qui démarre avant la
+réponse DHCP, un docker0 ou un VPN qui apparaît, et l'empreinte change d'un
+redémarrage à l'autre. L'écran affichait donc l'empreinte du démarrage
+précédent pendant que le serveur en calculait déjà une autre : d'où une clé
+émise POUR CETTE MACHINE refusée SUR CETTE MACHINE.
+
+Corrigé côté produit :
+  • empreinte basée sur /etc/machine-id (stable, indépendante du réseau) ;
+  • les empreintes historiques (MAC, y compris lues dans /sys/class/net donc
+    visibles même sans IP) restent ACCEPTÉES -> les clés déjà émises marchent ;
+  • le message d'erreur affiche maintenant les deux identifiants ;
+  • unité systemd passée à `network-online.target` ;
+  • diagnostic : server/machine-id.mjs.
+
+────────────────────────────────────────────────────────────────────
+A. DÉBLOQUER GENIUS TOUT DE SUITE (sans rien réinstaller)
+────────────────────────────────────────────────────────────────────
+Une fois la licence activée, elle n'est plus jamais revérifiée : il suffit
+qu'elle passe UNE fois. Le piège est de recharger la page entre-temps.
+
+1. Sur le serveur de l'école, ouvrir la page d'activation et faire un
+   rechargement FORCÉ : Ctrl+Shift+R (surtout pas un simple F5).
+2. Relever l'identifiant machine affiché À CET INSTANT et me l'envoyer.
+3. NE PAS redémarrer le service, ne pas rebooter, ne pas fermer l'onglet.
+4. Je renvoie une clé signée pour cet identifiant :
+      npm run license
+5. L'école la colle et clique « Activer ». C'est définitif.
+
+Si le message revient, il indique désormais les deux identifiants (clé / poste)
+sur les serveurs à jour : envoyez-moi la phrase complète.
+
+────────────────────────────────────────────────────────────────────
+B. CORRECTIF DURABLE (à déployer sur le parc)
+────────────────────────────────────────────────────────────────────
+1️⃣ Connectez-vous au serveur :
+   ssh utilisateur@ADRESSE-IP-DU-SERVEUR
+
+2️⃣ Mettez à jour NotesCam avec le paquet fourni (les données sont conservées) :
+   sudo ./install.sh
+
+3️⃣ Vérifiez l'empreinte et testez la clé sur place, sans passer par le
+   navigateur :
+   sudo -u notescam /opt/notescam/node/bin/node \
+        /opt/notescam/app/server/machine-id.mjs '<CLÉ DE LICENCE>'
+
+   → « ✅ Valide » : l'activation passera dans le navigateur.
+   → « ❌ machine_mismatch » : le script affiche l'empreinte attendue par la
+     clé et celles du poste ; réémettez une clé pour la 1ʳᵉ empreinte listée.
+
+4️⃣ Redémarrez le service :
+   sudo systemctl restart notescam
+
+⚠️ Après cette mise à jour, l'identifiant affiché par les serveurs Linux change
+(il passe sur /etc/machine-id). C'est normal et sans effet sur les écoles déjà
+activées : leur licence reste acceptée, et les clés déjà émises aussi.

@@ -157,6 +157,12 @@ export async function seedPeriods({ school, country, userId, periodMode }) {
   if (navigator.onLine) {
     try {
       for (const row of await fetchSequenceDates(schoolId)) {
+        // `academic_periods.sequence_order` reprend l'entier de `grades.sequence`,
+        // qui n'existe QUE pour les séquences francophones. Les autres pistes du
+        // calendrier (UA du primaire, trimestres de maternelle, terms) partagent
+        // les mêmes entiers 1..n : sans ce filtre, `prim_ua_3` écraserait la
+        // séquence 3.
+        if (!String(row.seq_key || '').startsWith('fr_seq_')) continue;
         const ord = seqOrderFromKey(row.seq_key);
         if (ord != null) dateByOrder[ord] = { teaching_end: row.exam_date || null, entry_deadline: row.deadline_date || null };
       }

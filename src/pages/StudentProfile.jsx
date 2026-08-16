@@ -17,6 +17,7 @@ import { usePlan } from '../lib/plan';
 import { studentFeeSituation, FEE_STATUS, inscriptionApplies } from '../lib/feeEngine';
 import { STATUS_UI, MODE_LABEL } from '../components/fees/feeUi';
 import { useMoney } from '../lib/useMoney';
+import { parentPortalUrl, whatsappLinkFor } from '../lib/parentLinks';
 
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
 
@@ -258,6 +259,7 @@ export default function StudentProfile() {
   const updateStudent = useSchoolStore((s) => s.updateStudent);
   const deleteStudent = useSchoolStore((s) => s.deleteStudent);
   const role          = useAuthStore((s) => s.role);
+  const school        = useAuthStore((s) => s.school);
   // Écriture élèves réservée à la direction (admin + censeur), aligné sur la RLS.
   const canEdit       = role === 'admin' || role === 'censeur';
 
@@ -486,24 +488,43 @@ export default function StudentProfile() {
               )}
               {f.hasParentPortal ? (
                 student.parent_token && (
-                  <button onClick={handleCopyParentLink}
-                    className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg font-medium border transition-colors ${
-                      linkCopied
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                    }`}>
-                    {linkCopied ? (
-                      <>
-                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
-                        {t('Lien copié !', 'Link copied!')}
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z"/></svg>
-                        {t('Lien parent', 'Parent link')}
-                      </>
+                  <>
+                    <button onClick={handleCopyParentLink}
+                      className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg font-medium border transition-colors ${
+                        linkCopied
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}>
+                      {linkCopied ? (
+                        <>
+                          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>
+                          {t('Lien copié !', 'Link copied!')}
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z"/></svg>
+                          {t('Lien parent', 'Parent link')}
+                        </>
+                      )}
+                    </button>
+                    {/* Envoi direct par WhatsApp — lien wa.me prérempli, gratuit, aucun
+                        fournisseur (cf. WhatsappFirstModal pour les campagnes groupées).
+                        Masqué si aucun numéro de parent connu : le lien wa.me ne peut
+                        rien préremplir sans destinataire. */}
+                    {student.parent_phone && (
+                      <a
+                        href={whatsappLinkFor(
+                          student.parent_phone,
+                          `${school?.name || 'École'} — Portail parent de ${student.name}\n${parentPortalUrl(student)}`,
+                        )}
+                        target="_blank" rel="noreferrer"
+                        className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg font-medium border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.472-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path fillRule="evenodd" clipRule="evenodd" d="M12.001 2C6.478 2 2 6.477 2 12c0 1.821.487 3.53 1.338 5.003L2 22l5.133-1.318A9.955 9.955 0 0012.001 22C17.523 22 22 17.523 22 12S17.523 2 12.001 2zm0 18.2a8.174 8.174 0 01-4.353-1.253l-.312-.19-3.234.83.86-3.15-.203-.324A8.173 8.173 0 013.8 12c0-4.522 3.678-8.2 8.2-8.2 4.522 0 8.2 3.678 8.2 8.2 0 4.523-3.678 8.2-8.2 8.2z"/></svg>
+                        WhatsApp
+                      </a>
                     )}
-                  </button>
+                  </>
                 )
               ) : (
                 <a

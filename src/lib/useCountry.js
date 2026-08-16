@@ -65,6 +65,20 @@ export function gradeEntryMode(school) {
   return school?.grade_entry_mode === 'subject' ? 'subject' : 'principal';
 }
 
+// Rythme d'évaluation du PRIMAIRE CLASSIQUE (le primaire APC/MINEDUB garde ses
+// propres écrans, ce réglage ne le concerne pas).
+// 'trimestres' (défaut, historique) : 3 périodes, une note par trimestre.
+// 'sequences' : 6 séquences, 2 par trimestre — le rythme du secondaire.
+//
+// Le défaut reste 'trimestres' EXPRÈS. Les notes vivent dans `grades.sequence` :
+// une école qui a déjà saisi ses trimestres primaires en 1/2/3 verrait, en mode
+// séquences, son ancien « Trimestre 2 » (=2) réagrégé dans le Trimestre 1
+// (qui couvre les séquences 1 et 2). La bascule doit donc rester un choix
+// explicite de l'établissement, jamais un effet de bord d'une mise à jour.
+export function primaryPeriodMode(school) {
+  return school?.primary_period_mode === 'sequences' ? 'sequences' : 'trimestres';
+}
+
 // Barème de sortie effectif d'une classe (moyenne générale + affichages).
 // Champ explicite `classes.grade_max` si défini, sinon défaut système :
 // FR → /20, EN → /100, ES → réglage école (/10 ou /20). Rétrocompatible : une

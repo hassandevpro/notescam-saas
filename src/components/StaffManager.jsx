@@ -9,7 +9,7 @@ import CapabilityPicker from './CapabilityPicker';
 import { ACCESS_PRESETS, presetByKey } from '../config/capabilities';
 import { useSchoolStore } from '../store/schoolStore';
 import { SECTIONS, classSectionKey } from '../core/engineResolver';
-import { CYCLES } from '../core/surveillantScope';
+import { CYCLES, scopeSummary, normalizeScope } from '../core/surveillantScope';
 
 // Libellés localisés par rôle.
 function useRoleLabels(role) {
@@ -46,7 +46,11 @@ function useRoleLabels(role) {
   };
 }
 
-export default function StaffManager({ role, roles }) {
+// `scopeOnly` : mode RÉPARTITION — la liste ne sert qu'à attribuer un périmètre
+// de responsabilité (répartir un complexe scolaire entre son directeur du
+// fondamental et son proviseur du secondaire). Ni création de compte, ni
+// désactivation, ni mot de passe, ni autorisations.
+export default function StaffManager({ role, roles, scopeOnly = false }) {
   const t = useT();
   const roleList = roles && roles.length ? roles : [role];
   const unified = roleList.length > 1;
@@ -83,19 +87,27 @@ export default function StaffManager({ role, roles }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3 gap-3">
-        <p className="text-xs text-gray-500">{unified
-          ? t('Comptes d’accès du personnel. Choisissez un profil et cochez précisément ce que chacun peut faire.', 'Staff access accounts. Pick a profile and choose exactly what each can do.', 'Cuentas de acceso del personal.')
-          : L.desc}</p>
-        <button onClick={() => setShowForm(true)} className="btn-secondary shrink-0"
-          style={{ width: 'auto', paddingInline: '1rem' }}>
-          + {unified ? t('Nouveau compte', 'New account', 'Nueva cuenta') : L.newBtn}
-        </button>
+        <p className="text-xs text-gray-500">{scopeOnly
+          ? t('Répartissez le complexe entre ses responsables : chacun ne règle que le calendrier scolaire de sa partie. Sans périmètre, un administrateur pilote tout l’établissement.',
+              'Split the complex between its heads: each one only sets the school calendar for their part. With no scope, an administrator runs the whole school.',
+              'Reparta el complejo entre sus responsables: cada uno fija solo el calendario de su parte.')
+          : unified
+            ? t('Comptes d’accès du personnel. Choisissez un profil et cochez précisément ce que chacun peut faire.', 'Staff access accounts. Pick a profile and choose exactly what each can do.', 'Cuentas de acceso del personal.')
+            : L.desc}</p>
+        {!scopeOnly && (
+          <button onClick={() => setShowForm(true)} className="btn-secondary shrink-0"
+            style={{ width: 'auto', paddingInline: '1rem' }}>
+            + {unified ? t('Nouveau compte', 'New account', 'Nueva cuenta') : L.newBtn}
+          </button>
+        )}
       </div>
 
       {loading ? (
         <p className="text-sm text-gray-400 py-4 text-center">{t('Chargement…', 'Loading…', 'Cargando…')}</p>
       ) : list.length === 0 ? (
-        <p className="text-sm text-gray-400 py-4 text-center">{L.empty}</p>
+        <p className="text-sm text-gray-400 py-4 text-center">{scopeOnly
+          ? t('Aucun compte à répartir.', 'No account to split duties between.', 'Ninguna cuenta que repartir.')
+          : L.empty}</p>
       ) : (
         <div className="divide-y divide-gray-50 border border-gray-100 rounded-xl overflow-hidden">
           {list.map((row) => (
@@ -107,9 +119,12 @@ export default function StaffManager({ role, roles }) {
                 <div className="min-w-0">
                   <div className="font-medium text-gray-800 truncate">{row.full_name}</div>
                   <div className="text-[11px] text-gray-400">
-                    {(() => { const p = parsePermissions(row.permissions); return p.length
-                      ? `${p.length} ${t('autorisation(s)', 'permission(s)', 'permisos')}`
-                      : `${t('Accès par rôle', 'Role access', 'Acceso por rol')} · ${row.role}`; })()}
+                    {scopeOnly
+                      // En mode répartition, ce qui compte est la part tenue.
+                      ? (scopeSummary(row, t) || t('Tout l’établissement', 'Whole school', 'Todo el centro'))
+                      : (() => { const p = parsePermissions(row.permissions); return p.length
+                        ? `${p.length} ${t('autorisation(s)', 'permission(s)', 'permisos')}`
+                        : `${t('Accès par rôle', 'Role access', 'Acceso por rol')} · ${row.role}`; })()}
                   </div>
                 </div>
                 {!row.active && (
@@ -119,7 +134,14 @@ export default function StaffManager({ role, roles }) {
                 )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                {row.role === 'surveillant' && (
+                {/* Le périmètre n'est plus réservé au surveillant : dans un complexe
+                    scolaire, le directeur du fondamental et le proviseur du secondaire
+                    sont des censeurs qui ne pilotent qu'une partie de l'établissement
+                    (le calendrier scolaire notamment). Le périmètre ne RESTREINT les
+                    données que pour un surveillant (cf. schoolStore) — pour un censeur
+                    il ne fait qu'attribuer une responsabilité.
+                    Rôles acceptés côté serveur : cf. RPC admin_set_staff_scope. */}
+                {['surveillant', 'censeur', 'admin'].includes(row.role) && (
                   <button
                     onClick={() => setScopeRow(row)}
                     className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-brand-600 hover:bg-brand-50 transition-colors"
@@ -128,29 +150,36 @@ export default function StaffManager({ role, roles }) {
                     🎯 {t('Périmètre', 'Scope', 'Ámbito')}
                   </button>
                 )}
-                <button
-                  onClick={() => setPermRow(row)}
-                  className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors"
-                  title={t('Modifier ce que la personne peut faire', 'Edit what the person can do', 'Editar permisos')}
-                >
-                  🛡️ {t('Autorisations', 'Permissions', 'Permisos')}
-                </button>
-                <button
-                  onClick={() => setPwdRow(row)}
-                  className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-brand-600 hover:bg-brand-50 transition-colors"
-                  title={t('Changer le mot de passe', 'Change password', 'Cambiar contraseña')}
-                >
-                  🔑 {t('Mot de passe', 'Password', 'Contraseña')}
-                </button>
-                <button
-                  onClick={() => toggleActive(row)}
-                  disabled={busyId === row.id}
-                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
-                    row.active ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
-                  }`}
-                >
-                  {busyId === row.id ? '…' : row.active ? t('Désactiver', 'Disable', 'Desactivar') : t('Réactiver', 'Re-enable', 'Reactivar')}
-                </button>
+                {/* `scopeOnly` : liste de RÉPARTITION (administrateurs d'un
+                    complexe). On n'y expose que le périmètre — désactiver un
+                    administrateur, réinitialiser son mot de passe ou rogner ses
+                    autorisations n'a rien à faire là, et le serveur refuse de
+                    toute façon ces actions sur un rôle 'admin'. */}
+                {!scopeOnly && (<>
+                  <button
+                    onClick={() => setPermRow(row)}
+                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors"
+                    title={t('Modifier ce que la personne peut faire', 'Edit what the person can do', 'Editar permisos')}
+                  >
+                    🛡️ {t('Autorisations', 'Permissions', 'Permisos')}
+                  </button>
+                  <button
+                    onClick={() => setPwdRow(row)}
+                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg text-brand-600 hover:bg-brand-50 transition-colors"
+                    title={t('Changer le mot de passe', 'Change password', 'Cambiar contraseña')}
+                  >
+                    🔑 {t('Mot de passe', 'Password', 'Contraseña')}
+                  </button>
+                  <button
+                    onClick={() => toggleActive(row)}
+                    disabled={busyId === row.id}
+                    className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                      row.active ? 'text-red-600 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
+                    }`}
+                  >
+                    {busyId === row.id ? '…' : row.active ? t('Désactiver', 'Disable', 'Desactivar') : t('Réactiver', 'Re-enable', 'Reactivar')}
+                  </button>
+                </>)}
               </div>
             </div>
           ))}
@@ -295,14 +324,24 @@ function CreateStaffModal({ role, unified, labels: L, onClose, onCreated }) {
   );
 }
 
-// Définition du PÉRIMÈTRE vie scolaire d'un surveillant : sections, cycles et/ou
-// classes accessibles. Tout laisser décoché = accès à TOUT l'établissement.
+// Définition du PÉRIMÈTRE d'un membre : sections, cycles et/ou classes dont il
+// est responsable. Tout laisser décoché = TOUT l'établissement.
+//
+// Deux lectures selon le rôle :
+//   • surveillant → périmètre d'ACCÈS (le store ne lui livre que ces classes) ;
+//   • directeur / proviseur d'un complexe (admin, censeur) → périmètre de
+//     RESPONSABILITÉ : ses données restent complètes, mais il ne règle que sa
+//     part du calendrier scolaire (fondamental MINEDUB / secondaire MINESEC).
 function ScopeModal({ row, onClose, onSaved }) {
   const t = useT();
   const classes = useSchoolStore((s) => s.classes);
-  const [sections, setSections] = useState(row.scope_sections || []);
-  const [cycles,   setCycles]   = useState(row.scope_cycles   || []);
-  const [classIds, setClassIds] = useState(row.scope_class_ids || []);
+  // `normalizeScope` plutôt qu'un `|| []` : en édition LAN les colonnes sont du
+  // TEXT JSON, et une chaîne passerait le `||` pour se comporter ensuite comme
+  // une liste de caractères (`'["ps"]'.includes('p')` est vrai).
+  const initial = normalizeScope(row);
+  const [sections, setSections] = useState(initial.sections);
+  const [cycles,   setCycles]   = useState(initial.cycles);
+  const [classIds, setClassIds] = useState(initial.classIds);
   const [status,   setStatus]   = useState(null);
   const [msg,      setMsg]      = useState('');
 
@@ -323,14 +362,23 @@ function ScopeModal({ row, onClose, onSaved }) {
   };
 
   return (
-    <Modal title={t('Périmètre du surveillant', 'Supervisor scope', 'Ámbito del vigilante')} onClose={onClose} size="md">
+    <Modal title={t('Périmètre de responsabilité', 'Area of responsibility', 'Ámbito de responsabilidad')} onClose={onClose} size="md">
       <div className="space-y-4">
         <p className="text-xs text-gray-500">
           {t(
-            'Choisissez les sections, cycles et/ou classes dont ce surveillant est responsable. Tout laisser vide = tout l’établissement.',
-            'Pick the sections, cycles and/or classes this supervisor is responsible for. Leave everything empty = whole school.',
-            'Elija las secciones, ciclos y/o clases de este vigilante. Dejar todo vacío = toda la escuela.',
+            'Choisissez les sections, cycles et/ou classes dont cette personne est responsable. Tout laisser vide = tout l’établissement.',
+            'Pick the sections, cycles and/or classes this person is responsible for. Leave everything empty = whole school.',
+            'Elija las secciones, ciclos y/o clases de esta persona. Dejar todo vacío = todo el centro.',
           )}
+        </p>
+        <p className="text-xs text-gray-400">
+          {row.role === 'surveillant'
+            ? t('Surveillant : il ne verra QUE les classes de ce périmètre.',
+                'Supervisor: they will only see the classes in this scope.',
+                'Vigilante: solo verá las clases de este ámbito.')
+            : t('Ses données restent complètes : le périmètre sert à répartir la configuration — le directeur du fondamental et le proviseur du secondaire règlent chacun leur calendrier.',
+                'Their data stays complete: the scope splits configuration duties — each head sets their own calendar.',
+                'Sus datos siguen completos: el ámbito reparte la configuración del calendario.')}
         </p>
 
         <div>

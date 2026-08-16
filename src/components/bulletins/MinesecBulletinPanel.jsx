@@ -18,6 +18,7 @@ import { resolveClassEngine, firstCycleClasseSlug } from '../../core/engineResol
 import { classIdentity } from '../../lib/schoolIdentity';
 import { exportApcTrimesterBulletins } from '../../lib/apcBulletinPdf';
 import { exportScTrimesterBulletins } from '../../lib/scBulletinPdf';
+import { PRINT_RESULT } from '../../lib/print';
 import { teacherByMatiere } from '../../lib/teacherNames';
 
 // Trimestres MINESEC — séquences sources (S1/S2→T1 …). 'annual' = année entière.
@@ -45,6 +46,9 @@ export default function MinesecBulletinPanel() {
 
   const [trim, setTrim] = useState('t1');
   const [busy, setBusy] = useState(false);
+  // Lots d'impression : au-delà du seuil du socle, une classe part en plusieurs
+  // fenêtres, chacune sur un clic de l'utilisateur.
+  const [batch, setBatch] = useState({ index: 0, total: 1 });
   const [msg, setMsg]   = useState(null);   // { type:'err'|'ok', text }
 
   const cls    = classes.find((c) => c.id === classId) || null;
@@ -83,12 +87,13 @@ export default function MinesecBulletinPanel() {
     const classSubjects = subjects.filter((s) => s.class_id === classId);
     const teacherMap = teacherByMatiere(referentiel?.matieres, classSubjects, teachers);
     const docSchool = classIdentity(school, cls, schoolUnits);
-    await exportApcTrimesterBulletins(referentiel, apcNotes, {
+    return exportApcTrimesterBulletins(referentiel, apcNotes, {
       classeSlug, trimestreId: trim, // APC : t1/t2/t3 uniquement (pas d'annuel)
       classLabel: cls.name, school: docSchool, sys,
-      students: classStudents, effectif: classStudents.length, mode: 'open',
+      students: classStudents, effectif: classStudents.length,
       teacherByMatiere: teacherMap,
-      fileName: `bulletins_apc_${cls.name || classId}_${trim}.pdf`,
+      title: `${t('Bulletins APC', 'APC report cards')} — ${cls.name || ''} — ${trimDef.fr}`,
+      batchIndex: batch.index,
     });
   };
 
@@ -96,11 +101,12 @@ export default function MinesecBulletinPanel() {
     const classSubjects = subjects.filter((s) => s.class_id === classId);
     const serieLabel = cls.serie ? `Série ${String(cls.serie).toUpperCase()}` : '';
     const docSchool = classIdentity(school, cls, schoolUnits);
-    await exportScTrimesterBulletins({
+    return exportScTrimesterBulletins({
       subjects: classSubjects, allGrades: gradeMap, classId, seqs: trimDef.seqs,
       students: classStudents, teachers, school: docSchool, sys, trimestreId: trim,
       classLabel: cls.name, serieLabel, gradeScale: school?.grade_scale,
-      fileName: `bulletins_${cls.name || classId}_${trim}.pdf`,
+      title: `${t('Bulletins', 'Report cards')} — ${cls.name || ''} — ${trimDef.fr}`,
+      batchIndex: batch.index,
     });
   };
 
@@ -108,11 +114,21 @@ export default function MinesecBulletinPanel() {
     if (!classStudents.length) { flash('err', t('Aucun élève dans cette classe.', 'No student in this class.')); return; }
     setBusy(true); setMsg(null);
     try {
-      if (engine === 'apc') await exportApc();
-      else                  await exportSc();
+      const out = engine === 'apc' ? await exportApc() : await exportSc();
+      const { result, batches, pages } = out || {};
+      if (result === PRINT_RESULT.BLOCKED) {
+        flash('err', t("Fenêtre d'impression bloquée par le navigateur. Autorisez les pop-ups pour ce site.",
+                       'Print window blocked by the browser. Allow pop-ups for this site.'), 8000);
+      } else if (result === PRINT_RESULT.EMPTY) {
+        flash('err', t('Aucun bulletin générable — vérifiez les notes de la période.',
+                       'No report card to generate — check the grades for this period.'));
+      } else {
+        setBatch({ index: batch.index + 1, total: batches || 1 });
+        flash('ok', t(`${pages} page(s) envoyée(s) à l'impression.`, `${pages} page(s) sent to the printer.`));
+      }
     } catch (e) {
       console.error('MinesecBulletinPanel', e);
-      flash('err', t('Erreur lors de la génération du PDF.', 'Error while generating the PDF.'));
+      flash('err', t('Erreur lors de la préparation des bulletins.', 'Error while preparing the report cards.'));
     } finally {
       setBusy(false);
     }
@@ -123,9 +139,9 @@ export default function MinesecBulletinPanel() {
     ? t('Bulletin APC officiel — premier cycle', 'Official APC report card — first cycle')
     : t('Bulletin Second Cycle MINESEC', 'MINESEC Second Cycle report card');
   const subtitle = isApc
-    ? t('Bulletin par compétences (MINESEC). Document officiel généré en PDF.',
-        'Competency-based report card (MINESEC). Official document exported as PDF.')
-    : `${t('Lycée — bulletin par série', 'High school — report card by stream')}${cls.serie ? ` · Série ${String(cls.serie).toUpperCase()}` : ''}. ${t('Document officiel généré en PDF.', 'Official document exported as PDF.')}`;
+    ? t('Bulletin par compétences (MINESEC). Document officiel imprimable (enregistrable en PDF).',
+        'Competency-based report card (MINESEC). Official document, printable and saveable as PDF.')
+    : `${t('Lycée — bulletin par série', 'High school — report card by stream')}${cls.serie ? ` · Série ${String(cls.serie).toUpperCase()}` : ''}. ${t('Document officiel imprimable (enregistrable en PDF).', 'Official document, printable and saveable as PDF.')}`;
 
   return (
     <div className="mb-4 no-print rounded-xl border border-brand-200 bg-brand-50/60 p-4">
@@ -140,14 +156,17 @@ export default function MinesecBulletinPanel() {
       <div className="flex flex-wrap items-end gap-3 mt-3">
         <label className="text-sm">
           <span className="block text-gray-500 mb-1 text-xs">{t('Période', 'Period')}</span>
-          <select value={trim} onChange={(e) => setTrim(e.target.value)} disabled={busy}
+          <select value={trim} onChange={(e) => { setTrim(e.target.value); setBatch({ index: 0, total: 1 }); }} disabled={busy}
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white">
             {trimOptions.map((x) => <option key={x.id} value={x.id}>{sys === 'EN' ? x.en : x.fr}</option>)}
           </select>
         </label>
-        <button onClick={run} disabled={busy || !classStudents.length}
+        <button onClick={run} disabled={busy || !classStudents.length || (batch.total > 1 && batch.index >= batch.total)}
           className="px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
-          {busy ? t('Génération…', 'Generating…') : t('Exporter le bulletin (PDF)', 'Export report card (PDF)')}
+          {busy ? t('Préparation…', 'Preparing…')
+            : batch.total > 1 && batch.index >= batch.total ? t('✓ Terminé', '✓ Done')
+            : batch.total > 1 ? `🖨 ${t('Imprimer le lot', 'Print batch')} ${batch.index + 1}/${batch.total}`
+            : `🖨 ${t('Imprimer les bulletins', 'Print report cards')}`}
         </button>
         <span className="text-xs text-gray-400">
           {t(`${classStudents.length} élève(s) dans la classe`, `${classStudents.length} student(s) in the class`)}

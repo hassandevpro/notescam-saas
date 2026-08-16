@@ -154,8 +154,11 @@ export function assembleScBulletin(ctx) {
 // __encouragement__/__felicitation__/__decision__). Mêmes conventions que
 // Bulletins.jsx & ConseilDeClasse.jsx → réutilise la saisie existante, aucune
 // table dédiée. Renvoie { absJ, absNJ, conduite, exclusions, mentions[], decision }.
+// Codes écrits par le sélecteur de décision annuelle (AnnualDecisionPicker) :
+// admis / redouble / renvoye / rattrapage — plus les variantes historiques.
 const SC_DECISION_LABEL = {
   admis: 'Admis(e)', redoublant: 'Redoublant(e)', renvoye: 'Renvoyé(e)',
+  redouble: 'Autorisé(e) à redoubler', rattrapage: 'Examen de rattrapage',
   aprobado: 'Aprobado', repite: 'Repite', expulsado: 'Expulsado',
 };
 export function scDisciplineConseil(allGrades, classId, studentId, seqs) {

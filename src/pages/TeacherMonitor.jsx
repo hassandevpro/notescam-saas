@@ -1,18 +1,19 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { buildWhatsAppUrl } from '../lib/messagesService';
-import { fetchSequenceDates } from '../lib/sequenceDatesService';
+import { fetchSequenceDates, indexSequenceDates } from '../lib/sequenceDatesService';
+import { TRACKS, tracksInUse, trackKeyForClass, currentPeriodOfTrack, periodAt, effectiveDeadline } from '../lib/calendarTracks';
+import { classEntryProgress, subjectEntryRate, indexPrimNotes } from '../lib/gradeEntryProgress';
+import { resolveClassEngine } from '../core/engineResolver';
 import Layout from '../components/Layout';
 import HubTabs from '../components/hubs/HubTabs';
+import SchoolCalendar from '../components/SchoolCalendar';
 import { useT, getLang, localeForLang } from '../lib/i18n';
 import { useCountry } from '../lib/useCountry';
-
-const SEQUENCES_FR = [1, 2, 3, 4, 5, 6];
-const SEQUENCES_EN = [1, 2, 3]; // Term 1/2/3
-const SEQUENCES_GE = [1, 2, 3]; // Guinea Eq : 3 trimestres / evaluaciones
 
 // Seuils de risque (jours d'inactivité). Centralisés pour l'évolutivité.
 const INACTIVE_DAYS = 14;
@@ -161,23 +162,29 @@ function KpiCard({ value, label, tone = 'neutral', onClick, active }) {
 export default function TeacherMonitor() {
   const t = useT();
   const { school, fullName, role } = useAuthStore();
-  const country        = useCountry();
-  const isGE           = country.code === 'guinea_eq';
-  const schoolLanguage = school?.language || 'francophone';
-  const isENSchool     = schoolLanguage === 'anglophone';
-  const SEQUENCES      = isGE ? SEQUENCES_GE : isENSchool ? SEQUENCES_EN : SEQUENCES_FR;
-  const periodWord     = isENSchool ? 'Term' : isGE ? 'Trimestre' : t('Séquence', 'Sequence');
-  const classes    = useSchoolStore((s) => s.classes);
+  const country    = useCountry();
+  const allClasses = useSchoolStore((s) => s.classes);
   const subjects   = useSchoolStore((s) => s.subjects);
   const students   = useSchoolStore((s) => s.students);
   const teachers   = useSchoolStore((s) => s.teachers);
   const gradeMap   = useSchoolStore((s) => s.gradeMap);
 
+  // Moteurs non numériques : la maternelle et le primaire MINEDUB n'écrivent
+  // jamais dans `gradeMap`, il faut leurs propres données pour les suivre.
+  const apcNotes        = useSchoolStore((s) => s.apcNotes);
+  const primNotes       = useSchoolStore((s) => s.primNotes);
+  const matObservations = useSchoolStore((s) => s.matObservations);
+  const apcReferentiel  = useSchoolStore((s) => s.apcReferentiel);
+  const loadApc  = useSchoolStore((s) => s.loadApc);
+  const loadMat  = useSchoolStore((s) => s.loadMat);
+  const loadPrim = useSchoolStore((s) => s.loadPrim);
+
   const notifications  = useNotificationsStore((s) => s.notifications);
   const markRead       = useNotificationsStore((s) => s.markRead);
   const messages       = useMessagesStore((s) => s.messages);
 
-  const [selectedSeq,  setSelectedSeq]  = useState(1);
+  const [pickedSeq,    setPickedSeq]    = useState(null);   // null = suivre le calendrier
+  const [pickedTrack,  setPickedTrack]  = useState(null);
   const [composeFor,   setComposeFor]   = useState(null);
   const [seqDatesMap,  setSeqDatesMap]  = useState({});
   const [filter,       setFilter]       = useState('all'); // all|late|inactive|completed|nograde
@@ -186,61 +193,106 @@ export default function TeacherMonitor() {
     try { return localStorage.getItem('nc_monitor_tab') || 'cockpit'; } catch { return 'cockpit'; }
   });
 
-  useEffect(() => {
+  // Rechargeable : régler les dates dans l'onglet Calendrier doit reprendre
+  // l'écran (période ouverte, échéances, retards) sans passer par un F5.
+  const refreshSeqDates = useCallback(() => {
     if (!school?.id) return;
-    fetchSequenceDates(school.id).then((rows) => {
-      const map = {};
-      rows.forEach((r) => { map[r.seq_key] = r; });
-      setSeqDatesMap(map);
-    });
+    fetchSequenceDates(school.id).then((rows) => setSeqDatesMap(indexSequenceDates(rows)));
   }, [school?.id]);
+  useEffect(() => { refreshSeqDates(); }, [refreshSeqDates]);
 
-  const currentSeqConfig = seqDatesMap[`fr_seq_${selectedSeq}`] ?? null;
+  // ── Piste suivie ──────────────────────────────────────────────────────────
+  // Un établissement complet suit plusieurs découpages en parallèle (séquences
+  // MINESEC, UA du primaire MINEDUB, trimestres de maternelle, terms). On en
+  // surveille UN à la fois : mélanger « Séq 4 » et « Trim 2 » dans les mêmes
+  // pourcentages ne voudrait rien dire.
+  const trackKeys   = useMemo(() => tracksInUse(school, allClasses, country.code),
+    [school, allClasses, country.code]);
+  const activeTrack = (pickedTrack && trackKeys.includes(pickedTrack)) ? pickedTrack : trackKeys[0];
+  const track       = TRACKS[activeTrack];
+  const periodWord  = t(track.unit.fr, track.unit.en, track.unit.es);
+
+  // Les classes de cette piste, et leur moteur de saisie.
+  const classes = useMemo(
+    () => allClasses.filter((c) => trackKeyForClass(school, c, country.code) === activeTrack),
+    [allClasses, school, country.code, activeTrack],
+  );
+  const engineOf = useMemo(() => {
+    const map = {};
+    classes.forEach((c) => { map[c.id] = resolveClassEngine(school, c); });
+    return map;
+  }, [classes, school]);
+
+  // Les référentiels/notes des moteurs présents dans la piste suivie.
+  const engines = useMemo(() => {
+    const set = new Set(Object.values(engineOf));
+    return { apc: set.has('apc'), mat: set.has('maternelle'), prim: set.has('apc_primaire') };
+  }, [engineOf]);
+  useEffect(() => { if (engines.apc)  loadApc(); },  [engines.apc, loadApc]);
+  useEffect(() => { if (engines.mat)  loadMat(); },  [engines.mat, loadMat]);
+  useEffect(() => { if (engines.prim) loadPrim(); }, [engines.prim, loadPrim]);
+
+  const sources = useMemo(
+    () => ({ gradeMap, apcNotes, primNotes, matObservations, apcReferentiel,
+             primIndex: indexPrimNotes(primNotes) }),
+    [gradeMap, apcNotes, primNotes, matObservations, apcReferentiel],
+  );
+
+  // ── Période suivie : le calendrier d'abord, le clic de l'utilisateur ensuite ─
+  const calendarPeriod = useMemo(
+    () => currentPeriodOfTrack(activeTrack, seqDatesMap, new Date()),
+    [activeTrack, seqDatesMap],
+  );
+  const selectedSeq = pickedSeq ?? calendarPeriod?.order ?? 1;
+  const currentSeqConfig = seqDatesMap[periodAt(activeTrack, selectedSeq)?.key] ?? null;
   const dateLocale = localeForLang();
+
+  // Changer de piste remet la sélection sur la période ouverte de la nouvelle.
+  useEffect(() => { setPickedSeq(null); }, [activeTrack]);
 
   // ── Classes assignées par enseignant ──────────────────────────────────────
   const teacherClassIds = useMemo(() => {
     const map = {};
+    const inTrack = new Set(classes.map((c) => c.id));
     teachers.forEach((tc) => { map[tc.id] = new Set(); });
-    subjects.forEach((s) => { if (s.teacher_id && map[s.teacher_id]) map[s.teacher_id].add(s.class_id); });
+    subjects.forEach((s) => { if (s.teacher_id && map[s.teacher_id] && inTrack.has(s.class_id)) map[s.teacher_id].add(s.class_id); });
     classes.forEach((c)  => { if (c.teacher_id && map[c.teacher_id]) map[c.teacher_id].add(c.id); });
     return map;
   }, [teachers, subjects, classes]);
 
-  // ── Complétion par classe (un élève « saisi » = ≥1 note dans la séquence) ──
+  // ── Complétion par classe, au moteur de chaque classe ─────────────────────
   const classCompletion = useMemo(() => {
     const map = {};
     classes.forEach((cls) => {
       const studs = students.filter((s) => s.class_id === cls.id);
-      const total = studs.length;
-      if (!total) { map[cls.id] = { total: 0, filled: 0, rate: null }; return; }
-      const filled = studs.filter((s) => {
-        const entry = gradeMap[`${cls.id}_${s.id}_${selectedSeq}`];
-        return entry && Object.keys(entry).some((k) => !k.startsWith('__') && entry[k] !== '');
-      }).length;
-      map[cls.id] = { total, filled, rate: Math.round((filled / total) * 100) };
+      const subs  = subjects.filter((s) => s.class_id === cls.id);
+      if (!studs.length) { map[cls.id] = { total: 0, filled: 0, rate: null }; return; }
+      const { expected, entered } = classEntryProgress({
+        engine: engineOf[cls.id], cls, subs, studs, order: selectedSeq, ...sources,
+      });
+      map[cls.id] = expected
+        ? { total: expected, filled: entered, rate: Math.round((entered / expected) * 100) }
+        : { total: studs.length, filled: 0, rate: null };
     });
     return map;
-  }, [classes, students, gradeMap, selectedSeq]);
+  }, [classes, students, subjects, engineOf, selectedSeq, sources]);
 
   // ── Complétion par MATIÈRE (pour « matières sans notes ») ──────────────────
   const subjectStats = useMemo(() => {
     const byId = {};
     let missingCount = 0;
+    const inTrack = new Set(classes.map((c) => c.id));
     subjects.forEach((subj) => {
+      if (!inTrack.has(subj.class_id)) return;
       const studs = students.filter((s) => s.class_id === subj.class_id);
-      const total = studs.length;
-      if (!total) { byId[subj.id] = { total: 0, filled: 0, rate: null }; return; }
-      const filled = studs.filter((s) => {
-        const v = gradeMap[`${subj.class_id}_${s.id}_${selectedSeq}`]?.[subj.id];
-        return v !== undefined && v !== '' && v !== null;
-      }).length;
-      const rate = Math.round((filled / total) * 100);
-      byId[subj.id] = { total, filled, rate };
-      if (rate === 0) missingCount++;
+      const stat = subjectEntryRate({
+        engine: engineOf[subj.class_id], sub: subj, studs, order: selectedSeq, ...sources,
+      });
+      byId[subj.id] = stat;
+      if (stat.rate === 0) missingCount++;
     });
     return { byId, missingCount };
-  }, [subjects, students, gradeMap, selectedSeq]);
+  }, [subjects, students, classes, engineOf, selectedSeq, sources]);
 
   const teacherLastActivity = useMemo(() => {
     const map = {};
@@ -256,12 +308,14 @@ export default function TeacherMonitor() {
     return classes.filter((c) => !assignedIds.has(c.id));
   }, [classes, teacherClassIds]);
 
+  // Échéance de la période AFFICHÉE (pas seulement de celle qu'ouvre le
+  // calendrier : l'utilisateur peut inspecter une période antérieure).
   const deadline = useMemo(() => {
-    const dl = currentSeqConfig?.deadline_date ? new Date(currentSeqConfig.deadline_date) : null;
-    if (!dl) return { daysLeft: null, overdue: false };
+    const dl = effectiveDeadline(currentSeqConfig);
+    if (!dl) return { date: null, daysLeft: null, overdue: false, atRisk: false };
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const daysLeft = Math.ceil((dl - today) / 86400000);
-    return { daysLeft, overdue: daysLeft < 0, atRisk: daysLeft >= 0 && daysLeft <= 3 };
+    const daysLeft = Math.round((Date.parse(`${dl}T00:00:00`) - today.getTime()) / 86400000);
+    return { date: dl, daysLeft, overdue: daysLeft < 0, atRisk: daysLeft >= 0 && daysLeft <= 3 };
   }, [currentSeqConfig]);
 
   // ── Lignes enseignant + SCORE DE RISQUE ───────────────────────────────────
@@ -364,37 +418,68 @@ export default function TeacherMonitor() {
     ? t('Vue Censeur', 'Dean view', 'Vista Jefe de estudios')
     : t('Vue Directeur', 'Principal view', 'Vista Director');
 
-  // ── Sélecteur de période (en-tête partagé) ─────────────────────────────────
+  // ── Sélecteur de piste + période (en-tête partagé) ─────────────────────────
+  // La période présélectionnée est celle qu'OUVRE le calendrier scolaire ; le
+  // clic reste possible pour inspecter une période antérieure.
   const seqSelector = (
     <div className="flex flex-col items-end gap-1.5">
-      <div className="flex items-center gap-2">
-        <label className="text-sm text-gray-500 font-medium">{periodWord} :</label>
+      {trackKeys.length > 1 && (
         <div className="flex gap-1">
-          {SEQUENCES.map((s) => (
-            <button key={s} onClick={() => setSelectedSeq(s)}
-              className={`w-9 h-9 rounded-lg text-sm font-semibold transition-colors ${selectedSeq === s ? 'bg-brand-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-600 hover:border-brand-300'}`}>
-              {s}
+          {trackKeys.map((k) => (
+            <button key={k} onClick={() => setPickedTrack(k)}
+              title={t(TRACKS[k].title.fr, TRACKS[k].title.en, TRACKS[k].title.es)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                activeTrack === k ? 'bg-brand-100 text-brand-700 border border-brand-300'
+                                  : 'bg-white border border-gray-200 text-gray-500 hover:border-brand-300'}`}>
+              {t(TRACKS[k].unit.fr, TRACKS[k].unit.en, TRACKS[k].unit.es)}
             </button>
           ))}
         </div>
+      )}
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-gray-500 font-medium">{periodWord} :</label>
+        <div className="flex gap-1 flex-wrap justify-end">
+          {track.periods.map((p) => {
+            const isCal = calendarPeriod?.order === p.order;
+            return (
+              <button key={p.key} onClick={() => setPickedSeq(p.order)}
+                title={isCal ? t('Période ouverte au calendrier', 'Period open in the calendar', 'Periodo abierto en el calendario') : undefined}
+                className={`w-9 h-9 rounded-lg text-sm font-semibold transition-colors ${
+                  selectedSeq === p.order ? 'bg-brand-600 text-white shadow-sm'
+                    : isCal ? 'bg-white border border-brand-300 text-brand-700'
+                            : 'bg-white border border-gray-200 text-gray-600 hover:border-brand-300'}`}>
+                {p.order}
+              </button>
+            );
+          })}
+        </div>
       </div>
-      {currentSeqConfig?.deadline_date && (
+      {deadline.date ? (
         <p className="text-xs text-gray-400">
-          {t('Limite saisie', 'Deadline')} :&nbsp;
+          {t('Limite saisie', 'Deadline', 'Cierre')} :&nbsp;
           <span className={`font-semibold ${deadline.overdue ? 'text-red-600' : 'text-gray-600'}`}>
-            {new Date(currentSeqConfig.deadline_date).toLocaleDateString(dateLocale, { day: 'numeric', month: 'short' })}
+            {new Date(`${deadline.date}T00:00:00`).toLocaleDateString(dateLocale, { day: 'numeric', month: 'short' })}
           </span>
           {deadline.daysLeft !== null && deadline.daysLeft >= 0 && <span className="text-gray-400"> · J-{deadline.daysLeft}</span>}
           {deadline.overdue && <span className="text-red-500 font-semibold"> · {t('dépassée', 'overdue', 'vencido')}</span>}
         </p>
+      ) : (
+        <Link to="/app/settings" className="text-xs text-amber-600 hover:text-amber-800 font-medium">
+          {t('Aucune date au calendrier — renseigner', 'No calendar date — set it up', 'Sin fechas — configurar')}
+        </Link>
       )}
     </div>
   );
 
+  // Le calendrier vit aussi ICI, pas seulement dans les Paramètres (réservés à
+  // l'administrateur) : c'est de cette page que le directeur du fondamental ou le
+  // proviseur du secondaire pilote les saisies, et ce sont ses échéances qui
+  // décident des retards. Chacun n'y voit que sa part (périmètre du compte).
   const tabs = [
     { id: 'cockpit',  label: t('Cockpit', 'Cockpit', 'Cabina'),                   render: renderCockpit },
     { id: 'teachers', label: t('Enseignants', 'Teachers', 'Profesores'),          render: renderTeachers },
     { id: 'journal',  label: t("Journal d'activité", 'Activity log', 'Registro'), render: renderJournal },
+    { id: 'calendar', label: t('Calendrier scolaire', 'School calendar', 'Calendario'), render: renderCalendar },
   ];
 
   return (
@@ -410,7 +495,7 @@ export default function TeacherMonitor() {
             {' · '}{t('Pilotage des saisies', 'Grade-entry control', 'Control de entradas')} — {school?.current_year}
           </>
         )}
-        right={seqSelector}
+        right={activeTab === 'calendar' ? null : seqSelector}
         tabs={tabs}
         storageKey="nc_monitor_tab"
         activeTab={activeTab}
@@ -578,6 +663,17 @@ export default function TeacherMonitor() {
   // ════════════════════════════════════════════════════════════════════════════
   // ONGLET 3 — JOURNAL D'ACTIVITÉ (feed professionnel)
   // ════════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════════════════
+  // ONGLET 4 — CALENDRIER SCOLAIRE : les échéances qui pilotent tout l'écran
+  // ════════════════════════════════════════════════════════════════════════════
+  function renderCalendar() {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        <SchoolCalendar onSaved={refreshSeqDates} />
+      </div>
+    );
+  }
+
   function renderJournal() {
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">

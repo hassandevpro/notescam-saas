@@ -31,16 +31,22 @@ function insertInternal(schoolId, recipient, msg, now) {
   return id;
 }
 
-// Canal externe : mise en FILE (pending), jamais envoyé ici. Sans adresse → ignoré.
-function queueExternal(schoolId, channel, recipient, msg, notifId, now) {
+// Canal externe : mise en FILE (pending), jamais envoyé ici (l'edge notify-dispatch
+// côté Cloud est le seul expéditeur). Sans adresse → ignoré. SMS : coûteux (cf.
+// supabase_sms_budget.sql) — une notification 'normal' n'est même pas mise en
+// file. `priority` doit être poussée telle quelle vers le Cloud (colonne LAN
+// dédiée, cf. server/db.js) : sans elle, un SMS urgent déclenché depuis le LAN
+// retomberait au défaut Postgres 'normal' en remontant, et ne partirait jamais.
+function queueExternal(schoolId, channel, recipient, msg, notifId, now, priority) {
   const address = channel === 'email' ? (recipient?.email || null) : (recipient?.phone || null);
   if (!address) return;
+  if (channel === 'sms' && priority === 'normal') return;
   const id = randomUUID();
   db.prepare(`INSERT INTO notification_outbox
-      (id, school_id, notification_id, channel, address, status, attempts, payload, created_at, updated_at, version, device_id)
-      VALUES (?,?,?,?,?, 'pending', 0, ?, ?, ?, 1, ?)`)
+      (id, school_id, notification_id, channel, address, status, attempts, payload, created_at, updated_at, version, device_id, priority)
+      VALUES (?,?,?,?,?, 'pending', 0, ?, ?, ?, 1, ?, ?)`)
     .run(id, schoolId, notifId, channel, address,
-         JSON.stringify({ title: msg.title, body: msg.body || '' }), now, now, deviceId());
+         JSON.stringify({ title: msg.title, body: msg.body || '' }), now, now, deviceId(), priority || 'normal');
   db.prepare('INSERT INTO sync_outbox (tablename, row_id, op, at) VALUES (?,?,?,?)')
     .run('notification_outbox', id, 'upsert', now);
 }
@@ -56,7 +62,7 @@ function queueExternal(schoolId, channel, recipient, msg, notifId, now) {
 // d'une intention de diffuser. La diffusion est donc désormais OPT-IN explicite :
 // sans `allowBroadcast`, une liste vide n'envoie RIEN plutôt que de fuiter un
 // montant ou un refus à toute l'école.
-export function notify({ schoolId, recipients = [], type = 'info', title, body = '', link = null, channels = ['internal'], allowBroadcast = false }) {
+export function notify({ schoolId, recipients = [], type = 'info', title, body = '', link = null, channels = ['internal'], allowBroadcast = false, priority = 'normal' }) {
   if (!schoolId || !title) return [];
   const chans = (channels.length ? channels : ['internal']).filter((c) => CHANNELS.includes(c));
   if (!chans.length) return [];
@@ -73,7 +79,7 @@ export function notify({ schoolId, recipients = [], type = 'info', title, body =
       let notifId = null;
       for (const c of chans) {
         if (c === 'internal') notifId = insertInternal(schoolId, r, msg, now);
-        else queueExternal(schoolId, c, r, msg, notifId, now);
+        else queueExternal(schoolId, c, r, msg, notifId, now, priority);
       }
       if (notifId) ids.push(notifId);
     }

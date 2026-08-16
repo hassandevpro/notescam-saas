@@ -12,7 +12,7 @@
 import { syncQueueDB, studentsDB, initDB } from './db';
 import { uuid } from './uuid';
 import { supabase } from './supabase';
-import { gradeEntryToRows, upsertAbsenceEntry } from './schoolService';
+import { gradeEntryToRows, upsertAbsenceEntry, absenceEntryToRow } from './schoolService';
 import { useUiStore } from '../store/uiStore';
 
 // Nombre d'opérations en attente (lecture IDB, sans dépendance React)
@@ -130,10 +130,84 @@ async function replayItem(item) {
   }
 }
 
+// ── Rejeu par LOTS ───────────────────────────────────────────────────────────
+// Une classe de 55 élèves saisie hors ligne, c'est 55 éléments en file, donc
+// 55 allers-retours (≈ 19 s à 350 ms de latence) là où une seule requête suffit :
+// PostgREST accepte un tableau de lignes dans un upsert, et c'est déjà ce que
+// fait le chemin en ligne (`upsertGradeEntry` envoie toute la grille d'un élève
+// en une fois).
+//
+// Principe : on regroupe les éléments par (table, opération), on envoie un lot,
+// et EN CAS D'ÉCHEC on rejoue les éléments du lot un par un. Une seule ligne
+// invalide ne peut donc pas bloquer les autres, et le décompte des échecs reste
+// exact, élément par élément — comme avant.
+const BATCH_ROWS = 500;
+
+const chunk = (arr, size) => {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+};
+
+// Tables dont un lot d'upsert est possible : cible de conflit + fabrique de lignes.
+const BATCHABLE = {
+  grades: {
+    conflict: 'class_id,student_id,subject_id,sequence',
+    rows: (p) => gradeEntryToRows(p.class_id, p.student_id, p.sequence, p.scores, p.school_id),
+  },
+  student_absences: {
+    conflict: 'student_id,sequence',
+    rows: (p) => [absenceEntryToRow(p.class_id, p.student_id, p.sequence, p.scores, p.school_id)],
+  },
+  apc_notes: {
+    conflict: 'eleve_id,competence_id,sequence_id',
+    rows: (p) => { const { nkey, ...row } = p; return [row]; },
+  },
+  mat_observations: {
+    conflict: 'eleve_id,domaine_id,trimestre_id',
+    rows: (p) => { const { nkey, ...row } = p; return [row]; },
+  },
+  prim_notes: {
+    conflict: 'eleve_id,competence_id,critere_id,ua',
+    rows: (p) => { const { nkey, ...row } = p; return [row]; },
+  },
+};
+
+/** Envoie un groupe d'éléments en une requête. Renvoie false si le lot échoue. */
+async function replayBatch(table, items) {
+  const spec = BATCHABLE[table];
+  if (!spec || items.length < 2) return false;
+
+  const rows = items.flatMap((it) => spec.rows(it.payload) || []);
+  if (!rows.length) return true;   // rien à écrire : le lot est « réussi »
+
+  for (const part of chunk(rows, BATCH_ROWS)) {
+    const { error } = await supabase.from(table).upsert(part, { onConflict: spec.conflict });
+    if (error) {
+      console.warn(`[sync] lot ${table} (${part.length} lignes) en échec — reprise élément par élément`, error.message);
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Supprime plusieurs lignes d'une même table en une requête. */
+async function deleteBatch(table, items) {
+  if (items.length < 2) return false;
+  const ids = items.map((it) => it.payload?.id).filter(Boolean);
+  if (ids.length !== items.length) return false;      // payload inattendu : chemin unitaire
+  const { error } = await supabase.from(table).delete().in('id', ids);
+  if (error) {
+    console.warn(`[sync] suppression groupée ${table} en échec — reprise élément par élément`, error.message);
+    return false;
+  }
+  return true;
+}
+
 /**
  * Rejoue toutes les opérations en attente.
  * Chaque item réussi est supprimé de la queue et décrémente le compteur UI.
- * Les items en échec restent en queue pour le prochain tentative.
+ * Les items en échec restent en queue pour la prochaine tentative.
  *
  * @returns {{ synced: number, failed: number, total: number, failedItems: Array }}
  */
@@ -147,16 +221,44 @@ export async function flushSyncQueue() {
   let failed = 0;
   const failedItems = [];
 
-  for (const item of queue) {
-    try {
-      await replayItem(item);
-      await syncQueueDB.delete(item.id);
+  const markSynced = async (items) => {
+    for (const it of items) {
+      await syncQueueDB.delete(it.id);
       useUiStore.getState().decrementPending();
       synced++;
-    } catch (err) {
-      console.error(`[sync] échec ${item.table}/${item.operation} id=${item.id}`, err.message);
-      failed++;
-      failedItems.push({ table: item.table, operation: item.operation, error: err?.message ?? String(err) });
+    }
+  };
+
+  // Regroupement par (table, opération), en conservant l'ordre de la file :
+  // deux écritures successives sur la même ligne doivent rester dans l'ordre.
+  const groups = [];
+  for (const item of queue) {
+    const last = groups[groups.length - 1];
+    if (last && last.table === item.table && last.operation === item.operation) last.items.push(item);
+    else groups.push({ table: item.table, operation: item.operation, items: [item] });
+  }
+
+  for (const group of groups) {
+    const { table, operation, items } = group;
+
+    const batched = operation === 'delete'
+      ? await deleteBatch(table, items).catch(() => false)
+      : await replayBatch(table, items).catch(() => false);
+
+    if (batched) { await markSynced(items); continue; }
+
+    // Repli unitaire : lot impossible ou lot en échec.
+    for (const item of items) {
+      try {
+        await replayItem(item);
+        await syncQueueDB.delete(item.id);
+        useUiStore.getState().decrementPending();
+        synced++;
+      } catch (err) {
+        console.error(`[sync] échec ${item.table}/${item.operation} id=${item.id}`, err.message);
+        failed++;
+        failedItems.push({ table: item.table, operation: item.operation, error: err?.message ?? String(err) });
+      }
     }
   }
 

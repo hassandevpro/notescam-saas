@@ -1,8 +1,9 @@
-// Export PDF des bulletins SECOND CYCLE MINESEC (un ou plusieurs élèves).
-// Réutilise le pipeline partagé HTML→PNG→jsPDF (exportTranscriptsPdf) et le
-// moteur de notes classique pour les rangs, statistiques et moyennes.
+// Impression des bulletins SECOND CYCLE MINESEC (un ou plusieurs élèves).
+// Passe par le SOCLE D'IMPRESSION (lib/print) — sortie vectorielle, mêmes marges
+// et mêmes règles de saut que tous les autres documents — et par le moteur de
+// notes classique pour les rangs, statistiques et moyennes.
 
-import { exportTranscriptsPdf } from './transcriptPdf';
+import { printSheets, PRINT_RESULT, chunk, BATCH_SIZE } from './print';
 import { fusedG, multiAvg, buildRanks, clsStat } from '../core/bulletinEngine';
 import { scDisciplineConseil } from '../core/scEngine';
 import { teacherIndexById } from './teacherNames';
@@ -46,13 +47,14 @@ export function classProfile(subjects, allGrades, classId, seqs, students, sys, 
 
 // ctx : { subjects, allGrades, classId, seqs, students, targetStudents, school,
 //   sys, trimestreId, classLabel, serieLabel, effectif, profPrincipal, opts,
-//   gradeScale, excl, decisions, teachers, fileName, mode, onProgress }
+//   gradeScale, excl, decisions, teachers, title, onProgress, batchIndex }
+// Renvoie { result, pages, batches } — l'appelant traduit le résultat.
 export async function exportScTrimesterBulletins(ctx = {}) {
   const {
     subjects, allGrades, classId, seqs, students, targetStudents,
     school, sys = 'FR', trimestreId = 't1', classLabel, serieLabel, effectif,
     profPrincipal, opts = {}, gradeScale, excl = {}, decisions = {}, teachers = [],
-    fileName, mode = 'save', onProgress,
+    title, onProgress, batchIndex = 0,
   } = ctx;
 
   const teachersById = teacherIndexById(teachers);
@@ -68,7 +70,14 @@ export async function exportScTrimesterBulletins(ctx = {}) {
   const pass = (opts.maxScale ?? (sys === 'EN' ? 100 : 20)) / 2;
   const isAnnual = (seqs?.length || 0) >= 4;
 
-  const list = targetStudents?.length ? targetStudents : students;
+  // Découpage sur les ÉLÈVES : les pages d'un même bulletin ne sont jamais
+  // séparées entre deux lots.
+  const all = targetStudents?.length ? targetStudents : students;
+  const batches = chunk(all || [], Math.max(1, Math.floor(BATCH_SIZE / 2)));
+  const list = batches[batchIndex] || [];
+  if (!list.length) return { result: PRINT_RESULT.EMPTY, pages: 0, batches: batches.length };
+
+  let built = 0;
   const sheets = list.map((student) => {
     const discipline = scDisciplineConseil(allGrades, classId, student.id, seqs);
     // Décision : saisie explicite > décision lue (conseil) > déduction annuelle.
@@ -84,12 +93,14 @@ export async function exportScTrimesterBulletins(ctx = {}) {
       decision: decisions[student.id] || discipline.decision || fallback,
     });
   });
+  built = sheets.length;
+  onProgress?.(built, list.length);
 
-  if (!sheets.length) return;
-  await exportTranscriptsPdf(sheets, {
-    fileName: fileName || `bulletins_sc_${classLabel || classId}_${trimestreId}.pdf`,
-    mode, onProgress,
-  });
+  if (!sheets.length) return { result: PRINT_RESULT.EMPTY, pages: 0, batches: batches.length };
+  // `fit` : le bulletin officiel tient sur UNE page ; une feuille qui dépasse de
+  // peu est ajustée proportionnellement plutôt que coupée.
+  const result = printSheets(sheets, title || `Bulletins — ${classLabel || classId} — ${trimestreId}`, { profile: 'bulletin', fit: true });
+  return { result, pages: sheets.length, batches: batches.length };
 }
 
 // Petit helper exporté pour les vues : moyenne générale d'un élève (trimestre).

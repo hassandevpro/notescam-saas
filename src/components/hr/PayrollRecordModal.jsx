@@ -18,6 +18,7 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
 
   const [period, setPeriod] = useState(record?.period || '');
   const [baseSalary, setBaseSalary] = useState(record?.base_salary ?? '');
+  const [workedDays, setWorkedDays] = useState(record?.worked_days ?? '');
   const [status, setStatus] = useState(record?.status || 'draft');
   const [paidDate, setPaidDate] = useState(record?.paid_date || '');
   const [notes, setNotes] = useState(record?.notes || '');
@@ -62,7 +63,9 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
       calc_type: r.calc_type || null, rate: r.rate ?? null, base_ref: r.base_ref || null, resolved: r.resolved,
     }));
     await onSave({
-      id: record?.id, period, base_salary: Number(baseSalary) || 0, status, paid_date: paidDate || null,
+      id: record?.id, period, base_salary: Number(baseSalary) || 0,
+      worked_days: workedDays === '' ? null : (Number(workedDays) || null),
+      status, paid_date: paidDate || null,
       notes: notes || null, bonuses: resolved.bonuses, deductions: resolved.deductions, net_salary: resolved.net,
     }, resolvedItems);
     setSaving(false);
@@ -108,7 +111,7 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
   return (
     <Modal title={editing ? t('Modifier — Paie', 'Edit — Payroll', 'Editar — Nómina') : t('Ajouter — Paie', 'Add — Payroll', 'Añadir — Nómina')} onClose={onClose} size="lg">
       <form onSubmit={submit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div>
             <label className={lbl}>{t('Période', 'Period', 'Período')}</label>
             <input className={fld} type="month" value={period} onChange={(e) => setPeriod(e.target.value)} />
@@ -116,6 +119,15 @@ export default function PayrollRecordModal({ record, items = [], catalog = [], o
           <div>
             <label className={lbl}>{t('Salaire de base', 'Base salary', 'Salario base')}</label>
             <input className={fld} type="number" value={baseSalary} onChange={(e) => setBaseSalary(e.target.value)} />
+          </div>
+          <div>
+            <label className={lbl}>{t('Jours payés', 'Days paid', 'Días pagados')}</label>
+            <input className={fld} type="number" step="0.5" placeholder="30" value={workedDays} onChange={(e) => setWorkedDays(e.target.value)} />
+            <p className="text-[10px] text-gray-400 mt-1">
+              {workedDays > 0
+                ? `${t('Taux', 'Rate', 'Tasa')} : ${money(Math.round((Number(baseSalary) || 0) / Number(workedDays)))}/${t('j', 'd', 'd')}`
+                : t('Optionnel — affiche « jours × taux » sur le bulletin.', 'Optional — shows “days × rate” on the payslip.', 'Opcional — muestra «días × tasa» en la nómina.')}
+            </p>
           </div>
         </div>
 

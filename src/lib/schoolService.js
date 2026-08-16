@@ -29,6 +29,16 @@ import { supabase } from './supabase';
 // ne doit pas s'accumuler) et inclure un ordre déterministe (clé unique) pour que la
 // pagination ne saute ni ne duplique de ligne aux frontières de page.
 const PAGE_SIZE = 1000;
+
+// Pages demandées SIMULTANÉMENT. La pagination était séquentielle : chaque page
+// payait un aller-retour complet, et la table `grades` en compte 144 pour un
+// établissement de 1 600 élèves — soit ~35 s sur une 4G correcte, rien que pour
+// les notes. Les pages étant indépendantes (ordre déterministe sur une clé
+// unique), rien n'empêche de les demander de front. Six est un compromis :
+// assez pour masquer la latence, assez peu pour ne pas saturer une connexion
+// d'école ni déclencher les limites de débit de PostgREST.
+const PAGE_CONCURRENCY = 6;
+
 async function fetchAllRows(makeQuery, label) {
   if (typeof makeQuery().range !== 'function') {
     // LAN (localClient) : aucun plafond, pas de pagination.
@@ -36,13 +46,32 @@ async function fetchAllRows(makeQuery, label) {
     if (error) { console.error(label, error); return null; }
     return data;
   }
+
   const rows = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await makeQuery().range(from, from + PAGE_SIZE - 1);
-    if (error) { console.error(label, error); return from === 0 ? null : rows; }
-    if (!data?.length) break;
-    rows.push(...data);
-    if (data.length < PAGE_SIZE) break;
+  let from = 0;
+  for (;;) {
+    // Une vague de pages contiguës, demandées ensemble.
+    const wave = await Promise.all(
+      Array.from({ length: PAGE_CONCURRENCY }, (_, i) => {
+        const start = from + i * PAGE_SIZE;
+        return makeQuery().range(start, start + PAGE_SIZE - 1);
+      }),
+    );
+
+    let got = 0;
+    for (const { data, error } of wave) {
+      if (error) {
+        console.error(label, error);
+        // Première vague en échec : on ne sait rien, on rend `null` (l'appelant
+        // conserve alors ses données locales). Sinon on rend ce qu'on a.
+        return from === 0 && !rows.length ? null : rows;
+      }
+      if (data?.length) { rows.push(...data); got += data.length; }
+    }
+
+    // Vague incomplète = fin du jeu de données.
+    if (got < PAGE_CONCURRENCY * PAGE_SIZE) break;
+    from += PAGE_CONCURRENCY * PAGE_SIZE;
   }
   return rows;
 }
@@ -161,9 +190,19 @@ export async function deleteStudent(id) {
 // Supabase stores one row per (class × student × subject × sequence).
 // The store uses a gradeMap keyed by "classId_studentId_sequence" for bulletinEngine.
 
+// Colonnes réellement exploitées côté client : `gradeRowsToMap` en utilise cinq,
+// et `reconstructRoster` seulement class_id/student_id. `select('*')` ajoutait
+// `id`, `school_id` et `updated_at` — trois UUID/horodatages par note, soit
+// 319 octets par ligne au lieu de 184 (42 % de trafic en trop) sur une table qui
+// compte 144 000 lignes pour 1 600 élèves. L'ordre reste sur `id` : c'est une
+// clé unique, donc la pagination ne saute ni ne duplique aucune ligne.
+// `id` n'est pas sélectionné : aucun appelant ne le lit, et PostgREST sait
+// trier sur une colonne absente de la projection.
+const GRADE_COLS = 'class_id,student_id,subject_id,sequence,value';
+
 export async function fetchGrades(schoolId, classIds = null) {
   return fetchAllRows(() => {
-    let q = supabase.from('grades').select('*').eq('school_id', schoolId);
+    let q = supabase.from('grades').select(GRADE_COLS).eq('school_id', schoolId);
     if (classIds) q = q.in('class_id', classIds);
     return q.order('id', { ascending: true });
   }, 'fetchGrades');
@@ -227,8 +266,11 @@ export async function fetchAbsences(schoolId) {
     .order('id', { ascending: true }), 'fetchAbsences');
 }
 
-export async function upsertAbsenceEntry(classId, studentId, sequence, absData, schoolId) {
-  const row = {
+// Ligne `student_absences` à partir des clés spéciales du gradeMap (__abs_j__…).
+// Extrait pour que la file de synchro puisse REGROUPER plusieurs enregistrements
+// en un seul upsert au lieu d'un aller-retour par élève.
+export function absenceEntryToRow(classId, studentId, sequence, absData, schoolId) {
+  return {
     school_id:      schoolId,
     class_id:       classId,
     student_id:     studentId,
@@ -247,6 +289,10 @@ export async function upsertAbsenceEntry(classId, studentId, sequence, absData, 
     decision:       absData.__decision__               || null,
     appreciation:   absData.__appreciation__           || null,
   };
+}
+
+export async function upsertAbsenceEntry(classId, studentId, sequence, absData, schoolId) {
+  const row = absenceEntryToRow(classId, studentId, sequence, absData, schoolId);
   const { error } = await supabase
     .from('student_absences')
     .upsert(row, { onConflict: 'student_id,sequence' });

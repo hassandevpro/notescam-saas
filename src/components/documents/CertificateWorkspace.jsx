@@ -9,10 +9,10 @@ import { useSchoolStore } from '../../store/schoolStore';
 import { useUiStore } from '../../store/uiStore';
 import { qrDataUrl } from '../../lib/idCardService';
 import { buildVerification } from '../../lib/transcriptEngine';
-import { certificateSheetHtml, printSheets } from '../../lib/transcriptDoc';
+import { certificateSheetHtml } from '../../lib/transcriptDoc';
+import usePrintJob from './usePrintJob';
 import { classIdentity } from '../../lib/schoolIdentity';
-import { exportTranscriptsPdf } from '../../lib/transcriptPdf';
-import { recordGeneration, recentGenerations } from '../../lib/documentLog';
+import { recentGenerations } from '../../lib/documentLog';
 import TranscriptFilters from '../transcripts/TranscriptFilters';
 import PdfPreviewPanel from '../transcripts/PdfPreviewPanel';
 import GenerationHistory from '../transcripts/GenerationHistory';
@@ -54,7 +54,6 @@ export default function CertificateWorkspace({ t }) {
   const [date,      setDate]      = useState(todayStr());
   const [sheets,    setSheets]    = useState([]);
   const [building,  setBuilding]  = useState(false);
-  const [pdfProg,   setPdfProg]   = useState(null);
   const [err,       setErr]       = useState(null);
   const [history,   setHistory]   = useState([]);
 
@@ -131,74 +130,42 @@ export default function CertificateWorkspace({ t }) {
     if (scopeTargets.length) buildPreview(); else setSheets([]);
   }, [scopeTargets.length, place, date]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Toutes les feuilles du périmètre.
-  const buildAll = useCallback(async (onProgress) => {
+  // Feuilles d'une liste de cibles.
+  const buildAll = useCallback(async (items, onProgress) => {
     const out = [];
-    let done = 0, failed = 0;
-    for (const { cls, student } of scopeTargets) {
+    let done = 0, skipped = 0;
+    for (const { cls, student } of items) {
       try {
         out.push(await buildSheet(student, cls));
       } catch (e) {
         console.error('certificate sheet', student.id, e);
-        failed++;
+        skipped++;
       }
-      onProgress?.(++done, scopeTargets.length);
+      onProgress?.(++done, items.length);
     }
-    return { sheets: out, failed };
-  }, [scopeTargets, buildSheet]);
+    return { sheets: out, skipped };
+  }, [buildSheet]);
 
-  const logAndRefresh = useCallback(async (status, count, detail) => {
-    const scope = mode === 'level' ? level : mode === 'class' ? selectedClass?.name : mode === 'all' ? '' : selectedStudent?.name;
-    await recordGeneration({ schoolId: school.id, userName, type: `certificat-${mode}`, scope, count, status, detail });
-    recentGenerations(school.id).then(setHistory);
-  }, [mode, level, selectedClass, selectedStudent, school, userName]);
+  // Génération = impression. La fenêtre du navigateur laisse choisir
+  // « Enregistrer au format PDF » — pas besoin d'un second bouton.
+  const job = usePrintJob({
+    targets: scopeTargets,
+    buildSheets: buildAll,
+    title: () => `${t('Certificats de scolarité', 'Enrollment certificates', 'Certificados')} — ${school?.name || ''}`,
+    logType: `certificat-${mode}`,
+    scope: () => (mode === 'level' ? level : mode === 'class' ? selectedClass?.name || '' : mode === 'all' ? '' : selectedStudent?.name || ''),
+    schoolId: school?.id,
+    userName,
+    t,
+    onLogged: () => { if (school?.id) recentGenerations(school.id).then(setHistory); },
+  });
 
-  const handleDownload = async () => {
-    setErr(null);
-    setPdfProg({ done: 0, total: scopeTargets.length || 1 });
-    try {
-      const { sheets: all, failed } = await buildAll((d, total) => setPdfProg({ done: d, total }));
-      if (!all.length) throw new Error(t('Aucun certificat générable — choisissez une cible.', 'No generable certificate — pick a target.', 'Sin certificado generable.'));
-      const fileBase = mode === 'class' ? `certificats-${selectedClass?.name || 'classe'}`
-        : mode === 'level' ? `certificats-niveau-${level}`
-        : mode === 'all' ? 'certificats-etablissement'
-        : `certificat-${(selectedStudent?.name || 'eleve').replace(/\s+/g, '-')}`;
-      const ratio = all.length > 150 ? 1.5 : all.length > 50 ? 2 : 3;
-      await exportTranscriptsPdf(all, {
-        fileName: `${fileBase}.pdf`.toLowerCase(), mode: 'save', pixelRatio: ratio,
-        onProgress: (d, total) => setPdfProg({ done: d, total }),
-      });
-      if (failed) setErr(t(`${failed} certificat(s) ignoré(s).`, `${failed} certificate(s) skipped.`, `${failed} omitido(s).`));
-      await logAndRefresh('success', all.length, failed ? `${failed} skipped` : '');
-    } catch (e) {
-      console.error('certificate download', e);
-      setErr(e?.message || String(e));
-      await logAndRefresh('error', 0, e?.message || String(e));
-    } finally {
-      setPdfProg(null);
-    }
-  };
-
-  const handlePrint = async () => {
-    setErr(null);
-    setPdfProg({ done: 0, total: scopeTargets.length || 1 });
-    try {
-      const { sheets: all } = await buildAll((d, total) => setPdfProg({ done: d, total }));
-      if (!all.length) throw new Error(t('Aucun certificat générable — choisissez une cible.', 'No generable certificate — pick a target.', 'Sin certificado generable.'));
-      printSheets(all, `${t('Certificats de scolarité', 'Enrollment certificates', 'Certificados')} — ${school?.name || ''}`);
-      await logAndRefresh('success', all.length, 'print');
-    } catch (e) {
-      console.error('certificate print', e);
-      setErr(e?.message || String(e));
-    } finally {
-      setPdfProg(null);
-    }
-  };
+  useEffect(() => { job.reset(); }, [mode, classId, studentId, level]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const docCount = scopeTargets.length;
   const canGenerate = docCount > 0 && canPrint;
-  const busy = !!pdfProg;
-  const pct = pdfProg ? Math.round((pdfProg.done / Math.max(1, pdfProg.total)) * 100) : 0;
+  const busy = job.busy;
+  const pct = job.progress ? Math.round((job.progress.done / Math.max(1, job.progress.total)) * 100) : 0;
 
   const left = {
     schoolName: school?.name,
@@ -220,10 +187,16 @@ export default function CertificateWorkspace({ t }) {
 
   return (
     <>
-      {err && (
+      {job.notice && (
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <span className="flex items-start gap-2"><span className="mt-0.5">⚠</span><span>{job.notice}</span></span>
+          <button type="button" onClick={() => job.setNotice(null)} className="shrink-0 text-amber-400 hover:text-amber-600" aria-label={t('Fermer', 'Close', 'Cerrar')}>✕</button>
+        </div>
+      )}
+      {(err || job.error) && (
         <div className="flex items-start justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <span className="flex items-start gap-2"><span className="mt-0.5">⚠</span><span>{err}</span></span>
-          <button type="button" onClick={() => setErr(null)} className="shrink-0 text-red-400 hover:text-red-600" aria-label={t('Fermer', 'Close', 'Cerrar')}>✕</button>
+          <span className="flex items-start gap-2"><span className="mt-0.5">⚠</span><span>{err || job.error}</span></span>
+          <button type="button" onClick={() => { setErr(null); job.setError(null); }} className="shrink-0 text-red-400 hover:text-red-600" aria-label={t('Fermer', 'Close', 'Cerrar')}>✕</button>
         </div>
       )}
 
@@ -278,7 +251,10 @@ export default function CertificateWorkspace({ t }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-bold text-slate-800">{t('Génération', 'Generation', 'Generación')}</p>
-            <p className="text-[12px] text-slate-500">{docCount} {t('certificat(s)', 'certificate(s)', 'certificado(s)')}</p>
+            <p className="text-[12px] text-slate-500">
+              {docCount} {t('certificat(s)', 'certificate(s)', 'certificado(s)')}
+              {job.batched && <> · {job.batches.length} {t('lots', 'batches', 'lotes')}</>}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {!canPrint && (
@@ -287,15 +263,15 @@ export default function CertificateWorkspace({ t }) {
               </span>
             )}
             {canPrint && (
-              <button type="button" onClick={handlePrint} disabled={!canGenerate || busy}
-                className="btn-secondary disabled:opacity-50" style={{ width: 'auto' }}>
-                🖨 {t('Imprimer', 'Print', 'Imprimir')}
+              <button type="button" onClick={() => job.run()} disabled={!canGenerate || busy || (job.batched && job.batchIndex >= job.batches.length)}
+                className="btn-primary disabled:opacity-50" style={{ width: 'auto', paddingLeft: '1.25rem', paddingRight: '1.25rem' }}>
+                {busy
+                  ? `${t('Génération', 'Generating', 'Generando')} ${job.progress.done}/${job.progress.total}…`
+                  : job.batched
+                    ? `🖨 ${t('Imprimer le lot', 'Print batch', 'Imprimir lote')} ${Math.min(job.batchIndex + 1, job.batches.length)}/${job.batches.length}`
+                    : `🖨 ${t('Imprimer', 'Print', 'Imprimir')}`}
               </button>
             )}
-            <button type="button" onClick={handleDownload} disabled={!canGenerate || busy}
-              className="btn-primary disabled:opacity-50" style={{ width: 'auto', paddingLeft: '1.25rem', paddingRight: '1.25rem' }}>
-              {busy ? `${t('Génération', 'Generating', 'Generando')} ${pdfProg.done}/${pdfProg.total}…` : `📄 ${t('Télécharger tout', 'Download all', 'Descargar todo')}`}
-            </button>
           </div>
         </div>
         {busy && (

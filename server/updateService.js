@@ -42,6 +42,10 @@ export async function updateStatus(opts = {}) {
   return {
     current: currentVersion(),
     latest: remote.latest?.version || null,
+    // La PUBLICATION complète (url, sha256, signature…) — `latest` n'en est que
+    // le numéro, pratique pour l'affichage mais insuffisant pour les étapes
+    // d'installation, qui ont besoin du manifeste entier.
+    release: remote.latest || null,
     available: !!remote.available,
     mandatory: !!remote.latest?.mandatory,
     stepRequired: !!remote.stepRequired,
@@ -61,10 +65,15 @@ export async function applyUpdate(opts = {}) {
   const status = await updateStatus(opts);
   if (!status.available) return { ok: true, mode: 'up-to-date', current: status.current };
 
+  // Les étapes reçoivent le MANIFESTE complet (url, sha256, signature), pas le
+  // seul numéro de version : sans lui, aucune étape ne peut ni télécharger ni
+  // vérifier quoi que ce soit.
+  const release = status.release || { version: status.latest };
+
   const steps = {};
   let allManual = true;
   for (const name of STEPS) {
-    if (HANDLERS[name]) { allManual = false; try { steps[name] = { ok: true, result: await HANDLERS[name](status.latest) }; } catch (e) { steps[name] = { ok: false, error: e.message }; recordSyncAudit({ kind: 'rollback', ok: false, detail: { stage: name, message: e.message, from: status.current, to: status.latest } }); return { ok: false, mode: 'auto', steps }; } }
+    if (HANDLERS[name]) { allManual = false; try { steps[name] = { ok: true, result: await HANDLERS[name](release) }; } catch (e) { steps[name] = { ok: false, error: e.message }; recordSyncAudit({ kind: 'rollback', ok: false, detail: { stage: name, message: e.message, from: status.current, to: status.latest } }); return { ok: false, mode: 'auto', steps }; } }
     else steps[name] = { ok: null, pending: true }; // handler non branché
   }
   recordSyncAudit({ kind: allManual ? 'verify' : 'rollback', ok: true, detail: { update: true, from: status.current, to: status.latest, mode: allManual ? 'manual' : 'auto' } });

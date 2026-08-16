@@ -17,14 +17,24 @@ export default defineConfig(({ mode }) => {
     'import.meta.env.VITE_EDITION': JSON.stringify(isLan ? 'lan' : 'cloud'),
   },
   resolve: {
-    alias: isLan
-      ? [
-          // tout `./supabase` ou `../lib/supabase` -> adaptateur local
-          { find: /^.*\/supabase$/, replacement: resolve(__dirname, 'src/lib/localClient.js') },
-          // les clients secondaires `createClient(...)` (Teachers/staff) aussi
-          { find: '@supabase/supabase-js', replacement: resolve(__dirname, 'src/lib/localClient.js') },
-        ]
-      : [],
+    alias: [
+      // Dépendances OPTIONNELLES de jsPDF (méthode `jsPDF.html()`), jamais
+      // appelées ici : l'application n'utilise que `addImage`. Sans ces alias,
+      // Rollup construisait 366 Ko de morceaux (html2canvas 198 Ko, canvg
+      // 147 Ko, dompurify 22 Ko) que le service worker précachait sur chaque
+      // poste sans qu'une seule ligne ne s'exécute jamais.
+      { find: 'html2canvas', replacement: resolve(__dirname, 'src/lib/jspdf-optional-stub.js') },
+      { find: 'canvg',       replacement: resolve(__dirname, 'src/lib/jspdf-optional-stub.js') },
+      { find: 'dompurify',   replacement: resolve(__dirname, 'src/lib/jspdf-optional-stub.js') },
+      ...(isLan
+        ? [
+            // tout `./supabase` ou `../lib/supabase` -> adaptateur local
+            { find: /^.*\/supabase$/, replacement: resolve(__dirname, 'src/lib/localClient.js') },
+            // les clients secondaires `createClient(...)` (Teachers/staff) aussi
+            { find: '@supabase/supabase-js', replacement: resolve(__dirname, 'src/lib/localClient.js') },
+          ]
+        : []),
+    ],
   },
   plugins: [
     react(),
@@ -76,10 +86,28 @@ export default defineConfig(({ mode }) => {
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+        // Le précache est téléchargé DÈS LA PREMIÈRE VISITE, quel que soit
+        // l'écran ouvert : tout ce qui y figure annule le découpage en routes.
+        // Les deux bibliothèques d'export (tableur, PDF) pèsent 768 Ko à elles
+        // seules pour des fonctions ponctuelles. Elles sortent du précache et
+        // passent en cache à la première utilisation (règle ci-dessous) : elles
+        // restent donc disponibles hors ligne ensuite, mais ne ralentissent plus
+        // la première ouverture de l'application.
+        globIgnores: ['**/assets/xlsx-*.js', '**/assets/jspdf*.js'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
             handler: 'NetworkOnly',
+          },
+          {
+            // Bibliothèques d'export : mises en cache au premier usage, puis
+            // servies depuis le cache (y compris hors ligne).
+            urlPattern: /\/assets\/(xlsx|jspdf)[^/]*\.js$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'nc-export-libs',
+              expiration: { maxEntries: 8 },
+            },
           },
         ],
       },
@@ -99,9 +127,12 @@ export default defineConfig(({ mode }) => {
           // n'en force pas le chunk pour éviter un chunk vide.
           ...(isLan ? {} : { 'vendor-supabase': ['@supabase/supabase-js'] }),
           'vendor-zustand':  ['zustand'],
-          // Heavy pages lazy-loaded separately
-          'page-bulletins': ['./src/pages/Bulletins.jsx'],
-          'page-grades':    ['./src/pages/Grades.jsx'],
+          // NE PAS y remettre les pages (Bulletins, Grades…). Une page nommée
+          // dans `manualChunks` entre dans le graphe INITIAL : Vite lui ajoute
+          // un <link rel="modulepreload"> dans index.html, et elle est donc
+          // téléchargée avant l'écran de connexion — ce qui annule son `lazy()`.
+          // Mesuré : les deux entrées retirées font passer le premier
+          // chargement de 357 à 259 Ko gzip (npm run perf:bundle).
         },
       },
     },

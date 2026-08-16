@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
-import { getAvg, frApp, enGrade, esGrade, buildRanks, clsStat } from '../core/bulletinEngine';
+import { frApp, enGrade, esGrade } from '../core/bulletinEngine';
+import { MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_LABELS } from '../core/matEngine';
 import { downloadCSV } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
@@ -10,6 +11,7 @@ import { resolveCountryCode } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import { resolveClassEngine, SECTIONS } from '../core/engineResolver';
+import { buildClassReport, REPORT_KIND } from '../lib/classReportEngine';
 import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
 
 const PERIODS_EN = [
@@ -27,15 +29,13 @@ const PERIODS_GE = [
   { value: 'anual',  label: 'Anual',             seqs: [1, 2, 3], group: 'annual' },
 ];
 
-function subjectAvgForStudent(subjectId, studentId, classId, seqs, gradeMap) {
-  const vals = seqs.map((seq) => {
-    const v = (gradeMap[`${classId}_${studentId}_${seq}`] || {})[subjectId];
-    if (!v || v === 'ABS' || v === '') return null;
-    const n = parseFloat(v);
-    return isNaN(n) ? null : n;
-  }).filter((x) => x !== null);
-  if (!vals.length) return null;
-  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+// Appréciation littérale d'une moyenne. Les moteurs officiels (APC collège,
+// primaire MINEDUB) dérivent la leur d'une COTE : elle arrive déjà calculée dans
+// `row.cote` / `row.appreciation`, on n'y superpose pas le barème historique.
+function apprFor(row, sys, maxScale) {
+  if (row.avg === null || row.avg === undefined) return null;
+  if (row.cote) return { text: row.appreciation || row.cote, g: row.cote, col: null };
+  return sys === 'ES' ? esGrade(row.avg, maxScale) : sys === 'FR' ? frApp(row.avg) : enGrade(row.avg);
 }
 
 // ── Impression dans une nouvelle fenêtre (propre, sans sidebar) ───────────────
@@ -90,7 +90,7 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
 
   const subRows = subjectStats.map(({ sub, avg, min, max, passCount, total }) => {
     const passRate = total ? Math.round((passCount / total) * 100) : null;
-    const pass = sys === 'FR' ? (passThreshold / maxScale) * sub.max : passThreshold;
+    const pass = sub.max ? (passThreshold / maxScale) * sub.max : passThreshold;
     const avgOk = avg !== null && avg >= pass;
     return `<tr>
       <td><strong>${sub.name}</strong> <span style="color:#9ca3af;font-size:10px">/${sub.max}</span></td>
@@ -198,6 +198,95 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
   return body;
 }
 
+// ── Corps imprimé du rapport MATERNELLE (MINEDUB) ────────────────────────────
+// Le préscolaire n'a ni note, ni moyenne, ni rang : le document officiel rend
+// compte de l'ACQUISITION (A / ECA / NA) par domaine, jamais d'un classement.
+function acquisitionBodyHtml({ school, selectedClass, period, report, classStudents }) {
+  const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const { columns, rows, columnStats, classStats } = report;
+  const pct = (n) => (classStats.rated ? Math.round((n / classStats.rated) * 100) : 0);
+
+  const thDomaines = columns.map((c) =>
+    `<th style="width:34px;font-size:7px;line-height:1.2">${c.name}</th>`).join('');
+
+  const bodyRows = rows.map((r) => `<tr>
+      <td style="font-weight:600">${r.student.name}</td>
+      ${columns.map((c) => {
+        const lvl = r.cotes[c.id];
+        return `<td style="text-align:center;font-weight:700;color:${lvl ? MAT_ACQUIS_COLORS[lvl] : '#9ca3af'}">${lvl || '—'}</td>`;
+      }).join('')}
+      <td style="text-align:center;font-weight:800;color:${r.cote ? MAT_ACQUIS_COLORS[r.cote] : '#9ca3af'}">${r.cote || '—'}</td>
+    </tr>`).join('');
+
+  const domRows = columnStats.map(({ col, counts, rated, total }) => `<tr>
+      <td><strong>${col.name}</strong></td>
+      ${MAT_ACQUIS.map((a) => `<td style="text-align:center;color:${a.col};font-weight:700">${counts[a.code] || '—'}</td>`).join('')}
+      <td style="text-align:center;color:#6b7280">${rated}/${total}</td>
+    </tr>`).join('');
+
+  const logoTag = school?.logo_url ? `<img src="${school.logo_url}" alt="Logo" class="rc-logo" />` : '';
+
+  return `<div class="page">
+  <table class="rc-head"><tbody><tr>
+    <td class="rc-side"><strong>RÉPUBLIQUE DU CAMEROUN</strong><br/>Paix – Travail – Patrie<br/>———————<br/>Ministère de l'Éducation de Base (MINEDUB)<br/>Délégation Régionale ${school?.region || '—'}<br/>Délégation Départementale ${school?.division || '—'}</td>
+    <td class="rc-center">
+      ${logoTag}
+      <strong class="rc-school">${(school?.name || 'Établissement').toUpperCase()}</strong>
+      <span class="rc-meta">Année scolaire : <strong>${school?.current_year || '—'}</strong></span>
+    </td>
+    <td class="rc-side"><strong>REPUBLIC OF CAMEROON</strong><br/>Peace – Work – Fatherland<br/>———————<br/>Ministry of Basic Education (MINEDUB)<br/>Regional Delegation ${school?.region || '—'}<br/>Divisional Delegation ${school?.division || '—'}</td>
+  </tr></tbody></table>
+
+  <div class="title-bar">RAPPORT D'ACQUISITION — ${(selectedClass?.name || '').toUpperCase()} — ${period.label.toUpperCase()}</div>
+
+  <table class="doc-info"><tbody><tr>
+    <td><strong>Classe :</strong> ${selectedClass?.name || '—'}</td>
+    <td><strong>Période :</strong> ${period.label}</td>
+    <td><strong>Effectif :</strong> ${classStudents.length}</td>
+    <td><strong>Date :</strong> ${today}</td>
+  </tr></tbody></table>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-val">${classStudents.length}</div><div class="stat-lbl">Effectif</div></div>
+    ${MAT_ACQUIS.map((a) => `<div class="stat">
+      <div class="stat-val" style="color:${a.col}">${classStats.counts[a.code]}<span style="font-size:12px;font-weight:400;color:#9ca3af"> · ${pct(classStats.counts[a.code])}%</span></div>
+      <div class="stat-lbl">${a.libelle}</div>
+    </div>`).join('')}
+  </div>
+
+  <h3>Niveaux d'acquisition par élève</h3>
+  <table>
+    <thead><tr>
+      <th>Nom complet</th>
+      ${thDomaines}
+      <th style="width:60px">Tendance</th>
+    </tr></thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
+
+  <h3>Synthèse par domaine</h3>
+  <table>
+    <thead><tr>
+      <th>Domaine</th>
+      ${MAT_ACQUIS.map((a) => `<th style="width:70px">${a.code}</th>`).join('')}
+      <th style="width:80px">Évalués</th>
+    </tr></thead>
+    <tbody>${domRows}</tbody>
+  </table>
+
+  <table class="foot"><tbody><tr>
+    <td style="border:none;width:55%"></td>
+    <td class="foot-head" style="width:45%">
+      Le Directeur / La Directrice
+      ${school?.signature_url ? `<img src="${school.signature_url}" alt="Signature" />` : ''}
+      ${school?.stamp_url ? `<img src="${school.stamp_url}" alt="Cachet" />` : ''}
+    </td>
+  </tr></tbody></table>
+
+  <div class="notice">A : Acquis · ECA : En cours d'acquisition · NA : Non acquis. Le préscolaire n'établit ni moyenne, ni classement.</div>
+</div>`;
+}
+
 // Enveloppe HTML commune (styles) : un ou plusieurs corps de rapport concaténés,
 // chaque classe sur sa propre page (`.page + .page` → saut de page).
 function reportDocShell({ isGE, title, bodies, landscape = false }) {
@@ -263,51 +352,75 @@ function openPrintWindow(html) {
 }
 
 // Impression d'UN rapport de classe (enveloppe + un seul corps).
+// Le corps du document dépend du TYPE de rapport : moyennes et classement pour
+// tout ce qui note, niveaux d'acquisition pour la maternelle.
+const bodyHtmlFor = (args) =>
+  (args.kind === REPORT_KIND.ACQUISITION ? acquisitionBodyHtml(args) : reportBodyHtml(args));
+
 function printReport(args) {
   const title = `${args.isGE ? 'Informe' : 'Rapport'} — ${args.selectedClass?.name || ''} — ${args.period?.label || ''}`;
-  const landscape = args.cols?.subjectScores !== false && (args.classSubjects?.length || 0) > 6;
-  openPrintWindow(reportDocShell({ isGE: args.isGE, title, bodies: [reportBodyHtml(args)], landscape }));
+  const landscape = args.kind === REPORT_KIND.ACQUISITION
+    ? (args.classSubjects?.length || 0) > 6
+    : args.cols?.subjectScores !== false && (args.classSubjects?.length || 0) > 6;
+  openPrintWindow(reportDocShell({ isGE: args.isGE, title, bodies: [bodyHtmlFor(args)], landscape }));
 }
 
-// Calcule le payload de rapport d'UNE classe pour une période (pur, réutilisable
-// en lot). Renvoie null si la classe n'a ni élèves ni matières exploitables.
-function computeClassReport(cls, period, { school, students, subjects, gradeMap }) {
-  const classId = cls.id;
-  const sys  = cls?.system || 'FR';
-  const isGE = resolveCountryCode(school) === 'guinea_eq';
+// Calcule le payload de rapport d'UNE classe pour une période, QUEL QUE SOIT son
+// moteur de bulletin (classique, lycée, collège APC, primaire MINEDUB,
+// maternelle). Le calcul lui-même vit dans `lib/classReportEngine` (pur, testé) ;
+// ici on ne fait que l'adapter à la forme attendue par l'écran et l'impression.
+//
+// Renvoie null si la classe n'a rien d'exploitable (aucun élève, aucune colonne,
+// ou référentiel officiel pas encore chargé).
+function computeClassReport(cls, period, ctx) {
+  const { school, students, subjects } = ctx;
+  const sys   = cls?.system || 'FR';
+  const isGE  = resolveCountryCode(school) === 'guinea_eq';
   const gOpts = gradingOpts(school, cls?.cycle);
-  const passThreshold = isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
-  const maxScale      = isGE ? geGradeMax(school) : sys === 'FR' ? 20 : 100;
-  const classSubjects = subjects.filter((s) => s.class_id === classId)
-    .sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name));
-  const classStudents = students.filter((s) => s.class_id === classId)
-    .sort((a, b) => a.name.localeCompare(b.name));
-  if (!classSubjects.length || !classStudents.length) return null;
+  const engine = resolveClassEngine(school, cls);
 
-  const ranks = buildRanks(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
-  const stats = clsStat(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
-  const studentResults = classStudents.map((student) => {
-    const scores = {};
-    classSubjects.forEach((sub) => {
-      const avg = subjectAvgForStudent(sub.id, student.id, classId, period.seqs, gradeMap);
-      if (avg !== null) scores[sub.id] = String(avg);
-    });
-    const avg  = getAvg(scores, classSubjects, sys, gOpts);
-    const rank = ranks.find((r) => r.id === student.id) || null;
-    const appr = avg !== null ? (sys === 'ES' ? esGrade(avg, maxScale) : sys === 'FR' ? frApp(avg) : enGrade(avg)) : null;
-    return { student, avg, rank, appr, scores };
-  }).sort((a, b) => (a.avg === null && b.avg === null) ? 0 : a.avg === null ? 1 : b.avg === null ? -1 : b.avg - a.avg);
-  const subjectStats = classSubjects.map((sub) => {
-    const vals = classStudents
-      .map((s) => subjectAvgForStudent(sub.id, s.id, classId, period.seqs, gradeMap))
-      .filter((x) => x !== null);
-    if (!vals.length) return { sub, avg: null, min: null, max: null, passCount: 0, total: 0 };
-    const avg  = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
-    const pass = sys === 'FR' ? (passThreshold / maxScale) * sub.max : passThreshold;
-    return { sub, avg, min: Math.min(...vals), max: Math.max(...vals),
-      passCount: vals.filter((v) => v >= pass).length, total: vals.length };
+  const classSubjects = subjects.filter((s) => s.class_id === cls.id)
+    .sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name));
+  const classStudents = students.filter((s) => s.class_id === cls.id)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!classStudents.length) return null;
+
+  const report = buildClassReport({
+    engine, cls, students: classStudents, subjects: classSubjects, period,
+    gradeMap:        ctx.gradeMap,
+    apcNotes:        ctx.apcNotes,
+    apcReferentiel:  ctx.apcReferentiel,
+    primNotes:       ctx.primNotes,
+    primReferentiel: ctx.primReferentiel,
+    matObservations: ctx.matObservations,
+    sys, gOpts,
+    scaleMax:      isGE ? geGradeMax(school) : sys === 'FR' ? 20 : 100,
+    passThreshold: isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50,
+    gradeScale:    school?.grade_scale,
   });
-  return { stats, studentResults, subjectStats, classStudents, classSubjects, maxScale, passThreshold, sys, isGE };
+  if (!report.ready || !report.columns.length) {
+    return { engine, report, classStudents, classSubjects, isGE, sys, notReady: true };
+  }
+
+  const maxScale      = report.scaleMax;
+  const passThreshold = report.passThreshold;
+
+  // Forme historique consommée par l'écran et le document imprimé. Les colonnes
+  // d'un moteur officiel (matières APC, compétences MINEDUB) y prennent la place
+  // des matières : mêmes clés (`id`, `name`, `coef`, `max`), même rendu.
+  const studentResults = report.rows
+    .map((r) => ({ ...r, appr: apprFor(r, sys, maxScale) }))
+    .sort((a, b) => (a.avg === null && b.avg === null) ? 0 : a.avg === null ? 1 : b.avg === null ? -1 : b.avg - a.avg);
+  const subjectStats = report.columnStats.map(({ col, ...rest }) => ({ sub: col, ...rest }));
+
+  return {
+    engine, report, notReady: false,
+    kind: report.kind,
+    stats: report.classStats, studentResults, subjectStats,
+    classStudents, classSubjects: report.columns,
+    distribution: report.distribution,
+    maxScale, passThreshold, sys, isGE,
+  };
 }
 
 // Impression EN LOT : un rapport par classe (période courante), une page chacun.
@@ -318,9 +431,11 @@ function printReportsBatch({ title, classesToPrint, period, cols, ctx }) {
   const bodies = classesToPrint
     .map((cls) => {
       const rep = computeClassReport(cls, period, ctx);
-      if (!rep) return null;
+      // Classe sans élève, ou dont le référentiel officiel n'est pas chargé : on
+      // la saute plutôt que d'imprimer une page de tirets.
+      if (!rep || rep.notReady) return null;
       maxSubjects = Math.max(maxSubjects, rep.classSubjects?.length || 0);
-      return reportBodyHtml({ school: ctx.school, selectedClass: cls, period, cols, ...rep });
+      return bodyHtmlFor({ school: ctx.school, selectedClass: cls, period, cols, ...rep });
     })
     .filter(Boolean);
   if (!bodies.length) return 0;
@@ -621,6 +736,17 @@ export default function Reports() {
   const students = useSchoolStore((s) => s.students);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
 
+  // Moteurs officiels : leurs évaluations ne passent jamais par `gradeMap`.
+  // Sans ces données, un rapport MINEDUB/APC n'aurait que des tirets.
+  const apcNotes        = useSchoolStore((s) => s.apcNotes);
+  const apcReferentiel  = useSchoolStore((s) => s.apcReferentiel);
+  const primNotes       = useSchoolStore((s) => s.primNotes);
+  const primReferentiel = useSchoolStore((s) => s.primReferentiel);
+  const matObservations = useSchoolStore((s) => s.matObservations);
+  const loadApc  = useSchoolStore((s) => s.loadApc);
+  const loadMat  = useSchoolStore((s) => s.loadMat);
+  const loadPrim = useSchoolStore((s) => s.loadPrim);
+
   const PERIODS_FR = [
     { value: 'seq_1',  label: t('Séquence 1',  'Sequence 1'),  seqs: [1] },
     { value: 'seq_2',  label: t('Séquence 2',  'Sequence 2'),  seqs: [2] },
@@ -707,6 +833,17 @@ export default function Reports() {
     else setPeriodKey('seq_1');
   }, [classId, classes, school]);
 
+  // Référentiels officiels présents dans l'établissement — chargés à la demande
+  // (idempotent côté store), car l'impression EN LOT touche toutes les classes,
+  // pas seulement celle qui est sélectionnée.
+  const engines = useMemo(() => {
+    const set = new Set(classes.map((c) => resolveClassEngine(school, c)));
+    return { apc: set.has('apc'), mat: set.has('maternelle'), prim: set.has('apc_primaire') };
+  }, [classes, school]);
+  useEffect(() => { if (engines.apc)  loadApc(); },  [engines.apc, loadApc]);
+  useEffect(() => { if (engines.mat)  loadMat(); },  [engines.mat, loadMat]);
+  useEffect(() => { if (engines.prim) loadPrim(); }, [engines.prim, loadPrim]);
+
   const classSubjects = useMemo(() =>
     subjects.filter((s) => s.class_id === classId).sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name)),
     [subjects, classId]
@@ -716,58 +853,38 @@ export default function Reports() {
     [students, classId]
   );
 
-  const ranks = useMemo(() => {
-    if (!classStudents.length || !classSubjects.length) return [];
-    return buildRanks(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
-  }, [classStudents, classSubjects, gradeMap, classId, period.seqs, sys, gOpts.maxScale, gOpts.useCoef]);
+  // ── Rapport de la classe sélectionnée, quel que soit son moteur ────────────
+  // Un seul calcul : `computeClassReport` choisit la source (gradeMap, notes APC,
+  // notes primaire, observations maternelle) et normalise la forme.
+  const reportCtx = useMemo(() => ({
+    school, students, subjects, gradeMap,
+    apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
+  }), [school, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations]);
 
-  const stats = useMemo(() => {
-    if (!classStudents.length || !classSubjects.length) return null;
-    return clsStat(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
-  }, [classStudents, classSubjects, gradeMap, classId, period.seqs, sys, gOpts.maxScale, gOpts.useCoef]);
+  const classReport = useMemo(
+    () => (selectedClass ? computeClassReport(selectedClass, period, reportCtx) : null),
+    [selectedClass, period, reportCtx],
+  );
 
-  const studentResults = useMemo(() => {
-    return classStudents.map((student) => {
-      const scores = {};
-      classSubjects.forEach((sub) => {
-        const avg = subjectAvgForStudent(sub.id, student.id, classId, period.seqs, gradeMap);
-        if (avg !== null) scores[sub.id] = String(avg);
-      });
-      const avg  = getAvg(scores, classSubjects, sys, gOpts);
-      const rank = ranks.find((r) => r.id === student.id) || null;
-      const appr = avg !== null ? (sys === 'ES' ? esGrade(avg, maxScale) : sys === 'FR' ? frApp(avg) : enGrade(avg)) : null;
-      return { student, avg, rank, appr, scores };
-    }).sort((a, b) => {
-      if (a.avg === null && b.avg === null) return 0;
-      if (a.avg === null) return 1;
-      if (b.avg === null) return -1;
-      return b.avg - a.avg;
-    });
-  }, [classStudents, classSubjects, classId, period.seqs, gradeMap, sys, ranks, gOpts.maxScale, gOpts.useCoef, maxScale]);
+  const isAcquisition = classReport?.kind === REPORT_KIND.ACQUISITION;
+  const stats          = classReport?.stats ?? null;
+  const studentResults = classReport?.studentResults ?? [];
+  const subjectStats   = classReport?.subjectStats ?? [];
+  const reportColumns  = classReport?.classSubjects ?? [];
+  // Le barème effectif vient du moteur (le primaire MINEDUB note /10, pas /20).
+  const reportScale    = classReport?.maxScale ?? maxScale;
+  const reportPass     = classReport?.passThreshold ?? passThreshold;
 
-  const subjectStats = useMemo(() => {
-    return classSubjects.map((sub) => {
-      const vals = classStudents
-        .map((s) => subjectAvgForStudent(sub.id, s.id, classId, period.seqs, gradeMap))
-        .filter((x) => x !== null);
-      if (!vals.length) return { sub, avg: null, min: null, max: null, passCount: 0, total: 0 };
-      const avg  = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
-      const pass = sys === 'FR' ? (passThreshold / maxScale) * sub.max : passThreshold;
-      return {
-        sub, avg,
-        min: Math.min(...vals),
-        max: Math.max(...vals),
-        passCount: vals.filter((v) => v >= pass).length,
-        total: vals.length,
-      };
-    });
-  }, [classSubjects, classStudents, classId, period.seqs, gradeMap, sys, passThreshold, maxScale]);
-
-  const hasData = classSubjects.length > 0 && classStudents.length > 0;
+  // Le rapport est exploitable dès qu'il a des colonnes ET des élèves. Pour les
+  // moteurs officiels, les colonnes viennent du référentiel : une classe APC sans
+  // ligne `subjects` a quand même un rapport.
+  const hasData     = !!classReport && !classReport.notReady && reportColumns.length > 0;
+  const notReady    = !!classReport?.notReady;
+  const notReadyFor = classReport?.report?.reason ?? null;
 
   // ── Impression EN LOT (par section / tout l'établissement) ──────────────────
   // Contexte pur transmis au moteur de calcul ; utilise la période courante.
-  const batchCtx = { school, students, subjects, gradeMap };
+  const batchCtx = reportCtx;
   const sectionLabel = (key) => {
     const s = SECTIONS.find((x) => x.key === key);
     return s ? t(s.fr, s.en, s.es) : t('Toutes les sections', 'All sections');
@@ -824,55 +941,77 @@ export default function Reports() {
     downloadCSV(`discipline_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`, rows);
   };
 
-  const distribution = useMemo(() => {
-    if (!hasData) return [];
-    const bands = sys === 'FR'
-      ? [{ label: '< 5', min: 0, max: 5 }, { label: '5–9', min: 5, max: 10 }, { label: '10–14', min: 10, max: 15 }, { label: '15–20', min: 15, max: 20.01 }]
-      : [{ label: '< 25', min: 0, max: 25 }, { label: '25–49', min: 25, max: 50 }, { label: '50–74', min: 50, max: 75 }, { label: '75–100', min: 75, max: 100.01 }];
-    const avgs = studentResults.map((r) => r.avg).filter((v) => v !== null);
-    const peak = avgs.length || 1;
-    return bands.map((b) => {
-      const count = avgs.filter((v) => v >= b.min && v < b.max).length;
-      return { ...b, count, pct: Math.round((count / peak) * 100) };
-    });
-  }, [studentResults, sys, hasData]);
+  // Bandes calées sur le barème réel du moteur (/20, /100, /10 primaire APC) ou,
+  // en maternelle, comptage par niveau d'acquisition.
+  const distribution = hasData ? (classReport?.distribution ?? []) : [];
+
+  const csvName = (prefix) => {
+    const cn = selectedClass?.name?.replace(/\s+/g, '_') || 'classe';
+    return `${prefix}_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`;
+  };
 
   const handleExportResults = () => {
-    const rows = [
-      [t('Rang', 'Rank'), t('Nom', 'Name'), t('Matricule', 'Student ID'),
-        ...classSubjects.map((s) => s.name),
-        t('Moyenne', 'Average'), t('Appréciation', 'Grade'), t('Décision', 'Decision')],
-      ...studentResults.map(({ student, avg, rank, appr }) => {
-        const subGrades = classSubjects.map((sub) =>
-          subjectAvgForStudent(sub.id, student.id, classId, period.seqs, gradeMap) ?? ''
-        );
-        const decision = avg !== null ? (avg >= passThreshold ? t('Admis(e)', 'Passed') : t('Ajourné(e)', 'Failed')) : '';
-        return [
-          rank?.rankN ?? '', student.name, student.matricule || '', ...subGrades, avg ?? '',
-          sys === 'EN' ? (appr ? `${appr.g} - ${appr.txt}` : '') : (appr?.text || ''),
-          decision,
-        ];
-      }),
-    ];
-    const cn = selectedClass?.name?.replace(/\s+/g, '_') || 'classe';
-    downloadCSV(`resultats_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    // Maternelle : ni moyenne ni rang — on exporte les niveaux d'acquisition.
+    const rows = isAcquisition
+      ? [
+        [t('Nom', 'Name'), t('Matricule', 'Student ID'), ...reportColumns.map((c) => c.name), t('Tendance', 'Trend')],
+        ...studentResults.map(({ student, cotes, cote }) => [
+          student.name, student.matricule || '',
+          ...reportColumns.map((c) => cotes[c.id] || ''),
+          cote || '',
+        ]),
+      ]
+      : [
+        [t('Rang', 'Rank'), t('Nom', 'Name'), t('Matricule', 'Student ID'),
+          ...reportColumns.map((c) => c.name),
+          t('Moyenne', 'Average'), t('Appréciation', 'Grade'), t('Décision', 'Decision')],
+        ...studentResults.map(({ student, avg, rank, appr, scores }) => {
+          const decision = avg !== null ? (avg >= reportPass ? t('Admis(e)', 'Passed') : t('Ajourné(e)', 'Failed')) : '';
+          return [
+            rank?.rankN ?? '', student.name, student.matricule || '',
+            ...reportColumns.map((c) => scores[c.id] ?? ''),
+            avg ?? '',
+            sys === 'EN' && appr?.txt ? `${appr.g} - ${appr.txt}` : (appr?.text || appr?.g || ''),
+            decision,
+          ];
+        }),
+      ];
+    downloadCSV(csvName(isAcquisition ? 'acquisition' : 'resultats'), rows);
   };
 
   const handleExportSubjects = () => {
-    const rows = [
-      [t('Matière', 'Subject'), t('Coef', 'Coeff'), t('Moy. classe', 'Class avg'),
-        'Min', 'Max', t('Admis', 'Passed'), t('Effectif', 'Total'), t('Taux réussite', 'Pass rate')],
-      ...subjectStats.map(({ sub, avg, min, max, passCount, total }) => [
-        sub.name, sub.coef, avg ?? '', min ?? '', max ?? '', passCount, total,
-        total ? `${Math.round((passCount / total) * 100)}%` : '',
-      ]),
-    ];
-    const cn = selectedClass?.name?.replace(/\s+/g, '_') || 'classe';
-    downloadCSV(`matieres_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    const rows = isAcquisition
+      ? [
+        [t('Domaine', 'Domain'), ...MAT_ACQUIS.map((a) => a.code), t('Évalués', 'Assessed'), t('Effectif', 'Total')],
+        ...subjectStats.map(({ sub, counts, rated, total }) => [
+          sub.name, ...MAT_ACQUIS.map((a) => counts[a.code] ?? 0), rated, total,
+        ]),
+      ]
+      : [
+        [t('Matière', 'Subject'), t('Coef', 'Coeff'), t('Moy. classe', 'Class avg'),
+          'Min', 'Max', t('Admis', 'Passed'), t('Effectif', 'Total'), t('Taux réussite', 'Pass rate')],
+        ...subjectStats.map(({ sub, avg, min, max, passCount, total }) => [
+          sub.name, sub.coef, avg ?? '', min ?? '', max ?? '', passCount, total,
+          total ? `${Math.round((passCount / total) * 100)}%` : '',
+        ]),
+      ];
+    downloadCSV(csvName(isAcquisition ? 'domaines' : 'matieres'), rows);
   };
 
-  const passRateGlobal = stats?.above != null && stats?.total
+  // Étiquette du référentiel suivi par la classe — utile quand plusieurs cohabitent.
+  const engineBadge = {
+    apc:          'APC MINESEC',
+    apc_primaire: 'APC MINEDUB',
+    maternelle:   'MINEDUB',
+    sc:           'MINESEC',
+  }[classReport?.engine] || null;
+
+  const passRateGlobal = !isAcquisition && stats?.above != null && stats?.total
     ? Math.round((stats.above / stats.total) * 100) : null;
+  // Part des observations réellement cotées (maternelle) : l'équivalent utile du
+  // taux de réussite quand rien n'est noté.
+  const ratedRate = isAcquisition && stats?.expected
+    ? Math.round((stats.rated / stats.expected) * 100) : null;
 
   return (
     <Layout>
@@ -999,7 +1138,7 @@ export default function Reports() {
                 ⚙
               </button>
               <button
-                onClick={() => printReport({ school, selectedClass, period, stats, studentResults, subjectStats, classStudents, classSubjects, maxScale, passThreshold, sys, cols, isGE })}
+                onClick={() => printReport({ school, selectedClass, period, cols, ...classReport })}
                 className="btn-primary text-xs"
                 style={{ width: 'auto', paddingInline: '1.25rem' }}
               >
@@ -1105,7 +1244,16 @@ export default function Reports() {
 
         {activeTab === 'academique' && classId && !hasData && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm text-amber-800">
-            <strong>{selectedClass?.name}</strong> {t("n'a pas encore de matières ou d'élèves.", 'has no subjects or students yet.')}
+            <strong>{selectedClass?.name}</strong>{' '}
+            {notReady && notReadyFor === 'referentiel'
+              ? t('suit un référentiel officiel qui n’est pas encore chargé. Reconnectez-vous à Internet une fois pour le télécharger.',
+                  'follows an official framework that is not loaded yet. Go online once to download it.',
+                  'sigue un marco oficial aún no descargado. Conéctese una vez a Internet.')
+              : notReady && notReadyFor === 'classe'
+                ? t('a un niveau qui ne correspond à aucun référentiel officiel — vérifiez son niveau dans Classes.',
+                    'has a level that matches no official framework — check its level in Classes.',
+                    'tiene un nivel que no corresponde a ningún marco oficial.')
+                : t("n'a pas encore de matières ou d'élèves.", 'has no subjects or students yet.')}
           </div>
         )}
 
@@ -1118,33 +1266,67 @@ export default function Reports() {
                 {selectedClass?.name}
                 <span className="ml-2 text-sm font-normal text-gray-400">· {period.label}</span>
               </h2>
+              {/* Le badge dit le RÉFÉRENTIEL de la classe, pas seulement sa langue :
+                  une école « Officiel Cameroun » mêle /20 MINESEC, /10 MINEDUB et
+                  cotes de maternelle sur le même écran. */}
               <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                isEN ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
-              }`}>{sys} /{maxScale}</span>
+                isAcquisition ? 'bg-emerald-100 text-emerald-700'
+                  : isEN ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+              }`}>
+                {isAcquisition ? 'A · ECA · NA' : `${sys} /${reportScale}`}
+              </span>
+              {engineBadge && (
+                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-600">{engineBadge}</span>
+              )}
             </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatBadge label={t('Effectif', 'Total')} value={stats?.total ?? classStudents.length} accent="brand" />
-              <StatBadge
-                label={t('Moy. classe', 'Class avg')}
-                value={stats?.avg != null ? stats.avg : '—'}
-                total={maxScale}
-                accent="purple"
-              />
-              <StatBadge
-                label={t('Taux de réussite', 'Pass rate')}
-                value={passRateGlobal !== null ? `${passRateGlobal}%` : '—'}
-                accent={passRateGlobal !== null && passRateGlobal >= 50 ? 'green' : 'red'}
-              />
-              <StatBadge
-                label={t('Admis', 'Passed')}
-                value={stats?.above ?? '—'}
-                total={stats?.total}
-                accent="green"
-              />
-            </div>
+            {/* Stats — moyennes pour ce qui note, acquisition pour la maternelle */}
+            {isAcquisition ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <StatBadge label={t('Effectif', 'Total')} value={stats?.total ?? classStudents.length} accent="brand" />
+                {MAT_ACQUIS.map((a) => (
+                  <StatBadge
+                    key={a.code}
+                    label={t(a.libelle, MAT_ACQUIS_LABELS[a.code])}
+                    value={stats?.counts?.[a.code] ?? 0}
+                    total={stats?.rated || null}
+                    accent={a.code === 'A' ? 'green' : a.code === 'ECA' ? 'purple' : 'red'}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <StatBadge label={t('Effectif', 'Total')} value={stats?.total ?? classStudents.length} accent="brand" />
+                <StatBadge
+                  label={t('Moy. classe', 'Class avg')}
+                  value={stats?.avg != null ? stats.avg : '—'}
+                  total={reportScale}
+                  accent="purple"
+                />
+                <StatBadge
+                  label={t('Taux de réussite', 'Pass rate')}
+                  value={passRateGlobal !== null ? `${passRateGlobal}%` : '—'}
+                  accent={passRateGlobal !== null && passRateGlobal >= 50 ? 'green' : 'red'}
+                />
+                <StatBadge
+                  label={t('Admis', 'Passed')}
+                  value={stats?.above ?? '—'}
+                  total={stats?.total}
+                  accent="green"
+                />
+              </div>
+            )}
 
+            {isAcquisition && ratedRate !== null && (
+              <p className="text-xs text-gray-400 -mt-2">
+                {t(`${stats.rated}/${stats.expected} observations renseignées (${ratedRate} %) — le préscolaire n'établit ni moyenne, ni classement.`,
+                   `${stats.rated}/${stats.expected} observations recorded (${ratedRate}%) — pre-school has no average and no ranking.`,
+                   `${stats.rated}/${stats.expected} observaciones (${ratedRate} %).`)}
+              </p>
+            )}
+
+            {/* Blocs NUMÉRIQUES — classique, lycée, APC collège, primaire MINEDUB. */}
+            {!isAcquisition && (<>
             {/* Classement */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-100">
@@ -1160,14 +1342,14 @@ export default function Reports() {
                       <th className="px-4 py-3 text-center w-12">{t('Rang', 'Rank')}</th>
                       <th className="px-5 py-3 text-left">{t('Élève', 'Student')}</th>
                       <th className="px-4 py-3 text-center">{t('Matricule', 'ID')}</th>
-                      <th className="px-4 py-3 text-center">{t('Moyenne', 'Avg')} /{maxScale}</th>
+                      <th className="px-4 py-3 text-center">{t('Moyenne', 'Avg')} /{reportScale}</th>
                       <th className="px-4 py-3 text-center">{t('Appréciation', 'Grade')}</th>
                       <th className="px-4 py-3 text-center">{t('Décision', 'Decision')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {studentResults.map(({ student, avg, rank, appr }, idx) => {
-                      const passed = avg !== null && avg >= passThreshold;
+                      const passed = avg !== null && avg >= reportPass;
                       return (
                         <tr key={student.id} className={`hover:bg-gray-50 transition-colors ${idx % 2 === 0 ? '' : 'bg-gray-50/30'}`}>
                           <td className="px-4 py-3 text-center">
@@ -1217,7 +1399,7 @@ export default function Reports() {
                 <h2 className="font-semibold text-gray-800 mb-4">{t('Distribution des moyennes', 'Grade distribution')}</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {distribution.map((b) => {
-                    const isPass = sys === 'FR' ? b.min >= 10 : b.min >= 50;
+                    const isPass = b.min >= reportPass;
                     return (
                       <div key={b.label} className="space-y-2">
                         <div className="flex items-end justify-between">
@@ -1257,7 +1439,7 @@ export default function Reports() {
                   <tbody className="divide-y divide-gray-50">
                     {subjectStats.map(({ sub, avg, min, max, passCount, total }) => {
                       const passRate = total ? Math.round((passCount / total) * 100) : null;
-                      const pass = sys === 'FR' ? (passThreshold / maxScale) * sub.max : passThreshold;
+                      const pass = sub.max ? (reportPass / reportScale) * sub.max : reportPass;
                       return (
                         <tr key={sub.id} className="hover:bg-gray-50 transition-colors">
                           <td className="px-5 py-3 font-semibold text-gray-900">
@@ -1295,6 +1477,110 @@ export default function Reports() {
                 </table>
               </div>
             </div>
+            </>)}
+
+            {/* ── Blocs ACQUISITION — maternelle MINEDUB ────────────────────
+                Ni moyenne, ni rang : le préscolaire s'évalue en niveaux
+                d'acquisition A / ECA / NA, par domaine pédagogique. */}
+            {isAcquisition && (<>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <h2 className="font-semibold text-gray-800">{t('Niveaux d’acquisition par élève', 'Acquisition levels by student')}</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {classStudents.length} {t('élèves · aucun classement en préscolaire', 'students · no ranking in pre-school')}
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        <th className="px-5 py-3 text-left">{t('Élève', 'Student')}</th>
+                        {reportColumns.map((c) => (
+                          <th key={c.id} className="px-2 py-3 text-center whitespace-nowrap">{c.name}</th>
+                        ))}
+                        <th className="px-4 py-3 text-center">{t('Tendance', 'Trend')}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {studentResults.map(({ student, cotes, cote }, idx) => (
+                        <tr key={student.id} className={`hover:bg-gray-50 transition-colors ${idx % 2 === 0 ? '' : 'bg-gray-50/30'}`}>
+                          <td className="px-5 py-3 font-semibold text-gray-900">{student.name}</td>
+                          {reportColumns.map((c) => (
+                            <td key={c.id} className="px-2 py-3 text-center">
+                              {cotes[c.id] ? (
+                                <span className="px-1.5 py-0.5 rounded text-xs font-bold"
+                                  style={{ color: MAT_ACQUIS_COLORS[cotes[c.id]], backgroundColor: `${MAT_ACQUIS_COLORS[cotes[c.id]]}1a` }}>
+                                  {cotes[c.id]}
+                                </span>
+                              ) : <span className="text-gray-300">—</span>}
+                            </td>
+                          ))}
+                          <td className="px-4 py-3 text-center">
+                            {cote ? (
+                              <span className="font-bold text-sm" style={{ color: MAT_ACQUIS_COLORS[cote] }}>{cote}</span>
+                            ) : <span className="text-gray-300">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {stats?.rated > 0 && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                  <h2 className="font-semibold text-gray-800 mb-4">{t('Répartition des acquisitions', 'Acquisition breakdown')}</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {distribution.map((b) => (
+                      <div key={b.label} className="space-y-2">
+                        <div className="flex items-end justify-between">
+                          <span className="text-xs font-semibold text-gray-600">{b.label} · {b.libelle}</span>
+                          <span className="text-lg font-bold" style={{ color: MAT_ACQUIS_COLORS[b.label] }}>{b.count}</span>
+                        </div>
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all"
+                            style={{ width: `${b.pct}%`, backgroundColor: MAT_ACQUIS_COLORS[b.label] }} />
+                        </div>
+                        <span className="text-xs text-gray-400">{b.pct}% {t('des observations', 'of observations')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100">
+                  <h2 className="font-semibold text-gray-800">{t('Synthèse par domaine', 'Summary by domain')}</h2>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        <th className="px-5 py-3 text-left">{t('Domaine', 'Domain')}</th>
+                        {MAT_ACQUIS.map((a) => (
+                          <th key={a.code} className="px-4 py-3 text-center">{a.code}</th>
+                        ))}
+                        <th className="px-4 py-3 text-center">{t('Évalués', 'Assessed')}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {subjectStats.map(({ sub, counts, rated, total }) => (
+                        <tr key={sub.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-5 py-3 font-semibold text-gray-900">{sub.name}</td>
+                          {MAT_ACQUIS.map((a) => (
+                            <td key={a.code} className="px-4 py-3 text-center font-bold"
+                              style={{ color: counts[a.code] ? a.col : '#d1d5db' }}>
+                              {counts[a.code] || '—'}
+                            </td>
+                          ))}
+                          <td className="px-4 py-3 text-center text-gray-600">{rated}/{total}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>)}
           </>
         )}
 

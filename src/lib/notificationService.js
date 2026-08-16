@@ -20,15 +20,25 @@ async function internalHandler(schoolId, { recipient, message }) {
   return { status: 'delivered', id: rec.id };
 }
 
-// Handler EXTERNE : met en file (pending). PAS d'envoi (canal non implémenté).
+// Handler EXTERNE : met en file (pending). PAS d'envoi ici (l'edge notify-dispatch
+// est le seul expéditeur). SMS : coûteux (cf. supabase_sms_budget.sql) — une
+// notification 'normal' n'est même pas mise en file, pour ne pas laisser croire
+// qu'un envoi est possible (le budget se juge à la mise en file ET au dispatch).
+// `next_attempt_at` légèrement dans le futur : laisse une chance à plusieurs SMS
+// proches dans le temps pour le même destinataire d'être regroupés en un seul
+// envoi par le dispatcher (cf. son commentaire d'en-tête).
 async function externalHandler(schoolId, channel, { recipient, message }) {
   const address = channel === 'email' ? (recipient?.email || null) : (recipient?.phone || null);
   if (!address) return { status: 'skipped', reason: 'no_address' };
+  const priority = message.priority || 'normal';
+  if (channel === 'sms' && priority === 'normal') return { status: 'skipped', reason: 'low_priority' };
   const now = new Date().toISOString();
   const rec = {
     id: uuid(), school_id: schoolId, notification_id: null, channel, address,
-    status: 'pending', attempts: 0, payload: JSON.stringify({ title: message.title, body: message.body }),
+    status: 'pending', attempts: 0, priority,
+    payload: JSON.stringify({ title: message.title, body: message.body }),
     created_at: now, updated_at: now, version: 1,
+    ...(channel === 'sms' ? { next_attempt_at: new Date(Date.now() + 3 * 60_000).toISOString() } : {}),
   };
   const { error } = await supabase.from('notification_outbox').upsert(rec, { onConflict: 'id' });
   if (error) { console.error('externalHandler', error); return { status: 'failed', error: error.message }; }
@@ -36,7 +46,10 @@ async function externalHandler(schoolId, channel, { recipient, message }) {
 }
 
 // Point d'entrée : émet une notification sur les canaux demandés (défaut interne).
-export async function notify({ schoolId, recipients = [], type = 'info', title, body = '', link = null, channels = ['internal'] }) {
+// `priority` ('normal' | 'important' | 'urgent') n'a d'effet que sur le canal SMS —
+// seules 'important'/'urgent' peuvent atteindre un SMS (cf. externalHandler + edge
+// notify-dispatch, qui applique en dernier ressort la règle de budget).
+export async function notify({ schoolId, recipients = [], type = 'info', title, body = '', link = null, channels = ['internal'], priority = 'normal' }) {
   if (!schoolId || !title) return [];
   const dispatcher = createDispatcher({
     internal: (a) => internalHandler(schoolId, a),
@@ -44,7 +57,7 @@ export async function notify({ schoolId, recipients = [], type = 'info', title, 
     sms:      (a) => externalHandler(schoolId, 'sms', a),
     whatsapp: (a) => externalHandler(schoolId, 'whatsapp', a),
   });
-  return dispatcher.dispatch({ type, title, body, link, channels, recipients });
+  return dispatcher.dispatch({ type, title, body, link, channels, recipients, priority });
 }
 
 // Raccourci : notification interne à un rôle (diffusion).

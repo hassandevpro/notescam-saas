@@ -45,10 +45,36 @@ yarn-error.log*
 # Données du serveur LAN (base SQLite, sauvegardes, fichiers, secret JWT)
 server/data/
 server/_test_data/
+# Base de démonstration régénérable (scripts/seed-college-la-retraite.mjs).
+# Le commentaire doit être sur SA PROPRE ligne : en fin de motif, le « # » est
+# pris au pied de la lettre et la règle ne filtre plus rien.
+server/data-demo/
 server/*.log
 
 # Clé privée de signature des licences — NE JAMAIS COMMITER (la publique, si)
 packaging/license/private-key.pem
+
+# Clé privée de signature des PUBLICATIONS (mises à jour OTA). Encore plus
+# sensible que celle des licences : elle autorise l'exécution de code sur tous
+# les serveurs d'école. NE JAMAIS COMMITER — la publique, si.
+packaging/release/release-private-key.pem
+
+# Installeurs téléchargés par la mise à jour automatique (données locales).
+server/data/updates/
+
+# Sauvegardes SQLite prises à la main hors de server/data/ (déjà ignoré). Elles
+# contiennent les données réelles d'une école : ce dépôt est PUBLIC.
+server/*.db
+server/*.db-wal
+server/*.db-shm
+
+# Fichier d'aperçu jetable monté à la racine pour une capture visuelle.
+_pvpreview.jsx
+
+# Scripts d'intervention contenant un identifiant client en clair. Ce dépôt est
+# PUBLIC : un mot de passe poussé ici doit être considéré comme fuité, même
+# retiré ensuite (forks, caches, archives tierces).
+supabase_reset_admin_*.sql
 
 # Artefacts de packaging de l'installateur .exe
 packaging/_stage/
@@ -56,6 +82,12 @@ packaging/_stage_*/
 packaging/_cache/
 packaging/_verify/
 packaging/Output/
+
+# Idem pour le paquet Linux (runtime Node téléchargé + build + tarball) :
+# ~440 Mo régénérés par packaging/linux/build-package.sh, jamais dans le dépôt.
+packaging/linux/_stage/
+packaging/linux/_cache/
+packaging/linux/Output/
 
 # Vercel
 .vercel/
@@ -73,3 +105,6 @@ _commitmsg.txt
 # Clones de référence externes (ERPNext / Frappe) — lecture seule, hors app
 /reference/
 supabase/.temp/
+
+# Artefacts des tests d'impression (scripts/test-print.mjs)
+.print-tests/

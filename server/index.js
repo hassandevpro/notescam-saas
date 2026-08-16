@@ -10,7 +10,7 @@ import { mkdirSync, createReadStream, existsSync, writeFileSync, unlinkSync } fr
 import { randomUUID } from 'node:crypto';
 
 import { db, getSchool, DATA_DIR } from './db.js';
-import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey, licensingEnabled, machineFingerprint } from './security.js';
+import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey, licensingEnabled, machineFingerprint, machineFingerprints } from './security.js';
 import { runQuery, runBatch } from './query.js';
 import { runRpc } from './rpc.js';
 import { scheduleBackups, runBackup } from './backup.js';
@@ -171,11 +171,18 @@ const LICENSE_ERR = {
 
 app.post('/api/license/activate', (req, reply) => {
   const { license_key } = req.body || {};
-  const here = machineFingerprint();
-  const res = verifyLicenseKey(license_key, { machineId: here });
+  const candidates = machineFingerprints();
+  const res = verifyLicenseKey(license_key, { machineIds: candidates });
   if (!res.ok) {
-    return reply.code(400).send({ data: null, error: { message: LICENSE_ERR[res.reason] || `Licence invalide : ${res.reason}` } });
+    // Sur un refus de verrou machine, on affiche les DEUX identifiants : sans
+    // ça le support ne peut pas distinguer « mauvaise clé » de « empreinte du
+    // poste qui a changé », les deux donnant exactement le même message.
+    const detail = res.reason === 'machine_mismatch'
+      ? ` (clé émise pour ${res.payload?.machine_id} — ce poste : ${candidates[0]})`
+      : '';
+    return reply.code(400).send({ data: null, error: { message: (LICENSE_ERR[res.reason] || `Licence invalide : ${res.reason}`) + detail } });
   }
+  const here = res.machineId || candidates[0];
   db.prepare(`INSERT INTO license_activation (id, license_key, payload, activated_at, machine_id)
               VALUES (1, ?, ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET license_key=excluded.license_key, payload=excluded.payload, activated_at=excluded.activated_at, machine_id=excluded.machine_id`)
@@ -243,6 +250,32 @@ app.get('/api/update/status', async (req, reply) => {
   try {
     const { updateStatus } = await import('./updateService.js');
     return { data: await updateStatus(), error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Réglage de la mise à jour AUTOMATIQUE : état détaillé (pourquoi elle n'a pas
+// encore eu lieu) et interrupteur. Le « pourquoi » compte autant que l'état :
+// sans lui, une école voit « à jour » sans savoir qu'elle attend la fenêtre de
+// maintenance, la parité, ou une clé de publication.
+app.get('/api/update/auto', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const m = await import('./updateInstaller.js');
+    return { data: {
+      enabled:    m.autoUpdateEnabled(),
+      configured: m.releaseSigningConfigured(),
+      inWindow:   m.inMaintenanceWindow(),
+      idle:       m.serverIdle(),
+    }, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+app.post('/api/update/auto', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { setAutoUpdate, autoUpdateEnabled } = await import('./updateInstaller.js');
+    setAutoUpdate(req.body?.enabled !== false);
+    return { data: { enabled: autoUpdateEnabled() }, error: null };
   } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
 });
 
@@ -507,6 +540,13 @@ const start = async () => {
     // H3-b : application des décisions distantes (approbation/refus). No-op tant que
     // l'école n'est pas en mode gouvernance financière distante (deployment_policy).
     if (scheduleDecisionApply()) console.log('  Application des décisions distantes : planifiée (inerte hors mode distant)');
+    // Mise à jour automatique (OTA). Inerte tant qu'aucune clé publique de
+    // publication n'est livrée avec l'installation : l'école reste alors sur
+    // l'installeur manuel, exactement comme avant. Jamais bloquant au démarrage.
+    try {
+      const { startAutoUpdate } = await import('./updateInstaller.js');
+      startAutoUpdate({ everyHours: 6 });
+    } catch (e) { console.log('  Mise à jour automatique indisponible :', e.message); }
     console.log(`\n  NotesCam LAN — http://localhost:${PORT}`);
     console.log(`  Accessible sur le réseau : http://<IP-du-PC>:${PORT}`);
     console.log(`  Données : ${DATA_DIR}\n`);

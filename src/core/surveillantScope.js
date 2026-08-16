@@ -13,7 +13,7 @@
 // Réutilise la classification de sections d'engineResolver : aucune notion
 // pays/UI ici, uniquement le niveau/nom de la classe.
 
-import { classSectionKey, SECTIONS } from './engineResolver';
+import { classSectionKey, SECTIONS } from './engineResolver.js';
 
 // Les deux grands cycles regroupent les sections pédagogiques.
 export const CYCLES = [
@@ -34,15 +34,29 @@ export function classCycleKey(cls) {
   return SECTION_TO_CYCLE[classSectionKey(cls)] || null;
 }
 
+// Une dimension de périmètre, quelle que soit sa provenance :
+//   • Postgres (cloud) renvoie un vrai tableau (colonnes text[] / uuid[]) ;
+//   • SQLite (édition LAN) n'a pas de type tableau : la colonne est du TEXT
+//     contenant du JSON ('["fondamental"]').
+// Sans cette tolérance, le périmètre d'un compte LAN était silencieusement lu
+// comme vide — donc « tout l'établissement » — alors qu'il était bien enregistré.
+function toList(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string' && v.trim()) {
+    try {
+      const parsed = JSON.parse(v);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  }
+  return [];
+}
+
 // Normalise un périmètre potentiellement partiel/nul en tableaux garantis.
 export function normalizeScope(scope) {
   return {
-    sections: Array.isArray(scope?.sections) ? scope.sections
-      : Array.isArray(scope?.scope_sections) ? scope.scope_sections : [],
-    cycles: Array.isArray(scope?.cycles) ? scope.cycles
-      : Array.isArray(scope?.scope_cycles) ? scope.scope_cycles : [],
-    classIds: Array.isArray(scope?.classIds) ? scope.classIds
-      : Array.isArray(scope?.scope_class_ids) ? scope.scope_class_ids : [],
+    sections: toList(scope?.sections ?? scope?.scope_sections),
+    cycles:   toList(scope?.cycles   ?? scope?.scope_cycles),
+    classIds: toList(scope?.classIds ?? scope?.scope_class_ids),
   };
 }
 

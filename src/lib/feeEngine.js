@@ -306,6 +306,7 @@ export function feeDashboard(entries, today = todayISO(), soonDays = 7) {
   let expected = 0, collected = 0, remaining = 0;
   const counts = { paid: 0, up_to_date: 0, due_soon: 0, late: 0, none: 0 };
   const dueSoon = [];
+  const late = []; // élèves en retard (status LATE) — sert notamment aux rappels SMS
 
   for (const { student, fee, grid } of entries) {
     const s = studentFeeSituation(fee, grid, { today, soonDays, applyInscription: inscriptionApplies(student) });
@@ -313,6 +314,7 @@ export function feeDashboard(entries, today = todayISO(), soonDays = 7) {
     collected += Math.min(s.paid, s.total);
     remaining += s.balance;
     counts[s.status] = (counts[s.status] || 0) + 1;
+    if (s.status === 'late') late.push({ student, situation: s });
 
     // Tranches arrivant à échéance dans les `soonDays` prochains jours (non couvertes).
     for (const tr of s.tranches) {
@@ -326,6 +328,7 @@ export function feeDashboard(entries, today = todayISO(), soonDays = 7) {
   }
 
   dueSoon.sort((a, b) => (a.tranche.due_date || '').localeCompare(b.tranche.due_date || ''));
+  late.sort((a, b) => (b.situation.overdueAmount || 0) - (a.situation.overdueAmount || 0));
 
   return {
     expected,
@@ -341,6 +344,7 @@ export function feeDashboard(entries, today = todayISO(), soonDays = 7) {
     upToDateTotal: (counts.paid || 0) + (counts.up_to_date || 0) + (counts.due_soon || 0),
     lateTotal: counts.late || 0,
     dueSoon,
+    late,
   };
 }
 

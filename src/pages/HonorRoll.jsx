@@ -9,7 +9,7 @@ import {
 } from '../lib/honorRollTemplates';
 import { applyTemplate, distinctLevels, distinctSubjectNames } from '../lib/honorRollEngine';
 import { buildHonorRollSheets } from '../lib/honorRollDoc';
-import { printSheets, buildPrintDocument } from '../lib/transcriptDoc';
+import { printSheets, buildPrintDocument, PRINT_RESULT } from '../lib/transcriptDoc';
 import { exportTranscriptsPdf } from '../lib/transcriptPdf';
 import TemplateWizard from '../components/honor/TemplateWizard';
 import HonorAwardModal from '../components/HonorAwardModal';
@@ -105,7 +105,13 @@ export default function HonorRoll() {
   };
   const handlePrint = (tpl) => {
     if (isAwardLayout(tpl)) return openAward(tpl);
-    const s = noData(tpl); if (s) { printSheets(s, tpl.name); markGen(tpl.id); }
+    const s = noData(tpl);
+    if (!s) return;
+    if (printSheets(s, tpl.name) === PRINT_RESULT.BLOCKED) {
+      alert(t("Fenêtre d'impression bloquée par le navigateur. Autorisez les pop-ups pour ce site.", 'Print window blocked by the browser. Allow pop-ups for this site.', 'Ventana de impresión bloqueada. Permita las ventanas emergentes.'));
+      return;
+    }
+    markGen(tpl.id);
   };
   const handlePdf = async (tpl) => {
     if (isAwardLayout(tpl)) return openAward(tpl);
@@ -337,7 +343,7 @@ export default function HonorRoll() {
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
               <h3 className="font-bold text-slate-900">{t('Aperçu', 'Preview', 'Vista')} — {preview.name}</h3>
               <div className="flex gap-2">
-                <button onClick={() => printSheets(preview.sheets, preview.name)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors">🖨 {t('Imprimer', 'Print', 'Imprimir')}</button>
+                <button onClick={() => { if (printSheets(preview.sheets, preview.name) === PRINT_RESULT.BLOCKED) alert(t("Fenêtre d'impression bloquée par le navigateur. Autorisez les pop-ups pour ce site.", 'Print window blocked by the browser. Allow pop-ups for this site.', 'Ventana de impresión bloqueada. Permita las ventanas emergentes.')); }} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors">🖨 {t('Imprimer', 'Print', 'Imprimir')}</button>
                 <button onClick={() => setPreview(null)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors">{t('Fermer', 'Close', 'Cerrar')}</button>
               </div>
             </div>

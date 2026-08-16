@@ -16,7 +16,7 @@ import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import { buildRanks, clsStat, multiAvg, getAppreciation } from '../core/bulletinEngine';
 import { transcriptColumns } from '../lib/transcriptEngine';
 import { palmaresClassSheet } from '../lib/palmaresDoc';
-import { printSheets } from '../lib/transcriptDoc';
+import { printSheets, PRINT_RESULT } from '../lib/transcriptDoc';
 import { exportTranscriptsPdf } from '../lib/transcriptPdf';
 import Layout from '../components/Layout';
 import HubTabs from '../components/hubs/HubTabs';
@@ -253,7 +253,8 @@ function PalmaresPanel() {
   const handlePrint = () => {
     const sheets = buildSheets();
     if (!sheets.length) { alert(t('Aucune donnée à classer.', 'No data to rank.', 'Sin datos.')); return; }
-    printSheets(sheets, `${t('Palmarès', 'Honour roll', 'Cuadro de honor')} — ${school?.name || ''} — ${year}`);
+    const r = printSheets(sheets, `${t('Palmarès', 'Honour roll', 'Cuadro de honor')} — ${school?.name || ''} — ${year}`);
+    if (r === PRINT_RESULT.BLOCKED) alert(t("Fenêtre d'impression bloquée par le navigateur. Autorisez les pop-ups pour ce site.", 'Print window blocked by the browser. Allow pop-ups for this site.', 'Ventana de impresión bloqueada. Permita las ventanas emergentes.'));
   };
 
   const handlePdf = async () => {

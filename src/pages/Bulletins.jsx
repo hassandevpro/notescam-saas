@@ -10,7 +10,10 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import AssetImg from '../components/AssetImg';
 import '../styles/bulletin.css';
+import { setPrintProfile } from '../lib/print';
 import { useT } from '../lib/i18n';
+import { supabase } from '../lib/supabase';
+import WhatsappFirstModal from '../components/notify/WhatsappFirstModal';
 import BulletinPhoto from '../components/bulletins/BulletinPhoto';
 import BoletinGE from '../components/bulletins/BoletinGE';
 import BoletinGEDetalle from '../components/bulletins/BoletinGEDetalle';
@@ -36,7 +39,7 @@ import { assembleScBulletin, scDisciplineConseil, matieresForSerieClasse } from 
 import { perSubjectRanksAndStats, classProfile } from '../lib/scBulletinPdf';
 import { teacherByMatiere as teacherByMatiereMap, teacherIndexById, normName } from '../lib/teacherNames';
 import { resolveCountryCode, bulletinOfficials } from '../countries';
-import { gradingOpts, geGradeMax } from '../lib/useCountry';
+import { gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
 import { bulletinFontFamily } from '../lib/schoolTheme';
 import { buildCardId, qrDataUrl } from '../lib/idCardService';
 
@@ -248,114 +251,19 @@ function getSubjectGroup(name) {
   return 'AUTRES';
 }
 
-// ── Styles partagés en-tête / pied institutionnels camerounais (CM) ───────────
-// Constantes hissées au module pour être réutilisées par BulletinAPC ET par le
-// nouveau Bulletin Classique (mutualisation, zéro duplication de style).
-const CM_BORDER = '1px solid #374151';
-const CM_CELL   = { border: CM_BORDER, padding: '3px 5px', fontSize: '10px', verticalAlign: 'middle' };
-const CM_THS    = { ...CM_CELL, backgroundColor: '#1e3a5f', color: '#fff', textAlign: 'center', fontWeight: 'bold', fontSize: '9px' };
-const CM_GHDR   = { ...CM_CELL, backgroundColor: '#2d3748', color: '#fff', fontWeight: 'bold', textAlign: 'center', fontSize: '9px', padding: '2px 5px' };
-const CM_GTOT   = { ...CM_CELL, backgroundColor: '#e8edf2', fontWeight: 'bold', fontSize: '9px' };
-const CM_INFO   = { ...CM_CELL, backgroundColor: '#f8fafc', fontSize: '9px' };
-
-// Wrapper « papier » commun aux bulletins institutionnels (Arial 10px, A4).
-const CM_PAPER_STYLE = { fontFamily: 'Arial, sans-serif', fontSize: '10px', maxWidth: '210mm', margin: '0 auto', padding: '8px', boxSizing: 'border-box' };
-// Applique la police de bulletin choisie par l'école (Settings) au papier A4.
-const cmPaper = (school) => ({ ...CM_PAPER_STYLE, fontFamily: bulletinFontFamily(school) });
-
-// ── En-tête institutionnel partagé (ex-APC) ───────────────────────────────────
-// Disposition République du Cameroun / MINESEC / Délégations + logo + infos élève.
-function BulletinCMHeader({ school, cls, student, stats, teachers, sys, period, qrSrc }) {
-  const isEnSys     = sys === 'EN';
-  const isAnnuel    = period.value === 'annuel';
-  const isTrimestre = !isAnnuel && period.seqs.length > 1;
-  const principalTeacher = teachers?.find((t) => t.id === cls?.teacher_id) || null;
-  const termOrdinal = (() => {
-    if (period.seqs.length >= 4) return isEnSys ? 'ANNUAL' : 'ANNUEL';
-    const s = period.seqs[0];
-    if (s <= 2) return isEnSys ? '1ST TERM' : '1er TRIMESTRE';
-    if (s <= 4) return isEnSys ? '2ND TERM' : '2ème TRIMESTRE';
-    return isEnSys ? '3RD TERM' : '3ème TRIMESTRE';
-  })();
-
-  // En-tête officiel hérité du PAYS choisi à la configuration (Cameroun bilingue,
-  // Côte d'Ivoire / Gabon / Congo mono-langue…). Le N° d'établissement apparaît
-  // sous les délégations. Repli Cameroun si la config pays n'expose rien.
-  const officials = bulletinOfficials(school, { sys });
-  const blocks    = officials?.blocks ?? [];
-  const bilingual = officials?.bilingual && blocks.length > 1;
-  const leftW     = bilingual ? '33%' : '50%';
-  const centerW   = bilingual ? '34%' : '50%';
-
-  const OfficialBlock = ({ block }) => (
-    <td style={{ width: leftW, textAlign: 'center', fontSize: '9px', lineHeight: 1.5, padding: '2px' }}>
-      <strong>{block.republic}</strong><br />
-      {block.motto}<br />
-      ———————<br />
-      {block.ministry}{block.lines.length > 0 && <br />}
-      {block.lines.map((ln, i) => (
-        <span key={i}>{ln}{i < block.lines.length - 1 && <br />}</span>
-      ))}
-      {block.establishment && (<><br /><strong>{block.establishment}</strong></>)}
-    </td>
-  );
-
-  return (
-    <>
-      {/* HEADER — officiels par pays + identification de l'établissement */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
-        <tbody>
-          <tr>
-            {blocks[0] && <OfficialBlock block={blocks[0]} />}
-            <td style={{ width: centerW, textAlign: 'center', padding: '2px' }}>
-              {school?.logo_url && (
-                <AssetImg src={school.logo_url} alt="Logo" style={{ width: 64, height: 64, objectFit: 'contain', display: 'block', margin: '0 auto 3px' }} />
-              )}
-              <strong style={{ fontSize: '11px', display: 'block' }}>{(school?.name || '').toUpperCase()}</strong>
-              {(school?.address || school?.phone) && (
-                <span style={{ fontSize: '8.5px' }}>
-                  {school?.address ? `B.P. ${school.address}` : ''}{school?.address && school?.phone ? ' · ' : ''}{school?.phone || ''}
-                </span>
-              )}
-              <br />
-              <span style={{ fontSize: '8.5px' }}>{L(sys, 'Année scolaire', 'Academic year')} : <strong>{school?.current_year || '—'}</strong></span>
-            </td>
-            {bilingual && blocks[1] && <OfficialBlock block={blocks[1]} />}
-          </tr>
-        </tbody>
-      </table>
-
-      {/* TITLE BAR */}
-      <div style={{ backgroundColor: '#1e3a5f', color: '#fff', textAlign: 'center', padding: '5px 8px', fontWeight: 'bold', fontSize: '11px', letterSpacing: '0.5px', marginBottom: '5px' }}>
-        {isEnSys ? 'REPORT CARD' : 'BULLETIN SCOLAIRE'} – {(!isTrimestre && !isAnnuel) ? `${termOrdinal} – ` : ''}{period.label.toUpperCase()}
-      </div>
-
-      {/* STUDENT INFO */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
-        <tbody>
-          <tr>
-            <td style={{ ...CM_INFO, width: '10%', textAlign: 'center' }}>
-              <BulletinPhoto src={student.photo_url} width={44} height={54} radius={2} />
-            </td>
-            <td style={{ ...CM_INFO, width: '25%' }}><strong>{L(sys, 'NOM ET PRÉNOM', 'FULL NAME')} :</strong><br /><span style={{ fontWeight: 'bold', color: '#111' }}>{student.name}</span></td>
-            <td style={{ ...CM_INFO, width: '12%' }}><strong>{L(sys, 'MATRICULE', 'REG. NO.')} :</strong><br />{student.matricule || '—'}</td>
-            <td style={{ ...CM_INFO, width: '13%' }}><strong>{L(sys, 'DATE DE NAISS.', 'DATE OF BIRTH')} :</strong><br />{student.date_naissance || '—'}</td>
-            <td style={{ ...CM_INFO, width: '22%' }}><strong>{L(sys, 'ENS. PRINCIPAL', 'FORM MASTER')} :</strong><br />{principalTeacher?.name || '—'}</td>
-            <td style={{ ...CM_INFO, width: '14%' }}><strong>{L(sys, 'CLASSE', 'CLASS')} :</strong><br />{cls?.name || '—'}</td>
-            <td style={{ ...CM_INFO, width: '14%', textAlign: 'center' }}><strong>{L(sys, 'EFFECTIF', 'TOTAL')} :</strong><br /><strong style={{ fontSize: '14px' }}>{stats?.total ?? '—'}</strong></td>
-            {qrSrc && (
-              <td style={{ ...CM_INFO, width: '11%', textAlign: 'center' }}><BulletinQR src={qrSrc} size={46} /></td>
-            )}
-          </tr>
-        </tbody>
-      </table>
-    </>
-  );
+// Maternelle & primaire relèvent du FONDAMENTAL : tutelle MINEDUB (Éducation de
+// Base) et non MINESEC, et l'établissement est dirigé par un directeur/directrice
+// et non un principal. Détection robuste : la section déduite du nom de la classe
+// prime, `cycle` en base ne sert que de repli (il est parfois faux en import).
+function isBasicClass(cls) {
+  const sec = classSectionKey(cls);
+  return sec === 'maternelle' || sec === 'primaire'
+    || (!!cls?.cycle && cls.cycle !== 'secondaire');
 }
 
 // ── En-tête « primaire » partagé (bulletins primaire annuel) ──────────────────
-// Même source pays que BulletinCMHeader : République / devise héritées du pays
-// choisi, N° d'établissement sous la zone officielle.
+// Officiels hérités du PAYS choisi à la configuration : République / devise, et
+// N° d'établissement sous la zone officielle.
 function BulletinPrimaryHeader({ school, qrSrc }) {
   const officials = bulletinOfficials(school);
   const blocks    = officials?.blocks ?? [];
@@ -382,164 +290,151 @@ function BulletinPrimaryHeader({ school, qrSrc }) {
   );
 }
 
-// ── Pied institutionnel partagé (ex-APC) ──────────────────────────────────────
-// 4 colonnes (Résultat / Profil classe / Travail / Conduite) + signatures + mention.
-function BulletinCMFooter({ school, sys, studentAvg, maxScale, passed, decision, apprGlobal, rank, stats, abs }) {
-  const isEnSys = sys === 'EN';
-  const { absJ, absNJ, conduite, th, encouragement, felicitation, averTravail, blameTravail, exclusions, averConduite, blameConduite } = abs;
+// ── Bulletin Classique ────────────────────────────────────────────────────────
+// Le Classique reprend la MAQUETTE OFFICIELLE DU SECOND CYCLE MINESEC
+// (BulletinScOfficial) : matières groupées avec coef / charge horaire, rang et
+// [Min–Max] par matière, sous-totaux de groupe, puis synthèse en trois volets
+// (Travail de l'élève · Discipline et conduite · Profil de la classe) et bloc de
+// signatures à trois colonnes, paginé « Page i / N » par élève.
+//
+// SEULE DIFFÉRENCE avec le second cycle : l'EN-TÊTE. Maternelle et primaire
+// relèvent du fondamental → tutelle MINEDUB (Éducation de Base) et signature du
+// directeur / de l'enseignant(e) ; le secondaire garde l'en-tête MINESEC.
+//
+// Les notes affichées restent celles du moteur classique (`subjectGrades`,
+// `studentAvg`, `rank`, `stats` calculés par la page) — aucun changement de
+// calcul, seule la présentation change.
 
-  return (
-    <>
-      {/* BOTTOM 4 COLUMNS */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
-        <thead>
-          <tr>
-            <th style={{ ...CM_THS, width: '25%' }}>{L(sys, "RÉSULTAT DE L'ÉLÈVE",  'STUDENT RESULTS')}</th>
-            <th style={{ ...CM_THS, width: '25%' }}>{L(sys, 'PROFIL DE LA CLASSE',  'CLASS PROFILE')}</th>
-            <th style={{ ...CM_THS, width: '25%' }}>{L(sys, "TRAVAIL DE L'ÉLÈVE",   "STUDENT'S WORK")}</th>
-            <th style={{ ...CM_THS, width: '25%' }}>{L(sys, "CONDUITE DE L'ÉLÈVE",  "STUDENT'S CONDUCT")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style={{ ...CM_CELL, verticalAlign: 'top', padding: '5px' }}>
-              <div>{L(sys, 'Moy. Gén.', 'Avg.')} : <strong style={{ color: passed ? '#059669' : '#dc2626' }}>{studentAvg !== null ? `${studentAvg}/${maxScale}` : '—'}</strong></div>
-              <div>{L(sys, 'Rang', 'Rank')} : <strong>{rank?.rankD || '—'} / {stats?.total ?? '—'}</strong></div>
-              <div style={{ marginTop: 3 }}>
-                <strong style={{ color: passed ? '#059669' : '#dc2626', fontSize: '11px' }}>
-                  {studentAvg !== null ? decision : '—'}
-                </strong>
-              </div>
-            </td>
-            <td style={{ ...CM_CELL, verticalAlign: 'top', padding: '5px' }}>
-              <div>{L(sys, 'Moy. classe', 'Class avg.')} : <strong>{stats?.avg != null ? `${stats.avg}/${maxScale}` : '—'}</strong></div>
-              <div>{L(sys, 'Note max', 'Highest')} : <strong>{stats?.max != null ? `${stats.max}/${maxScale}` : '—'}</strong></div>
-              <div>{L(sys, 'Note min', 'Lowest')} : <strong>{stats?.min != null ? `${stats.min}/${maxScale}` : '—'}</strong></div>
-              <div>{L(sys, 'Taux réussite', 'Pass rate')} : <strong>{stats?.above != null && stats?.total ? `${stats.above}/${stats.total} (${Math.round((stats.above / stats.total) * 100)}%)` : '—'}</strong></div>
-            </td>
-            <td style={{ ...CM_CELL, verticalAlign: 'top', padding: '5px' }}>
-              <div style={{ color: apprGlobal?.col, fontWeight: 'bold', fontSize: '11px' }}>
-                {isEnSys ? (apprGlobal ? `${apprGlobal.g} — ${apprGlobal.txt}` : '—') : (apprGlobal?.text || '—')}
-              </div>
-              {th            && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, "Tableau d'Honneur", 'Honor Roll')}</div>}
-              {encouragement && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, 'T.H + Encouragement', 'Honor Roll + Encouragement')}</div>}
-              {felicitation  && <div style={{ color: '#059669', fontWeight: 'bold', fontSize: '9px', marginTop: 2 }}>{L(sys, 'T.H + Félicitation', 'Honor Roll + Congratulations')}</div>}
-              {averTravail  > 0 && <div style={{ color: '#d97706', fontSize: '9px', marginTop: 2 }}>{L(sys, 'Aver. Travail', 'Work Warning')} : <strong>{averTravail}</strong></div>}
-              {blameTravail > 0 && <div style={{ color: '#dc2626', fontSize: '9px', marginTop: 2 }}>{L(sys, 'Blâme Travail', 'Work Reprimand')} : <strong>{blameTravail}</strong></div>}
-            </td>
-            <td style={{ ...CM_CELL, verticalAlign: 'top', padding: '5px' }}>
-              <div style={{ fontSize: '9px' }}>{L(sys, "T. d'Honneur", 'Honor Roll')} : <strong style={{ color: th || encouragement || felicitation ? '#059669' : '#374151' }}>{th || encouragement || felicitation ? L(sys, 'Oui', 'Yes') : L(sys, 'Non', 'No')}</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Abs. totales', 'Total absences')} : <strong>{absJ + absNJ} H</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Absences NJ', 'Unjust. absences')} : <strong>{absNJ} H</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Exclusions', 'Exclusions')} : <strong>{exclusions} {L(sys, 'Jrs', 'days')}</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Aver. Conduite', 'Conduct Warning')} : <strong>{averConduite}</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Blâme Conduite', 'Conduct Reprimand')} : <strong>{blameConduite}</strong></div>
-              <div style={{ fontSize: '9px' }}>{L(sys, 'Conduite', 'Conduct')} : <strong style={{ color: conduite ? CONDUITE_COLORS[conduite] : undefined }}>
-                {conduite ? `${conduite} — ${conduiteLabel(sys, conduite)}` : '—'}
-              </strong></div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* SIGNATURES */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '4px' }}>
-        <tbody>
-          <tr>
-            <td style={{ ...CM_CELL, width: '33%', textAlign: 'center', height: 56, verticalAlign: 'bottom', paddingBottom: 5 }}>
-              <strong style={{ fontSize: '9px' }}>{L(sys, 'Signature du Parent / Tuteur', 'Parent / Guardian Signature')}</strong>
-            </td>
-            <td style={{ ...CM_CELL, width: '34%', textAlign: 'center', verticalAlign: 'bottom', paddingBottom: 5 }}>
-              <strong style={{ fontSize: '9px' }}>{L(sys, 'Le Conseil de Classe', 'Class Council')}</strong>
-            </td>
-            <td style={{ ...CM_CELL, width: '33%', textAlign: 'center', verticalAlign: 'top', paddingTop: 5 }}>
-              <strong style={{ fontSize: '9px' }}>{L(sys, 'LE PRINCIPAL', 'THE PRINCIPAL')}</strong>
-              {school?.signature_url && (
-                <AssetImg src={school.signature_url} alt="Signature" style={{ height: 32, display: 'block', margin: '2px auto' }} />
-              )}
-              {school?.stamp_url && (
-                <AssetImg src={school.stamp_url} alt="Tampon" style={{ height: 32, display: 'block', margin: '2px auto' }} />
-              )}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <p style={{ fontSize: '7.5px', color: '#9ca3af', textAlign: 'center', fontStyle: 'italic', margin: 0 }}>
-        {isEnSys
-          ? "This report card is valid only with the signature and stamp of the head of school. Any manual alteration is liable to sanction."
-          : "Ce bulletin n'est valable qu'avec la signature et le cachet du chef d'établissement. Toute modification manuelle est passible de sanction."}
-      </p>
-    </>
-  );
+// Titre officiel du bulletin classique (repris de l'ancien bandeau de titre).
+function classicTitle(sys, period) {
+  const en = sys === 'EN';
+  const isAnnuel    = period.value === 'annuel';
+  const isTrimestre = !isAnnuel && period.seqs.length > 1;
+  const termOrdinal = (() => {
+    if (period.seqs.length >= 4) return en ? 'ANNUAL' : 'ANNUEL';
+    const s = period.seqs[0];
+    if (s <= 2) return en ? '1ST TERM' : '1er TRIMESTRE';
+    if (s <= 4) return en ? '2ND TERM' : '2ème TRIMESTRE';
+    return en ? '3RD TERM' : '3ème TRIMESTRE';
+  })();
+  const base = en ? 'REPORT CARD' : 'BULLETIN SCOLAIRE';
+  return `${base} – ${(!isTrimestre && !isAnnuel) ? `${termOrdinal} – ` : ''}${period.label.toUpperCase()}`;
 }
 
-// ── Bulletin Classique ────────────────────────────────────────────────────────
-function BulletinClassic({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, qrSrc }) {
+function BulletinClassic({
+  school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys,
+  teachers, gradeMap, classId, classStudents = [], subjectRanks = {}, subjectStats = {}, qrSrc,
+}) {
   const passThreshold = sys === 'FR' ? 10 : 50;
   const maxScale      = sys === 'FR' ? 20 : 100;
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
-  const decision      = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
-  const apprGlobal    = getAppreciation(studentAvg, school?.grade_scale, sys);
-  const abs           = getAbsCond(gradeMap, classId, student.id, period.seqs);
+  const autoDecision  = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
+  // Une classe de maternelle/primaire atterrit ici pour ses bulletins TRIMESTRIELS
+  // (BulletinPrimaire ne prend que l'annuel). Elle doit alors porter la tutelle
+  // MINEDUB et la signature du directeur, pas l'en-tête MINESEC du secondaire.
+  const basic = isBasicClass(cls);
+
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const teachersById = useMemo(() => teacherIndexById(teachers), [teachers]);
+
+  // Assemblage au format attendu par la maquette second cycle. Les matières sans
+  // groupe MINESEC (cas courant en classique) tiennent dans un bloc unique.
+  const data = useMemo(() => {
+    const fallbackGroup = L(sys, 'MATIÈRES', 'SUBJECTS');
+    const groupsMap = new Map();
+
+    for (const sub of subjects) {
+      const grade = subjectGrades[sub.id] ?? null;
+      const coef  = Number(sub.coef) || 0;
+      // Appréciation calculée sur le barème de sortie (une matière notée /30 est
+      // ramenée sur /20 ou /100 avant d'être qualifiée) — comme auparavant.
+      const appr  = grade === null ? null
+        : getAppreciation((grade / (sub.max || maxScale)) * maxScale, school?.grade_scale, sys);
+      const st    = subjectStats[sub.id];
+      // Sous-composante d'une matière composite : affichée en retrait (« ↳ » posé
+      // par la page) mais JAMAIS comptée dans les totaux — seul le parent compte.
+      const child = !!sub.parent_id;
+      const row = {
+        id: sub.id,
+        nom: sub.name,
+        enseignant: (sub.teacher_id && teachersById[sub.teacher_id]) || '',
+        coef,
+        charge: sub.charge_horaire == null ? null : Number(sub.charge_horaire),
+        moyenne: grade,
+        ponderee: grade === null ? null : r2(grade * coef),
+        rang: child ? '' : (subjectRanks[sub.id]?.[student.id] || ''),
+        minmax: !child && st && st.min != null ? { min: st.min, max: st.max } : null,
+        appreciation: appr ? (sys === 'EN' ? `${appr.g} — ${appr.txt}` : appr.text) : '',
+      };
+
+      const ordre = sub.sc_groupe_ordre ?? 99;
+      if (!groupsMap.has(ordre)) {
+        groupsMap.set(ordre, {
+          ordre,
+          nom: sub.sc_groupe || (ordre === 99 ? fallbackGroup : `GROUPE ${ordre}`),
+          rows: [], coefSum: 0, mxSum: 0, chargeSum: 0,
+        });
+      }
+      const g = groupsMap.get(ordre);
+      g.rows.push(row);
+      if (child) continue;
+      if (grade !== null) { g.coefSum += coef; g.mxSum += row.ponderee; }
+      if (row.charge != null) g.chargeSum += row.charge;
+    }
+
+    const groups = [...groupsMap.values()]
+      .sort((a, b) => a.ordre - b.ordre)
+      .map((g) => ({ ...g, mxSum: r2(g.mxSum), moyenne: g.coefSum ? r2(g.mxSum / g.coefSum) : null }));
+
+    const apprGlobal = getAppreciation(studentAvg, school?.grade_scale, sys);
+    return {
+      groups,
+      coefSum: r2(groups.reduce((a, g) => a + g.coefSum, 0)),
+      mxSum:   r2(groups.reduce((a, g) => a + g.mxSum, 0)),
+      moyenneGenerale: studentAvg,
+      appreciation: studentAvg === null ? '' : (sys === 'EN' ? `${apprGlobal.g} — ${apprGlobal.txt}` : apprGlobal.text),
+      generalRank: rank?.rankD && rank.rankD !== '—'
+        ? `${rank.rankD}${stats?.total ? ` / ${stats.total}` : ''}`
+        : '',
+      classStats: stats && stats.avg != null
+        ? { avg: stats.avg, min: stats.min, max: stats.max, count: stats.total,
+            rate: stats.total ? Math.round((stats.above / stats.total) * 100) : null }
+        : null,
+    };
+  }, [subjects, subjectGrades, studentAvg, rank, stats, sys, maxScale, school?.grade_scale, teachersById, subjectRanks, subjectStats, student.id]);
+
+  // Discipline / conduite / mentions : mêmes clés que la saisie existante
+  // (__abs_j__, __conduite__, __th__…), donc rien à ressaisir.
+  const raw = scDisciplineConseil(gradeMap, classId, student.id, period.seqs);
+  const discipline = {
+    ...raw,
+    conduite: raw.conduite ? `${raw.conduite} — ${conduiteLabel(sys, raw.conduite)}` : '',
+  };
+
+  const teacherLabel = basic ? (sys === 'EN' ? 'The Class Teacher' : "L'Enseignant(e)") : undefined;
+  const headLabel    = basic ? (sys === 'EN' ? 'The Head Teacher'  : 'Le Directeur / La Directrice') : undefined;
+  const ppLabel      = basic ? (sys === 'EN' ? 'Class teacher'     : 'Enseignant(e)') : undefined;
 
   return (
-    <div className="bulletin-paper" style={cmPaper(school)}>
-      {/* En-tête institutionnel mutualisé (ex-APC) */}
-      <BulletinCMHeader school={school} cls={cls} student={student} stats={stats} teachers={teachers} sys={sys} period={period} qrSrc={qrSrc} />
-
-      {/* Tableau détaillé des matières — design Classique conservé (notes, coef, M×C, appréciations, couleurs, calculs) */}
-      <table className="bulletin-table">
-        <thead>
-          <tr>
-            <th style={{ width: '35%', textAlign: 'left' }}>{sys === 'EN' ? 'Subject' : 'Matière / Subject'}</th>
-            <th>{sys === 'FR' ? `Note/${maxScale}` : `Marks/${maxScale}`}</th>
-            <th>Coef</th>
-            <th>M×C</th>
-            <th style={{ width: '25%' }}>{sys === 'FR' ? 'Appréciation' : 'Grade'}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {subjects.map((sub) => {
-            const grade    = subjectGrades[sub.id];
-            const gradeStr = grade !== null ? String(grade) : 'ABS';
-            const mxc      = grade !== null ? Math.round(grade * sub.coef * 100) / 100 : '—';
-            const appr     = grade !== null
-              ? getAppreciation(sys === 'FR' ? (grade / sub.max) * 20 : (grade / sub.max) * 100, school?.grade_scale, sys)
-              : null;
-            const subTeacher = teachers?.find((t) => t.id === sub.teacher_id);
-            return (
-              <tr key={sub.id}>
-                <td className="subject-name">
-                  <span>{sub.name}</span>
-                  {subTeacher && (
-                    <span style={{ display: 'block', fontSize: '0.7em', color: '#6b7280', fontWeight: 'normal' }}>
-                      {subTeacher.name}
-                    </span>
-                  )}
-                </td>
-                <td className="grade-cell"
-                    style={{ color: grade !== null ? (grade / sub.max >= passThreshold / maxScale ? '#059669' : '#dc2626') : '#6b7280' }}>
-                  {gradeStr}
-                </td>
-                <td style={{ textAlign: 'center' }}>{sub.coef}</td>
-                <td style={{ textAlign: 'center' }}>{mxc}</td>
-                <td className="appreciation-cell" style={{ color: appr?.col || '#6b7280' }}>
-                  {sys === 'FR' ? (appr?.text || '—') : (appr ? `${appr.g} — ${appr.txt}` : '—')}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      {/* Bas de page institutionnel mutualisé (ex-APC) : résultat, profil classe, travail, conduite, signatures */}
-      <BulletinCMFooter
-        school={school} sys={sys} studentAvg={studentAvg} maxScale={maxScale}
-        passed={passed} decision={decision} apprGlobal={apprGlobal}
-        rank={rank} stats={stats} abs={abs}
-      />
-    </div>
+    <BulletinScOfficial
+      school={school}
+      sys={sys}
+      title={classicTitle(sys, period)}
+      student={student}
+      classLabel={cls?.name || ''}
+      serieLabel={cls?.serie ? `Série ${String(cls.serie).toUpperCase()}` : ''}
+      effectif={stats?.total ?? classStudents.length}
+      profPrincipal={teachers?.find((tc) => tc.id === cls?.teacher_id)?.name || ''}
+      data={data}
+      discipline={discipline}
+      decision={raw.decision || (studentAvg === null ? '' : autoDecision)}
+      basic={basic}
+      headLabel={headLabel}
+      teacherLabel={teacherLabel}
+      ppLabel={ppLabel}
+      maxScale={maxScale}
+      qrSrc={qrSrc}
+    />
   );
 }
 
@@ -1472,6 +1367,16 @@ function BulletinMaternelle({ school, cls, student, subjects, teachers, gradeMap
   );
 }
 
+// Vrai quand le dispatcher ci-dessous aboutit à BulletinClassic, seul bulletin
+// « libre » à rendre la maquette officielle (feuilles OfficialSheet). Sert à
+// activer le filigrane d'impression comme pour les bulletins officiels.
+function usesOfficialSheet({ format, cycle, period, countryCode }) {
+  if (countryCode === 'guinea_eq' || format !== 'classic') return false;
+  if (cycle === 'maternelle') return false;
+  if (period?.value === 'annuel') return false;   // primaire & secondaire annuels
+  return true;
+}
+
 // ── Dispatcher selon le cycle et le format ────────────────────────────────────
 function BulletinRenderer({ format, gradeMap, classId, cycle, period, countryCode, annualDecision, ...props }) {
   // Guinea Ecuatorial : boletín oficial espagnol pour TOUS les cycles.
@@ -1483,7 +1388,10 @@ function BulletinRenderer({ format, gradeMap, classId, cycle, period, countryCod
   if (cycle === 'maternelle') {
     return <BulletinMaternelle {...props} gradeMap={gradeMap} classId={classId} />;
   }
-  if (cycle === 'primaire' && period.seqs.length === 3) {
+  // Bulletin primaire de SYNTHÈSE = l'annuel. On teste la période elle-même et
+  // non le nombre de séquences agrégées : en mode séquences l'annuel en compte 6
+  // et non 3, ce que l'ancien test « length === 3 » ratait silencieusement.
+  if (cycle === 'primaire' && period.value === 'annuel') {
     return <BulletinPrimaire {...props} gradeMap={gradeMap} classId={classId} />;
   }
   if (cycle === 'secondaire' && period.value === 'annuel' && format !== 'modern' && format !== 'apc') {
@@ -1614,6 +1522,12 @@ export default function Bulletins() {
   const t = useT();
   const { plan, f } = usePlan();
 
+  // Géométrie de page du bulletin (profil « bulletin » du socle : A4 portrait,
+  // marge 8 mm). Déclarée à l'affichage de l'écran et retirée en le quittant —
+  // les autres écrans imprimables (conseil de classe, emploi du temps) ont la
+  // leur, et deux règles @page concurrentes se contrediraient.
+  useEffect(() => setPrintProfile('bulletin'), []);
+
   const PERIODS = [
     { value: 'seq_1',  label: t('Séquence 1',  'Sequence 1'),  short: 'Séq 1', seqs: [1] },
     { value: 'seq_2',  label: t('Séquence 2',  'Sequence 2'),  short: 'Séq 2', seqs: [2] },
@@ -1686,6 +1600,9 @@ export default function Bulletins() {
   const [sidebarSearch,   setSidebarSearch]   = useState('');
   const [screenshotBlur,  setScreenshotBlur]  = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [notifyingBulletins, setNotifyingBulletins] = useState(false);
+  const [notifyBulletinsMsg, setNotifyBulletinsMsg] = useState(null);
+  const [waBulletinFamilies, setWaBulletinFamilies] = useState(null); // WhatsApp d'abord, SMS en secours
   const [printCount,      setPrintCount]      = useState(() => {
     if (typeof window === 'undefined') return 0;
     try {
@@ -1772,6 +1689,13 @@ export default function Bulletins() {
   const isFundamentalClass = isMat || isPrim || selClassSection === 'maternelle' || selClassSection === 'primaire';
   const isSecondaryClass   = !isFundamentalClass && (isApc || isSc || cycle === 'secondaire' || selClassSection === 'premier_cycle' || selClassSection === 'second_cycle');
 
+  // Primaire CLASSIQUE suivant le rythme séquentiel choisi par l'établissement
+  // (Paramètres → Mode d'évaluation du primaire). Le primaire APC (`isPrim`) et
+  // la maternelle gardent leurs propres écrans et restent trimestriels.
+  const primSequences = !isPrim && !isMat
+    && (selClassSection === 'primaire' || cycle === 'primaire')
+    && primaryPeriodMode(school) === 'sequences';
+
   const periodsForClass =
     // APC officiel : 6 séquences + 3 trimestres + annuel, quel que soit le système
     // (le référentiel MINESEC est trimestriel à 2 séquences ; l'annuel agrège T1/T2/T3).
@@ -1780,7 +1704,7 @@ export default function Bulletins() {
       : schoolCountryCode === 'guinea_eq'
         ? PERIODS_GE
         : isFundamentalClass
-          ? PERIODS_PRIMAIRE
+          ? (primSequences ? PERIODS : PERIODS_PRIMAIRE)
           : sys === 'EN' ? PERIODS_EN : PERIODS;
   const period = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0];
 
@@ -2146,7 +2070,14 @@ export default function Bulletins() {
     // (ou terms) pour collège/lycée. Robuste même si `cycle` en base est erroné.
     const newSection = classSectionKey(cls);
     const newFundamental = newSection === 'maternelle' || newSection === 'primaire' || (cls?.cycle && cls.cycle !== 'secondaire');
+    // Primaire classique en mode séquences : ses périodes viennent de PERIODS,
+    // pas de PERIODS_PRIMAIRE — 'tri_1' n'y existe pas et laisserait le sélecteur
+    // retomber en silence sur la première option.
+    const newPrimSeq = newFundamental && newSection === 'primaire'
+      && resolveClassEngine(school, cls) !== 'apc_primaire'
+      && primaryPeriodMode(school) === 'sequences';
     if (schoolCountryCode === 'guinea_eq') setPeriodKey('trim_1');
+    else if (newPrimSeq)                   setPeriodKey('seq_1');
     else if (newFundamental)               setPeriodKey('tri_1');
     else if (newSys === 'EN')              setPeriodKey('term_1');
     else                                   setPeriodKey('seq_1');
@@ -2170,6 +2101,18 @@ export default function Bulletins() {
     if (cycle === 'maternelle' || !classStudents.length || !classSubjects.length) return null;
     return clsStat(classStudents, gradeMap, classId, period.seqs, classSubjects, sys, {}, gOpts);
   }, [cycle, classStudents, classSubjects, gradeMap, classId, period.seqs, sys, gOpts.maxScale, gOpts.useCoef]);
+
+  // Le Classique rend la maquette officielle (feuilles A4 + filigrane logo répété
+  // à l'impression), sauf quand le dispatcher route vers un autre bulletin.
+  const classicOfficialLook = usesOfficialSheet({ format, cycle, period, countryCode: schoolCountryCode });
+
+  // Rang + [Min–Max] PAR MATIÈRE : colonnes de la maquette officielle reprise par
+  // le bulletin Classique. Calculé UNE fois pour la classe (et non par élève),
+  // comme pour le second cycle officiel.
+  const classicPerSubject = useMemo(() => {
+    if (format !== 'classic' || !displaySubjects.length || !classStudents.length) return { ranks: {}, stats: {} };
+    return perSubjectRanksAndStats(displaySubjects, gradeMap, classId, period.seqs, classStudents);
+  }, [format, displaySubjects, gradeMap, classId, period.seqs.join(','), classStudents]);
 
   // APC officiel : notes toujours sur /20 (cotes MINESEC) → seuil 10 quel que soit le système.
   const passThreshold = showApcOfficial ? 10 : sys === 'ES' ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
@@ -2267,6 +2210,42 @@ export default function Bulletins() {
   const handlePrintAll = () => {
     if (plan === 'starter') { setShowUpgradeModal(true); return; }
     setPrintAll(true);
+  };
+
+  // Rappel « bulletins disponibles » — action EXPLICITE de l'admin/direction,
+  // JAMAIS automatique (un bulletin devient visible côté ParentPortal dès la
+  // saisie, sans notion de « publication »). WhatsApp D'ABORD (lien wa.me
+  // prérempli, gratuit) : le staff ouvre un lien par famille et l'envoie
+  // lui-même. Le SMS reste le repli pour les familles non jointes — un fan-out
+  // SMS à toute une classe à chaque séquence exploserait le budget sinon (cf.
+  // maîtrise des coûts SMS, WhatsappFirstModal).
+  const handleOpenNotifyBulletinsReady = async () => {
+    if (!school?.id || !classStudents.length) return;
+    setNotifyingBulletins(true); setNotifyBulletinsMsg(null);
+    const ids = classStudents.map((s) => s.id);
+    const { data: phones } = await supabase.from('students').select('id, parent_phone').in('id', ids);
+    const phoneById = new Map((phones || []).map((r) => [r.id, r.parent_phone]));
+    let noPhone = 0;
+    const families = [];
+    for (const student of classStudents) {
+      const phone = phoneById.get(student.id);
+      if (!phone) { noPhone++; continue; }
+      families.push({
+        id: student.id, name: student.name, phone,
+        message: `Le bulletin de ${student.name} est disponible. Consultez-le via l'espace parent de l'établissement.`,
+      });
+    }
+    setNotifyingBulletins(false);
+    if (!families.length) {
+      setNotifyBulletinsMsg(t('Aucun numéro de téléphone connu.', 'No known phone number.'));
+      setTimeout(() => setNotifyBulletinsMsg(null), 6000);
+      return;
+    }
+    if (noPhone) {
+      setNotifyBulletinsMsg(t(`${noPhone} famille(s) sans numéro connu, ignorée(s).`, `${noPhone} famili(es) without a known number, skipped.`));
+      setTimeout(() => setNotifyBulletinsMsg(null), 6000);
+    }
+    setWaBulletinFamilies(families);
   };
 
   const handleChangeFormat = (key) => {
@@ -2379,6 +2358,9 @@ export default function Bulletins() {
     countryCode,
     maxScale: geGradeMax(school),
     useCoef: gOpts.useCoef ?? true,
+    // Colonnes Rang / [Min–Max] du bulletin Classique (ignorées par les autres).
+    subjectRanks: classicPerSubject.ranks,
+    subjectStats: classicPerSubject.stats,
   };
 
   return (
@@ -2400,6 +2382,15 @@ export default function Bulletins() {
                       <span className="ml-1 text-xs text-amber-500">🔒</span>
                     )}
                   </button>
+                  {role === 'admin' && (
+                    <button
+                      onClick={handleOpenNotifyBulletinsReady} disabled={notifyingBulletins}
+                      className="btn-secondary disabled:opacity-50"
+                      title={t('Notifier les parents de cette classe (WhatsApp puis SMS)', 'Notify this class\'s parents (WhatsApp then SMS)')}
+                    >
+                      {notifyingBulletins ? t('Préparation…', 'Preparing…') : t('Notifier les parents', 'Notify parents')}
+                    </button>
+                  )}
                   {selectedStudent && (
                     <button
                       onClick={handlePrintSingle}
@@ -2422,6 +2413,17 @@ export default function Bulletins() {
             </div>
           )}
         </div>
+        {notifyBulletinsMsg && (
+          <p className="text-xs text-emerald-600 -mt-2 mb-3 no-print">{notifyBulletinsMsg}</p>
+        )}
+        {waBulletinFamilies && (
+          <Modal title={t('Bulletin disponible', 'Report card available')} onClose={() => setWaBulletinFamilies(null)} size="lg">
+            <WhatsappFirstModal
+              schoolId={school.id} families={waBulletinFamilies} smsType="bulletin_ready" smsTitle="Bulletin disponible"
+              t={t} onClose={() => setWaBulletinFamilies(null)}
+            />
+          </Modal>
+        )}
 
         {/* Sélecteur de format — masqué pour Guinea Ecuatorial (un seul format
             officiel). Pour les classes MINESEC, on AJOUTE l'option officielle
@@ -2575,7 +2577,7 @@ export default function Bulletins() {
                       <option value="annuel">Annual (Term 1 + Term 2 + Term 3)</option>
                     </optgroup>
                   </>
-                ) : isSecondaryClass ? (
+                ) : (isSecondaryClass || primSequences) ? (
                   <>
                     <optgroup label={t('Séquences', 'Sequences')}>
                       {PERIODS.filter((p) => p.seqs.length === 1).map((p) => (
@@ -2767,7 +2769,7 @@ export default function Bulletins() {
               {/* Filigrane logo À L'IMPRESSION uniquement : élément `position:fixed`
                   unique → se répète sur CHAQUE page (bulletin long ou classe entière)
                   sans se cumuler. L'aperçu écran a son propre filigrane par feuille. */}
-              {(showApcOfficial || showScOfficial) && school?.logo_url && (
+              {(showApcOfficial || showScOfficial || classicOfficialLook) && school?.logo_url && (
                 <div className="official-print-watermark" aria-hidden>
                   <AssetImg src={school.logo_url} alt="" />
                 </div>

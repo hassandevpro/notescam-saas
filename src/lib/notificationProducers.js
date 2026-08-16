@@ -181,4 +181,45 @@ export function notifySchoolEvent({ kind, schoolId = null, payload = {} } = {}) 
   }
 }
 
+// Un même motif (même titre — « Absence signalée », « Incident disciplinaire
+// grave »…) a-t-il déjà été mis en file/envoyé au MÊME numéro AUJOURD'HUI ?
+// Cas concret : un élève absent sur plusieurs séances/matières le même jour
+// déclenche un `notifyParent` par séance (cf. Absences.jsx) — sans ce garde-fou,
+// ce serait un SMS par séance au lieu d'un seul « votre enfant a été marqué
+// absent aujourd'hui ». Basé sur le TITRE (stable par type d'événement) et non
+// le corps exact, contrairement au dédoublonnage 24h de l'edge notify-dispatch
+// qui, lui, ne bloque qu'un contenu strictement identique.
+async function alreadyNotifiedToday(schoolId, phone, title) {
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  const { data } = await supabase.from('notification_outbox')
+    .select('payload').eq('school_id', schoolId).eq('channel', 'sms').eq('address', phone)
+    .in('status', ['pending', 'sent']).gte('created_at', startOfDay.toISOString()).limit(20);
+  return (data || []).some((r) => {
+    try { return JSON.parse(r.payload || '{}').title === title; } catch { return false; }
+  });
+}
+
+// ── Notifications PARENT (SMS uniquement) ───────────────────────────────────
+// Les parents n'ont pas de compte applicatif (ParentPortal = lien à jeton, pas
+// de session) : un envoi 'internal' sans recipient_id/role connu diffuserait
+// par erreur à TOUTE l'école (cf. isNotificationForMe — id ET role nuls =
+// diffusion). On cible donc UNIQUEMENT le canal SMS, jamais l'interne, ici.
+// `priority` doit être 'important' ou 'urgent' (cf. maîtrise des coûts,
+// supabase_sms_budget.sql) — 'normal' n'atteindrait de toute façon jamais le
+// SMS (filtré par externalHandler avant même la mise en file).
+// Fire-and-forget, ne lève jamais.
+export function notifyParent({ schoolId, studentId, priority = 'important', type = 'info', title, body = '', link = null }) {
+  if (!schoolId || !studentId || !title) return;
+  supabase.from('students').select('parent_phone').eq('id', studentId).maybeSingle()
+    .then(async ({ data }) => {
+      const phone = data?.parent_phone;
+      if (!phone) return null;
+      // 'urgent' n'est JAMAIS supprimé par ce garde-fou : un second incident
+      // grave le même jour doit quand même alerter le parent.
+      if (priority !== 'urgent' && await alreadyNotifiedToday(schoolId, phone, title)) return null;
+      return notify({ schoolId, recipients: [{ phone }], channels: ['sms'], priority, type, title, body, link });
+    })
+    .catch((e) => console.warn('[notify-parent] notification best-effort ignorée —', type, e?.message));
+}
+
 export { SCHOOL_EVENT };

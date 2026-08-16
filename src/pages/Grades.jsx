@@ -7,7 +7,7 @@ import { downloadExcel } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT, localeForLang } from '../lib/i18n';
 import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../lib/lockService';
-import { useCountry, gradingOpts, geGradeMax, gradeEntryMode } from '../lib/useCountry';
+import { useCountry, gradingOpts, geGradeMax, gradeEntryMode, primaryPeriodMode } from '../lib/useCountry';
 import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
@@ -604,10 +604,14 @@ function PrincipalGrades() {
   const gOpts         = gradingOpts(school, cycle);
   const geMax         = geGradeMax(school);
   const isEN          = sys === 'EN';
+  // Le primaire classique peut suivre le rythme du secondaire (6 séquences) si
+  // l'établissement l'a choisi dans Paramètres. Défaut : 3 trimestres, comme
+  // avant. La maternelle reste toujours en trimestres.
+  const primSequences = isPrimaire && primaryPeriodMode(school) === 'sequences';
   // Pour les écoles Guinea Ecuatorial : 3 trimestres en espagnol, quel que soit le cycle.
   const periods = isGE
     ? TRIMESTRES_GE
-    : (isMaternelle || isPrimaire) ? TRIMESTRES
+    : (isMaternelle || (isPrimaire && !primSequences)) ? TRIMESTRES
     : isEN ? TERMS_EN
     : SEQUENCES;
 
@@ -772,7 +776,7 @@ function PrincipalGrades() {
 
   const periodLabel =
     isGE                              ? t('Trimestre', 'Quarter') /* auto-traduit ES */
-    : (isMaternelle || isPrimaire)    ? t('Trimestre', 'Quarter')
+    : (isMaternelle || (isPrimaire && !primSequences)) ? t('Trimestre', 'Quarter')
     : isEN                            ? 'Term'
                                       : t('Séquence', 'Sequence');
 

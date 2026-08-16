@@ -1,0 +1,35 @@
+# Unit systemd — NotesCam (édition LAN). Copié tel quel par install.sh dans
+# /etc/systemd/system/notescam.service. La config (port, dossier de données)
+# vit dans /etc/notescam/notescam.env, pas ici, pour survivre aux mises à jour.
+
+[Unit]
+Description=NotesCam LAN Server (édition école hors-ligne)
+# network-online (et pas network.target, qui ne garantit RIEN) : le serveur doit
+# démarrer avec les interfaces déjà configurées, sinon il écoute avant que le
+# réseau de l'école existe et l'empreinte machine se calcule sur un système
+# encore sans carte réseau visible.
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=notescam
+Group=notescam
+WorkingDirectory=/opt/notescam/app
+EnvironmentFile=-/etc/notescam/notescam.env
+ExecStart=/opt/notescam/node/bin/node /opt/notescam/app/server/index.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Durcissement : le process n'a besoin d'écrire que dans son dossier de données.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/notescam
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

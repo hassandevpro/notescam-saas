@@ -118,13 +118,17 @@ export function ContinuationHeader({ title, student, classLabel, serieLabel, sys
 }
 
 // ── Identité de l'élève (avec série optionnelle pour le second cycle) ──────────
-export function OfficialIdentity({ student, classLabel, serieLabel, effectif, profPrincipal, sys }) {
+// `ppLabel` : surcharge du libellé « P. principal » (le fondamental parle
+// d'enseignant(e) de la classe). `qrSrc` : QR d'identification de l'élève (même
+// payload que la carte scolaire) — colonne affichée seulement s'il est fourni.
+export function OfficialIdentity({ student, classLabel, serieLabel, effectif, profPrincipal, sys, ppLabel, qrSrc }) {
   const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
   const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
   const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
   const classTxt = [classLabel, serieLabel].filter(Boolean).join(' · ');
   const yes = L(sys, 'Oui', 'Yes', 'Sí');
   const no  = L(sys, 'Non', 'No', 'No');
+  const ppLbl = ppLabel || L(sys, 'P. principal', 'Form master', 'Tutor');
   const Chk = ({ on }) => (
     <span style={{ display: 'inline-block', width: 9, height: 9, border: B, margin: '0 2px', verticalAlign: 'middle', background: on ? '#374151' : '#fff' }} />
   );
@@ -137,6 +141,12 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
           </td>
           <td style={CELL}>{L(sys, "Nom et Prénoms de l'élève", "Student's full name", 'Nombre y apellidos')} : <strong>{student?.name || ''}</strong></td>
           <td style={{ ...CELL, whiteSpace: 'nowrap' }}>{L(sys, 'Classe', 'Class', 'Clase')} : <strong>{classTxt}</strong></td>
+          {qrSrc && (
+            <td rowSpan={4} style={{ ...CELL, width: 58, textAlign: 'center', verticalAlign: 'middle' }}>
+              <img src={qrSrc} alt="QR" style={{ width: 48, height: 48, display: 'inline-block' }} />
+              <div style={{ fontSize: '6pt', color: '#9ca3af', letterSpacing: 0.3 }}>SCAN</div>
+            </td>
+          )}
         </tr>
         <tr>
           <td style={CELL}>{L(sys, 'Date et lieu de naissance', 'Date and place of birth', 'Fecha y lugar de nacimiento')} : {student?.date_naissance || ''} {student?.lieu_naissance ? `${L(sys, 'à', 'in', 'en')} ${student.lieu_naissance}` : ''}</td>
@@ -144,7 +154,7 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
         </tr>
         <tr>
           <td style={CELL}>{L(sys, 'Identifiant Unique', 'Unique ID', 'Identificador único')} : {student?.matricule || ''}</td>
-          <td style={CELL}>{L(sys, 'Redoublant', 'Repeater', 'Repetidor')} : {yes} <Chk on={redoublant} /> {no} <Chk on={!redoublant} /> · {L(sys, 'P. principal', 'Form master', 'Tutor')} : {profPrincipal || ''}</td>
+          <td style={CELL}>{L(sys, 'Redoublant', 'Repeater', 'Repetidor')} : {yes} <Chk on={redoublant} /> {no} <Chk on={!redoublant} /> · {ppLbl} : {profPrincipal || ''}</td>
         </tr>
         <tr><td colSpan={2} style={CELL}>{L(sys, 'Noms et contacts des Parents / Tuteurs', 'Parents / Guardians names and contacts', 'Nombres y contactos de los padres / tutores')} : {parents}{phone}</td></tr>
       </tbody>

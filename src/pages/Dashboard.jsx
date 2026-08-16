@@ -13,6 +13,9 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useUiStore } from '../store/uiStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { useT } from '../lib/i18n';
+import { useCountry } from '../lib/useCountry';
+import { resolveClassEngine } from '../core/engineResolver';
+import { fetchSequenceDates, indexSequenceDates } from '../lib/sequenceDatesService';
 import { roleLabel, displayRoleLabel } from '../lib/roleLabel';
 import { catalogOrDefault } from '../governance/defaultCatalog';
 import { roleBudgetQueues } from '../governance/dashboard';
@@ -52,6 +55,17 @@ export default function Dashboard() {
   const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
   const loading  = useSchoolStore((s) => s.loading);
 
+  // Moteurs non numériques : leurs saisies ne vivent pas dans `gradeMap`, il faut
+  // leurs propres données pour que « X/Y notes saisies » dise la vérité.
+  const apcNotes        = useSchoolStore((s) => s.apcNotes);
+  const primNotes       = useSchoolStore((s) => s.primNotes);
+  const matObservations = useSchoolStore((s) => s.matObservations);
+  const apcReferentiel  = useSchoolStore((s) => s.apcReferentiel);
+  const loadApc  = useSchoolStore((s) => s.loadApc);
+  const loadMat  = useSchoolStore((s) => s.loadMat);
+  const loadPrim = useSchoolStore((s) => s.loadPrim);
+  const country  = useCountry();
+
   const catalog = useMemo(() => catalogOrDefault(governanceCatalog), [governanceCatalog]);
 
   // Gouvernance financière distante : la composition du tableau de bord en dépend
@@ -72,7 +86,34 @@ export default function Dashboard() {
   const show = (id) => blocks.includes(id);
 
   // ── Données, chargées uniquement pour les blocs retenus ───────────────────
-  const academics = useAcademicStats({ classes, subjects, students, gradeMap, fees, getClassFeeGrid });
+
+  // Calendrier scolaire : c'est lui qui décide de la période à compléter. Une
+  // lecture par école ; sans dates, les blocs retombent sur leur heuristique.
+  const [seqDates, setSeqDates] = useState({});
+  useEffect(() => {
+    let ok = true;
+    if (!school?.id) { setSeqDates({}); return undefined; }
+    fetchSequenceDates(school.id)
+      .then((rows) => { if (ok) setSeqDates(indexSequenceDates(rows)); })
+      .catch(() => {});
+    return () => { ok = false; };
+  }, [school?.id]);
+
+  // Les moteurs présents dans l'établissement, déduits des classes réelles : on
+  // ne charge un référentiel fondamental/APC que s'il sert à quelqu'un.
+  const engines = useMemo(() => {
+    const set = new Set(classes.map((c) => resolveClassEngine(school, c)));
+    return { apc: set.has('apc'), mat: set.has('maternelle'), prim: set.has('apc_primaire') };
+  }, [classes, school]);
+  useEffect(() => { if (engines.apc)  loadApc(); },  [engines.apc, loadApc]);
+  useEffect(() => { if (engines.mat)  loadMat(); },  [engines.mat, loadMat]);
+  useEffect(() => { if (engines.prim) loadPrim(); }, [engines.prim, loadPrim]);
+
+  const academics = useAcademicStats({
+    school, countryCode: country.code, classes, subjects, students,
+    gradeMap, apcNotes, primNotes, matObservations, apcReferentiel,
+    seqDates, fees, getClassFeeGrid,
+  });
 
   const needsDiscipline = show(BLOCK.DISCIPLINE);
   const classIds = useMemo(() => classes.map((c) => c.id), [classes]);
@@ -132,7 +173,9 @@ export default function Dashboard() {
     [BLOCK.ACADEMICS]: () => (
       <AcademicsStats loading={loading} classes={classes} students={students} globalPassRate={academics.globalPassRate} />
     ),
-    [BLOCK.GRADES_TODO]: () => (!loading ? <GradesTodo items={academics.missingGrades} /> : null),
+    [BLOCK.GRADES_TODO]: () => (!loading
+      ? <GradesTodo items={academics.missingGrades} calendarSet={academics.calendarSet} />
+      : null),
     [BLOCK.CLASS_TABLE]: () => (!loading ? <ClassTable classStats={academics.classStats} /> : null),
     [BLOCK.FEES]: () => <FeesBlock loading={loading} feesStats={academics.feesStats} />,
     [BLOCK.DISCIPLINE]: () => (

@@ -21,11 +21,16 @@
 //
 // Pur (pas de React/DOM) : testable et réutilisable par le rendu écran/PDF.
 
-// Géométrie A4 (mm) — marges réduites pour exploiter toute la surface.
-const PAGE_H = 297, MARGIN = 6, PAD = 2;
-const USABLE_H = PAGE_H - 2 * MARGIN - 2 * PAD;        // ≈ 281mm
-const TABLE_W  = 210 - 2 * MARGIN - 2 * PAD;           // ≈ 194mm
-const COMP_COL_W = TABLE_W * 0.42;                     // colonne COMPÉTENCES (large)
+// Géométrie de page : LUE DANS LE SOCLE D'IMPRESSION, jamais redéclarée ici.
+// L'auto-fit raisonne sur la surface réellement imprimable ; si la marge du
+// profil « bulletin » change, le planificateur s'adapte au lieu de mentir.
+import { pageMetrics } from '../lib/print/printStyles';
+
+const PAGE = pageMetrics('bulletin');
+const PAD = 2;                                          // padding interne de la feuille (mm)
+const USABLE_H = PAGE.contentH - 2 * PAD;               // hauteur utile réelle
+const TABLE_W  = PAGE.contentW - 2 * PAD;               // largeur utile réelle
+const COMP_COL_W = TABLE_W * 0.42;                      // colonne COMPÉTENCES (large)
 
 // Métriques typographiques approchées (mm). La largeur d'un caractère ne dépend que
 // de la police ; la hauteur d'une ligne dépend en plus de l'interligne (facteur lhK).

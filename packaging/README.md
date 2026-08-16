@@ -1,3 +1,6 @@
+> Pour Ubuntu/Debian, voir `linux/README.md` (paquet `.tar.gz` + service
+> systemd — équivalent Linux de cet installateur Windows).
+
 # Packaging — Installateur .exe NotesCam (édition LAN)
 
 Produit un installateur Windows unique (`NotesCam-Setup.exe`) qui installe le

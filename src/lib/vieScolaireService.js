@@ -58,15 +58,29 @@ function makeEntity(table) {
 // frappe ne doit pas re-notifier. `isDisciplineTable` borne le périmètre — les
 // retards et les autorisations de sortie sont trop fréquents pour être notifiés.
 // Best-effort, jamais bloquant.
+//
+// Incident GRAVE : en plus de l'interne au titulaire, alerte le PARENT par SMS
+// (priorité 'urgent' — c'est le seul des 4 déclencheurs SMS qui l'utilise, les
+// autres restent 'important'). 'majeur'/'mineur' ne déclenchent aucun SMS —
+// réservé à ce qui menace réellement de passer inaperçu autrement.
 function notifyDiscipline(table, data, row) {
   if (!data || row?.id) return;                    // mise à jour → silence
   if (!isDisciplineTable(table)) return;
   import('./notificationProducers.js')
-    .then(({ notifySchoolEvent }) => notifySchoolEvent({
-      kind: 'discipline.recorded',
-      schoolId: data.school_id,
-      payload: { table, classId: data.class_id, studentId: data.student_id },
-    }))
+    .then(({ notifySchoolEvent, notifyParent }) => {
+      notifySchoolEvent({
+        kind: 'discipline.recorded',
+        schoolId: data.school_id,
+        payload: { table, classId: data.class_id, studentId: data.student_id },
+      });
+      if (table === 'disciplinary_incidents' && data.severity === 'grave' && data.student_id) {
+        notifyParent({
+          schoolId: data.school_id, studentId: data.student_id, priority: 'urgent', type: 'discipline_grave',
+          title: 'Incident disciplinaire grave',
+          body: "Un incident disciplinaire grave concernant votre enfant a été enregistré. Merci de contacter l'établissement rapidement.",
+        });
+      }
+    })
     .catch(() => { /* notification best-effort */ });
 }
 

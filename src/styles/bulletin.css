@@ -276,11 +276,6 @@
   opacity: 0.82;
 }
 
-@media print {
-  .bulletin-sig-img   { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .bulletin-stamp-img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-}
-
 /* --- Navigation élèves dans le sidebar --- */
 .bulletin-student-btn {
   width: 100%;
@@ -302,11 +297,9 @@
    IMPRESSION
    ================================================================ */
 @media print {
-  /* Marges d'impression réduites pour maximiser l'espace utile (auto-fit APC). */
-  @page {
-    size: A4 portrait;
-    margin: 6mm;
-  }
+  /* Géométrie de page : profil « bulletin » du socle d'impression, déclaré par
+     la page Bulletins via setPrintProfile(). Aucune règle @page ici — deux
+     déclarations concurrentes se contrediraient. */
 
   /* Masquer tout le chrome de l'application */
   header,
@@ -398,11 +391,8 @@
 
   .bulletin-signatures > div { padding-top: 6px; }
 
-  /* Préserver les couleurs de fond */
-  .bulletin-title { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .bulletin-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .bulletin-box-title { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .bulletin-table tbody tr:nth-child(even) { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Les couleurs de fond sont préservées par le socle d'impression
+     (print-color-adjust: exact), plus besoin de les déclarer par sélecteur. */
 
   /* ── Bulletins officiels MINESEC (auto-fit) : pagination & pleine surface ──
      La pagination est EXPLICITE (moteur apcLayout) ; chaque feuille = une page.
@@ -417,9 +407,6 @@
     page-break-inside: avoid;
     break-inside: avoid;
   }
-  .apc-sheet th,
-  .apc-sheet td,
-  .apc-sheet .apc-title-bar { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
 /* ── Filigrane logo officiel — répété sur CHAQUE page imprimée ──
@@ -696,30 +683,8 @@
   font-size: 10px;
 }
 
-/* ================================================================
-   IMPRESSION — ajouts formats
-   ================================================================ */
-@media print {
-  .bm-header-band {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  .bm-table th {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  .apc-table thead tr th:last-child {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  .bm-progress-fill {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-}
+/* Les aplats des formats modernes (bandeaux, en-têtes, jauges) sortent à l'encre
+   grâce au socle d'impression — plus de déclaration par sélecteur ici. */
 
 @media (max-width: 900px) {
   .bulletin-layout {

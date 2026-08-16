@@ -8,7 +8,7 @@ import {
   randomBytes, scryptSync, timingSafeEqual,
   createHmac, createHash, verify as cryptoVerify, createPublicKey,
 } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
@@ -94,52 +94,113 @@ export function licensingEnabled() {
 // --- Empreinte machine (verrou de licence node-locked) ----------------
 // Identifiant STABLE de la machine, affiché à l'activation : l'école le
 // communique à l'éditeur, qui signe une licence liée (`--machine <empreinte>`).
-// Sources, par ordre de préférence (aucune dépendance native, sans admin) :
-//   1. Windows MachineGuid (registre) — stable même après réinstallation de l'app
-//   2. 1ʳᵉ adresse MAC physique
-//   3. identifiant aléatoire persistant dans DATA_DIR (dernier recours)
+//
+// On calcule une LISTE de sources (aucune dépendance native, sans admin) :
+//   1. Windows MachineGuid (registre) — stable même après réinstallation
+//   2. Linux /etc/machine-id (ou /var/lib/dbus/machine-id) — stable, indépendant
+//      du réseau : c'est l'identifiant canonique de la machine sous Linux
+//   3. toutes les adresses MAC non internes, lues d'abord dans /sys/class/net
+//      (visibles même sans IP) puis via os.networkInterfaces()
+//   4. identifiant aléatoire persistant dans DATA_DIR (dernier recours)
+//
+// La PREMIÈRE source disponible donne l'empreinte AFFICHÉE (celle à faire
+// signer). Toutes les autres restent ACCEPTÉES à l'activation.
+//
+// Pourquoi une liste et non une seule source : jusqu'ici Linux ne retenait que
+// la 1ʳᵉ MAC remontée par os.networkInterfaces(), qui n'y liste que les
+// interfaces AYANT DÉJÀ une adresse IP. Une unité systemd démarrée avant que le
+// DHCP ait répondu (After=network.target ne l'attend pas), un docker0/VPN qui
+// apparaît, et l'empreinte changeait d'un redémarrage à l'autre : la licence
+// signée la veille était alors refusée (« verrouillée sur une autre machine »)
+// sur la machine même pour laquelle elle avait été émise. Les empreintes
+// historiques restent donc acceptées, et l'affichage bascule sur une source qui
+// ne bouge plus.
+//
 // On hache la source brute -> empreinte courte lisible (ex. A1B2-C3D4-E5F6-7890).
-let _machineFp = null;
-function rawMachineId() {
-  // 1) Windows MachineGuid
-  try {
-    const out = execSync(
-      'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
-      { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }
-    ).toString();
-    const m = out.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/);
-    if (m) return 'winguid:' + m[1];
-  } catch { /* pas Windows / pas d'accès registre */ }
+const fpOf = (raw) =>
+  createHash('sha256').update(raw).digest('hex').slice(0, 16).toUpperCase().match(/.{4}/g).join('-');
 
-  // 2) Première MAC physique non interne
+let _machineFps = null;
+function rawMachineIds() {
+  const out = [];
+  const push = (v) => { if (v && !out.includes(v)) out.push(v); };
+
+  // 1) Windows MachineGuid
+  if (process.platform === 'win32') {
+    try {
+      const cmd = execSync(
+        'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
+        { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }
+      ).toString();
+      const m = cmd.match(/MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/);
+      if (m) push('winguid:' + m[1]);
+    } catch { /* pas d'accès registre */ }
+  }
+
+  // 2) Linux machine-id (32 hex). /etc/machine-id peut être vide au 1er
+  //    démarrage : dbus en garde alors une copie.
+  for (const p of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+    try {
+      if (!existsSync(p)) continue;
+      const id = readFileSync(p, 'utf8').trim().toLowerCase();
+      if (/^[0-9a-f]{32}$/.test(id)) push('linux:' + id);
+    } catch { /* ignore */ }
+  }
+
+  // 3) MAC physiques. /sys/class/net les expose même sans IP (contrairement à
+  //    os.networkInterfaces()) -> les empreintes MAC historiques redeviennent
+  //    reproductibles quel que soit l'état du réseau au démarrage.
+  const macs = [];
+  try {
+    for (const name of readdirSync('/sys/class/net').sort()) {
+      try {
+        const mac = readFileSync(`/sys/class/net/${name}/address`, 'utf8').trim();
+        // type 1 = Ethernet ; exclut lo (772) et les tunnels
+        const type = readFileSync(`/sys/class/net/${name}/type`, 'utf8').trim();
+        if (type === '1' && mac && mac !== '00:00:00:00:00:00') macs.push(mac);
+      } catch { /* interface disparue entre-temps */ }
+    }
+  } catch { /* pas Linux */ }
   try {
     for (const list of Object.values(networkInterfaces())) {
       for (const i of list || []) {
-        if (!i.internal && i.mac && i.mac !== '00:00:00:00:00:00') return 'mac:' + i.mac;
+        if (!i.internal && i.mac && i.mac !== '00:00:00:00:00:00') macs.push(i.mac);
       }
     }
   } catch { /* ignore */ }
+  for (const mac of macs) { push('mac:' + mac); push('mac:' + mac.toLowerCase()); }
 
-  // 3) Aléatoire persistant (lié à cette installation)
+  // 4) Aléatoire persistant (lié à cette installation). Réutilisé s'il existe
+  //    déjà ; on n'en crée un que si AUCUNE autre source n'a répondu, sinon on
+  //    fabriquerait une empreinte de secours sur une machine parfaitement
+  //    identifiable.
   const p = join(DATA_DIR, 'machine-id.key');
   try {
-    if (existsSync(p)) return 'rnd:' + readFileSync(p, 'utf8').trim();
-    const id = randomBytes(16).toString('hex');
-    writeFileSync(p, id, { mode: 0o600 });
-    return 'rnd:' + id;
-  } catch {
-    return 'rnd:fallback';   // jamais en pratique
-  }
+    if (existsSync(p)) {
+      push('rnd:' + readFileSync(p, 'utf8').trim());
+    } else if (!out.length) {
+      const id = randomBytes(16).toString('hex');
+      writeFileSync(p, id, { mode: 0o600 });
+      push('rnd:' + id);
+    }
+  } catch { /* dossier en lecture seule */ }
+
+  if (!out.length) push('rnd:fallback');       // jamais en pratique
+  return out;
+}
+
+// Toutes les empreintes acceptées, la 1ʳᵉ étant celle affichée.
+export function machineFingerprints() {
+  if (!_machineFps) _machineFps = rawMachineIds().map(fpOf);
+  return _machineFps;
 }
 export function machineFingerprint() {
-  if (_machineFp) return _machineFp;
-  const hex = createHash('sha256').update(rawMachineId()).digest('hex').slice(0, 16).toUpperCase();
-  _machineFp = hex.match(/.{4}/g).join('-');   // A1B2-C3D4-E5F6-7890
-  return _machineFp;
+  return machineFingerprints()[0];
 }
 
 // @param {string} licenseKey
-// @param {{ machineId?: string }} opts  empreinte de CETTE machine (pour le verrou)
+// @param {{ machineId?: string, machineIds?: string[] }} opts
+//   empreinte(s) de CETTE machine (pour le verrou)
 export function verifyLicenseKey(licenseKey, opts = {}) {
   if (!LICENSE_PUBLIC_KEY_B64) {
     return { ok: false, reason: 'no_public_key', payload: null };
@@ -167,13 +228,17 @@ export function verifyLicenseKey(licenseKey, opts = {}) {
     // Verrou machine : si la licence est liée (`machine_id`), elle ne s'active
     // que sur la machine correspondante. Une licence sans `machine_id` reste
     // valable partout (rétrocompatible / licences non verrouillées).
+    // On compare à TOUTES les empreintes de ce poste (cf. machineFingerprints)
+    // pour que les clés émises avant le correctif restent valables ici.
     if (payload.machine_id) {
-      const here = opts.machineId || machineFingerprint();
-      if (payload.machine_id !== here) {
-        return { ok: false, reason: 'machine_mismatch', payload };
+      const here = opts.machineIds
+        || (opts.machineId ? [opts.machineId] : machineFingerprints());
+      if (!here.includes(payload.machine_id)) {
+        return { ok: false, reason: 'machine_mismatch', payload, machineId: here[0] };
       }
+      return { ok: true, reason: null, payload, machineId: payload.machine_id };
     }
-    return { ok: true, reason: null, payload };
+    return { ok: true, reason: null, payload, machineId: null };
   } catch (e) {
     return { ok: false, reason: 'error', payload: null, error: e.message };
   }

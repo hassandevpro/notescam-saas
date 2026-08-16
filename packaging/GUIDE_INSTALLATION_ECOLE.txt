@@ -1,0 +1,47 @@
+📘 NotesCam — Installation sur l'ordinateur de l'école
+
+Bonjour 👋
+Voici comment installer NotesCam sur l'ordinateur du bureau (secrétariat / direction). L'installation prend 2 minutes et ne nécessite pas d'internet après.
+
+✅ Ce qu'il vous faut
+- Le fichier joint : NotesCam-Setup.exe
+- Un ordinateur sous Windows 10 ou 11
+
+📥 Étapes d'installation
+
+1️⃣ Copiez le fichier NotesCam-Setup.exe reçu sur le Bureau de l'ordinateur.
+
+2️⃣ Double-cliquez dessus.
+   Si Windows affiche « L'éditeur n'a pas pu être vérifié », cliquez sur
+   « Informations complémentaires » puis « Exécuter quand même ».
+
+3️⃣ Suivez l'assistant : cliquez sur « Suivant » puis « Installer »
+   (laissez les options par défaut).
+
+4️⃣ À la fin, cochez « Ouvrir NotesCam maintenant » et cliquez sur « Terminer ».
+   L'application s'ouvre dans le navigateur — c'est prêt ✅
+
+5️⃣ Un raccourci « NotesCam (LAN) » est créé sur le Bureau : c'est lui qu'il
+   faut utiliser pour rouvrir l'application ensuite.
+
+👤 Première utilisation
+Sur le premier écran, cliquez sur « Inscription » pour créer :
+- le compte de l'administrateur (directeur/directrice)
+- l'établissement (nom, type, région, système : francophone/anglophone/bilingue)
+Ensuite, ajoutez les classes, matières et élèves comme d'habitude.
+
+🌐 Accès depuis les autres ordinateurs de l'école
+Une fois installé, les autres postes du même réseau (Wi-Fi/câble de l'école)
+peuvent y accéder en ouvrant un navigateur et en tapant :
+   http://ADRESSE-IP-DU-PC:8080
+(l'adresse IP du PC serveur vous sera communiquée après l'installation)
+
+⚠️ Important
+- Ce PC devient le « serveur » de l'école : il doit rester allumé (ou au
+  moins non éteint pendant les heures de saisie) et connecté au réseau.
+- Désactivez la mise en veille automatique de ce PC.
+- Les sauvegardes sont automatiques (toutes les 2h) — rien à faire.
+- Ne désinstallez jamais l'application sans nous contacter : vos données
+  restent toujours protégées, mais autant vérifier ensemble avant.
+
+📞 Besoin d'aide ? Répondez simplement à ce message sur WhatsApp.

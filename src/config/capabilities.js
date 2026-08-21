@@ -104,3 +104,11 @@ export function isPathPermitted(pathname, permissions) {
 export function firstPermitted(permissions) {
   return (permissions && permissions[0]) || '/app';
 }
+
+// Le compte DÉLÉGUÉ porte-t-il explicitement cette capacité ? Sert aux pages qui
+// distinguent consultation et ÉCRITURE (inscrire un élève, gérer les enseignants) :
+// la page accordée EST le droit d'y travailler, sinon on n'aurait donné qu'une
+// vitrine. Renvoie false pour un compte non délégué — son rôle décide, comme avant.
+export function hasCapability(permissions, path) {
+  return Array.isArray(permissions) && permissions.includes(path);
+}

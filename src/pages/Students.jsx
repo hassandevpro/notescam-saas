@@ -2,6 +2,7 @@ import { useState, useRef, useMemo, lazy, Suspense } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
+import { hasCapability } from '../config/capabilities';
 import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate } from '../lib/exportCsv';
 import { officialHeaderHtml, officialSignatureHtml } from '../lib/officialDocHeader';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
@@ -767,10 +768,13 @@ export default function Students() {
   const deleteStudent       = useSchoolStore((s) => s.deleteStudent);
   const bulkAssignToClass   = useSchoolStore((s) => s.bulkAssignToClass);
   const role                = useAuthStore((s) => s.role);
+  const permissions         = useAuthStore((s) => s.permissions);
 
-  // Écriture des élèves réservée à la direction (admin + censeur), aligné sur la
-  // politique RLS Supabase. Le surveillant garde un accès en LECTURE seule.
-  const canEdit = role === 'admin' || role === 'censeur';
+  // Écriture des élèves : la direction (admin + censeur), plus tout compte délégué
+  // à qui l'admin a explicitement confié la page Élèves — inscrire un élève est le
+  // travail attendu de cette capacité. Aligné sur la politique RLS Supabase
+  // (supabase_delegated_write_access.sql). Sinon : lecture seule.
+  const canEdit = role === 'admin' || role === 'censeur' || hasCapability(permissions, '/app/students');
 
   const [classFilter,    setClassFilter]   = useState('');
   const [sectionFilter,  setSectionFilter] = useState('');

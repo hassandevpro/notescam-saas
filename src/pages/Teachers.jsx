@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
+import { hasCapability } from '../config/capabilities';
 import { supabase } from '../lib/supabase';
 import { createClient } from '@supabase/supabase-js';
 import { exportTeachers, downloadTeacherTemplate, parseTeachersSpreadsheet } from '../lib/exportCsv';
@@ -688,6 +689,11 @@ export function TeachersPanel() {
   const deleteTeacher = useSchoolStore((s) => s.deleteTeacher);
   const school        = useAuthStore((s) => s.school);
   const role          = useAuthStore((s) => s.role);
+  const permissions   = useAuthStore((s) => s.permissions);
+
+  // Gestion complète du corps enseignant (accès de connexion, droit de bulletins) :
+  // l'admin, ou tout compte délégué à qui la page Enseignants a été confiée.
+  const canManageTeachers = role === 'admin' || hasCapability(permissions, '/app/teachers');
 
   const [search,        setSearch]        = useState('');
   const [showForm,      setShowForm]      = useState(false);
@@ -986,7 +992,7 @@ export function TeachersPanel() {
                   </div>
                   <div className="flex gap-1.5 mt-4 pt-3 border-t border-slate-50">
                     <button onClick={() => { setEditing(teacher); setShowForm(true); }} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{t('Modifier', 'Edit', 'Editar')}</button>
-                    {role === 'admin' && <button onClick={() => setAccessModal(teacher)} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{teacher.auth_user_id ? t('Accès', 'Access', 'Acceso') : t('Créer accès', 'Create access', 'Crear acceso')}</button>}
+                    {canManageTeachers && <button onClick={() => setAccessModal(teacher)} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{teacher.auth_user_id ? t('Accès', 'Access', 'Acceso') : t('Créer accès', 'Create access', 'Crear acceso')}</button>}
                   </div>
                 </div>
               );
@@ -1032,7 +1038,7 @@ export function TeachersPanel() {
                     <th className="px-4 py-3 text-center">{t('Matières', 'Subjects')}</th>
                     <th className="px-4 py-3 text-left">{t('Charge', 'Load', 'Carga')}</th>
                     <th className="px-4 py-3 text-center">{t('Accès app', 'App access')}</th>
-                    {role === 'admin' && <th className="px-4 py-3 text-center">{t('Bulletins', 'Bulletins')}</th>}
+                    {canManageTeachers && <th className="px-4 py-3 text-center">{t('Bulletins', 'Bulletins')}</th>}
                     <th className="px-4 py-3 text-right">{t('Actions', 'Actions')}</th>
                   </tr>
                 </thead>
@@ -1128,7 +1134,7 @@ export function TeachersPanel() {
                         </td>
 
                         {/* Permission bulletins */}
-                        {role === 'admin' && (
+                        {canManageTeachers && (
                           <td className="px-4 py-3 text-center">
                             <button
                               onClick={() => updateTeacher(teacher.id, { can_print_bulletin: !(teacher.can_print_bulletin ?? true) })}

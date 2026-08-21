@@ -11,7 +11,7 @@ function ctxFromState(s) {
   return {
     user: s.user, school: s.school, role: s.role, fullName: s.fullName,
     phone: s.phone, photoUrl: s.photoUrl, lastLogin: s.lastLogin,
-    createdAt: s.createdAt, specialty: s.specialty,
+    createdAt: s.createdAt, specialty: s.specialty, jobTitle: s.jobTitle,
     classId: s.classId, schoolUserId: s.schoolUserId, teacherId: s.teacherId,
     scope: s.scope, permissions: s.permissions,
     governanceRoles: s.governanceRoles, governanceRoleRows: s.governanceRoleRows,
@@ -61,6 +61,7 @@ export const useAuthStore = create((set, get) => ({
   lastLogin: null,
   createdAt: null,
   specialty: null,   // matière enseignée (role=teacher uniquement)
+  jobTitle: null,    // intitulé de poste (staff.fonction) — prime sur le rôle à l'affichage
   classId: null,
   schoolUserId: null,
   teacherId: null,   // UUID du record teachers lié à ce compte (role=teacher uniquement)
@@ -105,6 +106,7 @@ export const useAuthStore = create((set, get) => ({
           lastLogin: ctx?.lastLogin || null,
           createdAt: ctx?.createdAt || null,
           specialty: ctx?.specialty || null,
+          jobTitle: ctx?.jobTitle || null,
           classId: ctx?.classId || null,
           schoolUserId: ctx?.schoolUserId || null,
           teacherId: ctx?.teacherId || null,
@@ -200,6 +202,7 @@ export const useAuthStore = create((set, get) => ({
       lastLogin: ctx?.lastLogin || null,
       createdAt: ctx?.createdAt || null,
       specialty: ctx?.specialty || null,
+      jobTitle: ctx?.jobTitle || null,
       classId: ctx?.classId || null,
       schoolUserId: ctx?.schoolUserId || null,
       teacherId: ctx?.teacherId || null,

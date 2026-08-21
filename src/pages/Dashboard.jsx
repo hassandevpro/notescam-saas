@@ -42,6 +42,7 @@ export default function Dashboard() {
   const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
   const governanceAssignments = useAuthStore((s) => s.governanceAssignments);
   const governanceRoleRows = useAuthStore((s) => s.governanceRoleRows);
+  const jobTitle = useAuthStore((s) => s.jobTitle);
   const viewYear = useUiStore((s) => s.viewYear);
   // Messages non lus : lu par abonnement (l'ancien appel `getState()` dans le rendu
   // ne se rafraîchissait jamais).
@@ -201,7 +202,7 @@ export default function Dashboard() {
   const name = domain === 'teaching' ? fullName : fullName?.split(' ')[0];
   // Le libellé affiché est le rôle de gouvernance le plus élevé quand il existe,
   // sinon le rôle de base — cohérent avec l'en-tête et la page profil.
-  const shownRole = displayRoleLabel(role, governanceRoleRows, t) || roleLabel(role, t);
+  const shownRole = displayRoleLabel(role, governanceRoleRows, t, jobTitle) || roleLabel(role, t);
 
   return (
     <Layout>

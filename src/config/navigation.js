@@ -169,8 +169,11 @@ export const NAV_GROUPS = [
         roles: ALL },
       { to: '/app/year',       icon: 'year',     label: ['Année scolaire', 'Academic Year', 'Año escolar'],
         roles: ['admin'] },
+      // Traçabilité ouverte à TOUS les rôles : chacun doit pouvoir vérifier qui a
+      // fait quoi. Les onglets Corbeille et Sauvegardes restent réservés à l'admin
+      // (restauration et copies complètes de l'école) — voir History.jsx.
       { to: '/app/historique', icon: 'history',  label: ['Historique', 'History', 'Historial'],
-        roles: ['admin'] },
+        roles: ALL },
       { to: '/app/aide',       icon: 'help',     label: ['Guide / Aide', 'Help guide', 'Ayuda'],
         roles: ALL },
     ],

@@ -54,6 +54,7 @@ export default function UserMenu({ onLogout }) {
   const photoUrl = useAuthStore((s) => s.photoUrl);
   const role     = useAuthStore((s) => s.role);
   const governanceRoleRows = useAuthStore((s) => s.governanceRoleRows);
+  const jobTitle = useAuthStore((s) => s.jobTitle);
   const applyProfile = useAuthStore((s) => s.applyProfile);
   const t = useT();
 
@@ -124,7 +125,7 @@ export default function UserMenu({ onLogout }) {
             <UserAvatar name={fullName} photoUrl={photoUrl} size={40} />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-800 truncate">{fullName || '—'}</p>
-              <p className="text-xs text-slate-400 truncate">{displayRoleLabel(role, governanceRoleRows, t)}</p>
+              <p className="text-xs text-slate-400 truncate">{displayRoleLabel(role, governanceRoleRows, t, jobTitle)}</p>
             </div>
           </div>
 

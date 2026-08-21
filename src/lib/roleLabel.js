@@ -14,11 +14,15 @@ export function roleLabel(role, t) {
   }
 }
 
-// Libellé RÉEL à afficher : les rôles de gouvernance (fondatrice, coordonnateur…)
-// sont ADDITIFS au rôle de base (admin/censeur/…). Pour l'affichage, on montre le
-// rôle de gouvernance le PLUS ÉLEVÉ (rang max) quand il existe — sinon le rôle de
-// base. Ainsi « ajouter fondatrice » affiche bien « Fondatrice » et non le défaut.
-export function displayRoleLabel(role, governanceRoleRows, t) {
+// Libellé RÉEL à afficher, du plus parlant au plus générique :
+//   1. le rôle de GOUVERNANCE le plus élevé (fondatrice, coordonnateur…), additif
+//      au rôle de base — « ajouter fondatrice » affiche bien « Fondatrice » ;
+//   2. l'INTITULÉ DE POSTE du compte (staff.fonction : « Directeur »,
+//      « Sous-directrice », « Caissier »…). Le rôle de base n'est qu'un conteneur
+//      de droits : afficher « Censeur » à une sous-directrice n'a aucun sens pour
+//      l'école, qui la connaît par sa fonction ;
+//   3. à défaut, le libellé du rôle de base (comportement historique).
+export function displayRoleLabel(role, governanceRoleRows, t, jobTitle = null) {
   const active = (governanceRoleRows || []).filter((r) => !r.status || r.status === 'active');
   if (active.length) {
     const top = active
@@ -27,5 +31,6 @@ export function displayRoleLabel(role, governanceRoleRows, t) {
       .sort((a, b) => (b.rank || 0) - (a.rank || 0))[0];
     if (top?.label) return t(top.label[0], top.label[1], top.label[2]);
   }
+  if (jobTitle && jobTitle.trim()) return jobTitle.trim();
   return roleLabel(role, t);
 }

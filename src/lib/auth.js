@@ -115,6 +115,22 @@ export async function getCurrentUserContext() {
     if (teacherRow) { teacherId = teacherRow.id; specialty = teacherRow.specialty ?? null; }
   }
 
+  // INTITULÉ DE POSTE du compte (« Directeur », « Sous-directrice », « Caissier »…).
+  // Le rôle de base (admin/censeur/surveillant) n'est qu'un conteneur de droits :
+  // afficher « Censeur » à une sous-directrice ne veut rien dire pour l'école. On
+  // reprend donc la fonction saisie dans Personnel (staff.fonction) quand le compte
+  // y est rattaché. Best-effort : table absente / hors-ligne → libellé par rôle.
+  let jobTitle = null;
+  try {
+    const { data: staffRow } = await supabase
+      .from('staff')
+      .select('fonction')
+      .eq('school_id', data.school_id)
+      .eq('auth_user_id', user.id)
+      .maybeSingle();
+    jobTitle = staffRow?.fonction || null;
+  } catch { /* module Personnel absent → libellé par rôle */ }
+
   // Gouvernance (additive) : CATALOGUE de rôles de l'école + AFFECTATIONS de ce
   // compte (avec secteur/dates/statut). Le moteur en dérive permissions, menus,
   // routes, dashboards et validations. Best-effort : tableaux vides si migration
@@ -144,6 +160,7 @@ export async function getCurrentUserContext() {
     lastLogin:    data.last_login_at ?? null,
     createdAt:    data.created_at ?? null,
     specialty,
+    jobTitle,
     classId:      data.class_id,
     schoolUserId: data.id,
     teacherId,

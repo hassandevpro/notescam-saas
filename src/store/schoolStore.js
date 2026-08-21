@@ -60,6 +60,13 @@ import { promotionAlreadyDone } from '../lib/promotionGuard';
 import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 
+// Rôles « vie scolaire » porteurs d'un périmètre (cf. surveillantScope.js, qui
+// le définit pour « surveillant / censeur »). Un censeur avec un périmètre non
+// vide — direction d'un secteur : maternelle, section anglophone… — est filtré
+// comme un surveillant. Périmètre vide = établissement entier, donc l'admin et
+// les comptes historiques ne changent pas de comportement.
+const SCOPED_ROLES = new Set(['surveillant', 'censeur']);
+
 // Throttle : 1 notification max par (classId_sequence) toutes les 2 min
 const _gradeNotifLastSent = {};
 
@@ -340,9 +347,9 @@ export const useSchoolStore = create((set, get) => ({
       }
 
       // Surveillant scope: restrict to the sections/cycles/classes assigned to
-      // this supervisor (empty scope = whole establishment). Admin/censeur keep all.
+      // this supervisor (empty scope = whole establishment). Admin keeps all.
       const { role: _role, scope: _scope } = useAuthStore.getState();
-      if (_role === 'surveillant' && !isGlobalScope(_scope)) {
+      if (SCOPED_ROLES.has(_role) && !isGlobalScope(_scope)) {
         const scopeIds = new Set(filterClassesByScope(_scope, allClasses).map((c) => c.id));
         allClasses  = allClasses.filter((c) => scopeIds.has(c.id));
         allSubjects = allSubjects.filter((s) => scopeIds.has(s.class_id));
@@ -478,7 +485,7 @@ export const useSchoolStore = create((set, get) => ({
     // ── Surveillant scope (mirrors init) ─────────────────────────────────
     const svRole  = useAuthStore.getState().role;
     const svScope = useAuthStore.getState().scope;
-    if (svRole === 'surveillant' && !isGlobalScope(svScope)) {
+    if (SCOPED_ROLES.has(svRole) && !isGlobalScope(svScope)) {
       const scopeIds = new Set(filterClassesByScope(svScope, newClasses).map((c) => c.id));
       newClasses  = newClasses.filter((c) => scopeIds.has(c.id));
       newSubjects = newSubjects.filter((s) => scopeIds.has(s.class_id));

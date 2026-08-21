@@ -15,6 +15,7 @@ import { displayRoleLabel } from '../../lib/roleLabel';
 export default function MoreSheet({ open, onClose, onLogout }) {
   const role = useAuthStore((s) => s.role);
   const governanceRoleRows = useAuthStore((s) => s.governanceRoleRows);
+  const jobTitle = useAuthStore((s) => s.jobTitle);
   const permissions = useAuthStore((s) => s.permissions);
   const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
   const governanceAssignments = useAuthStore((s) => s.governanceAssignments);
@@ -52,7 +53,7 @@ export default function MoreSheet({ open, onClose, onLogout }) {
             <UserAvatar name={fullName} photoUrl={photoUrl} size={36} />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-800 truncate leading-tight">{fullName || '—'}</p>
-              <p className="text-xs text-slate-400 leading-tight mt-0.5">{displayRoleLabel(role, governanceRoleRows, t)}</p>
+              <p className="text-xs text-slate-400 leading-tight mt-0.5">{displayRoleLabel(role, governanceRoleRows, t, jobTitle)}</p>
             </div>
             <span className="w-4 h-4 shrink-0 text-slate-300">{ICONS.chevron}</span>
           </NavLink>

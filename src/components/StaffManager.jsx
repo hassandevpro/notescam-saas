@@ -372,13 +372,9 @@ function ScopeModal({ row, onClose, onSaved }) {
           )}
         </p>
         <p className="text-xs text-gray-400">
-          {row.role === 'surveillant'
-            ? t('Surveillant : il ne verra QUE les classes de ce périmètre.',
-                'Supervisor: they will only see the classes in this scope.',
-                'Vigilante: solo verá las clases de este ámbito.')
-            : t('Ses données restent complètes : le périmètre sert à répartir la configuration — le directeur du fondamental et le proviseur du secondaire règlent chacun leur calendrier.',
-                'Their data stays complete: the scope splits configuration duties — each head sets their own calendar.',
-                'Sus datos siguen completos: el ámbito reparte la configuración del calendario.')}
+          {t('La personne ne verra QUE les classes de ce périmètre — données ET configuration : le directeur du fondamental et le proviseur du secondaire règlent chacun leur calendrier.',
+             'They will only see the classes in this scope — data AND configuration: each head sets their own calendar.',
+             'Solo verá las clases de este ámbito — datos Y configuración: cada responsable ajusta su calendario.')}
         </p>
 
         <div>

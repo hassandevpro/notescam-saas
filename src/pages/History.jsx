@@ -85,40 +85,34 @@ export default function History() {
     }
   };
 
-  // Seuls les admins voient cette page.
-  if (role === 'teacher') {
-    return (
-      <Layout>
-        <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-sm">{t('Accès réservé aux administrateurs.', 'Admin only.', 'Solo administradores.')}</p>
-        </div>
-      </Layout>
-    );
-  }
-
   const labels = TRASH_LABELS[lang] || TRASH_LABELS.fr;
 
+  // Le JOURNAL est ouvert à tous les rôles : chacun peut vérifier qui a fait quoi.
+  // Restaurer une donnée supprimée et exporter une copie complète de l'école
+  // restent des gestes d'administration → onglets réservés à l'admin.
   const tabs = [
     {
       id: 'journal',
       label: t('Journal', 'Audit log', 'Registro'),
       render: renderAudit,
     },
-    {
-      id: 'corbeille',
-      label: (
-        <span className="flex items-center gap-1.5">
-          {t('Corbeille', 'Trash', 'Papelera')}
-          {trash.length > 0 && <span className="text-xs bg-red-100 text-red-700 px-1.5 rounded-full">{trash.length}</span>}
-        </span>
-      ),
-      render: renderTrash,
-    },
-    {
-      id: 'sauvegarde',
-      label: t('Sauvegardes', 'Backups', 'Copias'),
-      render: renderBackup,
-    },
+    ...(role === 'admin' ? [
+      {
+        id: 'corbeille',
+        label: (
+          <span className="flex items-center gap-1.5">
+            {t('Corbeille', 'Trash', 'Papelera')}
+            {trash.length > 0 && <span className="text-xs bg-red-100 text-red-700 px-1.5 rounded-full">{trash.length}</span>}
+          </span>
+        ),
+        render: renderTrash,
+      },
+      {
+        id: 'sauvegarde',
+        label: t('Sauvegardes', 'Backups', 'Copias'),
+        render: renderBackup,
+      },
+    ] : []),
   ];
 
   return (

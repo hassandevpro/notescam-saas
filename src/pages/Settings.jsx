@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { displayRoleLabel } from '../lib/roleLabel';
 import { useUiStore } from '../store/uiStore';
 import { IS_LAN } from '../lib/edition';
 import { useCountry, geGradeMax } from '../lib/useCountry';
@@ -284,6 +285,8 @@ export default function Settings() {
   const school         = useAuthStore((s) => s.school);
   const role           = useAuthStore((s) => s.role);
   const fullName       = useAuthStore((s) => s.fullName);
+  const jobTitle       = useAuthStore((s) => s.jobTitle);
+  const govRoleRows    = useAuthStore((s) => s.governanceRoleRows);
   const doUpdateSchool = useAuthStore((s) => s.updateSchool);
   const country        = useCountry();
   const isGE           = country.code === 'guinea_eq';
@@ -633,7 +636,7 @@ export default function Settings() {
             ) : (
               <div className="grid grid-cols-1 gap-4">
                 <Field label={t('Nom complet', 'Full name')} value={fullName} />
-                <Field label={t('Rôle', 'Role')} value={role === 'admin' ? t('Administrateur', 'Administrator') : role === 'censeur' ? t('Censeur', 'Dean of studies', 'Jefe de estudios') : role === 'surveillant' ? t('Surveillant', 'Supervisor', 'Jefe de disciplina') : role} />
+                <Field label={t('Rôle', 'Role')} value={displayRoleLabel(role, govRoleRows, t, jobTitle)} />
                 <Field label="Email" value={useAuthStore.getState().user?.email} />
               </div>
             )}

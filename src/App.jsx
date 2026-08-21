@@ -300,7 +300,7 @@ export default function App() {
           <Route path="/app/discipline/:studentId" element={<ProtectedRoute allow={DISCIPLINE}><StudentDisciplineFile /></ProtectedRoute>} />
           <Route path="/app/timetable"        element={<ProtectedRoute allow={WITH_TEACHER}><Timetable /></ProtectedRoute>} />
           <Route path="/app/aide"             element={<ProtectedRoute allow={ALL_STAFF}><Help /></ProtectedRoute>} />
-          <Route path="/app/historique"       element={<ProtectedRoute allow={ADMIN_ONLY}><History /></ProtectedRoute>} />
+          <Route path="/app/historique"       element={<ProtectedRoute allow={ALL_STAFF}><History /></ProtectedRoute>} />
           <Route path="/app/synchronisation"  element={<ProtectedRoute allow={ADMIN_ONLY}><SyncHistory /></ProtectedRoute>} />
           <Route path="/superadmin" element={<ProtectedRoute allow={['superadmin']}><SuperAdmin /></ProtectedRoute>} />
           <Route path="/parent/:token" element={<ParentPortal />} />

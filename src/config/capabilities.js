@@ -112,3 +112,11 @@ export function firstPermitted(permissions) {
 export function hasCapability(permissions, path) {
   return Array.isArray(permissions) && permissions.includes(path);
 }
+
+// L'école a-t-elle activé la DÉLÉGATION AVANCÉE (schools.advanced_delegation) ?
+// Tolère les trois formes rencontrées : booléen Postgres (cloud), entier 0/1
+// (SQLite en édition LAN, qui n'a pas de type booléen) et son rendu texte.
+export function isAdvancedDelegation(school) {
+  const v = school?.advanced_delegation;
+  return v === true || v === 1 || v === '1';
+}

@@ -20,6 +20,7 @@ import { buildSubjectsForPrimClass } from '../lib/primAutoConfig';
 import { buildSubjectsForClassicClass } from '../core/classicSubjects';
 import { resolveClassEngine } from '../core/engineResolver';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
+import { isAdvancedDelegation } from '../config/capabilities';
 import { fetchPeriods } from '../lib/academicPeriodsService';
 import { deriveActiveSequence, isSequenceLockedByPeriod, anySequenceLockedThisYear } from '../lib/periodLogic';
 import { isSequenceLocked as isClassSequenceLocked } from '../lib/lockService';
@@ -61,11 +62,15 @@ import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 
 // Rôles « vie scolaire » porteurs d'un périmètre (cf. surveillantScope.js, qui
-// le définit pour « surveillant / censeur »). Un censeur avec un périmètre non
-// vide — direction d'un secteur : maternelle, section anglophone… — est filtré
-// comme un surveillant. Périmètre vide = établissement entier, donc l'admin et
-// les comptes historiques ne changent pas de comportement.
-const SCOPED_ROLES = new Set(['surveillant', 'censeur']);
+// le définit pour « surveillant / censeur »). Le censeur n'y entre que dans une
+// école ayant activé la DÉLÉGATION AVANCÉE : ailleurs, son périmètre ne sert qu'à
+// répartir la configuration (calendriers) et ses données restent complètes —
+// comportement historique préservé. Périmètre vide = établissement entier.
+function scopedRoles(school) {
+  return isAdvancedDelegation(school)
+    ? new Set(['surveillant', 'censeur'])
+    : new Set(['surveillant']);
+}
 
 // Throttle : 1 notification max par (classId_sequence) toutes les 2 min
 const _gradeNotifLastSent = {};
@@ -348,8 +353,8 @@ export const useSchoolStore = create((set, get) => ({
 
       // Surveillant scope: restrict to the sections/cycles/classes assigned to
       // this supervisor (empty scope = whole establishment). Admin keeps all.
-      const { role: _role, scope: _scope } = useAuthStore.getState();
-      if (SCOPED_ROLES.has(_role) && !isGlobalScope(_scope)) {
+      const { role: _role, scope: _scope, school: _school } = useAuthStore.getState();
+      if (scopedRoles(_school).has(_role) && !isGlobalScope(_scope)) {
         const scopeIds = new Set(filterClassesByScope(_scope, allClasses).map((c) => c.id));
         allClasses  = allClasses.filter((c) => scopeIds.has(c.id));
         allSubjects = allSubjects.filter((s) => scopeIds.has(s.class_id));
@@ -483,9 +488,10 @@ export const useSchoolStore = create((set, get) => ({
     }
 
     // ── Surveillant scope (mirrors init) ─────────────────────────────────
-    const svRole  = useAuthStore.getState().role;
-    const svScope = useAuthStore.getState().scope;
-    if (SCOPED_ROLES.has(svRole) && !isGlobalScope(svScope)) {
+    const svRole   = useAuthStore.getState().role;
+    const svScope  = useAuthStore.getState().scope;
+    const svSchool = useAuthStore.getState().school;
+    if (scopedRoles(svSchool).has(svRole) && !isGlobalScope(svScope)) {
       const scopeIds = new Set(filterClassesByScope(svScope, newClasses).map((c) => c.id));
       newClasses  = newClasses.filter((c) => scopeIds.has(c.id));
       newSubjects = newSubjects.filter((s) => scopeIds.has(s.class_id));

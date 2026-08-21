@@ -6,6 +6,7 @@ import Layout from '../components/Layout';
 import HubTabs from '../components/hubs/HubTabs';
 import { useT } from '../lib/i18n';
 import { useAuthStore } from '../store/authStore';
+import { hasCapability, isAdvancedDelegation } from '../config/capabilities';
 import { useUiStore } from '../store/uiStore';
 import { useSchoolStore } from '../store/schoolStore';
 import {
@@ -25,6 +26,10 @@ export default function History() {
   const lang     = useUiStore((s) => s.uiLang);
   const role     = useAuthStore((s) => s.role);
   const schoolId = useAuthStore((s) => s.school?.id);
+  const permissions   = useAuthStore((s) => s.permissions);
+  // Traçabilité ouverte à tous : réglage PAR ÉCOLE. Ailleurs, la page reste
+  // administrative — sauf pour un compte à qui l'admin a confié la page.
+  const auditOpenToAll = isAdvancedDelegation(useAuthStore((s) => s.school));
   const store    = useSchoolStore.getState();
 
   const [trash, setTrash]   = useState([]);
@@ -84,6 +89,16 @@ export default function History() {
       setMsg({ type: 'err', text: err.message });
     }
   };
+
+  if (!auditOpenToAll && role !== 'admin' && !hasCapability(permissions, '/app/historique')) {
+    return (
+      <Layout>
+        <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-sm">{t('Accès réservé aux administrateurs.', 'Admin only.', 'Solo administradores.')}</p>
+        </div>
+      </Layout>
+    );
+  }
 
   const labels = TRASH_LABELS[lang] || TRASH_LABELS.fr;
 

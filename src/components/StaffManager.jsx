@@ -6,8 +6,9 @@ import { useT } from '../lib/i18n';
 import Modal from './Modal';
 import { createStaffAccount, fetchStaff, setStaffActive, setStaffPassword, setStaffScope, setStaffPermissions, parsePermissions } from '../lib/staffAccounts';
 import CapabilityPicker from './CapabilityPicker';
-import { ACCESS_PRESETS, presetByKey } from '../config/capabilities';
+import { ACCESS_PRESETS, presetByKey, isAdvancedDelegation } from '../config/capabilities';
 import { useSchoolStore } from '../store/schoolStore';
+import { useAuthStore } from '../store/authStore';
 import { SECTIONS, classSectionKey } from '../core/engineResolver';
 import { CYCLES, scopeSummary, normalizeScope } from '../core/surveillantScope';
 
@@ -335,6 +336,9 @@ function CreateStaffModal({ role, unified, labels: L, onClose, onCreated }) {
 function ScopeModal({ row, onClose, onSaved }) {
   const t = useT();
   const classes = useSchoolStore((s) => s.classes);
+  // Délégation avancée (réglage par école) : le périmètre filtre alors aussi les
+  // données d'un censeur, et plus seulement celles d'un surveillant.
+  const advancedDelegation = isAdvancedDelegation(useAuthStore((s) => s.school));
   // `normalizeScope` plutôt qu'un `|| []` : en édition LAN les colonnes sont du
   // TEXT JSON, et une chaîne passerait le `||` pour se comporter ensuite comme
   // une liste de caractères (`'["ps"]'.includes('p')` est vrai).
@@ -372,9 +376,13 @@ function ScopeModal({ row, onClose, onSaved }) {
           )}
         </p>
         <p className="text-xs text-gray-400">
-          {t('La personne ne verra QUE les classes de ce périmètre — données ET configuration : le directeur du fondamental et le proviseur du secondaire règlent chacun leur calendrier.',
-             'They will only see the classes in this scope — data AND configuration: each head sets their own calendar.',
-             'Solo verá las clases de este ámbito — datos Y configuración: cada responsable ajusta su calendario.')}
+          {row.role === 'surveillant' || advancedDelegation
+            ? t('La personne ne verra QUE les classes de ce périmètre.',
+                'They will only see the classes in this scope.',
+                'Solo verá las clases de este ámbito.')
+            : t('Ses données restent complètes : le périmètre sert à répartir la configuration — le directeur du fondamental et le proviseur du secondaire règlent chacun leur calendrier.',
+                'Their data stays complete: the scope splits configuration duties — each head sets their own calendar.',
+                'Sus datos siguen completos: el ámbito reparte la configuración del calendario.')}
         </p>
 
         <div>

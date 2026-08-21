@@ -114,6 +114,7 @@ ensureColumn('schools',  'grade_entry_mode', "grade_entry_mode TEXT NOT NULL DEF
 ensureColumn('schools',  'primary_period_mode', "primary_period_mode TEXT NOT NULL DEFAULT 'trimestres'"); // primaire classique : 'trimestres' (3) | 'sequences' (6)
 ensureColumn('schools',  'bulletin_subject_mode', "bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic'"); // 'synthetic' | 'detailed'
 ensureColumn('schools',  'budget_validation', 'budget_validation INTEGER NOT NULL DEFAULT 0'); // workflows de validation budgétaire (0=off, comportement Budgets inchangé)
+ensureColumn('schools',  'advanced_delegation', 'advanced_delegation INTEGER NOT NULL DEFAULT 0'); // délégation avancée par école (0=off) — miroir de la colonne cloud
 ensureColumn('schools',  'validation_rules',  'validation_rules TEXT'); // barème seuils->rôle validateur (JSON ; null = défaut moteur)
 ensureColumn('signalements', 'assigned_department', 'assigned_department TEXT'); // affectation auto du module Reports (dérivée de la catégorie)
 ensureColumn('fee_payments', 'student_fee_item_id', 'student_fee_item_id TEXT'); // lien paiement->frais précis (null = paiement global hérité)

@@ -169,11 +169,12 @@ export const NAV_GROUPS = [
         roles: ALL },
       { to: '/app/year',       icon: 'year',     label: ['Année scolaire', 'Academic Year', 'Año escolar'],
         roles: ['admin'] },
-      // Traçabilité ouverte à TOUS les rôles : chacun doit pouvoir vérifier qui a
-      // fait quoi. Les onglets Corbeille et Sauvegardes restent réservés à l'admin
-      // (restauration et copies complètes de l'école) — voir History.jsx.
+      // Traçabilité : réservée à l'admin, SAUF dans une école qui a activé la
+      // délégation avancée — là, chacun doit pouvoir vérifier qui a fait quoi. Les
+      // onglets Corbeille et Sauvegardes restent admin partout (restauration et
+      // copies complètes de l'école) — voir History.jsx.
       { to: '/app/historique', icon: 'history',  label: ['Historique', 'History', 'Historial'],
-        roles: ALL },
+        roles: ALL, adminUnlessFlag: 'advancedDelegation' },
       { to: '/app/aide',       icon: 'help',     label: ['Guide / Aide', 'Help guide', 'Ayuda'],
         roles: ALL },
     ],
@@ -203,6 +204,12 @@ export function getNavGroups(role, f = {}, permissions = null, gov = {}) {
   const govPages = effectivePages(role, catalogOrDefault(gov.catalog), gov.assignments || []);
   const visible = (it) => {
     if (govPages.has(it.to)) return true;
+    // Entrée élargie à tous les rôles UNIQUEMENT si l'école l'a activé ; sinon
+    // elle retombe sur son comportement historique (admin seul). Un compte
+    // délégué porteur de la page la garde dans tous les cas : c'est l'admin de
+    // l'école qui la lui a explicitement confiée.
+    if (it.adminUnlessFlag && !f[it.adminUnlessFlag] && role !== 'admin'
+        && !(delegated && isPathPermitted(it.to, permissions))) return false;
     return delegated ? isPathPermitted(it.to, permissions) : visibleForRole(it, role);
   };
   return NAV_GROUPS

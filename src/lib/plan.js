@@ -1,5 +1,6 @@
 import { useAuthStore } from '../store/authStore';
 import { IS_LAN } from './edition';
+import { isAdvancedDelegation } from '../config/capabilities';
 
 export const PLAN_META = {
   starter: { label: 'Starter',  price: 'Gratuit' },
@@ -48,7 +49,11 @@ export function usePlan() {
   // est au minimum « Pro » pour que toutes les vérifications `plan === 'starter'`
   // disséminées dans l'app considèrent l'installation comme complète.
   if (IS_LAN && (!plan || plan === 'starter')) plan = 'pro';
-  return { plan, meta: PLAN_META[plan] ?? PLAN_META.starter, f: getPlanFeatures(plan) };
+  // `advancedDelegation` n'est pas un palier commercial : c'est un réglage PAR
+  // ÉCOLE (schools.advanced_delegation, faux par défaut). Il voyage avec les
+  // features pour que la navigation puisse s'y référer comme aux autres options.
+  const f = { ...getPlanFeatures(plan), advancedDelegation: isAdvancedDelegation(school) };
+  return { plan, meta: PLAN_META[plan] ?? PLAN_META.starter, f };
 }
 
 export const STARTER_DAILY_PRINT_LIMIT = 2;

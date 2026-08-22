@@ -37,7 +37,10 @@ const P_NOUVEAU  = 'MotDePasseCloud1!';
 const P_CHANGE   = 'NouveauMotDePasse2#';
 const P_LOCAL    = 'DejaLocal3@';
 const P_ETRANGER = 'MotDePasseEtranger4$';
-const TOUS_LES_SECRETS = [P_NOUVEAU, P_CHANGE, P_LOCAL, P_ETRANGER];
+const P_MASSE1   = 'RemiseEnService5!';
+const P_MASSE2   = 'RemiseEnService6#';
+const P_MASSE3   = 'RemiseEnService7@';
+const TOUS_LES_SECRETS = [P_NOUVEAU, P_CHANGE, P_LOCAL, P_ETRANGER, P_MASSE1, P_MASSE2, P_MASSE3];
 
 // --- Capture des logs (exigence 6) ------------------------------------
 let logs = '';
@@ -206,6 +209,52 @@ ok(!userPar('intrus@autre.cm'), 'toujours aucun compte étranger après fuite si
 ok(r.skipped >= 1, 'la ligne étrangère est comptée comme ignorée', r);
 ok(CLOUD.outbox.find((x) => x.school_id === ECOLE_TIERS).applied_at == null,
   "la ligne d'une autre école n'est jamais acquittée par ce serveur");
+
+// ============ TEST 5-bis : PROVISIONNEMENT DE MASSE ======================
+// Cas de la remise en service des comptes d'une école : PLUSIEURS credentials
+// arrivent dans le MÊME tirage. Le serveur doit créer chaque compte, sans
+// doublon, sans mélanger les mots de passe, et résoudre chaque FK pendante.
+db.exec('PRAGMA foreign_keys = OFF');
+for (const [su, uid, nom] of [
+  ['su-caisse', 'cloud-caisse', 'Comptable / Caissier'],
+  ['su-cens',   'cloud-cens',   'Censeur'],
+  ['su-surv',   'cloud-surv',   'Surveillant Général'],
+]) {
+  db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, full_name, active)
+              VALUES (?,?,?,?,?,1)`).run(su, ECOLE, uid, 'censeur', nom);
+}
+db.exec('PRAGMA foreign_keys = ON');
+
+const fkAvant    = db.prepare('PRAGMA foreign_key_check').all().length;
+const usersAvant = nbUsers();
+deposer({ cloudUserId: 'cloud-caisse', email: 'caisse@thegenius.cm',      plain: P_MASSE1 });
+deposer({ cloudUserId: 'cloud-cens',   email: 'censeur@thegenius.cm',     plain: P_MASSE2 });
+deposer({ cloudUserId: 'cloud-surv',   email: 'surveillant@thegenius.cm', plain: P_MASSE3 });
+
+const masse = await syncCloudCredentials(hashPassword);
+const fkApres = db.prepare('PRAGMA foreign_key_check').all().length;
+
+ok(masse.created === 3 && masse.applied === 3, '3 comptes provisionnés en UN SEUL tirage', masse);
+ok(nbUsers() === usersAvant + 3, 'exactement 3 comptes ajoutés — aucun doublon', nbUsers());
+ok(fkApres === fkAvant - 3, '3 FK pendantes résolues d’un coup', { fkAvant, fkApres });
+ok(verifyPassword(P_MASSE1, userPar('caisse@thegenius.cm').password_hash)
+  && verifyPassword(P_MASSE2, userPar('censeur@thegenius.cm').password_hash)
+  && verifyPassword(P_MASSE3, userPar('surveillant@thegenius.cm').password_hash),
+  'chaque compte reçoit SON mot de passe (aucun mélange entre lignes)');
+ok(db.prepare('SELECT COUNT(*) n FROM users').get().n
+  === db.prepare('SELECT COUNT(DISTINCT email) n FROM users').get().n, 'aucun e-mail dupliqué en base');
+for (const uid of ['cloud-caisse', 'cloud-cens', 'cloud-surv']) {
+  const r = db.prepare('SELECT role FROM school_users WHERE user_id = ?').get(uid);
+  const u = db.prepare('SELECT id FROM users WHERE id = ?').get(uid);
+  ok(!!r && !!u, `rattachement résolu pour ${uid} (le membre récupère son rôle)`);
+}
+
+// Rejeu du LOT ENTIER (acquittement perdu au milieu d'une opération de masse).
+for (const r of CLOUD.outbox) if (r.school_id === ECOLE) r.applied_at = null;
+await syncCloudCredentials(hashPassword);
+ok(nbUsers() === usersAvant + 3, 'rejeu du lot entier : toujours aucun doublon', nbUsers());
+ok(db.prepare('PRAGMA foreign_key_check').all().length === fkApres,
+  'rejeu du lot entier : aucune FK cassée', db.prepare('PRAGMA foreign_key_check').all().length);
 
 // ============ TEST 7 (partie 1) : Local → Cloud intact ===================
 setPasswordCalls.length = 0;

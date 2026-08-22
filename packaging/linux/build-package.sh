@@ -77,6 +77,27 @@ step "Copie des scripts d'installation"
 cp "$HERE/install.sh" "$HERE/uninstall.sh" "$HERE/notescam.service" "$HERE/LISEZ-MOI.txt" "$STAGE/"
 chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"
 
+step "Normalisation des fins de ligne (LF)"
+# Un build lance depuis Windows avec core.autocrlf=true recupere les .sh en CRLF.
+# Sous Linux, le shebang devient «bash\r» et le script est INEXECUTABLE :
+#   /usr/bin/env: «bash\r»: Aucun fichier ou dossier de ce type
+# Le paquet part alors casse sans que rien ne le signale a la construction.
+# On normalise donc systematiquement, quelle que soit la machine de build.
+crlf=0
+while IFS= read -r -d '' f; do
+  if grep -qU $'\r' "$f" 2>/dev/null; then
+    sed -i 's/\r$//' "$f"; crlf=$((crlf+1))
+  fi
+done < <(find "$STAGE" -maxdepth 2 -name '*.sh' -type f -print0)
+echo "  scripts convertis de CRLF vers LF : $crlf"
+# Garde-fou : le paquet ne doit JAMAIS sortir avec un shebang en CRLF.
+for f in "$STAGE"/install.sh "$STAGE"/uninstall.sh; do
+  if head -1 "$f" | grep -qU $'\r'; then
+    echo "ERREUR : $f a encore un shebang CRLF — construction interrompue." >&2
+    exit 1
+  fi
+done
+
 step "Archive finale"
 APP_VERSION="$(grep -m1 '"version"' "$ROOT/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
 PKG="notescam-linux-x64-$APP_VERSION.tar.gz"

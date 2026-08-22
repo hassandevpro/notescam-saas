@@ -45,6 +45,19 @@ TMP="$(mktemp -d)"
 tar xzf "$ARCHIVE" -C "$TMP" || { rouge "Archive illisible"; exit 1; }
 DOSSIER="$(find "$TMP" -maxdepth 1 -type d -name 'notescam-linux-x64*' | head -1)"
 [[ -d "$DOSSIER" ]] || { rouge "Contenu d'archive inattendu"; exit 1; }
+
+# Une archive construite sous Windows (core.autocrlf=true) contient des .sh en
+# CRLF : le shebang devient «bash\r» et Linux refuse de les exécuter, avec
+#   /usr/bin/env: «bash\r»: Aucun fichier ou dossier de ce type
+# On normalise systématiquement — ainsi une archive déjà téléchargée reste
+# utilisable, sans avoir à la retélécharger.
+n=0
+while IFS= read -r -d '' f; do
+  if grep -qU $'\r' "$f" 2>/dev/null; then sed -i 's/\r$//' "$f"; n=$((n+1)); fi
+done < <(find "$DOSSIER" -maxdepth 2 -name '*.sh' -type f -print0)
+[[ $n -gt 0 ]] && echo "  (${n} script(s) de l'archive normalisé(s) CRLF -> LF)"
+chmod +x "$DOSSIER"/*.sh 2>/dev/null
+
 ( cd "$DOSSIER" && ./install.sh "$PORT" ) || { rouge "install.sh a échoué"; exit 1; }
 rm -rf "$TMP"
 

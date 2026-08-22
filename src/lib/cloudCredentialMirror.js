@@ -27,21 +27,32 @@ function abToB64(buf) {
   return btoa(s);
 }
 
-export async function mirrorPasswordToLan(plaintext) {
+// `opts` permet de couvrir les deux appelants sans dupliquer la logique :
+//   • rien           → l'utilisateur courant change SON mot de passe (Forgot/Reset) ;
+//   • { client }     → une autre session Supabase que celle de l'app (client sans
+//                      persistance qui vient de créer un compte du personnel) ;
+//   • { user }       → cible explicite { id, email } quand l'appelant la connaît
+//                      déjà (l'admin qui réinitialise le mot de passe d'un membre) ;
+//   • { schoolId }   → évite une requête d'appartenance quand l'école est connue.
+export async function mirrorPasswordToLan(plaintext, opts = {}) {
   // En édition LAN, le serveur local gère déjà la conservation du mot de passe.
   if (IS_LAN || !plaintext || !globalThis.crypto?.subtle) return { skipped: true };
+  const client = opts.client || supabase;
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { skipped: true };
+    const user = opts.user || (await client.auth.getUser()).data?.user;
+    if (!user?.id) return { skipped: true };
 
     // École de l'utilisateur.
-    const { data: membership } = await supabase
-      .from('school_users').select('school_id').eq('user_id', user.id).limit(1).maybeSingle();
-    const schoolId = membership?.school_id;
+    let schoolId = opts.schoolId;
+    if (!schoolId) {
+      const { data: membership } = await client
+        .from('school_users').select('school_id').eq('user_id', user.id).limit(1).maybeSingle();
+      schoolId = membership?.school_id;
+    }
     if (!schoolId) return { skipped: true };
 
     // Clé publique du serveur LAN de cette école (publiée par publish-server-key).
-    const { data: keyRow } = await supabase
+    const { data: keyRow } = await client
       .from('school_credential_keys').select('public_key').eq('school_id', schoolId).maybeSingle();
     if (!keyRow?.public_key) return { skipped: true }; // pas de serveur LAN → rien à faire
 
@@ -50,9 +61,10 @@ export async function mirrorPasswordToLan(plaintext) {
       { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
     const ct = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, key, new TextEncoder().encode(plaintext));
 
-    await supabase.from('credential_outbox').insert({
+    const { error } = await client.from('credential_outbox').insert({
       school_id: schoolId, cloud_user_id: user.id, email: user.email, ciphertext: abToB64(ct),
     });
+    if (error) throw error;
     return { ok: true };
   } catch (e) {
     console.warn('[credential-mirror] non propagé:', e?.message || e);

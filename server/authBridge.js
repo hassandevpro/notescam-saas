@@ -121,29 +121,141 @@ export async function publishCredentialKey() {
   } catch { return { ok: false }; }
 }
 
+// École rattachée à CE serveur (une installation LAN = une école). Sert de
+// garde-fou : on n'applique jamais une credential destinée à une autre école.
+function localSchoolId() {
+  try { return db.prepare('SELECT id FROM schools LIMIT 1').get()?.id || null; } catch { return null; }
+}
+
+// Déchiffre une ligne d'outbox. Le clair vit en mémoire le temps du re-hash :
+// il n'est jamais journalisé, ni écrit sur disque, ni renvoyé par une réponse HTTP.
+function decryptRow(row, priv) {
+  return privateDecrypt(
+    { key: priv, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
+    Buffer.from(row.ciphertext, 'base64'),
+  ).toString('utf8');
+}
+
+// Applique UNE credential déchiffrée au compte local correspondant.
+//
+// PROVISIONNEMENT : si le compte local n'existe pas, on le CRÉE. C'est le cas
+// normal après un appairage — la synchro descend `school_users` (les
+// appartenances) mais JAMAIS `users` (les identifiants) : sans cela, aucun
+// membre de l'école ne peut ouvrir de session locale, quel que soit son mot de
+// passe cloud.
+//
+// L'identifiant local reprend le `cloud_user_id` : les lignes `school_users`
+// déjà synchronisées pointent dessus (FK school_users.user_id → users.id), donc
+// le membre récupère immédiatement son rôle, sans remapping ni écriture annexe.
+//
+// Idempotent : rejouer la même ligne ne crée pas de doublon (recherche préalable
+// + ON CONFLICT sur l'e-mail, qui est UNIQUE COLLATE NOCASE).
+// Renvoie 'created' | 'updated' | 'skipped'.
+function applyCredential({ cloudUserId, email, fullName, plain }, hashFn) {
+  const mail = String(email || '').trim();
+  const local =
+    (cloudUserId && db.prepare('SELECT id FROM users WHERE cloud_user_id = ?').get(cloudUserId)) ||
+    (cloudUserId && db.prepare('SELECT id FROM users WHERE id = ?').get(cloudUserId)) ||
+    (mail && db.prepare('SELECT id FROM users WHERE email = ?').get(mail)) ||
+    null;
+
+  if (local) {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashFn(plain), local.id);
+    // Rattache au cloud un compte créé localement avant l'appairage : le sens
+    // Local → Cloud (mirrorToCloud) en dépend pour cibler le bon compte cloud.
+    if (cloudUserId) {
+      db.prepare('UPDATE users SET cloud_user_id = ? WHERE id = ? AND cloud_user_id IS NULL')
+        .run(cloudUserId, local.id);
+    }
+    return 'updated';
+  }
+
+  // Création impossible sans e-mail (identifiant de connexion) ni compte cloud.
+  if (!mail || !cloudUserId) return 'skipped';
+  db.prepare(`INSERT INTO users (id, email, password_hash, full_name, email_confirmed_at, cloud_user_id)
+              VALUES (?,?,?,?,?,?)
+              ON CONFLICT(email) DO UPDATE SET password_hash = excluded.password_hash,
+                                               cloud_user_id = excluded.cloud_user_id`)
+    .run(cloudUserId, mail, hashFn(plain), fullName || null, new Date().toISOString(), cloudUserId);
+  return 'created';
+}
+
 // Déchiffre les mots de passe déposés par le cloud et les applique en local
-// (re-hash scrypt). Le clair ne touche jamais le disque. `supa` = client Supabase
-// (ou stub), `hashFn` = hashPassword (injecté pour éviter une dépendance circulaire).
+// (re-hash scrypt). `supa` = client Supabase (ou stub), `hashFn` = hashPassword
+// (injecté pour éviter une dépendance circulaire).
 export async function applyCloudCredentials(supa, schoolId, hashFn) {
   const { data, error } = await supa.from('credential_outbox')
     .select('*').eq('school_id', schoolId).is('applied_at', null);
-  if (error) return { applied: 0 };
+  if (error) return { applied: 0, created: 0, updated: 0, skipped: 0 };
   const priv = ensureKeypair();
-  let applied = 0;
+  const school = localSchoolId();
+  let applied = 0, created = 0, updated = 0, skipped = 0;
   for (const row of data || []) {
-    try {
-      const plain = privateDecrypt(
-        { key: priv, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
-        Buffer.from(row.ciphertext, 'base64'),
-      ).toString('utf8');
-      const local = db.prepare('SELECT id FROM users WHERE cloud_user_id = ? OR email = ?')
-        .get(row.cloud_user_id, row.email || '');
-      if (local) {
-        db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashFn(plain), local.id);
-        await supa.from('credential_outbox').update({ applied_at: new Date().toISOString() }).eq('id', row.id);
-        applied++;
-      }
-    } catch { /* ciphertext illisible : on ignore */ }
+    // Cloisonnement : jamais le compte d'une autre école sur ce serveur.
+    if (row.school_id !== schoolId || (school && row.school_id !== school)) { skipped++; continue; }
+    let plain;
+    try { plain = decryptRow(row, priv); } catch { skipped++; continue; } // ciphertext illisible
+    let outcome;
+    try { outcome = applyCredential({ cloudUserId: row.cloud_user_id, email: row.email, plain }, hashFn); }
+    catch { skipped++; continue; }
+    if (outcome === 'skipped') { skipped++; continue; }
+    if (outcome === 'created') created++; else updated++;
+    await supa.from('credential_outbox').update({ applied_at: new Date().toISOString() }).eq('id', row.id);
+    applied++;
   }
-  return { applied };
+  return { applied, created, updated, skipped };
+}
+
+// Chemin RÉEL du serveur LAN. Le cloud n'expose pas `credential_outbox` en
+// lecture (RLS : INSERT seulement, pour le membre concerné ou l'admin de son
+// école) et le PC ne détient aucun secret privilégié : le serveur tire donc ses
+// credentials par une fonction edge authentifiée par son JETON SCELLÉ, qui ne
+// renvoie QUE les lignes de SON école. Le cloisonnement est garanti côté cloud,
+// et re-vérifié ici.
+export async function syncCloudCredentials(hashFn) {
+  const token = serverToken();
+  if (!token) return { applied: 0, created: 0, updated: 0, skipped: 0, reason: 'no_token' };
+  const hash = hashFn || (await import('./security.js')).hashPassword;
+
+  let rows = [];
+  try {
+    const res = await fetch(`${EDGE_BASE}/credentials-pull`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) return { applied: 0, created: 0, updated: 0, skipped: 0, error: `credentials-pull: HTTP ${res.status}` };
+    rows = (await res.json())?.rows || [];
+  } catch (e) {
+    return { applied: 0, created: 0, updated: 0, skipped: 0, error: e.message };
+  }
+
+  const priv = ensureKeypair();
+  const school = localSchoolId();
+  const done = [];
+  let created = 0, updated = 0, skipped = 0;
+  for (const row of rows) {
+    if (school && row.school_id && row.school_id !== school) { skipped++; continue; }
+    let plain;
+    try { plain = decryptRow(row, priv); } catch { skipped++; continue; }
+    let outcome;
+    try { outcome = applyCredential({ cloudUserId: row.cloud_user_id, email: row.email, fullName: row.full_name, plain }, hash); }
+    catch { skipped++; continue; }
+    if (outcome === 'skipped') { skipped++; continue; }
+    if (outcome === 'created') created++; else updated++;
+    done.push(row.id);
+  }
+
+  // Acquittement groupé. S'il échoue (réseau), les lignes reviendront au
+  // prochain passage : l'application étant idempotente, aucun doublon n'en naît.
+  if (done.length) {
+    try {
+      await fetch(`${EDGE_BASE}/credentials-pull`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ack: done }),
+      });
+    } catch { /* réessai au prochain tick */ }
+  }
+  return { applied: done.length, created, updated, skipped };
 }

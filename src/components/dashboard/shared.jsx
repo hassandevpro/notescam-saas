@@ -6,13 +6,18 @@ import { Link } from 'react-router-dom';
 import { useT } from '../../lib/i18n';
 import { getDaysUntilLicenseExpires } from '../../lib/auth';
 import { IS_LAN } from '../../lib/edition';
+import { resolveSchoolLogo, hasSchoolLogo } from '../../lib/schoolLogo';
 
-export function SchoolBadge({ school }) {
+// `units` : unités du complexe scolaire. Une école organisée en complexe pose
+// souvent son logo sur l'unité plutôt que sur l'établissement — sans cela, le
+// badge reste vide alors que le logo existe.
+export function SchoolBadge({ school, units }) {
+  const logoUrl = resolveSchoolLogo(school, units);
   return (
     <div className="flex items-center gap-3">
-      {school?.logo_url && (
+      {logoUrl && (
         <img
-          src={school.logo_url}
+          src={logoUrl}
           alt={school?.name || 'Logo'}
           className="w-11 h-11 rounded-lg object-contain shrink-0 border border-slate-100"
         />
@@ -155,7 +160,10 @@ const SETUP_STEPS = [
   { key: 'type',      label: "Type d'établissement défini",  check: (s) => !!s.school?.type,          to: '/app/settings', hint: 'Public, Privé…' },
   { key: 'region',    label: 'Région / Département saisis',  check: (s) => !!s.school?.region,        to: '/app/settings', hint: 'Localisation officielle' },
   { key: 'director',  label: 'Directeur / Proviseur renseigné', check: (s) => !!s.school?.director,   to: '/app/settings', hint: 'Apparaît sur les bulletins' },
-  { key: 'logo',      label: "Logo de l'école téléversé",    check: (s) => !!s.school?.logo_url,      to: '/app/settings', hint: 'PNG ou SVG recommandé' },
+  // Le logo compte comme fourni qu'il soit posé sur l'établissement OU sur une
+  // unité du complexe scolaire : sinon l'étape reste éternellement à cocher pour
+  // une école qui l'a déjà téléversé côté complexe.
+  { key: 'logo',      label: "Logo de l'école téléversé",    check: (s) => hasSchoolLogo(s.school, s.units), to: '/app/settings', hint: 'PNG ou SVG recommandé' },
   { key: 'class',     label: 'Au moins une classe créée',    check: (s) => s.classes.length > 0,      to: '/app/classes',  hint: 'Ex : 6ème A, Form 1…' },
   { key: 'subject',   label: 'Au moins une matière ajoutée', check: (s) => s.subjects.length > 0,     to: '/app/classes',  hint: 'Ex : Mathématiques' },
   { key: 'student',   label: 'Au moins un élève inscrit',    check: (s) => s.students.length > 0,     to: '/app/students', hint: 'Importer ou ajouter manuellement' },
@@ -172,9 +180,9 @@ const SETUP_STEPS_EN = [
   { label: 'At least one student enrolled', hint: 'Import or add manually' },
 ];
 
-export function SetupChecklist({ school, classes, subjects, students }) {
+export function SetupChecklist({ school, classes, subjects, students, units }) {
   const t = useT();
-  const ctx = { school, classes, subjects, students };
+  const ctx = { school, classes, subjects, students, units };
 
   const results = SETUP_STEPS.map((step, i) => ({
     ...step,

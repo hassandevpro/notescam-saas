@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
 import { emitApprovalRequestForOp } from './governanceApply.js';
 import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
+import { SCOPED_TABLES, loadScope, isGlobal, rowAllowed, guardScopeWrite } from './scopeGuard.js';
 
 // --- Suivi des changements pour la sync continue (Phase 2) ------------
 // Horodate la ligne écrite (updated_at/device_id) pour la résolution LWW.
@@ -208,9 +209,10 @@ export function runQuery(op, ctx = null) {
     guardBudgetStructure(op);      // P5 : pas de modif silencieuse / d'écriture directe des opérations
     guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
     guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
+    guardScopeWrite(op, ctx);      // cloisonnement secteur : écriture hors périmètre refusée
     let result;
     switch (op.action) {
-      case 'select': result = doSelect(op); break;
+      case 'select': result = doSelect(op, ctx); break;
       case 'insert': result = doInsertOrUpsert(op, false); break;
       case 'upsert': result = doInsertOrUpsert(op, true); break;
       case 'update': result = doUpdate(op); break;
@@ -229,7 +231,7 @@ export function runQuery(op, ctx = null) {
   }
 }
 
-function doSelect(op) {
+function doSelect(op, ctx = null) {
   const { table } = op;
   const { scalars, embeds } = parseColumns(op.columns);
   // On sélectionne toujours toutes les colonnes scalaires existantes
@@ -252,6 +254,18 @@ function doSelect(op) {
   if (op.single) sql += op.limit == null ? ' LIMIT 2' : '';
 
   let rows = db.prepare(sql).all(...where.params);
+
+  // CLOISONNEMENT SECTEUR — appliqué APRÈS la requête, sur les lignes brutes,
+  // donc quel que soit le filtre demandé par l'appelant. Un compte sectoriel
+  // qui vise directement l'id d'une ressource de l'autre secteur obtient un
+  // résultat vide (équivalent 404), jamais la donnée.
+  if (SCOPED_TABLES[table] && ctx) {
+    const scope = loadScope(ctx.userId);
+    // Filtré même pour un compte GLOBAL : `rowAllowed` assure aussi
+    // l'étanchéité inter-écoles, qui ne dépend pas du périmètre sectoriel.
+    rows = rows.filter((r) => rowAllowed(scope, table, r));
+  }
+
   if (embeds.length) rows = resolveEmbeds(rows, embeds);
 
   if (op.single) {

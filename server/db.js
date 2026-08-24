@@ -75,6 +75,18 @@ ensureColumn('schools',  'deployment_policy', 'deployment_policy TEXT');      //
 ensureColumn('school_users', 'scope_sections',  'scope_sections TEXT');
 ensureColumn('school_users', 'scope_cycles',    'scope_cycles TEXT');
 ensureColumn('school_users', 'scope_class_ids', 'scope_class_ids TEXT');
+// Périmètre GLOBAL EXPLICITE (miroir de la colonne cloud). Jamais déduit du
+// rôle. Le backfill préserve le comportement historique « périmètre vide = tout
+// l'établissement » pour les comptes déjà installés ; après quoi un compte sans
+// périmètre et non global ne voit aucune donnée pédagogique.
+ensureColumn('school_users', 'scope_global', 'scope_global INTEGER NOT NULL DEFAULT 0');
+try {
+  db.exec(`UPDATE school_users SET scope_global = 1
+            WHERE scope_global = 0
+              AND IFNULL(scope_sections, '[]')  IN ('', '[]', 'null')
+              AND IFNULL(scope_cycles, '[]')    IN ('', '[]', 'null')
+              AND IFNULL(scope_class_ids, '[]') IN ('', '[]', 'null')`);
+} catch (e) { console.warn('[scope] backfill scope_global:', e.message); }
 // Séquence (1-6) d'un retard/incident/sanction — alimente le rapport Discipline
 // et, pour les sanctions, les compteurs de conduite du bulletin (auto-agrégation).
 ensureColumn('late_arrivals',          'sequence_order', 'sequence_order INTEGER');

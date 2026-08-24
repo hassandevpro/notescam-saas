@@ -102,12 +102,17 @@ export async function setStaffActive(schoolUserId, active) {
 // L'admin définit le PÉRIMÈTRE vie scolaire d'un surveillant/censeur : sections,
 // cycles et/ou classes accessibles (tableaux vides = tout l'établissement).
 // RPC admin_set_staff_scope (migration supabase_vie_scolaire.sql).
-export async function setStaffScope(schoolUserId, { sections = [], cycles = [], classIds = [] }) {
+// `global` : périmètre GLOBAL EXPLICITE (school_users.scope_global). Depuis le
+// cloisonnement par secteur, « trois tableaux vides » ne vaut PLUS « tout
+// l'établissement » — un compte transversal doit être marqué global de façon
+// explicite, sinon il n'accède à rien.
+export async function setStaffScope(schoolUserId, { sections = [], cycles = [], classIds = [], global = false }) {
   const { error } = await supabase.rpc('admin_set_staff_scope', {
     p_school_user_id: schoolUserId,
-    p_sections:       sections,
-    p_cycles:         cycles,
-    p_class_ids:      classIds,
+    p_sections:       global ? [] : sections,
+    p_cycles:         global ? [] : cycles,
+    p_class_ids:      global ? [] : classIds,
+    p_global:         !!global,
   });
   return { error };
 }

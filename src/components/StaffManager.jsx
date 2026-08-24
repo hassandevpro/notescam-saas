@@ -222,6 +222,11 @@ function CreateStaffModal({ role, unified, labels: L, onClose, onCreated }) {
   const [status,   setStatus]   = useState(null); // null | 'loading' | 'success' | 'error'
   const [msg,      setMsg]      = useState('');
   const [creds,    setCreds]    = useState(null);
+  // PÉRIMÈTRE OBLIGATOIRE À LA CRÉATION. Depuis le cloisonnement par secteur,
+  // un compte sans périmètre et non global n'accède à RIEN : laisser le choix
+  // implicite produirait des comptes muets. `null` = rien de choisi -> création
+  // bloquée, l'administrateur DOIT trancher.
+  const [scopeChoice, setScopeChoice] = useState(null); // null | 'fondamental' | 'secondaire' | 'both' | 'global'
 
   const applyPreset = (key) => { setPresetKey(key); setCaps(new Set(presetByKey(key).caps)); };
   const toggle = (to) => setCaps((s) => { const n = new Set(s); n.has(to) ? n.delete(to) : n.add(to); return n; });
@@ -229,12 +234,39 @@ function CreateStaffModal({ role, unified, labels: L, onClose, onCreated }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!scopeChoice) {
+      setMsg(t('Choisissez le périmètre du compte avant de le créer.',
+               'Choose the account scope before creating it.',
+               'Elija el ámbito de la cuenta antes de crearla.'));
+      setStatus('error');
+      return;
+    }
     setStatus('loading'); setMsg('');
     try {
       // En mode unifié : le rôle de base vient du profil, + capacités granulaires.
       const baseRole = unified ? presetByKey(presetKey).role : role;
       const permissions = unified ? [...caps] : null;
-      await createStaffAccount({ email, password, fullName: name.trim(), role: baseRole, permissions });
+      const created = await createStaffAccount({ email, password, fullName: name.trim(), role: baseRole, permissions });
+
+      // PÉRIMÈTRE — appliqué juste après la création. `admin_create_staff_account`
+      // ne renvoie pas l'id de rattachement : on le retrouve par le compte cloud.
+      try {
+        const rows = await fetchStaff(baseRole);
+        const mine = (rows || []).find((r) => r.user_id === created?.userId);
+        if (mine) {
+          await setStaffScope(mine.id, scopeChoice === 'global'
+            ? { global: true }
+            : { cycles: scopeChoice === 'both' ? ['fondamental', 'secondaire'] : [scopeChoice] });
+        }
+      } catch (scopeErr) {
+        // Le compte existe : on ne le perd pas pour un périmètre non posé, mais
+        // on le dit clairement — sinon la personne se connecterait sans rien voir.
+        console.error('périmètre non appliqué', scopeErr);
+        setMsg(t('Compte créé, mais le périmètre n’a pas pu être enregistré : ouvrez « Périmètre » sur sa ligne.',
+                 'Account created, but the scope could not be saved: open “Scope” on its row.',
+                 'Cuenta creada, pero no se pudo guardar el ámbito: abra «Ámbito» en su fila.'));
+      }
+
       setCreds({ email: email.trim(), password });
       setStatus('success');
     } catch (err) {
@@ -310,11 +342,46 @@ function CreateStaffModal({ role, unified, labels: L, onClose, onCreated }) {
               </div>
             </>
           )}
+
+          {/* PÉRIMÈTRE — choix OBLIGATOIRE. Un compte sans périmètre et non
+              global n'accède à aucune donnée : le laisser implicite créerait
+              des comptes muets, impossibles à diagnostiquer pour l'école. */}
+          <div>
+            <label className="form-label">
+              {t('Secteur autorisé *', 'Allowed sector *', 'Sector autorizado *')}
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                ['fondamental', t('Primaire (maternelle + primaire)', 'Primary (nursery + primary)', 'Primaria')],
+                ['secondaire',  t('Collège / Secondaire', 'Secondary', 'Secundaria')],
+                ['both',        t('Les deux secteurs', 'Both sectors', 'Ambos sectores')],
+                ['global',      t('GLOBAL — tout l’établissement', 'GLOBAL — whole school', 'GLOBAL — todo el centro')],
+              ].map(([key, label]) => (
+                <button key={key} type="button" onClick={() => setScopeChoice(key)}
+                  className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                    scopeChoice === key
+                      ? 'bg-brand-500 text-white border-brand-500'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1.5">
+              {scopeChoice === 'global'
+                ? t('Accès à toutes les classes et à tous les élèves — réservé aux fonctions transversales (finance, contrôle, direction générale).',
+                    'Access to every class and student — for cross-cutting roles only (finance, audit, general management).',
+                    'Acceso a todas las clases y alumnos — solo funciones transversales.')
+                : t('La personne ne verra QUE les données de ce secteur. Ce choix est obligatoire : sans lui, le compte n’aurait accès à rien.',
+                    'They will only see data from this sector. This choice is required: without it the account would have no access.',
+                    'Solo verá los datos de este sector. Esta elección es obligatoria.')}
+            </p>
+          </div>
+
           {status === 'error' && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{msg}</div>
           )}
           <div className="flex gap-3 pt-1">
-            <button type="submit" disabled={status === 'loading'} className="btn-primary flex-1">
+            <button type="submit" disabled={status === 'loading' || !scopeChoice} className="btn-primary flex-1">
               {status === 'loading' ? t('Création…', 'Creating…', 'Creando…') : t('Créer le compte', 'Create account', 'Crear cuenta')}
             </button>
             <button type="button" onClick={onClose} className="btn-secondary">{t('Annuler', 'Cancel', 'Cancelar')}</button>

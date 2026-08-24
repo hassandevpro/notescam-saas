@@ -12,7 +12,8 @@ import NotificationBell from './NotificationBell';
 import SyncBadge from './SyncBadge';
 import UserMenu from './UserMenu';
 import LanguageMenu from './LanguageMenu';
-import { localeForLang } from '../lib/i18n';
+import { localeForLang, useT } from '../lib/i18n';
+import { scopeSummary } from '../core/surveillantScope';
 
 // ── Horloge d'en-tête (date + heure du jour) ───────────────────────────────
 // Affichée à côté des notifications. Se met à jour chaque minute.
@@ -176,6 +177,11 @@ function SyncIndicator() {
 export default function Layout({ children, bleed = false }) {
   const navigate    = useNavigate();
   const { school, logout } = useAuthStore();
+  // Secteur actif : résumé lisible du périmètre du compte connecté. Vide pour
+  // un compte GLOBAL — il n'y a alors pas de secteur à distinguer.
+  const tt = useT();
+  const scope = useAuthStore((s) => s.scope);
+  const sectorLabel = scopeSummary(scope, tt).toUpperCase();
   const viewYear    = useUiStore((s) => s.viewYear);
   const clearViewYear = useUiStore((s) => s.clearViewYear);
   const sidebarHidden = useUiStore((s) => s.sidebarHidden);
@@ -288,10 +294,15 @@ export default function Layout({ children, bleed = false }) {
           </button>
         )}
 
-        {/* School name */}
+        {/* School name — suffixé du SECTEUR quand le compte est cloisonné, pour
+            qu'on sache en permanence ce que l'écran montre (et ne montre pas).
+            Purement informatif : le cloisonnement est assuré par la RLS. */}
         <div className="flex-1 min-w-0">
           {school?.name && (
-            <p className="text-sm font-semibold text-slate-700 truncate">{school.name}</p>
+            <p className="text-sm font-semibold text-slate-700 truncate">
+              {school.name}
+              {sectorLabel && <span className="text-brand-600"> — {sectorLabel}</span>}
+            </p>
           )}
           <p className="text-xs text-slate-400 leading-none">
             {isArchive
@@ -327,6 +338,16 @@ export default function Layout({ children, bleed = false }) {
           <div className="p-4 pb-24 md:p-8">{children}</div>
         )}
       </main>
+
+      {/* Profil flottant — coin inférieur droit (desktop/tablette). Même composant
+          que l'en-tête : mêmes entrées de menu, même déconnexion. Le menu s'ouvre
+          vers le HAUT (`dropUp`), sinon il sortirait de l'écran par le bas.
+          Masqué sous `md` : la bottom-nav mobile occupe déjà ce coin. */}
+      <div className="hidden md:block fixed bottom-4 right-4 z-40 print:hidden">
+        <div className="bg-white/95 backdrop-blur rounded-full shadow-card-lg border border-slate-200 pl-1 pr-1.5 py-1">
+          <UserMenu onLogout={handleLogout} dropUp />
+        </div>
+      </div>
 
       {/* Bottom-nav (mobile uniquement) */}
       <MobileNav onLogout={handleLogout} />

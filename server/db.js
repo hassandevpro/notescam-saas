@@ -87,6 +87,15 @@ try {
               AND IFNULL(scope_cycles, '[]')    IN ('', '[]', 'null')
               AND IFNULL(scope_class_ids, '[]') IN ('', '[]', 'null')`);
 } catch (e) { console.warn('[scope] backfill scope_global:', e.message); }
+// Phase 3 — permissions fonctionnelles strictes, activées ÉCOLE PAR ÉCOLE.
+// À 0, tout le durcissement de scopeGuard.js est inerte : une école qui ne
+// l'active pas garde exactement le comportement d'avant. Miroir de la colonne
+// cloud `schools.strict_role_enforcement`.
+ensureColumn('schools', 'strict_role_enforcement', 'strict_role_enforcement INTEGER NOT NULL DEFAULT 0');
+// Secteur du personnel ADMINISTRATIF. Un agent n'a ni classe ni matière : son
+// secteur ne se dérive pas, il se déclare. NULL = agent transverse, visible de
+// tous — donc aucune régression sur les fiches déjà saisies.
+ensureColumn('staff', 'sector', 'sector TEXT');
 // Séquence (1-6) d'un retard/incident/sanction — alimente le rapport Discipline
 // et, pour les sanctions, les compteurs de conduite du bulletin (auto-agrégation).
 ensureColumn('late_arrivals',          'sequence_order', 'sequence_order INTEGER');

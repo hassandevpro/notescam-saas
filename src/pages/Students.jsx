@@ -7,6 +7,7 @@ import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate }
 import { officialHeaderHtml, officialSignatureHtml } from '../lib/officialDocHeader';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
+import { duplicateWarning } from '../lib/studentIdentity';
 import Layout from '../components/Layout';
 import StudentAvatar from '../components/StudentAvatar';
 import Modal from '../components/Modal';
@@ -763,6 +764,7 @@ export default function Students() {
   const classes             = useSchoolStore((s) => s.classes);
   const schoolUnits         = useSchoolStore((s) => s.schoolUnits);
   const students            = useSchoolStore((s) => s.students);
+  const archivedStudents    = useSchoolStore((s) => s.archivedStudents);
   const addStudent          = useSchoolStore((s) => s.addStudent);
   const updateStudent       = useSchoolStore((s) => s.updateStudent);
   const deleteStudent       = useSchoolStore((s) => s.deleteStudent);
@@ -917,6 +919,18 @@ export default function Students() {
   };
 
   const handleSave = async (form, photo) => {
+    // 0) DOUBLON : un même enfant inscrit deux fois produit deux dossiers, deux
+    //    dûs et deux fois le même versement — l'effectif et la caisse deviennent
+    //    faux (cas vécu). On compare aussi aux élèves ARCHIVÉS : réinscrire
+    //    quelqu'un qu'on croyait supprimé est précisément la façon dont le
+    //    doublon apparaît. Avertissement, jamais blocage : l'homonymie existe.
+    const avertissement = duplicateWarning(form.name, [...students, ...archivedStudents], {
+      excludeId: editing?.id ?? null,
+      classNameOf: (id) => classes.find((c) => c.id === id)?.name || null,
+      t,
+    });
+    if (avertissement && !window.confirm(avertissement)) return;
+
     // 1) Crée/met à jour l'élève d'abord (il faut un id pour nommer la photo).
     let studentId;
     if (editing) { await updateStudent(editing.id, form); studentId = editing.id; }

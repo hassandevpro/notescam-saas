@@ -49,6 +49,7 @@ import { AGGREGATE as FIN_AGG, EVT as FIN_EVT } from '../domains/finance/events'
 import { collectStudentBundle, collectSubjectBundle, collectClassBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
 import { sumPaidForStudent, derivePaid, reconcilePaid, computeTransferFeePatch } from '../lib/feeEngine';
 import { retentionDecision, RETENTION, splitArchived, archiveFields, unarchiveFields } from '../lib/studentRetention';
+import { normalizeStudentName } from '../lib/studentIdentity';
 import { expectedCash, reconcile, requiresExplanation, canValidate, SESSION_STATUS } from '../lib/cashSessionEngine';
 import { fetchCashSessions, upsertCashSession } from '../lib/cashSessionService';
 import { fetchStaff, upsertStaff, deleteStaff as sbDeleteStaff } from '../lib/staffService';
@@ -116,6 +117,11 @@ function sanitizeStudent(data) {
   for (const key of NULLABLE_STUDENT_FIELDS) {
     if (key in out) out[key] = out[key] || null;
   }
+  // Nom TOUJOURS en majuscules : c'est la forme des registres, des PV et des
+  // bulletins officiels. Normaliser à l'écriture (ici, donc à l'inscription
+  // comme à la modification comme à l'import) évite d'avoir la même personne
+  // écrite de deux façons — ce qui produisait des doublons invisibles au tri.
+  if ('name' in out && out.name) out.name = normalizeStudentName(out.name);
   if ('gender' in out && out.gender) {
     out.gender = GENDER_MAP[out.gender.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')] ?? out.gender;
   }

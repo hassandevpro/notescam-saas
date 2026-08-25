@@ -32,5 +32,15 @@ export function displayRoleLabel(role, governanceRoleRows, t, jobTitle = null) {
     if (top?.label) return t(top.label[0], top.label[1], top.label[2]);
   }
   if (jobTitle && jobTitle.trim()) return jobTitle.trim();
+  // 4. `censeur` n'est PAS une fonction : c'est le conteneur de droits dans lequel
+  //    l'application range tous les comptes délégués (cf. config/capabilities.js —
+  //    secrétaire, caissier, RAF et responsable informatique naissent tous
+  //    censeurs). L'afficher sous le nom d'un secrétariat ne désigne personne et
+  //    induit en erreur sur ce que fait la personne. Mieux vaut ne rien écrire :
+  //    le nom du compte, juste au-dessus, dit déjà la fonction.
+  //
+  //    Les autres rôles de base, eux, DÉSIGNENT un métier — administrateur,
+  //    surveillant, enseignant — et restent affichés.
+  if (role === 'censeur') return '';
   return roleLabel(role, t);
 }

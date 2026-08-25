@@ -16,7 +16,7 @@ import { useT } from '../lib/i18n';
 import { useCountry } from '../lib/useCountry';
 import { resolveClassEngine } from '../core/engineResolver';
 import { fetchSequenceDates, indexSequenceDates } from '../lib/sequenceDatesService';
-import { roleLabel, displayRoleLabel } from '../lib/roleLabel';
+import { displayRoleLabel } from '../lib/roleLabel';
 import { catalogOrDefault } from '../governance/defaultCatalog';
 import { roleBudgetQueues } from '../governance/dashboard';
 import { dashboardLayout, BLOCK } from '../lib/dashboardBlocks';
@@ -203,8 +203,10 @@ export default function Dashboard() {
   const greeting = domain === 'teaching' ? t('Bienvenue', 'Welcome') : t('Bonjour', 'Hello');
   const name = domain === 'teaching' ? fullName : fullName?.split(' ')[0];
   // Le libellé affiché est le rôle de gouvernance le plus élevé quand il existe,
-  // sinon le rôle de base — cohérent avec l'en-tête et la page profil.
-  const shownRole = displayRoleLabel(role, governanceRoleRows, t, jobTitle) || roleLabel(role, t);
+  // sinon l'intitulé de poste — cohérent avec l'en-tête et la page profil.
+  // Pas de repli sur `roleLabel` : il réintroduirait le « Censeur » que
+  // `displayRoleLabel` retire volontairement pour les comptes délégués.
+  const shownRole = displayRoleLabel(role, governanceRoleRows, t, jobTitle);
 
   return (
     <Layout>

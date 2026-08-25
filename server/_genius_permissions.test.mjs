@@ -320,6 +320,35 @@ try {
   ok(!!(await majStaff(T.surv, 'st-col')).error,
     `${step()}. Surveillant (aucune autorite RH) -> personnel REFUSE`);
 
+  // ══ 8b. LE CORPS ENSEIGNANT SUIT LA MEME AUTORITE, BORNEE AU SECTEUR ═════
+  // « Le principal et son staff doivent pouvoir gerer le personnel ET les
+  //   enseignants — sur leur secteur uniquement. » Le secteur d un enseignant
+  //   n est pas declare : il est DERIVE de ses classes et de ses matieres.
+  const majProf = (tok, id) => q(tok, {
+    table: 'teachers', action: 'update', values: { specialty: 'MAJ ' + Date.now() },
+    filters: [{ col: 'id', op: 'eq', val: id }],
+  });
+  ok(!(await majProf(T.col, 't-col')).error,
+    `${step()}. Principal College -> GERE le prof du College`);
+  ok(!!(await majProf(T.col, 't-pri')).error,
+    `${step()}. Principal College -> prof du Primaire REFUSE (autre secteur)`);
+  ok(!(await majProf(T.pri, 't-pri')).error,
+    `${step()}. Directrice Primaire -> GERE le prof du Primaire`);
+  ok(!!(await majProf(T.pri, 't-col')).error,
+    `${step()}. Directrice Primaire -> prof du College REFUSE (autre secteur)`);
+  ok(!(await majProf(T.raf, 't-col')).error && !(await majProf(T.raf, 't-pri')).error,
+    `${step()}. RAF (staff.manage.all) -> gere le corps enseignant des DEUX secteurs`);
+  ok(!!(await majProf(T.surv, 't-col')).error,
+    `${step()}. Surveillant (aucune autorite RH) -> corps enseignant REFUSE`);
+  ok(!!(await majProf(T.sec, 't-pri')).error,
+    `${step()}. Secretaire (aucune autorite RH) -> corps enseignant REFUSE`);
+  // Un enseignant garde SA fiche : sans quoi le durcissement lui retirerait
+  // son propre profil, sa photo et son mot de passe.
+  ok(!(await majProf(T.ens, 't-col')).error,
+    `${step()}. Un enseignant modifie TOUJOURS sa propre fiche`);
+  ok(!!(await majProf(T.ens, 't-pri')).error,
+    `${step()}. Un enseignant ne modifie PAS la fiche d un collegue`);
+
   // ══ 9. ADMIN : jamais enferme par son propre parametrage ═════════════════
   ok(ids(await sel(T.adm, 'staff')).length === 3 && ids(await sel(T.adm, 'teachers')).length === 3,
     `${step()}. Fondateur (admin) -> voit tout le personnel et tout le corps enseignant`);

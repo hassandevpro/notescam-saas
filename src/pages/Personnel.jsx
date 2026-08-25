@@ -506,6 +506,19 @@ export default function Personnel() {
 
   const ROLES_TAB = 'roles';
   const GOV_TAB = 'gouvernance';
+
+  // ADMINISTRATION DES COMPTES ET DES AUTORITÉS — réservée à l'administrateur.
+  //
+  // Ouvrir cette page à un chef de secteur (pour qu'il gère SON personnel et SES
+  // enseignants) lui donnerait sinon deux pouvoirs qui n'ont rien à voir avec la
+  // gestion du personnel : créer des comptes et fixer leurs mots de passe
+  // (« Rôles & accès »), et attribuer les rôles de gouvernance (« Gouvernance »).
+  // Ce second onglet lui permettrait de s'attribuer `fees.manage`, donc d'ouvrir
+  // la caisse — exactement le trou que la matrice ferme. On ne peut pas confier
+  // la gestion des personnes sans retirer la distribution des pouvoirs.
+  const role = useAuthStore((s) => s.role);
+  const govPerms = useStrictMatrix().ctx.perms;
+  const peutAdministrer = role === 'admin' || govPerms.has('governance.manage');
   const countFor = (d) => d === 'enseignants' ? teachers.length : staff.filter((m) => m.department === d).length;
 
   return (
@@ -530,23 +543,29 @@ export default function Personnel() {
             <span className="text-xs bg-gray-100 text-gray-600 px-1.5 rounded-full">{countFor(d)}</span>
           </button>
         ))}
+        {peutAdministrer && (
         <button onClick={() => setDep(ROLES_TAB)}
           className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
             dep === ROLES_TAB ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
           <span>🔑</span>
           {t('Rôles & accès', 'Roles & access', 'Roles y acceso')}
         </button>
+        )}
+        {peutAdministrer && (
         <button onClick={() => setDep(GOV_TAB)}
           className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap flex items-center gap-2 ${
             dep === GOV_TAB ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
           <span>🏛️</span>
           {t('Gouvernance', 'Governance', 'Gobernanza')}
         </button>
+        )}
       </div>
 
-      {dep === ROLES_TAB
+      {/* Le rendu revalide `peutAdministrer` : masquer l'onglet ne suffirait pas,
+          l'état `dep` étant atteignable autrement (lien profond, retour arrière). */}
+      {dep === ROLES_TAB && peutAdministrer
         ? <RolesPanel />
-        : dep === GOV_TAB
+        : dep === GOV_TAB && peutAdministrer
           ? <GovernanceCenter />
           : dep === 'enseignants'
             ? <TeachersPanel />

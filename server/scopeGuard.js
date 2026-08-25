@@ -261,6 +261,14 @@ export function allowsTeacher(scope, teacherId) {
     if (own) return true;
   } catch { /* colonne absente : on continue */ }
 
+  // RH TRANSVERSE : même exception que pour le personnel administratif
+  // (`allowsStaff`). L'autorité sur TOUT le personnel ne se laisse pas borner par
+  // le périmètre PÉDAGOGIQUE du compte — le RAF est sectoriel côté classes et
+  // transverse côté personnel. L'oubli de cette ligne pour le corps enseignant
+  // était une incohérence de la Phase 3 : le RAF gérait les agents des deux
+  // secteurs mais pas leurs enseignants. Trouvée par le test 36.
+  if (hasGovPerm(scope, 'staff.manage.all')) return true;
+
   const sectors = teacherSectors(scope.schoolId, teacherId);
   // Enseignant sans aucune classe ni matière : secteur indéterminé. Le masquer
   // le rendrait ingérable — on ne pourrait plus lui AFFECTER de classe, donc
@@ -284,6 +292,41 @@ export function allowsStaff(scope, sector) {
   if (hasGovPerm(scope, 'staff.manage.all')) return true;
   if (sector == null || sector === '') return true;
   return userSectors(scope).includes(sector);
+}
+
+// Le compte peut-il ÉCRIRE la fiche d'un ENSEIGNANT ?
+//
+// L'autorité est la même que pour le personnel administratif — un chef de
+// secteur gère les gens de son secteur, qu'ils enseignent ou non. Le PÉRIMÈTRE,
+// lui, reste celui d'`allowsTeacher` : le secteur d'un enseignant est DÉRIVÉ de
+// ses classes et de ses matières, jamais déclaré. Principal → Collège seulement,
+// Directrice du Primaire → Fondamental seulement.
+//
+// Miroir de la policy permissive « personnel: écriture par autorité RH » du
+// cloud, bornée par la restrictive « secteur: cloisonnement » déjà en place.
+export function canManageTeacher(scope, teacherId) {
+  if (!scope) return false;
+  if (!strictRoles(scope.schoolId)) return true;        // autres écoles : inchangé
+  if (isAdmin(scope)) return true;
+
+  // Un enseignant modifie TOUJOURS sa propre fiche (profil, photo, mot de passe).
+  // Sans cette exception, le durcissement lui retirerait son propre profil —
+  // c'est la policy « teacher: update own profile » du cloud.
+  if (teacherId) {
+    try {
+      const own = db.prepare('SELECT 1 FROM teachers WHERE id = ? AND school_id = ? AND auth_user_id = ?')
+        .get(teacherId, scope.schoolId, scope.userId);
+      if (own) return true;
+    } catch { /* colonne absente : on continue */ }
+  }
+
+  if (hasGovPerm(scope, 'staff.manage.all')) return true;   // RH transverse
+  const bounded = hasGovPerm(scope, 'staff.manage.sector')
+    || scope.pages.includes('/app/teachers');
+  if (!bounded) return false;
+  // Le secteur est vérifié par `allowsTeacher`, appelé juste après par la garde
+  // d'écriture. Un seul endroit décide du périmètre, ici on ne décide que du DROIT.
+  return true;
 }
 
 // Le compte peut-il ÉCRIRE la fiche d'un membre du personnel de ce secteur ?
@@ -407,6 +450,26 @@ export function guardScopeWrite(op, ctx) {
   if (strictRoles(scope?.schoolId)) {
     if (MONEY_TABLES.has(op.table) && !isFinanceOfficer(scope)) {
       throw new Error('Gestion des frais réservée au service financier (caisse, RAF, contrôle).');
+    }
+    // Les ENSEIGNANTS : même autorité que le personnel administratif. Sans ce
+    // contrôle, n'importe quel membre de l'école pouvait écrire dans `teachers`
+    // côté LAN — le cloud, lui, le réservait déjà aux administrateurs. C'est
+    // aussi ce qui ouvre la gestion du corps enseignant aux chefs de secteur,
+    // bornée à LEUR secteur par `allowsTeacher` un peu plus bas.
+    if (op.table === 'teachers') {
+      const refus = 'Gestion du corps enseignant réservée à la direction du secteur.';
+      if (['insert', 'upsert'].includes(op.action)) {
+        // CRÉER un enseignant exige l'autorité, sans exception possible : la
+        // dispense « sa propre fiche » ne s'applique qu'à une fiche existante.
+        if (!canManageTeacher(scope, null)) throw new Error(refus);
+      } else {
+        // Sur un update/delete, les valeurs écrites ne portent PAS l'id — c'est
+        // la ligne VISÉE qu'il faut interroger, sinon on refuserait à un
+        // enseignant la modification de sa propre fiche (bug trouvé par le test).
+        for (const key of matchedRowKeys(op, rule)) {
+          if (!canManageTeacher(scope, key)) throw new Error(refus);
+        }
+      }
     }
     // Le personnel : autorité TRANSVERSE (admin, RH) d'abord — sinon un
     // administrateur se ferait refuser une écriture de masse par la lecture

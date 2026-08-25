@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
+import { useStrictMatrix } from '../lib/useStrictMatrix';
 import { downloadCSV } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
@@ -85,7 +86,7 @@ const chronoPayment = (a, b) =>
   || String(a.created_at || '').localeCompare(String(b.created_at || ''))
   || String(a.id || '').localeCompare(String(b.id || ''));
 
-function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onReversePayment, onClose, onPrintReceipt, onConfigureGrid,
+function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPayment, onReversePayment, onClose, onPrintReceipt, onConfigureGrid,
   studentItems = [], optionalItems = [], onAttachOptional, onDetachOptional }) {
   const t = useT();
   const money = useMoney();
@@ -420,7 +421,20 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onReverse
           </div>
 
           <div className="space-y-3">
-              {/* Nouveau versement */}
+              {/* Nouveau versement — réservé à qui porte l'AUTORITÉ FINANCIÈRE.
+                  Le Contrôleur consulte les deux secteurs sans jamais encaisser : lui
+                  afficher le formulaire reviendrait à lui promettre une action que la
+                  base refusera. Hors école durcie, `canCollect` suit la règle d'avant
+                  (rôle admin/censeur) et le formulaire s'affiche comme toujours. */}
+              {!canCollect ? (
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500">
+                    {t('Consultation seule : l’encaissement est réservé au service financier.',
+                       'Read-only: collecting payments is reserved for the finance desk.',
+                       'Solo lectura: el cobro está reservado al servicio financiero.')}
+                  </p>
+                </div>
+              ) : (
               <div className="bg-white rounded-xl border border-gray-100 p-4">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('Nouveau versement', 'New payment')}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
@@ -482,6 +496,7 @@ function PaymentPanel({ student, fee, payments, isAdmin, onAddPayment, onReverse
                   {saving ? t('Enregistrement…', 'Saving…') : t('Enregistrer le versement', 'Record payment')}
                 </button>
               </div>
+              )}
 
               {/* Confirmation + reçu (original : ni l'un ni l'autre n'est marqué duplicata) */}
               {lastPaymentId && (() => {
@@ -605,6 +620,9 @@ export default function Fees() {
   const { f } = usePlan();
   const { school, role, fullName } = useAuthStore();
   const isAdmin = role === 'admin';
+  // AUTORITÉ FINANCIÈRE : un RÔLE, jamais le rôle de base. Hors école durcie,
+  // canCollectFees rend exactement la réponse d'avant — admin ou censeur.
+  const { canCollectFees: canCollect } = useStrictMatrix();
   const classes      = useSchoolStore((s) => s.classes);
   const students     = useSchoolStore((s) => s.students);
   const fees         = useSchoolStore((s) => s.fees);
@@ -1276,6 +1294,7 @@ export default function Fees() {
                 .filter((p) => p.student_id === student.id && p.academic_year === activeYear)
                 .sort((a, b) => b.date.localeCompare(a.date))}
               isAdmin={isAdmin}
+              canCollect={canCollect}
               studentItems={studentItems}
               optionalItems={optionalItems}
               onAttachOptional={attachOptional}

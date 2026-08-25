@@ -31,6 +31,27 @@ export const WORKFLOW_OPTIONS = [
   { key: P.UNLOCK_DECIDE,           label: ['Décider un déblocage', 'Decide an unlock', 'Decidir desbloqueo'] },
 ];
 
+// AUTORITÉS DE LA MATRICE STRICTE. Séparées des options ci-dessus parce qu'elles
+// n'ont d'effet QUE dans une école ayant activé `strict_role_enforcement` :
+// les proposer ailleurs afficherait des cases sans conséquence. `permissionOptions`
+// ci-dessous décide donc de les montrer ou non.
+//
+// Elles sont éditables — et doivent l'être : la finance de THE GENIUS est GLOBALE
+// et portée par un rôle (§12), donc l'école doit pouvoir désigner elle-même qui
+// encaisse, sans passer par une migration SQL.
+export const STRICT_PERMISSION_OPTIONS = [
+  { key: P.FEES_MANAGE, label: ['Encaisser et gérer les frais (tous secteurs)', 'Collect and manage fees (all sectors)', 'Cobrar y gestionar tasas (todos los sectores)'] },
+  { key: P.FEES_VIEW,   label: ['Consulter les finances (tous secteurs)', 'View finances (all sectors)', 'Consultar finanzas (todos los sectores)'] },
+  { key: P.STAFF_MANAGE_SECTOR, label: ['Gérer le personnel de son secteur', 'Manage own-sector staff', 'Gestionar el personal de su sector'] },
+  { key: P.STAFF_MANAGE_ALL,    label: ['Gérer le personnel de tous les secteurs', 'Manage staff of all sectors', 'Gestionar el personal de todos los sectores'] },
+];
+
+// Options de permissions à afficher dans l'éditeur de rôles.
+// `strict` = l'école applique-t-elle la matrice stricte (isStrictSchool) ?
+export function permissionOptions({ strict = false } = {}) {
+  return strict ? [...PERMISSION_OPTIONS, ...STRICT_PERMISSION_OPTIONS] : PERMISSION_OPTIONS;
+}
+
 // Dashboards associables à un rôle (ids consommés par les pages).
 export const DASHBOARD_OPTIONS = [
   { key: 'group',         label: ['Tableau de bord du groupe', 'Group dashboard', 'Panel del grupo'] },

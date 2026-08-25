@@ -4,6 +4,8 @@
 // puis un RPC SECURITY DEFINER le lie à l'école avec le bon rôle.
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { mirrorPasswordToLan } from './cloudCredentialMirror';
+import { IS_LAN } from './edition';
 
 // Client sans persistance de session — crée des comptes sans déconnecter l'admin.
 const anonClient = createClient(
@@ -45,6 +47,18 @@ export async function createStaffAccount({ email, password, fullName, role, perm
     }));
   }
   if (rpcError) throw rpcError;
+
+  // Sens Cloud → Local : sans ce dépôt, le compte n'existe QUE dans le cloud et
+  // son titulaire ne peut ouvrir aucune session sur le serveur LAN de l'école.
+  // Après la RPC seulement : la politique RLS exige que la cible soit déjà
+  // membre de l'école, et la clé publique du serveur n'est lisible que par un
+  // membre. On dépose avec la session du compte créé (anonClient) ; si elle
+  // n'existe pas (confirmation d'e-mail exigée), l'admin dépose à sa place.
+  // Best-effort : jamais bloquant pour la création du compte.
+  await mirrorPasswordToLan(password, { client: anonClient, user: { id: targetUserId, email: mail } })
+    .then((r) => (r?.ok ? r : mirrorPasswordToLan(password, { user: { id: targetUserId, email: mail } })))
+    .catch(() => {});
+
   return { email: mail, userId: targetUserId };
 }
 
@@ -88,12 +102,17 @@ export async function setStaffActive(schoolUserId, active) {
 // L'admin définit le PÉRIMÈTRE vie scolaire d'un surveillant/censeur : sections,
 // cycles et/ou classes accessibles (tableaux vides = tout l'établissement).
 // RPC admin_set_staff_scope (migration supabase_vie_scolaire.sql).
-export async function setStaffScope(schoolUserId, { sections = [], cycles = [], classIds = [] }) {
+// `global` : périmètre GLOBAL EXPLICITE (school_users.scope_global). Depuis le
+// cloisonnement par secteur, « trois tableaux vides » ne vaut PLUS « tout
+// l'établissement » — un compte transversal doit être marqué global de façon
+// explicite, sinon il n'accède à rien.
+export async function setStaffScope(schoolUserId, { sections = [], cycles = [], classIds = [], global = false }) {
   const { error } = await supabase.rpc('admin_set_staff_scope', {
     p_school_user_id: schoolUserId,
-    p_sections:       sections,
-    p_cycles:         cycles,
-    p_class_ids:      classIds,
+    p_sections:       global ? [] : sections,
+    p_cycles:         global ? [] : cycles,
+    p_class_ids:      global ? [] : classIds,
+    p_global:         !!global,
   });
   return { error };
 }
@@ -101,9 +120,33 @@ export async function setStaffScope(schoolUserId, { sections = [], cycles = [], 
 // L'admin redéfinit le mot de passe d'un compte de direction (censeur/surveillant)
 // de SON école. RPC SECURITY DEFINER (cloud) / handler local (LAN).
 export async function setStaffPassword(schoolUserId, newPassword) {
-  const { error } = await supabase.rpc('admin_set_staff_password', {
+  const { data: targetEmail, error } = await supabase.rpc('admin_set_staff_password', {
     p_school_user_id: schoolUserId,
     p_new_password:   newPassword,
   });
-  return { error };
+  if (error) return { error };
+
+  // Sens Cloud → Local : propage le nouveau mot de passe au serveur LAN de
+  // l'école, faute de quoi il ne s'applique qu'en ligne et le membre reste
+  // bloqué en local. Best-effort — le mot de passe cloud est déjà changé, on ne
+  // fait jamais échouer l'opération sur le miroir.
+  // En édition LAN, le serveur local vient déjà d'écrire le hash scrypt
+  // (rpc.js:admin_set_staff_password) : rien à miroiter, et on évite une
+  // requête inutile.
+  if (IS_LAN) return { error: null };
+  try {
+    const { data: su } = await supabase.from('school_users')
+      .select('school_id, user_id').eq('id', schoolUserId).maybeSingle();
+    // `targetEmail` vient de la RPC (migration supabase_credential_channel_provisioning.sql).
+    // Sur un cloud pas encore migré elle ne renvoie rien : sans e-mail, le serveur
+    // ne peut que METTRE À JOUR un compte local existant, pas en créer un.
+    if (su?.user_id) {
+      await mirrorPasswordToLan(newPassword, {
+        user: { id: su.user_id, email: targetEmail || null },
+        schoolId: su.school_id,
+      });
+    }
+  } catch { /* miroir best-effort */ }
+
+  return { error: null };
 }

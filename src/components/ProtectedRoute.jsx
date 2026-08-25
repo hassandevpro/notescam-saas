@@ -3,6 +3,7 @@ import { useAuthStore } from '../store/authStore';
 import { isPathPermitted, firstPermitted } from '../config/capabilities';
 import { effectivePages } from '../governance/governanceEngine';
 import { catalogOrDefault } from '../governance/defaultCatalog';
+import { useStrictMatrix } from '../lib/useStrictMatrix';
 
 // Page d'accueil par défaut selon le rôle — cible des redirections quand un
 // rôle tente d'accéder à une route qui ne lui est pas autorisée.
@@ -26,6 +27,7 @@ export default function ProtectedRoute({ children, allow }) {
   const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
   const governanceAssignments = useAuthStore((s) => s.governanceAssignments);
   const { pathname } = useLocation();
+  const strict = useStrictMatrix();
 
   if (loading) {
     return (
@@ -41,6 +43,15 @@ export default function ProtectedRoute({ children, allow }) {
 
   // Le superadmin (propriétaire de la plateforme) n'est jamais restreint.
   if (role === 'superadmin') return children;
+
+  // MATRICE STRICTE — évaluée AVANT tout le reste, et donc au-dessus des pages de
+  // gouvernance comme des capacités déléguées. Retirer une entrée de menu ne
+  // protège rien tant que l'adresse reste ouverte : c'est ICI que le menu caché
+  // devient une page réellement fermée. Hors école durcie, `allowsPage` rend true
+  // sans rien examiner — les autres établissements gardent leurs routes intactes.
+  if (!strict.allowsPage(pathname)) {
+    return <Navigate to={homeForRole(role)} replace />;
+  }
 
   // Accès via un rôle de GOUVERNANCE (additif, dérivé du catalogue) : un porteur
   // de rôle habilité accède aux pages ouvertes par ce rôle (budgets, dépenses,

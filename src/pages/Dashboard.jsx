@@ -51,6 +51,8 @@ export default function Dashboard() {
   const classes  = useSchoolStore((s) => s.classes);
   const subjects = useSchoolStore((s) => s.subjects);
   const students = useSchoolStore((s) => s.students);
+  // Unités du complexe scolaire : c'est souvent là que vit le logo de l'école.
+  const schoolUnits = useSchoolStore((s) => s.schoolUnits);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
   const fees     = useSchoolStore((s) => s.fees);
   const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
@@ -166,7 +168,7 @@ export default function Dashboard() {
 
   const RENDER = {
     [BLOCK.SETUP]: () => (!loading
-      ? <SetupChecklist school={school} classes={classes} subjects={subjects} students={students} />
+      ? <SetupChecklist school={school} classes={classes} subjects={subjects} students={students} units={schoolUnits} />
       : null),
     [BLOCK.TEACHER_CLASSES]: () => (
       <TeacherClasses classes={classes} students={students} subjects={subjects} gradeMap={gradeMap} />
@@ -218,7 +220,7 @@ export default function Dashboard() {
               <p className="text-sm text-gray-400 mt-0.5">{shownRole}</p>
             </div>
             <div className="flex items-center gap-4">
-              <SchoolBadge school={school} />
+              <SchoolBadge school={school} units={schoolUnits} />
               {unreadMsgs > 0 && (
                 <Link to="/app/notifications"
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors">

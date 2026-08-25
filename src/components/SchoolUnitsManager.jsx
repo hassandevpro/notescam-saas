@@ -52,17 +52,24 @@ function UnitAsset({ label, currentUrl, onUpload, onRemove, uploading, hint }) {
   );
 }
 
-function TextField({ label, value, onChange, placeholder, type = 'text' }) {
+function TextField({ label, value, onChange, onBlur, placeholder, type = 'text' }) {
   return (
     <div>
       <label className="block text-xs font-semibold text-gray-500 mb-1">{label}</label>
       <input type={type} className="form-input" value={value || ''} placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)} />
+        onChange={(e) => onChange(e.target.value)} onBlur={onBlur} />
     </div>
   );
 }
 
-// Carte d'édition d'une unité (auto-sauvegarde au blur des champs texte).
+// Champs texte de l'unité — la liste sert à la fois à l'enregistrement groupé
+// et au calcul des modifications en attente.
+const TEXT_FIELDS = ['name', 'director', 'motto', 'address', 'phone', 'email', 'establishment_no'];
+
+// Carte d'édition d'une unité. Les champs texte s'enregistrent quand on les
+// quitte (onBlur), ET une barre en pied de carte montre ce qui reste en attente
+// avec un bouton explicite — le blur seul ne couvre pas tous les cas (fermeture
+// d'onglet, navigation clavier).
 function UnitCard({ unit, classes, onSave, onDelete }) {
   const t = useT();
   const school = useAuthStore((s) => s.school);
@@ -71,7 +78,14 @@ function UnitCard({ unit, classes, onSave, onDelete }) {
 
   const setField = (k) => (v) => setDraft((d) => ({ ...d, [k]: v }));
   const commit = (patch) => onSave(unit.id, patch);
-  const commitField = (k) => () => { if (draft[k] !== unit[k]) commit({ [k]: draft[k] }); };
+  // Filet de sécurité : on enregistre dès qu'on quitte un champ modifié. Sans
+  // cela, une saisie non suivie d'un clic sur « Enregistrer » était perdue en
+  // silence — c'est ce qui se passait, le bouton étant noyé entre les deux
+  // sélecteurs de couleur.
+  const commitField = (k) => () => { if (draft[k] !== unit[k]) commit({ [k]: (draft[k] || null) }); };
+
+  // Modifications en attente : sert à afficher la barre d'enregistrement.
+  const pending = TEXT_FIELDS.filter((k) => (draft[k] || '') !== (unit[k] || ''));
 
   const attachedCount = (classes || []).filter((c) => resolveClassUnit([unit], c) === unit).length;
 
@@ -108,7 +122,7 @@ function UnitCard({ unit, classes, onSave, onDelete }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <TextField label={t('Nom de l\'unité', 'Unit name', 'Nombre de la unidad')} value={draft.name}
-          onChange={setField('name')} placeholder={t('Ex : École Primaire ABC', 'E.g. ABC Primary School')} />
+          onChange={setField('name')} onBlur={commitField('name')} placeholder={t('Ex : École Primaire ABC', 'E.g. ABC Primary School')} />
         <div>
           <label className="block text-xs font-semibold text-gray-500 mb-1">{t('Section', 'Section', 'Sección')}</label>
           <select className="form-input" value={draft.section_key || ''}
@@ -126,15 +140,15 @@ function UnitCard({ unit, classes, onSave, onDelete }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <TextField label={t('Directeur / Responsable', 'Head / Principal', 'Director')} value={draft.director}
-          onChange={setField('director')} placeholder={t('Nom du responsable', 'Head name')} />
+          onChange={setField('director')} onBlur={commitField('director')} placeholder={t('Nom du responsable', 'Head name')} />
         <TextField label={t('Devise (optionnelle)', 'Motto (optional)', 'Lema (opcional)')} value={draft.motto}
-          onChange={setField('motto')} placeholder={t('Travail — Discipline — Succès', 'Work — Discipline — Success')} />
+          onChange={setField('motto')} onBlur={commitField('motto')} placeholder={t('Travail — Discipline — Succès', 'Work — Discipline — Success')} />
         <TextField label={t('Adresse (si différente)', 'Address (if different)', 'Dirección')} value={draft.address}
-          onChange={setField('address')} />
-        <TextField label={t('Téléphone', 'Phone', 'Teléfono')} value={draft.phone} onChange={setField('phone')} />
-        <TextField label="Email" type="email" value={draft.email} onChange={setField('email')} />
+          onChange={setField('address')} onBlur={commitField('address')} />
+        <TextField label={t('Téléphone', 'Phone', 'Teléfono')} value={draft.phone} onChange={setField('phone')} onBlur={commitField('phone')} />
+        <TextField label="Email" type="email" value={draft.email} onChange={setField('email')} onBlur={commitField('email')} />
         <TextField label={t('N° établissement (optionnel)', 'Establishment No. (optional)', 'N.º de centro')} value={draft.establishment_no}
-          onChange={setField('establishment_no')} />
+          onChange={setField('establishment_no')} onBlur={commitField('establishment_no')} />
       </div>
       {/* Sauvegarde des champs texte au blur groupé */}
       <div className="flex flex-wrap gap-3">
@@ -152,15 +166,6 @@ function UnitCard({ unit, classes, onSave, onDelete }) {
             onBlur={() => draft.color_secondary !== unit.color_secondary && commit({ color_secondary: draft.color_secondary })}
             className="w-8 h-8 rounded border border-gray-200 cursor-pointer" />
         </label>
-        <button type="button" onClick={() => {
-          const patch = {};
-          for (const k of ['name', 'director', 'motto', 'address', 'phone', 'email', 'establishment_no']) {
-            if (draft[k] !== unit[k]) patch[k] = draft[k] || null;
-          }
-          if (Object.keys(patch).length) commit(patch);
-        }} className="btn-secondary text-xs" style={{ width: 'auto', paddingInline: '1rem' }}>
-          {t('Enregistrer le texte', 'Save text fields', 'Guardar textos')}
-        </button>
       </div>
 
       <div className="grid grid-cols-3 gap-3 pt-1">
@@ -173,6 +178,31 @@ function UnitCard({ unit, classes, onSave, onDelete }) {
         <UnitAsset label={t('Signature', 'Signature', 'Firma')} currentUrl={draft.signature_url}
           onUpload={(f) => handleUpload('signature', 'signature_url', f)} onRemove={() => handleRemove('signature_url')}
           uploading={uploading === 'signature'} />
+      </div>
+
+      {/* BARRE D'ENREGISTREMENT — visible et explicite. Les champs se
+          sauvegardent déjà quand on les quitte ; cette barre existe pour que
+          l'utilisateur VOIE ce qui reste en attente et puisse valider d'un
+          geste, sans dépendre du blur (touche Entrée, fermeture d'onglet…). */}
+      <div className={`flex items-center justify-between gap-3 pt-3 border-t ${
+        pending.length ? 'border-amber-200' : 'border-slate-100'}`}>
+        <span className={`text-xs ${pending.length ? 'text-amber-700 font-semibold' : 'text-slate-400'}`}>
+          {pending.length
+            ? t(`${pending.length} modification(s) non enregistrée(s)`,
+                `${pending.length} unsaved change(s)`,
+                `${pending.length} cambio(s) sin guardar`)
+            : t('Toutes les modifications sont enregistrées.', 'All changes saved.', 'Todos los cambios guardados.')}
+        </span>
+        <button type="button" disabled={!pending.length}
+          onClick={() => {
+            const patch = {};
+            for (const k of pending) patch[k] = draft[k] || null;
+            if (Object.keys(patch).length) commit(patch);
+          }}
+          className={pending.length ? 'btn-primary' : 'btn-secondary'}
+          style={{ width: 'auto', paddingInline: '1.25rem', opacity: pending.length ? 1 : 0.5 }}>
+          {t('Enregistrer les modifications', 'Save changes', 'Guardar cambios')}
+        </button>
       </div>
     </div>
   );

@@ -1,0 +1,102 @@
+========================================================================
+NotesCam — Correctif « connexion locale des comptes »
+Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+CE QUE CORRIGE CETTE MISE À JOUR
+--------------------------------
+Les comptes du personnel fonctionnent en ligne (Cloud) mais refusent la
+connexion sur le serveur de l'école, avec le message :
+
+    « Email ou mot de passe incorrect. »
+
+Cause : les comptes créés dans le Cloud n'étaient jamais transmis au
+serveur de l'école. Cette mise à jour ouvre ce canal (chiffré).
+
+IMPORTANT : cette mise à jour NE RÉTABLIT PAS les connexions à elle
+seule. Elle prépare le terrain. Une fois installée, prévenez l'éditeur :
+une seconde opération, faite depuis le Cloud, réactivera les comptes.
+
+
+CE QUI N'EST PAS TOUCHÉ
+-----------------------
+  - Aucune donnée scolaire n'est modifiée (élèves, notes, frais...).
+  - La base de données est CONSERVÉE (une copie de sûreté est faite
+    automatiquement avant l'installation).
+  - Le rattachement de l'école au Cloud est CONSERVÉ : il n'y a AUCUN
+    nouvel appairage à faire, aucun code à saisir.
+  - Les mots de passe existants ne sont ni lus ni modifiés.
+
+
+CE QU'IL VOUS FAUT
+------------------
+  - Les 2 fichiers reçus :
+        notescam-linux-x64-0.2.0.tar.gz     (environ 56 Mo)
+        deploy-correctif-credentials.sh     (petit fichier texte)
+  - Un accès au serveur Linux de l'école, avec les droits « sudo ».
+  - Environ 5 minutes. Le service sera indisponible ~1 minute.
+
+À faire de préférence en dehors des heures de saisie des notes.
+
+
+INSTALLATION — 4 COMMANDES
+--------------------------
+Ouvrez un terminal sur le serveur (ou connectez-vous en SSH), puis :
+
+1) Placez-vous dans le dossier contenant les 2 fichiers reçus :
+
+        cd ~
+
+2) Vérifiez que les 2 fichiers sont bien là :
+
+        ls -l notescam-linux-x64-0.2.0.tar.gz deploy-correctif-credentials.sh
+
+3) Préparez le script :
+
+        sed -i 's/\r$//' deploy-correctif-credentials.sh
+        chmod +x deploy-correctif-credentials.sh
+
+4) Lancez l'installation :
+
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.0.tar.gz
+
+   (Si NotesCam n'écoute pas sur le port 8080 — vérifiable avec
+    « grep PORT /etc/notescam/notescam.env » — utilisez plutôt :
+        sudo PORT=LE_PORT ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.0.tar.gz )
+
+
+RÉSULTAT ATTENDU
+----------------
+Le script travaille environ 2 minutes, puis affiche un bloc « VERDICT ».
+
+  ✅ « Toutes les vérifications locales sont PASS. »
+        -> C'est bon. Prévenez l'éditeur, en lui envoyant si possible
+           le texte affiché par le script.
+
+  ❌ « N vérification(s) en échec »
+        -> N'allez pas plus loin. Envoyez à l'éditeur le résultat de :
+
+              sudo journalctl -u notescam --since '-10 min' --no-pager | tail -50
+
+
+VÉRIFICATION RAPIDE APRÈS COUP
+------------------------------
+        systemctl is-active notescam
+
+  doit répondre : active
+
+        curl -s http://127.0.0.1:8080/api/pair/status
+
+  doit contenir : "schoolId":"6b68407b-3d2e-426b-81ff-c4e68e66120a"
+  (c'est la preuve que le rattachement de l'école est intact)
+
+
+EN CAS DE PROBLÈME
+------------------
+L'installation conserve tout. Une copie de la base d'avant la mise à
+jour est déposée automatiquement dans :
+
+        /var/lib/notescam/data/notescam.db.avant-correctif-<horodatage>
+
+Ne la supprimez pas et ne la restaurez pas de vous-même : contactez
+l'éditeur, qui vous guidera.

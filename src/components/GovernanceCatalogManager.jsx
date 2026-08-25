@@ -12,10 +12,11 @@ import {
   fetchGovernanceCatalog, upsertGovernanceRole, deleteGovernanceRole,
 } from '../governance/governanceService';
 import {
-  PERMISSION_OPTIONS, WORKFLOW_OPTIONS, DASHBOARD_OPTIONS, SCOPE_OPTIONS, validateRoleDraft,
+  permissionOptions, WORKFLOW_OPTIONS, DASHBOARD_OPTIONS, SCOPE_OPTIONS, validateRoleDraft,
 } from '../governance/permissionCatalog';
 import { CAP_GROUPS } from '../config/capabilities';
 import { SECTOR_LABELS } from './budgets/budgetUi';
+import { isStrictSchool } from '../core/strictMatrix';
 
 const SECTORS = Object.keys(SECTOR_LABELS);
 const asArray = (v) => (Array.isArray(v) ? v : (typeof v === 'string' && v.trim() ? JSON.parse(v) : []));
@@ -145,6 +146,11 @@ export default function GovernanceCatalogManager() {
 // ── Modale d'édition d'un rôle ───────────────────────────────────────────────
 function RoleEditor({ draft, isNew, existingCodes, onClose, onSaved }) {
   const t = useT();
+  // Les autorités de la matrice stricte (caisse transverse, personnel par secteur)
+  // ne sont proposées que dans une école qui les APPLIQUE : ailleurs, ce seraient
+  // des cases sans effet. Les clés déjà posées sur un rôle ne sont jamais perdues
+  // — l'éditeur ne touche qu'aux clés qu'il affiche.
+  const strict = isStrictSchool(useAuthStore((s) => s.school));
   const [d, setD] = useState(draft);
   const [busy, setBusy] = useState(false);
   const [errs, setErrs] = useState([]);
@@ -212,7 +218,7 @@ function RoleEditor({ draft, isNew, existingCodes, onClose, onSaved }) {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <CheckGroup title={t('Permissions', 'Permissions', 'Permisos')} options={PERMISSION_OPTIONS} has={(k) => has('permissions', k)} onToggle={(k) => toggle('permissions', k)} t={t} />
+          <CheckGroup title={t('Permissions', 'Permissions', 'Permisos')} options={permissionOptions({ strict })} has={(k) => has('permissions', k)} onToggle={(k) => toggle('permissions', k)} t={t} />
           <CheckGroup title={t('Workflows de validation', 'Approval workflows', 'Flujos de validación')} options={WORKFLOW_OPTIONS} has={(k) => has('workflows', k)} onToggle={(k) => toggle('workflows', k)} t={t} />
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

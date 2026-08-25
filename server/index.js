@@ -15,7 +15,7 @@ import { runQuery, runBatch } from './query.js';
 import { runRpc } from './rpc.js';
 import { scheduleBackups, runBackup } from './backup.js';
 import { runMigration } from './migrate.js';
-import { mirrorToCloud, flushMirrorQueue, credentialPublicKey, publishCredentialKey } from './authBridge.js';
+import { mirrorToCloud, flushMirrorQueue, credentialPublicKey, publishCredentialKey, syncCloudCredentials } from './authBridge.js';
 import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
 import { scheduleCloudSync, syncOnce } from './cloudSync.js';
 import { scheduleEventSync } from './eventSync.js';
@@ -530,8 +530,26 @@ const start = async () => {
     // périodiquement : converge dès que le cloud redevient joignable, sans bloquer.
     flushMirrorQueue().catch(() => {});
     setInterval(() => { flushMirrorQueue().catch(() => {}); }, 10 * 60 * 1000).unref();
-    // Publie la clé publique de ce serveur (sens Cloud → Local) — best-effort.
-    publishCredentialKey().catch(() => {});
+    // Pont d'identifiants, sens Cloud → Local.
+    //   1. Publier la clé publique de ce serveur : sans elle, l'app cloud n'a rien
+    //      pour chiffrer et le canal reste muet. RÉESSAYÉ à chaque tick tant qu'elle
+    //      n'est pas passée (un unique essai au boot échoue définitivement si le
+    //      réseau n'est pas encore là — c'est ce qui laissait des écoles sans clé).
+    //   2. Tirer et appliquer les credentials déposées : provisionne les comptes
+    //      locaux des membres de l'école. Sans cette étape, un compte créé dans le
+    //      cloud n'a AUCUN identifiant de connexion locale.
+    let keyPublished = false;
+    const credentialTick = async () => {
+      if (!keyPublished) {
+        const r = await publishCredentialKey().catch(() => null);
+        keyPublished = !!r?.ok;
+      }
+      const r = await syncCloudCredentials(hashPassword).catch(() => null);
+      // Journal : des COMPTEURS uniquement, jamais un e-mail ni un mot de passe.
+      if (r?.applied) console.log(`[credentials] ${r.created} compte(s) créé(s), ${r.updated} mis à jour`);
+    };
+    credentialTick();
+    setInterval(credentialTick, 10 * 60 * 1000).unref();
     // Sync continue LAN ↔ Cloud (Phase 2) — gated : NOTESCAM_CLOUD_SYNC=1 + jeton présent.
     if (scheduleCloudSync()) console.log('  Sync continue LAN ↔ Cloud : activée');
     // H3-a : réplication du journal d'événements (transport du canal de gouvernance).

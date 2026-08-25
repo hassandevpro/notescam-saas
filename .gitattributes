@@ -2,3 +2,7 @@
 # travers (labels/gotos/parentheses casses). Cf. purge-notescam.cmd.
 *.cmd text eol=crlf
 *.bat text eol=crlf
+
+# Les scripts shell DOIVENT rester en LF : un checkout Windows en CRLF les rend
+# inexecutables sous Linux (/usr/bin/env: bash: No such file or directory).
+*.sh text eol=lf

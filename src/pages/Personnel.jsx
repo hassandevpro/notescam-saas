@@ -11,6 +11,7 @@ import { useT } from '../lib/i18n';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { STAFF_DEPARTMENTS, uploadStaffPhoto, uploadStaffDocument, parseDocs } from '../lib/staffService';
+import { useStrictMatrix } from '../lib/useStrictMatrix';
 import { exportStaff, downloadStaffTemplate, parseStaffSpreadsheet, printStaffList } from '../lib/staffExport';
 import { resizeImageToSquare } from '../lib/image';
 import { TeachersPanel } from './Teachers';
@@ -40,9 +41,11 @@ function fullName(first, last, fallback = '') {
 // ── Formulaire d'un membre du personnel ──────────────────────────────────────
 function StaffForm({ initial, department, onSave, onCancel }) {
   const t = useT();
+  // Le secteur du personnel ne se saisit que là où il sert (école cloisonnée).
+  const { strict } = useStrictMatrix();
   const [form, setForm] = useState({
     matricule: '', first_name: '', last_name: '', gender: '', phone: '',
-    email: '', address: '', fonction: '', hire_date: '', status: '',
+    email: '', address: '', fonction: '', hire_date: '', status: '', sector: '',
     convention_collective: '', categorie_echelon: '', situation_familiale: '',
     cnps_number: '', niu: '', cni_number: '', bank_account: '',
     ...initial,
@@ -155,6 +158,31 @@ function StaffForm({ initial, department, onSave, onCancel }) {
               value={form.status} onChange={set('status')} />
           </div>
         </div>
+
+        {/* SECTEUR DE RATTACHEMENT — n'apparaît que dans une école qui cloisonne
+            son personnel par secteur. Un agent administratif n'a ni classe ni
+            matière : contrairement à l'enseignant, son secteur ne se DÉRIVE pas,
+            il se DÉCLARE. Sans ce champ la colonne resterait vide partout, donc
+            tout le personnel transverse, et la règle « chaque responsable voit le
+            personnel de son secteur » n'aurait aucun effet.
+            « Transverse » reste le défaut : c'est l'état de toutes les fiches
+            déjà saisies, et il convient au gardiennage, à la comptabilité… */}
+        {strict && (
+          <div>
+            <label className="form-label">{t('Secteur de rattachement', 'Assigned sector', 'Sector de adscripción')}</label>
+            <select className="form-input" value={form.sector || ''} onChange={set('sector')}>
+              <option value="">{t('Transverse (tout le complexe)', 'Cross-cutting (whole complex)', 'Transversal (todo el complejo)')}</option>
+              <option value="maternelle">{t('Maternelle', 'Nursery', 'Preescolar')}</option>
+              <option value="primaire">{t('Primaire', 'Primary', 'Primaria')}</option>
+              <option value="college">{t('Collège', 'Secondary', 'Secundaria')}</option>
+            </select>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {t('Détermine quels responsables voient et gèrent cette fiche. « Transverse » = visible de tous les secteurs.',
+                 'Determines which managers can see and edit this record. “Cross-cutting” = visible to every sector.',
+                 'Determina qué responsables ven y editan esta ficha. «Transversal» = visible para todos los sectores.')}
+            </p>
+          </div>
+        )}
 
         {/* Identité légale (bulletin de paie) — tous optionnels */}
         <div className="border-t border-gray-100 pt-2">

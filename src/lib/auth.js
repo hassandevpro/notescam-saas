@@ -40,9 +40,18 @@ export async function getCurrentUserContext() {
   const PROFILE_COLS = 'id, role, full_name, phone, photo_url, last_login_at, created_at, class_id, school_id, schools (*)';
   // Le plus riche : ajoute le PÉRIMÈTRE du surveillant (migration supabase_vie_scolaire.sql).
   const SCOPE_COLS   = 'id, role, full_name, phone, photo_url, last_login_at, created_at, class_id, school_id, scope_sections, scope_cycles, scope_class_ids, schools (*)';
-  // Le plus riche : ajoute les PERMISSIONS granulaires (migration supabase_staff_permissions.sql).
+  // Ajoute les PERMISSIONS granulaires (migration supabase_staff_permissions.sql).
   const PERM_COLS    = SCOPE_COLS.replace('schools (*)', 'permissions, schools (*)');
+  // Le plus riche : ajoute le périmètre GLOBAL EXPLICITE (supabase_sector_isolation.sql).
+  // Sans lui, l'interface retombe sur la règle implicite « trois tableaux vides =
+  // tout l'établissement » et croit global un compte que le serveur, lui, borne à
+  // rien. Le décalage ne crée pas de faille (la donnée reste filtrée en base) mais
+  // il fausse l'affichage — d'où cette lecture, avec repli si la migration n'est
+  // pas appliquée sur ce déploiement.
+  const GLOBAL_COLS  = PERM_COLS.replace('schools (*)', 'scope_global, schools (*)');
   const selectSchoolUsers = async () => {
+    const withGlobal = await supabase.from('school_users').select(GLOBAL_COLS).eq('user_id', user.id).eq('active', true);
+    if (!withGlobal.error) return withGlobal;
     const withPerm = await supabase.from('school_users').select(PERM_COLS).eq('user_id', user.id).eq('active', true);
     if (!withPerm.error) return withPerm;
     const withScope = await supabase.from('school_users').select(SCOPE_COLS).eq('user_id', user.id).eq('active', true);
@@ -174,6 +183,9 @@ export async function getCurrentUserContext() {
       sections: data.scope_sections  ?? null,
       cycles:   data.scope_cycles    ?? null,
       classIds: data.scope_class_ids ?? null,
+      // undefined = colonne non lue (migration absente) : on laisse la règle
+      // implicite décider, comme avant. true/false = périmètre global EXPLICITE.
+      global:   data.scope_global ?? undefined,
     },
     // Permissions granulaires du compte délégué (null = accès par rôle, inchangé).
     permissions: parsePermissions(data.permissions),

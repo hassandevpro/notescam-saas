@@ -41,6 +41,20 @@ export const GOV_PERM = {
   REALLOCATE_DECIDE:     'budget.reallocate.decide',  // valider/refuser une réallocation
   ANNUAL_REVISE_REQUEST: 'budget.annual.revise.request', // proposer une révision du budget annuel
   ANNUAL_REVISE:         'budget.annual.revise',      // AUTORITÉ de révision du budget annuel (exceptionnelle)
+
+  // ── MATRICE STRICTE (Phase 3/4) ─────────────────────────────────────────────
+  // INERTES tant que l'école n'a pas activé `schools.strict_role_enforcement`.
+  // Déclarées ici pour que le catalogue JS (repli hors-ligne + éditeur de rôles)
+  // dise la même chose que la base, où elles sont posées par la §8 de
+  // supabase_genius_role_permissions.sql.
+  //
+  // FINANCE = GLOBALE : ces deux clés traversent les deux secteurs. Elles ne se
+  // déduisent jamais du rôle de base ni du fait de pouvoir consulter un élève.
+  FEES_MANAGE: 'fees.manage',  // encaisser, modifier un dû, une grille tarifaire
+  FEES_VIEW:   'fees.view',    // consulter l'argent des deux secteurs, sans écrire
+  // PERSONNEL = SECTORIEL, sauf autorité transverse explicite.
+  STAFF_MANAGE_SECTOR: 'staff.manage.sector', // le personnel de SON secteur
+  STAFF_MANAGE_ALL:    'staff.manage.all',    // le personnel des deux secteurs
 };
 
 const P = GOV_PERM;
@@ -94,3 +108,31 @@ export const GOVERNANCE_GRANTS = {
   // de décision devra être accordé EXPLICITEMENT (autre affectation), jamais implicite.
   controleur: [P.VIEW, P.BUDGET_VIEW, P.EXPENSE_VIEW],
 };
+
+// ── MATRICE STRICTE : qui porte quelle AUTORITÉ (Phase 3/4) ──────────────────
+// Miroir LIGNE À LIGNE de `apply_strict_role_matrix()` (supabase_genius_role_
+// permissions.sql §8) et de `ensureStrictRoleMatrix()` (server/db.js). Trois
+// implémentations, une seule table de vérité : elle est écrite ici une fois pour
+// que la divergence se voie.
+//
+// Additif, jamais soustractif : ces clés s'ajoutent aux grants ci-dessus sans en
+// retirer aucun. Et elles restent INERTES dans une école qui n'a pas levé le
+// drapeau `strict_role_enforcement` — aucune règle ne les interroge alors.
+export const STRICT_ROLE_MATRIX = {
+  // FINANCE — écriture transverse aux deux secteurs (§12).
+  'fees.manage':         ['caissier', 'raf', 'coordonnateur_general', 'fondatrice'],
+  // FINANCE — lecture transverse seule : le Contrôleur contrôle sans écrire.
+  'fees.view':           ['controleur'],
+  // PERSONNEL — chaque chef de secteur gère le personnel de SON secteur (§13).
+  'staff.manage.sector': ['principal', 'vice_principal', 'directrice_primaire',
+    'directrice_adjointe_primaire', 'responsable_maternelle'],
+  // PERSONNEL — RH transverse, réservée à la direction générale.
+  'staff.manage.all':    ['fondatrice', 'coordonnateur_general', 'raf'],
+};
+
+for (const [perm, codes] of Object.entries(STRICT_ROLE_MATRIX)) {
+  for (const code of codes) {
+    if (!GOVERNANCE_GRANTS[code]) GOVERNANCE_GRANTS[code] = [];
+    if (!GOVERNANCE_GRANTS[code].includes(perm)) GOVERNANCE_GRANTS[code].push(perm);
+  }
+}

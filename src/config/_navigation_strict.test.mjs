@@ -105,14 +105,29 @@ const ctx = (school, role, opts = {}) => strictContext({ school, role, ...opts }
 // 4. ÉCOLE DURCIE — personnel réservé à qui porte l'autorité (§13)
 // ════════════════════════════════════════════════════════════════════════════
 {
-  const sansAutorite = routes('admin', ['/app/personnel'],
-    ctx(GENIUS, 'censeur', { permissions: ['/app/personnel'] }));
-  ok(!sansAutorite.includes('/app/personnel'),
-    'personnel : la seule capacité déléguée ne suffit pas', sansAutorite);
-
+  // Deux chemins, et deux seulement — les mêmes qu'en base :
+  //   • l'AUTORITÉ RH d'un chef de secteur (staff.manage.sector) ;
+  //   • la page EXPLICITEMENT confiée au compte (le censeur, le secrétariat).
+  // Ce second chemin manquait ici et la matrice était PLUS STRICTE que la base :
+  // `can_manage_staff` accepte `user_has_page('/app/personnel')` depuis la
+  // Phase 3, si bien que l'interface refusait une page que la base accordait.
   const chef = routes('censeur', ['/app/personnel'],
     ctx(GENIUS, 'censeur', { permissions: ['/app/personnel'], perms: [P.STAFF_MANAGE_SECTOR] }));
   ok(chef.includes('/app/personnel'), 'personnel : ouvert au chef de secteur', chef);
+
+  const censeur = routes('censeur', ['/app/personnel', '/app/teachers'],
+    ctx(GENIUS, 'censeur', { permissions: ['/app/personnel', '/app/teachers'] }));
+  ok(censeur.includes('/app/personnel') && censeur.includes('/app/teachers'),
+    'personnel : ouvert au censeur à qui l’école a confié les pages (§13)', censeur);
+
+  // Mais rien n'est ouvert à qui n'a NI autorité NI page confiée.
+  const nu = routes('censeur', null, ctx(GENIUS, 'censeur'));
+  ok(!nu.includes('/app/personnel') && !nu.includes('/app/teachers'),
+    'personnel : fermé au censeur sans autorité ni page confiée', nu);
+
+  // Et la page Personnel n'ouvre jamais l'argent — les deux axes restent séparés.
+  ok(!censeur.includes('/app/fees'),
+    'la page Personnel n’emporte aucun droit financier', censeur);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

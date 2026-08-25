@@ -11,7 +11,7 @@ import {
   strictContext, strictAllowsPage, isStrictSchool, canCollectFees,
   isFinanceOfficer, isFinanceReader, hasStaffAuthority,
   canManageStaffSector, allowsStaffSector, classSector, userSectors,
-  FEE_PAGES, STAFF_PAGES, ADMIN_PAGES, TEACHER_PAGES, STRICT_PERM,
+  FEE_PAGES, BUDGET_PAGES, STAFF_PAGES, ADMIN_PAGES, TEACHER_PAGES, STRICT_PERM,
 } from './strictMatrix.js';
 import { ALL_CAPS } from '../config/capabilities.js';
 
@@ -98,6 +98,20 @@ for (const page of FEE_PAGES) {
 ok(strictAllowsPage('/app/fees/eleve-42', caissier) && !strictAllowsPage('/app/fees/eleve-42', secretaire),
   'la règle vaut aussi sur les sous-routes (/app/fees/:id)');
 
+// ── BUDGETS : le service financier, et personne d autre ─────────────────────
+for (const page of BUDGET_PAGES) {
+  ok(strictAllowsPage(page, caissier) && strictAllowsPage(page, controleur),
+    page + ' : ouverte au service financier');
+  ok(!strictAllowsPage(page, principal) && !strictAllowsPage(page, secretaire)
+    && !strictAllowsPage(page, surveillant) && !strictAllowsPage(page, enseignant),
+    page + ' : fermee a qui n a pas d autorite financiere');
+}
+// La capacite deleguee n ouvre PAS l argent — contrairement au personnel.
+ok(!strictAllowsPage('/app/budgets', ctx({ school: GENIUS, role: 'censeur',
+  permissions: ['/app/budgets', '/app/depenses'] })),
+  'budgets : une case cochee ne remplace pas un role financier');
+ok(strictAllowsPage('/app/budgets', admin), 'budgets : l administrateur garde tout');
+
 // ════════════════════════════════════════════════════════════════════════════
 // 2. PERSONNEL = SECTORIEL (§13)
 // ════════════════════════════════════════════════════════════════════════════
@@ -111,6 +125,23 @@ for (const page of STAFF_PAGES) {
   ok(!strictAllowsPage(page, enseignant), `${page} : fermée à l’enseignant`);
   ok(strictAllowsPage(page, principal), `${page} : ouverte au chef de secteur`);
 }
+
+// Un CENSEUR ou un SECRETARIAT n a pas de role de chef, mais l ecole peut lui
+// confier explicitement la page — c'est ce que `can_manage_staff` accepte déjà
+// en base via `user_has_page`. La matrice ne doit pas être plus stricte que la
+// base, sinon l interface refuse ce que la base accorde (§13).
+const censeur = ctx({ school: GENIUS, role: 'censeur',
+  permissions: ['/app/students', '/app/personnel', '/app/teachers'] });
+ok(strictAllowsPage('/app/personnel', censeur),
+  'censeur : page Personnel EXPLICITEMENT confiee -> autorisee');
+ok(strictAllowsPage('/app/teachers', censeur),
+  'censeur : page Enseignants EXPLICITEMENT confiee -> autorisee');
+ok(!strictAllowsPage('/app/rh', censeur),
+  'censeur : la RH, non confiee, reste fermee');
+ok(!strictAllowsPage('/app/fees', censeur),
+  'censeur : la caisse reste fermee — la page personnel n ouvre pas l argent');
+ok(!strictAllowsPage('/app/personnel', ctx({ school: GENIUS, role: 'censeur' })),
+  'censeur SANS capacite ni autorite -> Personnel refuse');
 
 // Périmètre ligne à ligne : le Principal du Collège ne voit pas le Primaire.
 ok(canManageStaffSector(principal, 'college', ['college']), 'Principal : gère le personnel du Collège');

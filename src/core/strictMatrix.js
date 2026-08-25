@@ -45,6 +45,22 @@ export const STRICT_PERM = {
 // caisse à la secrétaire du Primaire comme au responsable informatique.
 export const FEE_PAGES = ['/app/fees', '/app/frais-catalogue'];
 
+// Pages de BUDGET et de DÉPENSE. « Aucune personne ne voit les budgets à part le
+// service financier. » Même autorité que la caisse : c'est de l'argent.
+//
+// Pourquoi une règle de CODE et pas seulement des données : ces pages étaient
+// ouvertes par le `pages` des rôles de chef de secteur, hérité du seed d'origine
+// du catalogue. Les retirer de la base réglait le cas du jour ; une prochaine
+// édition du catalogue — ou une école ré-amorcée — les aurait rouvertes en
+// silence. La règle inscrite ici tient quelle que soit la donnée.
+//
+// `/app/approbations` y figure parce que c'est la file d'approbation des
+// DÉPENSES : la laisser ouverte aux rôles pédagogiques (l'entrée de menu est
+// aujourd'hui visible du censeur) reviendrait à montrer l'argent par une porte
+// dérobée.
+export const BUDGET_PAGES = ['/app/budgets', '/app/budget-global', '/app/depenses',
+  '/app/approbations'];
+
 // Pages de PERSONNEL. §13 : chaque responsable voit le personnel de son secteur ;
 // un enseignant n'obtient jamais la gestion du personnel par héritage.
 export const STAFF_PAGES = ['/app/teachers', '/app/personnel', '/app/rh'];
@@ -209,9 +225,29 @@ export function strictAllowsPage(path, ctx) {
   // refuse d'alimenter, ce qui est pire qu'une page absente.
   if (matchIn(FEE_PAGES, path)) return isFinanceReader(ctx);
 
-  // PERSONNEL — §13. Le périmètre par secteur est appliqué ligne à ligne
-  // ailleurs (allowsStaffSector) ; ici on décide seulement de l'accès au module.
-  if (matchIn(STAFF_PAGES, path)) return hasStaffAuthority(ctx);
+  // BUDGETS ET DÉPENSES — même autorité, et sans dérogation par capacité
+  // déléguée : la page confiée ouvre le travail, jamais l'argent. Un chef de
+  // secteur prépare le budget de son secteur s'il en a le RÔLE financier, pas
+  // parce qu'on lui a coché une case.
+  if (matchIn(BUDGET_PAGES, path)) return isFinanceReader(ctx);
+
+  // PERSONNEL — §13. Deux façons de l'obtenir, exactement comme en base :
+  //   • une AUTORITÉ RH (staff.manage.sector / staff.manage.all) ;
+  //   • ou la page EXPLICITEMENT confiée au compte par l'école.
+  // La seconde n'est pas une faiblesse : `can_manage_staff` accepte déjà
+  // `user_has_page('/app/personnel')`, et la policy « écriture par capacité
+  // déléguée » accepte `/app/teachers`. C'est ainsi qu'un censeur ou un
+  // secrétariat gère le personnel de son secteur sans porter un rôle de chef.
+  // Ne pas l'accepter ici rendait la matrice PLUS stricte que la base : la page
+  // était refusée par l'interface alors que la base l'aurait acceptée.
+  //
+  // Le périmètre par secteur est appliqué ligne à ligne ailleurs
+  // (allowsStaffSector / can_manage_staff) ; ici on ne décide que de l'accès.
+  const staffRoot = matchIn(STAFF_PAGES, path);
+  if (staffRoot) {
+    return hasStaffAuthority(ctx)
+      || (Array.isArray(ctx.permissions) && ctx.permissions.includes(staffRoot));
+  }
 
   // PARAMÈTRES ADMINISTRATIFS — administrateur, ou capacité EXPLICITEMENT confiée.
   const adminRoot = matchIn(ADMIN_PAGES, path);

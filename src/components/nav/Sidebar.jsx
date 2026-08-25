@@ -6,6 +6,7 @@ import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { usePlan } from '../../lib/plan';
 import { getNavGroups } from '../../config/navigation';
+import { useStrictMatrix } from '../../lib/useStrictMatrix';
 import { ICONS, LockBadge } from './icons';
 import LogoMark from '../LogoMark';
 
@@ -88,13 +89,15 @@ export default function Sidebar({ mobileOpen, onClose }) {
   const toggleSidebar  = useUiStore((s) => s.toggleSidebar);
   const t = useT();
   const { f } = usePlan();
+  // Matrice stricte : filtre RESTRICTIF supplémentaire (inerte hors école durcie).
+  const { ctx: strictCtx } = useStrictMatrix();
 
   const [collapsed, setCollapsed] = useState(loadCollapsed);
 
   // Ferme la sidebar mobile à chaque changement de route
   useEffect(() => { if (onClose) onClose(); /* eslint-disable-next-line */ }, [pathname]);
 
-  const groups = getNavGroups(role, f, permissions, { catalog: governanceCatalog, assignments: governanceAssignments });
+  const groups = getNavGroups(role, f, permissions, { catalog: governanceCatalog, assignments: governanceAssignments }, strictCtx);
 
   // Groupe contenant la route active → toujours déplié (l'utilisateur ne perd
   // jamais de vue où il se trouve).

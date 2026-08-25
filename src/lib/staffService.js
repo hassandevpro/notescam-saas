@@ -21,6 +21,9 @@ export const STAFF_DEPARTMENTS = [
 const NULLABLE = [
   'matricule', 'first_name', 'last_name', 'gender', 'phone', 'email',
   'address', 'photo_url', 'fonction', 'hire_date', 'status',
+  // Secteur de rattachement (cloisonnement du personnel) : '' doit devenir NULL,
+  // qui est la valeur signifiant « agent transverse » et non « secteur vide ».
+  'sector',
   // Identité légale (bulletin de paie) — optionnels.
   'convention_collective', 'categorie_echelon', 'situation_familiale',
   'cnps_number', 'niu', 'cni_number', 'bank_account',

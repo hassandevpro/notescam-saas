@@ -12,6 +12,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useT } from '../../lib/i18n';
 import { usePlan } from '../../lib/plan';
 import { getNavGroups } from '../../config/navigation';
+import { useStrictMatrix } from '../../lib/useStrictMatrix';
 import { ICONS } from '../nav/icons';
 
 // Ordre de préférence des raccourcis PAR DOMAINE : ce qu'on veut sous la main en
@@ -32,10 +33,11 @@ export default function QuickAccess({ domain, max = 6 }) {
   const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
   const governanceAssignments = useAuthStore((s) => s.governanceAssignments);
   const { f } = usePlan();
+  const { ctx: strictCtx } = useStrictMatrix();
 
   const items = useMemo(() => {
     const gov = { catalog: governanceCatalog, assignments: governanceAssignments };
-    const flat = getNavGroups(role, f, permissions, gov)
+    const flat = getNavGroups(role, f, permissions, gov, strictCtx)
       .flatMap((g) => g.items)
       .filter((it) => it.to !== '/app' && !it.locked);   // ni l'accueil, ni un module verrouillé par le plan
     const byRoute = new Map(flat.map((it) => [it.to, it]));
@@ -53,7 +55,7 @@ export default function QuickAccess({ domain, max = 6 }) {
       if (!picked.some((p) => p.to === it.to)) picked.push(it);
     }
     return picked;
-  }, [role, f, permissions, governanceCatalog, governanceAssignments, domain, max]);
+  }, [role, f, permissions, governanceCatalog, governanceAssignments, domain, max, strictCtx]);
 
   if (items.length === 0) return null;
 

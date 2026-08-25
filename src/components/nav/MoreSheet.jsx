@@ -6,6 +6,7 @@ import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { usePlan } from '../../lib/plan';
 import { getNavGroups } from '../../config/navigation';
+import { useStrictMatrix } from '../../lib/useStrictMatrix';
 import { ICONS, LockBadge } from './icons';
 import UserAvatar from '../UserAvatar';
 import { displayRoleLabel } from '../../lib/roleLabel';
@@ -27,9 +28,11 @@ export default function MoreSheet({ open, onClose, onLogout }) {
   const toggleLang = useUiStore((s) => s.toggleLang);
   const t = useT();
   const { f } = usePlan();
+  // Appelé AVANT le retour anticipé : un hook ne peut pas être conditionnel.
+  const { ctx: strictCtx } = useStrictMatrix();
 
   if (!open) return null;
-  const groups = getNavGroups(role, f, permissions, { catalog: governanceCatalog, assignments: governanceAssignments });
+  const groups = getNavGroups(role, f, permissions, { catalog: governanceCatalog, assignments: governanceAssignments }, strictCtx);
 
   return (
     <div className="fixed inset-0 z-[70] md:hidden" role="dialog" aria-modal="true">

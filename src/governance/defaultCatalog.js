@@ -10,7 +10,7 @@
 // À partir de la Phase 2, la table DB fait autorité : ce fichier n'est plus qu'un
 // point de départ dupliquable/éditable par établissement.
 
-import { GOV_PERM as P } from './permissions.js';
+import { GOV_PERM as P, STRICT_ROLE_MATRIX } from './permissions.js';
 
 // Pages budgétaires de base ouvertes à tout rôle porteur d'un droit budget.
 const BUDGET_PAGES = ['/app/budgets', '/app/budget-global', '/app/depenses'];
@@ -102,7 +102,20 @@ export const DEFAULT_CATALOG = [
     workflows: [P.EXPENSE_PAY],
     pages: ['/app/depenses'], dashboards: [],
   },
-].map((r) => ({ ...r, active: true, is_system: true }));
+].map((r) => ({ ...r, active: true, is_system: true }))
+  // MATRICE STRICTE : les clés d'autorité de la Phase 3/4 sont ajoutées ici aussi.
+  // Pourquoi ce repli compte : si `governance_roles` n'a pas pu être lue (école pas
+  // encore amorcée, poste hors-ligne), le moteur consomme ce catalogue. Sans ces
+  // clés, le caissier d'une école DURCIE perdrait la caisse le jour où la lecture
+  // du catalogue échoue — un incident réseau deviendrait une panne métier.
+  // Ailleurs, elles ne sont interrogées par personne : le drapeau est baissé.
+  .map((r) => {
+    const extra = Object.entries(STRICT_ROLE_MATRIX)
+      .filter(([, codes]) => codes.includes(r.code))
+      .map(([perm]) => perm)
+      .filter((perm) => !r.permissions.includes(perm));
+    return extra.length ? { ...r, permissions: [...r.permissions, ...extra] } : r;
+  });
 
 // Repli : renvoie le catalogue par défaut si la table est vide/indisponible.
 export function catalogOrDefault(catalog) {

@@ -14,7 +14,7 @@
 // gouvernance, RH…) ne portent pas de donnée d'élève et restent hors
 // cloisonnement — le filtrage par école suffit.
 
-import { db } from './db.js';
+import { db, ensureStrictRoleMatrix } from './db.js';
 
 // Table -> colonne portant le rattachement.
 //   kind 'class'        : la colonne est un id de classe (ou `id` pour classes)
@@ -75,6 +75,9 @@ function toList(v) {
   return [];
 }
 
+// Écoles déjà passées par la pose de la matrice dans ce processus (cf. loadScope).
+const _matrixSeen = new Set();
+
 // Périmètre du compte, ou null s'il n'est membre d'aucune école active.
 export function loadScope(userId) {
   if (!userId) return null;
@@ -103,6 +106,25 @@ export function loadScope(userId) {
   // RATTACHÉS et porteurs d'un périmètre explicite.
   if (!row) return { schoolId: null, sections: [], cycles: [], classIds: [], global: true, unscoped: true };
 
+  // On pose sur le catalogue de l'école les clés d'autorité de la matrice — si et
+  // seulement si elle est durcie. Le drapeau n'arrive pas forcément au démarrage
+  // du serveur : il peut descendre du cloud par la synchronisation, ou apparaître
+  // au montage d'une sauvegarde restaurée. Sans ce rattrapage, une école durcie
+  // entre ces deux moments aurait un catalogue sans `fees.manage` — donc plus de
+  // caisse du tout, le durcissement fermant le guichet au lieu de le protéger.
+  //
+  // On ne cesse de repasser que lorsque la pose ne trouve PLUS RIEN à écrire.
+  // Mémoïser sur la tentative serait faux : `runBatch` enveloppe tout le lot dans
+  // une transaction, et l'échec d'une opération ultérieure annulerait la pose —
+  // on aurait alors une école marquée « traitée » dont le catalogue est resté nu,
+  // jusqu'au prochain redémarrage. Le coût d'un repassage est de quelques SELECT
+  // sur index, et il s'arrête dès la première requête qui aboutit.
+  if (row.school_id && !_matrixSeen.has(row.school_id)) {
+    try {
+      if (ensureStrictRoleMatrix(row.school_id) === 0) _matrixSeen.add(row.school_id);
+    } catch { /* jamais bloquant */ }
+  }
+
   const sections = toList(row.scope_sections);
   const cycles   = toList(row.scope_cycles);
   const classIds = toList(row.scope_class_ids);
@@ -124,6 +146,7 @@ export function loadScope(userId) {
 
 // L'école applique-t-elle les permissions strictes ? Colonne éventuellement
 // absente (base LAN antérieure) → false, c'est-à-dire le comportement historique.
+//
 export function strictRoles(schoolId) {
   if (!schoolId) return false;
   try {

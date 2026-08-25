@@ -6,6 +6,7 @@ import { useAppNotificationsStore } from '../../store/appNotificationsStore';
 import { useT } from '../../lib/i18n';
 import { usePlan } from '../../lib/plan';
 import { getMobilePrimary } from '../../config/navigation';
+import { useStrictMatrix } from '../../lib/useStrictMatrix';
 import { ICONS } from './icons';
 import MoreSheet from './MoreSheet';
 
@@ -21,9 +22,10 @@ export default function MobileNav({ onLogout }) {
   const appUnread   = useAppNotificationsStore((s) => s.unreadCount);
   const t = useT();
   const { f } = usePlan();
+  const { ctx: strictCtx } = useStrictMatrix();
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const primary = getMobilePrimary(role, f, 4, permissions, { catalog: governanceCatalog, assignments: governanceAssignments });
+  const primary = getMobilePrimary(role, f, 4, permissions, { catalog: governanceCatalog, assignments: governanceAssignments }, strictCtx);
 
   const cell = 'flex flex-col items-center justify-center gap-0.5 flex-1 h-full text-[10px] font-medium transition-colors';
 

@@ -29,6 +29,7 @@
 import { isPathPermitted } from './capabilities';
 import { effectivePages } from '../governance/governanceEngine';
 import { catalogOrDefault } from '../governance/defaultCatalog';
+import { strictAllowsPage } from '../core/strictMatrix';
 
 export const ROLES = {
   ADMIN: 'admin',
@@ -146,7 +147,7 @@ export const NAV_GROUPS = [
       { to: '/app/immobilisations', icon: 'settings', label: ['Immobilisations', 'Fixed assets', 'Inmovilizado'],
         roles: ['admin'] },
       // Seed Data — visible UNIQUEMENT en développement (retiré du bundle en prod).
-      ...(import.meta.env.DEV ? [{ to: '/app/seed-data', icon: 'settings', label: ['Données de démo (DEV)', 'Seed Data (DEV)', 'Datos demo (DEV)'], roles: ['admin'] }] : []),
+      ...(import.meta.env?.DEV ? [{ to: '/app/seed-data', icon: 'settings', label: ['Données de démo (DEV)', 'Seed Data (DEV)', 'Datos demo (DEV)'], roles: ['admin'] }] : []),
     ],
   },
   {
@@ -195,7 +196,7 @@ function visibleForRole(item, role) {
  * @param {string} role
  * @param {object} f  features de plan (usePlan().f)
  */
-export function getNavGroups(role, f = {}, permissions = null, gov = {}) {
+export function getNavGroups(role, f = {}, permissions = null, gov = {}, strictCtx = null) {
   // Compte délégué : la navigation reflète EXACTEMENT ses capacités (les
   // permissions font autorité, le rôle de base n'entre plus en jeu).
   const delegated = permissions && permissions.length;
@@ -203,6 +204,13 @@ export function getNavGroups(role, f = {}, permissions = null, gov = {}) {
   // statut appliqués). Additif : passe outre `roles`/permissions pour ces pages.
   const govPages = effectivePages(role, catalogOrDefault(gov.catalog), gov.assignments || []);
   const visible = (it) => {
+    // MATRICE STRICTE — filtre RESTRICTIF appliqué EN PREMIER, donc au-dessus de
+    // tout le reste (rôle, capacités déléguées, pages de gouvernance). C'est le
+    // même raisonnement que les policies `AS RESTRICTIVE` du cloud : ce qu'il
+    // retire, rien ne peut le rendre. Hors école durcie, `strictCtx` est nul ou
+    // porte `strict:false` et la fonction rend true sans rien examiner —
+    // la navigation des autres établissements est inchangée au caractère près.
+    if (strictCtx && !strictAllowsPage(it.to, strictCtx)) return false;
     if (govPages.has(it.to)) return true;
     // Entrée élargie à tous les rôles UNIQUEMENT si l'école l'a activé ; sinon
     // elle retombe sur son comportement historique (admin seul). Un compte
@@ -227,8 +235,8 @@ export function getNavGroups(role, f = {}, permissions = null, gov = {}) {
  * On prend les items `mobilePrimary` visibles ; on complète si le rôle en a
  * moins de 4 (ex. teacher) avec ses premiers items disponibles.
  */
-export function getMobilePrimary(role, f = {}, max = 4, permissions = null, gov = {}) {
-  const groups = getNavGroups(role, f, permissions, gov);
+export function getMobilePrimary(role, f = {}, max = 4, permissions = null, gov = {}, strictCtx = null) {
+  const groups = getNavGroups(role, f, permissions, gov, strictCtx);
   const flat = groups.flatMap((g) => g.items);
   const primary = flat.filter((it) => it.mobilePrimary);
   const result = [...primary];

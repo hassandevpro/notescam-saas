@@ -192,6 +192,73 @@ ensureColumn('user_governance_roles', 'status',     "status TEXT NOT NULL DEFAUL
 // encore (miroir de supabase_governance_catalog.sql). Best-effort, idempotent.
 seedGovernanceCatalog();
 ensureFinanceGrants();
+ensureStrictRoleMatrix();
+// MATRICE STRICTE — pose les clés d'AUTORITÉ sur le catalogue des écoles qui ont
+// levé `strict_role_enforcement`, et sur elles seules.
+//
+// Pourquoi c'est indispensable, et pas un simple confort : depuis la Phase 3,
+// `isFinanceOfficer` exige la clé `fees.manage`. Le seed LAN ci-dessus ne la
+// posait nulle part — donc, sur une école durcie fraîchement installée ou
+// restaurée, PERSONNE hormis le rôle de base `admin` ne pouvait plus encaisser.
+// Le durcissement aurait fermé la caisse. Cette fonction est le miroir exact de
+// `apply_strict_role_matrix()` (supabase_genius_role_permissions.sql §8) et de
+// `STRICT_ROLE_MATRIX` (src/governance/permissions.js).
+//
+// Additive et idempotente : elle FUSIONNE sans dédoublonner à l'aveugle, ne
+// retire aucune permission, ne désactive aucun rôle, ne touche aucun compte, et
+// ignore purement et simplement toute école dont le drapeau est baissé.
+//
+// Renvoie le NOMBRE d'écritures effectuées — 0 signifiant « plus rien à faire »
+// (école non durcie, ou matrice déjà complète). Ce compte n'est pas décoratif :
+// l'appelant s'en sert pour savoir s'il peut cesser de repasser. Voir loadScope().
+export function ensureStrictRoleMatrix(onlySchoolId = null) {
+  const MATRIX = {
+    // FINANCE — écriture transverse aux DEUX secteurs (la finance est globale).
+    'fees.manage':         ['caissier', 'raf', 'coordonnateur_general', 'fondatrice'],
+    // FINANCE — lecture transverse seule : le Contrôleur contrôle sans écrire.
+    'fees.view':           ['controleur'],
+    // PERSONNEL — chaque chef de secteur gère le personnel de SON secteur.
+    'staff.manage.sector': ['principal', 'vice_principal', 'directrice_primaire',
+      'directrice_adjointe_primaire', 'responsable_maternelle'],
+    // PERSONNEL — RH transverse, réservée à la direction générale.
+    'staff.manage.all':    ['fondatrice', 'coordonnateur_general', 'raf'],
+  };
+  let written = 0;
+  try {
+    const schools = onlySchoolId
+      ? db.prepare('SELECT id FROM schools WHERE id = ? AND strict_role_enforcement = 1').all(onlySchoolId)
+      : db.prepare('SELECT id FROM schools WHERE strict_role_enforcement = 1').all();
+    if (!schools.length) return 0;
+    // Le Contrôleur n'est pas un des 9 rôles système : on le crée s'il manque, en
+    // LECTURE SEULE — aucune approbation, aucun paiement, aucune mutation.
+    const insCtrl = db.prepare(`INSERT OR IGNORE INTO governance_roles
+      (id, school_id, code, name, description, rank, scope, sector, permissions, pages, dashboards, workflows, active, is_system)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,1)`);
+    const sel = db.prepare('SELECT id, permissions FROM governance_roles WHERE school_id = ? AND code = ?');
+    const upd = db.prepare('UPDATE governance_roles SET permissions = ? WHERE id = ?');
+    for (const s of schools) {
+      const r = insCtrl.run(randomUUID(), s.id, 'controleur', 'Contrôleur',
+        'Audit et contrôle — consultation seule', 70, 'complex', null,
+        JSON.stringify(['governance.view', 'budget.view', 'expense.view']),
+        JSON.stringify(['/app/reports']), '[]', '[]');
+      written += r?.changes || 0;
+      for (const [perm, codes] of Object.entries(MATRIX)) {
+        for (const code of codes) {
+          const row = sel.get(s.id, code);
+          if (!row) continue;                       // rôle absent du catalogue : on ne l'invente pas
+          let arr = [];
+          try { arr = JSON.parse(row.permissions || '[]'); } catch { arr = []; }
+          if (!Array.isArray(arr)) arr = [];
+          if (arr.includes(perm)) continue;         // déjà posée : rien à écrire
+          arr.push(perm);
+          upd.run(JSON.stringify(arr), row.id);
+          written++;
+        }
+      }
+    }
+  } catch (e) { console.warn('[strict] matrice de rôles:', e.message); }
+  return written;
+}
 // Patch IDEMPOTENT (écoles déjà seedées) : garantit que fondatrice/coordonnateur
 // portent bien les capacités financières complètes (fusion sans doublon, aucun reset).
 function ensureFinanceGrants() {

@@ -19,7 +19,12 @@ const L = (sys, fr, en, es) => (sys === 'EN' ? en : sys === 'ES' ? (es || fr) : 
 // En-tête officiel (blocs pays + logo + établissement + année) avec barre de
 // titre optionnelle. `sys` = 'FR' | 'EN' | 'ES'.
 export function officialHeaderHtml(school, { sys = 'FR', title = '', subtitle = '' } = {}) {
-  const officials = bulletinOfficials(school);
+  // `sys` doit être TRANSMIS : c'est lui qui fait porter en tête le bloc pays de
+  // la langue de la CLASSE (cf. countries/index.js). Sans lui, un bulletin de
+  // Form 2 sortait avec « RÉPUBLIQUE DU CAMEROUN » à gauche, alors que l'aperçu
+  // écran — qui, lui, passe `sys` — mettait bien l'anglais en tête. Deux rendus
+  // du même bulletin ne peuvent pas se contredire.
+  const officials = bulletinOfficials(school, { sys });
   const blocks    = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
   const centerW   = bilingual ? '34%' : '50%';

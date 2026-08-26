@@ -180,6 +180,29 @@ export const DEFAULT_GRADE_SCALE = [
   { id: '5', mention: 'Insuffisant',            min: 0,    max: 9.99,  couleur: '#9CA3AF', ordre: 5 },
 ];
 
+// Traduction des mentions du barème PAR DÉFAUT ci-dessus. Ce barème s'applique
+// dès qu'une école n'a pas défini le sien (`grade_scale` vide) — donc aussi à ses
+// classes ANGLOPHONES, où ses libellés français atterrissaient tels quels sur le
+// bulletin. La table ne couvre QUE les mentions par défaut, à dessein : un barème
+// personnalisé porte le texte que l'école a choisi, et on ne réécrit pas le
+// vocabulaire d'un établissement.
+export const EN_DEFAULT_MENTIONS = {
+  Expert: 'Expert',
+  Acquis: 'Acquired',
+  "En cours d'acquisition": 'Being acquired',
+  'Non acquis': 'Not acquired',
+  Insuffisant: 'Insufficient',
+};
+
+// Mention d'une bande, rendue dans la langue du SYSTÈME de la classe.
+// Barème personnalisé ⇒ rendu tel quel, quelle que soit la langue.
+export const scaleMention = (band, gradeScale, sys) => {
+  if (!band) return '';
+  const custom = Array.isArray(gradeScale) && gradeScale.length > 0;
+  if (sys === 'EN' && !custom) return EN_DEFAULT_MENTIONS[band.mention] || band.mention;
+  return band.mention;
+};
+
 // Apreciaciones officielles MEC (Guinea Ecuatorial) — barème sobre 10.
 export const ES_GRADE_SCALE = [
   { mention: 'Sobresaliente', min: 9,   max: 10,   couleur: '#10B981' },

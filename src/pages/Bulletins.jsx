@@ -684,6 +684,11 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
 
   // Titre, prof principal et synthèse « Travail » (total pondéré, coef cumulé).
   const title = `${isEnSys ? 'APC REPORT CARD' : 'BULLETIN APC'} – ${period.label.toUpperCase()}`;
+  // Les libellés d'APC_GROUPS sont bilingues (« SCIENCES EXACTES / EXACT
+  // SCIENCES ») : un bulletin n'en affiche QUE la moitié de son système. La
+  // ligne de total le faisait déjà, pas l'en-tête de groupe — d'où un titre
+  // français au-dessus d'un total anglais, sur la même feuille.
+  const groupLabel = (g) => (isEnSys ? g.label.split('/')[1] : g.label.split('/')[0]).trim();
   const profPrincipal = teachers?.find((tt) => tt.id === cls?.teacher_id)?.name || '';
   let gPts = 0, gCoef = 0;
   subjects.forEach((sub) => {
@@ -709,9 +714,12 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
     <OfficialSheet school={school}>
       {/* En-tête officiel MINESEC : logo en filigrane au fond + barre de titre */}
       <OfficialHeader school={school} sys={sys} title={title} />
+      {/* `sys` est INDISPENSABLE : sans lui, OfficialIdentity retombe sur le
+          français et le cartouche d'un bulletin anglophone (Form 1–5) sort en
+          français au milieu d'une page par ailleurs en anglais. */}
       <OfficialIdentity
         student={student} classLabel={cls?.name || ''}
-        effectif={stats?.total} profPrincipal={profPrincipal}
+        effectif={stats?.total} profPrincipal={profPrincipal} sys={sys}
       />
 
       {/* SUBJECT TABLE — matières groupées (monde Classique), en-têtes gris officiels */}
@@ -744,7 +752,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
           return (
             <tbody key={group.key}>
               <tr>
-                <td colSpan={totalCols} style={ghdr}>{group.label}</td>
+                <td colSpan={totalCols} style={ghdr}>{groupLabel(group)}</td>
               </tr>
 
               {subs.map((sub) => {
@@ -813,7 +821,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
 
               <tr>
                 <td colSpan={isAnnuel ? 4 : isTrimestre ? 3 : 1} style={{ ...gtot, textAlign: 'right' }}>
-                  TOTAL {isEnSys ? group.label.split('/')[1].trim() : group.label.split('/')[0].trim()}
+                  TOTAL {groupLabel(group)}
                 </td>
                 <td style={{ ...gtot, textAlign: 'center', color: gs.avg !== null ? (gPassed ? '#059669' : '#dc2626') : '#6b7280' }}>
                   {gs.avg !== null ? gs.avg : '—'}
@@ -1767,11 +1775,11 @@ export default function Bulletins() {
     const out = {};
     for (const s of classStudents) {
       out[s.id] = apcAnnual
-        ? assembleApcAnnual(apcReferentiel, apcNotes, { classeSlug: apcClasseSlug, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale })
-        : assemblePeriod(apcReferentiel, apcNotes, { classeSlug: apcClasseSlug, trimestreId: apcTrimId, seqIds: apcSeqIds, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale });
+        ? assembleApcAnnual(apcReferentiel, apcNotes, { classeSlug: apcClasseSlug, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale, sys })
+        : assemblePeriod(apcReferentiel, apcNotes, { classeSlug: apcClasseSlug, trimestreId: apcTrimId, seqIds: apcSeqIds, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale, sys });
     }
     return out;
-  }, [isApc, apcAnnual, apcReferentiel, apcClasseSlug, apcTrimId, apcSeqIds, classStudents, apcNotes, apcTeacherMap, school?.grade_scale]);
+  }, [isApc, apcAnnual, apcReferentiel, apcClasseSlug, apcTrimId, apcSeqIds, classStudents, apcNotes, apcTeacherMap, school?.grade_scale, sys]);
 
   // Rangs (moyennes générales) + profil de la classe pour le pied du bulletin.
   const apcRanks = useMemo(() => {

@@ -17,6 +17,22 @@ export const B = '1px solid #374151';
 // (FR/EN/ES), indépendant de la langue de l'interface. `es` optionnel → repli FR.
 export const L = (sys, fr, en, es) => (sys === 'EN' ? en : (sys === 'ES' && es != null ? es : fr));
 
+// Le genre est stocké en FRANÇAIS ('Masculin' / 'Féminin') quel que soit le
+// système : c'est la valeur canonique de la base, posée à l'import comme à
+// l'export (lib/dataImportCore.js, lib/exportCsv.js). Traduire l'ÉTIQUETTE sans
+// traduire la VALEUR laissait « Gender : Masculin » sur un bulletin anglophone.
+// On traduit donc à l'affichage, sans jamais toucher au stockage.
+// Une valeur inattendue est rendue telle quelle : mieux vaut une donnée brute
+// qu'une donnée travestie sur un document officiel.
+export const genderLabel = (value, sys) => {
+  const v = String(value ?? '').trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (!v) return '';
+  if (/^(m|masculin|masculino|male|garcon|h|homme|hombre)$/.test(v)) return L(sys, 'Masculin', 'Male', 'Masculino');
+  if (/^(f|feminin|femenino|female|fille|femme|mujer)$/.test(v))     return L(sys, 'Féminin', 'Female', 'Femenino');
+  return String(value);
+};
+
 // Fabriques de styles paramétrées par la taille de police (pt) — l'auto-fit APC
 // fait varier la densité du corps du tableau (10–11pt) en gardant la lisibilité.
 export const mkCell = (pt = 10, lineH = 1.18, padV = 1) => ({ border: B, padding: `${padV}px 3px`, fontSize: `${pt}pt`, lineHeight: lineH, verticalAlign: 'top' });
@@ -150,7 +166,7 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
         </tr>
         <tr>
           <td style={CELL}>{L(sys, 'Date et lieu de naissance', 'Date and place of birth', 'Fecha y lugar de nacimiento')} : {student?.date_naissance || ''} {student?.lieu_naissance ? `${L(sys, 'à', 'in', 'en')} ${student.lieu_naissance}` : ''}</td>
-          <td style={CELL}>{L(sys, 'Genre', 'Gender', 'Género')} : {student?.gender || ''} · {L(sys, 'Effectif', 'Class size', 'Total')} : {effectif ?? ''}</td>
+          <td style={CELL}>{L(sys, 'Genre', 'Gender', 'Género')} : {genderLabel(student?.gender, sys)} · {L(sys, 'Effectif', 'Class size', 'Total')} : {effectif ?? ''}</td>
         </tr>
         <tr>
           <td style={CELL}>{L(sys, 'Identifiant Unique', 'Unique ID', 'Identificador único')} : {student?.matricule || ''}</td>
@@ -196,7 +212,7 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
         <tbody>
           <tr>
             <td style={{ ...CELL, background: tint, ...pcx }}>{L(sys, 'Né(e) le', 'Born on', 'Nacido/a el')} : {student?.date_naissance || ''} {student?.lieu_naissance ? `${L(sys, 'à', 'in', 'en')} ${student.lieu_naissance}` : ''}</td>
-            <td style={{ ...CELL, background: tint, ...pcx }}>{L(sys, 'Genre', 'Gender', 'Género')} : {student?.gender || ''} · {L(sys, 'Identifiant', 'ID', 'Identificador')} : {student?.matricule || ''}</td>
+            <td style={{ ...CELL, background: tint, ...pcx }}>{L(sys, 'Genre', 'Gender', 'Género')} : {genderLabel(student?.gender, sys)} · {L(sys, 'Identifiant', 'ID', 'Identificador')} : {student?.matricule || ''}</td>
           </tr>
           <tr>
             <td style={CELL}>{L(sys, 'Parents / Tuteurs', 'Parents / Guardians', 'Padres / Tutores')} : {parents}{phone}</td>

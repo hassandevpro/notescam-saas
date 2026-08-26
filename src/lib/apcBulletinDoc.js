@@ -19,13 +19,31 @@ import {
   competencesFor, sequencesOfTrimestre, matiereAverage, weightedMatiere,
   generalAverage, apcCoteFromScale, apcBulletinCols, coefFor, APC_COTE_CODES,
 } from '../core/apcEngine.js';
-import { gradeScaleBand } from '../core/bulletinEngine.js';
+import { gradeScaleBand, scaleMention } from '../core/bulletinEngine.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 // Nombre imprimable : NaN et Infinity ne peuvent pas atteindre le papier.
 const fix2 = (v) => (v == null ? '' : num(Math.round(v * 100) / 100, { fallback: '' }));
+
+// Helper i18n, même contrat que celui de components/bulletins/bulletinOfficialParts.jsx :
+// on rend selon le SYSTÈME de la classe (FR/EN), pas selon la langue de l'interface.
+// Ce fichier recevait déjà `sys` — il ne s'en servait que pour le titre, et le reste
+// de la feuille sortait en français sur un bulletin anglophone.
+const L = (sys, fr, en) => (sys === 'EN' ? en : fr);
+
+// Le genre est stocké en français ('Masculin' / 'Féminin') quelle que soit la
+// classe : on le traduit à l'affichage, jamais en base. Valeur inattendue rendue
+// telle quelle — sur un document officiel, une donnée brute vaut mieux qu'une
+// donnée travestie.
+const genderTxt = (value, sys) => {
+  const v = String(value ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (!v) return '';
+  if (/^(m|masculin|masculino|male|garcon|h|homme|hombre)$/.test(v)) return L(sys, 'Masculin', 'Male');
+  if (/^(f|feminin|femenino|female|fille|femme|mujer)$/.test(v))     return L(sys, 'Féminin', 'Female');
+  return String(value);
+};
 
 const SHEET_OPEN = sheetOpen({ profile: 'bulletin', fontSize: 10 });
 const SHEET_CLOSE = SHEET_END;
@@ -45,7 +63,7 @@ const TRIM_TITLE = {
 // trimestre (les 2 seqs) sans dupliquer la logique.
 //   Pour chaque matière : ses compétences (N/xx = moyenne des séquences retenues),
 //   M/xx (moyenne matière), coef (par classe), M×coef, cote.
-export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId, seqIds, student, teacherByMatiere = {}, gradeScale }) {
+export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId, seqIds, student, teacherByMatiere = {}, gradeScale, sys = 'FR' }) {
   const seqs = seqIds && seqIds.length
     ? seqIds
     : sequencesOfTrimestre(referentiel.sequences, trimestreId).map((s) => s.id);
@@ -81,7 +99,7 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
       competences: compRows,
       moyenne, ponderee: weightedMatiere(moyenne, coef),
       cote: apcCoteFromScale(moyenne, gradeScale).code,
-      appreciation: band ? band.mention : '',
+      appreciation: scaleMention(band, gradeScale, sys),
       minmax: band ? { min: band.min, max: band.max } : null,
     });
   }
@@ -95,18 +113,18 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
 
 // Assemblage d'un TRIMESTRE entier (les 2 séquences) — conservé pour le pipeline
 // PDF existant. Délègue à assemblePeriod avec les séquences du trimestre.
-export function assembleTrimester(referentiel, apcNotes, { classeSlug, trimestreId, student, teacherByMatiere = {}, gradeScale }) {
+export function assembleTrimester(referentiel, apcNotes, { classeSlug, trimestreId, student, teacherByMatiere = {}, gradeScale, sys = 'FR' }) {
   const seqIds = sequencesOfTrimestre(referentiel.sequences, trimestreId).map((s) => s.id);
-  return assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId, seqIds, student, teacherByMatiere, gradeScale });
+  return assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId, seqIds, student, teacherByMatiere, gradeScale, sys });
 }
 
 // ── Assemblage ANNUEL (T1 · T2 · T3 → moyenne annuelle par matière) ───────────
 // Niveau MATIÈRE (pas de compétences) : chaque matière porte ses moyennes des 3
 // trimestres, la moyenne annuelle (moyenne des trimestres notés), coef, M×coef,
 // cote. + totaux + moyenne générale annuelle. Format du bulletin annuel MINESEC.
-export function assembleApcAnnual(referentiel, apcNotes, { classeSlug, student, teacherByMatiere = {}, gradeScale }) {
+export function assembleApcAnnual(referentiel, apcNotes, { classeSlug, student, teacherByMatiere = {}, gradeScale, sys = 'FR' }) {
   const trims = ['t1', 't2', 't3'].map((tid) =>
-    assembleTrimester(referentiel, apcNotes, { classeSlug, trimestreId: tid, student, teacherByMatiere, gradeScale }));
+    assembleTrimester(referentiel, apcNotes, { classeSlug, trimestreId: tid, student, teacherByMatiere, gradeScale, sys }));
 
   const byId = new Map();
   trims.forEach((d, i) => {
@@ -124,7 +142,7 @@ export function assembleApcAnnual(referentiel, apcNotes, { classeSlug, student, 
       id: e.id, nom: e.nom, coef: e.coef, enseignant: e.enseignant,
       t1: e.t[0], t2: e.t[1], t3: e.t[2],
       moyenne, ponderee: weightedMatiere(moyenne, e.coef), cote: apcCoteFromScale(moyenne, gradeScale).code,
-      appreciation: band ? band.mention : '',
+      appreciation: scaleMention(band, gradeScale, sys),
       minmax: band ? { min: band.min, max: band.max } : null,
     };
   });
@@ -146,20 +164,20 @@ function identityHtml(student, { classLabel, sys, effectif, profPrincipal }) {
     <tbody>
       <tr>
         <td rowspan="4" style="${C};width:70px;text-align:center;vertical-align:middle">
-          ${student?.photo_url ? `<img src="${esc(student.photo_url)}" style="width:58px;height:70px;object-fit:cover"/>` : `<div style="font-size:8px;color:#888">Photo de l'élève</div>`}
+          ${student?.photo_url ? `<img src="${esc(student.photo_url)}" style="width:58px;height:70px;object-fit:cover"/>` : `<div style="font-size:8px;color:#888">${L(sys, "Photo de l'élève", "Student's photo")}</div>`}
         </td>
-        <td style="${C}">Nom et Prénoms de l'élève : <strong>${esc(student?.name || '')}</strong></td>
-        <td style="${C};white-space:nowrap">Classe : <strong>${esc(classLabel)}</strong></td>
+        <td style="${C}">${L(sys, "Nom et Prénoms de l'élève", "Student's full name")} : <strong>${esc(student?.name || '')}</strong></td>
+        <td style="${C};white-space:nowrap">${L(sys, 'Classe', 'Class')} : <strong>${esc(classLabel)}</strong></td>
       </tr>
       <tr>
-        <td style="${C}">Date et lieu de naissance : ${esc(student?.date_naissance || '')} ${student?.lieu_naissance ? 'à ' + esc(student.lieu_naissance) : ''}</td>
-        <td style="${C}">Genre : ${esc(student?.gender || '')} · Effectif : ${esc(effectif ?? '')}</td>
+        <td style="${C}">${L(sys, 'Date et lieu de naissance', 'Date and place of birth')} : ${esc(student?.date_naissance || '')} ${student?.lieu_naissance ? `${L(sys, 'à', 'in')} ` + esc(student.lieu_naissance) : ''}</td>
+        <td style="${C}">${L(sys, 'Genre', 'Gender')} : ${esc(genderTxt(student?.gender, sys))} · ${L(sys, 'Effectif', 'Class size')} : ${esc(effectif ?? '')}</td>
       </tr>
       <tr>
-        <td style="${C}">Identifiant Unique : ${esc(student?.matricule || '')}</td>
-        <td style="${C}">Redoublant : Oui ${chk(redoublant)} Non ${chk(!redoublant)} · P. principal : ${esc(profPrincipal || '')}</td>
+        <td style="${C}">${L(sys, 'Identifiant Unique', 'Unique ID')} : ${esc(student?.matricule || '')}</td>
+        <td style="${C}">${L(sys, 'Redoublant', 'Repeater')} : ${L(sys, 'Oui', 'Yes')} ${chk(redoublant)} ${L(sys, 'Non', 'No')} ${chk(!redoublant)} · ${L(sys, 'P. principal', 'Form master')} : ${esc(profPrincipal || '')}</td>
       </tr>
-      <tr><td colspan="2" style="${C}">Noms et contacts des Parents / Tuteurs : ${esc(parents)}${phone}</td></tr>
+      <tr><td colspan="2" style="${C}">${L(sys, 'Noms et contacts des Parents / Tuteurs', 'Parents / Guardians names and contacts')} : ${esc(parents)}${phone}</td></tr>
     </tbody>
   </table>`;
 }
@@ -168,21 +186,26 @@ const TH = (txt, w) => `<th style="${C};background:#eef2f7;text-align:center;fon
 
 // Colonnes de fin optionnelles (COTE / [Min–Max] / Appréciation) selon les bascules
 // de l'établissement (school.apc_bulletin_cols). Ordre officiel préservé.
-const TRAIL_TH = { cote: ['COTE', '6%'], minmax: ['[Min–Max]', '8%'], appreciation: ['Appréciations et Visa', '13%'] };
+const TRAIL_TH = (sys) => ({
+  cote:         [L(sys, 'COTE', 'GRADE'), '6%'],
+  minmax:       ['[Min–Max]', '8%'],
+  appreciation: [L(sys, 'Appréciations et Visa', 'Remarks and signature'), '13%'],
+});
 const trailingCols = (cols) => ['cote', 'minmax', 'appreciation'].filter((k) => cols[k]);
 
-function tableHeadHtml(cols) {
+function tableHeadHtml(cols, sys) {
   const tr = trailingCols(cols);
-  const trailTh = (tr.length ? tr.map((k) => TH(TRAIL_TH[k][0], TRAIL_TH[k][1])) : [TH('', '10%')]).join('');
+  const th = TRAIL_TH(sys);
+  const trailTh = (tr.length ? tr.map((k) => TH(th[k][0], th[k][1])) : [TH('', '10%')]).join('');
   return `<tr>
-    ${TH('MATIÈRES ET NOM DE L\'ENSEIGNANT', '20%')}
-    ${TH('COMPÉTENCES ÉVALUÉES')}
+    ${TH(L(sys, 'MATIÈRES ET NOM DE L\'ENSEIGNANT', 'SUBJECTS AND TEACHER'), '20%')}
+    ${TH(L(sys, 'COMPÉTENCES ÉVALUÉES', 'COMPETENCES ASSESSED'))}
     ${TH('N/20', '7%')}${TH('M/20', '7%')}${TH('Coef', '5%')}${TH('M×coef', '7%')}${trailTh}
   </tr>`;
 }
 
 // Lignes d'une matière (compétences en sous-lignes ; M/20, coef, etc. fusionnés).
-function matiereRowsHtml(m, cols) {
+function matiereRowsHtml(m, cols, sys) {
   const rs = m.competences.length || 1;
   const tr = trailingCols(cols);
   const trailContent = (k) => {
@@ -195,7 +218,7 @@ function matiereRowsHtml(m, cols) {
     const span = (content) => first ? `<td rowspan="${rs}" style="${C};text-align:center">${content}</td>` : '';
     const trailCells = (tr.length ? tr.map(trailContent) : ['']).map(span).join('');
     return `<tr>
-      ${first ? `<td rowspan="${rs}" style="${C}"><strong>${esc(m.nom)}</strong><br/><span style="color:#666">${esc(m.enseignant || 'M/Mme')}</span></td>` : ''}
+      ${first ? `<td rowspan="${rs}" style="${C}"><strong>${esc(m.nom)}</strong><br/><span style="color:#666">${esc(m.enseignant || L(sys, 'M/Mme', 'Mr/Mrs'))}</span></td>` : ''}
       <td style="${C}">${esc(c.intitule)}</td>
       <td style="${C};text-align:center">${fix2(c.note)}</td>
       ${span(`<strong>${fix2(m.moyenne)}</strong>`)}
@@ -206,19 +229,19 @@ function matiereRowsHtml(m, cols) {
   }).join('');
 }
 
-function totalRowHtml(data, cols) {
+function totalRowHtml(data, cols, sys) {
   const trailN = trailingCols(cols).length || 1;
   return `<tr>
-    <td colspan="3" style="${C};text-align:right;font-weight:bold">TOTAL</td>
+    <td colspan="3" style="${C};text-align:right;font-weight:bold">${L(sys, 'TOTAL', 'TOTAL')}</td>
     <td style="${C}"></td>
     <td style="${C};text-align:center;font-weight:bold">${fix2(data.coefSum)}</td>
     <td style="${C};text-align:center;font-weight:bold">${fix2(data.mxSum)}</td>
-    <td colspan="${trailN}" style="${C};text-align:right;font-weight:bold">MOYENNE : ${fix2(data.moyenneGenerale)}</td>
+    <td colspan="${trailN}" style="${C};text-align:right;font-weight:bold">${L(sys, 'MOYENNE', 'AVERAGE')} : ${fix2(data.moyenneGenerale)}</td>
   </tr>`;
 }
 
 // Pieds : Discipline | Travail de l'élève | Profil de la classe.
-function footerBlocksHtml(data, { classStats } = {}) {
+function footerBlocksHtml(data, { classStats, sys } = {}) {
   const coteCounts = APC_COTE_CODES.reduce((o, code) => {
     o[code] = data.matieres.filter((m) => m.moyenne != null && m.cote === code).length; return o;
   }, {});
@@ -230,18 +253,18 @@ function footerBlocksHtml(data, { classStats } = {}) {
         <td style="width:34%;vertical-align:top;padding-right:4px">
           <table style="width:100%;border-collapse:collapse">
             <tbody>
-              <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">Discipline</td></tr>
-              ${kv('Abs. non just. (h)', '')}${kv('Abs. just. (h)', '')}${kv('Retards (nombre)', '')}${kv('Consignes (h)', '')}
-              ${kv('Avertissement', '')}${kv('Blâme de conduite', '')}${kv('Exclusions (jours)', '')}${kv('Exclusion définitive', '')}
+              <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">${L(sys, 'Discipline', 'Discipline')}</td></tr>
+              ${kv(L(sys, 'Abs. non just. (h)', 'Unjust. abs. (h)'), '')}${kv(L(sys, 'Abs. just. (h)', 'Just. abs. (h)'), '')}${kv(L(sys, 'Retards (nombre)', 'Late arrivals (number)'), '')}${kv(L(sys, 'Consignes (h)', 'Detentions (h)'), '')}
+              ${kv(L(sys, 'Avertissement', 'Warning'), '')}${kv(L(sys, 'Blâme de conduite', 'Conduct reprimand'), '')}${kv(L(sys, 'Exclusions (jours)', 'Exclusions (days)'), '')}${kv(L(sys, 'Exclusion définitive', 'Permanent exclusion'), '')}
             </tbody>
           </table>
         </td>
         <td style="width:34%;vertical-align:top;padding-right:4px">
           <table style="width:100%;border-collapse:collapse">
             <tbody>
-              <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">Travail de l'élève</td></tr>
-              ${kv('Total général', fix2(data.mxSum))}${kv('Coef', fix2(data.coefSum))}
-              ${kv('MOYENNE TRIM', `<strong>${fix2(data.moyenneGenerale)}</strong>`)}${kv('Cote', `<strong>${data.moyenneGenerale != null ? data.cote : ''}</strong>`)}
+              <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">${L(sys, "Travail de l'élève", "Student's work")}</td></tr>
+              ${kv(L(sys, 'Total général', 'Grand total'), fix2(data.mxSum))}${kv('Coef', fix2(data.coefSum))}
+              ${kv(L(sys, 'MOYENNE TRIM', 'TERM AVERAGE'), `<strong>${fix2(data.moyenneGenerale)}</strong>`)}${kv(L(sys, 'Cote', 'Grade'), `<strong>${data.moyenneGenerale != null ? data.cote : ''}</strong>`)}
               ${APC_COTE_CODES.map((c) => kv(c, coteCounts[c])).join('')}
             </tbody>
           </table>
@@ -249,11 +272,11 @@ function footerBlocksHtml(data, { classStats } = {}) {
         <td style="width:32%;vertical-align:top">
           <table style="width:100%;border-collapse:collapse">
             <tbody>
-              <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">Profil de la classe</td></tr>
-              ${kv('Moyenne générale', fix2(classStats?.avg))}
+              <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">${L(sys, 'Profil de la classe', 'Class profile')}</td></tr>
+              ${kv(L(sys, 'Moyenne générale', 'General average'), fix2(classStats?.avg))}
               ${kv('[Min – Max]', classStats ? `${fix2(classStats.min)} – ${fix2(classStats.max)}` : '')}
-              ${kv('Nombre de moyennes', classStats?.count ?? '')}
-              ${kv('Taux de réussite', classStats?.rate != null ? `${classStats.rate}%` : '')}
+              ${kv(L(sys, 'Nombre de moyennes', 'Number of averages'), classStats?.count ?? '')}
+              ${kv(L(sys, 'Taux de réussite', 'Pass rate'), classStats?.rate != null ? `${classStats.rate}%` : '')}
             </tbody>
           </table>
         </td>
@@ -261,9 +284,9 @@ function footerBlocksHtml(data, { classStats } = {}) {
     </tbody>
   </table>
   <table style="width:100%;border-collapse:collapse;margin-top:4px"><tbody><tr>
-    <td style="${C};height:42px;vertical-align:top">Appréciation du travail de l'élève (points forts et points à améliorer)</td>
-    <td style="${C};width:22%;vertical-align:top;text-align:center">Visa du parent / Tuteur</td>
-    <td style="${C};width:22%;vertical-align:top;text-align:center">Nom et visa du professeur principal</td>
+    <td style="${C};height:42px;vertical-align:top">${L(sys, "Appréciation du travail de l'élève (points forts et points à améliorer)", "Remarks on the student's work (strengths and areas to improve)")}</td>
+    <td style="${C};width:22%;vertical-align:top;text-align:center">${L(sys, 'Visa du parent / Tuteur', 'Parent / Guardian signature')}</td>
+    <td style="${C};width:22%;vertical-align:top;text-align:center">${L(sys, 'Nom et visa du professeur principal', 'Form master: name and signature')}</td>
   </tr></tbody></table>`;
 }
 
@@ -313,7 +336,7 @@ export function paginateApcMatieres(matieres) {
 
 export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
   const { classeSlug, trimestreId, student, school, sys = 'FR', classLabel, effectif, profPrincipal, classStats, teacherByMatiere } = ctx;
-  const data = assembleTrimester(referentiel, apcNotes, { classeSlug, trimestreId, student, teacherByMatiere, gradeScale: school?.grade_scale });
+  const data = assembleTrimester(referentiel, apcNotes, { classeSlug, trimestreId, student, teacherByMatiere, gradeScale: school?.grade_scale, sys });
   const cols = apcBulletinCols(school); // bascules COTE / [Min–Max] / Appréciation
 
   // Découpe des matières en pages (logique mutualisée avec l'aperçu écran).
@@ -321,12 +344,12 @@ export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
 
   const title = TRIM_TITLE[trimestreId] || TRIM_TITLE.t1;
   const header = (pageData, withFooter) => {
-    const rows = pageData.map((m) => matiereRowsHtml(m, cols)).join('');
+    const rows = pageData.map((m) => matiereRowsHtml(m, cols, sys)).join('');
     return SHEET_OPEN
       + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr })
       + identityHtml(student, { classLabel, sys, effectif, profPrincipal })
-      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols)}</thead><tbody>${rows}${withFooter && !footerOwnPage ? totalRowHtml(data, cols) : ''}</tbody></table>`
-      + (withFooter && !footerOwnPage ? footerBlocksHtml(data, { classStats }) : '')
+      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols, sys)}</thead><tbody>${rows}${withFooter && !footerOwnPage ? totalRowHtml(data, cols, sys) : ''}</tbody></table>`
+      + (withFooter && !footerOwnPage ? footerBlocksHtml(data, { classStats, sys }) : '')
       + SHEET_CLOSE;
   };
 
@@ -335,8 +358,8 @@ export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
     sheets.push(
       SHEET_OPEN
       + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr })
-      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols)}</thead><tbody>${totalRowHtml(data, cols)}</tbody></table>`
-      + footerBlocksHtml(data, { classStats })
+      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols, sys)}</thead><tbody>${totalRowHtml(data, cols, sys)}</tbody></table>`
+      + footerBlocksHtml(data, { classStats, sys })
       + officialSignatureHtml(school, sys)
       + SHEET_CLOSE,
     );

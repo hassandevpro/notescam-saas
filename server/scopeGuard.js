@@ -254,6 +254,17 @@ export function allowsTeacher(scope, teacherId) {
   if (!teacherId) return true;
   if (scope.global || isAdmin(scope)) return true;
 
+  // FICHE INEXISTANTE : rien à protéger. C'est le cas d'une CRÉATION, où l'id
+  // écrit ne désigne encore aucune ligne. Sans cette sortie, la garde d'écriture
+  // refuserait toute création d'enseignant depuis que « secteur indéterminé »
+  // n'ouvre plus l'accès. Le DROIT de créer reste vérifié par canManageTeacher,
+  // et le SECTEUR imposé par applyPersonnelSector.
+  try {
+    const existe = db.prepare('SELECT 1 FROM teachers WHERE id = ? AND school_id = ?')
+      .get(teacherId, scope.schoolId);
+    if (!existe) return true;
+  } catch { /* table absente : on continue */ }
+
   // Un enseignant voit TOUJOURS sa propre fiche (profil, photo, mot de passe).
   try {
     const own = db.prepare('SELECT 1 FROM teachers WHERE id = ? AND school_id = ? AND auth_user_id = ?')
@@ -269,12 +280,22 @@ export function allowsTeacher(scope, teacherId) {
   // secteurs mais pas leurs enseignants. Trouvée par le test 36.
   if (hasGovPerm(scope, 'staff.manage.all')) return true;
 
-  const sectors = teacherSectors(scope.schoolId, teacherId);
-  // Enseignant sans aucune classe ni matière : secteur indéterminé. Le masquer
-  // le rendrait ingérable — on ne pourrait plus lui AFFECTER de classe, donc
-  // jamais lui donner un secteur. Il reste visible.
-  if (!sectors.length) return true;
+  // ORDRE DE RÉSOLUTION — le déclaré prime, la dérivation n'est qu'un repli.
+  //   1. secteur DÉCLARÉ sur la fiche  → il fait foi, seul ;
+  //   2. sinon, secteur DÉRIVÉ de ses classes et matières ;
+  //   3. sinon, SECTEUR NON DÉFINI    → aucun périmètre sectoriel ne l'atteint.
+  //
+  // Le 3 a changé le 26/08/2026. Il rendait l'enseignant visible de TOUS, pour
+  // qu'il reste affectable ; mais cela revenait à ce qu'oublier le champ ouvre la
+  // fiche à tout le monde. La correction reste possible : l'administrateur et
+  // l'autorité RH transverse sont déjà sortis plus haut, et c'est à eux
+  // qu'incombe l'affectation.
+  const declared = teacherDeclaredSector(scope.schoolId, teacherId);
   const mine = userSectors(scope);
+  if (declared) return mine.includes(declared);
+
+  const sectors = teacherSectors(scope.schoolId, teacherId);
+  if (!sectors.length) return false;
   return sectors.some((s) => mine.includes(s));
 }
 
@@ -290,8 +311,27 @@ export function allowsStaff(scope, sector) {
   // le périmètre PÉDAGOGIQUE du compte. Le RAF est sectoriel côté classes et
   // transverse côté personnel — exactement comme il l'est côté argent.
   if (hasGovPerm(scope, 'staff.manage.all')) return true;
-  if (sector == null || sector === '') return true;
+  // SECTEUR NON DÉFINI. NULL n'est PAS un secteur — et surtout pas « transverse ».
+  // Il rendait la fiche visible de tous, ce qui vidait le cloisonnement de son
+  // sens : il suffisait d'oublier le champ pour que tout le monde voie la fiche.
+  // Décision du 26/08/2026 : une fiche non affectée n'appartient à personne, donc
+  // à aucun périmètre sectoriel. Elle reste accessible à qui peut la CORRIGER —
+  // l'administrateur et l'autorité RH transverse, tous deux déjà sortis plus haut.
+  if (sector == null || sector === '') return false;
   return userSectors(scope).includes(sector);
+}
+
+// Secteur DÉCLARÉ d'un enseignant, ou null. Lu à part pour que `allowsTeacher` et
+// la garde d'écriture interrogent la même source — deux lectures divergentes
+// finiraient par répondre différemment à la même question.
+export function teacherDeclaredSector(schoolId, teacherId) {
+  if (!teacherId || !schoolId) return null;
+  try {
+    const r = db.prepare('SELECT sector FROM teachers WHERE id = ? AND school_id = ?')
+      .get(teacherId, schoolId);
+    const v = r?.sector;
+    return v == null || v === '' ? null : v;
+  } catch { return null; }   // colonne absente (base pas encore migrée) : repli sur la dérivation
 }
 
 // Le compte peut-il ÉCRIRE la fiche d'un ENSEIGNANT ?
@@ -430,6 +470,79 @@ export function rowAllowed(scope, table, row) {
   return allowsValue(scope, rule, row?.[rule.col]);
 }
 
+// ── SECTEUR DU PERSONNEL À L'ÉCRITURE ───────────────────────────────────────
+// Le frontend ne décide JAMAIS du secteur d'une fiche de personnel. Il le
+// propose ; c'est ici qu'on tranche. Trois règles, posées le 26/08/2026 :
+//
+//   CRÉATION par un responsable d'UN SEUL secteur  → le serveur IMPOSE le sien.
+//   CRÉATION par un responsable de PLUSIEURS       → il choisit, parmi les siens.
+//   CRÉATION par l'administrateur (ou l'autorité RH transverse) → il choisit,
+//                                                    mais le choix est OBLIGATOIRE.
+//
+//   MODIFICATION du secteur                        → administrateur uniquement.
+//
+// La dernière est la plus importante : sans elle, un responsable sectoriel
+// déplacerait n'importe qui dans son périmètre d'un simple update, et le
+// cloisonnement de lecture ne vaudrait plus rien.
+//
+// Cette fonction ÉCRIT dans `op.values` — c'est délibéré et c'est le seul endroit
+// qui le fait : imposer une valeur après coup, ailleurs, rouvrirait la porte que
+// l'on ferme ici.
+export const PERSONNEL_SECTORS = ['maternelle', 'primaire', 'college'];
+const PERSONNEL_TABLES = new Set(['teachers', 'staff']);
+
+export function applyPersonnelSector(op, scope) {
+  if (!PERSONNEL_TABLES.has(op.table)) return;
+  if (!scope || scope.unscoped) return;
+  if (!strictRoles(scope.schoolId)) return;      // écoles non durcies : inchangé
+
+  const values = op.values == null ? [] : (Array.isArray(op.values) ? op.values : [op.values]);
+  if (!values.length) return;
+
+  // Autorité transverse : choisit librement, mais ne peut pas laisser le champ vide.
+  const libre = isAdmin(scope) || hasGovPerm(scope, 'staff.manage.all');
+  const mine = libre ? PERSONNEL_SECTORS : userSectors(scope);
+
+  const existe = (id) => {
+    if (!id) return false;
+    try { return !!db.prepare(`SELECT 1 FROM "${op.table}" WHERE id = ? AND school_id = ?`).get(id, scope.schoolId); }
+    catch { return false; }
+  };
+
+  for (const v of values) {
+    if (!v || typeof v !== 'object') continue;
+    // Un upsert qui vise une ligne EXISTANTE est une modification, pas une
+    // création : lui appliquer l'imposition permettrait de s'approprier une fiche.
+    const modification = op.action === 'update' || (op.action === 'upsert' && existe(v.id));
+
+    if (modification) {
+      if (!Object.prototype.hasOwnProperty.call(v, 'sector')) continue;   // le secteur n'est pas touché
+      if (!isAdmin(scope)) {
+        throw new Error('Le secteur de rattachement ne peut être modifié que par un administrateur.');
+      }
+      if (v.sector != null && v.sector !== '' && !PERSONNEL_SECTORS.includes(v.sector)) {
+        throw new Error(`Secteur invalide : ${v.sector}.`);
+      }
+      continue;
+    }
+
+    // CRÉATION.
+    if (!libre && mine.length === 1) { v.sector = mine[0]; continue; }     // imposé, quoi qu'ait envoyé le client
+    if (!libre && mine.length === 0) {
+      throw new Error('Votre périmètre ne couvre aucun secteur : création de personnel impossible.');
+    }
+    const choisi = v.sector == null || v.sector === '' ? null : v.sector;
+    if (!choisi) {
+      throw new Error('Secteur de rattachement obligatoire : maternelle, primaire ou secondaire.');
+    }
+    if (!PERSONNEL_SECTORS.includes(choisi)) throw new Error(`Secteur invalide : ${choisi}.`);
+    if (!mine.includes(choisi)) {
+      throw new Error('Hors périmètre : vous ne pouvez rattacher cette personne qu’à vos propres secteurs.');
+    }
+    v.sector = choisi;
+  }
+}
+
 // GARDE D'ÉCRITURE : refuse insert/upsert/update/delete hors périmètre.
 // Lève une erreur -> runQuery la convertit en réponse d'erreur.
 // Tables d'ARGENT : leur écriture exige l'autorité financière, pas seulement le
@@ -448,6 +561,10 @@ export function guardScopeWrite(op, ctx) {
   // avant le court-circuit `isGlobal`, il suffirait d'un périmètre global pour
   // encaisser. C'est précisément l'écart que la Phase 3 ferme.
   if (strictRoles(scope?.schoolId)) {
+    // Secteur du personnel : imposé ou validé AVANT tout contrôle de périmètre —
+    // sinon une création par un responsable sectoriel serait refusée pour un champ
+    // que le serveur s'apprêtait justement à remplir lui-même.
+    applyPersonnelSector(op, scope);
     if (MONEY_TABLES.has(op.table) && !isFinanceOfficer(scope)) {
       throw new Error('Gestion des frais réservée au service financier (caisse, RAF, contrôle).');
     }

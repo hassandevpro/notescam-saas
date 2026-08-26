@@ -288,15 +288,23 @@ try {
   const tCol = ids(await sel(T.col, 'teachers'));
   ok(tCol.includes('t-col') && !tCol.includes('t-pri'),
     `${step()}. Principal College -> voit le prof College, PAS le prof Primaire`, tCol);
-  ok(tCol.includes('t-sans'),
-    `${step()}. Prof sans classe (secteur indetermine) -> reste visible (affectable)`, tCol);
+  // RÈGLE CHANGÉE le 26/08/2026 : un secteur NON DÉFINI n'est plus un secteur
+  // « transverse ». Il rendait la fiche visible de TOUS, si bien qu'oublier le
+  // champ ouvrait la fiche à tout le monde — le contraire d'un cloisonnement.
+  // La fiche reste accessible à qui peut la CORRIGER (administrateur, autorité RH
+  // transverse), jamais à un responsable sectoriel qui n'en a pas la charge.
+  ok(!tCol.includes('t-sans'),
+    `${step()}. Prof sans secteur -> INVISIBLE du Principal (secteur non defini != transverse)`, tCol);
   ok(ids(await sel(T.enspri, 'teachers')).includes('t-pri'),
     `${step()}. Un enseignant voit TOUJOURS sa propre fiche`);
 
   // ══ 8. PERSONNEL PAR SECTEUR ═════════════════════════════════════════════
   const stPri = ids(await sel(T.pri, 'staff'));
-  ok(stPri.includes('st-pri') && stPri.includes('st-tous') && !stPri.includes('st-col'),
-    `${step()}. Directrice Primaire -> son personnel + les transverses, PAS le College`, stPri);
+  // Même règle pour le personnel : `st-tous` (sector NULL) n'est plus vu par un
+  // responsable sectoriel. Il l'était par défaut, ce qui laissait toute fiche
+  // non renseignée visible de tout le monde.
+  ok(stPri.includes('st-pri') && !stPri.includes('st-tous') && !stPri.includes('st-col'),
+    `${step()}. Directrice Primaire -> SON personnel seul (ni College, ni secteur non defini)`, stPri);
 
   const majStaff = (tok, id) => q(tok, {
     table: 'staff', action: 'update', values: { phone: '699000000' },

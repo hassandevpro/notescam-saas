@@ -100,7 +100,11 @@ export const DEFAULT_CATALOG = [
     rank: 30, scope: 'complex', sector: null,
     permissions: [P.BUDGET_VIEW, P.EXPENSE_VIEW],
     workflows: [P.EXPENSE_PAY],
-    pages: ['/app/depenses'], dashboards: [],
+    // ONGLETS = ceux du RAF. Le caissier exécute les décaissements d'un budget
+    // qu'il doit pouvoir LIRE en entier : voir la ligne à payer sans voir
+    // l'enveloppe dont elle sort, c'est payer à l'aveugle. Ses POUVOIRS ne
+    // bougent pas pour autant — il paie (expense.pay), il n'approuve pas.
+    pages: DIRECTION_PAGES, dashboards: [],
   },
 ].map((r) => ({ ...r, active: true, is_system: true }))
   // MATRICE STRICTE : les clés d'autorité de la Phase 3/4 sont ajoutées ici aussi.

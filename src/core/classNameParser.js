@@ -71,6 +71,11 @@ function fallbackCycle(name) {
   if (isFirstCycle('', name) || isSecondCycle('', name)) return 'secondaire';
   if (/\b(cp|ce[12]|cm[12]|sil|class\s?[1-6])\b/i.test(name)) return 'primaire';
   if (/\b(petite|moyenne|grande)\s?section|nursery|toute\s?petite/i.test(name)) return 'maternelle';
+  // Crèche / garderie / pré-scolaire : même liste que `maternelleNiveauSlug`
+  // (engineResolver). Les deux DOIVENT reconnaître les mêmes noms, sinon la classe
+  // naît ici avec le cycle 'secondaire' du repli final — et un mauvais cycle stocké
+  // survit à toute correction ultérieure du classement par nom.
+  if (/creche|garderie|day-?care|pre-?scolaire|pre-?school/i.test(name.normalize('NFD').replace(/[̀-ͯ]/g, ''))) return 'maternelle';
   return 'secondaire';
 }
 

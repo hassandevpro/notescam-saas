@@ -96,6 +96,19 @@ ensureColumn('schools', 'strict_role_enforcement', 'strict_role_enforcement INTE
 // secteur ne se dérive pas, il se déclare. NULL = agent transverse, visible de
 // tous — donc aucune régression sur les fiches déjà saisies.
 ensureColumn('staff', 'sector', 'sector TEXT');
+// SECTEUR D'UN ENSEIGNANT — miroir exact de `staff.sector` ci-dessus : même nom,
+// même vocabulaire ('maternelle' | 'primaire' | 'college'), même garde.
+//
+// Jusqu'ici le secteur d'un enseignant était DÉRIVÉ de ses classes et de ses
+// matières (scopeGuard.teacherSectors). L'audit de THE GENIUS du 26/08/2026 a
+// montré la limite : 11 enseignants, aucun rattaché à une classe ni à une
+// matière — rien à dériver, donc aucun cloisonnement possible. Le secteur
+// devient donc une donnée DÉCLARÉE, la dérivation restant le repli.
+//
+// NULLABLE et SANS backfill, volontairement : NULL signifie « secteur non
+// défini », pas « secondaire ». Inventer une valeur pour les fiches existantes
+// produirait une donnée fausse qui aurait l'air officielle.
+ensureColumn('teachers', 'sector', 'sector TEXT');
 // Séquence (1-6) d'un retard/incident/sanction — alimente le rapport Discipline
 // et, pour les sanctions, les compteurs de conduite du bulletin (auto-agrégation).
 ensureColumn('late_arrivals',          'sequence_order', 'sequence_order INTEGER');
@@ -192,6 +205,8 @@ ensureColumn('user_governance_roles', 'status',     "status TEXT NOT NULL DEFAUL
 // encore (miroir de supabase_governance_catalog.sql). Best-effort, idempotent.
 seedGovernanceCatalog();
 ensureFinanceGrants();
+ensureCaissierPages();
+ensureCrecheSector();
 ensureStrictRoleMatrix();
 // MATRICE STRICTE — pose les clés d'AUTORITÉ sur le catalogue des écoles qui ont
 // levé `strict_role_enforcement`, et sur elles seules.
@@ -283,6 +298,91 @@ function ensureFinanceGrants() {
     }
   } catch { /* best-effort */ }
 }
+// Patch IDEMPOTENT (écoles déjà seedées) : le Caissier voit les MÊMES ONGLETS que
+// le RAF. Le seed ci-dessous est en INSERT OR IGNORE — il ne corrige donc jamais une
+// école déjà amorcée, et celles-là gardaient un caissier borné à /app/depenses.
+//
+// UNION, jamais remplacement : on ajoute les pages du RAF sans retirer celles que
+// l'école aurait ajoutées elle-même (le catalogue est éditable par établissement
+// depuis la Phase 2). Les pages du caissier par défaut étant incluses dans celles du
+// RAF, l'union VAUT « exactement comme le RAF » partout où personne n'a personnalisé
+// le rôle — et ne détruit rien là où quelqu'un l'a fait.
+//
+// Ce qui n'est PAS touché : `permissions` et `workflows`. Le caissier PAIE
+// (expense.pay) et n'approuve pas ; ouvrir un onglet n'ouvre aucun pouvoir — la
+// décision reste gardée par validationEngine et, côté serveur, par scopeGuard.
+export function ensureCaissierPages() {
+  try {
+    const rows = db.prepare(`SELECT c.id AS id, c.pages AS pages, r.pages AS ref
+      FROM governance_roles c
+      JOIN governance_roles r ON r.school_id = c.school_id AND r.code = 'raf'
+      WHERE c.code = 'caissier'`).all();
+    const upd = db.prepare('UPDATE governance_roles SET pages = ? WHERE id = ?');
+    const parse = (json) => { try { const a = JSON.parse(json || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+    for (const r of rows) {
+      const set = new Set(parse(r.pages));
+      let changed = false;
+      for (const p of parse(r.ref)) if (!set.has(p)) { set.add(p); changed = true; }
+      if (changed) upd.run(JSON.stringify([...set]), r.id);
+    }
+  } catch { /* best-effort */ }
+}
+// RÉPARATION IDEMPOTENTE — classes d'accueil pré-scolaire (crèche, garderie,
+// nursery, pré-scolaire) dont le SECTEUR déclaré ne correspond pas à ce qu'elles
+// sont. Constaté à THE GENIUS le 26/08/2026 : la classe « CRECHE » manquait aux
+// comptes du primaire (19 classes au lieu de 20) et n'apparaissait que sur les
+// comptes à périmètre global.
+//
+// Pourquoi une réparation de DONNÉES et pas seulement de code : le serveur LAN ne
+// déduit JAMAIS le secteur d'une classe de son nom — `scopeGuard.classSector()` ne
+// lit que `classes.cycle` et `classes.section`, parce qu'il est le miroir exact de
+// `public.class_sector` (RLS cloud). Corriger la reconnaissance par nom côté
+// interface sans corriger la donnée ferait donc DIVERGER les deux : la classe
+// s'afficherait à l'écran, et le serveur refuserait ses élèves et ses notes. Une
+// classe visible dont les données sont refusées est pire qu'une classe absente.
+//
+// La règle appliquée est celle retenue pour le produit : une classe d'accueil
+// pré-scolaire est de la MATERNELLE. On ne touche qu'aux classes dont le nom ne
+// laisse aucun doute, on n'écrit que si la valeur diffère, et `section` n'est
+// corrigée que lorsqu'elle porte un vrai secteur — jamais quand elle porte un
+// suffixe de groupe (« A », « B »), qui est son autre usage dans ces bases.
+//
+// Le cloud a son propre miroir : `supabase_creche_cycle.sql` (ces écritures-ci ne
+// passent pas par l'outbox, comme les autres réparations de ce fichier).
+const PRESCOLAIRE = /creche|garderie|day-?care|pre-?scolaire|pre-?school|nursery/;
+const SECTEURS = ['maternelle', 'primaire', 'premier_cycle', 'second_cycle'];
+export function ensureCrecheSector() {
+  let written = 0;
+  try {
+    const norm = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const rows = db.prepare('SELECT id, name, level, cycle, section FROM classes').all();
+    const updCycle = db.prepare('UPDATE classes SET cycle = ? WHERE id = ?');
+    const updSection = db.prepare('UPDATE classes SET section = ? WHERE id = ?');
+    for (const r of rows) {
+      if (!PRESCOLAIRE.test(norm(r.level) + ' ' + norm(r.name))) continue;
+      if (r.cycle !== 'maternelle') {
+        updCycle.run('maternelle', r.id);
+        console.log(`[classes] « ${r.name} » : cycle ${r.cycle || 'vide'} -> maternelle`);
+        written++;
+      }
+      // `section` porte tantôt un SECTEUR, tantôt un suffixe de groupe (« A »).
+      // On la renseigne quand elle est vide ou qu'elle porte un AUTRE secteur, et on
+      // laisse intact un suffixe de groupe : le réécrire perdrait le libellé.
+      //
+      // Pourquoi la renseigner et pas seulement `cycle` : `allowsClass()` (scopeGuard)
+      // ne rapproche un périmètre exprimé en SECTIONS que de `classes.section` — il ne
+      // déduit pas la section du cycle. Une classe qui ne déclare que son cycle reste
+      // donc invisible d'un compte borné par sections, ce qui est précisément le cas
+      // des comptes du primaire de THE GENIUS.
+      if ((!r.section || SECTEURS.includes(r.section)) && r.section !== 'maternelle') {
+        updSection.run('maternelle', r.id);
+        console.log(`[classes] « ${r.name} » : section ${r.section} -> maternelle`);
+        written++;
+      }
+    }
+  } catch (e) { console.warn('[classes] réparation crèche:', e.message); }
+  return written;
+}
 function seedGovernanceCatalog() {
   const BUDGET_PAGES = ['/app/budgets', '/app/budget-global', '/app/depenses'];
   const DIRECTION = ['/app/groupe', '/app/reports', ...BUDGET_PAGES];
@@ -307,7 +407,8 @@ function seedGovernanceCatalog() {
     ['responsable_maternelle', 'Responsable de la maternelle', 'Chef du secteur maternelle', 60, 'sector', 'maternelle', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], ['budget.validate.sector']],
     ['vice_principal', 'Vice-principal', 'Adjoint du secteur collège', 50, 'sector', 'college', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], []],
     ['directrice_adjointe_primaire', 'Directrice adjointe du primaire', 'Adjointe du secteur primaire', 50, 'sector', 'primaire', SECTOR_PERMS, BUDGET_PAGES, ['budget-global'], []],
-    ['caissier', 'Caissier', 'Exécute les décaissements', 30, 'complex', null, ['budget.view', 'expense.view'], ['/app/depenses'], [], ['expense.pay']],
+    // Mêmes ONGLETS que le RAF (DIRECTION), pouvoirs inchangés : il paie, il n'approuve pas.
+    ['caissier', 'Caissier', 'Exécute les décaissements', 30, 'complex', null, ['budget.view', 'expense.view'], DIRECTION, [], ['expense.pay']],
   ];
   try {
     const schools = db.prepare('SELECT id FROM schools').all();

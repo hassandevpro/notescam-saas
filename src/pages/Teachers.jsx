@@ -10,6 +10,7 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import StudentAvatar from '../components/StudentAvatar';
 import { useT } from '../lib/i18n';
+import { sectorOptions, sectorLabel } from '../lib/personnelSectors';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
 import { resolveCountryCode } from '../countries';
@@ -44,7 +45,7 @@ function initials(name = '') {
 
 const EMPTY_FORM = {
   name: '', matricule: '', gender: '', email: '', phone: '',
-  specialty: '', fonction: '', address: '', hire_date: '', status: '',
+  specialty: '', fonction: '', address: '', hire_date: '', status: '', sector: '',
 };
 const TEACHER_GENDERS = ['Masculin', 'Feminin'];
 
@@ -152,6 +153,23 @@ function TeacherForm({ initial, onSave, onCancel }) {
               placeholder={t('Ex : Professeur principal', 'E.g. Lead teacher')}
               value={form.fonction} onChange={set('fonction')} />
           </div>
+        </div>
+
+        {/* SECTEUR DE RATTACHEMENT — ce qui décide quels responsables voient cette
+            fiche. Le serveur tranche pour de bon (scopeGuard.applyPersonnelSector) :
+            il impose son secteur à un responsable qui n'en a qu'un, et refuse tout
+            secteur hors périmètre. Ce sélecteur ne fait qu'éviter de proposer un
+            choix qui serait refusé. */}
+        <div>
+          <label className="form-label">{t('Secteur de rattachement', 'Assigned sector')}</label>
+          <select className="form-input" value={form.sector || ''} onChange={set('sector')}>
+            <option value="">{t('— Non affecté —', '— Unassigned —')}</option>
+            {sectorOptions(t).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <p className="text-[11px] text-gray-400 mt-1">
+            {t('Sans secteur, la fiche n’est visible que de l’administration.',
+               'Without a sector this record is visible only to administration.')}
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -1034,6 +1052,7 @@ export function TeachersPanel() {
                   <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     <th className="px-5 py-3 text-left">{t('Enseignant', 'Teacher')}</th>
                     <th className="px-4 py-3 text-left">{t('Spécialité', 'Specialty')}</th>
+                    <th className="px-4 py-3 text-left">{t('Secteur', 'Sector')}</th>
                     <th className="px-4 py-3 text-left">{t('Contact', 'Contact')}</th>
                     <th className="px-4 py-3 text-center">{t('Matières', 'Subjects')}</th>
                     <th className="px-4 py-3 text-left">{t('Charge', 'Load', 'Carga')}</th>
@@ -1072,6 +1091,14 @@ export function TeachersPanel() {
                         {/* Spécialité */}
                         <td className="px-4 py-3 text-gray-600 text-sm">
                           {teacher.specialty || <span className="text-gray-300">—</span>}
+                        </td>
+
+                        {/* Secteur — non affecté est signalé, pas masqué : c'est
+                            une fiche à traiter, pas une fiche neutre. */}
+                        <td className="px-4 py-3 text-sm">
+                          {teacher.sector
+                            ? <span className="text-gray-600">{sectorLabel(teacher.sector, t)}</span>
+                            : <span className="text-amber-600 text-xs font-semibold">{t('Non affecté', 'Unassigned')}</span>}
                         </td>
 
                         {/* Contact */}

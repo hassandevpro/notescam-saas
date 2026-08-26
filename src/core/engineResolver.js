@@ -81,6 +81,16 @@ export const maternelleNiveauSlug = (level, name = '') => {
   const ny = n.match(/nursery([1-3])/);
   if (ny) return { 1: 'ps', 2: 'ms', 3: 'gs' }[ny[1]];
   if (t.includes('kg') || /kindergarten/.test(s)) return 'gs';
+  // Crèche / garderie / pré-scolaire, et « Nursery » SANS numéro : des classes
+  // d'accueil bien réelles que le référentiel MINEDUB ne nomme pas (il ne connaît
+  // que PS/MS/GS). Sans elles ici, la classe retombait en section 'autre' —
+  // c'est-à-dire dans AUCUN périmètre : invisible pour tout compte borné à un
+  // cycle (directeur du primaire, sa secrétaire, un surveillant de secteur) et
+  // visible des seuls comptes globaux. Une classe que personne de responsable ne
+  // voit est pire qu'une classe mal classée. On la rattache au niveau le plus
+  // jeune du référentiel, PS.
+  if (/creche|garderie|day-?care|pre-?scolaire|pre-?school/.test(n)) return 'ps';
+  if (/nursery/.test(n)) return 'ps';
   return null;
 };
 

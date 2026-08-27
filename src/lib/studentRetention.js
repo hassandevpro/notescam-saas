@@ -45,6 +45,42 @@ export function retentionDecision(studentId, payments = []) {
   };
 }
 
+// Le backend a-t-il refusé la SUPPRESSION parce que l'élève porte des écritures ?
+//
+// À distinguer d'une panne réseau : un refus métier ne s'améliore pas en le
+// rejouant. Le remettre dans la file hors-ligne le ferait échouer indéfiniment et
+// laisserait l'élève dans un entre-deux — absent de l'écran, présent au serveur,
+// de retour au prochain chargement. Reconnu ici pour basculer sur l'archivage.
+//
+// La reconnaissance porte sur le SENS du refus, pas sur son libellé : le serveur
+// LAN et le cloud ne le formulent pas du tout de la même façon, et les DEUX
+// doivent être compris.
+//
+//   LAN   (server/query.js, guardStudentDeletion) — une phrase écrite pour un
+//         humain : « Élève non supprimable : N écriture(s) de caisse… ».
+//   CLOUD — aucune phrase. La contrainte fee_payments_student_id_fkey est en
+//         ON DELETE RESTRICT (vérifié en base le 27/08/2026) et PostgreSQL répond
+//         « violates foreign key constraint », code 23503. Ne reconnaître que la
+//         formulation du LAN laissait le cloud dans l'entre-deux : refus non
+//         compris -> remis dans la file hors-ligne -> rejoué en vain à chaque
+//         chargement -> l'élève revenait dans la liste. C'est le symptôme
+//         rapporté en production le 27/08/2026.
+//
+// grades et student_fees, eux, sont en CASCADE : ils ne produisent jamais ce
+// refus. Seule la caisse retient l'élève — ce qui est exactement la règle voulue.
+export function isRetentionRefusal(error) {
+  if (!error) return false;
+  // Le code SQL de violation de clé étrangère ne dépend d'aucune langue.
+  const code = String(error.code || '');
+  const txt = `${error.message || ''} ${error.details || ''} ${error.hint || ''}`
+    .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if ((code === '23503' || txt.includes('foreign key')) && txt.includes('fee_payments')) return true;
+  return txt.includes('non supprimable')
+    || txt.includes('ecriture(s) de caisse')
+    || txt.includes('ecritures de caisse')
+    || (txt.includes('archivez') && txt.includes('eleve'));
+}
+
 // Un élève archivé sort des listes actives (classes, notes, bulletins) mais
 // conserve TOUTES ses données. `archived_at` est la seule marque qui compte.
 export function isArchived(student) {

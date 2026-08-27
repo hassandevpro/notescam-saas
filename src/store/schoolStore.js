@@ -30,6 +30,7 @@ import {
   fetchClasses, upsertClass, deleteClass as sbDeleteClass,
   fetchSubjects, upsertSubject, deleteSubject as sbDeleteSubject,
   fetchStudents, fetchStudentsByIds, upsertStudent, deleteStudent as sbDeleteStudent,
+  fetchStudentPayments,
   fetchGrades, gradeRowsToMap, upsertGradeEntry,
   fetchAbsences, upsertAbsenceEntry,
   fetchTeachers, upsertTeacher, deleteTeacher as sbDeleteTeacher,
@@ -41,14 +42,14 @@ import {
   fetchAssignments, upsertAssignments,
 } from '../lib/schoolService';
 import { upsertGradeNotification } from '../lib/notificationsService';
-import { moveToTrash, logAction } from '../lib/historyService';
+import { moveToTrash, purgeTrashItem, logAction } from '../lib/historyService';
 // Audit SERVEUR des mouvements d'argent (append-only, acteur estampillé par
 // kernel_emit côté Cloud). Complète logAction, qui n'est que local.
 import { emitFinanceEvent } from '../domains/finance/emit';
 import { AGGREGATE as FIN_AGG, EVT as FIN_EVT } from '../domains/finance/events';
 import { collectStudentBundle, collectSubjectBundle, collectClassBundle, hasRealGrades, hasSpecialFields } from '../lib/studentBundle';
 import { sumPaidForStudent, derivePaid, reconcilePaid, computeTransferFeePatch } from '../lib/feeEngine';
-import { retentionDecision, RETENTION, splitArchived, archiveFields, unarchiveFields } from '../lib/studentRetention';
+import { retentionDecision, RETENTION, splitArchived, archiveFields, unarchiveFields, isRetentionRefusal } from '../lib/studentRetention';
 import { normalizeStudentName } from '../lib/studentIdentity';
 import { expectedCash, reconcile, requiresExplanation, canValidate, SESSION_STATUS } from '../lib/cashSessionEngine';
 import { fetchCashSessions, upsertCashSession } from '../lib/cashSessionService';
@@ -1547,9 +1548,13 @@ export const useSchoolStore = create((set, get) => ({
 
   // ARCHIVAGE — retire l'élève des listes actives SANS toucher à une seule de ses
   // lignes. C'est la seule sortie possible dès qu'il porte une écriture de caisse.
-  archiveStudent: async (id, reason) => {
+  // `fallback` : l'élève à archiver quand il ne figure PLUS dans `students` —
+  // cas du rattrapage après un refus du serveur, où la suppression optimiste
+  // l'a déjà retiré de l'état. Sans lui, l'archivage de secours ne trouverait
+  // rien à archiver et l'élève resterait dans l'entre-deux.
+  archiveStudent: async (id, reason, fallback = null) => {
     const { students } = get();
-    const student = students.find((x) => x.id === id);
+    const student = students.find((x) => x.id === id) || fallback;
     if (!student) return null;
     const { userId, fullName } = useAuthStore.getState();
     const record = {
@@ -1619,13 +1624,25 @@ export const useSchoolStore = create((set, get) => ({
     const bundle = collectStudentBundle(id, { grades: allGrades, fees: allFees, payments: allPayments });
 
     // Verdict de rétention : de l'argent est passé ⇒ on n'efface rien.
-    const decision = retentionDecision(id, allPayments);
+    //
+    // Le cache local ne fait PAS autorité. `feePaymentsDB` ne contient que ce que
+    // ce poste a déjà chargé : un poste qui n'a pas encore vu les versements d'un
+    // élève concluait « aucune écriture », effaçait en local, et le serveur
+    // refusait. L'élève disparaissait de l'écran, revenait au rechargement, puis
+    // repartait — l'entre-deux constaté à THE GENIUS le 26/08/2026. Quand le
+    // backend répond, c'est LUI qui tranche ; hors ligne, on retombe sur le cache,
+    // et la garde serveur reste le filet (server/query.js, guardStudentDeletion).
+    let decision = retentionDecision(id, allPayments);
+    if (backendOnline()) {
+      const remote = await fetchStudentPayments(id).catch(() => null);
+      if (remote) decision = retentionDecision(id, remote);   // null = backend muet : on garde le verdict local
+    }
     if (decision.action === RETENTION.ARCHIVE) {
       await get().archiveStudent(id, 'Sortie de l’établissement (écritures de caisse conservées)');
       return decision;
     }
 
-    if (snapshot) await moveToTrash({ table: 'students', payload: snapshot, related: bundle });
+    const trashId = snapshot ? await moveToTrash({ table: 'students', payload: snapshot, related: bundle }) : null;
 
     // Supprime la ligne élève + toutes ses lignes liées en IDB, pour rester
     // cohérent avec le backend (qui les efface en cascade). Sans ce nettoyage,
@@ -1647,7 +1664,22 @@ export const useSchoolStore = create((set, get) => ({
     });
 
     if (backendOnline()) {
-      sbDeleteStudent(id).then((ok) => { if (!ok) queueOffline({ table: 'students', operation: 'delete', payload: { id } }); });
+      sbDeleteStudent(id).then(async (res) => {
+        if (res?.ok) return;
+        // Refus MÉTIER (élève porteur d'écritures) : le re-tenter indéfiniment
+        // via la file hors-ligne ne peut pas aboutir — le serveur refusera
+        // toujours — et laisse l'élève présent côté serveur, absent de l'écran.
+        // On bascule donc sur la sortie prévue par la règle : l'archivage.
+        if (isRetentionRefusal(res?.error)) {
+          // La suppression n'a PAS eu lieu. L'entrée déposée dans la corbeille
+          // décrit donc un événement qui ne s'est pas produit : la restaurer
+          // recréerait un second élève à côté de celui qu'on archive ici.
+          if (trashId) await purgeTrashItem(trashId).catch(() => {});
+          await get().archiveStudent(id, 'Sortie de l’établissement (écritures de caisse conservées)', snapshot);
+          return;
+        }
+        queueOffline({ table: 'students', operation: 'delete', payload: { id } });
+      });
     } else {
       queueOffline({ table: 'students', operation: 'delete', payload: { id } });
     }

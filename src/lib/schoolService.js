@@ -182,8 +182,25 @@ export async function upsertStudent(studentData) {
 
 export async function deleteStudent(id) {
   const { error } = await supabase.from('students').delete().eq('id', id);
-  if (error) { console.error('deleteStudent', error); return false; }
-  return true;
+  if (error) { console.error('deleteStudent', error); return { ok: false, error }; }
+  return { ok: true, error: null };
+}
+
+// Écritures de caisse d'UN élève, lues au BACKEND — pas dans le cache local.
+//
+// Pourquoi ce détour : le verdict de rétention (archiver ou supprimer) se prenait
+// sur `feePaymentsDB`, qui ne contient que ce que ce poste a déjà chargé. Un poste
+// qui n'avait pas encore vu les versements d'un élève concluait « aucune écriture »,
+// effaçait en local, et le serveur — lui — refusait. L'élève disparaissait de
+// l'écran, revenait au rechargement, repartait au suivant. C'est le symptôme
+// observé à THE GENIUS le 26/08/2026.
+//
+// `student_id` est sélectionné parce que `paymentTrail` filtre dessus.
+export async function fetchStudentPayments(studentId) {
+  const { data, error } = await supabase.from('fee_payments')
+    .select('id,student_id,amount,academic_year,reversal_of').eq('student_id', studentId);
+  if (error) { console.error('fetchStudentPayments', error); return null; }  // null = indéterminé
+  return data || [];
 }
 
 // --- Grades ---
@@ -375,6 +392,9 @@ export async function fetchTeachers(schoolId) {
 const TEACHER_NULLABLE = [
   'hire_date', 'matricule', 'gender', 'address', 'photo_url',
   'fonction', 'status', 'email', 'phone', 'specialty',
+  // Un secteur non choisi doit valoir NULL — « non défini » — et surtout pas la
+  // chaîne vide, qu'aucune comparaison de secteur ne reconnaîtrait.
+  'sector',
 ];
 function sanitizeTeacher(d) {
   const out = { ...d };

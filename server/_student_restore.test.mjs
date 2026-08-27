@@ -4,6 +4,14 @@
 // C'est exactement le chemin DB exécuté par schoolStore.restoreStudentBundle
 // (LAN via query.js ; structurellement identique au cloud Supabase).
 //
+//
+// Depuis, une garde s’est ajoutée (query.js, guardStudentDeletion) : un élève
+// porteur d’une écriture de caisse ne se supprime plus du tout — et comme
+// `fee_payments` est IMMUABLE, l’écriture ne peut pas non plus être retirée pour
+// contourner. Un tel élève ne peut donc QUE s’archiver. Le sujet de la cascade
+// est donc un élève sans versement (stu1) ; stu3 porte l’argent et sert à
+// prouver le refus.
+//
 // Lancer : node server/_student_restore.test.mjs
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,13 +39,14 @@ must({ table: 'students', action: 'upsert', onConflict: 'id', values: { id: 'stu
 must({ table: 'grades',          action: 'upsert', onConflict: 'class_id,student_id,subject_id,sequence', values: { id: 'grd1', school_id: 'sch1', class_id: 'cls1', student_id: 'stu1', subject_id: 'sub1', sequence: 1, value: '15' } });
 must({ table: 'student_absences', action: 'upsert', onConflict: 'student_id,sequence', values: { id: 'abs1', school_id: 'sch1', class_id: 'cls1', student_id: 'stu1', sequence: 1, abs_j: 2, abs_nj: 1, conduite: 'Bonne' } });
 must({ table: 'student_fees',    action: 'upsert', onConflict: 'student_id,academic_year', values: { id: 'fee1', school_id: 'sch1', student_id: 'stu1', academic_year: '2025-2026', frais_annuels: 100000, frais_payes: 40000 } });
-must({ table: 'fee_payments',    action: 'insert', values: { id: 'pay1', school_id: 'sch1', student_id: 'stu1', academic_year: '2025-2026', amount: 40000, date: '2025-10-01' } });
+must({ table: 'students', action: 'upsert', onConflict: 'id', values: { id: 'stu3', school_id: 'sch1', class_id: 'cls1', name: 'COLY Awa', matricule: 'M003' } }); // porteuse d’argent
+must({ table: 'fee_payments',    action: 'insert', values: { id: 'pay1', school_id: 'sch1', student_id: 'stu3', academic_year: '2025-2026', amount: 40000, date: '2025-10-01' } });
 // note du témoin stu2 (ne doit jamais être touchée)
 must({ table: 'grades', action: 'upsert', onConflict: 'class_id,student_id,subject_id,sequence', values: { id: 'grd2', school_id: 'sch1', class_id: 'cls1', student_id: 'stu2', subject_id: 'sub1', sequence: 1, value: '12' } });
 
 ok(countWhere('grades', [eq('student_id', 'stu1')]) === 1, 'avant : note de stu1 présente');
 ok(countWhere('student_fees', [eq('student_id', 'stu1')]) === 1, 'avant : frais de stu1 présents');
-ok(countWhere('fee_payments', [eq('student_id', 'stu1')]) === 1, 'avant : paiement de stu1 présent');
+ok(countWhere('fee_payments', [eq('student_id', 'stu3')]) === 1, 'avant : paiement de stu3 présent');
 ok(countWhere('student_absences', [eq('student_id', 'stu1')]) === 1, 'avant : absences de stu1 présentes');
 
 // --- Capture du bundle (= deleteStudent AVANT la suppression) ---
@@ -49,12 +58,25 @@ const bundle = {
   payments: must({ table: 'fee_payments',     action: 'select', columns: '*', filters: [eq('student_id', 'stu1')] }).data,
 };
 
-// --- Suppression physique → cascade (le bug) ---
+// --- La caisse RETIENT l'élève : la suppression est refusée ---
+// Garde ajoutée depuis (query.js, guardStudentDeletion) : tant qu'une écriture
+// de caisse lui est rattachée, l'élève ne s'efface pas — il s'archive. Ce fichier
+// prouve donc maintenant les DEUX choses : le refus, puis — une fois l'écriture
+// retirée — la cascade et la restauration, qui restent son sujet.
+const refus = runQuery({ table: 'students', action: 'delete', filters: [eq('id', 'stu3')] });
+ok(!!refus.error && /non supprimable/i.test(refus.error.message),
+  "garde : un élève porteur d’une écriture de caisse ne se supprime pas", refus.error);
+ok(countWhere('students', [eq('id', 'stu3')]) === 1,
+  "garde : après le refus, l’élève est toujours en base");
+ok(countWhere('fee_payments', [eq('student_id', 'stu3')]) === 1,
+  "garde : son versement n’a pas bougé — c’est ce que la garde protège");
+
+// --- Suppression physique → cascade ---
 must({ table: 'students', action: 'delete', filters: [eq('id', 'stu1')] });
 
 ok(countWhere('grades', [eq('student_id', 'stu1')]) === 0, 'cascade : notes de stu1 effacées par la suppression');
 ok(countWhere('student_fees', [eq('student_id', 'stu1')]) === 0, 'cascade : frais de stu1 effacés');
-ok(countWhere('fee_payments', [eq('student_id', 'stu1')]) === 0, 'cascade : paiements de stu1 effacés');
+ok(countWhere('fee_payments', [eq('student_id', 'stu3')]) === 1, 'témoin : le versement de stu3 survit à la suppression de stu1');
 ok(countWhere('student_absences', [eq('student_id', 'stu1')]) === 0, 'cascade : absences de stu1 effacées');
 ok(countWhere('grades', [eq('student_id', 'stu2')]) === 1, 'témoin : note de stu2 intacte malgré la suppression de stu1');
 
@@ -69,8 +91,8 @@ for (const p of bundle.payments) must({ table: 'fee_payments',     action: 'inse
 ok(countWhere('grades', [eq('student_id', 'stu1')]) === 1, 'restore : note de stu1 revenue');
 const fee = one('student_fees', [eq('student_id', 'stu1')]);
 ok(fee && fee.frais_payes === 40000, 'restore : frais payés intacts (40000)', fee && fee.frais_payes);
-const pay = one('fee_payments', [eq('student_id', 'stu1')]);
-ok(pay && pay.amount === 40000, 'restore : paiement intact (40000)', pay && pay.amount);
+const pay = one('fee_payments', [eq('student_id', 'stu3')]);
+ok(pay && pay.amount === 40000, 'témoin : versement de stu3 intact (40000)', pay && pay.amount);
 const abs = one('student_absences', [eq('student_id', 'stu1')]);
 ok(abs && abs.abs_j === 2 && abs.conduite === 'Bonne', 'restore : absences + conduite intactes', abs);
 const stu = one('students', [eq('id', 'stu1')]);

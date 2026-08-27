@@ -33,11 +33,17 @@ export async function logAction({ action, table, target_id, details = {} }) {
 // `related` (optionnel) : bundle des lignes dépendantes effacées en cascade par
 // le backend (notes, frais, paiements…) — sans lui, la restauration rendrait un
 // élève vide (cf. lib/studentBundle.js).
+// Rend l'IDENTIFIANT de l'entrée créée dans la corbeille, pour que l'appelant
+// puisse la reprendre s'il apprend APRÈS coup que la suppression n'a pas eu lieu
+// (cas de l'élève porteur d'écritures de caisse : le serveur refuse, l'app bascule
+// sur l'archivage — et la corbeille ne doit pas garder une entrée « supprimé »
+// pour un élève qui existe toujours ; la restaurer créerait un doublon).
+// Rend `null` si rien n'a été déposé.
 export async function moveToTrash({ table, payload, related = null }) {
-  if (!payload) return;
+  if (!payload) return null;
   try {
     const { user, fullName, school } = useAuthStore.getState();
-    await trashDB.push({
+    const trashId = await trashDB.push({
       table,
       original_id: payload.id || null,
       payload,
@@ -53,8 +59,10 @@ export async function moveToTrash({ table, payload, related = null }) {
       target_id: payload.id || null,
       details:   { name: payload.name || payload.matricule || null },
     });
+    return trashId ?? null;
   } catch (err) {
     console.warn('moveToTrash failed', err);
+    return null;
   }
 }
 

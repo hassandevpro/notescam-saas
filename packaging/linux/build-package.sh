@@ -70,6 +70,27 @@ for sub in lib governance domains; do
   find "$STAGE/app/src/$sub" -name '*.log' -delete
 done
 
+step "Identité de l'application (nom + version)"
+# `appVersion()` (server/syncAudit.js) lit la version dans `app/package.json`.
+# Ce fichier n'était copié NULLE PART : tout serveur installé annonçait donc la
+# version « ? » — dans /api/version, dans le journal d'audit de synchro et dans la
+# comparaison de mise à jour, qui ne pouvait comparer quoi que ce soit. Seul le NOM
+# de l'archive portait le numéro, et il ne survit pas à l'installation.
+#
+# On n'écrit QUE l'identité, pas le package.json de la racine : les dépendances du
+# front (react, vite…) n'ont rien à faire sur un serveur d'école, et les y déclarer
+# ferait croire à un audit qu'elles y sont installées.
+APP_VERSION="$(grep -m1 '"version"' "$ROOT/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+cat > "$STAGE/app/package.json" <<JSON
+{
+  "name": "notescam-app",
+  "private": true,
+  "version": "$APP_VERSION",
+  "type": "module"
+}
+JSON
+echo "  version embarquée : $APP_VERSION"
+
 step "Installation des dépendances serveur (fastify, @fastify/static)"
 ( cd "$STAGE/app/server" && npm install --omit=dev --no-audit --no-fund )
 

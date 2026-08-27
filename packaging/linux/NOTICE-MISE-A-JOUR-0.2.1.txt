@@ -1,0 +1,167 @@
+========================================================================
+NotesCam 0.2.1 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+CE QUE CORRIGE CETTE MISE À JOUR
+--------------------------------
+1. La classe « CRECHE » manquait aux comptes du primaire.
+   Le Directeur du Primaire et sa secrétaire voyaient 19 classes au lieu
+   de 20, alors que la classe apparaissait bien sur le compte de la
+   responsable des affaires financières. Cause : la crèche n'était
+   rattachée à aucun secteur. La mise à jour la rattache à la maternelle,
+   automatiquement, au premier démarrage.
+
+2. Le compte Caissier voit désormais les mêmes onglets que le RAF.
+   Ses POUVOIRS ne changent pas : il décaisse, il n'approuve pas. Le
+   bouton « Approuver » ne lui est pas proposé et le serveur le refuse.
+
+3. Le serveur annonce enfin son numéro de version.
+   Jusqu'ici il répondait « ? ». Sans effet visible à l'écran, mais utile
+   au dépannage.
+
+
+CE QUI N'EST PAS TOUCHÉ
+-----------------------
+  - Aucune donnée scolaire n'est modifiée (élèves, notes, frais...).
+    Seule exception : le secteur de la classe crèche, qui est corrigé.
+  - La base de données est CONSERVÉE (une copie de sûreté est faite
+    automatiquement avant l'installation).
+  - Le rattachement de l'école au Cloud est CONSERVÉ : aucun nouvel
+    appairage, aucun code à saisir.
+  - Aucun mot de passe n'est lu ni modifié.
+
+
+CE QU'IL VOUS FAUT
+------------------
+  - Les 3 fichiers reçus :
+        notescam-linux-x64-0.2.1.tar.gz     (environ 59 Mo)
+        deploy-correctif-credentials.sh     (petit fichier texte)
+        durcir-roles.sh                     (petit fichier texte)
+  - Un accès au serveur Linux de l'école, avec les droits « sudo ».
+  - Environ 10 minutes. Le service sera indisponible ~1 minute.
+
+À faire de préférence en dehors des heures de saisie des notes.
+
+
+ÉTAPE 1 — INSTALLATION
+----------------------
+Ouvrez un terminal sur le serveur (ou connectez-vous en SSH), puis :
+
+1) Placez-vous dans le dossier contenant les fichiers reçus :
+
+        cd ~
+
+2) Vérifiez qu'ils sont bien là :
+
+        ls -l notescam-linux-x64-0.2.1.tar.gz deploy-correctif-credentials.sh durcir-roles.sh
+
+3) Préparez les scripts :
+
+        sed -i 's/\r$//' deploy-correctif-credentials.sh durcir-roles.sh
+        chmod +x deploy-correctif-credentials.sh durcir-roles.sh
+
+4) Lancez l'installation :
+
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.1.tar.gz
+
+   (Si NotesCam n'écoute pas sur le port 8080 — vérifiable avec
+    « grep PORT /etc/notescam/notescam.env » — utilisez plutôt :
+        sudo PORT=LE_PORT ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.1.tar.gz )
+
+Le script travaille environ 2 minutes, puis affiche un bloc « VERDICT ».
+
+  ✅ « Toutes les vérifications locales sont PASS. »
+        -> Passez à l'étape 2.
+
+  ❌ « N vérification(s) en échec »
+        -> N'allez pas plus loin. Envoyez à l'éditeur le résultat de :
+
+              sudo journalctl -u notescam --since '-10 min' --no-pager | tail -50
+
+
+CONTRÔLE — la classe crèche a-t-elle été réparée ?
+--------------------------------------------------
+        sudo journalctl -u notescam --since '-5 min' --no-pager | grep classes
+
+  Vous devez voir une ou deux lignes du type :
+
+        [classes] « CRECHE » : cycle vide -> maternelle
+        [classes] « CRECHE » : section null -> maternelle
+
+  Si rien n'apparaît, c'est que la classe était déjà correctement
+  rattachée : ce n'est pas une erreur.
+
+
+ÉTAPE 2 — RETIRER LES FRAIS DE SCOLARITÉ AU CENSEUR
+---------------------------------------------------
+Cette étape active les permissions strictes déjà en place côté Cloud.
+
+        sudo ./durcir-roles.sh 6b68407b-3d2e-426b-81ff-c4e68e66120a
+
+⚠️ ATTENTION — ce n'est pas seulement la caisse du censeur qui change.
+   Le serveur s'aligne sur les règles du Cloud :
+     - les pages d'argent (Frais scolaires, Budgets, Dépenses, Décisions
+       à approuver) sont réservées à qui porte un rôle financier ;
+     - chaque responsable ne voit que le personnel de son secteur ;
+     - les paramètres administratifs sont réservés à l'administrateur ;
+     - un enseignant reste borné à ses fonctions pédagogiques.
+   L'administrateur, le RAF et la caissière ne perdent rien.
+
+Le script affiche la valeur AVANT et APRÈS. Pour revenir en arrière :
+
+        sudo ./durcir-roles.sh 6b68407b-3d2e-426b-81ff-c4e68e66120a --annuler
+
+
+ÉTAPE 3 — VÉRIFIER LE PÉRIMÈTRE DES COMPTES DU PRIMAIRE
+--------------------------------------------------------
+La crèche est rattachée à la MATERNELLE. Le Directeur du Primaire et sa
+secrétaire ne la verront donc que si leur périmètre couvre aussi la
+maternelle. Pour l'afficher :
+
+        sudo /opt/notescam/node/bin/node -e '
+        const { DatabaseSync } = require("node:sqlite");
+        const db = new DatabaseSync("/var/lib/notescam/data/notescam.db");
+        for (const u of db.prepare("SELECT full_name, role, scope_sections, scope_cycles, scope_global FROM school_users WHERE active=1").all())
+          console.log(u.full_name, "|", u.role, "| sections:", u.scope_sections, "| cycles:", u.scope_cycles);
+        '
+
+Si un de ces deux comptes n'a que « primaire », la correction se fait
+DANS L'APPLICATION, sans commande :
+
+        Personnel & rôles  ->  la ligne du compte  ->  bouton 🎯 Périmètre
+        ->  cocher aussi la Maternelle
+            (ou choisir le cycle « Fondamental », qui couvre les deux)
+
+
+VÉRIFICATION FINALE, À L'ÉCRAN
+------------------------------
+Reconnectez-vous et contrôlez :
+
+  - Directeur du Primaire et sa secrétaire : 20 classes, crèche comprise.
+  - Censeur : plus de « Frais scolaires », plus de « Budgets ».
+  - Caissière : la caisse et les budgets sont là ; AUCUN bouton
+    « Approuver » sur les dépenses.
+  - RAF : rien ne change.
+  - Administrateur : menu inchangé.
+
+Et en ligne de commande :
+
+        systemctl is-active notescam          -> doit répondre : active
+        curl -s http://127.0.0.1:8080/api/version
+        curl -s http://127.0.0.1:8080/api/pair/status
+
+  La seconde doit indiquer 0.2.1, la troisième doit contenir
+  "schoolId":"6b68407b-3d2e-426b-81ff-c4e68e66120a" (preuve que le
+  rattachement au Cloud est intact).
+
+
+EN CAS DE PROBLÈME
+------------------
+L'installation conserve tout. Deux copies de la base sont déposées
+automatiquement dans /var/lib/notescam/data/ :
+
+        notescam.db.avant-correctif-<horodatage>
+        notescam.db.avant-durcissement-<horodatage>
+
+Ne les supprimez pas et ne les restaurez pas de vous-même : contactez
+l'éditeur, qui vous guidera.

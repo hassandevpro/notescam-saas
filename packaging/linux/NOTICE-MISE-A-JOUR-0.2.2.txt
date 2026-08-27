@@ -1,0 +1,173 @@
+========================================================================
+NotesCam 0.2.2 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Cette version remplace la 0.2.1, installée le 26/08/2026.
+
+
+CE QUE CORRIGE CETTE MISE À JOUR
+--------------------------------
+1. Secteur de rattachement du personnel.
+   Chaque enseignant et chaque membre du personnel reçoit un secteur :
+   Maternelle, Primaire ou Secondaire. C'est ce secteur qui décide quels
+   responsables voient sa fiche. Un nouveau champ apparaît dans la fiche
+   enseignant, et une colonne « Secteur » dans la liste.
+
+2. Suppression d'un élève rattaché à la caisse.
+   L'élève disparaissait de l'écran, revenait au rechargement, puis
+   repartait. Il est désormais ARCHIVÉ : il sort des listes actives,
+   ses encaissements sont conservés, et l'écran ne ment plus.
+
+3. Doublons d'élèves.
+   Inscrire deux fois le même enfant est maintenant refusé lorsque le
+   nom ET la date de naissance sont identiques. Un avertissement
+   s'affiche pour les cas ressemblants (même date de naissance et même
+   numéro de téléphone).
+
+
+CE QUI N'EST PAS TOUCHÉ
+-----------------------
+  - Aucune donnée scolaire n'est modifiée : élèves, notes, bulletins,
+    classes, frais, encaissements. AUCUN secteur n'est attribué
+    automatiquement à qui que ce soit.
+  - La base de données est CONSERVÉE (copie de sûreté automatique avant
+    l'installation).
+  - Le rattachement de l'école au Cloud est CONSERVÉ : aucun nouvel
+    appairage, aucun code à saisir.
+  - Aucun mot de passe n'est lu ni modifié.
+
+
+CE QU'IL VOUS FAUT
+------------------
+  - Les fichiers reçus :
+        notescam-linux-x64-0.2.2.tar.gz     (environ 59 Mo)
+        deploy-correctif-credentials.sh     (déjà reçu au 0.2.1)
+        durcir-roles.sh                     (déjà reçu au 0.2.1)
+  - Un accès au serveur Linux de l'école, avec les droits « sudo ».
+  - Environ 10 minutes. Le service sera indisponible ~1 minute.
+
+À faire de préférence en dehors des heures de saisie des notes.
+
+
+ÉTAPE 1 — INSTALLATION
+----------------------
+        cd ~
+        ls -l notescam-linux-x64-0.2.2.tar.gz
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.2.tar.gz
+
+   (Si NotesCam n'écoute pas sur le port 8080 — vérifiable avec
+    « grep PORT /etc/notescam/notescam.env » — utilisez plutôt :
+        sudo PORT=LE_PORT ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.2.tar.gz )
+
+Si les scripts n'ont pas été rendus exécutables lors du 0.2.1 :
+
+        sed -i 's/\r$//' deploy-correctif-credentials.sh durcir-roles.sh
+        chmod +x deploy-correctif-credentials.sh durcir-roles.sh
+
+Le script affiche un bloc « VERDICT » au bout de 2 minutes environ.
+
+  ✅ « Toutes les vérifications locales sont PASS. »  -> étape 2.
+  ❌ « N vérification(s) en échec »                   -> ne pas aller
+     plus loin ; envoyer à l'éditeur le résultat de :
+        sudo journalctl -u notescam --since '-10 min' --no-pager | tail -50
+
+
+CONTRÔLE — la version est-elle bien en place ?
+----------------------------------------------
+        curl -s http://127.0.0.1:8080/api/version
+
+  doit contenir : "version":"0.2.2"
+
+
+ÉTAPE 2 — AFFECTER LES ENSEIGNANTS À LEUR SECTEUR
+--------------------------------------------------
+⚠️ ÉTAPE OBLIGATOIRE, ET À FAIRE AVANT L'ÉTAPE 3.
+
+Les 11 enseignants enregistrés n'ont aujourd'hui AUCUN secteur. C'est
+volontaire : personne n'a inventé de valeur à leur place, parce qu'aucune
+donnée ne permettait de la déduire (aucun d'eux n'est rattaché à une
+classe ni à une matière).
+
+Dans l'application, avec le compte Administrateur :
+
+        Personnel  ->  Enseignants  ->  ouvrir la fiche  ->  Modifier
+        ->  « Secteur de rattachement »  ->  Maternelle / Primaire /
+            Secondaire  ->  Enregistrer
+
+La liste signale en orange « Non affecté » les fiches restantes : il
+suffit de traiter jusqu'à ce qu'il n'en reste aucune.
+
+Seul l'Administrateur peut choisir librement le secteur. Un responsable
+de secteur qui crée un enseignant lui verra attribuer automatiquement le
+sien, et ne pourra pas le changer ensuite.
+
+
+ÉTAPE 3 — DURCISSEMENT DES RÔLES (si ce n'est pas déjà fait)
+-------------------------------------------------------------
+        sudo ./durcir-roles.sh 6b68407b-3d2e-426b-81ff-c4e68e66120a
+
+⚠️ NE LANCEZ PAS CETTE ÉTAPE AVANT D'AVOIR TERMINÉ L'ÉTAPE 2.
+
+   Un enseignant sans secteur n'appartient à aucun secteur — il n'est
+   PAS considéré comme « Secondaire », et il n'est pas non plus visible
+   de tout le monde. Si vous durcissez avant d'avoir affecté les 11,
+   la Directrice du Primaire et les autres responsables verront ZÉRO
+   enseignant. Seul l'Administrateur les verra encore, pour pouvoir
+   les corriger.
+
+⚠️ Le durcissement ne change pas que les enseignants. Le serveur
+   s'aligne alors sur les règles déjà appliquées côté Cloud :
+     - pages d'argent (Frais scolaires, Budgets, Dépenses, Décisions à
+       approuver) réservées à qui porte un rôle financier ;
+     - chaque responsable ne voit que le personnel de son secteur ;
+     - paramètres administratifs réservés à l'Administrateur ;
+     - enseignants bornés à leurs fonctions pédagogiques.
+
+Pour revenir en arrière :
+
+        sudo ./durcir-roles.sh 6b68407b-3d2e-426b-81ff-c4e68e66120a --annuler
+
+
+APRÈS L'ÉTAPE 3 — SE RECONNECTER
+---------------------------------
+L'école du compte est mise en cache dans la session. Après le
+durcissement, DÉCONNECTEZ-VOUS et RECONNECTEZ-VOUS : un simple
+rafraîchissement de page peut ne pas suffire, et vous croiriez que le
+script n'a rien fait.
+
+
+VÉRIFICATION FINALE, À L'ÉCRAN
+------------------------------
+  - Enseignants : chaque fiche porte un secteur, aucune n'est « Non
+    affecté ».
+  - Directrice du Primaire : voit les enseignants du Primaire, aucun du
+    Secondaire.
+  - Secrétariat : voit le personnel Maternelle + Primaire, aucun du
+    Secondaire.
+  - Censeur : plus de « Frais scolaires », plus de « Budgets ».
+  - Caissière : la caisse et les budgets sont là ; AUCUN bouton
+    « Approuver » sur les dépenses.
+  - Administrateur : menu inchangé, voit tout.
+
+Et en ligne de commande :
+
+        systemctl is-active notescam                       -> active
+        curl -s http://127.0.0.1:8080/api/version          -> 0.2.2
+        curl -s http://127.0.0.1:8080/api/pair/status
+
+  La dernière doit contenir
+  "schoolId":"6b68407b-3d2e-426b-81ff-c4e68e66120a"
+  (preuve que le rattachement au Cloud est intact).
+
+
+EN CAS DE PROBLÈME
+------------------
+L'installation conserve tout. Les copies de la base sont déposées
+automatiquement dans /var/lib/notescam/data/ :
+
+        notescam.db.avant-correctif-<horodatage>
+        notescam.db.avant-durcissement-<horodatage>
+
+Ne les supprimez pas et ne les restaurez pas de vous-même : contactez
+l'éditeur, qui vous guidera. L'archive de la version précédente
+(notescam-linux-x64-0.2.1.tar.gz) permet un retour arrière complet.

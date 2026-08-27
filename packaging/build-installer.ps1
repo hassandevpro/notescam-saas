@@ -99,6 +99,26 @@ foreach ($sub in @('lib', 'governance', 'domains')) {
   $global:LASTEXITCODE = 0
 }
 
+# --- 3 bis. Identité de l'application (nom + version) ----------------
+# `appVersion()` (server/syncAudit.js) lit la version dans `app\package.json`.
+# Ce fichier n'était copié nulle part : tout serveur installé annonçait la version
+# « ? » dans /api/version, dans le journal d'audit de synchro et dans la comparaison
+# de mise à jour. Seul le nom de l'installeur portait le numéro, et il ne survit pas
+# à l'installation. Miroir exact de la même étape dans packaging/linux/build-package.sh.
+#
+# On n'écrit QUE l'identité, pas le package.json de la racine : les dépendances du
+# front (react, vite…) n'ont rien à faire sur un serveur d'école.
+Step "Identité de l'application (nom + version)"
+@"
+{
+  "name": "notescam-app",
+  "private": true,
+  "version": "$AppVersion",
+  "type": "module"
+}
+"@ | Set-Content (Join-Path $Stage 'app\package.json') -Encoding utf8
+Write-Host "  version embarquée : $AppVersion"
+
 # --- 4. Dépendances runtime du serveur -------------------------------
 Step "Installation des dépendances serveur (fastify, @fastify/static)"
 Push-Location $dstServer

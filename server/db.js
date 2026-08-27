@@ -38,10 +38,18 @@ db.exec(schema);
 // `CREATE TABLE IF NOT EXISTS` ne touche pas une table déjà créée : pour
 // ajouter une colonne aux bases existantes, on fait un ALTER conditionnel
 // (node:sqlite ne connaît pas « ADD COLUMN IF NOT EXISTS »).
+// Colonnes REELLEMENT ajoutees pendant ce demarrage. Voir `resetPullCursorIfSchemaGrew`
+// tout en bas : une colonne qui apparait APRES coup sur une table synchronisee est
+// une perte de donnee silencieuse en puissance, et il faut le savoir ici.
+const COLONNES_AJOUTEES = [];
+
 function ensureColumn(table, column, ddl) {
   const has = db.prepare(`PRAGMA table_info(${quoteIdent(table)})`).all()
     .some((r) => r.name === column);
-  if (!has) db.exec(`ALTER TABLE ${quoteIdent(table)} ADD COLUMN ${ddl}`);
+  if (has) return false;
+  db.exec(`ALTER TABLE ${quoteIdent(table)} ADD COLUMN ${ddl}`);
+  COLONNES_AJOUTEES.push({ table, column });
+  return true;
 }
 ensureColumn('subjects', 'position', 'position INTEGER');   // ordre des matières sur le bulletin
 ensureColumn('students', 'photo_url', 'photo_url TEXT');    // photo de l'élève
@@ -206,7 +214,12 @@ ensureColumn('user_governance_roles', 'status',     "status TEXT NOT NULL DEFAUL
 seedGovernanceCatalog();
 ensureFinanceGrants();
 ensureCaissierPages();
-ensureCrecheSector();
+// ensureCrecheSector() est appelée PLUS BAS, juste après sa définition : elle lit
+// des `const` de portée module (PRESCOLAIRE, SECTEURS) déclarées après ce point.
+// Appelée ici, elle levait « Cannot access 'PRESCOLAIRE' before initialization »,
+// que son propre try/catch avalait — la réparation ne tournait donc JAMAIS au
+// démarrage, en silence, et son test ne le voyait pas (il appelle la fonction
+// après le chargement du module, quand les const sont initialisées).
 ensureStrictRoleMatrix();
 // MATRICE STRICTE — pose les clés d'AUTORITÉ sur le catalogue des écoles qui ont
 // levé `strict_role_enforcement`, et sur elles seules.
@@ -383,6 +396,9 @@ export function ensureCrecheSector() {
   } catch (e) { console.warn('[classes] réparation crèche:', e.message); }
   return written;
 }
+// Appel de démarrage — ICI et pas plus haut : voir le commentaire au point
+// d'appel d'origine. La position de cette ligne EST le correctif.
+ensureCrecheSector();
 function seedGovernanceCatalog() {
   const BUDGET_PAGES = ['/app/budgets', '/app/budget-global', '/app/depenses'];
   const DIRECTION = ['/app/groupe', '/app/reports', ...BUDGET_PAGES];
@@ -578,6 +594,48 @@ export const SYNCED_TABLES = new Set([
   //  chantier de sync-pull dédié — cf. docs/ARCHITECTURE_KERNEL.md.)
   'signalements',
 ]);
+
+// ── Une colonne neuve sur une table synchronisée invalide le curseur de pull ──
+//
+// LE DÉFAUT QUE CECI CORRIGE, constaté à THE GENIUS le 27/08/2026.
+// `sync-pull` est un keyset sur (updated_at, id) STRICTEMENT supérieur au
+// curseur : une ligne déjà dépassée n’est PLUS JAMAIS renvoyée. Et `rawUpsert`
+// ne recopie que les colonnes présentes LOCALEMENT — il ignore les autres, sans
+// rien dire.
+//
+// Les deux se combinent mal. Le cloud avait affecté les 11 enseignants à leur
+// secteur ; le serveur a tiré ces lignes AVANT la mise à jour qui créait la
+// colonne `sector`. La valeur a été jetée en silence, le curseur a avancé, puis
+// la colonne est apparue — vide, et plus rien ne renvoyait les valeurs. Résultat
+// à l’écran : secteur NULL + rôles durcis = seul l’administrateur voyait les
+// enseignants. Le cloisonnement marchait ; il cloisonnait sur une donnée absente.
+//
+// La règle posée ici : si ce démarrage a AJOUTÉ une colonne à une table
+// synchronisée, le curseur de pull est remis à zéro. Le prochain pull relit tout
+// depuis le début et remplit la colonne neuve. C’est un rattrapage complet, donc
+// plus coûteux qu’un pull incrémental — mais il n’arrive QU’UNE FOIS par montée
+// de version, et la résolution LWW rend l’opération sans effet de bord : une
+// ligne locale plus récente que la ligne distante gagne toujours.
+//
+// On ne touche PAS `tomb_at` : les tombstones portent des suppressions, pas des
+// colonnes, et les rejouer ressusciterait un travail déjà fait.
+function resetPullCursorIfSchemaGrew() {
+  const concernees = COLONNES_AJOUTEES.filter((c) => SYNCED_TABLES.has(c.table));
+  if (!concernees.length) return;
+  try {
+    db.prepare('DELETE FROM sync_cursor WHERE name = ?').run('pull_at');
+    // On borne la liste : sur une base ancienne, 50 colonnes arrivent d'un coup et
+    // une ligne de journal illisible ne se lit pas — donc ne sert a rien.
+    const noms = concernees.map((c) => `${c.table}.${c.column}`);
+    const quoi = noms.slice(0, 6).join(", ") + (noms.length > 6 ? ` (+${noms.length - 6})` : "");
+    console.warn(`[db] colonne(s) ajoutée(s) sur table(s) synchronisée(s) : ${quoi}`);
+    console.warn('[db] curseur de pull remis à zéro : le prochain pull relira tout pour les remplir.');
+  } catch (e) {
+    // `sync_cursor` absente (base neuve, jamais synchronisée) : rien à invalider.
+    console.warn(`[db] curseur de pull non réinitialisé : ${e.message}`);
+  }
+}
+resetPullCursorIfSchemaGrew();
 for (const t of SYNCED_TABLES) {
   ensureColumn(t, 'updated_at', 'updated_at TEXT');                  // horodatage du dernier changement (LWW)
   ensureColumn(t, 'version',    'version INTEGER NOT NULL DEFAULT 1'); // compteur monotone (départage)

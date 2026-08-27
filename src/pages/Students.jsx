@@ -8,6 +8,9 @@ import { officialHeaderHtml, officialSignatureHtml } from '../lib/officialDocHea
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
 import { duplicateWarning } from '../lib/studentIdentity';
+import { checkDuplicate, DUP } from '../lib/studentDuplicate';
+import { cashDeletionWarning } from '../lib/studentRetention';
+import { useMoney } from '../lib/useMoney';
 import Layout from '../components/Layout';
 import StudentAvatar from '../components/StudentAvatar';
 import Modal from '../components/Modal';
@@ -768,9 +771,13 @@ export default function Students() {
   const addStudent          = useSchoolStore((s) => s.addStudent);
   const updateStudent       = useSchoolStore((s) => s.updateStudent);
   const deleteStudent       = useSchoolStore((s) => s.deleteStudent);
+  const archiveStudent      = useSchoolStore((s) => s.archiveStudent);
   const bulkAssignToClass   = useSchoolStore((s) => s.bulkAssignToClass);
   const role                = useAuthStore((s) => s.role);
   const permissions         = useAuthStore((s) => s.permissions);
+  // Devise de l'établissement : la confirmation d'une suppression qui emporte de
+  // l'argent doit annoncer un MONTANT, pas un nombre nu.
+  const money               = useMoney();
 
   // Écriture des élèves : la direction (admin + censeur), plus tout compte délégué
   // à qui l'admin a explicitement confié la page Élèves — inscrire un élève est le
@@ -924,12 +931,55 @@ export default function Students() {
     //    faux (cas vécu). On compare aussi aux élèves ARCHIVÉS : réinscrire
     //    quelqu'un qu'on croyait supprimé est précisément la façon dont le
     //    doublon apparaît. Avertissement, jamais blocage : l'homonymie existe.
-    const avertissement = duplicateWarning(form.name, [...students, ...archivedStudents], {
-      excludeId: editing?.id ?? null,
-      classNameOf: (id) => classes.find((c) => c.id === id)?.name || null,
-      t,
-    });
-    if (avertissement && !window.confirm(avertissement)) return;
+    // DOUBLON — deux niveaux (cf. lib/studentDuplicate.js) :
+    //   BLOCK : même nom ET même date de naissance, ou matricule déjà pris.
+    //           C'est la même personne : on REFUSE, il n'y a rien à confirmer.
+    //   WARN  : même naissance et même contact, ou nom qui n'est qu'une variante
+    //           (« … JUNIOR »). Très probablement le même enfant — mais des
+    //           jumeaux partagent naissance et téléphone du parent, donc on
+    //           demande confirmation au lieu de rendre leur inscription impossible.
+    const registre = [...students, ...archivedStudents];
+    const dup = checkDuplicate({ ...form, id: editing?.id ?? null }, registre);
+    const etatDe = (s) => (s.archived_at
+      ? t('archivé', 'archived', 'archivado')
+      : classes.find((c) => c.id === s.class_id)?.name || t('sans classe', 'no class', 'sin clase'));
+    const listeDe = (matches) => matches.map((m) => `• ${m.student.name} (${etatDe(m.student)})`).join('\n');
+
+    if (dup.level === DUP.BLOCK) {
+      window.alert([
+        dup.reason,
+        '',
+        listeDe(dup.matches),
+        '',
+        t('Ouvrez la fiche existante au lieu d’en créer une seconde.',
+          'Open the existing record instead of creating a second one.',
+          'Abra la ficha existente en lugar de crear otra.'),
+      ].join('\n'));
+      return;
+    }
+
+    if (dup.level === DUP.WARN) {
+      const msg = [
+        dup.reason,
+        '',
+        listeDe(dup.matches),
+        '',
+        t('Enregistrer quand même ? (Annulez si c’est le même enfant.)',
+          'Save anyway? (Cancel if this is the same child.)',
+          '¿Guardar de todos modos? (Cancele si es el mismo niño.)'),
+      ].join('\n');
+      if (!window.confirm(msg)) return;
+    } else {
+      // Homonymie simple (même nom, naissance différente ou inconnue) : le
+      // rappel historique, qui reste un avertissement — deux enfants peuvent
+      // légitimement porter le même nom.
+      const avertissement = duplicateWarning(form.name, registre, {
+        excludeId: editing?.id ?? null,
+        classNameOf: (id) => classes.find((c) => c.id === id)?.name || null,
+        t,
+      });
+      if (avertissement && !window.confirm(avertissement)) return;
+    }
 
     // 1) Crée/met à jour l'élève d'abord (il faut un id pour nommer la photo).
     let studentId;
@@ -948,16 +998,27 @@ export default function Students() {
     if (editing) setEditing(null); else setShowForm(false);
   };
 
-  // Un élève porteur d'écritures de caisse est ARCHIVÉ, jamais supprimé (ses
-  // versements sont des pièces comptables). On l'annonce explicitement.
+  // Un élève porteur d'écritures de caisse PEUT être supprimé depuis le
+  // 27/08/2026 — les écoles le demandent, et la détection de doublons permet de
+  // le réinscrire sans créer un second dossier. Mais ses versements partent avec
+  // lui : on montre combien et pour quel montant avant de laisser faire, et on
+  // rappelle l'archivage, qui n'efface rien.
   const handleDelete = async (s) => {
-    const res = await deleteStudent(s.id);
+    let res = await deleteStudent(s.id);
+    if (res?.action === 'confirm') {
+      if (window.confirm(cashDeletionWarning(s.name, res.trail, money, t))) {
+        res = await deleteStudent(s.id, { force: true });
+      } else {
+        res = await archiveStudent(s.id, t('Sortie de l’établissement', 'Left the school', 'Salida del centro'));
+        res = { action: 'archive', trail: { entries: 0 } };
+      }
+    }
     setConfirmDel(null);
     if (res?.action === 'archive') {
       toast.success(t(
-        `${s.name} a été archivé (et non supprimé) : ${res.trail.entries} écriture(s) de caisse lui sont rattachées.`,
-        `${s.name} was archived (not deleted): ${res.trail.entries} cash entries are attached.`,
-        `${s.name} fue archivado (no eliminado): tiene ${res.trail.entries} asiento(s) de caja.`,
+        `${s.name} a été archivé : ses données et ses versements sont conservés.`,
+        `${s.name} was archived: all data and payments are kept.`,
+        `${s.name} fue archivado: se conservan sus datos y pagos.`,
       ));
     }
   };

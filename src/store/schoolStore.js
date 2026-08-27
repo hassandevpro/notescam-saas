@@ -1609,7 +1609,10 @@ export const useSchoolStore = create((set, get) => ({
   // l'élève est ARCHIVÉ et non supprimé. Sans cette bascule, supprimer l'élève
   // effaçait ses versements par cascade FK — le contournement qui restait ouvert
   // une fois les versements rendus immuables.
-  deleteStudent: async (id) => {
+  // `force` : l'utilisateur a vu le nombre d'écritures de caisse et leur montant,
+  // et a confirmé. Sans lui, un élève porteur d'argent n'est jamais effacé par
+  // surprise — la fonction rend `action: 'confirm'` sans rien toucher.
+  deleteStudent: async (id, { force = false } = {}) => {
     const snapshot = get().students.find((x) => x.id === id);
 
     // Capture le bundle complet AVANT toute suppression : le DELETE backend
@@ -1637,9 +1640,15 @@ export const useSchoolStore = create((set, get) => ({
       const remote = await fetchStudentPayments(id).catch(() => null);
       if (remote) decision = retentionDecision(id, remote);   // null = backend muet : on garde le verdict local
     }
-    if (decision.action === RETENTION.ARCHIVE) {
-      await get().archiveStudent(id, 'Sortie de l’établissement (écritures de caisse conservées)');
-      return decision;
+    // L'élève porte de l'argent. Le magasin ne tranche PLUS à la place de
+    // l'école : depuis le 27/08/2026 la suppression est possible (les écoles la
+    // demandent, et la détection de doublons permet de réinscrire l'élève sans
+    // créer un second dossier). Mais elle efface des pièces comptables, alors
+    // elle ne se fait pas d'un clic distrait : on rend le compte des écritures et
+    // leur montant, l'écran demande confirmation, et rappelle l'archivage — puis
+    // il rappelle cette fonction avec `force`.
+    if (decision.action === RETENTION.ARCHIVE && !force) {
+      return { ...decision, action: 'confirm' };
     }
 
     const trashId = snapshot ? await moveToTrash({ table: 'students', payload: snapshot, related: bundle }) : null;

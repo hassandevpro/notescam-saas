@@ -17,6 +17,7 @@ import { usePlan } from '../lib/plan';
 import { studentFeeSituation, FEE_STATUS, inscriptionApplies } from '../lib/feeEngine';
 import { STATUS_UI, MODE_LABEL } from '../components/fees/feeUi';
 import { useMoney } from '../lib/useMoney';
+import { cashDeletionWarning } from '../lib/studentRetention';
 import { parentPortalUrl, whatsappLinkFor } from '../lib/parentLinks';
 
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
@@ -258,6 +259,7 @@ export default function StudentProfile() {
   const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
   const updateStudent = useSchoolStore((s) => s.updateStudent);
   const deleteStudent = useSchoolStore((s) => s.deleteStudent);
+  const archiveStudent = useSchoolStore((s) => s.archiveStudent);
   const role          = useAuthStore((s) => s.role);
   const school        = useAuthStore((s) => s.school);
   // Écriture élèves réservée à la direction (admin + censeur), aligné sur la RLS.
@@ -388,15 +390,24 @@ export default function StudentProfile() {
   };
 
   const handleDelete = async () => {
-    // `deleteStudent` bascule en ARCHIVAGE dès que l'élève porte une écriture de
-    // caisse : ses versements sont des pièces comptables, ils ne peuvent pas
-    // partir avec lui. On le dit, sinon l'utilisateur croit avoir supprimé.
-    const res = await deleteStudent(student.id);
+    // Un élève porteur d'écritures de caisse PEUT être supprimé depuis le
+    // 27/08/2026, à la demande des écoles. Ses versements partent alors avec lui :
+    // on annonce combien et pour quel montant, et on rappelle l'archivage — qui
+    // reste la sortie qui n'efface rien.
+    let res = await deleteStudent(student.id);
+    if (res?.action === 'confirm') {
+      if (window.confirm(cashDeletionWarning(student.name, res.trail, money, t))) {
+        res = await deleteStudent(student.id, { force: true });
+      } else {
+        await archiveStudent(student.id, t('Sortie de l’établissement', 'Left the school', 'Salida del centro'));
+        res = { action: 'archive' };
+      }
+    }
     if (res?.action === 'archive') {
       toast.success(t(
-        `${student.name} a été archivé (et non supprimé) : ${res.trail.entries} écriture(s) de caisse lui sont rattachées. Ses données sont conservées.`,
-        `${student.name} was archived (not deleted): ${res.trail.entries} cash entries are attached. All data is kept.`,
-        `${student.name} fue archivado (no eliminado): tiene ${res.trail.entries} asiento(s) de caja.`,
+        `${student.name} a été archivé : ses données et ses versements sont conservés.`,
+        `${student.name} was archived: all data and payments are kept.`,
+        `${student.name} fue archivado: se conservan sus datos y pagos.`,
       ));
     }
     navigate('/app/students');

@@ -290,6 +290,41 @@ CREATE TABLE IF NOT EXISTS fee_payments (
 -- « no such column » et le serveur ne démarre plus. Ces index sont créés dans
 -- server/db.js, après les ensureColumn. Vérifié par _schema_upgrade.test.mjs.
 
+-- --- Trace des versements emportés par la suppression d'un élève -----------
+-- Un versement reste ineffaçable À LUI SEUL (guardFeePaymentImmutable refuse
+-- toujours tout DELETE sur fee_payments). Ce qui est possible depuis le
+-- 27/08/2026, à la demande des écoles, c'est de supprimer l'ÉLÈVE — ses
+-- écritures partent alors avec lui par la cascade ci-dessus.
+--
+-- Cette table est ce qui distingue « supprimer » de « faire disparaître » :
+-- avant d'ouvrir la cascade, chaque ligne est recopiée ici avec son montant, son
+-- reçu, et QUI l'a supprimée. Sans elle, plus rien ne permettrait de justifier un
+-- exercice si quelqu'un demandait où sont passées des recettes.
+--
+-- Alimentée UNIQUEMENT par query.js (traceStudentCashBeforeDeletion), jamais par
+-- le client : `deleted_fee_payments` n'est pas dans ALLOWED_TABLES.
+-- Aucune clé étrangère vers students : l'élève n'existera plus.
+CREATE TABLE IF NOT EXISTS deleted_fee_payments (
+  id               TEXT PRIMARY KEY,          -- l'id d'origine du versement
+  school_id        TEXT NOT NULL,
+  student_id       TEXT NOT NULL,
+  student_name     TEXT,                      -- lu AVANT la disparition de l'élève
+  academic_year    TEXT,
+  amount           INTEGER,
+  date             TEXT,
+  note             TEXT,
+  receipt_no       INTEGER,
+  reversal_of      TEXT,
+  recorded_by      TEXT,
+  recorded_by_name TEXT,
+  created_at       TEXT,
+  deleted_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  deleted_by       TEXT,
+  deleted_by_name  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_deleted_fee_payments_school
+  ON deleted_fee_payments(school_id, deleted_at DESC);
+
 -- --- Arrêté de caisse (rapprochement espèces ↔ écritures) ----------------
 -- Un versement immuable ne protège que ce qui a été SAISI. Pour détecter la
 -- recette jamais saisie, il faut confronter le tiroir physique aux écritures :

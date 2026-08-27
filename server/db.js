@@ -688,6 +688,12 @@ export const ALLOWED_TABLES = new Set([
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items', 'cash_sessions',
   'attendance', 'student_absences',
+  // Trace des versements emportés par la suppression d'un élève. EN LECTURE
+  // SEULE : query.js refuse tout insert/update/delete dessus (guardTraceReadOnly).
+  // Elle doit être consultable — c'est ce qui permet de justifier un exercice
+  // quand on demande où sont passées des recettes — et intouchable, sinon elle ne
+  // prouve rien.
+  'deleted_fee_payments',
   'student_class_assignments', 'school_messages', 'teacher_notifications',
   'sequence_dates', 'timetable_slots', 'country_education_config',
   'evaluation_system', 'superadmins', 'academic_periods',

@@ -81,6 +81,33 @@ export function isRetentionRefusal(error) {
     || (txt.includes('archivez') && txt.includes('eleve'));
 }
 
+// Message de confirmation avant une suppression qui emporte de l’argent.
+//
+// Il dit TROIS choses, et chacune a été mise là exprès : combien d’écritures et
+// quel montant partent (sans le chiffre, « des versements » ne veut rien dire),
+// que ces lignes resteront tracées mais ne compteront plus dans les recettes, et
+// qu’une sortie sans rien effacer existe. Sans cette dernière phrase, l’archivage
+// devient invisible et personne ne l’utilisera plus jamais.
+//
+// `money` : formateur de devise de l’établissement (lib/useMoney).
+// `t`     : fonction i18n t(fr, en, es).
+export function cashDeletionWarning(name, trail, money, t) {
+  const n = trail?.entries || 0;
+  const somme = money ? money(trail?.net || 0) : String(trail?.net || 0);
+  return [
+    t(`${name} porte ${n} écriture(s) de caisse, pour ${somme}.`,
+      `${name} has ${n} cash entr(y/ies), totalling ${somme}.`,
+      `${name} tiene ${n} asiento(s) de caja, por ${somme}.`),
+    '',
+    t("Le supprimer effacera aussi ces versements : ils resteront tracés, mais ne compteront plus dans les recettes.",
+      "Deleting the student will also erase those payments: they stay on record, but no longer count towards revenue.",
+      "Eliminar al alumno borrará también esos pagos: quedarán registrados, pero ya no contarán en los ingresos."),
+    '',
+    t("OK pour supprimer définitivement — Annuler pour archiver (rien n’est effacé).",
+      "OK to delete permanently — Cancel to archive instead (nothing is erased).",
+      "Aceptar para eliminar definitivamente — Cancelar para archivar (no se borra nada)."),
+  ].join('\n');
+}
 // Un élève archivé sort des listes actives (classes, notes, bulletins) mais
 // conserve TOUTES ses données. `archived_at` est la seule marque qui compte.
 export function isArchived(student) {

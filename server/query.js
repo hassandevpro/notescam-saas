@@ -171,27 +171,68 @@ function allocateReceiptNo(op) {
   if (Array.isArray(op.values)) op.values.forEach(next); else next(op.values);
 }
 
-// --- L'élève qui porte de l'argent ne s'efface pas ---------------------
-// Rendre les versements immuables ne suffisait pas : la cascade FK
-// students → fee_payments offrait le même résultat par un autre chemin
-// (supprimer l'élève emportait ses écritures). Une cascade s'exécute au nom du
-// propriétaire de la table et ne repasse ni par la RLS ni par les GRANT — elle
-// doit donc être bloquée EN AMONT, sur la suppression de l'élève lui-même.
-// Sortie légitime : l'archivage (students.archived_at), qui n'efface rien.
+// --- La trace ne se retouche pas ---------------------------------------
+// `deleted_fee_payments` est consultable (elle sert à justifier un exercice) mais
+// n'accepte AUCUNE écriture du client : seul traceStudentCashBeforeDeletion y
+// écrit, en direct. Une trace que celui qui supprime peut ensuite effacer ne
+// prouverait rien — c'est tout ce qui la distingue d'un simple journal décoratif.
+function guardTraceReadOnly(op) {
+  if (op.table !== 'deleted_fee_payments') return;
+  if (op.action !== 'select') {
+    throw new Error('deleted_fee_payments est une trace : elle se consulte, elle ne s’écrit pas.');
+  }
+}
+
+// --- L'élève qui porte de l'argent : suppression TRACÉE ----------------
+// Historique de cette garde : elle REFUSAIT la suppression d'un élève porteur
+// d'écritures, parce que la cascade FK students → fee_payments effaçait l'argent
+// au nom du propriétaire de la table, sans repasser ni par la RLS ni par les
+// GRANT — donc sans laisser la moindre trace.
+//
+// Les écoles ont demandé le 27/08/2026 à pouvoir supprimer malgré tout : elles
+// réinscrivent l'élève ensuite, et la détection de doublons (lib/studentDuplicate)
+// empêche désormais le double dossier qui rendait ce geste dangereux.
+//
+// Ce qui reste vrai, et qui n'est pas négociable : un versement ne se supprime
+// toujours PAS à lui seul — `guardFeePaymentImmutable` refuse tout DELETE sur
+// `fee_payments`. Le seul chemin est la suppression de l'ÉLÈVE, gouvernée par le
+// droit de supprimer un élève, et chaque ligne emportée est recopiée AVANT sa
+// disparition dans `deleted_fee_payments`.
+//
+// C'est ce recopiage qui fait la différence entre « supprimer » et « faire
+// disparaître ». On l'écrit ICI, en amont du DELETE, et pas dans un déclencheur
+// SQLite : les déclencheurs ne se déclenchent PAS sur les suppressions en cascade
+// tant que `PRAGMA recursive_triggers` est à OFF — la trace serait silencieusement
+// vide, ce qui est pire que pas de trace du tout.
+//
 // Le filtre est résolu EXACTEMENT comme dans doDelete (op.filters, jamais un
-// champ inventé) : sinon la garde ne verrait rien passer et laisserait le
-// contournement grand ouvert. Passer par une sous-requête couvre aussi les
-// suppressions en lot (par classe, par exemple), pas seulement par id.
-function guardStudentDeletion(op) {
+// champ inventé) : sinon la trace ne verrait rien passer. La sous-requête couvre
+// aussi les suppressions en lot (par classe), pas seulement par id.
+function traceStudentCashBeforeDeletion(op, ctx) {
   if (op.table !== 'students' || op.action !== 'delete') return;
   const where = buildWhere(op.filters);
   if (!where.sql) return;   // doDelete refuse déjà un DELETE sans filtre
-  const n = db.prepare(
-    `SELECT COUNT(*) AS n FROM fee_payments WHERE student_id IN (SELECT id FROM students${where.sql})`,
-  ).get(...where.params)?.n || 0;
-  if (n > 0) {
-    throw new Error(`Élève non supprimable : ${n} écriture(s) de caisse y sont rattachées. Archivez-le (ses données sont conservées).`);
-  }
+
+  const actor = ctx?.userId || null;
+  const actorName = actor
+    ? (db.prepare('SELECT full_name FROM school_users WHERE user_id = ? LIMIT 1').get(actor)?.full_name || null)
+    : null;
+
+  // INSERT ... SELECT : la copie et la lecture se font dans la même instruction,
+  // donc aucune ligne ne peut se glisser entre les deux. `OR IGNORE` rend
+  // l'opération rejouable sans doubler la trace.
+  db.prepare(
+    `INSERT OR IGNORE INTO deleted_fee_payments (
+       id, school_id, student_id, student_name, academic_year, amount, date, note,
+       receipt_no, reversal_of, recorded_by, recorded_by_name, created_at,
+       deleted_by, deleted_by_name)
+     SELECT p.id, p.school_id, p.student_id, s.name, p.academic_year, p.amount, p.date,
+            p.note, p.receipt_no, p.reversal_of, p.recorded_by, p.recorded_by_name,
+            p.created_at, ?, ?
+       FROM fee_payments p
+       LEFT JOIN students s ON s.id = p.student_id
+      WHERE p.student_id IN (SELECT id FROM students${where.sql})`,
+  ).run(actor, actorName, ...where.params);
 }
 
 // --- Opération principale ---------------------------------------------
@@ -204,7 +245,8 @@ export function runQuery(op, ctx = null) {
   try {
     guardAppendOnly(op, ctx);
     guardFeePaymentImmutable(op, ctx); // recettes : pas d'update/delete, caissier estampillé
-    guardStudentDeletion(op);      // pas d'effacement d'un élève porteur d'écritures
+    guardTraceReadOnly(op);                   // la trace se consulte, elle ne s'écrit pas
+    traceStudentCashBeforeDeletion(op, ctx);  // l'argent emporté par la cascade est tracé AVANT
     guardBudgetExpense(op, ctx);   // enforcement budgétaire serveur (chaîne + workflow + permissions)
     guardBudgetStructure(op);      // P5 : pas de modif silencieuse / d'écriture directe des opérations
     guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel

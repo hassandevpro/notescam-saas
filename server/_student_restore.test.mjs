@@ -5,12 +5,14 @@
 // (LAN via query.js ; structurellement identique au cloud Supabase).
 //
 //
-// Depuis, une garde s’est ajoutée (query.js, guardStudentDeletion) : un élève
-// porteur d’une écriture de caisse ne se supprime plus du tout — et comme
-// `fee_payments` est IMMUABLE, l’écriture ne peut pas non plus être retirée pour
-// contourner. Un tel élève ne peut donc QUE s’archiver. Le sujet de la cascade
-// est donc un élève sans versement (stu1) ; stu3 porte l’argent et sert à
-// prouver le refus.
+// Le 27/08/2026, à la demande des écoles, un élève porteur d’écritures de caisse
+// redevient SUPPRIMABLE : ses versements partent avec lui par la cascade. Ce qui
+// change par rapport à l’ancienne cascade « silencieuse », c’est que chaque ligne
+// emportée est d’abord recopiée dans `deleted_fee_payments`. C’est ce que stu3
+// vérifie ici : la suppression PASSE, et l’argent laisse une trace nominative.
+//
+// Ce qui n’a PAS changé : un versement reste ineffaçable à lui seul
+// (guardFeePaymentImmutable). Le seul chemin est la suppression de l’élève.
 //
 // Lancer : node server/_student_restore.test.mjs
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -63,20 +65,32 @@ const bundle = {
 // de caisse lui est rattachée, l'élève ne s'efface pas — il s'archive. Ce fichier
 // prouve donc maintenant les DEUX choses : le refus, puis — une fois l'écriture
 // retirée — la cascade et la restauration, qui restent son sujet.
-const refus = runQuery({ table: 'students', action: 'delete', filters: [eq('id', 'stu3')] });
-ok(!!refus.error && /non supprimable/i.test(refus.error.message),
-  "garde : un élève porteur d’une écriture de caisse ne se supprime pas", refus.error);
-ok(countWhere('students', [eq('id', 'stu3')]) === 1,
-  "garde : après le refus, l’élève est toujours en base");
-ok(countWhere('fee_payments', [eq('student_id', 'stu3')]) === 1,
-  "garde : son versement n’a pas bougé — c’est ce que la garde protège");
+// Un versement ne se supprime toujours PAS à lui seul.
+const seul = runQuery({ table: 'fee_payments', action: 'delete', filters: [eq('id', 'pay1')] });
+ok(!!seul.error && /immuable/i.test(seul.error.message),
+  "un versement reste ineffaçable à lui seul", seul.error);
+
+// Mais l'élève, lui, se supprime — et son argent est TRACÉ avant de partir.
+const sup = runQuery({ table: 'students', action: 'delete', filters: [eq('id', 'stu3')] }, { userId: 'u-admin' });
+ok(!sup.error, "suppression : un élève porteur d’argent se supprime désormais", sup.error);
+ok(countWhere('students', [eq('id', 'stu3')]) === 0, 'suppression : stu3 a bien disparu');
+ok(countWhere('fee_payments', [eq('student_id', 'stu3')]) === 0, 'cascade : son versement est parti avec lui');
+
+const trace = one('deleted_fee_payments', [eq('id', 'pay1')]);
+ok(!!trace, "trace : le versement effacé a laissé une ligne", trace);
+ok(trace && trace.amount === 40000, 'trace : le montant est conservé', trace && trace.amount);
+ok(trace && trace.student_name === 'COLY Awa',
+  'trace : le nom de l’élève est figé AVANT sa disparition', trace && trace.student_name);
+ok(trace && trace.deleted_by === 'u-admin',
+  "trace : on sait QUI a supprimé", trace && trace.deleted_by);
 
 // --- Suppression physique → cascade ---
 must({ table: 'students', action: 'delete', filters: [eq('id', 'stu1')] });
 
 ok(countWhere('grades', [eq('student_id', 'stu1')]) === 0, 'cascade : notes de stu1 effacées par la suppression');
 ok(countWhere('student_fees', [eq('student_id', 'stu1')]) === 0, 'cascade : frais de stu1 effacés');
-ok(countWhere('fee_payments', [eq('student_id', 'stu3')]) === 1, 'témoin : le versement de stu3 survit à la suppression de stu1');
+ok(countWhere('deleted_fee_payments', [eq('id', 'pay1')]) === 1,
+  'trace : elle survit aux suppressions suivantes');
 ok(countWhere('student_absences', [eq('student_id', 'stu1')]) === 0, 'cascade : absences de stu1 effacées');
 ok(countWhere('grades', [eq('student_id', 'stu2')]) === 1, 'témoin : note de stu2 intacte malgré la suppression de stu1');
 
@@ -91,8 +105,8 @@ for (const p of bundle.payments) must({ table: 'fee_payments',     action: 'inse
 ok(countWhere('grades', [eq('student_id', 'stu1')]) === 1, 'restore : note de stu1 revenue');
 const fee = one('student_fees', [eq('student_id', 'stu1')]);
 ok(fee && fee.frais_payes === 40000, 'restore : frais payés intacts (40000)', fee && fee.frais_payes);
-const pay = one('fee_payments', [eq('student_id', 'stu3')]);
-ok(pay && pay.amount === 40000, 'témoin : versement de stu3 intact (40000)', pay && pay.amount);
+const pay = one('deleted_fee_payments', [eq('id', 'pay1')]);
+ok(pay && pay.amount === 40000, 'trace : le montant effacé reste consultable (40000)', pay && pay.amount);
 const abs = one('student_absences', [eq('student_id', 'stu1')]);
 ok(abs && abs.abs_j === 2 && abs.conduite === 'Bonne', 'restore : absences + conduite intactes', abs);
 const stu = one('students', [eq('id', 'stu1')]);

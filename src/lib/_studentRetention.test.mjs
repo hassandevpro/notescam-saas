@@ -16,7 +16,7 @@
 //
 //   node src/lib/_studentRetention.test.mjs
 import {
-  paymentTrail, retentionDecision, RETENTION, isRetentionRefusal,
+  paymentTrail, retentionDecision, RETENTION, isRetentionRefusal, cashDeletionWarning,
   isArchived, splitArchived,
 } from './studentRetention.js';
 
@@ -103,6 +103,24 @@ ok(isRetentionRefusal({
   code: '23503',
   message: 'violates foreign key constraint "grades_student_id_fkey" on table "grades"',
 }) === false, 'C9. contrainte sur les notes -> pas un refus de rétention');
+
+// ── D. Le message qui précède une suppression emportant de l'argent ─────────
+// Depuis le 27/08/2026 la suppression est POSSIBLE (demande des écoles). Ce qui
+// la rend acceptable, c'est que l'utilisateur voie ce qu'il détruit : sans le
+// nombre ET le montant, « des versements » ne veut rien dire.
+const money = (n) => new Intl.NumberFormat('fr-FR').format(n) + ' XAF';
+const tfr = (fr) => fr;
+const msg = cashDeletionWarning('NGONO Gabriella', { entries: 3, net: 150000 }, money, tfr);
+
+ok(msg.includes('NGONO Gabriella'), 'D1. le message nomme l’élève');
+ok(msg.includes('3'), 'D2. il donne le NOMBRE d’écritures');
+ok(msg.includes('150') && msg.includes('XAF'), 'D3. il donne le MONTANT, dans la devise de l’école', msg);
+ok(/archiv/i.test(msg), 'D4. il rappelle que l’archivage existe — sinon personne ne l’utilisera plus');
+ok(/trac/i.test(msg), 'D5. il dit que les lignes restent tracées, pour ne pas promettre l’oubli total');
+
+// Sans formateur de devise, on ne doit pas planter : le montant sort nu.
+ok(cashDeletionWarning('X', { entries: 1, net: 5000 }, null, tfr).includes('5000'),
+  'D6. sans devise, le montant reste affiché');
 
 console.log(`\n=== ${fail === 0 ? 'OK' : 'ÉCHEC'} : ${pass} ok, ${fail} ko ===`);
 process.exitCode = fail === 0 ? 0 : 1;

@@ -248,3 +248,48 @@ export function getMobilePrimary(role, f = {}, max = 4, permissions = null, gov 
   }
   return result.slice(0, max);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ESPACE PARENT — navigation SÉPARÉE
+// ─────────────────────────────────────────────────────────────────────────────
+// Volontairement HORS de `NAV_GROUPS`. Deux raisons, et la seconde est la plus
+// importante :
+//
+//  1. Un parent n'est pas un rôle de plus dans la matrice du personnel. Le
+//     mettre dans NAV_GROUPS obligerait à ajouter 'parent' aux tableaux `roles`
+//     de chaque entrée — et le jour où quelqu'un oublie une entrée, un parent
+//     verrait un menu du personnel.
+//  2. `getNavGroups` traverse les capacités déléguées, la gouvernance et la
+//     matrice stricte. Aucun de ces trois mécanismes ne concerne un parent :
+//     les lui faire traverser, c'est créer trois chemins par lesquels un droit
+//     pourrait lui arriver par accident.
+//
+// Ici, la liste est FIXE. Elle ne dépend ni du rôle, ni d'une permission, ni
+// d'un plan. Le cloisonnement ne se joue pas dans ce fichier : il se joue dans
+// les RPC `parent_*`, qui ne rendent que les enfants du compte appelant.
+//
+// `child` : la route attend l'id de l'enfant courant en suffixe.
+export const PARENT_NAV = [
+  { to: '/app/parent',               icon: 'home',       end: true, child: false,
+    label: ['Accueil', 'Home', 'Inicio'] },
+  { to: '/app/parent/enfants',       icon: 'students',   child: false,
+    label: ['Mes enfants', 'My children', 'Mis hijos'] },
+  { to: '/app/parent/notes',         icon: 'grades',     child: true,
+    label: ['Résultats', 'Results', 'Resultados'] },
+  { to: '/app/parent/bulletins',     icon: 'bulletins',  child: true,
+    label: ['Bulletins', 'Report cards', 'Boletines'] },
+  { to: '/app/parent/absences',      icon: 'absences',   child: true,
+    label: ['Absences et retards', 'Attendance', 'Ausencias'] },
+  { to: '/app/parent/frais',         icon: 'fees',       child: true,
+    label: ['Frais scolaires', 'School fees', 'Tasas'] },
+  { to: '/app/parent/notifications', icon: 'history',    child: false,
+    label: ['Notifications', 'Notifications', 'Notificaciones'] },
+  { to: '/app/parent/documents',     icon: 'transcript', child: true,
+    label: ['Documents', 'Documents', 'Documentos'] },
+  { to: '/app/parent/profil',        icon: 'settings',   child: false,
+    label: ['Profil', 'Profile', 'Perfil'] },
+];
+
+// Chemin réel d'une entrée pour l'enfant sélectionné.
+export const parentNavPath = (item, studentId) =>
+  item.child && studentId ? `${item.to}/${studentId}` : item.to;

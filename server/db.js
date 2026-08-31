@@ -679,6 +679,12 @@ ensureColumn('budgets', 'start_date', 'start_date TEXT');
 ensureColumn('budgets', 'end_date',   'end_date TEXT');
 ensureColumn('schools', 'school_year_start_month', 'school_year_start_month INTEGER');
 
+// ESPACE PARENT — publication du RANG au parent, décidée par l'établissement.
+// Le rang est une donnée COMPARATIVE : l'afficher situe l'enfant par rapport aux
+// autres. Comme strict_role_enforcement et advanced_delegation : 0 par défaut,
+// donc comportement inchangé pour toutes les écoles déjà installées.
+ensureColumn('schools', 'parent_show_rank', 'parent_show_rank INTEGER NOT NULL DEFAULT 0');
+
 // Module Budgets — HIÉRARCHIE cible (annual → period → sector). Colonnes ajoutées
 // aux bases existantes ; les CHECK de forme ne s'appliquent qu'aux bases fraîches/
 // réinitialisées, mais les triggers `budgets_hier_guard_*` + index partiels (dans

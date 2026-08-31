@@ -104,6 +104,18 @@ export async function getCurrentUserContext() {
   }
 
   if (!rows || rows.length === 0) {
+    // ── ESPACE PARENT ────────────────────────────────────────────────────────
+    // Aucune ligne school_users : avant de conclure « compte non configuré »,
+    // on regarde s'il s'agit d'un PARENT. Le contrôle vient ICI, après la boucle
+    // de reprise sur `school_users`, précisément pour ne rien changer au parcours
+    // du personnel : un compte du personnel n'atteint jamais cette ligne, et le
+    // coût est d'un appel RPC sur un cas qui affichait de toute façon une erreur.
+    //
+    // L'absence de ligne school_users n'est pas un accident chez un parent :
+    // c'est la définition de son rôle (cf. supabase_parent_portal.sql §1).
+    const parentCtx = await getParentContext();
+    if (parentCtx) return { user, ...parentCtx };
+
     return { user, school: null, role: null, fullName: null, schoolUserId: null };
   }
 
@@ -190,6 +202,57 @@ export async function getCurrentUserContext() {
     // Permissions granulaires du compte délégué (null = accès par rôle, inchangé).
     permissions: parsePermissions(data.permissions),
   };
+}
+
+/**
+ * Contexte d'un compte PARENT, ou null si ce n'est pas un parent.
+ *
+ * `parent_context` est une RPC SECURITY DEFINER gardée en base : elle ne rend
+ * jamais que les enfants réellement rattachés au compte appelant. Le tableau
+ * `children` qu'on range ici sert à l'affichage (sélecteur d'enfant, accueil) ;
+ * il ne fait autorité sur RIEN — chaque écran redemande sa section au serveur,
+ * qui revérifie le rattachement à chaque appel.
+ *
+ * `school` reste l'école du PREMIER enfant : elle n'alimente que l'en-tête
+ * (logo, langue, devise). Un parent multi-écoles a plusieurs écoles dans
+ * `children`, et c'est cette liste-là qui compte.
+ *
+ * Best-effort : migration non appliquée / hors-ligne → null, donc l'écran
+ * « Compte non configuré » d'avant, à l'identique.
+ */
+async function getParentContext() {
+  try {
+    const { data, error } = await supabase.rpc('parent_context');
+    if (error || !data?.parent) return null;
+    const children = Array.isArray(data.children) ? data.children : [];
+    return {
+      school:       children[0]?.school ?? null,
+      role:         'parent',
+      fullName:     data.parent.full_name ?? null,
+      phone:        data.parent.phone ?? null,
+      photoUrl:     null,
+      lastLogin:    null,
+      createdAt:    null,
+      specialty:    null,
+      jobTitle:     null,
+      classId:      null,
+      schoolUserId: null,
+      teacherId:    null,
+      parentId:     data.parent.id,
+      children,
+      // Un parent ne porte NI capacité déléguée NI rôle de gouvernance : ces
+      // deux mécanismes sont ceux du personnel. Les laisser vides garantit que
+      // ProtectedRoute et le moteur de gouvernance ne lui ouvrent rien.
+      scope:                 null,
+      permissions:           null,
+      governanceCatalog:     [],
+      governanceAssignments: [],
+      governanceRoles:       [],
+      governanceRoleRows:    [],
+    };
+  } catch {
+    return null;
+  }
 }
 
 // permissions stocké en JSON (texte). null/invalide → null (accès par rôle).

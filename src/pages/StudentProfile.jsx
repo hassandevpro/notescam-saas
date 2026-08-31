@@ -19,6 +19,10 @@ import { STATUS_UI, MODE_LABEL } from '../components/fees/feeUi';
 import { useMoney } from '../lib/useMoney';
 import { cashDeletionWarning } from '../lib/studentRetention';
 import { parentPortalUrl, whatsappLinkFor } from '../lib/parentLinks';
+// ESPACE PARENT — gestion des comptes parents rattachés à cet élève. À ne pas
+// confondre avec le « lien parent » ci-dessus, qui est le portail PUBLIC par
+// jeton (sans compte) et continue d'exister en parallèle.
+import ParentAccountsModal from '../components/transcripts/ParentAccountsModal';
 
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
 
@@ -273,6 +277,7 @@ export default function StudentProfile() {
   const setAbsencesStatsClassId = useUiStore((s) => s.setAbsencesStatsClassId);
 
   const [showEdit,        setShowEdit]        = useState(false);
+  const [showParents,     setShowParents]     = useState(false);
   const [showChangeClass, setShowChangeClass] = useState(false);
   const [newClassId,      setNewClassId]      = useState('');
   const [transferMotif,   setTransferMotif]   = useState('');
@@ -495,6 +500,19 @@ export default function StudentProfile() {
                   className="btn-secondary flex items-center gap-1.5 text-sm">
                   <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
                   {t('Modifier', 'Edit')}
+                </button>
+              )}
+              {/* ESPACE PARENT — comptes rattachés. Le contrôle de secteur est
+                  fait par la base au rattachement (user_scope_allows_student) :
+                  ce bouton n'ouvre qu'un écran, jamais un droit. */}
+              {canEdit && (
+                <button onClick={() => setShowParents(true)}
+                  className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg font-medium border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+                  </svg>
+                  {t('Comptes parents', 'Parent accounts', 'Cuentas de padres')}
                 </button>
               )}
               {f.hasParentPortal ? (
@@ -868,6 +886,10 @@ export default function StudentProfile() {
         <Modal title={t("Modifier l'élève", 'Edit student')} onClose={() => setShowEdit(false)} size="lg">
           <EditForm student={student} classes={classes} onSave={handleSaveEdit} onClose={() => setShowEdit(false)} />
         </Modal>
+      )}
+
+      {showParents && (
+        <ParentAccountsModal student={student} onClose={() => setShowParents(false)} />
       )}
 
       {showChangeClass && (() => {

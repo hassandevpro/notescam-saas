@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
 import { emitApprovalRequestForOp } from './governanceApply.js';
 import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
-import { SCOPED_TABLES, loadScope, isGlobal, rowAllowed, guardScopeWrite } from './scopeGuard.js';
+import { SCOPED_TABLES, loadScope, isGlobal, rowAllowed, guardScopeWrite, isParentAccount } from './scopeGuard.js';
 
 // --- Suivi des changements pour la sync continue (Phase 2) ------------
 // Horodate la ligne écrite (updated_at/device_id) pour la résolution LWW.
@@ -242,6 +242,25 @@ export function runQuery(op, ctx = null) {
     return { error: { message: `Table non autorisée : ${table}` }, data: null };
   }
 
+  // ── ESPACE PARENT : l'API générique lui est FERMÉE, en lecture comme en
+  // écriture. Un parent ne parle que RPC (parent_*), où chaque appel est gardé
+  // par parentOwnsStudent(). Refuser ici, avant tout le reste, évite de dépendre
+  // du filtrage ligne à ligne : les tables hors SCOPED_TABLES (référentiels,
+  // paramètres d'école, budgets, RH…) n'y passent pas, et laisseraient donc
+  // filtrer des données que le parent n'a aucune raison de voir.
+  //
+  // ⚠️ `isParentAccount` et NON `loadScope` : loadScope a un EFFET DE BORD — il
+  // pose la matrice de rôles stricte (ensureStrictRoleMatrix) et mémorise l'école
+  // dans `_matrixSeen`. L'appeler ici, sur TOUTES les tables, marquait une école
+  // « traitée » lors d'une simple lecture de `governance_roles` faite AVANT que
+  // son drapeau ne soit levé — après quoi la matrice ne se posait plus jamais et
+  // l'école se retrouvait durcie SANS caisse. C'est exactement le défaut que
+  // verrouille _strict_matrix_seed.test.mjs (« école tardive »), et il l'a
+  // attrapé. Ce contrôle-ci doit rester un SELECT pur.
+  if (isParentAccount(ctx?.userId)) {
+    return { error: { message: 'Accès refusé : un compte parent ne consulte que son espace.' }, data: null };
+  }
+
   try {
     guardAppendOnly(op, ctx);
     guardFeePaymentImmutable(op, ctx); // recettes : pas d'update/delete, caissier estampillé
@@ -446,6 +465,13 @@ function doDelete(op) {
 // pour appliquer une intention distante par le CHEMIN GUARDÉ (jamais rawUpsert), tout en
 // inscrivant l'idempotence + la confirmation dans la MÊME tx atomique. Lève sur violation.
 export function runOpsGuarded(ops = [], ctx = null) {
+  // Même fermeture que runQuery : le lot atomique est aussi une porte d'écriture.
+  // Même raison d'utiliser isParentAccount plutôt que loadScope : ici on est DANS
+  // une transaction, et un effet de bord annulé par un rollback laisserait l'école
+  // marquée traitée pour rien.
+  if (isParentAccount(ctx?.userId)) {
+    throw new Error('Accès refusé : un compte parent ne consulte que son espace.');
+  }
   for (const op of ops) {
     if (!ALLOWED_TABLES.has(op.table)) throw new Error(`Table non autorisée : ${op.table}`);
     guardAppendOnly(op, ctx);

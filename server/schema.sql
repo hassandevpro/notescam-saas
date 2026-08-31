@@ -1697,3 +1697,43 @@ CREATE TABLE IF NOT EXISTS discipline_statistics (
   device_id     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_discipline_statistics ON discipline_statistics(school_id, council_date);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ESPACE PARENT — miroir LAN de supabase_parent_portal.sql
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Un compte parent n'entre JAMAIS dans school_users : cette table est le pivot
+-- de toute l'autorisation (cloud comme LAN), et y ranger un parent lui ouvrirait
+-- l'établissement entier. Son identité vit ici, et lui seul.
+--
+-- Ces deux tables sont volontairement ABSENTES de ALLOWED_TABLES (server/db.js) :
+-- l'API générique /api/db ne les expose pas. Le rattachement d'un enfant à un
+-- parent passe uniquement par les RPC, comme la RLS l'impose côté cloud.
+
+CREATE TABLE IF NOT EXISTS parent_accounts (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  full_name  TEXT,
+  phone      TEXT,
+  email      TEXT,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS parent_student_links (
+  id             TEXT PRIMARY KEY,
+  parent_user_id TEXT NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+  school_id      TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id     TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  relationship   TEXT NOT NULL DEFAULT 'tuteur',
+  is_primary     INTEGER NOT NULL DEFAULT 0,
+  active         INTEGER NOT NULL DEFAULT 1,
+  created_by     TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  revoked_at     TEXT,
+  revoked_by     TEXT,
+  UNIQUE(parent_user_id, student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_parent_links_parent  ON parent_student_links(parent_user_id, active);
+CREATE INDEX IF NOT EXISTS idx_parent_links_student ON parent_student_links(student_id, active);
+CREATE INDEX IF NOT EXISTS idx_parent_links_school  ON parent_student_links(school_id);

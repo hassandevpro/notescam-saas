@@ -78,6 +78,23 @@ function toList(v) {
 // Écoles déjà passées par la pose de la matrice dans ce processus (cf. loadScope).
 const _matrixSeen = new Set();
 
+// ── ESPACE PARENT ───────────────────────────────────────────────────────────
+// Ce compte est-il un parent ? Miroir de `public.is_parent_account()`.
+// Ne sert JAMAIS à accorder quoi que ce soit : uniquement à REFUSER, c'est-à-dire
+// à empêcher un compte parent de tomber dans le repli « compte non rattaché =
+// installateur = accès global » de loadScope(). Table absente (base LAN
+// antérieure à la migration) → false, donc comportement d'avant à l'identique.
+export function isParentAccount(userId) {
+  if (!userId) return false;
+  try {
+    return !!db.prepare(
+      'SELECT 1 FROM parent_accounts WHERE user_id = ? AND active = 1',
+    ).get(userId);
+  } catch {
+    return false;
+  }
+}
+
 // Périmètre du compte, ou null s'il n'est membre d'aucune école active.
 export function loadScope(userId) {
   if (!userId) return null;
@@ -104,7 +121,23 @@ export function loadScope(userId) {
   // impossible. On retombe donc sur le comportement historique : pas de
   // cloisonnement sectoriel. Le cloisonnement ne s'applique qu'aux comptes
   // RATTACHÉS et porteurs d'un périmètre explicite.
-  if (!row) return { schoolId: null, sections: [], cycles: [], classIds: [], global: true, unscoped: true };
+  //
+  // ⚠️ MAIS : un COMPTE PARENT n'a lui non plus aucune ligne school_users — c'est
+  // même sa définition (cf. supabase_parent_portal.sql §1). Sans le contrôle
+  // ci-dessous, il tomberait dans cette trappe et obtiendrait `unscoped: true`,
+  // c'est-à-dire l'ACCÈS TOTAL — exactement l'inverse de ce que fait le cloud,
+  // où l'absence de school_users vaut refus par défaut.
+  //
+  // Le parent reçoit donc un périmètre de REFUS explicite. Il ne lit rien par
+  // /api/db (query.js le rejette d'emblée) et ne passe que par les RPC
+  // parent_*, gardées une à une par parentOwnsStudent().
+  if (!row) {
+    if (isParentAccount(userId)) {
+      return { userId, schoolId: null, sections: [], cycles: [], classIds: [],
+               global: false, unscoped: false, parent: true, role: 'parent' };
+    }
+    return { schoolId: null, sections: [], cycles: [], classIds: [], global: true, unscoped: true };
+  }
 
   // On pose sur le catalogue de l'école les clés d'autorité de la matrice — si et
   // seulement si elle est durcie. Le drapeau n'arrive pas forcément au démarrage

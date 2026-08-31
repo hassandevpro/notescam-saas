@@ -16,7 +16,7 @@ installDocumentScaleVars();
 // de page que ceux imprimés en fenêtre séparée. La géométrie @page reste au
 // document hôte (bulletin.css a la sienne).
 installPrintStyles();
-import ProtectedRoute from './components/ProtectedRoute';
+import ProtectedRoute, { ParentRoute } from './components/ProtectedRoute';
 import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import ToastHost from './components/ToastHost';
 import OnboardingWizard from './components/OnboardingWizard';
@@ -81,6 +81,20 @@ const ParentMeetings    = lazy(() => import('./pages/ParentMeetings'));
 const ExitPermissions   = lazy(() => import('./pages/ExitPermissions'));
 const DisciplineCouncil = lazy(() => import('./pages/DisciplineCouncil'));
 const StudentDisciplineFile = lazy(() => import('./pages/StudentDisciplineFile'));
+// ESPACE PARENT — coquille et écrans SÉPARÉS de l'application du personnel.
+// Chargés à part : un parent ne télécharge pas le bundle du personnel, et
+// réciproquement.
+const ParentLogin         = lazy(() => import('./pages/parent/ParentLogin'));
+const ParentLayout        = lazy(() => import('./components/parent/ParentLayout'));
+const ParentHome          = lazy(() => import('./pages/parent/ParentHome'));
+const ParentChildren      = lazy(() => import('./pages/parent/ParentChildren'));
+const ParentGrades        = lazy(() => import('./pages/parent/ParentGrades'));
+const ParentBulletins     = lazy(() => import('./pages/parent/ParentBulletins'));
+const ParentAttendance    = lazy(() => import('./pages/parent/ParentAttendance'));
+const ParentFees          = lazy(() => import('./pages/parent/ParentFees'));
+const ParentNotifications = lazy(() => import('./pages/parent/ParentNotifications'));
+const ParentDocuments     = lazy(() => import('./pages/parent/ParentDocuments'));
+const ParentProfile       = lazy(() => import('./pages/parent/ParentProfile'));
 
 function PageLoader() {
   return (
@@ -147,8 +161,12 @@ function OnboardingGate() {
 export default function App() {
   const init      = useAuthStore((s) => s.init);
   const school    = useAuthStore((s) => s.school);
+  const role      = useAuthStore((s) => s.role);
   const teacherId = useAuthStore((s) => s.teacherId);
-  const schoolId  = school?.id;
+  // Un parent n'a pas de file de synchronisation : il ne produit aucune écriture
+  // à pousser. Neutraliser schoolId éteint le moteur de sync pour lui, sans
+  // toucher à son fonctionnement pour le personnel.
+  const schoolId  = role === 'parent' ? null : school?.id;
   const viewYear  = useUiStore((s) => s.viewYear);
 
   useEffect(() => {
@@ -170,10 +188,16 @@ export default function App() {
   // Init school data layer filtered to the selected year (active or archived).
   // Re-runs when current_year changes (e.g. after promotion) or when viewYear changes.
   useEffect(() => {
+    // ESPACE PARENT : ne JAMAIS amorcer schoolStore pour un parent. Ce store
+    // charge l'établissement entier (élèves, notes, frais, personnel) en
+    // IndexedDB pour le travail de l'école — un parent n'en a besoin de rien, et
+    // le serveur le lui refuserait de toute façon. Son `school` n'est que
+    // l'établissement du premier enfant, pour l'en-tête.
+    if (role === 'parent') return;
     if (school?.id) {
       useSchoolStore.getState().init(school.id, viewYear ?? school.current_year, teacherId);
     }
-  }, [school?.id, school?.current_year, viewYear, teacherId]);
+  }, [role, school?.id, school?.current_year, viewYear, teacherId]);
 
   // Sync engine — flush syncQueue on startup + reconnection
   const triggerSync = useCallback(async () => {
@@ -303,6 +327,36 @@ export default function App() {
           <Route path="/app/historique"       element={<ProtectedRoute allow={ALL_STAFF}><History /></ProtectedRoute>} />
           <Route path="/app/synchronisation"  element={<ProtectedRoute allow={ADMIN_ONLY}><SyncHistory /></ProtectedRoute>} />
           <Route path="/superadmin" element={<ProtectedRoute allow={['superadmin']}><SuperAdmin /></ProtectedRoute>} />
+
+          {/* ── ESPACE PARENT ──────────────────────────────────────────────
+              /parent          : porte d'entrée générale (connexion par compte)
+              /parent/:token   : portail PUBLIC par jeton, inchangé — il reste
+                                 la solution des familles sans compte.
+              /app/parent/*    : l'espace lui-même, gardé par ParentRoute.
+
+              Les routes « enfant » portent l'id en suffixe. Cet id vient de
+              l'utilisateur et n'est PAS filtré ici : chaque écran le passe au
+              serveur, qui répond null s'il ne s'agit pas d'un de ses enfants.
+              La vérification n'appartient pas au frontend (§15). */}
+          <Route path="/parent" element={<ParentLogin />} />
+          <Route path="/app/parent" element={<ParentRoute><ParentLayout /></ParentRoute>}>
+            <Route index                        element={<ParentHome />} />
+            <Route path="enfants"               element={<ParentChildren />} />
+            <Route path="notes/:studentId"      element={<ParentGrades />} />
+            <Route path="notes"                 element={<ParentGrades />} />
+            <Route path="bulletins/:studentId"  element={<ParentBulletins />} />
+            <Route path="bulletins"             element={<ParentBulletins />} />
+            <Route path="absences/:studentId"   element={<ParentAttendance />} />
+            <Route path="absences"              element={<ParentAttendance />} />
+            <Route path="frais/:studentId"      element={<ParentFees />} />
+            <Route path="frais"                 element={<ParentFees />} />
+            <Route path="documents/:studentId"  element={<ParentDocuments />} />
+            <Route path="documents"             element={<ParentDocuments />} />
+            <Route path="notifications"         element={<ParentNotifications />} />
+            <Route path="profil"                element={<ParentProfile />} />
+            <Route path="*"                     element={<Navigate to="/app/parent" replace />} />
+          </Route>
+
           <Route path="/parent/:token" element={<ParentPortal />} />
           <Route path="/verify/:code" element={<VerifyTranscript />} />
           <Route path="*" element={<Navigate to="/" replace />} />

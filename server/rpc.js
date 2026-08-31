@@ -6,6 +6,7 @@ import { db, getSchool, tx } from './db.js';
 import { randomUUID } from 'node:crypto';
 import { hashPassword } from './security.js';
 import { createRevision, decideRevision, createLineReallocation, decideLineReallocation } from './budgetOps.js';
+import { isParentAccount, allowsStudent, loadScope } from './scopeGuard.js';
 
 // --- Helpers d'autorisation -------------------------------------------
 function membership(userId) {
@@ -32,6 +33,34 @@ const DEFAULT_GOV_CODES = new Set([
   'fondatrice', 'coordonnateur_general', 'raf', 'principal', 'directrice_primaire',
   'responsable_maternelle', 'vice_principal', 'directrice_adjointe_primaire', 'caissier',
 ]);
+
+// ── ESPACE PARENT — helpers d'autorisation ──────────────────────────────────
+// Miroir EXACT de public.parent_owns_student (supabase_parent_portal.sql §2).
+// C'est le seul point de décision de tout l'espace parent, côté LAN comme côté
+// cloud : chaque RPC parent_* l'appelle en première ligne et rend null s'il
+// répond faux — jamais une erreur, qui confirmerait l'existence de l'élève.
+function parentOwnsStudent(userId, studentId) {
+  if (!userId || !studentId) return false;
+  try {
+    return !!db.prepare(
+      `SELECT 1 FROM parent_student_links l
+         JOIN parent_accounts a ON a.user_id = l.parent_user_id
+        WHERE l.parent_user_id = ? AND l.student_id = ?
+          AND l.active = 1 AND a.active = 1`,
+    ).get(userId, studentId);
+  } catch { return false; }
+}
+
+// Lecture tolérante : plusieurs tables analytiques (appreciations, conduct,
+// *_bulletins) n'existent qu'en Cloud — le LAN calcule ces documents côté
+// application. Une table absente rend [], jamais une erreur : l'espace parent
+// affiche simplement moins, il ne tombe pas.
+function safeAll(sql, ...params) {
+  try { return db.prepare(sql).all(...params); } catch { return []; }
+}
+function safeGet(sql, ...params) {
+  try { return db.prepare(sql).get(...params) ?? null; } catch { return null; }
+}
 
 // --- Table des RPC ----------------------------------------------------
 const handlers = {
@@ -363,6 +392,397 @@ const handlers = {
       'SELECT * FROM student_fees WHERE student_id = ? AND academic_year = ?'
     ).get(student.id, school?.current_year || '') || null;
     return { student, class: cls, school, fee, subjects, grades };
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ESPACE PARENT — miroir LAN de supabase_parent_portal.sql
+  // ══════════════════════════════════════════════════════════════════════════
+  // Chaque handler s'ouvre sur parentOwnsStudent() et rend null si le compte
+  // n'est pas le parent de CET élève. L'id passé dans l'URL ne suffit donc
+  // jamais : c'est le test 18 du cahier des charges, tenu ici et non dans
+  // l'interface.
+
+  // Profil du parent + ses enfants. La seule RPC qui n'attend pas d'élève :
+  // elle EST la liste des élèves autorisés, tout le reste en découle.
+  parent_context(p, ctx) {
+    if (!ctx?.userId || !isParentAccount(ctx.userId)) return null;
+    const acct = db.prepare(
+      'SELECT * FROM parent_accounts WHERE user_id = ? AND active = 1',
+    ).get(ctx.userId);
+    if (!acct) return null;
+
+    const links = db.prepare(
+      `SELECT l.id AS link_id, l.relationship, l.is_primary, l.student_id
+         FROM parent_student_links l
+        WHERE l.parent_user_id = ? AND l.active = 1`,
+    ).all(ctx.userId);
+
+    const children = [];
+    for (const l of links) {
+      const st = db.prepare('SELECT * FROM students WHERE id = ?').get(l.student_id);
+      if (!st || st.archived_at) continue;
+      const cl = st.class_id ? db.prepare('SELECT * FROM classes WHERE id = ?').get(st.class_id) : null;
+      const sc = db.prepare('SELECT * FROM schools WHERE id = ?').get(st.school_id) || null;
+      const un = cl?.unit_id ? safeGet('SELECT * FROM school_units WHERE id = ?', cl.unit_id) : null;
+      children.push({
+        link_id: l.link_id,
+        relationship: l.relationship,
+        is_primary: !!l.is_primary,
+        name: st.name,
+        student: {
+          id: st.id, name: st.name, matricule: st.matricule, photo_url: st.photo_url,
+          gender: st.gender, date_naissance: st.date_naissance, statut: st.statut,
+        },
+        class: cl ? {
+          id: cl.id, name: cl.name, level: cl.level, section: cl.section,
+          cycle: cl.cycle, serie: cl.serie, system: cl.system,
+        } : null,
+        school: sc ? {
+          id: sc.id, name: sc.name, logo_url: sc.logo_url, language: sc.language,
+          currency: sc.currency, current_year: sc.current_year,
+          show_rank: !!sc.parent_show_rank,
+        } : null,
+        unit: un ? { id: un.id, name: un.name, section_key: un.section_key } : null,
+      });
+    }
+    children.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    return {
+      parent: {
+        id: acct.id, user_id: acct.user_id, full_name: acct.full_name,
+        phone: acct.phone, email: acct.email,
+      },
+      children,
+    };
+  },
+
+  // Notes et résultats. Les notes rendues sont celles du SEUL enfant ; de la
+  // classe ne sortent que des AGRÉGATS (moyenne, min, max, effectif) et, si
+  // l'école le publie, un rang — un entier, jamais un classement nominatif.
+  parent_child_grades(p, ctx) {
+    const sid = p.p_student;
+    if (!parentOwnsStudent(ctx?.userId, sid)) return null;
+
+    const st = db.prepare('SELECT * FROM students WHERE id = ?').get(sid);
+    const cl = st?.class_id ? db.prepare('SELECT * FROM classes WHERE id = ?').get(st.class_id) : null;
+    const sc = db.prepare('SELECT * FROM schools WHERE id = ?').get(st.school_id) || null;
+    const sys = cl?.system || 'FR';
+    const scale = sys === 'FR' ? 20 : 100;
+    const showRank = !!sc?.parent_show_rank;
+
+    const subjects = db.prepare(
+      'SELECT id, name, coef, max, position, parent_id FROM subjects WHERE class_id = ? ORDER BY COALESCE(position, 999), name',
+    ).all(st.class_id || '');
+
+    const grades = db.prepare(
+      'SELECT subject_id, sequence, value FROM grades WHERE student_id = ?',
+    ).all(sid);
+
+    // Moyenne pondérée par élève et par séquence, sur les matières PRINCIPALES
+    // (parent_id NULL) — même règle que src/core/bulletinEngine.js, pour que
+    // l'agrégat parent ne puisse pas diverger du bulletin de l'école.
+    // Le GLOB écarte 'ABS' et les valeurs non numériques.
+    const NUM = `g.value IS NOT NULL AND g.value <> '' AND g.value GLOB '[0-9]*' AND g.value NOT GLOB '*[A-Za-z]*'`;
+    const moyennes = safeAll(
+      `SELECT g.student_id, g.sequence,
+              SUM(CAST(replace(g.value, ',', '.') AS REAL) / NULLIF(COALESCE(sb.max, 20), 0)
+                  * ? * COALESCE(sb.coef, 1)) AS pond,
+              SUM(COALESCE(sb.coef, 1)) AS coefs
+         FROM grades g
+         JOIN subjects sb ON sb.id = g.subject_id
+         JOIN students stu ON stu.id = g.student_id
+        WHERE g.class_id = ? AND stu.archived_at IS NULL AND sb.parent_id IS NULL AND ${NUM}
+        GROUP BY g.student_id, g.sequence`,
+      scale, st.class_id || '',
+    ).map((r) => ({ ...r, moyenne: r.coefs ? Math.round((r.pond / r.coefs) * 100) / 100 : null }))
+      .filter((r) => r.moyenne != null);
+
+    const bySeq = new Map();
+    for (const r of moyennes) {
+      if (!bySeq.has(r.sequence)) bySeq.set(r.sequence, []);
+      bySeq.get(r.sequence).push(r);
+    }
+    const class_stats = [];
+    const ranks = [];
+    for (const [sequence, rows] of [...bySeq].sort((a, b) => a[0] - b[0])) {
+      const vals = rows.map((r) => r.moyenne);
+      class_stats.push({
+        sequence,
+        class_avg: Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100,
+        min: Math.min(...vals),
+        max: Math.max(...vals),
+        size: vals.length,
+      });
+      if (showRank) {
+        const sorted = [...rows].sort((a, b) => b.moyenne - a.moyenne);
+        const mine = sorted.findIndex((r) => r.student_id === sid);
+        if (mine >= 0) {
+          // Rang « compétition » : deux ex æquo partagent le même rang.
+          const rang = sorted.filter((r) => r.moyenne > sorted[mine].moyenne).length + 1;
+          ranks.push({ sequence, rank: rang, size: sorted.length });
+        }
+      }
+    }
+
+    return {
+      student_id: sid,
+      system: sys,
+      max_scale: scale,
+      show_rank: showRank,
+      subjects,
+      grades,
+      // Tables Cloud uniquement : le LAN produit ces éléments côté application.
+      appreciations: safeAll(
+        'SELECT seq_idx AS sequence, text FROM appreciations WHERE student_id = ?', sid),
+      conduct: safeAll(
+        'SELECT seq_idx AS sequence, conduct, diligence FROM conduct WHERE student_id = ?', sid),
+      council: safeAll(
+        `SELECT sequence, appreciation, decision, th, encouragement, felicitation
+           FROM student_absences WHERE student_id = ? ORDER BY sequence`, sid),
+      class_stats,
+      ranks,
+    };
+  },
+
+  // Bulletins : AUCUN RECALCUL. Ce qui est rendu a été publié par l'école.
+  parent_child_bulletins(p, ctx) {
+    const sid = p.p_student;
+    if (!parentOwnsStudent(ctx?.userId, sid)) return null;
+    const st = db.prepare('SELECT school_id FROM students WHERE id = ?').get(sid);
+    const sc = db.prepare('SELECT parent_show_rank FROM schools WHERE id = ?').get(st.school_id);
+    const showRank = !!sc?.parent_show_rank;
+    const hideRank = (rows, key = 'rang') =>
+      rows.map((r) => (showRank ? r : { ...r, [key]: null }));
+
+    return {
+      student_id: sid,
+      show_rank: showRank,
+      apc: hideRank(safeAll(
+        `SELECT trimestre_id, moyenne_generale, cote, rang, appreciation_generale,
+                decision_conseil, updated_at
+           FROM apc_bulletins WHERE eleve_id = ? ORDER BY trimestre_id`, sid)),
+      prim: hideRank(safeAll(
+        `SELECT trimestre_id, moyenne_generale, cote_generale, rang, appreciation_generale,
+                decision_conseil, updated_at
+           FROM prim_bulletins WHERE eleve_id = ? ORDER BY trimestre_id`, sid)),
+      prim_annuel: hideRank(safeAll(
+        `SELECT annee, moyenne_annuelle, cote_annuelle, rang_annuel, decision
+           FROM prim_resultats_annuels WHERE eleve_id = ? ORDER BY annee`, sid), 'rang_annuel'),
+      maternelle: safeAll(
+        `SELECT trimestre_id, appreciation_generale, decision, updated_at
+           FROM mat_bulletins WHERE eleve_id = ? ORDER BY trimestre_id`, sid),
+    };
+  },
+
+  // Absences et retards — datés (ce que la famille attend) et cumulés (ce qui
+  // figurera sur le bulletin).
+  parent_child_attendance(p, ctx) {
+    const sid = p.p_student;
+    if (!parentOwnsStudent(ctx?.userId, sid)) return null;
+    return {
+      student_id: sid,
+      events: safeAll(
+        `SELECT id, date, session, status, motif, year_label
+           FROM attendance WHERE student_id = ? ORDER BY date DESC`, sid),
+      late: safeAll(
+        `SELECT id, date, arrival_time, reason, justified, justification, validated, year_label
+           FROM late_arrivals WHERE student_id = ? ORDER BY date DESC`, sid),
+      totals: safeAll(
+        `SELECT sequence, abs_j AS abs_justifiees, abs_nj AS abs_non_justifiees, conduite
+           FROM student_absences WHERE student_id = ? ORDER BY sequence`, sid),
+    };
+  },
+
+  // Frais : CONSULTATION SEULE. Aucun chemin d'écriture n'existe ici, et le
+  // parent ne devient pas pour autant un utilisateur du service financier.
+  parent_child_fees(p, ctx) {
+    const sid = p.p_student;
+    if (!parentOwnsStudent(ctx?.userId, sid)) return null;
+    const st = db.prepare('SELECT school_id FROM students WHERE id = ?').get(sid);
+    const sc = db.prepare('SELECT current_year, currency FROM schools WHERE id = ?').get(st.school_id);
+    const year = p.p_year || sc?.current_year || '';
+
+    return {
+      student_id: sid,
+      academic_year: year,
+      currency: sc?.currency || null,
+      fee: safeGet(
+        `SELECT frais_annuels, frais_payes, date_dernier_paiement, payment_mode,
+                tranches, adjustments, notes
+           FROM student_fees WHERE student_id = ? AND academic_year = ?
+          ORDER BY created_at DESC LIMIT 1`, sid, year),
+      items: safeAll(
+        `SELECT id, name, category, amount, mandatory, payment_type, status, academic_year
+           FROM student_fee_items WHERE student_id = ? ORDER BY name`, sid),
+      // Les contre-passations sont rendues telles quelles : la famille voit un
+      // registre honnête, pas un solde retouché.
+      payments: safeAll(
+        `SELECT id, date, amount, note, receipt_no, academic_year,
+                reversal_of, void_reason, recorded_by_name
+           FROM fee_payments WHERE student_id = ? ORDER BY date DESC, created_at DESC`, sid),
+    };
+  },
+
+  // Documents disponibles. Les PDF ne sont pas stockés : ils sont régénérés par
+  // l'application (receiptDoc.js, moteurs de bulletin) à partir de ces lignes.
+  parent_child_documents(p, ctx) {
+    const sid = p.p_student;
+    if (!parentOwnsStudent(ctx?.userId, sid)) return null;
+    const bulletins = [
+      ...safeAll(`SELECT 'apc' AS engine, trimestre_id AS period, updated_at
+                    FROM apc_bulletins WHERE eleve_id = ?`, sid),
+      ...safeAll(`SELECT 'prim' AS engine, trimestre_id AS period, updated_at
+                    FROM prim_bulletins WHERE eleve_id = ?`, sid),
+      ...safeAll(`SELECT 'maternelle' AS engine, trimestre_id AS period, updated_at
+                    FROM mat_bulletins WHERE eleve_id = ?`, sid),
+    ].sort((a, b) => String(a.period).localeCompare(String(b.period)));
+
+    return {
+      student_id: sid,
+      meetings: safeAll(
+        `SELECT id, target, reason, meeting_date, meeting_time, location, status, outcome
+           FROM parent_meetings WHERE student_id = ? ORDER BY meeting_date DESC`, sid),
+      receipts: safeAll(
+        `SELECT id, receipt_no, date, amount, academic_year
+           FROM fee_payments
+          WHERE student_id = ? AND receipt_no IS NOT NULL AND reversal_of IS NULL
+          ORDER BY date DESC`, sid),
+      bulletins,
+    };
+  },
+
+  parent_notifications(p, ctx) {
+    if (!ctx?.userId || !isParentAccount(ctx.userId)) return null;
+    const limit = Math.max(1, Math.min(Number(p.p_limit) || 50, 200));
+    return safeAll(
+      `SELECT id, type, title, body, link, read, created_at
+         FROM notifications
+        WHERE recipient_role = 'parent' AND recipient_id = ?
+        ORDER BY created_at DESC LIMIT ?`, ctx.userId, limit);
+  },
+
+  parent_dashboard(p, ctx) {
+    const context = handlers.parent_context({}, ctx);
+    if (!context) return null;
+    return {
+      parent: context.parent,
+      children: context.children.map((c) => ({
+        ...c,
+        fees:       handlers.parent_child_fees({ p_student: c.student.id }, ctx),
+        attendance: handlers.parent_child_attendance({ p_student: c.student.id }, ctx),
+        bulletins:  handlers.parent_child_bulletins({ p_student: c.student.id }, ctx),
+      })),
+      notifications: handlers.parent_notifications({ p_limit: 10 }, ctx) || [],
+    };
+  },
+
+  // La SEULE écriture de tout l'espace parent : sa propre fiche de contact.
+  parent_update_profile(p, ctx) {
+    if (!ctx?.userId || !isParentAccount(ctx.userId)) throw new Error('Non autorisé');
+    const name  = (p.p_full_name || '').trim();
+    const phone = (p.p_phone || '').trim();
+    db.prepare(
+      `UPDATE parent_accounts
+          SET full_name = COALESCE(NULLIF(?, ''), full_name),
+              phone     = COALESCE(NULLIF(?, ''), phone),
+              updated_at = ?
+        WHERE user_id = ? AND active = 1`,
+    ).run(name, phone, new Date().toISOString(), ctx.userId);
+    return handlers.parent_context({}, ctx);
+  },
+
+  // ── Côté école : création et rattachement ─────────────────────────────────
+  // Le cloisonnement par secteur s'applique À LA CRÉATION DU LIEN, via
+  // allowsStudent() — la fonction qui garde déjà toutes les lectures d'élèves.
+  // Aucune règle de secteur n'est réécrite ici.
+  admin_create_parent_account(p, ctx) {
+    const m = membership(ctx?.userId);
+    if (!m || !['admin', 'censeur'].includes(m.role)) throw new Error('Non autorisé');
+    if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(p.p_user_id)) {
+      throw new Error('Utilisateur introuvable');
+    }
+    // Garde-fou central : personnel et parent ne se croisent jamais.
+    if (db.prepare('SELECT 1 FROM school_users WHERE user_id = ?').get(p.p_user_id)) {
+      throw new Error('Ce compte appartient au personnel : il ne peut pas être un compte parent');
+    }
+    const existing = db.prepare('SELECT id FROM parent_accounts WHERE user_id = ?').get(p.p_user_id);
+    if (existing) {
+      db.prepare(
+        `UPDATE parent_accounts
+            SET full_name = COALESCE(?, full_name), phone = COALESCE(?, phone),
+                email = COALESCE(?, email), active = 1, updated_at = ?
+          WHERE user_id = ?`,
+      ).run(p.p_full_name ?? null, p.p_phone ?? null, p.p_email ?? null,
+        new Date().toISOString(), p.p_user_id);
+      return existing.id;
+    }
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO parent_accounts (id, user_id, full_name, phone, email, active)
+       VALUES (?,?,?,?,?,1)`,
+    ).run(id, p.p_user_id, p.p_full_name ?? null, p.p_phone ?? null, p.p_email ?? null);
+    return id;
+  },
+
+  admin_link_parent_student(p, ctx) {
+    const st = db.prepare('SELECT school_id FROM students WHERE id = ?').get(p.p_student_id);
+    if (!st) throw new Error('Élève introuvable');
+    const m = membership(ctx?.userId);
+    if (!m || !['admin', 'censeur'].includes(m.role)) throw new Error('Non autorisé');
+    // Contrôle de SECTEUR : un responsable Collège ne rattache pas un élève du
+    // Primaire, exactement comme il ne peut pas le lire.
+    if (!allowsStudent(loadScope(ctx.userId), p.p_student_id)) {
+      throw new Error('Non autorisé sur cet élève');
+    }
+    if (!db.prepare('SELECT 1 FROM parent_accounts WHERE user_id = ? AND active = 1').get(p.p_parent_user_id)) {
+      throw new Error('Compte parent introuvable ou désactivé');
+    }
+    const existing = db.prepare(
+      'SELECT id FROM parent_student_links WHERE parent_user_id = ? AND student_id = ?',
+    ).get(p.p_parent_user_id, p.p_student_id);
+    if (existing) {
+      db.prepare(
+        `UPDATE parent_student_links
+            SET active = 1, relationship = ?, is_primary = ?, revoked_at = NULL, revoked_by = NULL
+          WHERE id = ?`,
+      ).run(p.p_relationship || 'tuteur', p.p_is_primary ? 1 : 0, existing.id);
+      return existing.id;
+    }
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO parent_student_links
+              (id, parent_user_id, school_id, student_id, relationship, is_primary, active, created_by)
+       VALUES (?,?,?,?,?,?,1,?)`,
+    ).run(id, p.p_parent_user_id, st.school_id, p.p_student_id,
+      p.p_relationship || 'tuteur', p.p_is_primary ? 1 : 0, ctx.userId);
+    return id;
+  },
+
+  // Révocation, jamais suppression : « qui a vu quoi, jusqu'à quand » reste
+  // établissable, comme pour les contre-passations de caisse.
+  admin_revoke_parent_link(p, ctx) {
+    const link = db.prepare('SELECT * FROM parent_student_links WHERE id = ?').get(p.p_link_id);
+    if (!link) throw new Error('Lien introuvable');
+    const m = membership(ctx?.userId);
+    if (!m || !['admin', 'censeur'].includes(m.role)) throw new Error('Non autorisé');
+    if (!allowsStudent(loadScope(ctx.userId), link.student_id)) throw new Error('Non autorisé');
+    db.prepare(
+      'UPDATE parent_student_links SET active = 0, revoked_at = ?, revoked_by = ? WHERE id = ?',
+    ).run(new Date().toISOString(), ctx.userId, p.p_link_id);
+    return null;
+  },
+
+  admin_list_parent_links(p, ctx) {
+    const st = db.prepare('SELECT school_id FROM students WHERE id = ?').get(p.p_student_id);
+    if (!st) return [];
+    if (!allowsStudent(loadScope(ctx?.userId), p.p_student_id)) return [];
+    return db.prepare(
+      `SELECT l.id AS link_id, l.parent_user_id, a.full_name, a.phone, a.email,
+              l.relationship, l.is_primary, l.active, l.created_at, l.revoked_at
+         FROM parent_student_links l
+         JOIN parent_accounts a ON a.user_id = l.parent_user_id
+        WHERE l.student_id = ?
+        ORDER BY l.active DESC, a.full_name`,
+    ).all(p.p_student_id);
   },
 };
 

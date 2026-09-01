@@ -89,6 +89,32 @@ export async function revokeParentLink(linkId) {
   return { error };
 }
 
+/**
+ * Cherche un compte parent DÉJÀ EXISTANT dans l'école, pour lui rattacher un
+ * second enfant plutôt que d'en créer un doublon — le cas « Jean Dupont a Marie
+ * en CM2 et Paul en 5e ».
+ *
+ * Ne rend que les parents ayant déjà un rattachement actif dans CETTE école :
+ * un établissement ne peut pas énumérer les parents d'un autre.
+ *
+ * Best-effort : si supabase_parent_portal_search.sql n'est pas appliqué sur ce
+ * déploiement, la RPC n'existe pas et on rend []. L'interface propose alors la
+ * création, comme avant — aucun écran cassé.
+ */
+export async function searchParentAccounts(schoolId, query = '') {
+  if (!schoolId) return [];
+  const { data, error } = await supabase.rpc('admin_search_parent_accounts', {
+    p_school: schoolId, p_query: query || null, p_limit: 20,
+  });
+  if (error) {
+    if (!/does not exist|function|schema cache/i.test(error.message || '')) {
+      console.error('searchParentAccounts', error);
+    }
+    return [];
+  }
+  return data || [];
+}
+
 // Comptes parents rattachés à un élève (fiche élève, côté personnel).
 export async function fetchParentLinks(studentId) {
   const { data, error } = await supabase.rpc('admin_list_parent_links', { p_student_id: studentId });

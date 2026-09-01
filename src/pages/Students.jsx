@@ -17,6 +17,9 @@ import Modal from '../components/Modal';
 import CameraCaptureModal from '../components/CameraCaptureModal';
 import QrScanModal from '../components/QrScanModal';
 import { buildCardId } from '../lib/idCardService';
+// ESPACE PARENT — gestion des responsables rattachés à un élève. Écran
+// d'administration ; le portail parent lui-même vit sous /app/parent.
+import ParentAccountsModal from '../components/transcripts/ParentAccountsModal';
 const IdCardModal = lazy(() => import('../components/IdCardModal'));
 import { useT, getLang } from '../lib/i18n';
 import { toast } from '../store/toastStore';
@@ -801,6 +804,7 @@ export default function Students() {
   const [showPrintOpts, setShowPrintOpts]  = useState(false);
   const [showCards,     setShowCards]      = useState(false);
   const [photoTarget,   setPhotoTarget]    = useState(null);   // élève dont on capture la photo (depuis la liste)
+  const [parentTarget,  setParentTarget]   = useState(null);   // élève dont on gère les comptes parents
   const [photoSavingId, setPhotoSavingId]  = useState(null);   // id en cours d'upload (spinner ligne)
   const [showScan,      setShowScan]       = useState(false);  // scanner QR d'une carte
   const [cols, setCols] = useState({ matricule: true, genre: true, dateNaissance: true, lieuNaissance: true, contact: true });
@@ -1250,6 +1254,16 @@ export default function Students() {
               onCapture={handleCapturePhoto}
             />
 
+            {/* ESPACE PARENT — responsables rattachés à l'élève. Le contrôle de
+                secteur et l'interdiction d'entrer dans school_users sont faits
+                en base, pour toute école : ce modal n'ouvre qu'un écran. */}
+            {parentTarget && (
+              <ParentAccountsModal
+                student={parentTarget}
+                onClose={() => setParentTarget(null)}
+              />
+            )}
+
             {/* Scanner le QR d'une carte → fiche élève */}
             <QrScanModal
               open={showScan}
@@ -1454,6 +1468,12 @@ export default function Students() {
                                   {canEdit && (
                                     <>
                                       <button
+                                        onClick={() => setParentTarget({ ...student, className: classNameById(student.class_id) })}
+                                        className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                                        title={t('Gérer les comptes parents', 'Manage parent accounts', 'Gestionar cuentas de padres')}>
+                                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.97 5.97 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
+                                      </button>
+                                      <button
                                         onClick={() => setPhotoTarget(student)}
                                         disabled={photoSavingId === student.id}
                                         className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors disabled:opacity-50"
@@ -1541,6 +1561,12 @@ export default function Students() {
                               </Link>
                               {canEdit && (
                                 <>
+                                  <button
+                                    onClick={() => setParentTarget({ ...student, className: classNameById(student.class_id) })}
+                                    className="p-2 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                                    title={t('Gérer les comptes parents', 'Manage parent accounts', 'Gestionar cuentas de padres')}>
+                                    <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.97 5.97 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z"/></svg>
+                                  </button>
                                   <button
                                     onClick={() => setPhotoTarget(student)}
                                     disabled={photoSavingId === student.id}

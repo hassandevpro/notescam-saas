@@ -771,6 +771,46 @@ const handlers = {
     return null;
   },
 
+  // Recherche d'un compte parent EXISTANT pour rattacher un second enfant sans
+  // créer de doublon. Miroir de supabase_parent_portal_search.sql.
+  //
+  // Périmètre volontairement étroit : uniquement les parents ayant DÉJÀ un
+  // rattachement actif dans l'école appelante. Une recherche globale ferait de
+  // ce guichet un annuaire d'utilisateurs de NotesCam.
+  admin_search_parent_accounts(p, ctx) {
+    const m = membership(ctx?.userId);
+    if (!m || !['admin', 'censeur'].includes(m.role)) return [];
+    if (p.p_school && p.p_school !== m.school_id) return [];   // jamais une autre école
+    const school = m.school_id;
+    const q = String(p.p_query || '').trim();
+    const limit = Math.max(1, Math.min(Number(p.p_limit) || 20, 50));
+    const like = `%${q}%`;
+    const rows = q
+      ? db.prepare(
+          `SELECT a.user_id AS parent_user_id, a.full_name, a.email, a.phone, a.active, a.created_at
+             FROM parent_accounts a
+            WHERE a.active = 1
+              AND EXISTS (SELECT 1 FROM parent_student_links l
+                           WHERE l.parent_user_id = a.user_id AND l.school_id = ? AND l.active = 1)
+              AND (a.full_name LIKE ? OR a.email LIKE ? OR a.phone LIKE ?)
+            ORDER BY a.full_name LIMIT ?`,
+        ).all(school, like, like, like, limit)
+      : db.prepare(
+          `SELECT a.user_id AS parent_user_id, a.full_name, a.email, a.phone, a.active, a.created_at
+             FROM parent_accounts a
+            WHERE a.active = 1
+              AND EXISTS (SELECT 1 FROM parent_student_links l
+                           WHERE l.parent_user_id = a.user_id AND l.school_id = ? AND l.active = 1)
+            ORDER BY a.full_name LIMIT ?`,
+        ).all(school, limit);
+
+    const count = db.prepare(
+      `SELECT count(*) AS n FROM parent_student_links
+        WHERE parent_user_id = ? AND school_id = ? AND active = 1`,
+    );
+    return rows.map((r) => ({ ...r, nb_enfants: count.get(r.parent_user_id, school)?.n ?? 0 }));
+  },
+
   admin_list_parent_links(p, ctx) {
     const st = db.prepare('SELECT school_id FROM students WHERE id = ?').get(p.p_student_id);
     if (!st) return [];

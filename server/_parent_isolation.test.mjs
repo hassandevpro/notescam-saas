@@ -74,6 +74,7 @@ function seed() {
     E('el-paul',  SCHOOL, 'Paul Martin',  'cl-5eme', 'M003');
     E('el-alice', SCHOOL, 'Alice Nkoa',   'cl-cm2',  'M004');
     E('el-autre', AUTRE,  'Eleve Autre',  'cl-autre', 'M005');
+    E('el-autre2', AUTRE, 'Eleve Autre 2', 'cl-autre', 'M006');
 
     // Matières + notes : de quoi produire une moyenne et un rang.
     const S = (id, cls, name, coef) => db.prepare(
@@ -150,6 +151,24 @@ function seed() {
     L('lk-a2', 'u-parentA', 'el-marie', 'pere');
     L('lk-b1', 'u-parentB', 'el-paul',  'mere');
 
+    // ÉCOLE ORDINAIRE (non durcie) : son propre parent, son propre admin. Sans
+    // cela, toute la suite ne prouverait l'espace parent QUE sur l'école
+    // durcie — et un mécanisme qui dépendrait du durcissement passerait
+    // inaperçu jusqu'en production.
+    U('u-admin2', 'admin@autre.cm');  SU('su-adm2', AUTRE, 'u-admin2', 'admin', null, 1);
+    U('u-parentC', 'parentC@famille.cm');
+    PA('pa-c', 'u-parentC', 'M. Autre');
+    db.prepare(
+      `INSERT INTO parent_student_links (id,parent_user_id,school_id,student_id,relationship,active)
+       VALUES (?,?,?,?,?,1)`,
+    ).run('lk-c1', 'u-parentC', AUTRE, 'el-autre', 'pere');
+
+    // Second responsable sur un même élève (le modèle l'autorise : la clé
+    // unique porte sur le COUPLE parent+élève, pas sur l'élève seul).
+    U('u-parentA2', 'mere.dupont@famille.cm');
+    PA('pa-a2', 'u-parentA2', 'Mme Dupont');
+    L('lk-a2b', 'u-parentA2', 'el-jean', 'mere');
+
     db.exec('PRAGMA foreign_keys = ON');
     db.close();
   });
@@ -207,6 +226,7 @@ try {
     parentA: 'parentA@famille.cm', parentB: 'parentB@famille.cm',
     admin: 'admin@genius.cm', caissier: 'caisse@genius.cm',
     college: 'principal@genius.cm', prof: 'prof@genius.cm',
+    parentC: 'parentC@famille.cm', admin2: 'admin@autre.cm', parentA2: 'mere.dupont@famille.cm',
   })) T[k] = await login(mail);
   ok(Object.values(T).every(Boolean), 'Tous les comptes de test se connectent');
 
@@ -396,6 +416,56 @@ try {
   const tokenRpc = await rpc(null, 'get_parent_portal_data', { p_token: 'inconnu' });
   ok(tokenRpc.status === 200,
     'COMPAT  · Le portail public /parent/:token reste ouvert et fonctionnel', tokenRpc.status);
+
+  // ══════════════════ ÉCOLE ORDINAIRE (non durcie) ═════════════════════════
+  // La même mécanique doit valoir hors de l'école durcie, sinon l'espace
+  // parent ne serait générique qu'en apparence.
+  const ctxC = (await rpc(T.parentC, 'parent_context')).body?.data;
+  ok(ctxC?.children?.length === 1 && ctxC.children[0].student.name === 'Eleve Autre',
+    'GEN-1   · École ORDINAIRE : parent C voit son enfant', ctxC?.children?.map((c) => c.student.name));
+  const croise1 = (await rpc(T.parentC, 'parent_child_grades', { p_student: 'el-jean' })).body?.data;
+  ok(croise1 === null, 'GEN-2   · Parent de l’école B ne voit pas un élève de l’école A', croise1);
+  const croise2 = (await rpc(T.parentA, 'parent_child_grades', { p_student: 'el-autre' })).body?.data;
+  ok(croise2 === null, 'GEN-3   · Parent de l’école A ne voit pas un élève de l’école B', croise2);
+
+  // ══════════════════ PLUSIEURS RESPONSABLES POUR UN ÉLÈVE ═════════════════
+  const ctxA2 = (await rpc(T.parentA2, 'parent_context')).body?.data;
+  ok(ctxA2?.children?.length === 1 && ctxA2.children[0].student.name === 'Jean Dupont',
+    'MULTI-1 · Un élève peut avoir DEUX responsables distincts', ctxA2?.children?.map((c) => c.student.name));
+  const mereVoitMarie = (await rpc(T.parentA2, 'parent_child_grades', { p_student: 'el-marie' })).body?.data;
+  ok(mereVoitMarie === null,
+    'MULTI-2 · Le second responsable ne voit QUE l’enfant qui lui est rattaché', mereVoitMarie);
+
+  // ══════════════════ RECHERCHE D’UN COMPTE PARENT EXISTANT ════════════════
+  const rech = (await rpc(T.admin, 'admin_search_parent_accounts', { p_school: SCHOOL })).body?.data || [];
+  const noms = rech.map((r) => r.full_name).sort();
+  ok(!noms.includes('M. Autre'),
+    'RECH-1  · La recherche ne rend AUCUN parent d’une autre école', noms);
+  ok(noms.some((n) => /^M. Dupont/.test(n)),
+    'RECH-1b · Elle rend bien les parents de SON école', noms);
+  const dupont = rech.find((r) => /^M. Dupont/.test(r.full_name || ''));
+  ok(dupont?.nb_enfants === 2, 'RECH-2  · Le compte de M. Dupont porte bien 2 enfants', dupont);
+  const filtre = (await rpc(T.admin, 'admin_search_parent_accounts', { p_school: SCHOOL, p_query: 'Dupont' })).body?.data || [];
+  ok(filtre.length >= 1 && filtre.every((r) => /Dupont/i.test(r.full_name)),
+    'RECH-3  · Le filtre texte fonctionne', filtre.map((r) => r.full_name));
+  const rechParent = (await rpc(T.parentA, 'admin_search_parent_accounts', { p_school: SCHOOL })).body?.data;
+  ok(!rechParent || rechParent.length === 0,
+    'RECH-4  · Un PARENT ne peut pas énumérer les comptes parents', rechParent);
+  const rechAutreEcole = (await rpc(T.admin2, 'admin_search_parent_accounts', { p_school: SCHOOL })).body?.data;
+  ok(!rechAutreEcole || rechAutreEcole.length === 0,
+    'RECH-5  · L’admin de l’école B ne peut pas lister les parents de l’école A', rechAutreEcole);
+
+  // ══════════════════ RATTACHER UN 2e ENFANT AU MÊME COMPTE ════════════════
+  // Le cas « Jean Dupont a Marie en CM2 et Paul en 5e » : UN seul compte.
+  const avant = ((await rpc(T.parentC, 'parent_context')).body?.data?.children || []).length;
+  const rattache = await rpc(T.admin2, 'admin_link_parent_student', {
+    p_parent_user_id: 'u-parentC', p_student_id: 'el-autre2', p_relationship: 'pere',
+  });
+  ok(!rattache.body?.error, 'LIEN-1  · L’admin rattache un 2e enfant au compte existant', rattache.body);
+  const apres = ((await rpc(T.parentC, 'parent_context')).body?.data?.children || []);
+  ok(apres.length === avant + 1,
+    `LIEN-2  · Le parent voit maintenant ses ${avant + 1} enfants avec UN SEUL compte`,
+    apres.map((c) => c.student.name));
 } finally {
   srv.stdout.removeAllListeners('data');
   srv.stderr.removeAllListeners('data');

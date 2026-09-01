@@ -889,7 +889,10 @@ export default function StudentProfile() {
       )}
 
       {showParents && (
-        <ParentAccountsModal student={student} onClose={() => setShowParents(false)} />
+        <ParentAccountsModal
+          student={{ ...student, className: cls?.name }}
+          onClose={() => setShowParents(false)}
+        />
       )}
 
       {showChangeClass && (() => {

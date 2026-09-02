@@ -16,7 +16,7 @@ function latestSeqWithData(classId, studentIds, gradeMap) {
   return null;
 }
 
-export default function TeacherClasses({ classes, students, subjects, gradeMap }) {
+export default function TeacherClasses({ classes, students, subjects, gradeMap, linked = true }) {
   const t = useT();
 
   const data = useMemo(() => classes.map((cls) => {
@@ -61,9 +61,17 @@ export default function TeacherClasses({ classes, students, subjects, gradeMap }
   if (data.length === 0) {
     return (
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-10 text-center">
-        <div className="text-4xl mb-3">📋</div>
-        <p className="text-amber-800 font-semibold mb-1">{t('Aucune classe assignée', 'No class assigned')}</p>
-        <p className="text-amber-600 text-sm">{t("L'administrateur doit vous assigner des matières / classes.", 'The administrator needs to assign you subjects and classes.')}</p>
+        <div className="text-4xl mb-3">{linked ? '📋' : '🔗'}</div>
+        {/* Compte sans fiche enseignant : lui demander de réclamer une matière
+            ne mènerait à rien — c'est le rattachement qui manque. */}
+        <p className="text-amber-800 font-semibold mb-1">
+          {linked ? t('Aucune classe assignée', 'No class assigned')
+                  : t('Compte non relié à une fiche enseignant', 'Account not linked to a teacher record')}
+        </p>
+        <p className="text-amber-600 text-sm">
+          {linked ? t("L'administrateur doit vous assigner des matières / classes.", 'The administrator needs to assign you subjects and classes.')
+                  : t("Demandez à l'administrateur d'ouvrir Enseignants et de créer l'accès depuis votre fiche.", 'Ask your administrator to open Teachers and create your access from your record.')}
+        </p>
       </div>
     );
   }

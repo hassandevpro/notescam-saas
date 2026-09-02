@@ -122,6 +122,25 @@ export async function getCurrentUserContext() {
       .eq('auth_user_id', user.id)
       .maybeSingle();
     if (teacherRow) { teacherId = teacherRow.id; specialty = teacherRow.specialty ?? null; }
+
+    // REPLI — compte enseignant dont la fiche n'a pas été rattachée (fiche créée
+    // après le compte, ou nom saisi différemment lors du provisioning). Sans
+    // `teacherId`, le store n'applique AUCUN filtre : l'enseignant se retrouve
+    // devant toute l'école, et en mode « enseignant de matière » sans aucune
+    // matière. On retrouve donc une fiche LIBRE portant exactement son nom.
+    if (!teacherId && data.full_name) {
+      const { data: byName } = await supabase
+        .from('teachers')
+        .select('id, specialty')
+        .eq('school_id', data.school_id)
+        .is('auth_user_id', null)
+        .ilike('name', data.full_name.trim())
+        .limit(1);
+      if (byName?.length === 1) {
+        teacherId = byName[0].id;
+        specialty = byName[0].specialty ?? null;
+      }
+    }
   }
 
   // INTITULÉ DE POSTE du compte (« Directeur », « Sous-directrice », « Caissier »…).

@@ -822,8 +822,20 @@ function PrincipalGrades() {
 
             {classes.length === 0 && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center">
-                <p className="text-amber-800 font-semibold mb-1">{t('Aucune classe assignée', 'No class assigned')}</p>
-                <p className="text-amber-600 text-sm mt-1">{t("Contactez l'administrateur de l'établissement.", 'Contact your school administrator.')}</p>
+                {/* Deux causes distinctes, deux messages : sans fiche enseignant
+                    rattachée, aucune affectation n'est possible — l'admin doit
+                    d'abord relier le compte, pas assigner une matière. */}
+                {!teacherId ? (
+                  <>
+                    <p className="text-amber-800 font-semibold mb-1">{t('Compte non relié à une fiche enseignant', 'Account not linked to a teacher record')}</p>
+                    <p className="text-amber-600 text-sm mt-1">{t("Demandez à l'administrateur d'ouvrir Enseignants et de créer l'accès depuis votre fiche.", 'Ask your administrator to open Teachers and create your access from your record.')}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-amber-800 font-semibold mb-1">{t('Aucune classe assignée', 'No class assigned')}</p>
+                    <p className="text-amber-600 text-sm mt-1">{t("Contactez l'administrateur de l'établissement.", 'Contact your school administrator.')}</p>
+                  </>
+                )}
               </div>
             )}
 

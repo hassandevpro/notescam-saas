@@ -346,11 +346,14 @@ export const useSchoolStore = create((set, get) => ({
 
       // Teacher scope: keep only classes where teacher is the titulaire (class.teacher_id)
       // or where at least one subject is assigned to this teacher (subject.teacher_id)
-      if (teacherId) {
-        const teacherClassIds = new Set([
+      // Un compte enseignant SANS fiche rattachée (teacherId null) n'a aucune
+      // affectation : le laisser passer ici lui ouvrait TOUTE l'école. On le
+      // restreint comme les autres — l'UI explique alors quoi faire.
+      if (teacherId || useAuthStore.getState().role === 'teacher') {
+        const teacherClassIds = new Set(teacherId ? [
           ...allClasses.filter((c) => c.teacher_id === teacherId).map((c) => c.id),
           ...allSubjects.filter((s) => s.teacher_id === teacherId).map((s) => s.class_id),
-        ]);
+        ] : []);
         // Always restrict — if no classes assigned yet, teacher sees empty (message shown in UI)
         allClasses  = allClasses.filter((c) => teacherClassIds.has(c.id));
         allSubjects = allSubjects.filter((s) => teacherClassIds.has(s.class_id));
@@ -483,12 +486,12 @@ export const useSchoolStore = create((set, get) => ({
 
     // ── Teacher scope: filter BEFORE touching state ──────────────────────
     // Build class set from both class.teacher_id and subject.teacher_id
-    if (teacherId) {
+    if (teacherId || useAuthStore.getState().role === 'teacher') {
       const allSubs = sbSubjects ?? get().subjects;
-      const teacherClassIds = new Set([
+      const teacherClassIds = new Set(teacherId ? [
         ...newClasses.filter((c) => c.teacher_id === teacherId).map((c) => c.id),
         ...allSubs.filter((s) => s.teacher_id === teacherId).map((s) => s.class_id),
-      ]);
+      ] : []);
       newClasses  = newClasses.filter((c) => teacherClassIds.has(c.id));
       newSubjects = newSubjects.filter((s) => teacherClassIds.has(s.class_id));
       newStudents = newStudents.filter((s) => teacherClassIds.has(s.class_id));

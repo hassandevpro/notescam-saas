@@ -427,7 +427,11 @@ function ScopeModal({ row, onClose, onSaved }) {
 
   const handleSave = async () => {
     setStatus('loading'); setMsg('');
-    const { error } = await setStaffScope(row.id, { sections, cycles, classIds });
+    // `global: isGlobal` — indispensable depuis le cloisonnement par secteur.
+    // Sans ce drapeau, un enregistrement « tout vide » écrivait scope_global=false
+    // avec trois tableaux vides : le compte ne voyait alors PLUS RIEN, à l'exact
+    // opposé de ce que promet le texte ci-dessous (« vide = tout l'établissement »).
+    const { error } = await setStaffScope(row.id, { sections, cycles, classIds, global: isGlobal });
     if (error) { setMsg(error.message || t('Erreur', 'Error', 'Error')); setStatus('error'); return; }
     onSaved();
   };

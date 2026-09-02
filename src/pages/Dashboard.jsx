@@ -39,6 +39,9 @@ export default function Dashboard() {
   const t = useT();
   const { school, role, fullName } = useAuthStore();
   const permissions = useAuthStore((s) => s.permissions);
+  // Fiche enseignant rattachée au compte : sans elle, aucune affectation n'est
+  // possible et le message d'accueil doit le dire, pas parler d'assignation.
+  const teacherId = useAuthStore((s) => s.teacherId);
   const governanceCatalog = useAuthStore((s) => s.governanceCatalog);
   const governanceAssignments = useAuthStore((s) => s.governanceAssignments);
   const governanceRoleRows = useAuthStore((s) => s.governanceRoleRows);
@@ -171,7 +174,7 @@ export default function Dashboard() {
       ? <SetupChecklist school={school} classes={classes} subjects={subjects} students={students} units={schoolUnits} />
       : null),
     [BLOCK.TEACHER_CLASSES]: () => (
-      <TeacherClasses classes={classes} students={students} subjects={subjects} gradeMap={gradeMap} />
+      <TeacherClasses classes={classes} students={students} subjects={subjects} gradeMap={gradeMap} linked={!!teacherId} />
     ),
     [BLOCK.ACADEMICS]: () => (
       <AcademicsStats loading={loading} classes={classes} students={students} globalPassRate={academics.globalPassRate} />

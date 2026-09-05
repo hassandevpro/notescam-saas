@@ -59,8 +59,17 @@ cp -r "$ROOT/dist" "$STAGE/app/dist"
 step "Copie du serveur (sans données ni node_modules)"
 mkdir -p "$STAGE/app/server"
 cp -r "$ROOT/server/." "$STAGE/app/server/"
-rm -rf "$STAGE/app/server/data" "$STAGE/app/server/_test_data" "$STAGE/app/server/node_modules"
+rm -rf "$STAGE/app/server/data" "$STAGE/app/server/data-demo" "$STAGE/app/server/_test_data" "$STAGE/app/server/node_modules"
 find "$STAGE/app/server" -name '*.log' -delete
+
+# Bases et cles : elles ne sont pas suivies par Git, donc invisibles a la
+# relecture d'un diff, mais `cp -r` les emporte quand meme. La 0.2.3 est ainsi
+# partie chez l'ecole avec server/data-demo/ (jwt-secret.key, mirror.key,
+# server-token.key, la base de la demo et ses sauvegardes) et une sauvegarde de
+# la base de THE GENIUS laissee a la racine de server/. Rien de tout cela n'est
+# necessaire : install.sh ne lit aucune cle du paquet, elles sont generees a
+# l'installation dans /var/lib/notescam/data.
+find "$STAGE/app" \( -name '*.db' -o -name '*.db-journal' -o -name '*.key' -o -name '.env*' \) -delete
 
 # Moteurs purs partagés importés par le serveur (budgetGuard, gouvernance
 # hybride H1-H7) : mêmes chemins relatifs que le build Windows (app/src/...).
@@ -118,6 +127,19 @@ for f in "$STAGE"/install.sh "$STAGE"/uninstall.sh; do
     exit 1
   fi
 done
+
+step "Garde-fou : ni base ni secret dans le paquet"
+# Le nettoyage ci-dessus vise ce qu'on connait ; ce controle vise ce qu'on ne
+# connait pas encore. Un paquet client ne doit JAMAIS transporter de base ni de
+# cle : plutot echouer ici que le decouvrir apres livraison.
+intrus="$(find "$STAGE" -path "$STAGE/node" -prune -o -type f \
+  \( -name '*.db' -o -name '*.db-journal' -o -name '*.key' -o -name '.env*' \) -print)"
+if [[ -n "$intrus" ]]; then
+  echo "ERREUR : ces fichiers ne doivent pas etre livres — construction interrompue :" >&2
+  echo "$intrus" >&2
+  exit 1
+fi
+echo "  aucune base, aucune cle"
 
 step "Archive finale"
 APP_VERSION="$(grep -m1 '"version"' "$ROOT/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"

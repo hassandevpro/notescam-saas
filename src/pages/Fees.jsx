@@ -9,7 +9,7 @@ import Modal from '../components/Modal';
 import { useT, localeForLang } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
-import { printReceipt, printTicket } from '../lib/receiptDoc';
+import { printReceipt, printReceiptDuo, printTicket } from '../lib/receiptDoc';
 import FeeGridsTab from '../components/fees/FeeGridsTab';
 import FeeCatalog from './FeeCatalog';
 import FeeDashboard from '../components/fees/FeeDashboard';
@@ -517,6 +517,19 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
                       <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a1 1 0 001 1h8a1 1 0 001-1v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a1 1 0 00-1-1H6a1 1 0 00-1 1zm2 0h6v3H7V4zm-1 9v-1h8v1H6zm8-4a1 1 0 110 2 1 1 0 010-2z" clipRule="evenodd"/></svg>
                       {t('Imprimer le ticket', 'Print ticket', 'Imprimir tique')}
                     </button>
+                    {/* Deux exemplaires du MÊME reçu sur une A4 debout : le
+                        parent repart avec le sien, la caisse garde l'autre.
+                        C'est le tirage courant dans les écoles qui n'ont pas
+                        d'imprimante thermique. */}
+                    <button
+                      onClick={() => print(rec, 'a4duo', false)}
+                      title={t('Une feuille A4 : exemplaire parent en haut, exemplaire école en bas, à couper au milieu',
+                               'One A4 sheet: parent copy on top, school copy below, cut in the middle',
+                               'Una hoja A4: ejemplar del padre arriba, ejemplar del centro abajo, cortar por la mitad')}
+                      className="text-xs font-semibold px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 transition-colors"
+                    >
+                      {t('2 reçus (A4)', '2 receipts (A4)', '2 recibos (A4)')}
+                    </button>
                     <button
                       onClick={() => print(rec, 'a5', false)}
                       className="text-xs font-semibold px-3 py-1.5 bg-white border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 transition-colors"
@@ -569,6 +582,13 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
                           className="shrink-0 text-xs font-semibold text-gray-500 hover:text-emerald-700 px-2 py-0.5 rounded hover:bg-emerald-50 transition-colors"
                         >
                           🧾 {t('Ticket', 'Ticket', 'Tique')}
+                        </button>
+                        <button
+                          onClick={() => print(p, 'a4duo', true)}
+                          title={t('Réimprimer les 2 exemplaires sur une A4 (duplicata)', 'Reprint both copies on one A4 (duplicate)', 'Reimprimir los 2 ejemplares en una A4 (duplicado)')}
+                          className="shrink-0 text-xs font-semibold text-gray-400 hover:text-brand-700 px-2 py-0.5 rounded hover:bg-brand-50 transition-colors"
+                        >
+                          A4 ×2
                         </button>
                         <button
                           onClick={() => print(p, 'a5', true)}
@@ -1306,7 +1326,9 @@ export default function Fees() {
               // `data` porte déjà le caissier d'ORIGINE (figé sur la ligne de
               // versement) ; `reprintBy` n'apparaît que sur un duplicata.
               onPrintReceipt={(data, format) =>
-                (format === 'a5' ? printReceipt : printTicket)({
+                // 'a4duo' : le même reçu deux fois sur une A4 debout (parent en
+                // haut, école en bas). Ouvert à toute école, sans réglage.
+                (format === 'a5' ? printReceipt : format === 'a4duo' ? printReceiptDuo : printTicket)({
                   school,
                   student,
                   className: classNameById(student.class_id),

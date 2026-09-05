@@ -1,11 +1,11 @@
-// Test des builders de reçu (A5 + ticket 80 mm). Fonctions PURES : aucun DOM,
+// Test des builders de reçu (A5, double A4, ticket 80 mm). Fonctions PURES : aucun DOM,
 // aucun store, aucun réseau. Lancer : node src/lib/_receiptDoc.test.mjs
 //
 // Ce que ce test protège, et pourquoi :
 //   • un reçu doit ressortir À L'IDENTIQUE des années plus tard (n° stable) ;
 //   • le reçu porte le caissier d'ORIGINE, jamais celui qui réimprime ;
 //   • une réimpression est marquée DUPLICATA (sinon elle vaut second paiement).
-import { receiptNumberFor, buildReceiptHtml, buildTicketHtml } from './receiptDoc.js';
+import { receiptNumberFor, buildReceiptHtml, buildReceiptDuoHtml, buildTicketHtml } from './receiptDoc.js';
 
 let failed = false;
 const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed = true; };
@@ -80,6 +80,33 @@ ok(!a5.includes('class="dup"'), 'A5 original : pas de bandeau duplicata');
 const a5dup = buildReceiptHtml({ ...base, duplicate: true, reprintBy: 'MBALLA Rose' });
 ok(a5dup.includes('class="dup"'), 'A5 réimprimé : bandeau duplicata rendu');
 ok(a5dup.includes('MBALLA Rose'), 'A5 réimprimé : mentionne qui réimprime');
+
+// ── Double reçu A4 : le MÊME reçu deux fois, pas deux reçus ──────────────────
+// Le risque à couvrir : que le tirage double produise deux PIÈCES distinctes
+// (deux n°, deux montants) — la caisse encaisserait alors deux fois sur papier
+// ce qu'elle n'a encaissé qu'une fois.
+const duo = buildReceiptDuoHtml(base);
+ok(duo.includes('A4 portrait'), 'duo : une feuille A4 debout');
+ok((duo.match(/class="half"/g) || []).length === 2, 'duo : exactement deux moitiés');
+// Compté sur le CORPS seul : le n° figure aussi dans le <title>, qui n'est pas
+// une occurrence imprimée.
+const duoBody = duo.split('</head>')[1];
+ok((duoBody.match(new RegExp(n1, 'g')) || []).length === 2, 'duo : le MÊME n° sur les deux moitiés');
+ok((duoBody.match(/ATANGANA Paul/g) || []).length === 2, 'duo : le même caissier sur les deux moitiés');
+ok((duoBody.match(/75\s*000/g) || []).length >= 2, 'duo : le même montant encaissé sur les deux moitiés');
+ok(duo.includes('Exemplaire parent') && duo.includes('Exemplaire école'), 'duo : chaque talon dit à qui il revient');
+ok(duo.includes('découper ici'), 'duo : trait de coupe entre les deux talons');
+ok(!duo.includes('class="dup"'), 'duo original : pas de bandeau duplicata');
+// Une réimpression double doit marquer les DEUX talons : un seul marqué, et le
+// talon vierge circulerait comme un original.
+const duoDup = buildReceiptDuoHtml({ ...base, duplicate: true, reprintBy: 'MBALLA Rose' });
+ok((duoDup.match(/class="dup"/g) || []).length === 2, 'duo réimprimé : bandeau duplicata sur les DEUX talons');
+
+// Le contenu comptable des deux moitiés est identique au reçu A5 simple : le
+// tirage double ne doit jamais devenir un second modèle qui dérive.
+const stripCopyTag = (h) => h.replace(/<div class="copy-tag">[^<]*<\/div>\n?\s*/g, '');
+const half = stripCopyTag(duo.split('<div class="half">')[1].split('<div class="cut">')[0]).trim();
+ok(a5.includes(half.replace(/<\/div>$/, '').trim().slice(0, 400)), 'duo : chaque talon est le reçu A5, à la mention d\'exemplaire près');
 
 // ── Caissier inconnu (versements antérieurs à la traçabilité) ────────────────
 // On affiche « — », jamais l'utilisateur courant : mieux vaut vide que faux.

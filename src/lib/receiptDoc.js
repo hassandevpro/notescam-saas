@@ -1,13 +1,15 @@
 // ════════════════════════════════════════════════════════════════════════════
 // REÇU DE PAIEMENT — modèle UNIQUE, réutilisable pour toute l'application
 // ════════════════════════════════════════════════════════════════════════════
-// DEUX formats, un seul contenu comptable (même n°, mêmes montants, même
-// caissier) — l'école choisit selon son imprimante :
-//   • printReceipt() → A5 paysage, épuré, couleurs de l'établissement (bureau) ;
-//   • printTicket()  → rouleau 80 mm monospace, style ticket de caisse
-//                      (imprimante thermique de guichet).
+// TROIS formats, un seul contenu comptable (même n°, mêmes montants, même
+// caissier) — l'école choisit selon son imprimante et son usage :
+//   • printReceipt()    → A5 paysage, épuré, couleurs de l'établissement ;
+//   • printReceiptDuo() → A4 debout, le MÊME reçu deux fois (paysage) : parent
+//                         en haut, école en bas, on coupe la feuille au milieu ;
+//   • printTicket()     → rouleau 80 mm monospace, style ticket de caisse
+//                         (imprimante thermique de guichet).
 //
-// Toute édition de reçu DOIT passer par l'un de ces deux points d'entrée, afin
+// Toute édition de reçu DOIT passer par l'un de ces trois points d'entrée, afin
 // que la présentation reste uniforme partout dans l'app.
 //
 // RÈGLES NON NÉGOCIABLES (pièce comptable) :
@@ -71,33 +73,18 @@ function receiptI18n(school, lang, currency) {
     money:  (n) => formatMoney(n, cur),
   };
 }
-
-/**
- * Imprime / exporte un reçu de paiement (A5 paysage).
- *
- * @param {object}  opts
- * @param {object}  opts.school        établissement (logo_url, name, address, phone, email, stamp_url, signature_url, current_year…)
- * @param {object}  opts.student       élève (name, matricule, tuteur/nom_pere/nom_mere…)
- * @param {string}  opts.className     libellé de la classe
- * @param {number}  opts.versement     montant encaissé ce jour
- * @param {number}  opts.newTotal      total déjà versé (cumulé, ce versement inclus)
- * @param {number}  opts.fraisAnnuels  total dû (frais)
- * @param {string}  opts.date          date du versement (ISO)
- * @param {string}  opts.mode          comptant | echelonne | libre
- * @param {string}  opts.cashierName   nom du caissier (utilisateur connecté)
- * @param {string} [opts.designation]  libellé du frais payé (ex. « Cantine ») ; défaut « Frais de scolarité »
- * @param {string}  opts.lang          langue de l'école (anglophone…)
- * @param {string} [opts.currency]     devise (défaut FCFA)
- * @param {object} [opts.payment]      ligne fee_payments (id/date) → n° de reçu stable
- * @param {boolean}[opts.duplicate]    réimpression : marque la pièce « DUPLICATA »
- * @param {string} [opts.reprintBy]    qui réimprime (mentionné sur le duplicata)
- */
-// Construit le HTML complet du reçu (fonction PURE — testable, sans DOM).
-export function buildReceiptHtml({
+// Construit les MORCEAUX du reçu A5 paysage (CSS + corps), sans document HTML
+// autour. Deux mises en page les réutilisent tels quels — la simple A5 et la
+// double A4 « parent + école » — pour qu'un reçu coupé en deux et un reçu seul
+// ne puissent jamais diverger d'une ligne ou d'un montant.
+//
+// `copyLabel` : mention d'exemplaire ajoutée au pied (vide sur le tirage A5
+// simple, qui n'a pas de second exemplaire à distinguer).
+function receiptParts({
   school, student, className, versement, newTotal, fraisAnnuels,
   date, mode, cashierName, lang, currency, designation,
   payment, duplicate, reprintBy,
-}) {
+}, copyLabel) {
   const { isGE, isEn, t, locale, money } = receiptI18n(school, lang, currency);
 
   const total  = Number(fraisAnnuels || 0);
@@ -148,11 +135,7 @@ export function buildReceiptHtml({
   const infoRow = (label, value) =>
     `<div class="info-row"><span class="i-l">${label}</span><span class="i-v">${value || '—'}</span></div>`;
 
-  return `<!DOCTYPE html><html lang="${isEn ? 'en' : isGE ? 'es' : 'fr'}"><head>
-<meta charset="UTF-8">
-<title>${t('Reçu', 'Receipt', 'Recibo')} ${esc(num)} — ${esc(student.name)}</title>
-<style>
-  @page { size: A5 landscape; margin: 8mm; }
+  const css = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root { --primary:${primary}; --accent:${accent}; --soft:${soft}; }
   html, body {
@@ -213,7 +196,7 @@ export function buildReceiptHtml({
   .mode-pill { display: inline-block; background: var(--soft); color: var(--primary); font-weight: 700; font-size: 9px; padding: 1px 8px; border-radius: 20px; }
 
   /* Pied */
-  footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 12px; padding-top: 9px; border-top: 1px solid #eceff3; }
+  footer { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; margin-top: 12px; padding-top: 9px; border-top: 1px solid #eceff3; }
   .cashier { font-size: 9px; color: #6b7280; }
   .cashier .c-name { color: #111827; font-weight: 600; font-size: 10px; }
   .sign { margin-top: 2px; height: 34px; display: flex; align-items: flex-end; }
@@ -223,16 +206,21 @@ export function buildReceiptHtml({
   .thanks .ty { font-size: 11px; font-weight: 700; color: var(--primary); }
   .thanks .sub { font-size: 8px; color: #9ca3af; margin-top: 2px; }
 
+  /* Mention d'exemplaire (tirage double A4) : c'est elle qui dit lequel des deux
+     talons part avec le parent et lequel reste à la caisse. */
+  .copy-tag { align-self: center; white-space: nowrap; background: var(--soft); color: var(--primary);
+              font-size: 8px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase;
+              padding: 3px 10px; border-radius: 20px; }
+
   /* Duplicata : une réimpression ne doit jamais pouvoir passer pour un 2e encaissement. */
   .dup { margin: 8px 0 0; border: 1px dashed #f59e0b; background: #fffbeb; color: #92400e;
          border-radius: 5px; padding: 4px 9px; font-size: 8.5px; font-weight: 700;
          letter-spacing: 1px; text-transform: uppercase; text-align: center; }
   .dup span { font-weight: 500; letter-spacing: 0; text-transform: none; }
 
-  @media print { html, body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
-</style>
-</head><body>
-<div class="sheet">
+  @media print { html, body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }`;
+
+  const sheet = `<div class="sheet">
   <div class="topbar"></div>
   <div class="card">
 
@@ -301,6 +289,7 @@ export function buildReceiptHtml({
         <div class="c-name">${esc(cashierName || '—')}</div>
         <div class="sign">${signHtml || '<div class="sign-line"></div>'}</div>
       </div>
+      ${copyLabel ? `<div class="copy-tag">${esc(copyLabel)}</div>` : ''}
       <div class="thanks">
         <div class="ty">${t('Merci pour votre confiance.', 'Thank you for your trust.', 'Gracias por su confianza.')}</div>
         <div class="sub">${t('Ce reçu fait foi de paiement. Conservez-le.', 'This receipt is proof of payment. Please keep it.', 'Este recibo justifica el pago. Consérvelo.')}</div>
@@ -308,8 +297,100 @@ export function buildReceiptHtml({
     </footer>
 
   </div>
-</div>
-<script>window.onload = function(){ setTimeout(function(){ window.focus(); window.print(); }, 350); };</script>
+</div>`;
+
+  return {
+    css, sheet, t,
+    htmlLang: isEn ? 'en' : isGE ? 'es' : 'fr',
+    title: `${t('Reçu', 'Receipt', 'Recibo')} ${esc(num)} — ${esc(student.name)}`,
+  };
+}
+
+// Déclencheur d'impression, commun aux deux mises en page — aucune ne doit
+// attendre moins longtemps que l'autre (le logo de l'école, souvent distant,
+// doit avoir le temps d'arriver avant l'ouverture de la boîte d'impression).
+const PRINT_SCRIPT = `<script>window.onload = function(){ setTimeout(function(){ window.focus(); window.print(); }, 350); };</script>`;
+
+/**
+ * Imprime / exporte un reçu de paiement (A5 paysage).
+ *
+ * @param {object}  opts
+ * @param {object}  opts.school        établissement (logo_url, name, address, phone, email, stamp_url, signature_url, current_year…)
+ * @param {object}  opts.student       élève (name, matricule, tuteur/nom_pere/nom_mere…)
+ * @param {string}  opts.className     libellé de la classe
+ * @param {number}  opts.versement     montant encaissé ce jour
+ * @param {number}  opts.newTotal      total déjà versé (cumulé, ce versement inclus)
+ * @param {number}  opts.fraisAnnuels  total dû (frais)
+ * @param {string}  opts.date          date du versement (ISO)
+ * @param {string}  opts.mode          comptant | echelonne | libre
+ * @param {string}  opts.cashierName   nom du caissier (utilisateur connecté)
+ * @param {string} [opts.designation]  libellé du frais payé (ex. « Cantine ») ; défaut « Frais de scolarité »
+ * @param {string}  opts.lang          langue de l'école (anglophone…)
+ * @param {string} [opts.currency]     devise (défaut FCFA)
+ * @param {object} [opts.payment]      ligne fee_payments (id/date) → n° de reçu stable
+ * @param {boolean}[opts.duplicate]    réimpression : marque la pièce « DUPLICATA »
+ * @param {string} [opts.reprintBy]    qui réimprime (mentionné sur le duplicata)
+ */
+// Construit le HTML complet du reçu (fonction PURE — testable, sans DOM).
+export function buildReceiptHtml(opts) {
+  const { css, sheet, htmlLang, title } = receiptParts(opts);
+  return `<!DOCTYPE html><html lang="${htmlLang}"><head>
+<meta charset="UTF-8">
+<title>${title}</title>
+<style>
+  @page { size: A5 landscape; margin: 8mm; }
+${css}
+</style>
+</head><body>
+${sheet}
+${PRINT_SCRIPT}
+</body></html>`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// DOUBLE REÇU — une feuille A4 debout, deux exemplaires paysage (haut / bas)
+// ════════════════════════════════════════════════════════════════════════════
+// Le besoin commun à toutes les écoles : à chaque encaissement, le parent repart
+// avec son reçu ET la caisse garde le sien, sur UNE seule feuille A4 qu'on coupe
+// en deux. Les deux moitiés font exactement une A5 paysage (210 × 148 mm) : ce
+// n'est donc pas un autre modèle, c'est le reçu A5 tiré deux fois — même n°,
+// mêmes montants, même caissier. Ce n'est pas un second reçu, c'est le même en
+// double exemplaire ; seule la mention de pied (« Exemplaire parent » /
+// « Exemplaire école ») distingue les deux talons une fois séparés.
+//
+// Mêmes options que buildReceiptHtml(). Fonction PURE (testable, sans DOM).
+export function buildReceiptDuoHtml(opts) {
+  // Un premier passage sans mention donne la langue et le titre ; les deux
+  // moitiés qui suivent ne diffèrent que par leur mention d'exemplaire.
+  const base   = receiptParts(opts, null);
+  const t      = base.t;
+  const parent = receiptParts(opts, t('Exemplaire parent', 'Parent copy', 'Ejemplar para el padre'));
+  const ecole  = receiptParts(opts, t('Exemplaire école',  'School copy', 'Ejemplar para el centro'));
+
+  return `<!DOCTYPE html><html lang="${base.htmlLang}"><head>
+<meta charset="UTF-8">
+<title>${base.title} — ${t('2 exemplaires', '2 copies', '2 ejemplares')}</title>
+<style>
+  /* Marge nulle sur la page : ce sont les moitiés qui portent leur propre marge
+     de 8 mm, sinon les deux talons ne feraient plus une A5 exacte à la coupe. */
+  @page { size: A4 portrait; margin: 0; }
+${base.css}
+  body { position: relative; width: 210mm; }
+  /* 2 × 148 mm = 296 mm : on laisse 1 mm sous la seconde moitié, faute de quoi
+     un arrondi du navigateur suffit à faire sortir une 3e page blanche. */
+  .half { width: 210mm; height: 148mm; padding: 8mm; overflow: hidden; page-break-inside: avoid; break-inside: avoid; }
+  .half .sheet { height: 132mm; }
+  /* Trait de coupe : positionné en absolu, donc il n'ajoute pas un pixel à la
+     hauteur de la page. */
+  .cut { position: absolute; top: 148mm; left: 0; right: 0; height: 0; border-top: 1px dashed #cbd5e1; }
+  .cut b { position: absolute; top: -6px; left: 8mm; background: #fff; padding: 0 5px;
+           font-size: 8px; font-weight: 400; letter-spacing: .5px; color: #9ca3af; }
+</style>
+</head><body>
+<div class="half">${parent.sheet}</div>
+<div class="cut"><b>✂ ${t('découper ici', 'cut here', 'cortar aquí')}</b></div>
+<div class="half">${ecole.sheet}</div>
+${PRINT_SCRIPT}
 </body></html>`;
 }
 
@@ -461,6 +542,13 @@ export function buildTicketHtml({
 // C'est le SEUL point d'entrée à utiliser dans l'app pour imprimer un reçu A5.
 export function printReceipt(opts) {
   openPrintWindow(buildReceiptHtml(opts));
+}
+
+// Idem, en DOUBLE exemplaire sur une seule A4 debout (parent en haut, école en
+// bas, à couper au milieu). Disponible pour toute école : ni option ni réglage,
+// c'est le troisième bouton de la caisse.
+export function printReceiptDuo(opts) {
+  openPrintWindow(buildReceiptDuoHtml(opts));
 }
 
 // Idem, au format ticket de caisse 80 mm (imprimante thermique).

@@ -1328,6 +1328,11 @@ export default function Students() {
                               onChange={toggleSelectAll} />
                           </th>
                         )}
+                        {/* Numérotation CONTINUE d'une page à l'autre : le n° est
+                            le rang dans la liste filtrée, pas dans la page. Une
+                            numérotation qui repart à 1 en page 2 ferait lire un
+                            effectif faux à qui compte à l'écran. */}
+                        <th className="text-right px-3 py-3 font-semibold text-gray-600 w-12">{t('N°', 'No.', 'N.º')}</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Élève', 'Student')}</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Matricule', 'ID')}</th>
                         <th className="text-left px-4 py-3 font-semibold text-gray-600">{t('Classe', 'Class')}</th>
@@ -1338,10 +1343,12 @@ export default function Students() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {paginated.map((student) => {
+                      {paginated.map((student, i) => {
                         const age = calcAge(student.date_naissance);
                         const cls = classes.find((c) => c.id === student.class_id);
                         const isSelected = selectedIds.has(student.id);
+                        // Rang dans la liste filtrée entière (cf. en-tête N°).
+                        const rang = (page - 1) * PAGE_SIZE + i + 1;
                         return (
                           <tr key={student.id} className={`hover:bg-gray-50 transition-colors group ${isSelected ? 'bg-brand-50/40' : ''}`}>
                             {/* Checkbox */}
@@ -1353,6 +1360,8 @@ export default function Students() {
                                   onChange={() => toggleSelect(student.id)} />
                               </td>
                             )}
+                            {/* N° d'ordre */}
+                            <td className="px-3 py-3 text-right text-xs text-gray-400 tabular-nums">{rang}</td>
                             {/* Avatar + nom */}
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-3">

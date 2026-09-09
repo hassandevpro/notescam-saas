@@ -19,6 +19,7 @@ import { FEE_CATEGORY_LABELS } from '../components/fees/feeCatalogUi';
 import FeeCatalogItemModal from '../components/fees/FeeCatalogItemModal';
 import { loadWithCache } from '../lib/offlineCache';
 import { printTicket } from '../lib/receiptDoc';
+import { printSubscribers } from '../lib/feeSubscribersDoc';
 import { classSectionKey } from '../core/engineResolver';
 import { uuid } from '../lib/uuid';
 
@@ -80,10 +81,41 @@ export default function FeeCatalog({ embedded = false }) {
   }, [schoolId, year, students, catalog, ctxFor]);
   useEffect(() => { if (view === 'students') loadStudent(studentId); }, [studentId, view, loadStudent]);
 
-  // Toutes les listes de l'école (statistiques recettes par type).
+  // Toutes les listes de l'école : statistiques de recettes ET liste imprimable
+  // des souscripteurs d'un frais (onglet Catalogue) — les deux ont besoin de
+  // TOUTES les souscriptions, pas seulement de celles de l'élève affiché.
   useEffect(() => {
-    if (view === 'stats' && schoolId) fetchStudentFeeItems(schoolId, { yearLabel: year }).then((r) => setAllItems(r || []));
+    if ((view === 'stats' || view === 'catalog') && schoolId) {
+      fetchStudentFeeItems(schoolId, { yearLabel: year }).then((r) => setAllItems(r || []));
+    }
   }, [view, schoolId, year]);
+
+  // — Liste des élèves ayant souscrit à un frais (bus, cantine, internat…) —
+  // Une souscription RETIRÉE (`status: 'removed'`) est exclue : la liste sert à
+  // l'appel du chauffeur ou de la cantine, elle doit dire qui est inscrit
+  // AUJOURD'HUI. Le montant vient de la souscription (snapshot pris à
+  // l'attribution), pas du catalogue : un tarif modifié en cours d'année ne doit
+  // pas réécrire ce que l'élève doit réellement.
+  const subscribersOf = (cat) => allItems
+    .filter((i) => i.fee_catalog_id === cat.id && i.status !== 'removed')
+    .map((i) => {
+      const stu = students.find((s) => s.id === i.student_id);
+      return {
+        name:      stu?.name || '—',
+        matricule: stu?.matricule || '',
+        className: classById[stu?.class_id]?.name || '',
+        amount:    Number(i.amount) || 0,
+        paid:      paidForItem(i.id, feePayments),
+      };
+    });
+
+  const printCatalogList = (cat) => printSubscribers({
+    school,
+    feeName: cat.name,
+    categoryLabel: catLabel(cat.category),
+    rows: subscribersOf(cat),
+    lang: school?.language,
+  });
 
   const selectedStudent = students.find((s) => s.id === studentId) || null;
   const activeItems = items.filter((i) => i.status !== 'removed');
@@ -200,8 +232,11 @@ export default function FeeCatalog({ embedded = false }) {
                   <th className="text-right px-4 py-2">{t('Montant', 'Amount', 'Importe')}</th>
                   <th className="text-left px-4 py-2">{t('Type', 'Type', 'Tipo')}</th>
                   <th className="text-left px-4 py-2">{t('Portée', 'Scope', 'Alcance')}</th>
+                  <th className="text-right px-4 py-2">{t('Inscrits', 'Enrolled', 'Inscritos')}</th>
                   <th className="px-4 py-2" /></tr></thead>
-                <tbody>{catalog.map((c) => (
+                <tbody>{catalog.map((c) => {
+                  const inscrits = subscribersOf(c).length;
+                  return (
                   <tr key={c.id} className={`border-t border-gray-100 ${!c.active ? 'opacity-50' : ''}`}>
                     <td className="px-4 py-2 font-medium text-gray-800">{c.name}</td>
                     <td className="px-4 py-2">{catLabel(c.category)}</td>
@@ -211,11 +246,26 @@ export default function FeeCatalog({ embedded = false }) {
                         : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">{t('Optionnel', 'Optional', 'Opcional')}</span>}
                     </td>
                     <td className="px-4 py-2 text-xs text-gray-500">{c.class_id ? (classById[c.class_id]?.name || '—') : c.level || t('École', 'School', 'Escuela')}</td>
-                    <td className="px-4 py-2 text-right">{canManage && (<span className="flex justify-end gap-2">
-                      <button onClick={() => setCatModal({ item: c })} className="text-xs text-gray-400 hover:text-gray-700">✎</button>
-                      <button onClick={() => removeCat(c)} className="text-xs text-rose-400 hover:text-rose-600">✕</button></span>)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums font-semibold text-gray-700">{inscrits || <span className="text-gray-300">0</span>}</td>
+                    <td className="px-4 py-2 text-right"><span className="flex justify-end gap-2 items-center">
+                      {/* Imprimer la liste des souscripteurs : elle part au chauffeur
+                          du bus ou à la cantine, donc elle n'est pas réservée à qui
+                          peut MODIFIER le catalogue. Masquée s'il n'y a personne —
+                          un imprimé vide n'apprend rien. */}
+                      {inscrits > 0 && (
+                        <button onClick={() => printCatalogList(c)}
+                          title={t('Imprimer la liste des élèves inscrits à ce frais', 'Print the list of students enrolled in this fee', 'Imprimir la lista de alumnos inscritos')}
+                          className="text-xs font-semibold text-indigo-500 hover:text-indigo-700 px-1.5 py-0.5 rounded hover:bg-indigo-50">
+                          🖨 {t('Liste', 'List', 'Lista')}
+                        </button>
+                      )}
+                      {canManage && (<>
+                        <button onClick={() => setCatModal({ item: c })} className="text-xs text-gray-400 hover:text-gray-700">✎</button>
+                        <button onClick={() => removeCat(c)} className="text-xs text-rose-400 hover:text-rose-600">✕</button>
+                      </>)}</span></td>
                   </tr>
-                ))}</tbody>
+                  );
+                })}</tbody>
               </table>
             )}
           </div>

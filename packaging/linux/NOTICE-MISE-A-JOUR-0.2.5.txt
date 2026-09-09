@@ -53,9 +53,15 @@ Dans « Frais scolaires » → onglet « Catalogue » :
   - un bouton « Liste » imprime la liste de ces élèves.
 
 Prévu pour le bus, la cantine, l'internat. La feuille porte l'en-tête
-officiel, l'effectif en clair, un numéro d'ordre, les élèves groupés par
-classe, puis le montant, le versé et le reste — par élève et en total.
-Elle se remet telle quelle au chauffeur ou à la cantine.
+officiel, l'effectif en clair avec la répartition garçons / filles, un
+numéro d'ordre, le sexe, les élèves groupés par classe, puis le montant,
+le versé et le reste — par élève et en total. Elle se remet telle quelle
+au chauffeur ou à la cantine.
+
+Un élève dont le sexe n'est pas renseigné dans sa fiche affiche « — » et
+n'est compté ni dans les garçons ni dans les filles : G + F peut donc
+être inférieur à l'effectif. C'est voulu — l'écart se voit, et se corrige
+en complétant la fiche de l'élève.
 
 À savoir : les classes y sont rangées par ordre alphabétique (« 2nde »
 avant « 6e »). Les élèves d'une même classe sont bien ensemble ; c'est

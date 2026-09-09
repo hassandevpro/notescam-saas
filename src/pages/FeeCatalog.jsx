@@ -103,6 +103,7 @@ export default function FeeCatalog({ embedded = false }) {
       return {
         name:      stu?.name || '—',
         matricule: stu?.matricule || '',
+        gender:    stu?.gender || null,
         className: classById[stu?.class_id]?.name || '',
         amount:    Number(i.amount) || 0,
         paid:      paidForItem(i.id, feePayments),

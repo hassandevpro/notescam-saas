@@ -30,7 +30,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
  * @param {object}   opts.school    établissement (logo, nom, année, signature…)
  * @param {string}   opts.feeName   libellé du frais (« Transport scolaire »)
  * @param {string}  [opts.categoryLabel] libellé de la catégorie, affiché en sous-titre
- * @param {Array}    opts.rows      [{ name, matricule, className, amount, paid }]
+ * @param {Array}    opts.rows      [{ name, matricule, gender, className, amount, paid }]
  * @param {string}  [opts.lang]     langue de l'école (anglophone…)
  * @param {string}  [opts.currency] devise (défaut : celle de l'école)
  */
@@ -57,6 +57,19 @@ export function buildSubscribersHtml({ school, feeName, categoryLabel, rows = []
   const totalPaye  = ordered.reduce((s, r) => s + (Number(r.paid) || 0), 0);
   const totalReste = ordered.reduce((s, r) => s + Math.max(0, (Number(r.amount) || 0) - (Number(r.paid) || 0)), 0);
 
+  // Sexe en une lettre, comme sur la liste imprimée des élèves (Students.jsx) :
+  // deux imprimés de la même école ne peuvent pas noter le genre différemment.
+  // Les deux orthographes de la base cohabitent (fr / es), d'où les deux tests.
+  const sexe = (g) => (g === 'Masculin' || g === 'Masculino' ? 'M'
+    : g === 'Feminin' || g === 'Femenino' ? 'F' : '—');
+
+  // Répartition garçons / filles : sur une liste scolaire, c'est la raison même
+  // pour laquelle on porte le sexe. Les élèves sans genre renseigné ne sont
+  // comptés ni d'un côté ni de l'autre — G + F peut donc être < à l'effectif,
+  // et c'est voulu : mieux vaut un écart visible qu'un comptage inventé.
+  const nbG = ordered.filter((r) => sexe(r.gender) === 'M').length;
+  const nbF = ordered.filter((r) => sexe(r.gender) === 'F').length;
+
   // Une ligne par élève. Le reste à payer est borné à 0 : un trop-perçu ne doit
   // pas s'afficher en négatif sur une liste que le chauffeur lit en trois secondes.
   const ligne = (r, i) => {
@@ -67,6 +80,7 @@ export function buildSubscribersHtml({ school, feeName, categoryLabel, rows = []
       <td class="c num">${i + 1}</td>
       <td>${esc(r.name)}</td>
       <td class="c mono">${esc(r.matricule || '—')}</td>
+      <td class="c">${sexe(r.gender)}</td>
       <td>${esc(r.className || '—')}</td>
       <td class="r num">${money(du)}</td>
       <td class="r num">${money(paye)}</td>
@@ -74,7 +88,7 @@ export function buildSubscribersHtml({ school, feeName, categoryLabel, rows = []
     </tr>`;
   };
 
-  const vide = `<tr><td colspan="7" class="c vide">${
+  const vide = `<tr><td colspan="8" class="c vide">${
     t('Aucun élève n’a souscrit à ce frais.', 'No student has subscribed to this fee.', 'Ningún alumno se ha inscrito.')
   }</td></tr>`;
 
@@ -89,6 +103,7 @@ export function buildSubscribersHtml({ school, feeName, categoryLabel, rows = []
   .meta { display: flex; justify-content: space-between; align-items: flex-end; margin: 2px 0 7px; font-size: 10px; color: #4b5563; }
   .effectif { font-size: 13px; font-weight: 800; color: #1e3a5f; }
   .effectif span { font-size: 10px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .6px; }
+  .effectif .gf { text-transform: none; letter-spacing: 0; color: #1e3a5f; font-weight: 700; }
 
   table.liste { width: 100%; border-collapse: collapse; }
   table.liste th { background: #1e3a5f; color: #fff; font-size: 9px; text-transform: uppercase; letter-spacing: .5px;
@@ -123,7 +138,7 @@ ${officialHeaderHtml(school, {
   <div class="effectif">${ordered.length} <span>${
     ordered.length > 1 ? t('élèves inscrits', 'students enrolled', 'alumnos inscritos')
                        : t('élève inscrit', 'student enrolled', 'alumno inscrito')
-  }</span></div>
+  }</span>${nbG + nbF > 0 ? `<span class="gf"> — ${nbG} G · ${nbF} F</span>` : ''}</div>
   <div>${categoryLabel ? `${esc(categoryLabel)} &nbsp;·&nbsp; ` : ''}${t('Édité le', 'Issued on', 'Emitido el')} ${new Date().toLocaleDateString(locale)}</div>
 </div>
 
@@ -133,6 +148,7 @@ ${officialHeaderHtml(school, {
       <th class="c" style="width:28px">${t('N°', 'No.', 'N.º')}</th>
       <th>${t('Nom et prénoms', 'Full name', 'Apellidos y nombre')}</th>
       <th class="c" style="width:80px">${t('Matricule', 'Student ID', 'Matrícula')}</th>
+      <th class="c" style="width:34px">${t('Sexe', 'Sex', 'Sexo')}</th>
       <th style="width:80px">${t('Classe', 'Class', 'Clase')}</th>
       <th class="r" style="width:88px">${t('Montant', 'Amount', 'Importe')}</th>
       <th class="r" style="width:88px">${t('Versé', 'Paid', 'Pagado')}</th>
@@ -141,7 +157,7 @@ ${officialHeaderHtml(school, {
   </thead>
   <tbody>${ordered.length ? ordered.map(ligne).join('') : vide}</tbody>
   ${ordered.length ? `<tfoot><tr>
-    <td colspan="4">${t('Total', 'Total', 'Total')} — ${ordered.length} ${t('élève(s)', 'student(s)', 'alumno(s)')}</td>
+    <td colspan="5">${t('Total', 'Total', 'Total')} — ${ordered.length} ${t('élève(s)', 'student(s)', 'alumno(s)')}</td>
     <td class="r num">${money(totalDu)}</td>
     <td class="r num">${money(totalPaye)}</td>
     <td class="r num">${money(totalReste)}</td>

@@ -203,6 +203,43 @@ ensureColumn('notification_outbox', 'priority', "priority TEXT NOT NULL DEFAULT 
 // incident grave, rappel de paiement, bulletin disponible) ne trouveraient jamais
 // d'adresse en édition LAN (select() reviendrait toujours undefined).
 ensureColumn('students', 'parent_phone', 'parent_phone TEXT');
+
+// ── Modèle élève étendu : famille, naissance, adresse ────────────────────────
+//
+// LE DÉFAUT QUE CECI CORRIGE, signalé par THE GENIUS le 09/09/2026 : « les infos
+// des parents ne s'affichent pas sur la fiche des élèves ».
+//
+// Ces huit colonnes existent côté Cloud depuis `supabase_students_extended.sql`,
+// la fiche élève les saisit et les affiche — mais elles n'ont JAMAIS été portées
+// au schéma LAN. Or `pickColumns()` (écriture locale) et `rawUpsert()` (descente
+// du Cloud) ne gardent que les colonnes présentes LOCALEMENT et jettent les
+// autres. Sur un serveur d'école, la secrétaire saisissait donc le nom du père,
+// enregistrait, voyait un succès — et la valeur n'était écrite NULLE PART. Ce
+// n'est pas un défaut d'affichage : c'est une perte à la saisie.
+//
+// La signature est nette dans le Cloud de THE GENIUS au 09/09/2026, sur 295
+// élèves : `parent_phone` — la seule de ces colonnes qui existait en LAN — est
+// renseignée 269 fois, quand nom_pere, nom_mere, tuteur, adresse et
+// contact_urgence sont à ZÉRO. Ce n'est pas une école qui ne saisit pas ses
+// parents : c'est la seule colonne qui avait le droit d'être écrite.
+//
+// La portée dépasse la fiche : `tuteur`/`nom_pere`/`nom_mere` alimentent le
+// responsable légal du reçu (receiptDoc.js) et le cartouche des bulletins
+// officiels (bulletinOfficialParts.jsx, apcBulletinDoc.js, scBulletinDoc.js) —
+// tous vides en édition LAN, sans que rien ne le signale.
+//
+// Ajouter ces colonnes remet AUSSI le curseur de pull à zéro
+// (resetPullCursorIfSchemaGrew, plus bas) : le prochain pull relit tout et
+// rapatrie ce que le Cloud détient déjà.
+ensureColumn('students', 'lieu_naissance',  'lieu_naissance TEXT');
+ensureColumn('students', 'adresse',         'adresse TEXT');
+ensureColumn('students', 'contact_urgence', 'contact_urgence TEXT');
+ensureColumn('students', 'nom_pere',        'nom_pere TEXT');
+ensureColumn('students', 'profession_pere', 'profession_pere TEXT');
+ensureColumn('students', 'nom_mere',        'nom_mere TEXT');
+ensureColumn('students', 'profession_mere', 'profession_mere TEXT');
+ensureColumn('students', 'tuteur',          'tuteur TEXT');
+
 ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
 // Attributions de gouvernance : fenêtre de validité + statut (Phase 1 rôles).
 ensureColumn('user_governance_roles', 'start_date', 'start_date TEXT');

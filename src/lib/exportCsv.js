@@ -131,8 +131,14 @@ function rawRowsToStudents(raw) {
   // `exclude` : en-têtes à écarter AVANT la recherche approximative. Sans lui, un
   // candidat générique capture la colonne d'un champ voisin. Cas vécu : la date
   // cherche « naissance » et rencontre d'abord « Lieu de naissance », qui contient
-  // le mot. Un fichier où le lieu précède la date importait donc « YAOUNDE » comme
-  // DATE de naissance de chaque élève — silencieusement, et sur toute l'école.
+  // le mot. Dans un fichier où le lieu précède la date, la date de naissance lisait
+  // donc la colonne du LIEU.
+  //
+  // L'effet n'était pas d'écrire « YAOUNDE » comme date : `normalizeDate` rejette
+  // ce qui n'est pas une date et rend `null`. C'est bien pire à repérer — la date
+  // partait VIDE, et comme le champ est explicitement présent dans la ligne
+  // importée, il ÉCRASAIT la date déjà enregistrée. Un réimport de rattrapage
+  // effaçait ainsi silencieusement les dates de naissance de toute l'école.
   const col = (candidates, exclude = []) => {
     const eligible = (h) => !exclude.some((x) => h.includes(x));
     let i = headers.findIndex((h) => eligible(h) && candidates.includes(h));

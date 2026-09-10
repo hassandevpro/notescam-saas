@@ -113,11 +113,30 @@ function parseCsvText(text) {
 function rawRowsToStudents(raw) {
   if (raw.length < 2) return { rows: [], error: msg('empty') };
 
-  const headers = raw[0].map((h) => String(h).trim().toLowerCase().replace(/[^a-zàâéèêëîïôùûç0-9_]/g, ''));
+  // Les ACCENTS sont retirés des en-têtes (NFD puis suppression des diacritiques).
+  // Ils étaient conservés jusqu'ici, et c'est ce qui rendait « Nom du père »
+  // invisible : normalisé « nomdupère », il ne contenait pas le candidat « pere »,
+  // donc l'import ne reprenait NI le père NI la mère — les deux libellés français
+  // les plus naturels. Le défaut comptait double, la notice 0.2.5 recommandant
+  // justement de réimporter le fichier d'inscription pour rattraper ces champs.
+  //
+  // Les candidats accentués des listes ci-dessous (« prénom », « téléphone »,
+  // « élève ») deviennent inatteignables, mais chacun a déjà son jumeau sans
+  // accent dans la même liste : aucun en-tête ne cesse d'être reconnu.
+  const headers = raw[0].map((h) => String(h).trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9_]/g, ''));
   // Exact match first (avoids "nom" capturing the Spanish "nombre"), then loose substring.
-  const col = (candidates) => {
-    let i = headers.findIndex((h) => candidates.includes(h));
-    if (i === -1) i = headers.findIndex((h) => candidates.some((c) => h.includes(c)));
+  //
+  // `exclude` : en-têtes à écarter AVANT la recherche approximative. Sans lui, un
+  // candidat générique capture la colonne d'un champ voisin. Cas vécu : la date
+  // cherche « naissance » et rencontre d'abord « Lieu de naissance », qui contient
+  // le mot. Un fichier où le lieu précède la date importait donc « YAOUNDE » comme
+  // DATE de naissance de chaque élève — silencieusement, et sur toute l'école.
+  const col = (candidates, exclude = []) => {
+    const eligible = (h) => !exclude.some((x) => h.includes(x));
+    let i = headers.findIndex((h) => eligible(h) && candidates.includes(h));
+    if (i === -1) i = headers.findIndex((h) => eligible(h) && candidates.some((c) => h.includes(c)));
     return i;
   };
 
@@ -125,7 +144,12 @@ function rawRowsToStudents(raw) {
   const nomIdx       = col(['nom', 'apellidos', 'apellido', 'lastname', 'last_name', 'name', 'eleve', 'élève']);
   const matriculeIdx = col(['matricule', 'matricula', 'studentid', 'mat', 'immatricul']);
   const genderIdx    = col(['sexe', 'sexo', 'genre', 'gender']);
-  const dateIdx      = col(['datenaissance', 'fechanacimiento', 'dateofbirth', 'date_naissance', 'dob', 'birthdate', 'naissance']);
+  // `neele` / `nele` : « Né(e) le » et « Né le », en-têtes courants des listes
+  // d'école, que la normalisation réduit à « neele » / « nele ». Sans eux, la date
+  // n'était reconnue par aucun candidat et la colonne repartait vide.
+  // « nee » seul est volontairement ABSENT : il se retrouverait dans « année ».
+  const dateIdx      = col(['datenaissance', 'fechanacimiento', 'dateofbirth', 'date_naissance', 'dob', 'birthdate', 'naissance', 'neele', 'nele'],
+    ['lieu', 'lugar', 'place']);
   const lieuIdx      = col(['lieunaissance', 'lugarnacimiento', 'placeofbirth', 'lieu_naissance', 'birthplace', 'lieu']);
   const adresseIdx   = col(['adresse', 'direccion', 'address']);
   const phoneIdx     = col(['telephone', 'telefono', 'téléphone', 'tel', 'phone', 'parent_phone']);

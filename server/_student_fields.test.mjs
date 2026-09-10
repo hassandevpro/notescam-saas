@@ -98,7 +98,37 @@ ok(perdusSync.length === 0,
   '7. la descente Cloud conserve TOUS les champs (sinon la donnée est jetée et le curseur avance quand même)',
   perdusSync);
 
-// ── 4. Le témoin : une colonne qui n'existe nulle part reste refusée ────────
+// ── 4. La REMONTÉE vers le Cloud : les champs sont-ils dans le payload ? ───
+// C'est la moitié qu'un test de schéma ne voit pas. Les colonnes peuvent exister
+// en LAN, la fiche s'enregistrer correctement, et les valeurs ne JAMAIS quitter
+// l'école — le Cloud resterait vide sans que rien ne le signale. C'est
+// exactement ce qu'on observait à THE GENIUS : parent_phone remontait, les huit
+// autres champs n'existaient pas et ne remontaient donc pas.
+//
+// Le transport est injecté : aucun réseau, on intercepte ce que le serveur
+// AURAIT envoyé à `sync-push`.
+process.env.VITE_SUPABASE_URL = 'https://test.supabase.co';
+const { syncOnce } = await import('./cloudSync.js');
+
+const envoye = [];
+const edge = async (path, body) => {
+  if (path === 'sync-pull') return { rows: {}, tombstones: [], cursor: null, tomb_cursor: null };
+  if (path === 'sync-push') { envoye.push(...body.changes); return { applied: body.changes.length }; }
+  throw new Error('chemin inattendu : ' + path);
+};
+
+await syncOnce({ edge });
+const pousse = envoye.find((c) => c.table === 'students' && c.row?.id === 'el-1');
+ok(!!pousse, '8. l’élève modifié part bien vers le Cloud', envoye.map((c) => `${c.table}:${c.row?.id}`));
+const absentsDuPush = Object.keys(CHAMPS).filter((k) => !(k in (pousse?.row || {})));
+ok(absentsDuPush.length === 0,
+  '9. le payload envoyé au Cloud porte TOUS les champs de la fiche (sinon le Cloud reste vide en silence)',
+  absentsDuPush);
+ok(pousse?.row?.nom_pere === 'MBALLA Pierre' && pousse?.row?.nom_mere === 'ABEGA Solange',
+  '10. et il porte les VALEURS, pas des colonnes vides',
+  { pere: pousse?.row?.nom_pere, mere: pousse?.row?.nom_mere });
+
+// ── 5. Le témoin : une colonne qui n'existe nulle part reste refusée ────────
 // La garde ne doit pas devenir « on accepte tout » : une faute de frappe dans un
 // nom de champ doit continuer d'être ignorée plutôt que de créer une colonne.
 runQuery({
@@ -108,7 +138,7 @@ runQuery({
 });
 const colonnes = new Set(db.prepare('PRAGMA table_info(students)').all().map((c) => c.name));
 ok(!colonnes.has('nom_du_pere'),
-  '8. témoin : un champ inconnu ne crée pas de colonne', [...colonnes].filter((c) => c.includes('pere')));
+  '11. témoin : un champ inconnu ne crée pas de colonne', [...colonnes].filter((c) => c.includes('pere')));
 
 console.log(`\n=== ${fail === 0 ? 'OK' : 'ÉCHEC'} : ${pass} ok, ${fail} ko ===`);
 process.exitCode = fail === 0 ? 0 : 1;

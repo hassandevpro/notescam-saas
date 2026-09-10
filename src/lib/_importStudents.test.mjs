@@ -7,8 +7,17 @@
 // `col()` cherche d'abord une correspondance exacte, puis une correspondance
 // approximative — et parmi les candidats de la date figure « naissance ». Un
 // fichier dont l'en-tête « Lieu de naissance » précède « Date de naissance »
-// voyait donc la date capturer la colonne du LIEU : chaque élève importé
-// recevait « YAOUNDE » comme date de naissance. En silence, sur toute l'école.
+// voyait donc la date lire la colonne du LIEU.
+//
+// L'effet réel n'était pas d'écrire le lieu dans la date : `normalizeDate`
+// rejette ce qui n'est pas une date et rend `null`. La date partait donc VIDE —
+// et comme le champ figure explicitement dans la ligne importée, il ÉCRASAIT la
+// date déjà enregistrée. Plus difficile à repérer qu'une valeur absurde.
+//
+// ⚠️ Les tests ci-dessous neutralisent `normalizeDate` (fonction identité) pour
+// n'observer QUE le mapping de colonnes : ils montrent donc quelle COLONNE est
+// lue, pas la valeur finalement écrite. Le dernier bloc, lui, rejoue la vraie
+// normalisation pour vérifier la conséquence réelle.
 //
 // La gravité tenait au contexte : la notice 0.2.5 recommande justement de
 // RÉIMPORTER le fichier d'inscription d'origine pour rattraper les informations
@@ -107,6 +116,30 @@ ok(!annee.date_naissance, '« Année » n’est pas prise pour une date de naiss
 const ordre = importe(['Nom du père', 'Nom', 'Prénom'], ['ABEGA Bernard', 'ABEGA', 'Sandrine']);
 ok(ordre.nom_pere === 'ABEGA Bernard', 'le père garde sa colonne même placé en premier', ordre.nom_pere);
 ok(String(ordre.name || '').includes('ABEGA'), 'le nom de l’élève reste celui de la colonne « Nom »', ordre.name);
+
+// ── La CONSÉQUENCE RÉELLE, avec la vraie normalisation des dates ────────────
+// Ici `normalizeDate` n'est plus neutralisée : on rejoue le comportement exact de
+// l'application. C'est ce bloc qui décrit ce que l'école aurait vraiment subi —
+// une date VIDE qui écrase la date enregistrée, et non une date absurde.
+const vraieNormalizeDate = new Function(`${src.slice(src.indexOf('function normalizeDate'), src.indexOf('\nfunction ', src.indexOf('function normalizeDate') + 10))}; return normalizeDate;`)();
+ok(vraieNormalizeDate('YAOUNDE') === null,
+  'la normalisation rejette un lieu passé comme date (elle rend null, pas la valeur)', vraieNormalizeDate('YAOUNDE'));
+ok(vraieNormalizeDate('2012-03-04') === '2012-03-04',
+  'témoin : une vraie date traverse la normalisation', vraieNormalizeDate('2012-03-04'));
+
+const reel = new Function(
+  'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate', 'normalizeStatut', 'normalizeStatutEtab',
+  `${corps}; return rawRowsToStudents;`,
+)(() => 'erreur', tel, tel, vraieNormalizeDate, tel, tel);
+const avecVraieDate = reel([
+  ['Matricule', 'Prénom', 'Nom', 'Lieu de naissance', 'Date de naissance'],
+  ['S1', 'Sandrine', 'ABEGA', LIEU, DATE],
+]).rows?.[0] || {};
+ok(avecVraieDate.date_naissance === DATE,
+  'avec la vraie normalisation, la date importée est la BONNE (avant : vide, donc effacée)',
+  avecVraieDate.date_naissance);
+ok(avecVraieDate.lieu_naissance === LIEU,
+  'et le lieu reste le lieu', avecVraieDate.lieu_naissance);
 
 console.log(echecs === 0 ? '\n✅ Tous les tests passent' : `\n❌ ÉCHEC : ${echecs}`);
 process.exitCode = echecs === 0 ? 0 : 1;

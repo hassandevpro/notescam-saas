@@ -56,6 +56,31 @@ export function anniversairesDuJour(eleves = [], jour = jourLocal()) {
   });
 }
 
+// Nombre de jours de préavis. L'école veut être prévenue AVANT pour préparer
+// quelque chose — une carte, une annonce, un gâteau. Le jour même, il est trop
+// tard pour organiser quoi que ce soit.
+export const PREAVIS_JOURS = 7;
+
+// Décale un jour AAAA-MM-JJ de n jours. Passe par `Date.UTC` : construire une
+// date locale ferait intervenir l'heure d'été, et un décalage d'une heure
+// suffirait à faire basculer le résultat d'un jour à l'autre.
+export function ajouterJours(jour, n) {
+  const m = String(jour || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return jour;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCDate(d.getUTCDate() + n);
+  const p = (x) => String(x).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+}
+
+// Élèves dont l'anniversaire tombe dans exactement `n` jours. On ne réécrit pas
+// la logique de date : on demande simplement « qui fête son anniversaire le
+// jour J+n », ce qui fait hériter du traitement du 29 février et des élèves
+// archivés sans le dupliquer.
+export function anniversairesDansNJours(eleves = [], jour = jourLocal(), n = PREAVIS_JOURS) {
+  return anniversairesDuJour(eleves, ajouterJours(jour, n));
+}
+
 // Âge atteint ce jour-là, ou null si la date de naissance ne le permet pas.
 export function ageAtteint(dateNaissance, jour = jourLocal()) {
   const dn = String(dateNaissance || '').slice(0, 10);
@@ -68,8 +93,10 @@ export function ageAtteint(dateNaissance, jour = jourLocal()) {
 // disponible dans le navigateur ET dans Node — pas de dépendance à ajouter.
 // La colonne `notifications.id` est de type uuid côté Cloud : un identifiant
 // lisible du genre « bday-<id>-<jour> » y serait refusé.
-export async function idAnniversaire(eleveId, jour) {
-  const octets = new TextEncoder().encode(`birthday:${eleveId}:${jour}`);
+// `genre` sépare le préavis de la notification du jour : sans lui, les deux
+// partageraient la même clé un jour sur sept et l'une écraserait l'autre.
+export async function idAnniversaire(eleveId, jour, genre = 'jour') {
+  const octets = new TextEncoder().encode(`birthday:${genre}:${eleveId}:${jour}`);
   const h = new Uint8Array(await crypto.subtle.digest('SHA-256', octets));
   // Version 5 et variante RFC 4122 : l'uuid est déterministe mais reste conforme.
   h[6] = (h[6] & 0x0f) | 0x50;
@@ -79,15 +106,56 @@ export async function idAnniversaire(eleveId, jour) {
 }
 
 // Texte de la notification. PUR, donc testable et traduisible d'un seul endroit.
-export function messageAnniversaire(eleve, { className, titulaire, jour, t }) {
+//
+// `genre` : 'jour' le jour même, 'preavis' une semaine avant. Les deux textes
+// diffèrent volontairement — « 14 ans aujourd'hui » envoyé sept jours à l'avance
+// serait faux, et une notification qu'on ne peut pas dater ne sert à rien pour
+// préparer quoi que ce soit.
+export function messageAnniversaire(eleve, { className, titulaire, jour, t, genre = 'jour', dateFete = null }) {
+  const contexte = [
+    className || null,
+    titulaire ? t(`Titulaire : ${titulaire}`, `Class teacher: ${titulaire}`, `Titular: ${titulaire}`) : null,
+  ].filter(Boolean);
+
+  if (genre === 'preavis') {
+    // L'âge est celui qu'il ATTEINDRA, calculé sur la date de la fête.
+    const age = ageAtteint(eleve?.date_naissance, dateFete || jour);
+    const quand = libelleJour(dateFete, t);
+    return {
+      title: `${t('Anniversaire à venir', 'Upcoming birthday', 'Cumpleaños próximo')} — ${eleve?.name || ''}`.trim(),
+      body: [
+        t(`Dans ${PREAVIS_JOURS} jours${quand ? `, le ${quand}` : ''}`,
+          `In ${PREAVIS_JOURS} days${quand ? `, on ${quand}` : ''}`,
+          `En ${PREAVIS_JOURS} días${quand ? `, el ${quand}` : ''}`),
+        age ? t(`${age} ans`, `turns ${age}`, `cumple ${age}`) : null,
+        ...contexte,
+      ].filter(Boolean).join(' · '),
+    };
+  }
+
   const age = ageAtteint(eleve?.date_naissance, jour);
   const parts = [
     age ? t(`${age} ans aujourd'hui`, `turns ${age} today`, `cumple ${age} años hoy`) : null,
-    className || null,
-    titulaire ? t(`Titulaire : ${titulaire}`, `Class teacher: ${titulaire}`, `Titular: ${titulaire}`) : null,
+    ...contexte,
   ].filter(Boolean);
   return {
     title: `🎂 ${t('Anniversaire', 'Birthday', 'Cumpleaños')} — ${eleve?.name || ''}`.trim(),
     body: parts.join(' · '),
   };
+}
+
+// « 23 septembre » — jour et mois suffisent : l'année est celle en cours, et
+// l'écrire alourdirait une ligne déjà dense.
+function libelleJour(jour, t) {
+  const m = String(jour || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  const moisFr = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+    'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  const moisEn = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const moisEs = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const i = Number(m[2]) - 1;
+  const jourNum = Number(m[3]);
+  return t(`${jourNum} ${moisFr[i]}`, `${moisEn[i]} ${jourNum}`, `${jourNum} de ${moisEs[i]}`);
 }

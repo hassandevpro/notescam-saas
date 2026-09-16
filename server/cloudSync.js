@@ -49,7 +49,7 @@ const PULL_ORDER = [
   // absentes côté LAN). Ordre FK : parents avant enfants.
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
-  'fee_catalog', 'student_fee_items',
+  'fee_catalog', 'student_fee_items', 'fee_schedule_items',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',

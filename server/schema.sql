@@ -800,6 +800,29 @@ CREATE TABLE IF NOT EXISTS student_fee_items (
   created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (student_id, fee_catalog_id, academic_year)
 );
+-- Échéances d'un frais PÉRIODIQUE (cantine mensuelle, transport trimestriel).
+-- Une ligne par (élève, frais attribué, période) : c'est elle qui sait dire
+-- « novembre est dû ». Le montant PAYÉ n'y figure pas — il se calcule depuis
+-- fee_payments, car deux sources de vérité pour un même montant divergent tôt
+-- ou tard, et c'est la caisse qui en paie le prix.
+--
+-- UNIQUE(student_fee_item_id, period_key) rend la génération REJOUABLE : ouvrir
+-- deux fois la fiche d'un élève ne double pas sa dette de cantine.
+CREATE TABLE IF NOT EXISTS fee_schedule_items (
+  id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  student_fee_item_id TEXT NOT NULL REFERENCES student_fee_items(id) ON DELETE CASCADE,
+  academic_year TEXT,
+  period_key TEXT NOT NULL,          -- '2025-11' (mois) ou '2025-T1' (trimestre)
+  period_label TEXT,                 -- libellé FIGÉ à la génération
+  amount_due INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'due', -- due|partial|paid|exempted|abandoned|not_applicable
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (student_fee_item_id, period_key)
+);
+CREATE INDEX IF NOT EXISTS idx_fee_schedule_student ON fee_schedule_items(student_id, academic_year);
 CREATE INDEX IF NOT EXISTS idx_fee_catalog_school ON fee_catalog(school_id, academic_year);
 CREATE INDEX IF NOT EXISTS idx_student_fee_items_student ON student_fee_items(student_id, academic_year);
 

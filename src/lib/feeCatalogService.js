@@ -24,6 +24,19 @@ export async function upsertCatalogItem(row) {
     mandatory: !!row.mandatory, optional: row.optional !== false,
     payment_type: row.payment_type || 'unique', start_date: nn(row.start_date), end_date: nn(row.end_date),
     active: row.active !== false, position: Number(row.position) || 0, notes: nn(row.notes),
+    // Services scolaires (B1). `periodicity` vaut 'unique' par défaut : un frais
+    // créé avant cette version, ou par un écran qui ne l'envoie pas, garde
+    // exactement le comportement d'avant.
+    periodicity: row.periodicity || 'unique',
+    // Toujours sérialisé en texte : la colonne est TEXT des DEUX côtés (jsonb
+    // aurait divergé du LAN, où SQLite n'a pas ce type). Écrire un tableau brut
+    // ici enverrait « [object Object] » au serveur local.
+    billing_periods: JSON.stringify(
+      Array.isArray(row.billing_periods) ? row.billing_periods
+        : (() => { try { const p = JSON.parse(row.billing_periods || '[]'); return Array.isArray(p) ? p : []; } catch { return []; } })(),
+    ),
+    allow_partial: row.allow_partial !== false,
+    allow_exemption: row.allow_exemption !== false,
     updated_at: new Date().toISOString(), version: (row.version || 0) + 1,
   };
   const { data, error } = await supabase.from('fee_catalog').upsert(payload, { onConflict: 'id' }).select().single();

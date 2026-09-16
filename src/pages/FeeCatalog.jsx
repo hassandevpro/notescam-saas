@@ -20,6 +20,7 @@ import FeeCatalogItemModal from '../components/fees/FeeCatalogItemModal';
 import { loadWithCache } from '../lib/offlineCache';
 import { printTicket } from '../lib/receiptDoc';
 import { printSubscribers } from '../lib/feeSubscribersDoc';
+import { generateSchedule } from '../lib/feeScheduleService';
 import { classSectionKey } from '../core/engineResolver';
 import { uuid } from '../lib/uuid';
 
@@ -140,7 +141,18 @@ export default function FeeCatalog({ embedded = false }) {
   const toggleOptional = async (opt, checked) => {
     if (checked) {
       const saved = await upsertStudentFeeItem({ id: uuid(), ...snapshotItem(opt, { studentId, schoolId, academicYear: year }) });
-      if (saved) setItems((xs) => [...xs, saved]);
+      if (saved) {
+        setItems((xs) => [...xs, saved]);
+        // Frais PÉRIODIQUE : on pose ses échéances dès l'attribution. La
+        // génération est idempotente (unicité en base) et part de la date
+        // d'inscription de l'élève — aucune créance pour les mois d'avant son
+        // arrivée. Elle ne bloque pas l'attribution : un échec laisse le frais
+        // en place, et une réouverture de la fiche rattrapera les échéances.
+        generateSchedule({
+          schoolId, catalogItem: opt, studentFeeItem: saved,
+          enrolledAt: selectedStudent?.created_at || null,
+        }).catch(() => { /* jamais bloquant */ });
+      }
     } else {
       const existing = items.find((i) => i.fee_catalog_id === opt.id && i.status !== 'removed');
       if (!existing) return;

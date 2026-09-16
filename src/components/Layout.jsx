@@ -13,6 +13,8 @@ import SyncBadge from './SyncBadge';
 import UserMenu from './UserMenu';
 import LanguageMenu from './LanguageMenu';
 import { localeForLang, useT } from '../lib/i18n';
+import { useSchoolStore } from '../store/schoolStore';
+import { notifierAnniversaires, jourLocal } from '../lib/birthdayNotifications';
 import { scopeSummary } from '../core/surveillantScope';
 
 // ── Horloge d'en-tête (date + heure du jour) ───────────────────────────────
@@ -220,6 +222,28 @@ export default function Layout({ children, bleed = false }) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [school?.id, role, teacherId, userId]);
+
+  // ── Anniversaires du jour ───────────────────────────────────────────────
+  // Posé ici parce que c'est le seul endroit traversé par TOUS les rôles, une
+  // fois l'école et les élèves chargés. Le producteur est idempotent (identifiant
+  // dérivé de l'élève et du jour) : que dix postes ouvrent l'application le même
+  // matin ne fait pas dix notifications. Il ne lève jamais et n'est pas attendu —
+  // un anniversaire manqué ne doit ni retarder ni casser l'ouverture.
+  const students = useSchoolStore((s) => s.students);
+  const classesForBirthdays = useSchoolStore((s) => s.classes);
+  const teachersForBirthdays = useSchoolStore((s) => s.teachers);
+  useEffect(() => {
+    if (!school?.id || !students?.length) return;
+    notifierAnniversaires({
+      schoolId: school.id,
+      eleves: students,
+      classes: classesForBirthdays,
+      teachers: teachersForBirthdays,
+      t,
+    }).catch(() => { /* jamais bloquant */ });
+    // `jourLocal()` dans les dépendances : une session laissée ouverte toute la
+    // nuit reprend les anniversaires du lendemain au changement de date.
+  }, [school?.id, students?.length, classesForBirthdays, teachersForBirthdays, t, jourLocal()]);
 
   const handleLogout = async () => {
     cleanupNotifications();

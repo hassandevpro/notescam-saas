@@ -160,6 +160,25 @@ ensureColumn('schools',  'advanced_delegation', 'advanced_delegation INTEGER NOT
 ensureColumn('schools',  'validation_rules',  'validation_rules TEXT'); // barème seuils->rôle validateur (JSON ; null = défaut moteur)
 ensureColumn('signalements', 'assigned_department', 'assigned_department TEXT'); // affectation auto du module Reports (dérivée de la catégorie)
 ensureColumn('fee_payments', 'student_fee_item_id', 'student_fee_item_id TEXT'); // lien paiement->frais précis (null = paiement global hérité)
+
+// ── SERVICES SCOLAIRES : périodicité d'un frais (cantine, transport) ────────
+// Miroir LAN de supabase_fee_periodicity.sql. Sans ces colonnes ici, la
+// périodicité saisie au Cloud serait JETÉE EN SILENCE à la descente
+// (rawUpsert ne garde que les colonnes présentes localement) et la cantine
+// mensuelle d'une école hybride redeviendrait un frais unique — sans le moindre
+// message. C'est exactement ainsi que les informations parents de THE GENIUS ont
+// été perdues.
+//
+// `periodicity` par défaut 'unique' = comportement actuel inchangé.
+// `billing_periods` est une DONNÉE, pas un calcul : l'état de cantine de l'école
+// ne facture pas décembre, et une déduction automatique le facturerait à tous.
+ensureColumn('fee_catalog', 'periodicity',     "periodicity TEXT NOT NULL DEFAULT 'unique'");
+ensureColumn('fee_catalog', 'billing_periods', "billing_periods TEXT NOT NULL DEFAULT '[]'");
+ensureColumn('fee_catalog', 'allow_partial',   'allow_partial INTEGER NOT NULL DEFAULT 1');
+ensureColumn('fee_catalog', 'allow_exemption', 'allow_exemption INTEGER NOT NULL DEFAULT 1');
+// Un paiement peut viser UNE période. Jumelle de student_fee_item_id : les trois
+// cas cohabitent (un mois précis, un service sans mois, la scolarité globale).
+ensureColumn('fee_payments', 'fee_schedule_item_id', 'fee_schedule_item_id TEXT');
 // Traçabilité de la CAISSE : qui a encaissé. `recorded_by` (id du compte) était
 // déjà écrit par l'app mais pickColumns l'avalait en LAN → l'info était perdue.
 // `recorded_by_name` fige le NOM au moment de l'encaissement : un reçu réimprimé
@@ -612,6 +631,10 @@ export const SYNCED_TABLES = new Set([
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   // Catalogue de frais (obligatoires/optionnels) + liste par élève.
   'fee_catalog', 'student_fee_items',
+  // Échéances des frais PÉRIODIQUES (cantine mensuelle, transport trimestriel).
+  // Sans cette ligne, elles s'enregistrent en LAN et ne quittent jamais l'école :
+  // le Cloud resterait vide sans qu'aucun message ne le signale.
+  'fee_schedule_items',
   // Arrêté de caisse : le rapprochement espèces↔écritures doit se répliquer,
   // sinon un contrôle fait en LAN resterait invisible depuis le Cloud.
   'cash_sessions',
@@ -787,7 +810,7 @@ export const ALLOWED_TABLES = new Set([
   'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
-  'fee_catalog', 'student_fee_items', 'cash_sessions',
+  'fee_catalog', 'student_fee_items', 'fee_schedule_items', 'cash_sessions',
   'attendance', 'student_absences',
   // Trace des versements emportés par la suppression d'un élève. EN LECTURE
   // SEULE : query.js refuse tout insert/update/delete dessus (guardTraceReadOnly).

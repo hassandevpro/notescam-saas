@@ -14,6 +14,59 @@ export const FEE_CATEGORIES = [
 ];
 export const FEE_PAYMENT_TYPES = ['unique', 'echelonne'];
 
+// ── DEUX FAMILLES : ce que l'école FACTURE vs ce qu'elle REND comme service ──
+// Un parent ne lit pas « apee » et « cantine » de la même façon : l'un est une
+// obligation de scolarité, l'autre une prestation à laquelle il a souscrit. La
+// distinction ne change aucun calcul — elle ne sert qu'à présenter le relevé
+// d'un élève en deux blocs lisibles.
+//
+// `autre` est rangé du côté ACADÉMIQUE, et c'est un choix : c'est le fourre-tout
+// historique du catalogue, employé bien avant que les services existent. Le
+// basculer côté services déplacerait sans prévenir des frais déjà saisis par les
+// écoles dans un bloc où elles ne les ont jamais rangés.
+export const ACADEMIC_CATEGORIES = ['inscription', 'scolarite', 'apee', 'autre'];
+export const SERVICE_CATEGORIES = ['cantine', 'transport', 'tenue', 'internat',
+  'soutien', 'activites', 'bibliotheque', 'assurance', 'sortie'];
+
+export function feeFamily(category) {
+  return SERVICE_CATEGORIES.includes(category) ? 'service' : 'academique';
+}
+
+// Relevé d'un élève en deux blocs + totaux. PUR : `paidOf` est injecté par
+// l'appelant, parce que le payé se calcule depuis les paiements et que ce
+// moteur ne connaît ni la base ni le store.
+export function statementByFamily(items = [], paidOf = () => 0) {
+  const vivants = items.filter((i) => i.status !== 'removed');
+  const bloc = (famille) => {
+    const lignes = vivants
+      .filter((i) => feeFamily(i.category) === famille)
+      .map((i) => {
+        const du = Number(i.amount) || 0;
+        const paye = Number(paidOf(i)) || 0;
+        // Solde borné à 0 : un trop-perçu sur un frais ne doit pas venir effacer
+        // la dette d'un autre en se propageant dans le total.
+        return { ...i, due: du, paid: paye, balance: Math.max(0, du - paye) };
+      })
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    return {
+      lignes,
+      due: lignes.reduce((s, l) => s + l.due, 0),
+      paid: lignes.reduce((s, l) => s + l.paid, 0),
+      balance: lignes.reduce((s, l) => s + l.balance, 0),
+    };
+  };
+  const academique = bloc('academique');
+  const service = bloc('service');
+  return {
+    academique, service,
+    total: {
+      due: academique.due + service.due,
+      paid: academique.paid + service.paid,
+      balance: academique.balance + service.balance,
+    },
+  };
+}
+
 // Un frais du catalogue s'applique-t-il à un élève (année / niveau / classe) ?
 // Priorité : classe ciblée > niveau ciblé > global (toute l'école).
 export function itemApplies(item, { academicYear, level, classId } = {}) {

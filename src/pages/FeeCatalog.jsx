@@ -13,14 +13,14 @@ import {
 } from '../lib/feeCatalogService';
 import {
   mandatoryItemsFor, optionalItemsFor, snapshotItem, itemBalance, paidForItem,
-  balanceByCategory, studentTotals, revenueByFeeType,
+  balanceByCategory, studentTotals, revenueByFeeType, statementByFamily,
 } from '../lib/feeCatalogEngine';
 import { FEE_CATEGORY_LABELS } from '../components/fees/feeCatalogUi';
 import FeeCatalogItemModal from '../components/fees/FeeCatalogItemModal';
 import { loadWithCache } from '../lib/offlineCache';
 import { printTicket } from '../lib/receiptDoc';
 import { printSubscribers } from '../lib/feeSubscribersDoc';
-import { generateSchedule } from '../lib/feeScheduleService';
+import { generateSchedule, fetchSchedule, scheduleView } from '../lib/feeScheduleService';
 import { classSectionKey } from '../core/engineResolver';
 import { uuid } from '../lib/uuid';
 
@@ -118,6 +118,33 @@ export default function FeeCatalog({ embedded = false }) {
     rows: subscribersOf(cat),
     lang: school?.language,
   });
+
+  // Échéances de l'élève affiché (frais périodiques uniquement). Rechargées à
+  // chaque changement d'élève ou de liste de frais : une souscription qui vient
+  // d'être cochée a genéré ses échéances, il faut les voir sans recharger la page.
+  const [schedule, setSchedule] = useState([]);
+  useEffect(() => {
+    if (!schoolId || !studentId || view !== 'students') { setSchedule([]); return; }
+    let vivant = true;
+    fetchSchedule(schoolId, { studentId, yearLabel: year })
+      .then((r) => { if (vivant) setSchedule(r || []); })
+      .catch(() => { if (vivant) setSchedule([]); });
+    return () => { vivant = false; };
+  }, [schoolId, studentId, year, view, items]);
+
+  // Échéances groupées par frais, avec leur versé et leur statut effectif.
+  const scheduleByItem = useMemo(() => {
+    const vue = scheduleView(schedule, feePayments);
+    const map = {};
+    for (const l of vue) (map[l.student_fee_item_id] ??= []).push(l);
+    return map;
+  }, [schedule, feePayments]);
+
+  // Relevé en deux blocs : frais académiques / services scolaires.
+  const statement = useMemo(
+    () => statementByFamily(items, (i) => paidForItem(i.id, feePayments)),
+    [items, feePayments],
+  );
 
   const selectedStudent = students.find((s) => s.id === studentId) || null;
   const activeItems = items.filter((i) => i.status !== 'removed');
@@ -320,27 +347,84 @@ export default function FeeCatalog({ embedded = false }) {
                 <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center text-sm text-gray-500">{t('Sélectionnez un élève.', 'Select a student.', 'Seleccione un alumno.')}</div>
               ) : (
                 <>
+                  {/* Relevé en DEUX BLOCS. Un parent ne lit pas « scolarité » et
+                      « cantine » de la même façon : l'un est une obligation, l'autre
+                      une prestation à laquelle il a souscrit. La séparation ne change
+                      aucun calcul — elle rend le relevé lisible. */}
                   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
-                    <div className="px-4 py-2 text-xs font-bold text-gray-500 border-b border-gray-100">{t('Frais attribués', 'Assigned fees', 'Tasas asignadas')}</div>
                     <table className="w-full text-sm">
-                      <tbody>{activeItems.map((i) => {
-                        const b = itemBalance(i, feePayments);
-                        return (
-                          <tr key={i.id} className="border-t border-gray-100">
-                            <td className="px-4 py-2">
-                              <div className="font-medium text-gray-800">{i.name}
-                                {i.mandatory ? <span className="ml-2 text-[10px] text-rose-600">({t('obligatoire', 'mandatory', 'obligatorio')})</span> : null}</div>
-                              <div className="text-xs text-gray-400">{catLabel(i.category)}</div>
-                            </td>
-                            <td className="px-4 py-2 text-right tabular-nums text-gray-700">{money(i.amount)}
-                              {canManage && <button onClick={() => editAmount(i)} className="ml-1 text-xs text-gray-300 hover:text-gray-600">✎</button>}</td>
-                            <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{money(b.paid)}</td>
-                            <td className={`px-4 py-2 text-right tabular-nums ${b.balance > 0 ? 'text-rose-600' : 'text-gray-400'}`}>{money(b.balance)}</td>
-                            <td className="px-4 py-2 text-right">{canManage && b.balance > 0 && <button onClick={() => pay(i)} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-2 py-1 rounded">{t('Payer', 'Pay', 'Pagar')}</button>}</td>
-                          </tr>
-                        );
-                      })}
-                      {activeItems.length === 0 && <tr><td className="px-4 py-6 text-center text-sm text-gray-400" colSpan={5}>{t('Aucun frais.', 'No fee.', 'Sin tasas.')}</td></tr>}
+                      <tbody>
+                        {[
+                          { cle: 'academique', titre: t('Frais académiques', 'Academic fees', 'Tasas académicas'), bloc: statement.academique },
+                          { cle: 'service', titre: t('Services scolaires', 'School services', 'Servicios escolares'), bloc: statement.service },
+                        ].map(({ cle, titre, bloc }) => (
+                          <Fragment key={cle}>
+                            <tr className="bg-gray-50/70">
+                              <td className="px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wide" colSpan={2}>{titre}</td>
+                              <td className="px-4 py-2 text-right text-xs tabular-nums text-emerald-700">{money(bloc.paid)}</td>
+                              <td className={`px-4 py-2 text-right text-xs tabular-nums ${bloc.balance > 0 ? 'text-rose-600' : 'text-gray-400'}`}>{money(bloc.balance)}</td>
+                              <td />
+                            </tr>
+                            {bloc.lignes.length === 0 && (
+                              <tr><td className="px-4 py-3 text-xs text-gray-400" colSpan={5}>
+                                {cle === 'service'
+                                  ? t('Aucun service souscrit.', 'No service subscribed.', 'Sin servicios.')
+                                  : t('Aucun frais.', 'No fee.', 'Sin tasas.')}
+                              </td></tr>
+                            )}
+                            {bloc.lignes.map((i) => {
+                              const echeances = scheduleByItem[i.id] || [];
+                              return (
+                                <Fragment key={i.id}>
+                                  <tr className="border-t border-gray-100">
+                                    <td className="px-4 py-2">
+                                      <div className="font-medium text-gray-800">{i.name}
+                                        {i.mandatory ? <span className="ml-2 text-[10px] text-rose-600">({t('obligatoire', 'mandatory', 'obligatorio')})</span> : null}</div>
+                                      <div className="text-xs text-gray-400">
+                                        {catLabel(i.category)}
+                                        {echeances.length > 0 && ` · ${echeances.length} ${t('échéances', 'instalments', 'vencimientos')}`}
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-2 text-right tabular-nums text-gray-700">{money(i.due)}
+                                      {canManage && <button onClick={() => editAmount(i)} className="ml-1 text-xs text-gray-300 hover:text-gray-600">✎</button>}</td>
+                                    <td className="px-4 py-2 text-right tabular-nums text-emerald-700">{money(i.paid)}</td>
+                                    <td className={`px-4 py-2 text-right tabular-nums ${i.balance > 0 ? 'text-rose-600' : 'text-gray-400'}`}>{money(i.balance)}</td>
+                                    <td className="px-4 py-2 text-right">{canManage && i.balance > 0 && <button onClick={() => pay(i)} className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-2 py-1 rounded">{t('Payer', 'Pay', 'Pagar')}</button>}</td>
+                                  </tr>
+                                  {/* Échéances d'un frais périodique : c'est ici que se
+                                      lit « novembre est dû », mois par mois. */}
+                                  {echeances.length > 0 && (
+                                    <tr className="border-t border-gray-50">
+                                      <td colSpan={5} className="px-4 pb-3 pt-1 bg-gray-50/40">
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {echeances.map((e) => {
+                                            const style = e.effective_status === 'paid' ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                                              : e.effective_status === 'partial' ? 'bg-amber-100 text-amber-700 border-amber-200'
+                                                : e.effective_status === 'due' ? 'bg-white text-gray-500 border-gray-200'
+                                                  : 'bg-gray-100 text-gray-400 border-gray-200 line-through';
+                                            return (
+                                              <span key={e.id} title={`${money(e.amount_paid)} / ${money(e.amount_due)}`}
+                                                className={`px-2 py-0.5 rounded-md text-[11px] font-medium border ${style}`}>
+                                                {e.period_label || e.period_key}
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </Fragment>
+                              );
+                            })}
+                          </Fragment>
+                        ))}
+                        <tr className="border-t-2 border-gray-200 bg-gray-50">
+                          <td className="px-4 py-2 text-sm font-bold text-gray-700">{t('TOTAL', 'TOTAL', 'TOTAL')}</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-bold text-gray-800">{money(statement.total.due)}</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-bold text-emerald-700">{money(statement.total.paid)}</td>
+                          <td className={`px-4 py-2 text-right tabular-nums font-bold ${statement.total.balance > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{money(statement.total.balance)}</td>
+                          <td />
+                        </tr>
                       </tbody>
                     </table>
                   </div>

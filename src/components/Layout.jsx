@@ -239,11 +239,15 @@ export default function Layout({ children, bleed = false }) {
       eleves: students,
       classes: classesForBirthdays,
       teachers: teachersForBirthdays,
-      t,
+      // `tt`, et non `t` : dans CE composant la fonction de traduction s'appelle
+      // ainsi (`t` y désigne un timer, plus haut). Écrire `t` a coûté un écran
+      // blanc en production — la variable n'existait pas, React levait une
+      // ReferenceError au montage et plus rien ne s'affichait.
+      t: tt,
     }).catch(() => { /* jamais bloquant */ });
     // `jourLocal()` dans les dépendances : une session laissée ouverte toute la
     // nuit reprend les anniversaires du lendemain au changement de date.
-  }, [school?.id, students?.length, classesForBirthdays, teachersForBirthdays, t, jourLocal()]);
+  }, [school?.id, students?.length, classesForBirthdays, teachersForBirthdays, tt, jourLocal()]);
 
   const handleLogout = async () => {
     cleanupNotifications();

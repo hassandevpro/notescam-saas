@@ -11,6 +11,7 @@
 //     identiques quand dix postes ouvrent l'application le même matin.
 import {
   anniversairesDuJour, ageAtteint, idAnniversaire, messageAnniversaire, jourLocal,
+  ajouterJours, anniversairesDansNJours, PREAVIS_JOURS,
 } from './birthdayEngine.js';
 
 let ko = 0;
@@ -80,6 +81,46 @@ ok(!sansTitulaire.body.includes('Titulaire'), '18. classe sans titulaire : aucun
 // lendemain en UTC — l'anniversaire serait souhaité avec un jour de décalage.
 const tard = new Date(2026, 8, 16, 23, 30, 0);
 ok(jourLocal(tard) === '2026-09-16', '19. 23 h 30 reste le 16 (et non le 17 par bascule UTC)', jourLocal(tard));
+
+// ── PRÉAVIS À 7 JOURS ───────────────────────────────────────────────────────
+// L'école veut être prévenue AVANT pour préparer quelque chose. Le jour même,
+// il est trop tard pour organiser une carte ou une annonce.
+ok(ajouterJours('2026-09-16', 7) === '2026-09-23', '20. +7 jours dans le même mois', ajouterJours('2026-09-16', 7));
+ok(ajouterJours('2026-09-28', 7) === '2026-10-05', '21. +7 jours franchit la fin du mois', ajouterJours('2026-09-28', 7));
+ok(ajouterJours('2026-12-28', 7) === '2027-01-04', '22. +7 jours franchit l’ANNÉE', ajouterJours('2026-12-28', 7));
+ok(ajouterJours('2028-02-25', 7) === '2028-03-03',
+  '23. +7 jours traverse un 29 février (année bissextile)', ajouterJours('2028-02-25', 7));
+
+// Le 9 septembre, on annonce les anniversaires du 16.
+const preavis = anniversairesDansNJours(eleves, '2026-09-09', 7).map((e) => e.id).sort();
+ok(JSON.stringify(preavis) === JSON.stringify(['a', 'b']),
+  '24. sept jours avant, les élèves du 16/09 sont annoncés', preavis);
+ok(anniversairesDansNJours(eleves, '2026-09-16', 7).map((e) => e.id).length === 0,
+  '25. le jour même, le préavis ne réannonce pas les mêmes élèves',
+  anniversairesDansNJours(eleves, '2026-09-16', 7).map((e) => e.id));
+
+// Un élève archivé ne doit pas non plus être annoncé à l'avance.
+ok(!preavis.includes('g'), '26. un élève ARCHIVÉ n’est pas annoncé non plus');
+
+// ── Les deux notifications ne se marchent pas dessus ────────────────────────
+// Même élève, même jour d'émission : si les clés se confondaient, l'une
+// écraserait l'autre et l'école perdrait soit le rappel, soit le souhait.
+const idJour = await idAnniversaire('a', '2026-09-16', 'jour');
+const idPreavis = await idAnniversaire('a', '2026-09-16', 'preavis');
+ok(idJour !== idPreavis,
+  '27. préavis et notification du jour ont des identifiants DIFFÉRENTS', [idJour, idPreavis]);
+ok(await idAnniversaire('a', '2026-09-16', 'preavis') === idPreavis,
+  '28. et le préavis reste idempotent d’un poste à l’autre');
+
+// ── Le texte du préavis ne ment pas sur la date ─────────────────────────────
+const mp = messageAnniversaire(eleves[0], {
+  className: '3e A', titulaire: null, jour: '2026-09-09', t, genre: 'preavis', dateFete: '2026-09-16',
+});
+ok(!mp.body.includes("aujourd'hui"),
+  '29. le préavis ne dit PAS « aujourd’hui » (ce serait faux sept jours avant)', mp.body);
+ok(mp.body.includes('16 septembre'), '30. il donne la date de la fête', mp.body);
+ok(mp.body.includes('14 ans'), '31. et l’âge qu’il ATTEINDRA ce jour-là', mp.body);
+ok(mp.title.includes('à venir'), '32. le titre annonce un anniversaire à venir', mp.title);
 
 console.log(ko === 0 ? '\n✅ Tous les tests passent' : `\n❌ ÉCHEC : ${ko}`);
 process.exitCode = ko === 0 ? 0 : 1;

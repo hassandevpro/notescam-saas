@@ -35,13 +35,18 @@ export function feeFamily(category) {
 // Relevé d'un élève en deux blocs + totaux. PUR : `paidOf` est injecté par
 // l'appelant, parce que le payé se calcule depuis les paiements et que ce
 // moteur ne connaît ni la base ni le store.
-export function statementByFamily(items = [], paidOf = () => 0) {
+export function statementByFamily(items = [], paidOf = () => 0, dueOf = null) {
   const vivants = items.filter((i) => i.status !== 'removed');
   const bloc = (famille) => {
     const lignes = vivants
       .filter((i) => feeFamily(i.category) === famille)
       .map((i) => {
-        const du = Number(i.amount) || 0;
+        // Le dû d'un frais PÉRIODIQUE n'est pas `amount` : `amount` est le prix
+        // d'UNE période. Une cantine à 15 000/mois afficherait « dû 15 000,
+        // payé 45 000 » — un relevé que personne ne peut présenter à un parent.
+        // L'appelant injecte donc le dû quand il sait le calculer (échéancier),
+        // et `amount` reste le défaut pour tous les frais à versement unique.
+        const du = dueOf ? Number(dueOf(i)) || 0 : Number(i.amount) || 0;
         const paye = Number(paidOf(i)) || 0;
         // Solde borné à 0 : un trop-perçu sur un frais ne doit pas venir effacer
         // la dette d'un autre en se propageant dans le total.

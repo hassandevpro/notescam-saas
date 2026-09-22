@@ -18,7 +18,10 @@
 // importante de ce fichier : l'école a le dernier mot sur ce qu'elle a décidé.
 import { supabase } from './supabase';
 import { uuid } from './uuid';
-import { echeancierPour, statutEcheance } from './feeScheduleEngine';
+import { echeancierPour, statutEcheance, paidForSchedule, peutChangerStatut } from './feeScheduleEngine';
+import { logAction } from './historyService';
+import { emitFinanceEvent } from '../domains/finance/emit';
+import { AGGREGATE, EVT } from '../domains/finance/events';
 
 // Échéances déjà enregistrées pour un élève (toutes ses souscriptions).
 export async function fetchSchedule(schoolId, { studentId, yearLabel } = {}) {
@@ -40,7 +43,9 @@ export async function fetchSchedule(schoolId, { studentId, yearLabel } = {}) {
  * @param {string} opts.schoolId
  * @param {object} opts.catalogItem      l'article du catalogue (periodicity, billing_periods, amount)
  * @param {object} opts.studentFeeItem   le frais ATTRIBUÉ (id, student_id, amount, academic_year)
- * @param {string} [opts.enrolledAt]     date d'inscription de l'élève — aucune créance avant
+ * @param {string} [opts.enrolledAt]     date d'inscription À L'ÉCOLE — REPLI seulement.
+ *                                       La date qui fait foi est `studentFeeItem.started_at`,
+ *                                       celle de la souscription À CE SERVICE.
  * @param {string} [opts.langue]         fige le libellé de période à la génération
  * @returns {number} nombre d'échéances créées (0 si tout existait déjà)
  */
@@ -53,6 +58,11 @@ export async function generateSchedule({ schoolId, catalogItem, studentFeeItem, 
   const annee = studentFeeItem.academic_year || catalogItem.academic_year;
   const attendues = echeancierPour(catalogItem, {
     academicYear: annee,
+    // La date d'entrée dans CE SERVICE prime sur celle de l'école. Un élève
+    // présent depuis septembre qui prend la cantine en février ne doit pas
+    // septembre : il n’a pas pris ces repas. `enrolledAt` ne sert que de repli,
+    // ce qui laisse les souscriptions antérieures à B6 se comporter comme avant.
+    startedAt: studentFeeItem.started_at || null,
     enrolledAt,
     // Le montant de la SOUSCRIPTION prime : c'est un instantané pris à
     // l'attribution, et un tarif modifié en cours d'année ne doit pas réécrire
@@ -94,13 +104,12 @@ export async function generateSchedule({ schoolId, catalogItem, studentFeeItem, 
   return lignes.length;
 }
 
-// Somme versée sur une échéance précise. Même principe que `paidForItem` :
-// le payé se CALCULE, il ne se stocke pas.
-export function paidForSchedule(scheduleId, payments = []) {
-  return payments
-    .filter((p) => p.fee_schedule_item_id === scheduleId)
-    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
-}
+// Somme versée sur une échéance précise. Même principe que `paidForItem` : le
+// payé se CALCULE, il ne se stocke pas. La fonction vit désormais dans le
+// moteur — elle est pure, et c'est là que les tests peuvent l'atteindre sans
+// traîner le client de base de données derrière eux. Réexportée ici pour que
+// les appelants existants n'aient rien à changer.
+export { paidForSchedule };
 
 // Vue d'un échéancier prêt à afficher : chaque ligne reçoit son versé et son
 // statut effectif (le statut manuel de l'école l'emporte, cf. moteur).
@@ -118,14 +127,61 @@ export function scheduleView(lignes = [], payments = []) {
   });
 }
 
-// Pose un statut DÉCIDÉ par l'école (exemption, abandon, non applicable) ou
-// revient au suivi automatique avec 'due'. Ne touche jamais au montant : une
-// exemption ne réécrit pas l'historique de ce qui était dû.
-export async function setScheduleStatus(id, status) {
+// ── POSER UNE DÉCISION SUR UNE PÉRIODE ─────────────────────────────────────
+// Exempter, acter un abandon, déclarer une période non applicable — ou revenir
+// au suivi automatique avec 'due'. Ne touche JAMAIS au montant : une exemption
+// ne réécrit pas l'historique de ce qui était dû, elle le fait sortir du dû.
+//
+// TROIS GARDES, dans cet ordre :
+//   1. la recevabilité (moteur pur) — une période déjà payée ne se requalifie
+//      pas, un frais qui interdit l’exemption la refuse, et « payé » ne se pose
+//      pas à la main ;
+//   2. le périmètre ÉCOLE est réimposé dans le WHERE. La RLS du Cloud le fait
+//      déjà, mais un `eq(id)` seul ferait reposer tout le cloisonnement sur
+//      elle ; en LAN c’est scopeGuard qui tranche, et deux verrous valent mieux
+//      qu’un sur une écriture qui efface une créance ;
+//   3. la TRACE, best-effort et hors du chemin d’écriture, dans les deux
+//      journaux — comme le fait déjà tout encaissement. Sans elle, faire sortir
+//      une dette du dû serait le seul geste financier anonyme de l’application.
+//
+// @returns {{ok: boolean, raison: string|null}}
+export async function setScheduleStatus({
+  ligne, statut, schoolId, allowExemption = true, payments = [],
+} = {}) {
+  if (!ligne?.id || !schoolId) return { ok: false, raison: 'parametres_manquants' };
+
+  const verse = paidForSchedule(ligne.id, payments);
+  const verdict = peutChangerStatut({ nouveauStatut: statut, verse, allowExemption });
+  if (!verdict.ok) return verdict;
+
+  const ancien = ligne.status || null;
+  if (ancien === statut) return { ok: true, raison: null };   // rien à écrire, rien à tracer
+
   const { error } = await supabase
     .from('fee_schedule_items')
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) { console.error('setScheduleStatus', error); return false; }
-  return true;
+    .update({ status: statut, updated_at: new Date().toISOString() })
+    .eq('id', ligne.id)
+    .eq('school_id', schoolId);
+  if (error) { console.error('setScheduleStatus', error); return { ok: false, raison: 'ecriture_refusee' }; }
+
+  const details = {
+    student_id: ligne.student_id || null,
+    student_fee_item_id: ligne.student_fee_item_id || null,
+    academic_year: ligne.academic_year || null,
+    period_key: ligne.period_key,
+    amount_due: Number(ligne.amount_due) || 0,
+    from: ancien,
+    to: statut,
+  };
+  logAction({ action: 'update', table: 'fee_schedule_items', target_id: ligne.id, details });
+  emitFinanceEvent({
+    aggregateType: AGGREGATE.FEE_SCHEDULE,
+    aggregateId: ligne.id,
+    correlationId: ligne.student_fee_item_id || ligne.id,
+    schoolId,
+    eventType: EVT.FEE_SCHEDULE_STATUS_CHANGED,
+    payload: details,
+  });
+
+  return { ok: true, raison: null };
 }

@@ -179,6 +179,11 @@ ensureColumn('fee_catalog', 'allow_exemption', 'allow_exemption INTEGER NOT NULL
 // Un paiement peut viser UNE période. Jumelle de student_fee_item_id : les trois
 // cas cohabitent (un mois précis, un service sans mois, la scolarité globale).
 ensureColumn('fee_payments', 'fee_schedule_item_id', 'fee_schedule_item_id TEXT');
+// Date d'entrée de l'élève DANS CE SERVICE, distincte de son inscription à
+// l'école : un élève présent depuis septembre peut prendre la cantine en
+// février. NULL = repli sur la date scolaire, donc comportement inchangé pour
+// toutes les souscriptions antérieures.
+ensureColumn('student_fee_items', 'started_at', 'started_at TEXT');
 // Traçabilité de la CAISSE : qui a encaissé. `recorded_by` (id du compte) était
 // déjà écrit par l'app mais pickColumns l'avalait en LAN → l'info était perdue.
 // `recorded_by_name` fige le NOM au moment de l'encaissement : un reçu réimprimé

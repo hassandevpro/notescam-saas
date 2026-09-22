@@ -49,7 +49,13 @@ const PULL_ORDER = [
   // absentes côté LAN). Ordre FK : parents avant enfants.
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  // Paie : catalogue + bulletins AVANT les lignes de bulletin (FK).
+  'hr_payroll_catalog', 'hr_payroll', 'hr_payroll_items',
   'fee_catalog', 'student_fee_items', 'fee_schedule_items',
+  // Arrêté de caisse : aucune FK vers une autre table synchronisée, mais il
+  // doit figurer ICI pour être appliqué — une table absente de PULL_ORDER est
+  // silencieusement ignorée à la descente.
+  'cash_sessions',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
@@ -178,10 +184,38 @@ function retryPendingPull() {
   }
 }
 
+// ── Une table neuve dans PULL_ORDER invalide le curseur de pull ──────────
+//
+// Jumelle de resetPullCursorIfSchemaGrew (server/db.js), pour les TABLES au lieu
+// des colonnes. `sync-pull` est un keyset strictement supérieur au curseur : une
+// table ajoutée ici ne reçoit que les lignes cloud modifiées APRÈS son ajout.
+// Tout son historique — la paie saisie en Cloud avant la 0.2.7, par exemple —
+// resterait en Cloud pour toujours, sans message.
+//
+// La liste des tables déjà tirées est mémorisée dans sync_cursor. Si PULL_ORDER
+// en contient une absente de cette liste (ou si la liste n'existe pas encore :
+// premier démarrage après une mise à jour), le curseur de pull repart de zéro,
+// UNE fois. La résolution LWW rend la relecture sans effet de bord : une ligne
+// locale plus récente gagne toujours. `tomb_at` n'est pas touché (cf. db.js).
+export function resetPullCursorIfPullOrderGrew() {
+  const connues = (() => {
+    try { return new Set(JSON.parse(cursor('pull_tables') || 'null') || []); } catch { return new Set(); }
+  })();
+  const neuves = PULL_ORDER.filter((t) => !connues.has(t));
+  if (!neuves.length) return [];
+  db.prepare('DELETE FROM sync_cursor WHERE name = ?').run('pull_at');
+  setCursor('pull_tables', JSON.stringify([...PULL_ORDER].sort()));
+  if (connues.size) {
+    console.warn(`[sync] table(s) neuve(s) à la descente : ${neuves.join(', ')} — curseur de pull remis à zéro.`);
+  }
+  return neuves;
+}
+
 // --- Pull : cloud → local --------------------------------------------
 // En `dryRun`, l'appel sync-pull (lecture seule côté cloud) est fait pour
 // calculer les décisions LWW, mais RIEN n'est écrit ni les curseurs avancés.
 async function pull(edge, dryRun) {
+  if (!dryRun) resetPullCursorIfPullOrderGrew();
   const j = await edge('sync-pull', { since: cursor('pull_at'), tomb_since: cursor('tomb_at') });
   const rows = j?.rows || {};
   const plan = { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] };

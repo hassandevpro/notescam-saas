@@ -38,6 +38,10 @@ export const VERIFY_TABLES = [
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items', 'cash_sessions',
+  // Échéances des frais périodiques. Absentes d'ici, elles n'étaient jamais
+  // comparées : autoRepair ne répare que ce que ce contrôle déclare divergent,
+  // donc les échéances perdues avant la 0.2.7 ne seraient jamais rattrapées.
+  'fee_schedule_items',
   'attendance', 'student_absences', 'student_class_assignments',
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
   'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',

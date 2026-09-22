@@ -356,6 +356,32 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(school_id, date, cashier_id)
 );
+-- Miroir LAN des deux CHECK du Cloud (cash_sessions_no_self_validation,
+-- cash_sessions_variance_explained). Sans eux, un arrêté accepté ici serait
+-- refusé à la montée par sync-push — erreur loguée côté Edge, ligne perdue avec
+-- la purge de l'outbox. Triggers et non CHECK : SQLite n'ajoute pas de
+-- contrainte à une table existante, et une base déjà installée doit être gardée
+-- elle aussi. N'agit qu'à l'écriture : aucune ligne existante n'est modifiée.
+CREATE TRIGGER IF NOT EXISTS cash_sessions_cloud_checks_ins
+BEFORE INSERT ON cash_sessions
+BEGIN
+  SELECT CASE
+    WHEN NEW.validated_by IS NOT NULL AND NEW.validated_by = NEW.cashier_id
+      THEN RAISE(ABORT, 'cash_sessions_no_self_validation: personne ne valide son propre comptage')
+    WHEN NEW.status <> 'open' AND NEW.variance <> 0 AND trim(coalesce(NEW.explanation, '')) = ''
+      THEN RAISE(ABORT, 'cash_sessions_variance_explained: un ecart non nul doit etre justifie')
+  END;
+END;
+CREATE TRIGGER IF NOT EXISTS cash_sessions_cloud_checks_upd
+BEFORE UPDATE ON cash_sessions
+BEGIN
+  SELECT CASE
+    WHEN NEW.validated_by IS NOT NULL AND NEW.validated_by = NEW.cashier_id
+      THEN RAISE(ABORT, 'cash_sessions_no_self_validation: personne ne valide son propre comptage')
+    WHEN NEW.status <> 'open' AND NEW.variance <> 0 AND trim(coalesce(NEW.explanation, '')) = ''
+      THEN RAISE(ABORT, 'cash_sessions_variance_explained: un ecart non nul doit etre justifie')
+  END;
+END;
 CREATE INDEX IF NOT EXISTS idx_cash_sessions_school ON cash_sessions(school_id, date);
 
 -- --- Budgets (prévisionnel) ----------------------------------
@@ -797,6 +823,10 @@ CREATE TABLE IF NOT EXISTS student_fee_items (
   academic_year TEXT, name TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'autre',
   amount INTEGER NOT NULL DEFAULT 0, mandatory INTEGER NOT NULL DEFAULT 0,
   payment_type TEXT NOT NULL DEFAULT 'unique', status TEXT NOT NULL DEFAULT 'active',
+  -- Entrée dans CE service (ISO). NULL = repli sur la date d'inscription
+  -- scolaire. Aucune période entièrement écoulée avant elle n'est facturée ;
+  -- la période EN COURS à cette date est due en entier.
+  started_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (student_id, fee_catalog_id, academic_year)
 );

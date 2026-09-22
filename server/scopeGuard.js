@@ -59,6 +59,12 @@ export const SCOPED_TABLES = {
   student_fees:              { kind: 'fee_student', col: 'student_id' },
   fee_payments:              { kind: 'fee_student', col: 'student_id' },
   student_fee_items:         { kind: 'fee_student', col: 'student_id' },
+  // Les ÉCHÉANCES d'un frais périodique portent un élève, donc son identité et
+  // sa dette. Elles étaient déclarées synchronisables et écrivables par le
+  // client, mais absentes d'ici : un compte cloisonné Collège lisait — et
+  // pouvait modifier — les échéances des élèves du Primaire. Même rattachement
+  // que le frais attribué dont elles dépendent.
+  fee_schedule_items:        { kind: 'fee_student', col: 'student_id' },
   class_fee_grids:           { kind: 'fee_class',   col: 'class_id' },
 
   // ── Personnel (Phase 3) ───────────────────────────────────────────────────

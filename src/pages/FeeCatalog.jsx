@@ -15,12 +15,14 @@ import {
   mandatoryItemsFor, optionalItemsFor, snapshotItem, itemBalance, paidForItem,
   balanceByCategory, studentTotals, revenueByFeeType, statementByFamily,
 } from '../lib/feeCatalogEngine';
-import { FEE_CATEGORY_LABELS } from '../components/fees/feeCatalogUi';
+import { FEE_CATEGORY_LABELS, SCHEDULE_STATUS_LABELS, SCHEDULE_STATUS_HINTS, SCHEDULE_REFUS_LABELS } from '../components/fees/feeCatalogUi';
 import FeeCatalogItemModal from '../components/fees/FeeCatalogItemModal';
+import Modal from '../components/Modal';
 import { loadWithCache } from '../lib/offlineCache';
 import { printTicket } from '../lib/receiptDoc';
 import { printSubscribers } from '../lib/feeSubscribersDoc';
-import { generateSchedule, fetchSchedule, scheduleView } from '../lib/feeScheduleService';
+import { generateSchedule, fetchSchedule, scheduleView, setScheduleStatus } from '../lib/feeScheduleService';
+import { repartitionVersement, soldeEcheance, totauxEcheancier, ventilationEcheancier, STATUTS_POSABLES } from '../lib/feeScheduleEngine';
 import { classSectionKey } from '../core/engineResolver';
 import { uuid } from '../lib/uuid';
 
@@ -140,10 +142,20 @@ export default function FeeCatalog({ embedded = false }) {
     return map;
   }, [schedule, feePayments]);
 
+  // Dû d'un frais. Pour un frais PÉRIODIQUE, `amount` est le prix d'UNE
+  // période : le dû réel est la somme de son échéancier, exemptions retirées.
+  // Sans cela le relevé afficherait « cantine : due 15 000, payée 45 000 ».
+  const dueOfItem = useCallback((i) => {
+    const lignes = scheduleByItem[i.id];
+    if (!lignes || !lignes.length) return Number(i.amount) || 0;
+    const parPeriode = Object.fromEntries(lignes.map((l) => [l.period_key, l.amount_paid]));
+    return totauxEcheancier(lignes, parPeriode).du;
+  }, [scheduleByItem]);
+
   // Relevé en deux blocs : frais académiques / services scolaires.
   const statement = useMemo(
-    () => statementByFamily(items, (i) => paidForItem(i.id, feePayments)),
-    [items, feePayments],
+    () => statementByFamily(items, (i) => paidForItem(i.id, feePayments), dueOfItem),
+    [items, feePayments, dueOfItem],
   );
 
   const selectedStudent = students.find((s) => s.id === studentId) || null;
@@ -165,9 +177,35 @@ export default function FeeCatalog({ embedded = false }) {
   };
 
   // — Frais par élève —
+  // Un service PÉRIODIQUE demande sa date d'entrée ; un frais à versement unique
+  // n'en a que faire, et la question ne lui est pas posée.
+  const estPeriodique = (cat) => !!cat?.periodicity && cat.periodicity !== 'unique';
+
   const toggleOptional = async (opt, checked) => {
     if (checked) {
-      const saved = await upsertStudentFeeItem({ id: uuid(), ...snapshotItem(opt, { studentId, schoolId, academicYear: year }) });
+      // La date d'entrée DANS CE SERVICE, distincte de l'inscription scolaire.
+      // Proposée au jour même : souscrire, c’est presque toujours commencer
+      // aujourd’hui. L’école corrige pour une inscription saisie en retard.
+      let debut = null;
+      if (estPeriodique(opt)) {
+        const v = window.prompt(
+          `${opt.name} — ${t('Début du service (AAAA-MM-JJ)', 'Service start (YYYY-MM-DD)', 'Inicio del servicio (AAAA-MM-DD)')}\n`
+          + t('Les périodes entièrement écoulées avant cette date ne seront pas facturées.',
+            'Periods fully elapsed before this date will not be billed.',
+            'Los periodos transcurridos antes de esta fecha no se facturarán.'),
+          todayISO());
+        if (v == null) return;                       // annulé : on ne souscrit pas
+        debut = /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? v.trim() : null;
+        if (!debut) {
+          window.alert(t('Date invalide.', 'Invalid date.', 'Fecha no válida.'));
+          return;
+        }
+      }
+      const saved = await upsertStudentFeeItem({
+        id: uuid(),
+        ...snapshotItem(opt, { studentId, schoolId, academicYear: year }),
+        started_at: debut,
+      });
       if (saved) {
         setItems((xs) => [...xs, saved]);
         // Frais PÉRIODIQUE : on pose ses échéances dès l'attribution. La
@@ -175,6 +213,8 @@ export default function FeeCatalog({ embedded = false }) {
         // d'inscription de l'élève — aucune créance pour les mois d'avant son
         // arrivée. Elle ne bloque pas l'attribution : un échec laisse le frais
         // en place, et une réouverture de la fiche rattrapera les échéances.
+        // `started_at` de la souscription fait foi ; la date scolaire n’est plus
+        // qu’un repli pour les souscriptions qui n’en portent pas.
         generateSchedule({
           schoolId, catalogItem: opt, studentFeeItem: saved,
           enrolledAt: selectedStudent?.created_at || null,
@@ -187,13 +227,197 @@ export default function FeeCatalog({ embedded = false }) {
       if (await deleteStudentFeeItem(existing.id)) setItems((xs) => xs.filter((i) => i.id !== existing.id));
     }
   };
+  // CORRIGER la date d'entrée. Ce qui change, et ce qui ne change PAS :
+  // la nouvelle date ne vaut que pour les périodes À VENIR — la génération
+  // ne touche JAMAIS une échéance existante (garantie de B2), et surtout
+  // aucun versement déjà encaissé n’est déplacé ni annulé. Reculer la date
+  // AJOUTE les périodes manquantes ; l’avancer ne SUPPRIME rien, car
+  // supprimer une période déjà décidée ou payée effacerait une trace. Les
+  // périodes devenues hors service se retirent du dû avec « non applicable ».
+  const editStartedAt = async (item) => {
+    const cat = catalog.find((x) => x.id === item.fee_catalog_id);
+    const v = window.prompt(
+      `${item.name} — ${t('Début du service (AAAA-MM-JJ)', 'Service start (YYYY-MM-DD)', 'Inicio del servicio (AAAA-MM-DD)')}\n`
+      + t('La nouvelle date ne vaut que pour les périodes à venir : aucune échéance existante ni aucun versement n’est modifié.',
+        'The new date only applies to periods yet to be generated: no existing instalment or payment is changed.',
+        'La nueva fecha solo rige los periodos por generar: no se modifica ningún vencimiento ni pago existente.'),
+      item.started_at || todayISO());
+    if (v == null) return;
+    const debut = /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? v.trim() : null;
+    if (!debut) {
+      window.alert(t('Date invalide.', 'Invalid date.', 'Fecha no válida.'));
+      return;
+    }
+    const saved = await upsertStudentFeeItem({ ...item, started_at: debut });
+    if (!saved) return;
+    setItems((xs) => xs.map((i) => (i.id === item.id ? saved : i)));
+    if (cat && estPeriodique(cat)) {
+      await generateSchedule({
+        schoolId, catalogItem: cat, studentFeeItem: saved,
+        enrolledAt: selectedStudent?.created_at || null,
+      }).catch(() => { /* jamais bloquant */ });
+      const frais = await fetchSchedule(schoolId, { studentId, yearLabel: year });
+      setSchedule(frais || []);
+    }
+  };
+
   const editAmount = async (item) => {
     const v = window.prompt(t('Nouveau montant', 'New amount', 'Nuevo importe'), item.amount);
     if (v == null) return;
     const saved = await upsertStudentFeeItem({ ...item, amount: Number(v) || 0 });
     if (saved) setItems((xs) => xs.map((i) => i.id === item.id ? saved : i));
   };
+  // `allow_partial` est porté par l'article du CATALOGUE, pas par la
+  // souscription : on le relit là. Article retiré du catalogue → on reste
+  // permissif, c'est ce qu'ont toujours fait les frais avant les périodes.
+  const allowPartialOf = (item) => {
+    const c = catalog.find((x) => x.id === item.fee_catalog_id);
+    if (!c) return true;
+    return !(c.allow_partial === false || c.allow_partial === 0);
+  };
+
+  // `allow_exemption` ne gouverne QUE l'exemption. Un abandon est un fait — la
+  // famille a quitté le service — et « non applicable » une constatation : ni
+  // l’un ni l’autre n’est une faveur que l’école pourrait s’interdire de noter.
+  const allowExemptionOf = (item) => {
+    const c = catalog.find((x) => x.id === item.fee_catalog_id);
+    if (!c) return true;
+    return !(c.allow_exemption === false || c.allow_exemption === 0);
+  };
+
+  // ENCAISSEMENT RÉPARTI SUR DES PÉRIODES.
+  //
+  // Une écriture `fee_payments` PAR PÉRIODE, et non une seule pour l’ensemble :
+  // c’est ce qui permet de contre-passer février seul quand une famille l’annule,
+  // et ce qui laisse `paidForSchedule` dire ce qui a été versé mois par mois sans
+  // jamais stocker le payé. Aucun second chemin de paiement : `addPayment` reste
+  // la seule porte, avec son reçu numéroté et son caissier figé.
+  //
+  // Le ticket imprimé est UNIQUE — la famille a remis une somme, pas trois — et
+  // porte le numéro de la première écriture ; les autres existent dans la série,
+  // sans trou. Le libellé énumère les périodes couvertes pour que le papier dise
+  // exactement ce qu’il solde.
+  const payerEcheances = async (item, lignes, montant) => {
+    const partiel = allowPartialOf(item);
+    const { affectations, reste } = repartitionVersement(lignes, montant, { allowPartial: partiel });
+    if (!affectations.length) {
+      window.alert(partiel
+        ? t('Rien à imputer : toutes les périodes sont soldées, exemptées ou abandonnées.',
+          'Nothing to allocate: every period is settled, exempted or dropped.',
+          'Nada que imputar: todos los periodos están saldados, exentos o abandonados.')
+        : t('Ce frais n’accepte pas le paiement partiel : le montant ne couvre aucune période entière.',
+          'This fee does not allow partial payment: the amount covers no full period.',
+          'Esta tasa no admite pago parcial: el importe no cubre ningún periodo completo.'));
+      return;
+    }
+    // Le surplus n’est PAS encaissé : une recette imputée sur rien deviendrait
+    // introuvable le jour où il faut justifier l’exercice.
+    if (reste > 0 && !window.confirm(
+      t(`Seuls ${money(montant - reste)} peuvent être imputés (${money(reste)} au-delà du dû). Encaisser ce montant ?`,
+        `Only ${money(montant - reste)} can be allocated (${money(reste)} beyond what is owed). Record that amount?`,
+        `Solo ${money(montant - reste)} pueden imputarse (${money(reste)} por encima de lo debido). ¿Registrar ese importe?`))) return;
+
+    const ecritures = [];
+    for (const a of affectations) {
+      const rec = await addPayment(studentId, {
+        amount: a.amount,
+        date: todayISO(),
+        note: `${item.name} — ${a.period_label}`,
+        student_fee_item_id: item.id,
+        fee_schedule_item_id: a.schedule_id,
+      });
+      if (rec) ecritures.push(rec);
+    }
+    if (!ecritures.length) return;
+    const encaisse = ecritures.reduce((somme, r) => somme + (Number(r.amount) || 0), 0);
+    if (selectedStudent) {
+      printTicket({
+        school,
+        student: selectedStudent,
+        className: classById[selectedStudent.class_id]?.name || '',
+        lang: school?.language,
+        payment: ecritures[0],
+        versement: encaisse,
+        newTotal: statement.total.paid + encaisse,
+        fraisAnnuels: statement.total.due,
+        mode: 'libre',
+        designation: `${item.name} — ${affectations.map((a) => a.period_label).join(', ')}`,
+        date: ecritures[0].date,
+        cashierName: ecritures[0].recorded_by_name || null,
+      });
+    }
+  };
+
+  // Régler UNE période depuis sa pastille.
+  const payerUnePeriode = async (item, ligne) => {
+    const solde = soldeEcheance(ligne);
+    if (solde <= 0) return;
+    const libelle = ligne.period_label || ligne.period_key;
+    if (!allowPartialOf(item)) {
+      if (!window.confirm(`${item.name} — ${libelle} : ${money(solde)} ?`)) return;
+      return payerEcheances(item, [ligne], solde);
+    }
+    const v = window.prompt(`${item.name} — ${libelle} (${t('solde', 'balance', 'saldo')} ${money(solde)})`, solde);
+    if (v == null) return;
+    const montant = Number(v) || 0;
+    if (montant <= 0) return;
+    // Une période ne reçoit jamais plus que son solde : le surplus irait grossir
+    // un mois déjà réglé au lieu d’aller au suivant.
+    return payerEcheances(item, [ligne], Math.min(montant, solde));
+  };
+
+  // ── DÉCIDER DU SORT D’UNE PÉRIODE (exempter, abandon, non applicable) ────
+  // La décision est une écriture qui fait SORTIR une créance du dû : elle passe
+  // par le service, qui la soumet au moteur, réimpose le périmètre école et la
+  // trace dans les deux journaux. L’écran ne décide de rien lui-même.
+  const [decisionFor, setDecisionFor] = useState(null);   // { item, ligne }
+  const [decisionBusy, setDecisionBusy] = useState(false);
+
+  const appliquerDecision = async (statut) => {
+    if (!decisionFor || decisionBusy) return;
+    const { item, ligne } = decisionFor;
+    setDecisionBusy(true);
+    const r = await setScheduleStatus({
+      ligne,
+      statut,
+      schoolId,
+      allowExemption: allowExemptionOf(item),
+      payments: feePayments,
+    });
+    setDecisionBusy(false);
+    if (!r.ok) {
+      window.alert(t(...(SCHEDULE_REFUS_LABELS[r.raison]
+        || ['Décision refusée.', 'Decision refused.', 'Decisión rechazada.'])));
+      return;
+    }
+    // Relecture depuis la base plutôt que retouche locale : le statut effectif
+    // d’une période se déduit aussi des versements, et deux chemins de calcul
+    // pour un même affichage finissent par diverger.
+    const frais = await fetchSchedule(schoolId, { studentId, yearLabel: year });
+    setSchedule(frais || []);
+    setDecisionFor(null);
+  };
   const pay = async (item) => {
+    const echeances = scheduleByItem[item.id] || [];
+    // Frais PÉRIODIQUE : la somme se répartit sur les périodes, les plus
+    // anciennes d’abord. Le rattrapage d’arriérés est le comportement par
+    // défaut, pas une option — imputer au plus récent laisserait une dette
+    // ancienne s’installer sous un compte qui paraît à jour.
+    if (echeances.length) {
+      const restant = echeances.reduce((somme, e) => somme + soldeEcheance(e), 0);
+      if (restant <= 0) {
+        window.alert(t('Toutes les périodes sont réglées.', 'Every period is settled.', 'Todos los periodos están saldados.'));
+        return;
+      }
+      const v = window.prompt(
+        `${item.name} — ${t('Montant à payer', 'Amount to pay', 'Importe a pagar')} (${t('reste dû', 'still owed', 'saldo pendiente')} ${money(restant)})`,
+        restant);
+      if (v == null) return;
+      const montant = Number(v) || 0;
+      if (montant <= 0) return;
+      return payerEcheances(item, echeances, montant);
+    }
+
     const b = itemBalance(item, feePayments);
     const v = window.prompt(`${item.name} — ${t('Montant à payer', 'Amount to pay', 'Importe a pagar')} (${t('solde', 'balance', 'saldo')} ${money(b.balance)})`, b.balance > 0 ? b.balance : '');
     if (v == null) return;
@@ -201,8 +425,8 @@ export default function FeeCatalog({ embedded = false }) {
     if (amount <= 0) return;
     const rec = await addPayment(studentId, { amount, date: todayISO(), note: item.name, student_fee_item_id: item.id });
     // Tout encaissement donne son ticket, quel que soit l'écran d'où il part.
-    // Le totaux portés par le ticket sont ceux du CATALOGUE de l'élève (c'est le
-    // périmètre de cet écran), pas la scolarité globale.
+    // Les totaux portés par le ticket sont ceux du CATALOGUE de l’élève (c’est
+    // le périmètre de cet écran), pas la scolarité globale.
     if (rec && selectedStudent) {
       printTicket({
         school,
@@ -211,8 +435,8 @@ export default function FeeCatalog({ embedded = false }) {
         lang: school?.language,
         payment: rec,
         versement: amount,
-        newTotal: totals.paid + amount,
-        fraisAnnuels: totals.due,
+        newTotal: statement.total.paid + amount,
+        fraisAnnuels: statement.total.due,
         mode: 'libre',
         designation: item.name,
         date: rec.date,
@@ -383,6 +607,27 @@ export default function FeeCatalog({ embedded = false }) {
                                       <div className="text-xs text-gray-400">
                                         {catLabel(i.category)}
                                         {echeances.length > 0 && ` · ${echeances.length} ${t('échéances', 'instalments', 'vencimientos')}`}
+                                        {echeances.length > 0 && (
+                                          <>
+                                            {' · '}
+                                            {t('depuis', 'since', 'desde')}{' '}
+                                            {i.started_at || (
+                                              <span title={t('Aucune date de service : repli sur l’inscription scolaire.', 'No service date: falls back to school enrolment.', 'Sin fecha de servicio: se usa la matrícula.')}>
+                                                {t('inscription scolaire', 'school enrolment', 'matrícula')}
+                                              </span>
+                                            )}
+                                            {canManage && (
+                                              <button
+                                                type="button"
+                                                onClick={() => editStartedAt(i)}
+                                                title={t('Corriger la date d’entrée dans ce service', 'Fix the service start date', 'Corregir la fecha de inicio')}
+                                                className="ml-1 text-gray-300 hover:text-indigo-600"
+                                              >
+                                                ✎
+                                              </button>
+                                            )}
+                                          </>
+                                        )}
                                       </div>
                                     </td>
                                     <td className="px-4 py-2 text-right tabular-nums text-gray-700">{money(i.due)}
@@ -402,14 +647,69 @@ export default function FeeCatalog({ embedded = false }) {
                                               : e.effective_status === 'partial' ? 'bg-amber-100 text-amber-700 border-amber-200'
                                                 : e.effective_status === 'due' ? 'bg-white text-gray-500 border-gray-200'
                                                   : 'bg-gray-100 text-gray-400 border-gray-200 line-through';
-                                            return (
-                                              <span key={e.id} title={`${money(e.amount_paid)} / ${money(e.amount_due)}`}
-                                                className={`px-2 py-0.5 rounded-md text-[11px] font-medium border ${style}`}>
-                                                {e.period_label || e.period_key}
+                                            // Une période EXEMPTÉE, ABANDONNÉE ou NON APPLICABLE a un
+                                            // solde nul : elle reste une pastille morte, jamais un bouton.
+                                            // Encaisser dessus reviendrait à révoquer, au guichet, une
+                                            // décision que l'école a prise ailleurs.
+                                            const reglable = canManage && soldeEcheance(e) > 0;
+                                            const infobulle = `${money(e.amount_paid)} / ${money(e.amount_due)}`;
+                                            const classes = `px-2 py-0.5 rounded-md text-[11px] font-medium border ${style}`;
+                                            // La pastille garde son geste de B4 (cliquer = régler).
+                                            // La DÉCISION est un second bouton, discret et distinct :
+                                            // confondre les deux ferait exempter d’un clic destiné à encaisser.
+                                            const bouton = canManage ? (
+                                              <button
+                                                type="button"
+                                                onClick={() => setDecisionFor({ item: i, ligne: e })}
+                                                title={t('Décider du sort de cette période', 'Decide this period', 'Decidir este periodo')}
+                                                className="px-1 text-[11px] leading-none text-gray-300 hover:text-indigo-600"
+                                              >
+                                                ⋯
+                                              </button>
+                                            ) : null;
+                                            return reglable ? (
+                                              <span key={e.id} className="inline-flex items-center">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => payerUnePeriode(i, e)}
+                                                  title={`${infobulle} — ${t('régler cette période', 'settle this period', 'liquidar este periodo')}`}
+                                                  className={`${classes} hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-colors cursor-pointer`}
+                                                >
+                                                  {e.period_label || e.period_key}
+                                                </button>
+                                                {bouton}
+                                              </span>
+                                            ) : (
+                                              <span key={e.id} className="inline-flex items-center">
+                                                <span title={infobulle} className={classes}>
+                                                  {e.period_label || e.period_key}
+                                                </span>
+                                                {bouton}
                                               </span>
                                             );
                                           })}
                                         </div>
+                                        {/* Ce qui est SORTI du dû, et par quelle décision.
+                                            « Exempté » et « non applicable » produisent le même
+                                            solde et se confondent vite ; l’un est une faveur faite
+                                            à cette famille, l’autre un mois que l’école ne facture
+                                            à personne. Le relevé doit pouvoir les distinguer. */}
+                                        {(() => {
+                                          const parPeriode = Object.fromEntries(echeances.map((l) => [l.period_key, l.amount_paid]));
+                                          const v = ventilationEcheancier(echeances, parPeriode);
+                                          const parts = [
+                                            [t('exempté', 'exempted', 'exento'), v.exempte],
+                                            [t('abandonné', 'dropped', 'abandonado'), v.abandonne],
+                                            [t('non applicable', 'not applicable', 'no aplicable'), v.nonApplicable],
+                                          ].filter(([, m]) => m > 0);
+                                          if (!parts.length) return null;
+                                          return (
+                                            <div className="mt-1.5 text-[11px] text-gray-400">
+                                              {t('Hors du dû', 'Outside the amount owed', 'Fuera de lo debido')} :{' '}
+                                              {parts.map(([lab, m]) => `${lab} ${money(m)}`).join(' · ')}
+                                            </div>
+                                          );
+                                        })()}
                                       </td>
                                     </tr>
                                   )}
@@ -470,6 +770,55 @@ export default function FeeCatalog({ embedded = false }) {
           </div>
         )}
       </div>
+
+      {decisionFor && (
+        <Modal
+          title={`${decisionFor.item.name} — ${decisionFor.ligne.period_label || decisionFor.ligne.period_key}`}
+          onClose={() => setDecisionFor(null)}
+          size="md"
+        >
+          <div className="p-4 space-y-3">
+            <div className="text-xs text-gray-500">
+              {t('Dû', 'Due', 'Debido')} {money(decisionFor.ligne.amount_due)}
+              {' · '}{t('versé', 'paid', 'pagado')} {money(decisionFor.ligne.amount_paid)}
+            </div>
+            {decisionFor.ligne.amount_paid > 0 && (
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                {t(...SCHEDULE_REFUS_LABELS.periode_payee)}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              {STATUTS_POSABLES.map((st) => {
+                const courant = (decisionFor.ligne.status || null) === st;
+                const bloque = decisionFor.ligne.amount_paid > 0 && st !== 'due';
+                const interdit = st === 'exempted' && !allowExemptionOf(decisionFor.item);
+                const off = bloque || interdit || decisionBusy;
+                return (
+                  <button
+                    key={st}
+                    type="button"
+                    disabled={off}
+                    onClick={() => appliquerDecision(st)}
+                    className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                      courant ? 'border-indigo-400 bg-indigo-50 text-indigo-800'
+                        : off ? 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed'
+                          : 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/40 text-gray-700'}`}
+                  >
+                    <div className="font-medium">
+                      {t(...(SCHEDULE_STATUS_LABELS[st] || [st]))}
+                      {courant && <span className="ml-2 text-[10px] uppercase tracking-wide">{t('actuel', 'current', 'actual')}</span>}
+                    </div>
+                    <div className="text-[11px] text-gray-400 mt-0.5">
+                      {interdit ? t(...SCHEDULE_REFUS_LABELS.exemption_interdite)
+                        : t(...(SCHEDULE_STATUS_HINTS[st] || ['', '', '']))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {catModal && <FeeCatalogItemModal item={catModal.item} classes={classes} academicYear={year} onSave={saveCat} onClose={() => setCatModal(null)} />}
     </Wrapper>

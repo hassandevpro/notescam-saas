@@ -2077,7 +2077,7 @@ export const useSchoolStore = create((set, get) => ({
     return record;
   },
 
-  addPayment: async (studentId, { amount, date, note, student_fee_item_id = null }) => {
+  addPayment: async (studentId, { amount, date, note, student_fee_item_id = null, fee_schedule_item_id = null }) => {
     const { schoolId, activeYear, fees, feePayments } = get();
     const { userId, fullName } = useAuthStore.getState();
     const parsedAmount = parseInt(amount, 10) || 0;
@@ -2101,6 +2101,13 @@ export const useSchoolStore = create((set, get) => ({
       recorded_by_name: fullName || null,
       // Lien optionnel vers un frais précis du catalogue (null = paiement global).
       student_fee_item_id: student_fee_item_id || null,
+      // Lien optionnel vers UNE PÉRIODE de ce frais (cantine de novembre, 2e
+      // trimestre de transport). C'est lui qui permet de dire ce qui a été versé
+      // mois par mois sans jamais STOCKER le payé (cf. paidForSchedule).
+      // Un versement couvrant plusieurs périodes produit autant d'écritures :
+      // elles restent contre-passables une par une, comme lorsque la famille
+      // annule février seul.
+      fee_schedule_item_id: fee_schedule_item_id || null,
       created_at:    new Date().toISOString(),
     };
 
@@ -2266,6 +2273,11 @@ export const useSchoolStore = create((set, get) => ({
       recorded_by:   userId,
       recorded_by_name: fullName || null,
       student_fee_item_id: payment.student_fee_item_id || null,
+      // La contre-passation reprend AUSSI la période visée. Sans ce report, le
+      // versement négatif n'entrerait dans aucun échéancier : annuler la cantine
+      // de novembre laisserait novembre affiché « payé », et le solde de la
+      // famille mentirait dans le seul écran où elle le lit.
+      fee_schedule_item_id: payment.fee_schedule_item_id || null,
       reversal_of:   paymentId,
       void_reason:   motif,
       created_at:    new Date().toISOString(),

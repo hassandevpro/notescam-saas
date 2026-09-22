@@ -68,7 +68,7 @@ ok(Object.keys(BUDGET_OP_PERMISSION).length === 6, 'les 6 op ont une permission 
 const all = Object.values(EVT);
 ok(new Set(all).size === all.length, 'types d’événements tous distincts');
 ok(all.every((t) => /[a-z]ed$|Applied$|Requested$|Submitted$|Approved$|Rejected$|Cancelled$|Deleted$|Drafted$|Paid$|Authorized$|Increased$|Refused$/.test(t)), 'tous au passé');
-ok(Object.values(AGGREGATE).length === 10, '10 agrégats finance (6 dépenses/budget + 4 recettes/caisse)');
+ok(Object.values(AGGREGATE).length === 11, '11 agrégats finance (6 dépenses/budget + 5 recettes/caisse)');
 // Les RECETTES doivent avoir leur vocabulaire : sans lui, encaisser, annuler un
 // encaissement ou changer un tarif ne laisserait aucune trace d'audit serveur.
 ok(new Set(Object.values(AGGREGATE)).size === Object.values(AGGREGATE).length, 'agrégats tous distincts');
@@ -76,8 +76,12 @@ for (const agg of ['fee_payment', 'student_fee', 'class_fee_grid']) {
   ok(Object.values(AGGREGATE).includes(agg), `agrégat recette « ${agg} » présent`);
 }
 ok(Object.values(AGGREGATE).includes('cash_session'), 'agrégat « cash_session » présent (arrêté de caisse)');
+ok(Object.values(AGGREGATE).includes('fee_schedule_item'), 'agrégat « fee_schedule_item » présent (une période de frais)');
 for (const evt of ['FeePaymentRecorded', 'FeePaymentReversed', 'StudentFeeAmountChanged', 'ClassFeeGridChanged',
-                   'CashSessionDeclared', 'CashSessionValidated']) {
+                   'CashSessionDeclared', 'CashSessionValidated',
+                   // Sortir une période du dû efface une créance : le geste doit
+                   // laisser une trace serveur au même titre qu'un encaissement.
+                   'FeeScheduleStatusChanged']) {
   ok(all.includes(evt), `événement recette « ${evt} » présent`);
 }
 

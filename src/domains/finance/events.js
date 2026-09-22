@@ -20,6 +20,7 @@ export const AGGREGATE = Object.freeze({
   STUDENT_FEE: 'student_fee',             // le DÛ d'un élève
   FEE_GRID:    'class_fee_grid',          // le tarif d'une classe
   CASH_SESSION: 'cash_session',           // arrêté de caisse (espèces ↔ écritures)
+  FEE_SCHEDULE: 'fee_schedule_item',      // UNE période d'un frais périodique (cantine de novembre…)
 });
 
 export const EVT = Object.freeze({
@@ -34,6 +35,10 @@ export const EVT = Object.freeze({
   // Arrêté de caisse : la seule prise possible sur la recette JAMAIS SAISIE.
   CASH_SESSION_DECLARED:  'CashSessionDeclared',
   CASH_SESSION_VALIDATED: 'CashSessionValidated',
+  // Exempter, acter un abandon, déclarer non applicable : trois décisions qui
+  // font SORTIR une période du dû d'une famille. Sans trace, un compte pourrait
+  // effacer une créance d'un clic et rien ne dirait qui, ni quand, ni pourquoi.
+  FEE_SCHEDULE_STATUS_CHANGED: 'FeeScheduleStatusChanged',
   // ── Cycle de vie d'une dépense (cible du canal H3) ──────────────────────────
   EXPENSE_DRAFTED:   'ExpenseDrafted',
   EXPENSE_SUBMITTED: 'ExpenseSubmitted',

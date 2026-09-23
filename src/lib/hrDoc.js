@@ -33,7 +33,7 @@ export function printStaffFile({ school, t, money, staff, summary, data = {}, op
       ${row(tr('Matricule', 'Staff ID', 'Matrícula'), staff?.matricule)}
       ${row(tr('Fonction', 'Role', 'Función'), staff?.fonction)}
       ${row(tr('Département', 'Department', 'Departamento'), staff?.department)}
-      ${row(tr("Date de recrutement", 'Hire date', 'Fecha de contratación'), staff?.hire_date)}
+      ${row(tr("Date de recrutement", 'Hire date', 'Fecha de contratación'), dateLabel(staff?.hire_date))}
       ${row(tr('Téléphone', 'Phone', 'Teléfono'), staff?.phone)}
       ${row(tr('Email', 'Email', 'Correo'), staff?.email)}
     </table>
@@ -72,9 +72,9 @@ export function printWorkCertificate({ school, t, staff, contract, optionLabel }
   const ctype = contract?.type ? opt(contract.type) : '';
 
   const body = tr(
-    `Je soussigné(e), Chef d'établissement de <b>${esc(school?.name || '')}</b>, atteste que <b>${esc(staff?.name || '')}</b>${staff?.fonction ? `, exerçant les fonctions de <b>${esc(staff.fonction)}</b>,` : ''} fait partie du personnel de notre établissement${staff?.hire_date ? ` depuis le <b>${esc(staff.hire_date)}</b>` : ''}${ctype ? `, sous contrat de type <b>${esc(ctype)}</b>` : ''}.`,
-    `I, the undersigned, Head of <b>${esc(school?.name || '')}</b>, certify that <b>${esc(staff?.name || '')}</b>${staff?.fonction ? `, holding the position of <b>${esc(staff.fonction)}</b>,` : ''} is a member of staff of our institution${staff?.hire_date ? ` since <b>${esc(staff.hire_date)}</b>` : ''}${ctype ? `, under a <b>${esc(ctype)}</b> contract` : ''}.`,
-    `El/La abajo firmante, Director(a) de <b>${esc(school?.name || '')}</b>, certifica que <b>${esc(staff?.name || '')}</b>${staff?.fonction ? `, con el cargo de <b>${esc(staff.fonction)}</b>,` : ''} forma parte del personal de nuestra institución${staff?.hire_date ? ` desde el <b>${esc(staff.hire_date)}</b>` : ''}${ctype ? `, con contrato de tipo <b>${esc(ctype)}</b>` : ''}.`,
+    `Je soussigné(e), Chef d'établissement de <b>${esc(school?.name || '')}</b>, atteste que <b>${esc(staff?.name || '')}</b>${staff?.fonction ? `, exerçant les fonctions de <b>${esc(staff.fonction)}</b>,` : ''} fait partie du personnel de notre établissement${staff?.hire_date ? ` depuis le <b>${esc(dateLabel(staff.hire_date))}</b>` : ''}${ctype ? `, sous contrat de type <b>${esc(ctype)}</b>` : ''}.`,
+    `I, the undersigned, Head of <b>${esc(school?.name || '')}</b>, certify that <b>${esc(staff?.name || '')}</b>${staff?.fonction ? `, holding the position of <b>${esc(staff.fonction)}</b>,` : ''} is a member of staff of our institution${staff?.hire_date ? ` since <b>${esc(dateLabel(staff.hire_date))}</b>` : ''}${ctype ? `, under a <b>${esc(ctype)}</b> contract` : ''}.`,
+    `El/La abajo firmante, Director(a) de <b>${esc(school?.name || '')}</b>, certifica que <b>${esc(staff?.name || '')}</b>${staff?.fonction ? `, con el cargo de <b>${esc(staff.fonction)}</b>,` : ''} forma parte del personal de nuestra institución${staff?.hire_date ? ` desde el <b>${esc(dateLabel(staff.hire_date))}</b>` : ''}${ctype ? `, con contrato de tipo <b>${esc(ctype)}</b>` : ''}.`,
   );
 
   const closing = tr(
@@ -140,7 +140,9 @@ function periodEndDate(period) {
 }
 
 // « 2021-08-01 » → « 01/08/2021 » (format du modèle). Repli sur la valeur brute.
-function dateLabel(iso) {
+// Exporté : une date ISO brute dans un document remis à un agent (attestation,
+// fiche) se lit comme une erreur de saisie — tous les imprimables passent par ici.
+export function dateLabel(iso) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
   return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || '');
 }

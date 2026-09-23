@@ -16,6 +16,7 @@ import UpgradeBanner from '../components/UpgradeBanner';
 import { resolveCountryCode } from '../countries';
 import { resizeImageToSquare } from '../lib/image';
 import { uploadStaffPhoto, uploadStaffDocument, parseDocs } from '../lib/staffService';
+import TeacherFileModal from '../components/TeacherFileModal';
 
 // Client sans persistance de session — crée des comptes sans déconnecter l'admin
 const anonClient = createClient(
@@ -719,6 +720,9 @@ export function TeachersPanel() {
   const [editing,       setEditing]       = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [accessModal,   setAccessModal]   = useState(null);
+  // Dossier consulté : on garde l'ID, pas la ligne — une modification faite
+  // depuis le dossier doit se voir sans le refermer.
+  const [fileForId,     setFileForId]     = useState(null);
   const [expandedRow,   setExpandedRow]   = useState(null);
   const [showPrintOpts, setShowPrintOpts] = useState(false);
   const [cols, setCols] = useState({ specialty: true, email: true, phone: true, subjects: true });
@@ -748,6 +752,18 @@ export function TeachersPanel() {
     classes.forEach((c) => add(c.teacher_id, c.id));
     return map;
   }, [subjects, classes]);
+
+  const classNameById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c.name])), [classes]);
+  const fileFor = teachers.find((tc) => tc.id === fileForId) || null;
+
+  // Le dossier a besoin des matières AVEC leur classe (le même intitulé enseigné
+  // dans deux classes reste deux charges) et de la liste des classes couvertes.
+  const fileSubjects = useMemo(() => (fileFor
+    ? (subjectsByTeacher[fileFor.id] || []).map((s) => ({ ...s, className: classNameById[s.class_id] || '' }))
+    : []), [fileFor, subjectsByTeacher, classNameById]);
+  const fileClassNames = useMemo(() => (fileFor
+    ? [...(classesByTeacher[fileFor.id] || [])].map((id) => classNameById[id]).filter(Boolean).sort((a, b) => a.localeCompare(b))
+    : []), [fileFor, classesByTeacher, classNameById]);
 
   const TARGET_LOAD = 8; // matières = 100 % d'occupation (repère pilotage)
   const chargeOf = (tc) => (subjectsByTeacher[tc.id] || []).length;
@@ -993,10 +1009,11 @@ export function TeachersPanel() {
                 <div key={teacher.id} className="bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-lg hover:border-indigo-200 transition-all p-5">
                   <div className="flex items-start gap-3">
                     <StudentAvatar student={{ photo_url: teacher.photo_url, name: teacher.name }} size={44} />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-bold text-slate-900 truncate">{teacher.name}</p>
+                    <button onClick={() => setFileForId(teacher.id)} className="min-w-0 flex-1 text-left group"
+                      title={t('Ouvrir le dossier', 'Open the file', 'Abrir el expediente')}>
+                      <p className="font-bold text-slate-900 truncate group-hover:text-indigo-700 group-hover:underline">{teacher.name}</p>
                       <p className="text-xs text-slate-400 truncate">{teacher.specialty || t('Sans spécialité', 'No specialty', 'Sin especialidad')}</p>
-                    </div>
+                    </button>
                     <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-full ${S.cls}`}><span className={`w-1.5 h-1.5 rounded-full ${S.dot}`} />{S.label}</span>
                   </div>
                   <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
@@ -1009,6 +1026,7 @@ export function TeachersPanel() {
                     <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full ${occ >= 100 ? 'bg-red-500' : occ >= 60 ? 'bg-amber-400' : 'bg-emerald-500'}`} style={{ width: `${occ}%` }} /></div>
                   </div>
                   <div className="flex gap-1.5 mt-4 pt-3 border-t border-slate-50">
+                    <button onClick={() => setFileForId(teacher.id)} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{t('Dossier', 'File', 'Expediente')}</button>
                     <button onClick={() => { setEditing(teacher); setShowForm(true); }} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{t('Modifier', 'Edit', 'Editar')}</button>
                     {canManageTeachers && <button onClick={() => setAccessModal(teacher)} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{teacher.auth_user_id ? t('Accès', 'Access', 'Acceso') : t('Créer accès', 'Create access', 'Crear acceso')}</button>}
                   </div>
@@ -1075,7 +1093,11 @@ export function TeachersPanel() {
                       >
                         {/* Avatar + nom */}
                         <td className="px-5 py-3">
-                          <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setFileForId(teacher.id)}
+                            className="flex items-center gap-3 text-left group"
+                            title={t('Ouvrir le dossier', 'Open the file', 'Abrir el expediente')}
+                          >
                             <div
                               className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
                               style={{ backgroundColor: color }}
@@ -1083,9 +1105,9 @@ export function TeachersPanel() {
                               {initials(teacher.name)}
                             </div>
                             <div>
-                              <div className="font-semibold text-gray-900">{teacher.name}</div>
+                              <div className="font-semibold text-gray-900 group-hover:text-brand-700 group-hover:underline">{teacher.name}</div>
                             </div>
-                          </div>
+                          </button>
                         </td>
 
                         {/* Spécialité */}
@@ -1236,6 +1258,18 @@ export function TeachersPanel() {
             teacher={accessModal}
             school={school}
             onClose={() => setAccessModal(null)}
+          />
+        )}
+
+        {fileFor && !showForm && !editing && (
+          <TeacherFileModal
+            teacher={fileFor}
+            school={school}
+            subjects={fileSubjects}
+            classNames={fileClassNames}
+            canManage={canManageTeachers}
+            onEdit={() => setEditing(fileFor)}
+            onClose={() => setFileForId(null)}
           />
         )}
 

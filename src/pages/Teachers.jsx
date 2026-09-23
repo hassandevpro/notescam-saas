@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { createClient } from '@supabase/supabase-js';
 import { exportTeachers, downloadTeacherTemplate, parseTeachersSpreadsheet } from '../lib/exportCsv';
 import { officialHeaderHtml, officialSignatureHtml } from '../lib/officialDocHeader';
+import { isBasicSchool } from '../lib/tutelle';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import StudentAvatar from '../components/StudentAvatar';
@@ -651,7 +652,7 @@ function printTeacherList(teachers, subjectsByTeacher, school, cols = {}) {
 </head>
 <body>
 <div class="page">
-  ${officialHeaderHtml(school, { sys: isGE ? 'ES' : 'FR', title: Lp('LISTE DU PERSONNEL ENSEIGNANT', 'LISTA DEL PROFESORADO') })}
+  ${officialHeaderHtml(school, { sys: isGE ? 'ES' : 'FR', title: Lp('LISTE DU PERSONNEL ENSEIGNANT', 'LISTA DEL PROFESORADO'), basic: isBasicSchool(classes) })}
   <div style="text-align:center;font-size:9px;color:#777;margin:-2px 0 12px">${Lp('Imprimé le', 'Impreso el')} ${today}</div>
 
   <table>

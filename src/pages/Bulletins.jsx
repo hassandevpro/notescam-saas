@@ -42,6 +42,8 @@ import { resolveCountryCode, bulletinOfficials } from '../countries';
 import { gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
 import { bulletinFontFamily } from '../lib/schoolTheme';
 import { buildCardId, qrDataUrl } from '../lib/idCardService';
+import { headTeacherText, headTeacherNames, headTeacherLabel } from '../lib/headTeachers';
+import { isBasicClass } from '../lib/tutelle';
 
 // QR de bulletin : même payload que la carte scolaire (buildCardId) → le même
 // scanner identifie l'élève. Placé discrètement (en-tête / pied selon le modèle).
@@ -253,19 +255,17 @@ function getSubjectGroup(name) {
 
 // Maternelle & primaire relèvent du FONDAMENTAL : tutelle MINEDUB (Éducation de
 // Base) et non MINESEC, et l'établissement est dirigé par un directeur/directrice
-// et non un principal. Détection robuste : la section déduite du nom de la classe
-// prime, `cycle` en base ne sert que de repli (il est parfois faux en import).
-function isBasicClass(cls) {
-  const sec = classSectionKey(cls);
-  return sec === 'maternelle' || sec === 'primaire'
-    || (!!cls?.cycle && cls.cycle !== 'secondaire');
-}
+// et non un principal. La règle vit désormais dans src/lib/tutelle.js — à
+// l'identique — parce qu'elle sert maintenant à TOUS les documents officiels et
+// non aux seuls bulletins (demande de THE GENIUS, 23/09/2026).
 
 // ── En-tête « primaire » partagé (bulletins primaire annuel) ──────────────────
 // Officiels hérités du PAYS choisi à la configuration : République / devise, et
 // N° d'établissement sous la zone officielle.
 function BulletinPrimaryHeader({ school, qrSrc }) {
-  const officials = bulletinOfficials(school);
+  // Bulletin du PRIMAIRE : tutelle MINEDUB par construction — cet en-tête n’est
+  // monté que par les bulletins du fondamental.
+  const officials = bulletinOfficials(school, { basic: true });
   const blocks    = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
   const Block = ({ b }) => (
@@ -413,7 +413,10 @@ function BulletinClassic({
 
   const teacherLabel = basic ? (sys === 'EN' ? 'The Class Teacher' : "L'Enseignant(e)") : undefined;
   const headLabel    = basic ? (sys === 'EN' ? 'The Head Teacher'  : 'Le Directeur / La Directrice') : undefined;
-  const ppLabel      = basic ? (sys === 'EN' ? 'Class teacher'     : 'Enseignant(e)') : undefined;
+  // Libellé ACCORDÉ au nombre : « P. principaux » dès qu'ils sont deux. Sans
+  // cela, le bulletin porterait « P. principal : MBARGA Paul · NGONO Marie ».
+  const ppCount      = headTeacherNames(cls, teachers).length;
+  const ppLabel      = (basic || ppCount > 1) ? headTeacherLabel(ppCount, sys, { basic }) : undefined;
 
   return (
     <BulletinScOfficial
@@ -424,7 +427,7 @@ function BulletinClassic({
       classLabel={cls?.name || ''}
       serieLabel={cls?.serie ? `Série ${String(cls.serie).toUpperCase()}` : ''}
       effectif={stats?.total ?? classStudents.length}
-      profPrincipal={teachers?.find((tc) => tc.id === cls?.teacher_id)?.name || ''}
+      profPrincipal={headTeacherText(cls, teachers)}
       data={data}
       discipline={discipline}
       decision={raw.decision || (studentAvg === null ? '' : autoDecision)}
@@ -689,7 +692,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   // ligne de total le faisait déjà, pas l'en-tête de groupe — d'où un titre
   // français au-dessus d'un total anglais, sur la même feuille.
   const groupLabel = (g) => (isEnSys ? g.label.split('/')[1] : g.label.split('/')[0]).trim();
-  const profPrincipal = teachers?.find((tt) => tt.id === cls?.teacher_id)?.name || '';
+  const profPrincipal = headTeacherText(cls, teachers);
   let gPts = 0, gCoef = 0;
   subjects.forEach((sub) => {
     const rawG = subjectGrades[sub.id];
@@ -1762,7 +1765,7 @@ export default function Bulletins() {
     }).filter(Boolean);
   }, [isApc, apcReferentiel, apcSeqNums.join(',')]);
 
-  const apcProfPrincipal = teachers.find((tc) => tc.id === selectedClass?.teacher_id)?.name || '';
+  const apcProfPrincipal = headTeacherText(selectedClass, teachers);
   const apcTeacherMap = useMemo(
     () => (isApc && apcReferentiel ? teacherByMatiereMap(apcReferentiel.matieres, classSubjects, teachers) : {}),
     [isApc, apcReferentiel, classSubjects, teachers],

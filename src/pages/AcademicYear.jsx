@@ -22,6 +22,7 @@ import Layout from '../components/Layout';
 import HubTabs from '../components/hubs/HubTabs';
 import Modal from '../components/Modal';
 import DataImportPanel from '../components/DataImportPanel';
+import { isBasicClass } from '../lib/tutelle';
 
 // ── Assistant de promotion sécurisé (étapes + confirmation forte) ───────────
 // Parcours en 5 étapes : Vérifications → Règles → Aperçu → Confirmation forte
@@ -245,7 +246,7 @@ function PalmaresPanel() {
           isMajor: r.av !== null && r.rankD === '1er',
         };
       });
-      sheets.push(palmaresClassSheet(school, year, { className: cls.name, sys, rows, stats }));
+      sheets.push(palmaresClassSheet(school, year, { className: cls.name, basic: isBasicClass(cls), sys, rows, stats }));
     }
     return sheets;
   };

@@ -18,6 +18,7 @@ import {
   mkCell, mkTH, fix2, L,
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
+import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
 
 const PRIM_COTE_COLORS = { 'A+': '#059669', A: '#10b981', ECA: '#f59e0b', NA: '#ef4444' };
 const PRIM_ACCENT = '#047857';
@@ -122,7 +123,8 @@ export default function BulletinPrimAnnualUA({
 
   const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
   const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
-  const ppLabel      = sys === 'EN' ? 'Class teacher'     : sys === 'ES' ? 'Maestro/a' : 'Enseignant(e)';
+  // Accord au nombre : deux enseignants principaux -> « Enseignant(e)s ».
+  const ppLabel      = headTeacherLabel(headTeacherCount(profPrincipal), sys, { basic: true });
 
   // Cote par critère (dérivée du barème de CE critère, pas de la compétence
   // entière) — calculée ici pour ne pas alourdir le calcul côté Bulletins.jsx.

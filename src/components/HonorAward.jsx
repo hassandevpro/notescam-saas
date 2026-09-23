@@ -196,7 +196,7 @@ function SignatureColumn({ label, signatureUrl, stampUrl, navy, sigH, sealSize, 
 /**
  * Diplôme paysage. Props : award (ligne élève), school, style, countryCode, year, innerRef.
  */
-export default function HonorAward({ award = {}, school = {}, style, countryCode, year, innerRef }) {
+export default function HonorAward({ award = {}, school = {}, style, countryCode, year, innerRef, basic = false }) {
   const v = style || awardStyleFromTemplate({});
   const W = AWARD_W, H = AWARD_H;
   const navy = v.navy;
@@ -206,7 +206,7 @@ export default function HonorAward({ award = {}, school = {}, style, countryCode
   // Filigrane discret (catégorie prestige, opacité 0.03–0.06).
   const scale = createDocumentScale({ docType: 'diploma', orientation: 'landscape', pageWidth: W, pageHeight: H });
 
-  const officials = bulletinOfficials(school);
+  const officials = bulletinOfficials(school, { basic });
   const blocks = officials?.blocks || [];
 
   const title = v.customTitle || L(v.title.fr, v.title.en, v.title.es, lang);

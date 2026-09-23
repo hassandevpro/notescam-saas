@@ -126,6 +126,11 @@ CREATE TABLE IF NOT EXISTS classes (
   -- classe avant l'enseignant -> on garde l'id même si la ligne teacher n'est
   -- pas (encore) là, au lieu de rejeter tout l'upsert (FK ON globalement).
   teacher_id   TEXT,
+  -- SECOND enseignant principal (demande de THE GENIUS, 23/09/2026). Mention
+  -- seule : il s'imprime sur les documents et n'ouvre AUCUN droit — le périmètre
+  -- et les notifications restent attachés à `teacher_id` (cf. src/lib/headTeachers.js).
+  -- Même absence de FK dure, pour la même raison que ci-dessus.
+  teacher2_id  TEXT,
   max_students INTEGER,
   -- Rattachement explicite à une unité pédagogique (repli auto par section sinon).
   unit_id      TEXT REFERENCES school_units(id) ON DELETE SET NULL,

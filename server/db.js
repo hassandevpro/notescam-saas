@@ -68,6 +68,8 @@ ensureColumn('timetable_slots', 'room', 'room TEXT');       // salle du cours (V
 // l'assignation « disparaissait » au rechargement. Voir aussi le garde-fou plus bas.
 ensureColumn('classes',  'cycle',        'cycle TEXT');
 ensureColumn('classes',  'teacher_id',   'teacher_id TEXT');
+// Second enseignant principal — MENTION, pas un droit (cf. src/lib/headTeachers.js).
+ensureColumn('classes',  'teacher2_id',  'teacher2_id TEXT');
 ensureColumn('classes',  'max_students', 'max_students INTEGER');
 ensureColumn('classes',  'grade_max',    'grade_max INTEGER'); // barème de classe (/10, /20, /30…)
 ensureColumn('classes',  'unit_id',      'unit_id TEXT');       // rattachement à une unité pédagogique (complexe scolaire)

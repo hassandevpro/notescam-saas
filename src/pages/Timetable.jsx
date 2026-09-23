@@ -22,6 +22,7 @@ import ViewSwitcher       from '../components/timetable/ViewSwitcher';
 import TimetableGrid      from '../components/timetable/TimetableGrid';
 import SlotEditor         from '../components/timetable/SlotEditor';
 import TimetablePrint     from '../components/timetable/TimetablePrint';
+import { tutelleBasic } from '../lib/tutelle';
 import '../styles/timetable.css';
 
 const DAYS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -224,6 +225,10 @@ export default function Timetable() {
     class: t('Classe', 'Class'), teacher: t('Enseignant', 'Teacher'),
     room: t('Salle', 'Room'), subject: t('Matière', 'Subject'),
   }[view];
+  // Tutelle de l’en-tête : la CLASSE affichée quand la vue est « par classe » ;
+  // sinon (vue enseignant ou salle) la composition de l’école tranche.
+  const printClass = view === 'class' ? classes.find((c) => c.id === entityId) : null;
+  const printBasic = tutelleBasic({ cls: printClass, classes });
   const printTitle = entityName || t('Emploi du temps', 'Timetable');
   const printSubtitle = `${viewLabel}${activeYear ? '' : ''}`;
 
@@ -238,6 +243,7 @@ export default function Timetable() {
         subtitle={printSubtitle}
         year={activeYear}
         school={school}
+        basic={printBasic}
         showClass={showClass}
         t={t}
       />

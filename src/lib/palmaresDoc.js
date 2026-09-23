@@ -15,7 +15,9 @@ const TH = `${CELL};background:#7c2d12;color:#fff;text-align:center;font-weight:
 // Feuille A4 : palmarès d'une classe.
 // data = { className, level, sys, rows:[{rank,name,avg,mention,mentionCol,isMajor}], stats:{avg,total} }
 export function palmaresClassSheet(school, year, data) {
-  const { className, sys, rows, stats } = data;
+  // `basic` : tutelle du fondamental (MINEDUB), calculée par l'appelant, qui
+  // tient la classe entière — ici on n'a que son nom.
+  const { className, sys, rows, stats, basic = false } = data;
   const body = rows.map((r) => `
     <tr style="${r.isMajor ? 'background:#fffbeb' : ''}">
       <td style="${CELL};text-align:center;font-weight:${r.isMajor ? 'bold' : '600'}">${safe(r.rank)}${r.isMajor ? ' 🏆' : ''}</td>
@@ -28,7 +30,7 @@ export function palmaresClassSheet(school, year, data) {
   // occupe deux pages, et `<thead>` se réimprime sur chacune.
   return `
     ${sheetOpen({ school })}
-      ${officialHeaderHtml({ ...school, current_year: year || school?.current_year }, sys)}
+      ${officialHeaderHtml({ ...school, current_year: year || school?.current_year }, sys, { basic })}
       ${titleBandHtml(`🏆 ${L(sys, 'PALMARÈS', 'HONOUR ROLL', 'CUADRO DE HONOR')} — ${safe(className, '')}`, { background: '#7c2d12', fontSize: 13 })}
       <table class="${CLASS.keep}" style="width:100%;border-collapse:collapse;margin-bottom:6px">
         <tbody><tr>

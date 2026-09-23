@@ -15,6 +15,7 @@ import {
   buildPrintDocument, printSheets, PRINT_RESULT,
   esc, safe, num, EMPTY, CLASS,
 } from './print';
+import { isBasicClass } from './tutelle';
 
 // Réexportés pour les appelants historiques (ateliers, palmarès, tableaux
 // d'honneur) : le socle reste le seul propriétaire de ces fonctions.
@@ -70,7 +71,7 @@ export function transcriptSheetHtml(data, { qrSrc, verification, school }) {
 
   return `
     ${sheetOpen({ school })}
-      ${officialHeaderHtml(school, sys)}
+      ${officialHeaderHtml(school, sys, { basic: isBasicClass(cls) })}
 
       ${titleBandHtml(`${L(sys, 'RELEVÉ DE NOTES ANNUEL', 'ANNUAL TRANSCRIPT', 'CERTIFICACIÓN ACADÉMICA ANUAL')} — ${safe(year, '')}`)}
 
@@ -113,6 +114,11 @@ export function transcriptSheetHtml(data, { qrSrc, verification, school }) {
 
 // ── Feuille A4 : relevé multi-années (historique 6e → Terminale) ─────────────
 // `history` = sortie de buildMultiYearHistory ; `student` = ligne canonique.
+// Pas de `basic` ici : un historique 6e -> Terminale traverse les deux ordres
+// d’enseignement. Aucune tutelle unique n’est juste, on garde celle du MINESEC.
+// Pas de tutelle « fondamental » ici : un historique 6e → Terminale traverse
+// les deux ordres d'enseignement. Aucune tutelle unique n'y serait juste, on
+// garde donc celle du MINESEC, comme avant.
 export function multiYearSheetHtml(student, history, { qrSrc, verification, school, sys = 'FR' }) {
   const rows = (history || []).map((h) => `
     <tr>
@@ -184,7 +190,7 @@ export function certificateSheetHtml(student, cls, { qrSrc, verification, school
 
   return `
     ${sheetOpen({ school })}
-      ${officialHeaderHtml(school, sys)}
+      ${officialHeaderHtml(school, sys, { basic: isBasicClass(cls) })}
 
       ${titleBandHtml(L(sys, 'CERTIFICAT DE SCOLARITÉ', 'CERTIFICATE OF ENROLLMENT', 'CERTIFICADO DE ESCOLARIDAD'), { fontSize: 14, margin: '14px 0 22px' })}
 

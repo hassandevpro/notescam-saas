@@ -9,6 +9,7 @@ import {
 } from '../lib/honorRollTemplates';
 import { applyTemplate, distinctLevels, distinctSubjectNames } from '../lib/honorRollEngine';
 import { buildHonorRollSheets } from '../lib/honorRollDoc';
+import { isBasicSchool } from '../lib/tutelle';
 import { printSheets, buildPrintDocument, PRINT_RESULT } from '../lib/transcriptDoc';
 import { exportTranscriptsPdf } from '../lib/transcriptPdf';
 import TemplateWizard from '../components/honor/TemplateWizard';
@@ -86,7 +87,7 @@ export default function HonorRoll() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templates, classes, subjects, students, gradeMap]);
 
-  const sheetsFor = (tpl) => buildHonorRollSheets(tpl, applyTemplate(tpl, data, { t }), school, { year });
+  const sheetsFor = (tpl) => buildHonorRollSheets(tpl, applyTemplate(tpl, data, { t }), school, { year, basic: isBasicSchool(classes) });
   const noData = (tpl) => { const s = sheetsFor(tpl); if (!s.length) { alert(t('Aucune donnée pour ce modèle.', 'No data for this template.', 'Sin datos.')); return null; } return s; };
 
   // Les documents individuels à encadrer (certificat / diplôme) passent par le

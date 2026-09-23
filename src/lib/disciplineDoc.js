@@ -3,11 +3,14 @@
 // légère que receiptDoc.js), format A5.
 
 import { bulletinOfficials } from '../countries';
+import { isBasicClass } from './tutelle';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function headerHtml(school) {
-  const off = bulletinOfficials(school);
+// `basic` : tutelle du FONDAMENTAL (MINEDUB) au lieu du MINESEC, déduite de la
+// classe de l'élève concerné.
+function headerHtml(school, basic = false) {
+  const off = bulletinOfficials(school, { basic });
   const block = off?.blocks?.[0];
   const lines = block
     ? [block.republic, block.motto, block.ministry, ...(block.lines || [])].filter(Boolean)
@@ -21,7 +24,7 @@ function headerHtml(school) {
     </div>`;
 }
 
-function shell(title, school, bodyHtml) {
+function shell(title, school, bodyHtml, basic = false) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>
   @page { size: A5; margin: 12mm; }
@@ -41,7 +44,7 @@ function shell(title, school, bodyHtml) {
   .foot { margin-top: 18px; font-size: 10px; color: #9ca3af; text-align: center; }
 </style></head><body>
   <div class="doc">
-    ${headerHtml(school)}
+    ${headerHtml(school, basic)}
     ${bodyHtml}
   </div>
   <script>window.onload=function(){setTimeout(function(){window.focus();window.print();},350);};</script>
@@ -56,7 +59,7 @@ function open(html) {
 }
 
 // Convocation d'un élève et/ou d'un parent.
-export function printConvocation({ school, student, className, meeting, t }) {
+export function printConvocation({ school, student, className, cls = null, meeting, t }) {
   const targetLabel = meeting.target === 'eleve'
     ? t('l’élève', 'the student')
     : meeting.target === 'les_deux' ? t('l’élève et son parent', 'the student and their parent')
@@ -77,11 +80,11 @@ export function printConvocation({ school, student, className, meeting, t }) {
       <div>${t('Le Chef d’établissement', 'The Principal')}<div class="line"></div></div>
     </div>
     <div class="foot">${t('Merci de vous présenter à la date indiquée.', 'Please attend on the indicated date.')}</div>`;
-  open(shell(t('Convocation', 'Summons'), school, body));
+  open(shell(t('Convocation', 'Summons'), school, body, isBasicClass(cls)));
 }
 
 // Autorisation de sortie.
-export function printExitPermission({ school, student, className, permission, t, typeLabel }) {
+export function printExitPermission({ school, student, className, cls = null, permission, t, typeLabel }) {
   const body = `
     <h1>${t('Autorisation de sortie', 'Exit permission')}</h1>
     <div class="ref">${t('Réf', 'Ref')}: ${esc((permission.id || '').slice(0, 8).toUpperCase())} · ${esc(permission.date || '')}</div>
@@ -98,5 +101,5 @@ export function printExitPermission({ school, student, className, permission, t,
       <div>${t('Signature du responsable', 'Guardian signature')}<div class="line"></div></div>
       <div>${t('Le surveillant général', 'The supervisor')}<div class="line"></div></div>
     </div>`;
-  open(shell(t('Autorisation de sortie', 'Exit permission'), school, body));
+  open(shell(t('Autorisation de sortie', 'Exit permission'), school, body, isBasicClass(cls)));
 }

@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useT } from '../../lib/i18n';
 import { applyTemplate } from '../../lib/honorRollEngine';
 import { buildHonorRollSheets } from '../../lib/honorRollDoc';
+import { isBasicSchool } from '../../lib/tutelle';
 import { buildPrintDocument } from '../../lib/transcriptDoc';
 
 // Assistant de création de modèle de tableau d'honneur (5 étapes + aperçu temps réel).
@@ -80,7 +81,7 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
     if (step < 3) return null;
     try {
       const groups = applyTemplate(w, data, { t });
-      const sheets = buildHonorRollSheets(w, groups, data.school, { year: data.school?.current_year });
+      const sheets = buildHonorRollSheets(w, groups, data.school, { year: data.school?.current_year, basic: isBasicSchool(data.classes) });
       if (!sheets.length) return '__EMPTY__';
       return buildPrintDocument(sheets.slice(0, 2), w.name);
     } catch { return '__EMPTY__'; }

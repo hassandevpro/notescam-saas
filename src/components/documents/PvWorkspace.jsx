@@ -22,6 +22,7 @@ import { resolveCountryCode } from '../../countries';
 import TranscriptFilters from '../transcripts/TranscriptFilters';
 import PdfPreviewPanel from '../transcripts/PdfPreviewPanel';
 import GenerationHistory from '../transcripts/GenerationHistory';
+import { headTeacherText } from '../../lib/headTeachers';
 
 const MODE_CARDS = [
   { key: 'class', icon: '👥', label: ['Une classe', 'One class', 'Una clase'],        desc: ['PV de délibération de la classe', 'Class deliberation minutes', 'Acta de la clase'] },
@@ -116,7 +117,8 @@ export default function PvWorkspace({ t }) {
       primReferentiel, primNotes, primNiveauSlug: primaireNiveauSlug(cls.level, cls.name),
       primBareme: primReferentiel?.bareme,
       primSequences: section === 'primaire' && primaryPeriodMode(school) === 'sequences',
-      teacherName: teachers.find((tc) => tc.id === cls.teacher_id)?.name || '',
+      // Les DEUX enseignants principaux (mention seule, cf. src/lib/headTeachers.js).
+      teacherName: headTeacherText(cls, teachers),
     });
   }, [school, countryCode, schoolYear, period, students, subjects, gradeMap,
       apcReferentiel, apcNotes, primReferentiel, primNotes, teachers]);

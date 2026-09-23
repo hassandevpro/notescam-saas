@@ -11,6 +11,7 @@ import {
   mkCell, mkTH, L,
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
+import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
 
 const MAT_COLORS = { A: '#059669', ECA: '#f59e0b', NA: '#ef4444' };
 const MAT_LABELS = { A: 'Acquis', ECA: 'En cours d’acquisition', NA: 'Non acquis' };
@@ -53,7 +54,8 @@ export default function BulletinMatOfficial({
   // professeur principal / proviseur, propres au secondaire).
   const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
   const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
-  const ppLabel      = sys === 'EN' ? 'Class teacher'     : sys === 'ES' ? 'Maestro/a' : 'Enseignant(e)';
+  // Accord au nombre : deux enseignants principaux -> « Enseignant(e)s ».
+  const ppLabel      = headTeacherLabel(headTeacherCount(profPrincipal), sys, { basic: true });
 
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1}>

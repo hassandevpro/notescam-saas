@@ -21,6 +21,7 @@ import Modal from '../components/Modal';
 import { loadWithCache } from '../lib/offlineCache';
 import { printTicket } from '../lib/receiptDoc';
 import { printSubscribers } from '../lib/feeSubscribersDoc';
+import { isBasicSchool } from '../lib/tutelle';
 import { generateSchedule, fetchSchedule, scheduleView, setScheduleStatus } from '../lib/feeScheduleService';
 import { repartitionVersement, soldeEcheance, totauxEcheancier, ventilationEcheancier, STATUTS_POSABLES } from '../lib/feeScheduleEngine';
 import { classSectionKey } from '../core/engineResolver';
@@ -119,6 +120,9 @@ export default function FeeCatalog({ embedded = false }) {
     categoryLabel: catLabel(cat.category),
     rows: subscribersOf(cat),
     lang: school?.language,
+    // La liste couvre plusieurs classes : la tutelle ne peut venir que de la
+    // composition de l'école (MINEDUB seulement si elle n'a que du fondamental).
+    basic: isBasicSchool(classes),
   });
 
   // Échéances de l'élève affiché (frais périodiques uniquement). Rechargées à

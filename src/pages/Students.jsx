@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore';
 import { hasCapability } from '../config/capabilities';
 import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate } from '../lib/exportCsv';
 import { officialHeaderHtml, officialSignatureHtml } from '../lib/officialDocHeader';
+import { tutelleBasic } from '../lib/tutelle';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
 import { duplicateWarning } from '../lib/studentIdentity';
@@ -367,7 +368,10 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
   const isFemale = (g) => g === 'Feminin'  || g === 'Femenino';
 
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString(locale) : '—';
-  const className = classFilter ? classes.find((c) => c.id === classFilter)?.name : null;
+  const classeImprimee = classFilter ? classes.find((c) => c.id === classFilter) : null;
+  const className = classeImprimee?.name || null;
+  // Tutelle : la classe filtrée décide ; sans filtre, la composition de l’école.
+  const basic = tutelleBasic({ cls: classeImprimee, classes });
   const today = new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
   const colCount   = 2 + (showMatricule ? 1 : 0) + (showGenre ? 1 : 0) + (showDateNaissance ? 1 : 0) + (showLieuNaissance ? 1 : 0) + (showContact ? 1 : 0);
   const studentWord = (n) => Lp(`élève${n !== 1 ? 's' : ''}`, `alumno${n !== 1 ? 's' : ''}`);
@@ -476,7 +480,7 @@ function printStudentList(students, classes, school, classFilter, cols = {}) {
 </head>
 <body>
 <div class="page">
-  ${officialHeaderHtml(school, { sys: isGE ? 'ES' : 'FR', title: Lp('LISTE DES ÉLÈVES', 'LISTA DE ALUMNOS'), subtitle: className || '' })}
+  ${officialHeaderHtml(school, { sys: isGE ? 'ES' : 'FR', title: Lp('LISTE DES ÉLÈVES', 'LISTA DE ALUMNOS'), subtitle: className || '', basic })}
   <div style="text-align:center;font-size:9px;color:#777;margin:-2px 0 12px">${Lp('Imprimé le', 'Impreso el')} ${today}</div>
 
   ${groups.map(classSection).join('')}

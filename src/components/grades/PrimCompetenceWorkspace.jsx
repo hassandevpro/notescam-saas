@@ -23,6 +23,10 @@ import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { gradeEntryMode } from '../../lib/useCountry';
 import { primNkey } from '../../lib/primService';
 import { resolveClassEngine, primaireNiveauSlug } from '../../core/engineResolver';
+// Le référentiel national est stocké en français : une classe du secteur
+// anglophone voit ses compétences et ses critères en anglais, ici comme sur son
+// bulletin.
+import { primCompetenceLabel, primCritereLabel } from '../../core/referentielI18n';
 import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal, primCote,
   trimestreOfUA, PRIM_COTE_DEFAULT,
@@ -101,9 +105,12 @@ export default function PrimCompetenceWorkspace() {
   const selectedClass = primClasses.find((c) => c.id === classId) || null;
   const niveauSlug = selectedClass ? primaireNiveauSlug(selectedClass.level, selectedClass.name) : null;
 
+  const sys = selectedClass?.system || 'FR';
+
   const competences = useMemo(() => {
     if (!referentiel || !niveauSlug) return [];
-    const all = competencesForNiveau(referentiel, niveauSlug);
+    const all = competencesForNiveau(referentiel, niveauSlug)
+      .map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) }));
     if (!isSubjectTeacher) return all;
     // Mode 1 : ne garder que les compétences affectées à l'enseignant sur cette classe.
     const mine = new Set(
@@ -111,7 +118,7 @@ export default function PrimCompetenceWorkspace() {
         .map((s) => s.prim_competence_id),
     );
     return all.filter((c) => mine.has(c.id));
-  }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId]);
+  }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId, sys]);
 
   useEffect(() => {
     if (competences.length && !competences.some((c) => c.id === competenceId)) setCompetenceId(competences[0].id);
@@ -125,8 +132,12 @@ export default function PrimCompetenceWorkspace() {
   // Colonnes de critères pour la compétence sélectionnée. Pour '6a' (sport), le
   // barème dépend de l'aptitude — on affiche l'UNION apte/inapte (la colonne
   // "Pratique" sera grisée ligne par ligne pour un élève inapte, cf. criteresForStudent).
-  const criteresApte   = niveauSlug ? criteresForCompetence(referentiel, niveauSlug, competenceId, 'apte')   : [];
-  const criteresInapte = niveauSlug ? criteresForCompetence(referentiel, niveauSlug, competenceId, 'inapte') : [];
+  const critereRows = (aptitude) => (niveauSlug
+    ? criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude)
+      .map((cr) => ({ ...cr, nom: primCritereLabel(cr, sys) }))
+    : []);
+  const criteresApte   = critereRows('apte');
+  const criteresInapte = critereRows('inapte');
   const criteres = useMemo(() => {
     if (competenceId !== '6a') return criteresApte;
     const byId = new Map(criteresApte.map((c) => [c.id, c]));

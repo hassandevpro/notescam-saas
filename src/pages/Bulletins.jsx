@@ -31,6 +31,9 @@ import {
   primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresForCompetence, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
 } from '../core/primEngine';
 import { domainesForMaternelle } from '../core/matEngine';
+// Les intitulés du référentiel officiel sont stockés en français pour tout le
+// pays : sur une classe du secteur anglophone, on les rend en anglais.
+import { matDomaineLabel, primCompetenceLabel, primCritereLabel, primCoteLabel } from '../core/referentielI18n';
 import { obsNkey } from '../lib/matService';
 import { primNkey } from '../lib/primService';
 import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
@@ -1834,7 +1837,10 @@ export default function Bulletins() {
   // sportive ne joue que pour '6a' (deux profils de barème possibles).
   const primCriteresFor = (compId, student) => {
     const aptitude = compId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte';
-    return criteresForCompetence(primReferentiel, primNiveauSlug, compId, aptitude);
+    // Point de passage unique des critères (Oral/Écrit/Pratique/Savoir-être) vers
+    // le bulletin : on y traduit leur nom une fois pour toutes.
+    return criteresForCompetence(primReferentiel, primNiveauSlug, compId, aptitude)
+      .map((cr) => ({ ...cr, nom: primCritereLabel(cr, sys) }));
   };
 
   // Moyenne /10 d'une compétence sur la période : moyenne des pourcentages
@@ -1886,14 +1892,22 @@ export default function Bulletins() {
         // L'appréciation APC = le libellé de la cote (« Acquis », « En cours
         // d'acquisition »…) — dérivée, jamais saisie. Absente sur compétence non notée.
         const notesByCritere = primNotesByCritereFor(s.id, c.id, s);
-        return { code: c.code, intitule: c.intitule, moyenne, coef, cote: cote ? cote.cote : null, appreciation: cote ? cote.libelle : '', notesByCritere };
+        return {
+          code: c.code, intitule: primCompetenceLabel(c, sys), moyenne, coef,
+          cote: cote ? cote.cote : null,
+          appreciation: cote ? primCoteLabel(cote.cote, cote.libelle, sys) : '',
+          notesByCritere,
+        };
       });
       const moyenneGenerale = primGeneralAverage(rows.map((r) => ({ moyenne: r.moyenne, coef: r.coef })));
       const cg = primCote(moyenneGenerale, PRIM_GRADE_MAX, primBareme);
-      out[s.id] = { rows, moyenneGenerale, coteGenerale: cg ? cg.cote : null, appreciationGenerale: cg ? cg.libelle : '' };
+      out[s.id] = {
+        rows, moyenneGenerale, coteGenerale: cg ? cg.cote : null,
+        appreciationGenerale: cg ? primCoteLabel(cg.cote, cg.libelle, sys) : '',
+      };
     }
     return out;
-  }, [isPrim, primReferentiel, primNiveauSlug, classStudents, primNotes, primUAs.join(',')]);
+  }, [isPrim, primReferentiel, primNiveauSlug, classStudents, primNotes, primUAs.join(','), sys]);
 
   const primRanks = useMemo(() => {
     if (!isPrim) return {};
@@ -1941,12 +1955,17 @@ export default function Bulletins() {
         ? Math.round((notedUAs.reduce((a, u) => a + u.achieved, 0) / notedUAs.length) * 100) / 100
         : null;
       const totalCote = totalAchieved != null ? primCote(totalAchieved, totalPossible, primBareme) : null;
-      return { code: c.code, intitule: c.intitule, criteres, uas, totalAchieved, totalPossible, totalCote: totalCote?.cote || null };
+      return { code: c.code, intitule: primCompetenceLabel(c, sys), criteres, uas, totalAchieved, totalPossible, totalCote: totalCote?.cote || null };
     });
   };
 
+  // Titre du bulletin : rendu dans le SYSTÈME de la classe, comme `apcTitle`.
   const primTitle = (() => {
     const n = period.seqs?.[0] || 1;
+    if (sys === 'EN') {
+      if (period.value === 'annuel') return 'ANNUAL REPORT CARD — PRIMARY (CBA)';
+      return `${['FIRST', 'SECOND', 'THIRD'][n - 1] || ''} TERM REPORT CARD — PRIMARY (CBA)`;
+    }
     if (period.value === 'annuel') return 'BULLETIN ANNUEL — PRIMAIRE APC';
     return `BULLETIN DU ${['PREMIER', 'DEUXIÈME', 'TROISIÈME'][n - 1] || ''} TRIMESTRE — PRIMAIRE APC`;
   })();
@@ -1964,15 +1983,16 @@ export default function Bulletins() {
       out[s.id] = {
         rows: matDomaines.map((d) => {
           const r = matObservations[obsNkey(s.id, d.id, matTrimId)];
-          return { code: d.code, intitule: d.intitule, niveau: r?.niveau_acquis || '', observation: r?.observation || '' };
+          return { code: d.code, intitule: matDomaineLabel(d, sys), niveau: r?.niveau_acquis || '', observation: r?.observation || '' };
         }),
       };
     }
     return out;
-  }, [isMat, matReferentiel, matDomaines, classStudents, matObservations, matTrimId]);
+  }, [isMat, matReferentiel, matDomaines, classStudents, matObservations, matTrimId, sys]);
 
   const matTitle = (() => {
     const n = period.seqs?.[0] || 1;
+    if (sys === 'EN') return `${['FIRST', 'SECOND', 'THIRD'][n - 1] || ''} TERM REPORT CARD — NURSERY`;
     return `BULLETIN DU ${['PREMIER', 'DEUXIÈME', 'TROISIÈME'][n - 1] || ''} TRIMESTRE — MATERNELLE`;
   })();
   const matReady = isMat && !!matReferentiel && classStudents.length > 0;
@@ -2289,12 +2309,14 @@ export default function Bulletins() {
     return (gradeMap?.[`${classId}_${sid}_${lastSeq}`] || {})['__appreciation__'] || '';
   };
 
-  // Libellé de la décision du conseil (bulletin APC annuel).
+  // Libellé de la décision du conseil (bulletin APC annuel et maternelle). Rendu
+  // dans le SYSTÈME de la classe, pas dans la langue de l'interface : la décision
+  // est imprimée sur le document, aux côtés d'un cadre déjà traduit par `L(sys…)`.
   const APC_DECISION_LABELS = {
-    admis:      t('Admis(e) en classe supérieure', 'Promoted to next class'),
-    redouble:   t('Autorisé(e) à redoubler', 'Allowed to repeat the class'),
-    renvoye:    t("Exclu(e) de l'établissement", 'Dismissed from school'),
-    rattrapage: t('Examen de rattrapage', 'Resit examination required'),
+    admis:      sys === 'EN' ? 'Promoted to next class'     : 'Admis(e) en classe supérieure',
+    redouble:   sys === 'EN' ? 'Allowed to repeat the class' : 'Autorisé(e) à redoubler',
+    renvoye:    sys === 'EN' ? 'Dismissed from school'       : "Exclu(e) de l'établissement",
+    rattrapage: sys === 'EN' ? 'Resit examination required'  : 'Examen de rattrapage',
   };
   const apcDecisionLabel = (sid) => {
     const d = annualDecisionFor(sid);

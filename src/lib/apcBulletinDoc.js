@@ -20,6 +20,7 @@ import {
   generalAverage, apcCoteFromScale, apcBulletinCols, coefFor, APC_COTE_CODES,
 } from '../core/apcEngine.js';
 import { gradeScaleBand, scaleMention } from '../core/bulletinEngine.js';
+import { apcMatiereLabel } from '../core/referentielI18n.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -94,7 +95,10 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
     // l'école (school.grade_scale) — exactement comme le second cycle.
     const band = gradeScaleBand(moyenne, gradeScale);
     matieres.push({
-      id: m.id, nom: m.nom, coef,
+      // Une classe anglophone qui n'a pas encore importé son référentiel CBA
+      // retombe sur le catalogue francophone : on rend alors le nom de matière en
+      // anglais (le catalogue anglophone, lui, est déjà rédigé en anglais).
+      id: m.id, nom: apcMatiereLabel(m, sys), coef,
       enseignant: teacherByMatiere[m.id] || '',
       competences: compRows,
       moyenne, ponderee: weightedMatiere(moyenne, coef),

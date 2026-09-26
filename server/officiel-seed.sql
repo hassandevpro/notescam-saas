@@ -54,6 +54,46 @@ ON CONFLICT (id) DO UPDATE
   SET nom = EXCLUDED.nom, coefficient = EXCLUDED.coefficient,
       optionnelle = EXCLUDED.optionnelle, ordre = EXCLUDED.ordre;
 
+INSERT INTO apc_classes (id, cycle_id, nom, niveau) VALUES
+  ('form1', 'premier_cycle', 'Form 1', 1),
+  ('form2', 'premier_cycle', 'Form 2', 2),
+  ('form3', 'premier_cycle', 'Form 3', 3),
+  ('form4', 'premier_cycle', 'Form 4', 4),
+  ('form5', 'premier_cycle', 'Form 5', 5)
+ON CONFLICT (id) DO UPDATE SET nom = EXCLUDED.nom, niveau = EXCLUDED.niveau, cycle_id = EXCLUDED.cycle_id;
+
+INSERT INTO apc_matieres (id, nom, coefficient, optionnelle, ordre) VALUES
+  ('english',            'English Language',        4, false, 1010),
+  ('french',             'French',                  3, false, 1020),
+  ('mathematics',        'Mathematics',             4, false, 1030),
+  ('biology',            'Biology',                 2, false, 1040),
+  ('chemistry',          'Chemistry',               2, false, 1050),
+  ('physics',            'Physics',                 2, false, 1060),
+  ('computer_science',   'Computer Science',        2, false, 1070),
+  ('history',            'History',                 1, false, 1080),
+  ('geography',          'Geography',               1, false, 1090),
+  ('citizenship',        'Citizenship Education',   1, false, 1100),
+  ('physical_education', 'Physical Education',       2, false, 1110),
+  ('literature',         'Literature in English',   2, true,  1120),
+  ('economics',          'Economics',               2, true,  1130),
+  ('commerce',           'Commerce',                2, true,  1140),
+  ('food_science',       'Food Science & Nutrition', 1, true, 1150),
+  ('manual_labour',      'Manual Labour',           1, false, 1160),
+  ('religious_studies',  'Religious Studies',       1, true,  1170),
+  ('national_languages', 'National Languages & Cultures', 1, true, 1180),
+  ('german',             'German',                  2, true,  1190),
+  ('spanish',            'Spanish',                 2, true,  1200),
+  ('latin',              'Latin (EN)',              2, true,  1210),
+  ('arts',               'Arts and Cultural Education',    1, false, 1220),
+  ('national_cultures',  'National Cultures',              1, false, 1230),
+  ('greek',              'Greek',                          2, true,  1240),
+  ('arabic',             'Arabic',                         2, true,  1250),
+  ('italian',            'Italian',                        2, true,  1260),
+  ('chinese',            'Chinese',                        2, true,  1270)
+ON CONFLICT (id) DO UPDATE
+  SET nom = EXCLUDED.nom, coefficient = EXCLUDED.coefficient,
+      optionnelle = EXCLUDED.optionnelle, ordre = EXCLUDED.ordre;
+
 INSERT INTO apc_referentiel_versions (id, label, source, actif)
 VALUES ('9abce227-12a3-48a4-8479-ec262dcf6175', 'MINESEC — Référentiel APC Premier cycle (6e–3e)', 'Bulletins officiels APC ordinaires (DOCX MINESEC)', true)
 ON CONFLICT (id) DO NOTHING;

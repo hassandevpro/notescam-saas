@@ -4,6 +4,7 @@
 
 import { resolveClassEngine, primaireNiveauSlug } from '../core/engineResolver';
 import { competencesForNiveau, subjectsFromPrimReferentiel } from '../core/primEngine';
+import { primCompetenceLabel } from '../core/referentielI18n';
 
 // Renvoie les `subjects` (un par compétence 1A…6B) à créer pour `cls`, ou [] si
 // non concerné. Les 11 compétences s'associent automatiquement — jamais à la main.
@@ -16,7 +17,12 @@ export function buildSubjectsForPrimClass({ referentiel, school, cls, makeId }) 
   const niveau = primaireNiveauSlug(cls.level, cls.name);
   if (!niveau) return [];
 
-  const competences = competencesForNiveau(referentiel, niveau);
+  // Voir matAutoConfig : le référentiel est en français, une classe du secteur
+  // anglophone (Class 1–6) nomme ses compétences en anglais. `prim_competence_id`
+  // reste porté par chaque matière.
+  const sys = cls?.system || 'FR';
+  const competences = competencesForNiveau(referentiel, niveau)
+    .map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) }));
   if (!competences.length) return [];
 
   return subjectsFromPrimReferentiel(competences, {

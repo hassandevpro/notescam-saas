@@ -11,24 +11,31 @@ import {
   mkCell, mkTH, L,
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
+import { matAcquisLabel } from '../../core/referentielI18n';
 
 const MAT_COLORS = { A: '#059669', ECA: '#f59e0b', NA: '#ef4444' };
 const MAT_LABELS = { A: 'Acquis', ECA: 'En cours d’acquisition', NA: 'Non acquis' };
+// Infobulle de la cote : les mêmes mots que la légende du bas de page, dans le
+// système de la classe (un bulletin anglophone ne doit pas dire « Acquis »).
+const matLevelLabel = (code, sys) => matAcquisLabel(code, MAT_LABELS[code], sys);
 // Cote illustrée pour un bulletin de tout-petits : smiley + lettre (reste officiel).
 const MAT_EMOJI  = { A: '😀', ECA: '😐', NA: '☹️' };
 
 // Icône par domaine — résolue par MOTS-CLÉS de l'intitulé (robuste : indépendante
 // des codes D1…D8, qui peuvent varier). Repli 🌟 si aucun mot-clé ne correspond.
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+// Les mots-clés couvrent les DEUX rédactions du référentiel (française en base,
+// anglaise sur un bulletin du secteur anglophone) : sinon un bulletin anglophone
+// perdait toutes ses icônes au profit du repli 🌟.
 const DOMAINE_ICONS = [
-  [/langage|communicat|parole|oral/,            '💬'],
-  [/lecture|ecrit|graph|trace/,                 '✏️'],
-  [/numer|logi|math|calcul|nombre/,             '🔢'],
-  [/psychomot|motric|corps|physique|sport/,     '🤸'],
-  [/monde|scien|nature|environ|decouverte/,     '🌍'],
-  [/social|affect|vivre|emotion|citoyen/,       '❤️'],
-  [/art|music|dessin|creativ|chant|danse/,      '🎨'],
-  [/autonom|hygien|proprete|personnel/,         '🧩'],
+  [/langage|communicat|parole|oral|language/,          '💬'],
+  [/lecture|ecrit|graph|trace|read|writ/,              '✏️'],
+  [/numer|logi|math|calcul|nombre/,                    '🔢'],
+  [/psychomot|motric|corps|physique|sport/,            '🤸'],
+  [/monde|scien|nature|environ|decouverte|world|discover/, '🌍'],
+  [/social|affect|vivre|emotion|citoyen/,              '❤️'],
+  [/art|music|dessin|creativ|chant|danse/,             '🎨'],
+  [/autonom|hygien|proprete|personnel|personal/,       '🧩'],
 ];
 const domaineIcon = (intitule) => {
   const s = norm(intitule);
@@ -56,7 +63,7 @@ export default function BulletinMatOfficial({
   const ppLabel      = sys === 'EN' ? 'Class teacher'     : sys === 'ES' ? 'Maestro/a' : 'Enseignant(e)';
 
   return (
-    <OfficialSheet school={school} pt={10} pageNo={1} total={1}>
+    <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys}>
       <OfficialHeader school={school} sys={sys} title={title} accent={MAT_ACCENT} rounded basic />
       <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={MAT_ACCENT} tint={MAT_TH_BG} />
 
@@ -80,7 +87,7 @@ export default function BulletinMatOfficial({
               <td style={{ ...cell, textAlign: 'center' }}>{r.code}</td>
               <td style={cell}><span style={{ marginRight: 5 }} aria-hidden>{domaineIcon(r.intitule)}</span>{r.intitule}</td>
               <td style={{ ...cell, textAlign: 'center' }}>
-                {r.niveau ? <strong style={{ color: MAT_COLORS[r.niveau] }} title={MAT_LABELS[r.niveau]}>{MAT_EMOJI[r.niveau]} {r.niveau}</strong> : ''}
+                {r.niveau ? <strong style={{ color: MAT_COLORS[r.niveau] }} title={matLevelLabel(r.niveau, sys)}>{MAT_EMOJI[r.niveau]} {r.niveau}</strong> : ''}
               </td>
               <td style={cell}>{r.observation || ''}</td>
             </tr>

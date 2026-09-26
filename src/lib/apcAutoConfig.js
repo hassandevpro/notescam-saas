@@ -5,6 +5,7 @@
 
 import { resolveClassEngine, firstCycleClasseSlug } from '../core/engineResolver';
 import { matieresForApcClasse, subjectsFromApcReferentiel } from '../core/apcEngine';
+import { apcMatiereLabel } from '../core/referentielI18n';
 
 // Renvoie les `subjects` à créer pour `cls` (ou [] si non concerné).
 //   referentiel : blob apcReferentiel
@@ -16,7 +17,12 @@ export function buildSubjectsForApcClass({ referentiel, school, cls, makeId }) {
   const classeId = firstCycleClasseSlug(cls.level, cls.name);
   if (!classeId) return [];
 
-  const rows = matieresForApcClasse(referentiel, classeId);
+  // Une classe anglophone (Form 1–5) qui n'a pas encore importé son référentiel
+  // CBA retombe sur le catalogue francophone : ses matières sont alors nommées en
+  // anglais. Le catalogue anglophone, lui, est déjà rédigé en anglais.
+  const sys = cls?.system || 'FR';
+  const rows = matieresForApcClasse(referentiel, classeId)
+    .map((r) => ({ ...r, nom: apcMatiereLabel({ id: r.matiere_id, nom: r.nom }, sys) }));
   if (!rows.length) return [];
 
   return subjectsFromApcReferentiel(rows, {

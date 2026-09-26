@@ -142,7 +142,7 @@ export default function BulletinPrimAnnualUA({
   });
 
   return (
-    <OfficialSheet school={school} pt={10} pageNo={1} total={1}>
+    <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys}>
       <OfficialHeader school={school} sys={sys} title={title} accent={PRIM_ACCENT} basic />
       <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={PRIM_ACCENT} tint={PRIM_TH_BG} />
 

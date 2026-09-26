@@ -14,6 +14,7 @@ import { useT } from '../../lib/i18n';
 import { obsNkey } from '../../lib/matService';
 import { resolveClassEngine, maternelleNiveauSlug } from '../../core/engineResolver';
 import { domainesForMaternelle, MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_CODES } from '../../core/matEngine';
+import { matDomaineLabel } from '../../core/referentielI18n';
 import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
@@ -94,7 +95,13 @@ export default function MatObservationWorkspace() {
   const selectedClass = matClasses.find((c) => c.id === classId) || null;
   const niveauSlug = selectedClass ? maternelleNiveauSlug(selectedClass.level, selectedClass.name) : null;
 
-  const domaines = useMemo(() => domainesForMaternelle(referentiel), [referentiel]);
+  // Les intitulés du référentiel sont en français en base : une classe du
+  // secteur anglophone doit les voir en anglais, ici comme sur son bulletin.
+  const sys = selectedClass?.system || 'FR';
+  const domaines = useMemo(
+    () => domainesForMaternelle(referentiel).map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) })),
+    [referentiel, sys],
+  );
 
   const classStudents = useMemo(
     () => students.filter((s) => s.class_id === classId).sort((a, b) => (a.name || '').localeCompare(b.name || '')),

@@ -27,6 +27,7 @@ const OUT  = join(ROOT, 'server', 'officiel-seed.sql');
 // Ordre = dépendances FK (parents avant enfants), toutes tables confondues.
 const SOURCES = [
   'supabase_apc_minesec.sql',        // apc_cycles/classes/trimestres/sequences/matieres
+  'supabase_apc_anglophone.sql',     // apc_classes form1..form5 + catalogue de matières anglophone
   'supabase_apc_referentiel_data.sql', // apc_referentiel_versions/competences/classe_matieres
   'supabase_sc_minesec.sql',         // sc_groupes/series
   'supabase_sc_referentiel_data.sql', // sc_series(ext)/matieres/version/serie_matieres

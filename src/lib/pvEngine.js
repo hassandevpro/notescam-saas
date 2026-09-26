@@ -26,6 +26,9 @@ import {
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
   primNkey,
 } from '../core/primEngine.js';
+// Les intitulés du référentiel officiel sont stockés en français : sur une classe
+// du secteur anglophone, le PV les rend en anglais, comme le fait le bulletin.
+import { primCompetenceLabel } from '../core/referentielI18n.js';
 
 // ── Périodes de délibération ─────────────────────────────────────────────────
 // Un conseil de classe délibère par TRIMESTRE (ou en fin d'année). Chaque moteur
@@ -180,7 +183,7 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
     const cells = {};
     if (annual) {
       // Vue annuelle : le moteur APC fournit déjà T1/T2/T3 par matière.
-      const d = assembleApcAnnual(referentiel, notes, { classeSlug, student: st, gradeScale });
+      const d = assembleApcAnnual(referentiel, notes, { classeSlug, student: st, gradeScale, sys });
       for (const m of d.matieres) {
         addCol(m);
         cells[m.id] = { moy: m.moyenne, byUnit: { t1: m.t1, t2: m.t2, t3: m.t3 } };
@@ -189,12 +192,12 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
     }
 
     const full = assemblePeriod(referentiel, notes, {
-      classeSlug, trimestreId, seqIds: seqIdsOf(allSeqs(units)), student: st, gradeScale,
+      classeSlug, trimestreId, seqIds: seqIdsOf(allSeqs(units)), student: st, gradeScale, sys,
     });
     const perUnit = {};
     for (const u of units) {
       const one = assemblePeriod(referentiel, notes, {
-        classeSlug, trimestreId, seqIds: seqIdsOf(u.seqs), student: st, gradeScale,
+        classeSlug, trimestreId, seqIds: seqIdsOf(u.seqs), student: st, gradeScale, sys,
       });
       perUnit[u.key] = Object.fromEntries(one.matieres.map((m) => [m.id, m.moyenne]));
     }
@@ -215,7 +218,7 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
 // Colonnes = compétences du niveau ; unités = UA de la période. La note d'une
 // compétence sur une UA = pourcentage des points obtenus ramené à /10 — même
 // règle que le bulletin primaire officiel.
-function buildPrimPv({ students, units, referentiel, notes, niveauSlug, bareme }) {
+function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme }) {
   const GRADE_MAX = 10;
   const comps = competencesForNiveau(referentiel, niveauSlug);
   const scale = bareme?.length ? bareme : PRIM_COTE_DEFAULT;
@@ -238,7 +241,7 @@ function buildPrimPv({ students, units, referentiel, notes, niveauSlug, bareme }
     return achieved != null && possible ? r2((achieved / possible) * GRADE_MAX) : null;
   };
 
-  const cols = comps.map((c) => ({ key: c.id, name: c.intitule, code: c.code, coef: coefOf(c) }));
+  const cols = comps.map((c) => ({ key: c.id, name: primCompetenceLabel(c, sys), code: c.code, coef: coefOf(c) }));
 
   const rows = students.map((st) => {
     const cells = {};
@@ -290,7 +293,7 @@ export function buildClassPv(ctx) {
   const base = engine === 'apc'
     ? buildApcPv({ sys, students, units, referentiel: apcReferentiel, notes: apcNotes, classeSlug: apcClasseSlug, annual, trimestreId: `t${trim || 1}`, gradeScale })
     : engine === 'apc_primaire'
-      ? buildPrimPv({ students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme })
+      ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme })
       : buildNotesPv({ cls, sys, students, subjects, gradeMap, units, opts, gradeScale });
 
   const { cols, rows, maxScale, pass } = base;

@@ -18,6 +18,10 @@ import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { isSequenceLocked } from '../../lib/lockService';
 import { noteNkey } from '../../lib/apcService';
 import { firstCycleClasseSlug, resolveClassEngine } from '../../core/engineResolver';
+// Une classe anglophone qui n'a pas encore importé son référentiel CBA retombe
+// sur le catalogue francophone : ses noms de matières sont alors rendus en
+// anglais, comme sur son bulletin.
+import { apcMatiereLabel } from '../../core/referentielI18n';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import {
@@ -95,11 +99,14 @@ export default function ApcCompetenceWorkspace() {
 
   // Matières du référentiel ayant au moins une compétence pour (classe, trimestre),
   // avec leur coefficient officiel POUR cette classe (Français = 6 en 6e/5e, 4 en 4e/3e).
+  const sys = selectedClass?.system || 'FR';
+
   const matieres = useMemo(() => {
     if (!referentiel || !classeSlug || !trimestreId) return [];
     return referentiel.matieres
       .map((m) => ({
         ...m,
+        nom: apcMatiereLabel(m, sys),
         coef: coefFor(referentiel.classeMatieres, classeSlug, m),
         nbComp: competencesFor(referentiel.competences, { classeId: classeSlug, trimestreId, matiereId: m.id }).length,
       }))
@@ -109,7 +116,7 @@ export default function ApcCompetenceWorkspace() {
         const ob = (referentiel.classeMatieres || []).find((r) => r.classe_id === classeSlug && r.matiere_id === b.id)?.ordre ?? b.ordre ?? 0;
         return oa - ob;
       });
-  }, [referentiel, classeSlug, trimestreId]);
+  }, [referentiel, classeSlug, trimestreId, sys]);
 
   const matiereCoef = matieres.find((m) => m.id === matiereId)?.coef ?? 1;
 

@@ -183,7 +183,7 @@ export default function BulletinApcOfficial({
   return (
     <>
       {pages.map((chunks, i) => (
-        <OfficialSheet key={i} school={school} pt={fontPt} pageNo={i + 1} total={totalPages}>
+        <OfficialSheet key={i} school={school} pt={fontPt} pageNo={i + 1} total={totalPages} sys={sys}>
           {i === 0 ? (
             <>
               <OfficialHeader school={school} sys={sys} title={title} />

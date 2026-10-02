@@ -2,13 +2,17 @@
 // uiLang is persisted to localStorage; other values are recalculated on start.
 
 import { create } from 'zustand';
+import { backendOnline } from '../lib/edition';
 
 const _SUPPORTED_LANGS = ['fr', 'en', 'es', 'tr'];
 const _stored = localStorage.getItem('notescam_ui_lang') || 'fr';
 const _savedLang = _SUPPORTED_LANGS.includes(_stored) ? _stored : 'fr';
 
 export const useUiStore = create((set) => ({
-  online: navigator.onLine,
+  // Statut vu du BACKEND, pas d'Internet : en édition LAN le serveur de l'école
+  // répond sans Internet, donc l'app ne démarre jamais en « Hors ligne »
+  // (cf. lib/edition.js). App.jsx le réévalue sur chaque événement réseau.
+  online: backendOnline(),
   syncStatus: 'idle',  // 'idle' | 'syncing' | 'synced' | 'error'
   pendingCount: 0,
   failedCount: 0,

@@ -16,6 +16,7 @@ import { academicPeriodsDB, syncQueueDB } from './db';
 import { fetchSequenceDates } from './sequenceDatesService';
 import { logAction } from './historyService';
 import { useUiStore } from '../store/uiStore';
+import { backendOnline } from './edition';
 import { SCHOOL_EVENT } from './notificationRulesSchool';
 
 const TABLE = 'academic_periods';
@@ -30,7 +31,9 @@ async function queueOffline(op) {
 export async function upsertPeriod(p) {
   const record = { ...p, updated_at: new Date().toISOString() };
   await academicPeriodsDB.put(record);
-  if (navigator.onLine) {
+  // `backendOnline()` et NON `navigator.onLine` : en édition LAN le backend est
+  // le serveur de l'école, joignable sans Internet (cf. lib/edition.js).
+  if (backendOnline()) {
     const { error } = await supabase.from(TABLE).upsert(record, { onConflict: 'id' });
     if (error) await queueOffline({ table: TABLE, operation: 'upsert', payload: record });
   } else {
@@ -141,7 +144,7 @@ export async function seedPeriods({ school, country, userId, periodMode }) {
 
   // Garde d'idempotence : si des périodes existent déjà pour (école, année),
   // ne rien recréer. En ligne on lit la base, sinon l'IDB.
-  let existing = navigator.onLine ? await fetchPeriods(schoolId, year) : null;
+  let existing = backendOnline() ? await fetchPeriods(schoolId, year) : null;
   if (existing === null) {
     existing = (await academicPeriodsDB.getBySchool(schoolId)).filter((p) => p.school_year === year);
   }
@@ -154,7 +157,7 @@ export async function seedPeriods({ school, country, userId, periodMode }) {
 
   // Pré-remplissage des dates depuis sequence_dates (best-effort, en ligne).
   const dateByOrder = {};
-  if (navigator.onLine) {
+  if (backendOnline()) {
     try {
       for (const row of await fetchSequenceDates(schoolId)) {
         // `academic_periods.sequence_order` reprend l'entier de `grades.sequence`,

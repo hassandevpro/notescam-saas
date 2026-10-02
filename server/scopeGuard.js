@@ -128,9 +128,22 @@ export function loadScope(userId) {
   const sections = toList(row.scope_sections);
   const cycles   = toList(row.scope_cycles);
   const classIds = toList(row.scope_class_ids);
-  const global = row.scope_global == null
-    ? (!sections.length && !cycles.length && !classIds.length)  // base non migrée
-    : (row.scope_global === 1 || row.scope_global === true);
+  // PÉRIMÈTRE GLOBAL = explicite (`scope_global`) OU aucun périmètre jamais posé.
+  //
+  // Miroir de supabase_fix_perimetre_mort.sql §2 garde-fou a. Trois listes vides
+  // n'est pas un cloisonnement voulu, c'est un compte NON CONFIGURÉ — et c'est
+  // exactement ce que promet l'écran Périmètre : « tout laisser vide = tout
+  // l'établissement ». Le cloud a reçu ce garde-fou, le serveur LAN non.
+  //
+  // CE QUE ÇA RÉPARE (constaté le 2026-10-01) : `school_users.scope_global` a
+  // pour défaut 0 (db.js) et AUCUNE création de compte ne le renseignait. Le
+  // premier administrateur — celui qui installe l'école — naissait donc aveugle
+  // et se faisait refuser sa toute première classe (« Hors périmètre : cette
+  // donnée appartient à un autre secteur »). Le rattrapage de db.js ne passe
+  // qu'au DÉMARRAGE du serveur : le compte né pendant la session restait aveugle
+  // jusqu'au redémarrage suivant — d'où une panne qui semblait aléatoire.
+  const posed  = sections.length > 0 || cycles.length > 0 || classIds.length > 0;
+  const global = !posed || row.scope_global === 1 || row.scope_global === true;
   return {
     userId, schoolId: row.school_id, sections, cycles, classIds, global,
     role: row.role || null,
@@ -417,7 +430,28 @@ export function allowsClass(scope, classId) {
     if (['maternelle', 'primaire'].includes(cls.section) && scope.cycles.includes('fondamental')) return true;
     if (['premier_cycle', 'second_cycle'].includes(cls.section) && scope.cycles.includes('secondaire')) return true;
   }
+  // Un enseignant atteint TOUJOURS les classes qu'il assure (titulaire ou
+  // matière). Miroir de supabase_fix_perimetre_mort.sql §2 garde-fou b : le
+  // cloisonnement sectoriel n'a jamais eu pour but d'empêcher un professeur de
+  // saisir les notes de SA classe. Hors de ses classes, le cloisonnement
+  // s'applique entièrement.
+  if (teachesClass(scope, classId)) return true;
   return false;
+}
+
+// L'utilisateur assure-t-il cette classe ? Pendant de public.user_teaches_class
+// (supabase_fix_perimetre_mort.sql §1).
+function teachesClass(scope, classId) {
+  if (!scope?.userId || !scope.schoolId || !classId) return false;
+  try {
+    return !!db.prepare(
+      `SELECT 1 FROM teachers t
+        WHERE t.school_id = ? AND t.auth_user_id = ?
+          AND (EXISTS (SELECT 1 FROM classes  c WHERE c.id = ?      AND c.school_id = t.school_id AND c.teacher_id = t.id)
+            OR EXISTS (SELECT 1 FROM subjects s WHERE s.class_id = ? AND s.school_id = t.school_id AND s.teacher_id = t.id))
+        LIMIT 1`,
+    ).get(scope.schoolId, scope.userId, classId, classId);
+  } catch { return false; }
 }
 
 export function allowsStudent(scope, studentId) {

@@ -38,6 +38,26 @@ export default defineConfig(({ mode }) => {
   },
   plugins: [
     react(),
+    // Carte d'identité du build, écrite dans dist/edition.json. Le serveur LAN
+    // la lit au démarrage et REFUSE de servir un dist d'édition cloud : cette
+    // SPA-là parle à Supabase et non à `/api/db`, donc sans Internet rien ne
+    // s'enregistre (et avec Internet, l'école écrirait dans le cloud au lieu de
+    // sa propre base). Un `npm run build` lancé par mégarde dans un dossier
+    // d'école produisait exactement ce symptôme, en silence.
+    {
+      name: 'notescam-edition-stamp',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'edition.json',
+          source: JSON.stringify({
+            edition: isLan ? 'lan' : 'cloud',
+            built_at: new Date().toISOString(),
+          }, null, 2) + '\n',
+        });
+      },
+    },
     VitePWA({
       registerType: 'autoUpdate',
       // Édition LAN : servie depuis un serveur local sur le réseau de l'école.

@@ -118,8 +118,12 @@ const handlers = {
           'trial', addDaysISO(30));
         school = { id };
       }
-      db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, full_name, active)
-                  VALUES (?,?,?,?,?,1)`)
+      // `scope_global = 1` ÉCRIT, jamais déduit : sans lui le compte prend le
+      // défaut 0 de la colonne et naît AVEUGLE — l'administrateur qui vient
+      // d'installer l'école se faisait refuser sa première classe. Miroir de
+      // supabase_fix_perimetre_mort.sql §3 (cf. scopeGuard.loadScope).
+      db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, full_name, active, scope_global)
+                  VALUES (?,?,?,?,?,1,1)`)
         .run(randomUUID(), school.id, ctx.userId, 'admin', p.p_full_name);
     });
     return null;
@@ -131,8 +135,10 @@ const handlers = {
     const school = getSchool();
     if (!school) throw new Error('École introuvable');
     if (membership(ctx.userId)) return null;
-    db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, full_name, active)
-                VALUES (?,?,?,?,?,1)`)
+    // Même règle que ci-dessus : l'intention de périmètre est écrite (§3 du
+    // correctif cloud). L'admin la restreindra depuis l'écran Périmètre.
+    db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, full_name, active, scope_global)
+                VALUES (?,?,?,?,?,1,1)`)
       .run(randomUUID(), school.id, ctx.userId, 'teacher', p.p_full_name);
     return null;
   },

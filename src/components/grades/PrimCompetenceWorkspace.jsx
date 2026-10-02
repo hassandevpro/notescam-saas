@@ -21,6 +21,9 @@ import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { isSubjectScoped } from '../../lib/teacherScope';
+import {
+  competenceIdsForTeacher, unresolvedSubjectsForTeacher,
+} from '../../core/primCompetenceMatch';
 import { primNkey } from '../../lib/primService';
 import { resolveClassEngine, primaireNiveauSlug } from '../../core/engineResolver';
 // Le référentiel national est stocké en français : une classe du secteur
@@ -68,7 +71,10 @@ export default function PrimCompetenceWorkspace() {
   const role      = useAuthStore((s) => s.role);
   const teacherId = useAuthStore((s) => s.teacherId);
   // Mode 1 « enseignant de matière » : l'enseignant ne saisit QUE les compétences
-  // qui lui sont affectées (via la matière matérialisée `prim_competence_id`).
+  // qui lui sont affectées. Le rattachement passe par `prim_competence_id` quand
+  // il existe, sinon par le NOM de la matière (voir primCompetenceMatch) : exiger
+  // le lien rendait l'écran vide dans toute école ayant saisi son primaire à la
+  // main — c'est-à-dire la majorité.
   const isSubjectTeacher = isSubjectScoped(role, school);
 
   const classes     = useSchoolStore((s) => s.classes);
@@ -98,11 +104,13 @@ export default function PrimCompetenceWorkspace() {
   const primClasses = useMemo(() => {
     let list = primClassesAll;
     if (isSubjectTeacher) {
-      const ids = new Set(subjects.filter((s) => s.teacher_id === teacherId && s.prim_competence_id).map((s) => s.class_id));
-      list = list.filter((c) => ids.has(c.id));
+      const comps = referentiel?.competences || [];
+      list = list.filter(
+        (c) => competenceIdsForTeacher(subjects, teacherId, c.id, comps).size > 0,
+      );
     }
     return list.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
-  }, [primClassesAll, isSubjectTeacher, subjects, teacherId]);
+  }, [primClassesAll, isSubjectTeacher, subjects, teacherId, referentiel]);
   useEffect(() => {
     if (primClasses.length && !primClasses.some((c) => c.id === classId)) setClassId(primClasses[0].id);
   }, [primClasses, classId]);
@@ -117,11 +125,8 @@ export default function PrimCompetenceWorkspace() {
     const all = competencesForNiveau(referentiel, niveauSlug)
       .map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) }));
     if (!isSubjectTeacher) return all;
-    // Mode 1 : ne garder que les compétences affectées à l'enseignant sur cette classe.
-    const mine = new Set(
-      subjects.filter((s) => s.class_id === classId && s.teacher_id === teacherId && s.prim_competence_id)
-        .map((s) => s.prim_competence_id),
-    );
+    // Mode 1 : ne garder que les compétences couvertes par mes matières.
+    const mine = competenceIdsForTeacher(subjects, teacherId, classId, referentiel?.competences || []);
     return all.filter((c) => mine.has(c.id));
   }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId, sys]);
 
@@ -188,15 +193,33 @@ export default function PrimCompetenceWorkspace() {
     return <div className="p-4 md:p-6"><div>{BackBtn}</div><div className="p-8 text-center text-gray-500">{t('Chargement du référentiel primaire APC…', 'Loading primary APC framework…')}</div></div>;
   }
   if (!primClasses.length) {
-    const ecarteesParLeMode = isSubjectTeacher && primClassesAll.length > 0;
+    const orphelines = isSubjectTeacher
+      ? unresolvedSubjectsForTeacher(subjects, teacherId, null, referentiel?.competences || [])
+      : [];
     return (
       <div className="p-4 md:p-6">
         <div>{BackBtn}</div>
         <div className="p-8 text-center text-gray-500">
-          {ecarteesParLeMode
+          {orphelines.length > 0
+            ? (
+              <>
+                {t(
+                  'Aucune de vos matières ne se rattache à une compétence nationale (1A–6B) : ',
+                  'None of your subjects maps to a national competency (1A–6B): ',
+                )}
+                <span className="font-medium text-gray-700">
+                  {[...new Set(orphelines.map((m) => m.name))].join(', ')}
+                </span>
+                {t(
+                  '. Demandez à l’administration de les renommer selon le référentiel, ou de vous affecter les matières que vous enseignez réellement.',
+                  '. Ask the administration to rename them after the framework, or to assign you the subjects you actually teach.',
+                )}
+              </>
+            )
+            : isSubjectTeacher && primClassesAll.length > 0
             ? t(
-              'Vos classes primaire existent, mais aucune de vos matières n’est reliée à une compétence nationale (1A–6B) : en mode « enseignant de matière », le système ne peut pas savoir laquelle vous revient. Demandez à l’administration de lancer la configuration automatique des matières du primaire, puis de vous affecter vos compétences.',
-              'Your primary classes exist, but none of your subjects is linked to a national competency (1A–6B): in “subject teacher” mode, the system cannot tell which one is yours. Ask the administration to run the automatic primary subject setup, then assign your competencies.',
+              'Aucune matière du primaire ne vous est affectée. Demandez à l’administration de vous affecter vos matières.',
+              'No primary subject is assigned to you. Ask the administration to assign your subjects.',
             )
             : t('Aucune classe primaire (SIL–CM2).', 'No primary class (SIL–CM2).')}
         </div>

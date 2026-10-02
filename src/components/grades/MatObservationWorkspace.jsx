@@ -15,6 +15,10 @@ import { obsNkey } from '../../lib/matService';
 import { resolveClassEngine, maternelleNiveauSlug } from '../../core/engineResolver';
 import { domainesForMaternelle, MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_CODES } from '../../core/matEngine';
 import { matDomaineLabel } from '../../core/referentielI18n';
+import {
+  domaineIdsForTeacher, unresolvedSubjectsForTeacher, isClassTitulaire,
+} from '../../core/matDomaineMatch';
+import { isSubjectScoped } from '../../lib/teacherScope';
 import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
@@ -64,8 +68,16 @@ export default function MatObservationWorkspace() {
   const t = useT();
   const navigate = useNavigate();
   const school = useAuthStore((s) => s.school);
+  const role      = useAuthStore((s) => s.role);
+  const teacherId = useAuthStore((s) => s.teacherId);
+  // Mode 1 « enseignant de matière » : l'enseignant ne voit que SES domaines.
+  // Exception assumée — le TITULAIRE garde les 8 : en maternelle, le référentiel
+  // est une grille de développement de l'enfant observée par l'institutrice de la
+  // classe, pas un découpage disciplinaire (voir matDomaineMatch).
+  const subjectScoped = isSubjectScoped(role, school);
 
   const classes         = useSchoolStore((s) => s.classes);
+  const subjects        = useSchoolStore((s) => s.subjects);
   const students        = useSchoolStore((s) => s.students);
   const referentiel     = useSchoolStore((s) => s.matReferentiel);
   const observations    = useSchoolStore((s) => s.matObservations);
@@ -81,13 +93,25 @@ export default function MatObservationWorkspace() {
 
   const trimestreId = `t${trimestre}`;
 
+  // Les 8 domaines officiels, avant tout filtrage par enseignant. Les intitulés
+  // du référentiel sont en français en base ; la localisation se fait plus bas,
+  // une fois la classe connue (c'est elle qui porte le système linguistique).
+  const domainesAll = useMemo(() => domainesForMaternelle(referentiel), [referentiel]);
+
   // Classes maternelle uniquement (résolues par le moteur).
-  const matClasses = useMemo(
-    () => classes
-      .filter((c) => resolveClassEngine(school, c) === 'maternelle')
-      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true })),
+  const matClassesAll = useMemo(
+    () => classes.filter((c) => resolveClassEngine(school, c) === 'maternelle'),
     [classes, school],
   );
+
+  const matClasses = useMemo(() => {
+    let list = matClassesAll;
+    if (subjectScoped) {
+      list = list.filter((c) => isClassTitulaire(c, teacherId)
+        || domaineIdsForTeacher(subjects, teacherId, c.id, domainesAll).size > 0);
+    }
+    return list.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  }, [matClassesAll, subjectScoped, teacherId, subjects, domainesAll]);
   useEffect(() => {
     if (matClasses.length && !matClasses.some((c) => c.id === classId)) setClassId(matClasses[0].id);
   }, [matClasses, classId]);
@@ -98,9 +122,21 @@ export default function MatObservationWorkspace() {
   // Les intitulés du référentiel sont en français en base : une classe du
   // secteur anglophone doit les voir en anglais, ici comme sur son bulletin.
   const sys = selectedClass?.system || 'FR';
-  const domaines = useMemo(
-    () => domainesForMaternelle(referentiel).map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) })),
-    [referentiel, sys],
+  const estTitulaire = isClassTitulaire(selectedClass, teacherId);
+  const domaines = useMemo(() => {
+    const all = domainesAll.map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) }));
+    if (!subjectScoped || estTitulaire) return all;
+    const mine = domaineIdsForTeacher(subjects, teacherId, classId, domainesAll);
+    return all.filter((d) => mine.has(d.id));
+  }, [domainesAll, sys, subjectScoped, estTitulaire, subjects, teacherId, classId]);
+
+  // Mes matières de cette classe qui ne se rattachent à aucun domaine : on les
+  // nomme. Sans objet pour un titulaire, qui garde les 8 domaines.
+  const matieresOrphelines = useMemo(
+    () => (subjectScoped && !estTitulaire
+      ? unresolvedSubjectsForTeacher(subjects, teacherId, classId, domainesAll)
+      : []),
+    [subjectScoped, estTitulaire, subjects, teacherId, classId, domainesAll],
   );
 
   const classStudents = useMemo(
@@ -138,7 +174,38 @@ export default function MatObservationWorkspace() {
     return <div className="p-4 md:p-6"><div>{BackBtn}</div><div className="p-8 text-center text-gray-500">{t('Chargement du référentiel maternelle…', 'Loading nursery framework…')}</div></div>;
   }
   if (!matClasses.length) {
-    return <div className="p-4 md:p-6"><div>{BackBtn}</div><div className="p-8 text-center text-gray-500">{t('Aucune classe maternelle (PS/MS/GS).', 'No nursery class (PS/MS/GS).')}</div></div>;
+    const orphelines = subjectScoped
+      ? unresolvedSubjectsForTeacher(subjects, teacherId, null, domainesAll)
+      : [];
+    return (
+      <div className="p-4 md:p-6">
+        <div>{BackBtn}</div>
+        <div className="p-8 text-center text-gray-500">
+          {orphelines.length > 0
+            ? (
+              <>
+                {t(
+                  'Ces matières qui vous sont affectées ne correspondent à aucun domaine officiel (D1–D8) : ',
+                  'These subjects assigned to you match no official domain (D1–D8): ',
+                )}
+                <span className="font-medium text-gray-700">
+                  {[...new Set(orphelines.map((m) => m.name))].join(', ')}
+                </span>
+                {t(
+                  '. Vérifiez leur orthographe dans Matières — le rapprochement se fait sur le nom.',
+                  '. Check their spelling in Subjects — the match is made on the name.',
+                )}
+              </>
+            )
+            : subjectScoped && matClassesAll.length > 0
+            ? t(
+              'Aucun domaine de la maternelle ne vous est affecté. Demandez à l’administration de vous affecter vos matières.',
+              'No nursery domain is assigned to you. Ask the administration to assign your subjects.',
+            )
+            : t('Aucune classe maternelle (PS/MS/GS).', 'No nursery class (PS/MS/GS).')}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -151,6 +218,15 @@ export default function MatObservationWorkspace() {
              'Official MINEDUB domains — acquisition levels A / ECA / NA, per term.')}
         </p>
       </div>
+
+      {matieresOrphelines.length > 0 && (
+        <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+          {t('Non rattachées à un domaine officiel : ', 'Not matched to an official domain: ')}
+          <span className="font-medium">
+            {[...new Set(matieresOrphelines.map((m) => m.name))].join(', ')}
+          </span>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-3">
         <SectionSelect classes={classes} classId={classId} setClassId={setClassId} />

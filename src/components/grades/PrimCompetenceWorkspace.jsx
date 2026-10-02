@@ -20,7 +20,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
-import { gradeEntryMode } from '../../lib/useCountry';
+import { isSubjectScoped } from '../../lib/teacherScope';
 import { primNkey } from '../../lib/primService';
 import { resolveClassEngine, primaireNiveauSlug } from '../../core/engineResolver';
 // Le référentiel national est stocké en français : une classe du secteur
@@ -69,7 +69,7 @@ export default function PrimCompetenceWorkspace() {
   const teacherId = useAuthStore((s) => s.teacherId);
   // Mode 1 « enseignant de matière » : l'enseignant ne saisit QUE les compétences
   // qui lui sont affectées (via la matière matérialisée `prim_competence_id`).
-  const isSubjectTeacher = role === 'teacher' && gradeEntryMode(school) === 'subject';
+  const isSubjectTeacher = isSubjectScoped(role, school);
 
   const classes     = useSchoolStore((s) => s.classes);
   const subjects    = useSchoolStore((s) => s.subjects);
@@ -90,14 +90,19 @@ export default function PrimCompetenceWorkspace() {
 
   // Classes primaire APC. En Mode 1, on restreint aux classes où l'enseignant a
   // au moins une compétence affectée.
+  const primClassesAll = useMemo(
+    () => classes.filter((c) => resolveClassEngine(school, c) === 'apc_primaire'),
+    [classes, school],
+  );
+
   const primClasses = useMemo(() => {
-    let list = classes.filter((c) => resolveClassEngine(school, c) === 'apc_primaire');
+    let list = primClassesAll;
     if (isSubjectTeacher) {
       const ids = new Set(subjects.filter((s) => s.teacher_id === teacherId && s.prim_competence_id).map((s) => s.class_id));
       list = list.filter((c) => ids.has(c.id));
     }
-    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
-  }, [classes, school, isSubjectTeacher, subjects, teacherId]);
+    return list.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  }, [primClassesAll, isSubjectTeacher, subjects, teacherId]);
   useEffect(() => {
     if (primClasses.length && !primClasses.some((c) => c.id === classId)) setClassId(primClasses[0].id);
   }, [primClasses, classId]);
@@ -183,7 +188,20 @@ export default function PrimCompetenceWorkspace() {
     return <div className="p-4 md:p-6"><div>{BackBtn}</div><div className="p-8 text-center text-gray-500">{t('Chargement du référentiel primaire APC…', 'Loading primary APC framework…')}</div></div>;
   }
   if (!primClasses.length) {
-    return <div className="p-4 md:p-6"><div>{BackBtn}</div><div className="p-8 text-center text-gray-500">{t('Aucune classe primaire (SIL–CM2).', 'No primary class (SIL–CM2).')}</div></div>;
+    const ecarteesParLeMode = isSubjectTeacher && primClassesAll.length > 0;
+    return (
+      <div className="p-4 md:p-6">
+        <div>{BackBtn}</div>
+        <div className="p-8 text-center text-gray-500">
+          {ecarteesParLeMode
+            ? t(
+              'Vos classes primaire existent, mais aucune de vos matières n’est reliée à une compétence nationale (1A–6B) : en mode « enseignant de matière », le système ne peut pas savoir laquelle vous revient. Demandez à l’administration de lancer la configuration automatique des matières du primaire, puis de vous affecter vos compétences.',
+              'Your primary classes exist, but none of your subjects is linked to a national competency (1A–6B): in “subject teacher” mode, the system cannot tell which one is yours. Ask the administration to run the automatic primary subject setup, then assign your competencies.',
+            )
+            : t('Aucune classe primaire (SIL–CM2).', 'No primary class (SIL–CM2).')}
+        </div>
+      </div>
+    );
   }
 
   return (

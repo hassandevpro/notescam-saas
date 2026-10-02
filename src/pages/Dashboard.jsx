@@ -34,6 +34,7 @@ import {
 } from '../components/dashboard/FinanceBlocks';
 import QuickAccess from '../components/dashboard/QuickAccess';
 import { useDisciplineSnapshot, useFinanceSnapshot } from '../components/dashboard/useDashboardData';
+import { isSubjectScoped } from '../lib/teacherScope';
 
 export default function Dashboard() {
   const t = useT();
@@ -174,7 +175,10 @@ export default function Dashboard() {
       ? <SetupChecklist school={school} classes={classes} subjects={subjects} students={students} units={schoolUnits} />
       : null),
     [BLOCK.TEACHER_CLASSES]: () => (
-      <TeacherClasses classes={classes} students={students} subjects={subjects} gradeMap={gradeMap} linked={!!teacherId} />
+      <TeacherClasses
+        classes={classes} students={students} subjects={subjects} gradeMap={gradeMap}
+        linked={!!teacherId} scoped={isSubjectScoped(role, school)} teacherId={teacherId}
+      />
     ),
     [BLOCK.ACADEMICS]: () => (
       <AcademicsStats loading={loading} classes={classes} students={students} globalPassRate={academics.globalPassRate} />

@@ -1,6 +1,13 @@
 // BLOC « mes classes » — vue de l'enseignant. Déplacé depuis Dashboard.jsx sans
 // changement de comportement : progression des saisies, matières, élèves en
 // difficulté. Le store est déjà filtré sur les classes de l'enseignant.
+//
+// En Mode 1 « enseignant de matière » (`scoped`), « mes matières » et la
+// progression des saisies ne portent que sur les matières AFFECTÉES : annoncer
+// « 14 matières » puis « 7 % saisis » à un professeur qui n'en tient qu'une est
+// faux deux fois. La moyenne de classe et les élèves en difficulté restent, eux,
+// calculés sur TOUTES les matières — ce sont des indicateurs de la classe, pas
+// du périmètre de l'enseignant.
 
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
@@ -16,12 +23,15 @@ function latestSeqWithData(classId, studentIds, gradeMap) {
   return null;
 }
 
-export default function TeacherClasses({ classes, students, subjects, gradeMap, linked = true }) {
+export default function TeacherClasses({
+  classes, students, subjects, gradeMap, linked = true, scoped = false, teacherId = null,
+}) {
   const t = useT();
 
   const data = useMemo(() => classes.map((cls) => {
     const studs = students.filter((s) => s.class_id === cls.id);
-    const subs  = subjects.filter((s) => s.class_id === cls.id);
+    const allSubs = subjects.filter((s) => s.class_id === cls.id);
+    const subs  = scoped ? allSubs.filter((s) => s.teacher_id === teacherId) : allSubs;
     const sys   = cls.system || 'FR';
     const pass  = sys === 'FR' ? 10 : 50;
     const max   = sys === 'FR' ? 20 : 100;
@@ -29,8 +39,8 @@ export default function TeacherClasses({ classes, students, subjects, gradeMap, 
 
     const latestSeq = latestSeqWithData(cls.id, studs.map((s) => s.id), gradeMap);
 
-    const stats = latestSeq !== null && studs.length && subs.length
-      ? clsStat(studs, gradeMap, cls.id, [latestSeq], subs, sys)
+    const stats = latestSeq !== null && studs.length && allSubs.length
+      ? clsStat(studs, gradeMap, cls.id, [latestSeq], allSubs, sys)
       : null;
 
     const seqProgress = subs.length && studs.length ? seqs.map((seq) => {
@@ -45,7 +55,7 @@ export default function TeacherClasses({ classes, students, subjects, gradeMap, 
     // Élèves en difficulté dans la dernière séquence avec données
     const struggling = latestSeq !== null ? studs
       .map((stu) => {
-        const stat = clsStat([stu], gradeMap, cls.id, [latestSeq], subs, sys);
+        const stat = clsStat([stu], gradeMap, cls.id, [latestSeq], allSubs, sys);
         return { stu, avg: stat?.avg ?? null };
       })
       .filter(({ avg }) => avg !== null && avg < pass)
@@ -54,7 +64,7 @@ export default function TeacherClasses({ classes, students, subjects, gradeMap, 
       : [];
 
     return { cls, studs, subs, sys, pass, max, latestSeq, stats, seqProgress, struggling };
-  }), [classes, students, subjects, gradeMap]);
+  }), [classes, students, subjects, gradeMap, scoped, teacherId]);
 
   const seqLabel = (sys, seq) => (sys === 'EN' ? `Term ${seq}` : t(`Séquence ${seq}`, `Sequence ${seq}`));
 
@@ -166,7 +176,9 @@ export default function TeacherClasses({ classes, students, subjects, gradeMap, 
 
             {subs.length > 0 && (
               <div className="px-6 py-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">{t('Mes matières', 'My subjects')}</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                  {scoped ? t('Mes matières', 'My subjects') : t('Matières de la classe', 'Class subjects')}
+                </p>
                 <div className="flex flex-wrap gap-1.5">
                   {subs.map((s) => (
                     <span key={s.id} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-50 border border-brand-100 rounded-lg text-xs text-brand-800">

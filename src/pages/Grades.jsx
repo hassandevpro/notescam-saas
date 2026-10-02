@@ -7,7 +7,8 @@ import { downloadExcel } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT, localeForLang } from '../lib/i18n';
 import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../lib/lockService';
-import { useCountry, gradingOpts, geGradeMax, gradeEntryMode, primaryPeriodMode } from '../lib/useCountry';
+import { useCountry, gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
+import { isSubjectScoped } from '../lib/teacherScope';
 import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
@@ -474,7 +475,7 @@ export default function Grades() {
     if (classEngine === 'apc_primaire') return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
     // Enseignant en Mode 1 sans classe fondamentale encore résolue : le workspace
     // primaire auto-sélectionne ses classes affectées (compétences).
-    if (role === 'teacher' && gradeEntryMode(school) === 'subject') {
+    if (isSubjectScoped(role, school)) {
       return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
     }
     return <PrincipalGrades />;
@@ -494,7 +495,7 @@ export default function Grades() {
     // 'sc' (lycée) et 'classic' : saisie numérique classique — voir tail commun.
   }
 
-  if (role === 'teacher' && gradeEntryMode(school) === 'subject') {
+  if (isSubjectScoped(role, school)) {
     return <Layout bleed><SubjectTeacherWorkspace /></Layout>;
   }
   return <PrincipalGrades />;
@@ -519,7 +520,7 @@ function PrincipalGrades() {
   // Mode 1 « enseignant de matière » : l'enseignant ne saisit QUE ses matières.
   // En mode 'principal' (défaut), `isSubjectTeacher` reste false → comportement
   // historique strictement inchangé.
-  const isSubjectTeacher = isTeacher && gradeEntryMode(school) === 'subject';
+  const isSubjectTeacher = isSubjectScoped(role, school);
 
   const SEQUENCES = [
     { value: 1, label: t('Séquence 1', 'Sequence 1'), term: t('Trimestre 1', 'Quarter 1') },
@@ -562,8 +563,10 @@ function PrincipalGrades() {
 
   const GRADE_PAGE_SIZE = 20;
 
-  // Mode 1 : classes où l'enseignant a au moins une matière affectée (sert au
-  // sélecteur de classe de la vue enseignant — il peut en avoir plusieurs).
+  // Classes de la vue enseignant. En mode 'principal', le store a DÉJÀ restreint
+  // `classes` aux classes de l'enseignant (titulariat + matières affectées) :
+  // elles sont toutes légitimes. En Mode 1, on resserre sur celles où il a une
+  // matière affectée (le titulariat seul ne donne rien à saisir).
   const teacherClasses = useMemo(() => {
     if (!isSubjectTeacher) return classes;
     const ids = new Set(subjects.filter((s) => s.teacher_id === teacherId).map((s) => s.class_id));
@@ -841,10 +844,16 @@ function PrincipalGrades() {
 
             {classId && (
               <div className="flex flex-wrap gap-3 mb-6">
-                {/* Mode 1 : l'enseignant de matière peut intervenir dans plusieurs
-                    classes → sélecteur. En mode 'principal' (1 classe titulaire),
-                    le sélecteur est masqué (comportement historique). */}
-                {isSubjectTeacher && teacherClasses.length > 1 && (
+                {/* Un enseignant intervient souvent dans PLUSIEURS classes — en
+                    Mode 1 par ses matières, mais aussi en mode 'principal' dès
+                    qu'il enseigne une matière hors de sa classe titulaire. Le
+                    sélecteur était conditionné au Mode 1 : hors Mode 1, il
+                    restait épinglé sur `school_users.class_id` (souvent vide) ou
+                    sur la première classe par ordre alphabétique, sans aucun
+                    moyen d'atteindre les autres. Il s'affiche désormais dès qu'il
+                    y a plus d'une classe ; un titulaire d'une seule classe ne
+                    voit toujours rien de plus. */}
+                {teacherClasses.length > 1 && (
                   <div className="w-full sm:flex-1 sm:max-w-xs">
                     <label className="form-label">{t('Classe', 'Class')}</label>
                     <select className="form-input" value={classId} onChange={(e) => setClassId(e.target.value)}>

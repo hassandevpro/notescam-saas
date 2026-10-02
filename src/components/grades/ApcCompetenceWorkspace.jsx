@@ -22,6 +22,8 @@ import { firstCycleClasseSlug, resolveClassEngine } from '../../core/engineResol
 // sur le catalogue francophone : ses noms de matières sont alors rendus en
 // anglais, comme sur son bulletin.
 import { apcMatiereLabel } from '../../core/referentielI18n';
+import { isSubjectScoped, myClassIds, mySubjects, mySubjectNames } from '../../lib/teacherScope';
+import { normName } from '../../lib/teacherNames';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import {
@@ -60,8 +62,14 @@ export default function ApcCompetenceWorkspace() {
   const t = useT();
   const school   = useAuthStore((s) => s.school);
   const schoolId = school?.id;
+  const role      = useAuthStore((s) => s.role);
+  const teacherId = useAuthStore((s) => s.teacherId);
+  // Mode 1 « enseignant de matière » : l'enseignant ne voit QUE les matières qui
+  // lui sont affectées — et donc que les classes où il en assure au moins une.
+  const subjectScoped = isSubjectScoped(role, school);
 
   const classes        = useSchoolStore((s) => s.classes);
+  const subjects       = useSchoolStore((s) => s.subjects);
   const students       = useSchoolStore((s) => s.students);
   const referentiel    = useSchoolStore((s) => s.apcReferentiel);
   const apcNotes       = useSchoolStore((s) => s.apcNotes);
@@ -84,12 +92,14 @@ export default function ApcCompetenceWorkspace() {
   // Classe sélectionnée + slug référentiel. On ne liste QUE les classes du premier
   // cycle (moteur 'apc') : l'établissement peut aussi contenir du fondamental ou du
   // second cycle, qui n'ont rien à faire dans ce sélecteur.
-  const sortedClasses = useMemo(
-    () => classes
-      .filter((c) => resolveClassEngine(school, c) === 'apc')
-      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true })),
-    [classes, school],
-  );
+  const sortedClasses = useMemo(() => {
+    let list = classes.filter((c) => resolveClassEngine(school, c) === 'apc');
+    if (subjectScoped) {
+      const mine = myClassIds(subjects, teacherId);
+      list = list.filter((c) => mine.has(c.id));
+    }
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  }, [classes, school, subjectScoped, subjects, teacherId]);
   useEffect(() => {
     if (sortedClasses.length && !sortedClasses.some((c) => c.id === classId)) setClassId(sortedClasses[0].id);
   }, [sortedClasses, classId]);
@@ -103,20 +113,39 @@ export default function ApcCompetenceWorkspace() {
 
   const matieres = useMemo(() => {
     if (!referentiel || !classeSlug || !trimestreId) return [];
+    const mine = subjectScoped ? mySubjectNames(subjects, teacherId, classId) : null;
     return referentiel.matieres
       .map((m) => ({
         ...m,
         nom: apcMatiereLabel(m, sys),
+        nomOfficiel: m.nom,
         coef: coefFor(referentiel.classeMatieres, classeSlug, m),
         nbComp: competencesFor(referentiel.competences, { classeId: classeSlug, trimestreId, matiereId: m.id }).length,
       }))
       .filter((m) => m.nbComp > 0)
+      // Mode 1 : ne garder que MES matières. La ligne `subjects` ne porte pas
+      // l'id du référentiel, le rapprochement se fait donc sur le texte. On teste
+      // trois écritures, parce que les écoles utilisent les trois :
+      //   • le libellé localisé (une classe anglophone nomme ses matières en anglais) ;
+      //   • le nom officiel du référentiel ;
+      //   • le SIGLE, qui est l'id du référentiel — une école écrit « ECM », pas
+      //     « Education à la Citoyenneté et à la Morale », et « PCT », pas son
+      //     intitulé complet.
+      .filter((m) => !mine
+        || mine.has(normName(m.nom))
+        || mine.has(normName(m.nomOfficiel))
+        || mine.has(normName(m.id)))
       .sort((a, b) => {
         const oa = (referentiel.classeMatieres || []).find((r) => r.classe_id === classeSlug && r.matiere_id === a.id)?.ordre ?? a.ordre ?? 0;
         const ob = (referentiel.classeMatieres || []).find((r) => r.classe_id === classeSlug && r.matiere_id === b.id)?.ordre ?? b.ordre ?? 0;
         return oa - ob;
       });
-  }, [referentiel, classeSlug, trimestreId, sys]);
+  }, [referentiel, classeSlug, trimestreId, sys, subjectScoped, subjects, teacherId, classId]);
+
+  const mesMatieresClasse = useMemo(
+    () => (subjectScoped ? mySubjects(subjects, teacherId, classId) : []),
+    [subjectScoped, subjects, teacherId, classId],
+  );
 
   const matiereCoef = matieres.find((m) => m.id === matiereId)?.coef ?? 1;
 
@@ -166,6 +195,16 @@ export default function ApcCompetenceWorkspace() {
     return (
       <div className="p-8 text-center text-gray-500">
         {t('Chargement du référentiel APC…', 'Loading APC framework…')}
+      </div>
+    );
+  }
+  if (subjectScoped && sortedClasses.length === 0) {
+    return (
+      <div className="p-8 text-center text-gray-500">
+        {t(
+          'Aucune matière du premier cycle (6e–3e) ne vous est affectée. Demandez à l’administration de vous affecter vos matières dans Matières.',
+          'No first-cycle (6e–3e) subject is assigned to you. Ask the administration to assign your subjects in Subjects.',
+        )}
       </div>
     );
   }
@@ -255,10 +294,31 @@ export default function ApcCompetenceWorkspace() {
 
       {matieres.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
-          {t(
-            'Aucune compétence officielle pour cette classe et ce trimestre. Importez un référentiel MINESEC.',
-            'No official competency for this class and term. Import a MINESEC framework.',
-          )}
+          {subjectScoped && mesMatieresClasse.length > 0
+            ? (
+              <>
+                {t(
+                  'Vos matières de cette classe ne correspondent à aucune matière du référentiel officiel : ',
+                  'Your subjects for this class match no subject of the official framework: ',
+                )}
+                <span className="font-medium text-gray-700">
+                  {mesMatieresClasse.map((m) => m.name).join(', ')}
+                </span>
+                {t(
+                  '. Demandez à l’administration de les renommer comme le référentiel (par exemple « SVTEEHB » plutôt que « SVT », « Histoire » et « Géographie » séparément plutôt que « Histoire-Géo »).',
+                  '. Ask the administration to rename them as in the framework (for instance “SVTEEHB” rather than “SVT”, and “Histoire”/“Géographie” separately rather than “Histoire-Géo”).',
+                )}
+              </>
+            )
+            : subjectScoped
+            ? t(
+              'Aucune de vos matières n’a de compétence officielle pour cette classe et ce trimestre.',
+              'None of your subjects has an official competency for this class and term.',
+            )
+            : t(
+              'Aucune compétence officielle pour cette classe et ce trimestre. Importez un référentiel MINESEC.',
+              'No official competency for this class and term. Import a MINESEC framework.',
+            )}
         </div>
       ) : competences.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">

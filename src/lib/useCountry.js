@@ -61,9 +61,9 @@ export function gradingOpts(school, cycle) {
 // 'subject' : chaque enseignant ne saisit que les matières qui lui sont
 //   affectées (subjects.teacher_id). Tout le reste (calculs, bulletins,
 //   classements, conseils…) reste identique.
-export function gradeEntryMode(school) {
-  return school?.grade_entry_mode === 'subject' ? 'subject' : 'principal';
-}
+// Le réglage vit désormais dans teacherScope.js, avec le périmètre qu'il commande
+// (module pur, testable sans React) ; ré-exporté ici pour les appels existants.
+export { gradeEntryMode } from './teacherScope.js';
 
 // Rythme d'évaluation du PRIMAIRE CLASSIQUE (le primaire APC/MINEDUB garde ses
 // propres écrans, ce réglage ne le concerne pas).

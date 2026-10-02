@@ -22,8 +22,10 @@ import { firstCycleClasseSlug, resolveClassEngine } from '../../core/engineResol
 // sur le catalogue francophone : ses noms de matières sont alors rendus en
 // anglais, comme sur son bulletin.
 import { apcMatiereLabel } from '../../core/referentielI18n';
-import { isSubjectScoped, myClassIds, mySubjects, mySubjectNames } from '../../lib/teacherScope';
-import { normName } from '../../lib/teacherNames';
+import { isSubjectScoped, myClassIds } from '../../lib/teacherScope';
+import {
+  matiereIdsForTeacher, unresolvedSubjectsForTeacher,
+} from '../../core/apcMatiereMatch';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import {
@@ -111,9 +113,10 @@ export default function ApcCompetenceWorkspace() {
   // avec leur coefficient officiel POUR cette classe (Français = 6 en 6e/5e, 4 en 4e/3e).
   const sys = selectedClass?.system || 'FR';
 
-  const matieres = useMemo(() => {
+  // Matières du référentiel réellement disponibles pour (classe, trimestre),
+  // avant tout filtrage par enseignant.
+  const matieresDisponibles = useMemo(() => {
     if (!referentiel || !classeSlug || !trimestreId) return [];
-    const mine = subjectScoped ? mySubjectNames(subjects, teacherId, classId) : null;
     return referentiel.matieres
       .map((m) => ({
         ...m,
@@ -123,28 +126,29 @@ export default function ApcCompetenceWorkspace() {
         nbComp: competencesFor(referentiel.competences, { classeId: classeSlug, trimestreId, matiereId: m.id }).length,
       }))
       .filter((m) => m.nbComp > 0)
-      // Mode 1 : ne garder que MES matières. La ligne `subjects` ne porte pas
-      // l'id du référentiel, le rapprochement se fait donc sur le texte. On teste
-      // trois écritures, parce que les écoles utilisent les trois :
-      //   • le libellé localisé (une classe anglophone nomme ses matières en anglais) ;
-      //   • le nom officiel du référentiel ;
-      //   • le SIGLE, qui est l'id du référentiel — une école écrit « ECM », pas
-      //     « Education à la Citoyenneté et à la Morale », et « PCT », pas son
-      //     intitulé complet.
-      .filter((m) => !mine
-        || mine.has(normName(m.nom))
-        || mine.has(normName(m.nomOfficiel))
-        || mine.has(normName(m.id)))
       .sort((a, b) => {
         const oa = (referentiel.classeMatieres || []).find((r) => r.classe_id === classeSlug && r.matiere_id === a.id)?.ordre ?? a.ordre ?? 0;
         const ob = (referentiel.classeMatieres || []).find((r) => r.classe_id === classeSlug && r.matiere_id === b.id)?.ordre ?? b.ordre ?? 0;
         return oa - ob;
       });
-  }, [referentiel, classeSlug, trimestreId, sys, subjectScoped, subjects, teacherId, classId]);
+  }, [referentiel, classeSlug, trimestreId, sys]);
 
-  const mesMatieresClasse = useMemo(
-    () => (subjectScoped ? mySubjects(subjects, teacherId, classId) : []),
-    [subjectScoped, subjects, teacherId, classId],
+  // Mode 1 : ne garder que les matières couvertes par MES matières affectées.
+  // Le rapprochement est délégué à apcMatiereMatch (noms officiels, sigles,
+  // alias) — une matière locale pouvant en couvrir plusieurs.
+  const matieres = useMemo(() => {
+    if (!subjectScoped) return matieresDisponibles;
+    const mine = matiereIdsForTeacher(subjects, teacherId, classId, matieresDisponibles);
+    return matieresDisponibles.filter((m) => mine.has(m.id));
+  }, [subjectScoped, matieresDisponibles, subjects, teacherId, classId]);
+
+  // Mes matières de cette classe qui ne se rattachent à RIEN : on les nomme,
+  // plutôt que de laisser l'enseignant devant un écran vide sans explication.
+  const matieresOrphelines = useMemo(
+    () => (subjectScoped
+      ? unresolvedSubjectsForTeacher(subjects, teacherId, classId, matieresDisponibles)
+      : []),
+    [subjectScoped, subjects, teacherId, classId, matieresDisponibles],
   );
 
   const matiereCoef = matieres.find((m) => m.id === matiereId)?.coef ?? 1;
@@ -294,19 +298,19 @@ export default function ApcCompetenceWorkspace() {
 
       {matieres.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
-          {subjectScoped && mesMatieresClasse.length > 0
+          {matieresOrphelines.length > 0
             ? (
               <>
                 {t(
-                  'Vos matières de cette classe ne correspondent à aucune matière du référentiel officiel : ',
-                  'Your subjects for this class match no subject of the official framework: ',
+                  'Ces matières qui vous sont affectées ne correspondent à aucune matière du référentiel officiel : ',
+                  'These subjects assigned to you match no subject of the official framework: ',
                 )}
                 <span className="font-medium text-gray-700">
-                  {mesMatieresClasse.map((m) => m.name).join(', ')}
+                  {[...new Set(matieresOrphelines.map((m) => m.name))].join(', ')}
                 </span>
                 {t(
-                  '. Demandez à l’administration de les renommer comme le référentiel (par exemple « SVTEEHB » plutôt que « SVT », « Histoire » et « Géographie » séparément plutôt que « Histoire-Géo »).',
-                  '. Ask the administration to rename them as in the framework (for instance “SVTEEHB” rather than “SVT”, and “Histoire”/“Géographie” separately rather than “Histoire-Géo”).',
+                  '. Vérifiez leur orthographe dans Matières — le rapprochement se fait sur le nom.',
+                  '. Check their spelling in Subjects — the match is made on the name.',
                 )}
               </>
             )

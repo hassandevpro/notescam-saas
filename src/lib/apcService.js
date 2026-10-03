@@ -67,7 +67,16 @@ export async function fetchApcNotes(schoolId) {
 
 // Construit le record canonique d'une note (colonnes cloud + nkey local).
 // Réutilise un id existant si fourni (mise à jour) sinon en génère un.
-export function buildNoteRecord({ id, schoolId, eleveId, competenceId, sequenceId, enseignantId, note, appreciation }) {
+export function buildNoteRecord({ id, schoolId, eleveId, competenceId, sequenceId, enseignantId, note, noteMax, appreciation }) {
+  // `apc_notes.note` est une colonne NUMERIC des deux côtés (Postgres et SQLite).
+  // 'ABS' y était envoyé tel quel : Postgres refusait l'upsert (« invalid input
+  // syntax for type numeric »), l'opération repartait indéfiniment dans la file
+  // de synchronisation, tandis que SQLite — au typage souple — l'acceptait. Deux
+  // éditions divergeaient donc sur la même frappe. Le moteur ayant toujours lu
+  // 'ABS' comme NON ÉVALUÉE (cf. `_num`, core/apcEngine), on persiste NULL :
+  // même sens, et une colonne numérique ne reçoit qu'un nombre.
+  const brut = note === '' || note === undefined || note === 'ABS' ? null : note;
+  const max  = Number(noteMax);
   return {
     id: id || uuid(),
     school_id: schoolId,
@@ -75,7 +84,11 @@ export function buildNoteRecord({ id, schoolId, eleveId, competenceId, sequenceI
     competence_id: competenceId,
     sequence_id: sequenceId,
     enseignant_id: enseignantId || null,
-    note: note === '' || note === undefined ? null : note,
+    note: brut,
+    // Barème de CETTE évaluation. NULL = /20 (barème historique) : on ne
+    // matérialise le 20 nulle part, pour ne pas distinguer artificiellement les
+    // notes d'avant et d'après la colonne.
+    note_max: Number.isFinite(max) && max > 0 && max !== 20 ? max : null,
     appreciation: appreciation || null,
     date_saisie: new Date().toISOString(),
     nkey: noteNkey(eleveId, competenceId, sequenceId),

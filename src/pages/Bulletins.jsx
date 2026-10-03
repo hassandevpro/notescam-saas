@@ -37,7 +37,11 @@ import { matDomaineLabel, primCompetenceLabel, primCritereLabel, primCoteLabel }
 import { obsNkey } from '../lib/matService';
 import { primNkey } from '../lib/primService';
 import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
-import { buildApcRanks, sequencesOfTrimestre, SEQ_TO_TRIM } from '../core/apcEngine';
+import { buildApcRanks, SEQ_TO_TRIM } from '../core/apcEngine';
+import {
+  apcBulletinPeriods, apcPeriodLabel, resolveApcPeriod,
+  isApcAnnualPeriod, apcSeqIdsForTrimestre,
+} from '../core/apcPeriods';
 import { assembleScBulletin, scDisciplineConseil, matieresForSerieClasse } from '../core/scEngine';
 import { perSubjectRanksAndStats, classProfile } from '../lib/scBulletinPdf';
 import { teacherByMatiere as teacherByMatiereMap, teacherIndexById, normName } from '../lib/teacherNames';
@@ -1707,17 +1711,28 @@ export default function Bulletins() {
     && (selClassSection === 'primaire' || cycle === 'primaire')
     && primaryPeriodMode(school) === 'sequences';
 
+  // Périodes de bulletin du SECONDAIRE APC : T1 · T2 · T3 · Annuel, et rien d'autre.
+  // La séquence est l'unité de SAISIE des évaluations, jamais une période de
+  // bulletin : le référentiel MINESEC définit les compétences PAR TRIMESTRE
+  // (apc_competences.trimestre_id), héritées par les séquences de ce trimestre —
+  // un « bulletin de séquence » n'exposait donc qu'une fraction arbitraire des
+  // compétences du trimestre. Les séquences couvertes par chaque trimestre sont
+  // lues du référentiel (cf. core/apcPeriods), pas déduites d'un numéro.
+  const apcPeriods = useMemo(() => apcBulletinPeriods(apcReferentiel), [apcReferentiel]);
+
   const periodsForClass =
-    // APC officiel : 6 séquences + 3 trimestres + annuel, quel que soit le système
-    // (le référentiel MINESEC est trimestriel à 2 séquences ; l'annuel agrège T1/T2/T3).
-    showApcOfficial
-      ? PERIODS
+    isApc
+      ? apcPeriods.map((p) => ({ ...p, label: apcPeriodLabel(p, sys) }))
       : schoolCountryCode === 'guinea_eq'
         ? PERIODS_GE
         : isFundamentalClass
           ? (primSequences ? PERIODS : PERIODS_PRIMAIRE)
           : sys === 'EN' ? PERIODS_EN : PERIODS;
-  const period = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0];
+  // Une clé de bulletin de séquence héritée de l'UI (« seq_3 », persistée dans
+  // uiStore) retombe sur le premier trimestre au lieu de vider l'écran.
+  const period = isApc
+    ? resolveApcPeriod(periodsForClass, periodKey)
+    : (periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0]);
 
   const classSubjects = useMemo(() =>
     subjects.filter((s) => s.class_id === classId).sort(bySubjectOrder),
@@ -1747,23 +1762,16 @@ export default function Bulletins() {
   // Charge le référentiel à la sélection d'une classe APC (idempotent côté store).
   useEffect(() => { if (isApc) loadApc(); }, [isApc, loadApc]);
 
-  // Slug de classe référentiel ('6e'…'3e') + résolution séquence(s) de la période.
-  // Période = 1 séquence (bulletin de séquence) OU 2 séquences (trimestre).
+  // Slug de classe référentiel ('6e'…'3e') + trimestre de la période.
+  // La période APC est un TRIMESTRE (t1|t2|t3) ou l'ANNUEL ; ses séquences
+  // viennent du rattachement déclaré au référentiel, en nombre quelconque.
   const apcClasseSlug = isApc ? firstCycleClasseSlug(selectedClass?.level, selectedClass?.name) : null;
-  const apcAnnual     = isApc && period.value === 'annuel';   // bulletin annuel (T1+T2+T3)
-  const apcSeqNums    = period.seqs;                       // [1] | [1,2] | [1..6] (annuel)
-  const apcTrimId     = SEQ_TO_TRIM[apcSeqNums[0]] || 't1';
-  const apcSeqIds = useMemo(() => {
-    if (!isApc || !apcReferentiel) return [];
-    const all = apcReferentiel.sequences || [];
-    return apcSeqNums.map((num) => {
-      const trimSeqs = sequencesOfTrimestre(all, SEQ_TO_TRIM[num]);   // triées par numero
-      const byGlobal = trimSeqs.find((s) => s.numero === num);        // numero global (1..6)
-      if (byGlobal) return byGlobal.id;
-      const pos = (num % 2 === 1) ? 0 : 1;                            // sinon position dans le trimestre
-      return (trimSeqs[pos] || trimSeqs[0])?.id;
-    }).filter(Boolean);
-  }, [isApc, apcReferentiel, apcSeqNums.join(',')]);
+  const apcAnnual     = isApc && isApcAnnualPeriod(period);   // bulletin annuel (T1+T2+T3)
+  const apcTrimId     = period.trimestreId || 't1';
+  const apcSeqIds = useMemo(
+    () => (isApc && !apcAnnual ? apcSeqIdsForTrimestre(apcReferentiel, apcTrimId) : []),
+    [isApc, apcAnnual, apcReferentiel, apcTrimId],
+  );
 
   const apcProfPrincipal = teachers.find((tc) => tc.id === selectedClass?.teacher_id)?.name || '';
   const apcTeacherMap = useMemo(
@@ -1804,21 +1812,17 @@ export default function Bulletins() {
     };
   }, [isApc, apcDataById]);
 
-  // Titre officiel selon la période (séquence isolée ou trimestre complet).
+  // Titre officiel du bulletin : un trimestre ou l'annuel. Il n'existe plus de
+  // titre « BULLETIN DE LA … SÉQUENCE » — le bulletin de séquence n'existe plus.
   const apcTitle = useMemo(() => {
     if (!isApc) return '';
     const en = sys === 'EN';
     if (apcAnnual) return en ? 'ANNUAL REPORT CARD' : 'BULLETIN ANNUEL';
-    if (apcSeqNums.length >= 2) {
-      return { t1: en ? 'FIRST TERM REPORT CARD'  : 'BULLETIN SCOLAIRE DU PREMIER TRIMESTRE',
-               t2: en ? 'SECOND TERM REPORT CARD' : 'BULLETIN SCOLAIRE DU DEUXIÈME TRIMESTRE',
-               t3: en ? 'THIRD TERM REPORT CARD'  : 'BULLETIN SCOLAIRE DU TROISIÈME TRIMESTRE' }[apcTrimId];
-    }
-    const n = apcSeqNums[0];
-    if (en) return `SEQUENCE ${n} REPORT CARD`;
-    const ord = { 1: 'PREMIÈRE', 2: 'DEUXIÈME', 3: 'TROISIÈME', 4: 'QUATRIÈME', 5: 'CINQUIÈME', 6: 'SIXIÈME' }[n] || '';
-    return `BULLETIN DE LA ${ord} SÉQUENCE`;
-  }, [isApc, apcAnnual, sys, apcSeqNums.join(','), apcTrimId]);
+    return { t1: en ? 'FIRST TERM REPORT CARD'  : 'BULLETIN SCOLAIRE DU PREMIER TRIMESTRE',
+             t2: en ? 'SECOND TERM REPORT CARD' : 'BULLETIN SCOLAIRE DU DEUXIÈME TRIMESTRE',
+             t3: en ? 'THIRD TERM REPORT CARD'  : 'BULLETIN SCOLAIRE DU TROISIÈME TRIMESTRE' }[apcTrimId]
+           || (en ? 'FIRST TERM REPORT CARD' : 'BULLETIN SCOLAIRE DU PREMIER TRIMESTRE');
+  }, [isApc, apcAnnual, sys, apcTrimId]);
 
   // Prêt à afficher : référentiel chargé + classe reconnue 1er cycle + des élèves.
   const apcReady = isApc && !!apcReferentiel && !!apcClasseSlug && classStudents.length > 0;
@@ -2569,20 +2573,25 @@ export default function Bulletins() {
             <div className="flex-1 min-w-[180px] max-w-xs">
               <label className="form-label">{t('Période', 'Period')}</label>
               <select className="form-input" value={periodKey} onChange={(e) => setPeriodKey(e.target.value)}>
+                {/* Secondaire APC : trois trimestres + l'annuel. Aucune séquence —
+                    la séquence sert à SAISIR les évaluations (écran Notes), pas à
+                    éditer un bulletin. Les séquences agrégées par chaque trimestre
+                    viennent du référentiel, d'où le libellé calculé. */}
                 {isApc ? (
                   <>
-                    <optgroup label={t('Séquences', 'Sequences')}>
-                      {PERIODS.filter((p) => p.seqs.length === 1).map((p) => (
-                        <option key={p.value} value={p.value}>{p.label}</option>
-                      ))}
-                    </optgroup>
-                    <optgroup label={t('Trimestres (moyenne de 2 séquences)', 'Quarters (average of 2 sequences)')}>
-                      {PERIODS.filter((p) => p.seqs.length === 2).map((p) => (
-                        <option key={p.value} value={p.value}>{p.label}</option>
+                    <optgroup label={t('Trimestres', 'Terms')}>
+                      {periodsForClass.filter((p) => p.kind === 'trimestre').map((p) => (
+                        <option key={p.value} value={p.value}>
+                          {p.label}{p.seqs.length ? t(` (${p.seqs.length} séquence${p.seqs.length > 1 ? 's' : ''})`, ` (${p.seqs.length} sequence${p.seqs.length > 1 ? 's' : ''})`) : ''}
+                        </option>
                       ))}
                     </optgroup>
                     <optgroup label={t('Récapitulatif', 'Summary')}>
-                      <option value="annuel">{t('Annuel (T1 + T2 + T3)', 'Annual (T1 + T2 + T3)')}</option>
+                      {periodsForClass.filter((p) => p.kind === 'annuel').map((p) => (
+                        <option key={p.value} value={p.value}>
+                          {p.label} {t('(T1 + T2 + T3)', '(Term 1 + Term 2 + Term 3)')}
+                        </option>
+                      ))}
                     </optgroup>
                   </>
                 ) : schoolCountryCode === 'guinea_eq' ? (
@@ -2807,7 +2816,11 @@ export default function Bulletins() {
 
               {/* Décision annuelle — admin only, période annuelle uniquement.
                   Disponible pour le Second Cycle et pour le bulletin APC ANNUEL. */}
-              {(!isApc || apcAnnual) && role !== 'teacher' && selectedStudent && period?.seqs?.length >= 3 && (
+              {/* En APC, la période annuelle se reconnaît à sa NATURE (`kind`), pas
+                  au nombre de séquences qu'elle couvre : un trimestre peut en
+                  compter trois. Hors APC, le rythme classique est inchangé. */}
+              {(!isApc || apcAnnual) && role !== 'teacher' && selectedStudent
+                && (isApc ? apcAnnual : period?.seqs?.length >= 3) && (
                 <AnnualDecisionPicker
                   classId={classId}
                   studentId={selectedStudent.id}

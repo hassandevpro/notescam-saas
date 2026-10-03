@@ -29,17 +29,21 @@ import {
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import {
-  competencesFor, trimestreOfSequence, matiereAverage, apcCote, coefFor,
+  competencesFor, matiereAverage, apcCote, coefFor,
+  noteScale, APC_DEFAULT_MAX,
 } from '../../core/apcEngine';
+import { apcSeqIdOfSeqNum, apcTrimestreOfSeqNum } from '../../core/apcPeriods';
 
-const APC_MAX = 20; // barème officiel des notes APC (premier cycle, /20)
+const APC_MAX = APC_DEFAULT_MAX; // barème par défaut des notes APC (/20)
 
 // ── Cellule note ──────────────────────────────────────────────────────────────
-function NoteCell({ value, disabled, onCommit }) {
+// `max` = barème de CETTE évaluation (compétence × séquence). La saisie est
+// bornée à [0, max] : sur une évaluation /3, taper 14 est refusé à la frappe.
+function NoteCell({ value, max = APC_MAX, disabled, onCommit }) {
   const [local, setLocal] = useState(value ?? '');
   useEffect(() => { setLocal(value ?? ''); }, [value]);
   const commit = () => {
-    const v = validateGrade(local, APC_MAX);
+    const v = validateGrade(local, max);
     if (v === null) { setLocal(value ?? ''); return; }
     if (v !== (value ?? '')) onCommit(v);
   };
@@ -52,11 +56,41 @@ function NoteCell({ value, disabled, onCommit }) {
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
       placeholder="—"
+      title={`/${max}`}
       className={`w-16 text-center rounded border border-gray-200 px-1 py-1 text-sm
         focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
         disabled:bg-gray-50 disabled:text-gray-400 placeholder:text-gray-300
-        ${gradeColor(local, APC_MAX, 'FR')}`}
+        ${gradeColor(local, max, 'FR')}`}
     />
+  );
+}
+
+// ── Barème d'une colonne (une évaluation) ────────────────────────────────────
+// Le barème appartient à l'évaluation, pas à la compétence : la même compétence
+// peut être notée /3 en séquence 1 et /20 en séquence 2. Il est donc stocké sur
+// chaque note (`apc_notes.note_max`) et relu depuis elles.
+function BaremeCell({ value, disabled, onCommit }) {
+  const [local, setLocal] = useState(String(value ?? APC_MAX));
+  useEffect(() => { setLocal(String(value ?? APC_MAX)); }, [value]);
+  const commit = () => {
+    const n = parseFloat(String(local).replace(',', '.'));
+    if (!Number.isFinite(n) || n <= 0) { setLocal(String(value ?? APC_MAX)); return; }
+    if (n !== value) onCommit(n);
+  };
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[11px] font-normal text-gray-500">
+      /
+      <input
+        type="text"
+        value={local}
+        disabled={disabled}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+        className="w-9 text-center rounded border border-gray-200 px-0.5 py-0.5 text-[11px]
+          focus:outline-none focus:border-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
+      />
+    </span>
   );
 }
 
@@ -84,12 +118,32 @@ export default function ApcCompetenceWorkspace() {
   const setClassId = useUiStore((s) => s.setGradesClassId);
   const [sequence, setSequence] = useState(1);
   const [matiereId, setMatiereId] = useState('');
+  // Barème choisi pour une colonne encore vide (rien à relire en base tant
+  // qu'aucune note n'y est saisie) + message de refus d'un changement.
+  const [pendingBareme, setPendingBareme] = useState({});
+  const [baremeMsg, setBaremeMsg] = useState(null);
 
   useEffect(() => { loadApc(); }, [loadApc]);
 
-  const SEQUENCES = [1, 2, 3, 4, 5, 6];
-  const sequenceId = `s${sequence}`;
-  const trimestreId = trimestreOfSequence(referentiel?.sequences, sequenceId);
+  // Séquences de SAISIE, lues du référentiel (`apc_sequences`) : leur nombre et
+  // leur rattachement au trimestre sont des DONNÉES, pas une constante — un
+  // trimestre peut en compter deux, trois, ou un nombre différent d'un autre.
+  // Repli sur le rythme MINESEC courant tant que le référentiel n'est pas chargé.
+  const SEQUENCES = useMemo(() => {
+    const nums = (referentiel?.sequences || [])
+      .map((s) => Number(s.numero))
+      .filter((n) => Number.isFinite(n));
+    return nums.length ? [...new Set(nums)].sort((a, b) => a - b) : [1, 2, 3, 4, 5, 6];
+  }, [referentiel]);
+
+  // Si le référentiel chargé ne porte pas la séquence sélectionnée, on revient à
+  // la première : mieux vaut une saisie sur une séquence réelle qu'un écran vide.
+  useEffect(() => {
+    if (SEQUENCES.length && !SEQUENCES.includes(sequence)) setSequence(SEQUENCES[0]);
+  }, [SEQUENCES, sequence]);
+
+  const sequenceId  = apcSeqIdOfSeqNum(referentiel, sequence) || `s${sequence}`;
+  const trimestreId = apcTrimestreOfSeqNum(referentiel, sequence);
 
   // Classe sélectionnée + slug référentiel. On ne liste QUE les classes du premier
   // cycle (moteur 'apc') : l'établissement peut aussi contenir du fondamental ou du
@@ -175,21 +229,65 @@ export default function ApcCompetenceWorkspace() {
 
   // Lecture/écriture d'une cellule (note ou appréciation) en préservant l'autre champ.
   const recordFor = (eleveId, competenceId) => apcNotes[noteNkey(eleveId, competenceId, sequenceId)] || null;
+
+  // Barème de l'évaluation (compétence × séquence) : relu de la première note
+  // déjà saisie dans la colonne, /20 par défaut. La même compétence peut donc
+  // être notée /3 sur une séquence et /20 sur une autre.
+  const baremeFor = (competenceId) => {
+    for (const stu of classStudents) {
+      const r = recordFor(stu.id, competenceId);
+      if (r?.note_max != null) return Number(r.note_max);
+      if (r?.note != null && r.note !== '') return APC_DEFAULT_MAX; // note sans barème = historique /20
+    }
+    return pendingBareme[competenceId] ?? APC_DEFAULT_MAX;
+  };
+
   const saveCell = (eleveId, competenceId, patch) => {
     const rec = recordFor(eleveId, competenceId);
     saveApcNote({
       eleveId, competenceId, sequenceId,
       note: 'note' in patch ? patch.note : (rec?.note ?? ''),
+      noteMax: 'noteMax' in patch ? patch.noteMax : baremeFor(competenceId),
       appreciation: 'appreciation' in patch ? patch.appreciation : (rec?.appreciation ?? ''),
     });
   };
 
-  // Moyenne matière d'un élève (sur les compétences de la séquence).
+  // Changement du barème d'une colonne. REFUSÉ si une note déjà saisie le
+  // dépasse : on ne transforme pas en silence un 14/20 en 14/3. L'enseignant
+  // corrige d'abord les notes concernées.
+  const setBareme = (competenceId, nouveau) => {
+    const trop = classStudents.filter((stu) => {
+      const r = recordFor(stu.id, competenceId);
+      const n = r?.note == null || r.note === '' ? null : Number(r.note);
+      return n != null && !Number.isNaN(n) && n > nouveau;
+    });
+    if (trop.length) {
+      setBaremeMsg({
+        competenceId,
+        text: t(
+          `Barème /${nouveau} refusé : ${trop.length} note(s) le dépassent (${trop.slice(0, 3).map((s) => s.name).join(', ')}${trop.length > 3 ? '…' : ''}). Corrigez-les d'abord.`,
+          `Scale /${nouveau} refused: ${trop.length} grade(s) exceed it (${trop.slice(0, 3).map((s) => s.name).join(', ')}${trop.length > 3 ? '…' : ''}). Fix them first.`,
+        ),
+      });
+      return;
+    }
+    setBaremeMsg(null);
+    setPendingBareme((p) => ({ ...p, [competenceId]: nouveau }));
+    // Les notes déjà saisies suivent le nouveau barème de l'évaluation.
+    for (const stu of classStudents) {
+      const r = recordFor(stu.id, competenceId);
+      if (r?.note != null && r.note !== '') saveCell(stu.id, competenceId, { noteMax: nouveau });
+    }
+  };
+
+  // Moyenne matière d'un élève (sur les compétences de la séquence). Chaque note
+  // est fournie AVEC son barème : `matiereAverage` normalise avant d'agréger, de
+  // sorte qu'un 2/3 et un 14/20 ne soient jamais additionnés tels quels.
   const studentAvg = (eleveId) => {
     const notes = {};
     for (const c of competences) {
-      const r = recordFor(eleveId, c.id);
-      if (r && r.note != null && r.note !== '') notes[c.id] = r.note;
+      const v = noteScale(recordFor(eleveId, c.id));
+      if (v !== null) notes[c.id] = v;
     }
     return matiereAverage(notes, competences);
   };
@@ -274,9 +372,16 @@ export default function ApcCompetenceWorkspace() {
       {/* Bandeau trimestre / héritage */}
       <div className="text-xs text-gray-500">
         {t('Trimestre', 'Term')} {trimestreId?.replace('t', '')} · {t('Coef matière', 'Subject coef')} {matiereCoef} · {' '}
-        {t('compétences héritées par les deux séquences du trimestre', 'competencies shared by both sequences of the term')}
+        {t('compétences héritées par les séquences du trimestre', 'competencies shared by the sequences of the term')}
         {locked && <span className="ml-2 text-amber-600 font-medium">· {t('Séquence verrouillée (lecture seule)', 'Sequence locked (read-only)')}</span>}
       </div>
+
+      {/* Refus d'un changement de barème qui invaliderait des notes déjà saisies. */}
+      {baremeMsg && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {baremeMsg.text}
+        </div>
+      )}
 
       {competences.length > 0 && classStudents.length > 0 && (
         <CompetenceGradeIO
@@ -342,7 +447,12 @@ export default function ApcCompetenceWorkspace() {
                 </th>
                 {competences.map((c) => (
                   <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600 max-w-[16rem]" title={c.intitule}>
-                    <span className="block text-[11px] text-gray-400">{t('Comp.', 'Comp.')} {c.ordre}</span>
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-gray-400">{t('Comp.', 'Comp.')} {c.ordre}</span>
+                      {/* Barème de CETTE évaluation : /20 par défaut, modifiable. */}
+                      <BaremeCell value={baremeFor(c.id)} disabled={locked}
+                        onCommit={(n) => setBareme(c.id, n)} />
+                    </span>
                     <span className="block truncate">{c.intitule}</span>
                   </th>
                 ))}
@@ -360,7 +470,8 @@ export default function ApcCompetenceWorkspace() {
                     const rec = recordFor(stu.id, c.id);
                     return (
                       <td key={c.id} className="px-3 py-1.5">
-                        <NoteCell value={rec?.note != null ? String(rec.note) : ''} disabled={locked}
+                        <NoteCell value={rec?.note != null ? String(rec.note) : ''}
+                          max={baremeFor(c.id)} disabled={locked}
                           onCommit={(v) => saveCell(stu.id, c.id, { note: v })} />
                       </td>
                     );

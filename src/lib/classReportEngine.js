@@ -25,9 +25,10 @@
 
 import { getAvg } from '../core/bulletinEngine.js';
 import {
-  SEQ_TO_TRIM, sequencesOfTrimestre, competencesFor, matiereAverage, coefFor,
+  competencesFor, matiereAverage, coefFor, noteRatio, APC_DEFAULT_MAX,
   generalAverage as apcGeneralAverage, apcCoteFromScale,
 } from '../core/apcEngine.js';
+import { apcSeqIdsForTrimestre, apcTrimestreOfSeqNum } from '../core/apcPeriods.js';
 import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
@@ -173,17 +174,14 @@ function classicReport({ cls, students, subjects, period, gradeMap, sys, gOpts, 
 
 // ══ APC premier cycle (collège MINESEC) : compétences → moyennes de matière ══
 
-// Les identifiants de séquence du référentiel couverts par la période (mêmes
-// règles que le bulletin APC : numéro global si présent, sinon position dans le
-// trimestre).
-function apcSeqIdsForPeriod(referentiel, seqNums) {
-  const all = referentiel?.sequences || [];
-  return (seqNums || []).map((n) => {
-    const trimSeqs = sequencesOfTrimestre(all, SEQ_TO_TRIM[n]);
-    const byGlobal = trimSeqs.find((s) => s.numero === n);
-    if (byGlobal) return byGlobal.id;
-    return (trimSeqs[n % 2 === 1 ? 0 : 1] || trimSeqs[0])?.id;
-  }).filter(Boolean);
+// Les trimestres couverts par la période APC. La période les porte directement
+// (`trimestreIds`, cf. core/apcPeriods) ; à défaut on remonte au trimestre de
+// chaque séquence par son RATTACHEMENT déclaré au référentiel — jamais par un
+// calcul de parité, qui supposait deux séquences par trimestre.
+function apcTrimIdsForPeriod(referentiel, period) {
+  if (period?.trimestreIds?.length) return period.trimestreIds;
+  const nums = period?.seqs?.length ? period.seqs : [1];
+  return [...new Set(nums.map((n) => apcTrimestreOfSeqNum(referentiel, n)).filter(Boolean))];
 }
 
 // Moyenne d'UNE matière pour un élève sur la période : moyenne des compétences
@@ -194,8 +192,15 @@ function apcMatiereAvg({ referentiel, apcNotes, classeSlug, trimestreId, seqIds,
   if (!comps.length) return { moyenne: null, comps };
   const notesByComp = {};
   for (const c of comps) {
-    const vals = seqIds.map((sid) => num(apcNotes?.[apcKey(studentId, c.id, sid)]?.note)).filter((v) => v !== null);
-    if (vals.length) notesByComp[c.id] = round2(vals.reduce((a, b) => a + b, 0) / vals.length);
+    // Chaque évaluation porte son barème (`note_max`, NULL ⇒ /20). On moyenne les
+    // PROPORTIONS puis on réexprime sur /20 : moyenner 2/3 et 14/20 en brut
+    // donnerait 8 au lieu de 13,67. Même règle que le bulletin APC.
+    const vals = seqIds
+      .map((sid) => noteRatio(apcNotes?.[apcKey(studentId, c.id, sid)]))
+      .filter((v) => v !== null);
+    if (vals.length) {
+      notesByComp[c.id] = round2((vals.reduce((a, b) => a + b, 0) / vals.length) * APC_DEFAULT_MAX);
+    }
   }
   return { moyenne: matiereAverage(notesByComp, comps), comps };
 }
@@ -207,9 +212,10 @@ function apcReport({ cls, students, period, apcNotes, apcReferentiel, gradeScale
 
   // Une période peut couvrir plusieurs trimestres (annuel) : on assemble chaque
   // trimestre concerné, puis la matière prend la moyenne de ses trimestres notés.
-  const seqNums   = period.seqs || [1];
-  const trimIds   = [...new Set(seqNums.map((n) => SEQ_TO_TRIM[n]).filter(Boolean))];
-  const seqIdsFor = (tid) => apcSeqIdsForPeriod(apcReferentiel, seqNums.filter((n) => SEQ_TO_TRIM[n] === tid));
+  // Un trimestre agrège TOUTES les séquences qui lui sont rattachées, quel qu'en
+  // soit le nombre — c'est la synthèse trimestrielle, pas une séquence isolée.
+  const trimIds   = apcTrimIdsForPeriod(apcReferentiel, period);
+  const seqIdsFor = (tid) => apcSeqIdsForTrimestre(apcReferentiel, tid);
 
   // Colonnes = matières que le référentiel porte pour cette classe sur la période.
   const colById = new Map();

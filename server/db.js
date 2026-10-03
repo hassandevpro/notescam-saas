@@ -533,6 +533,13 @@ ensureColumn('student_class_assignments', 'motif_cloture',  'motif_cloture TEXT'
 ensureColumn('student_class_assignments', 'commentaire',    'commentaire TEXT');
 ensureColumn('student_class_assignments', 'created_at',     'created_at TEXT');
 ensureColumn('students', 'group_student_id', 'group_student_id TEXT'); // identité stable au niveau groupe
+// Barème d'une évaluation APC. Une compétence n'étant évaluée qu'une fois par
+// séquence, la ligne `apc_notes` EST l'évaluation et porte son maximum.
+// NULL = /20, le barème de toutes les notes antérieures. Sans cette colonne,
+// `pickColumns` écarterait silencieusement `note_max` à l'écriture et le barème
+// serait perdu au rechargement — d'où l'ajout AUSSI sur les bases déjà
+// installées, et pas seulement dans schema.sql.
+ensureColumn('apc_notes',        'note_max',      'note_max NUMERIC');
 // Rattachement (nullable, sans FK dure — cohérent avec le reste du schéma LAN).
 ensureColumn('grades',           'assignment_id', 'assignment_id TEXT');
 ensureColumn('student_absences', 'assignment_id', 'assignment_id TEXT');

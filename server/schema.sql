@@ -1336,6 +1336,9 @@ CREATE TABLE IF NOT EXISTS apc_notes (
   sequence_id   TEXT NOT NULL REFERENCES apc_sequences(id),
   enseignant_id TEXT,
   note          NUMERIC,
+  -- Barème de CETTE évaluation (une compétence n'est évaluée qu'une fois par
+  -- séquence : la ligne EST l'évaluation). NULL = /20, barème historique.
+  note_max      NUMERIC,
   appreciation  TEXT,
   date_saisie   TEXT,
   updated_at    TEXT,

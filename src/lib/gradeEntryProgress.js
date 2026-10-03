@@ -15,7 +15,7 @@
 //
 // Test : `node src/lib/_gradeEntryProgress.test.mjs`
 
-import { SEQ_TO_TRIM } from '../core/apcEngine.js';
+import { apcTrimestreOfSeqNum } from '../core/apcPeriods.js';
 import { firstCycleClasseSlug } from '../core/engineResolver.js';
 
 const filled = (v) => v !== undefined && v !== null && v !== '' && v !== 'ABS';
@@ -88,7 +88,10 @@ export function indexPrimNotes(primNotes) {
 // (l'appelant n'affiche rien plutôt qu'un pourcentage faux).
 function apcProgress({ cls, studs, order, apcNotes, apcReferentiel }) {
   const classeId = firstCycleClasseSlug(cls?.level || '', cls?.name || '');
-  const trimestreId = SEQ_TO_TRIM[Number(order)];
+  // Trimestre de la séquence par son RATTACHEMENT au référentiel (repli sur la
+  // constante tant que le référentiel n'est pas chargé) : le nombre de séquences
+  // par trimestre n'est pas supposé.
+  const trimestreId = apcTrimestreOfSeqNum(apcReferentiel, order);
   const comps = classeId && trimestreId
     ? (apcReferentiel?.competences || []).filter(
         (c) => c.actif !== false && c.classe_id === classeId && c.trimestre_id === trimestreId)

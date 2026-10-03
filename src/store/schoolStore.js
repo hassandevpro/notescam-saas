@@ -666,7 +666,9 @@ export const useSchoolStore = create((set, get) => ({
 
   // Enregistre/écrase une note de compétence (write IDB → cloud sinon queue).
   // Réutilise l'id existant (via nkey) pour rester idempotent online/offline.
-  saveApcNote: async ({ eleveId, competenceId, sequenceId, note, appreciation }) => {
+  // `noteMax` = barème de CETTE évaluation (une compétence n'est évaluée qu'une
+  // fois par séquence). Absent ⇒ /20, le barème historique.
+  saveApcNote: async ({ eleveId, competenceId, sequenceId, note, noteMax, appreciation }) => {
     const { schoolId, apcNotes } = get();
     if (!schoolId) return;
     const teacherId = useAuthStore.getState().teacherId || null;
@@ -674,7 +676,11 @@ export const useSchoolStore = create((set, get) => ({
     const existing = apcNotes[nkey];
     const record = buildNoteRecord({
       id: existing?.id, schoolId, eleveId, competenceId, sequenceId,
-      enseignantId: teacherId, note, appreciation,
+      enseignantId: teacherId, note,
+      // Barème conservé si l'appelant n'en fournit pas : rééditer une note ne
+      // doit pas la faire silencieusement retomber sur /20.
+      noteMax: noteMax === undefined ? existing?.note_max : noteMax,
+      appreciation,
     });
 
     await apcNotesDB.put(record);

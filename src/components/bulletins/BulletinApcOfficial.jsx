@@ -75,7 +75,11 @@ function MatiereChunk({ chunk, cell, trailing, sys }) {
               </td>
             )}
             <td style={cell}>{c.intitule}</td>
-            <td style={{ ...cell, textAlign: 'center' }}>{fix2(c.note)}</td>
+            {/* Barème réel de l'évaluation : la valeur seule quand c'est /20,
+                sinon « 2/3 » — un « N/20 » au-dessus d'un 2/3 mentirait. */}
+            <td style={{ ...cell, textAlign: 'center' }}>
+              {c.note == null ? '' : (c.max == null || c.max === 20 ? fix2(c.note) : `${fix2(c.note)}/${fix2(c.max)}`)}
+            </td>
             {span(first, <strong>{fix2(m.moyenne)}</strong>)}
             {span(first, String(m.coef))}
             {span(first, fix2(m.ponderee))}
@@ -178,7 +182,15 @@ export default function BulletinApcOfficial({
   const idProps = { student, classLabel, effectif, profPrincipal, sys };
   // Colonnes de fin selon les bascules de l'établissement.
   const trailing = visibleTrailing(apcBulletinCols(school), sys);
-  const allCols  = [...FIXED_COLS(sys), ...trailing];
+  // En-tête « N/20 » tant que toutes les compétences notées le sont sur /20 —
+  // c'est-à-dire pour tous les bulletins existants. Dès qu'une évaluation suit
+  // un autre barème, la colonne devient « N » et chaque cellule porte le sien.
+  const uniforme = (data?.matieres || []).every((m) => (m.competences || [])
+    .every((c) => c.note == null || c.max == null || c.max === 20));
+  const allCols  = [
+    ...FIXED_COLS(sys).map((c) => (c.key === 'n' && !uniforme ? { ...c, label: 'N' } : c)),
+    ...trailing,
+  ];
 
   return (
     <>

@@ -18,6 +18,7 @@ import { noteNkey } from '../core/apcEngine.js';
 import {
   competencesFor, sequencesOfTrimestre, matiereAverage, weightedMatiere,
   generalAverage, apcCoteFromScale, apcBulletinCols, coefFor, APC_COTE_CODES,
+  noteScale, APC_DEFAULT_MAX,
 } from '../core/apcEngine.js';
 import { gradeScaleBand, scaleMention } from '../core/bulletinEngine.js';
 import { apcMatiereLabel } from '../core/referentielI18n.js';
@@ -69,14 +70,25 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
     ? seqIds
     : sequencesOfTrimestre(referentiel.sequences, trimestreId).map((s) => s.id);
 
-  // Note de la période d'une compétence = moyenne de ses notes sur les séquences.
+  // Note de la période d'une compétence. Une compétence n'est évaluée qu'UNE
+  // fois par séquence (clé `apc_notes_uniq`) : on a donc au plus une évaluation
+  // par séquence du trimestre, chacune avec son propre barème.
+  //   • barèmes IDENTIQUES → moyenne des valeurs brutes, barème conservé :
+  //     l'échelle réelle survit jusqu'au bulletin (« 2/3 » reste « 2/3 ») ;
+  //   • barèmes DIFFÉRENTS → moyenne des PROPORTIONS, exprimée sur /20.
+  //     Moyenner 2/3 et 14/20 en brut n'aurait aucun sens.
+  // Renvoie { note, max } ou null si la compétence n'est pas évaluée.
   const compNote = (competenceId) => {
-    const vals = seqs
-      .map((sid) => apcNotes[noteNkey(student.id, competenceId, sid)]?.note)
-      .filter((n) => n != null && n !== '')
-      .map(Number)
-      .filter((n) => !isNaN(n));
-    return vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100 : null;
+    const evals = seqs
+      .map((sid) => noteScale(apcNotes[noteNkey(student.id, competenceId, sid)]))
+      .filter((v) => v !== null);
+    if (!evals.length) return null;
+    const r2 = (x) => Math.round(x * 100) / 100;
+    if (evals.every((v) => v.max === evals[0].max)) {
+      return { note: r2(evals.reduce((a, v) => a + v.note, 0) / evals.length), max: evals[0].max };
+    }
+    const prop = evals.reduce((a, v) => a + v.note / v.max, 0) / evals.length;
+    return { note: r2(prop * APC_DEFAULT_MAX), max: APC_DEFAULT_MAX };
   };
 
   const matieres = [];
@@ -85,9 +97,9 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
     if (!comps.length) continue;
     const notesByComp = {};
     const compRows = comps.map((c) => {
-      const n = compNote(c.id);
-      if (n != null) notesByComp[c.id] = n;
-      return { intitule: c.intitule, note: n };
+      const v = compNote(c.id);                       // { note, max } | null
+      if (v != null) notesByComp[c.id] = v;           // matiereAverage normalise
+      return { intitule: c.intitule, note: v?.note ?? null, max: v?.max ?? null };
     });
     const moyenne = matiereAverage(notesByComp, comps);
     const coef = coefFor(referentiel.classeMatieres, classeSlug, m);
@@ -197,16 +209,32 @@ const TRAIL_TH = (sys) => ({
 });
 const trailingCols = (cols) => ['cote', 'minmax', 'appreciation'].filter((k) => cols[k]);
 
-function tableHeadHtml(cols, sys) {
+// Toutes les compétences notées de la feuille sont-elles sur le barème /20 ?
+// Si oui, l'en-tête officiel « N/20 » reste exact et le bulletin ne bouge pas
+// d'un pixel. Sinon, chaque cellule porte son propre dénominateur (« 2/3 ») et
+// l'en-tête devient « N » : un titre « N/20 » au-dessus d'un 2/3 mentirait.
+const scalesUniform = (data) =>
+  (data?.matieres || []).every((m) => (m.competences || [])
+    .every((c) => c.note == null || c.max == null || c.max === APC_DEFAULT_MAX));
+
+function tableHeadHtml(cols, sys, uniform = true) {
   const tr = trailingCols(cols);
   const th = TRAIL_TH(sys);
   const trailTh = (tr.length ? tr.map((k) => TH(th[k][0], th[k][1])) : [TH('', '10%')]).join('');
   return `<tr>
     ${TH(L(sys, 'MATIÈRES ET NOM DE L\'ENSEIGNANT', 'SUBJECTS AND TEACHER'), '20%')}
     ${TH(L(sys, 'COMPÉTENCES ÉVALUÉES', 'COMPETENCES ASSESSED'))}
-    ${TH('N/20', '7%')}${TH('M/20', '7%')}${TH('Coef', '5%')}${TH('M×coef', '7%')}${trailTh}
+    ${TH(uniform ? 'N/20' : 'N', '7%')}${TH('M/20', '7%')}${TH('Coef', '5%')}${TH('M×coef', '7%')}${trailTh}
   </tr>`;
 }
+
+// Cellule « N » d'une compétence : la valeur seule quand le barème est celui du
+// bulletin (/20), sinon la note AVEC son dénominateur réel.
+const compNoteCell = (c) => {
+  if (c.note == null) return '';
+  const m = c.max == null ? APC_DEFAULT_MAX : c.max;
+  return m === APC_DEFAULT_MAX ? fix2(c.note) : `${fix2(c.note)}/${fix2(m)}`;
+};
 
 // Lignes d'une matière (compétences en sous-lignes ; M/20, coef, etc. fusionnés).
 function matiereRowsHtml(m, cols, sys) {
@@ -224,7 +252,7 @@ function matiereRowsHtml(m, cols, sys) {
     return `<tr>
       ${first ? `<td rowspan="${rs}" style="${C}"><strong>${esc(m.nom)}</strong><br/><span style="color:#666">${esc(m.enseignant || L(sys, 'M/Mme', 'Mr/Mrs'))}</span></td>` : ''}
       <td style="${C}">${esc(c.intitule)}</td>
-      <td style="${C};text-align:center">${fix2(c.note)}</td>
+      <td style="${C};text-align:center">${compNoteCell(c)}</td>
       ${span(`<strong>${fix2(m.moyenne)}</strong>`)}
       ${span(String(m.coef))}
       ${span(fix2(m.ponderee))}
@@ -345,6 +373,7 @@ export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
 
   // Découpe des matières en pages (logique mutualisée avec l'aperçu écran).
   const { pages, footerOwnPage } = paginateApcMatieres(data.matieres);
+  const uniforme = scalesUniform(data);   // toutes les compétences notées sur /20 ?
 
   const title = TRIM_TITLE[trimestreId] || TRIM_TITLE.t1;
   const header = (pageData, withFooter) => {
@@ -352,7 +381,7 @@ export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
     return SHEET_OPEN
       + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr })
       + identityHtml(student, { classLabel, sys, effectif, profPrincipal })
-      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols, sys)}</thead><tbody>${rows}${withFooter && !footerOwnPage ? totalRowHtml(data, cols, sys) : ''}</tbody></table>`
+      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols, sys, uniforme)}</thead><tbody>${rows}${withFooter && !footerOwnPage ? totalRowHtml(data, cols, sys) : ''}</tbody></table>`
       + (withFooter && !footerOwnPage ? footerBlocksHtml(data, { classStats, sys }) : '')
       + SHEET_CLOSE;
   };
@@ -362,7 +391,7 @@ export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
     sheets.push(
       SHEET_OPEN
       + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr })
-      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols, sys)}</thead><tbody>${totalRowHtml(data, cols, sys)}</tbody></table>`
+      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols, sys, uniforme)}</thead><tbody>${totalRowHtml(data, cols, sys)}</tbody></table>`
       + footerBlocksHtml(data, { classStats, sys })
       + officialSignatureHtml(school, sys)
       + SHEET_CLOSE,

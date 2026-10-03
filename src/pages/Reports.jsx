@@ -11,6 +11,7 @@ import { resolveCountryCode } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import { resolveClassEngine, SECTIONS } from '../core/engineResolver';
+import { apcBulletinPeriods, apcPeriodLabel } from '../core/apcPeriods';
 import { buildClassReport, REPORT_KIND } from '../lib/classReportEngine';
 import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
 
@@ -596,10 +597,12 @@ function StatBadge({ value, total, label, accent = 'brand' }) {
 }
 
 // ── Sélecteur de période en pills groupés ─────────────────────────────────────
-function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isEN, isGE, isFund }) {
+function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isEN, isGE, termsOnly }) {
   const t = useT();
-  // Fondamental (maternelle / primaire) : 3 trimestres + Annuel, sans séquences.
-  if (isFund) {
+  // Rythme TRIMESTRIEL sans séquences : 3 trimestres + Annuel. Concerne le
+  // fondamental (maternelle, primaire APC) ET le secondaire APC, dont la
+  // séquence est une unité de saisie et non une période de restitution.
+  if (termsOnly) {
     const terms  = periodsForClass.filter((p) => p.group === 'terms');
     const annual = periodsForClass.find((p) => p.group === 'annual');
     return (
@@ -821,13 +824,30 @@ export default function Reports() {
   // Moteur de la classe : maternelle / primaire APC → périodes par trimestre.
   const classEngine     = selectedClass ? resolveClassEngine(school, selectedClass) : 'classic';
   const isFund          = classEngine === 'maternelle' || classEngine === 'apc_primaire';
-  const periodsForClass = isFund ? PERIODS_FUND : isGE ? PERIODS_GE : isEN ? PERIODS_EN : PERIODS_FR;
+  // Secondaire APC (collège MINESEC) : T1 · T2 · T3 · Annuel — jamais de période
+  // de séquence. La séquence sert à SAISIR les évaluations ; le trimestre est
+  // l'unité de restitution. Les séquences couvertes viennent du rattachement
+  // déclaré au référentiel (cf. core/apcPeriods), en nombre quelconque.
+  const isApcClass      = classEngine === 'apc';
+  const PERIODS_APC = useMemo(
+    () => apcBulletinPeriods(apcReferentiel).map((p) => ({
+      ...p,
+      label: apcPeriodLabel(p, sys),
+      group: p.kind === 'annuel' ? 'annual' : 'terms',
+    })),
+    [apcReferentiel, sys],
+  );
+  const periodsForClass = isApcClass ? PERIODS_APC
+    : isFund ? PERIODS_FUND : isGE ? PERIODS_GE : isEN ? PERIODS_EN : PERIODS_FR;
   const period          = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0];
 
   useEffect(() => {
     const cls = classes.find((c) => c.id === classId);
     const eng = cls ? resolveClassEngine(school, cls) : 'classic';
     if (eng === 'maternelle' || eng === 'apc_primaire') setPeriodKey('t1');
+    // Secondaire APC : on ouvre sur le premier TRIMESTRE — « seq_1 » n'existe
+    // plus comme période de restitution pour ce moteur.
+    else if (eng === 'apc') setPeriodKey('term_1');
     else if (resolveCountryCode(school) === 'guinea_eq') setPeriodKey('trim_1');
     else if (cls?.system === 'EN') setPeriodKey('term_1');
     else setPeriodKey('seq_1');
@@ -1073,7 +1093,7 @@ export default function Reports() {
                 periodsForClass={periodsForClass}
                 isEN={isEN}
                 isGE={isGE}
-                isFund={isFund}
+                termsOnly={isFund || isApcClass}
               />
             </div>
           )}

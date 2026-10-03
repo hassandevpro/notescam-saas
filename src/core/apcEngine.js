@@ -108,19 +108,61 @@ const _num = (v) => {
   return isNaN(n) ? null : n;
 };
 
+// --- Barème d'une évaluation --------------------------------------------------
+// Une compétence est évaluée UNE SEULE FOIS par séquence (c'est la clé
+// `apc_notes_uniq (eleve_id, competence_id, sequence_id)`) : la note porte donc
+// son propre barème, dans `apc_notes.note_max`.
+//
+// `note_max` absent ou NULL ⇒ /20. Ce n'est pas une supposition : l'unique écran
+// de saisie bornait la frappe à [0, 20] (`validateGrade(raw, 20)`) et affichait
+// « M/20 ». Toutes les notes antérieures à cette colonne sont donc sur /20, et
+// aucune n'a eu besoin d'être réécrite.
+export const APC_DEFAULT_MAX = 20;
+
+// Normalise une valeur de note en { note, max }, ou null si NON ÉVALUÉE.
+// Accepte indifféremment :
+//   • une valeur brute       : 14, '14'        → sur le barème par défaut ;
+//   • une évaluation datée   : { note, max }   → sur son propre barème.
+// Non évaluée : ligne absente, null, '', 'ABS'. Un ZÉRO reste une vraie note.
+export const noteScale = (raw, defaultMax = APC_DEFAULT_MAX) => {
+  const src = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : { note: raw };
+  const n = _num(src.note);
+  if (n === null) return null;
+  const m = Number(src.max ?? src.note_max ?? defaultMax);
+  return { note: n, max: Number.isFinite(m) && m > 0 ? m : defaultMax };
+};
+
+// Proportion acquise d'une évaluation (0..1), ou null si non évaluée.
+export const noteRatio = (raw, defaultMax = APC_DEFAULT_MAX) => {
+  const v = noteScale(raw, defaultMax);
+  return v === null ? null : v.note / v.max;
+};
+
 // --- Moyenne d'une matière ----------------------------------------------------
 // Moyenne (pondérée par competence.coefficient, défaut 1) des compétences NOTÉES
-// de la matière. Les compétences sans note sont ignorées. Renvoie null si aucune.
-export const matiereAverage = (notes, competences) => {
+// de la matière. Les compétences sans note sont ignorées — JAMAIS comptées 0 —
+// et n'entrent pas dans la somme des coefficients. Renvoie null si aucune.
+//
+// NORMALISATION : chaque note est ramenée à sa PROPORTION (note / son barème)
+// avant d'être pondérée, puis le résultat est réexprimé sur `outMax`. Additionner
+// les valeurs brutes quand les dénominateurs diffèrent donnerait un résultat faux :
+//     2/3 et 14/20 → (2 + 14)/2 = 8        ← faux
+//                  → (66,67 % + 70 %)/2 = 68,33 % ≈ 13,67/20   ← juste
+// Sur un jeu entièrement /20 (tout l'historique), proportion × 20 redonne la
+// valeur d'origine : le calcul est inchangé au centième près.
+export const matiereAverage = (notes, competences, opts = {}) => {
+  const outMax = Number(opts.outMax) > 0 ? Number(opts.outMax) : APC_DEFAULT_MAX;
   let sw = 0, tc = 0;
   for (const c of competences || []) {
-    const n = _num(notes?.[c.id]);
-    if (n === null) continue;
+    // Barème par défaut d'une note brute : /20 (l'historique), jamais `outMax` —
+    // l'échelle de SORTIE ne dit rien de celle d'origine.
+    const r = noteRatio(notes?.[c.id], APC_DEFAULT_MAX);
+    if (r === null) continue;
     const coef = c.coefficient == null ? 1 : Number(c.coefficient) || 1;
-    sw += n * coef;
+    sw += r * coef;
     tc += coef;
   }
-  return tc ? Math.round((sw / tc) * 100) / 100 : null;
+  return tc ? Math.round((sw / tc) * outMax * 100) / 100 : null;
 };
 
 // Moyenne matière × coefficient de la matière (contribution à la moyenne générale).

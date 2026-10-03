@@ -20,7 +20,8 @@
 
 import { multiAvg, fusedG, getAppreciation } from '../core/bulletinEngine.js';
 import { assemblePeriod, assembleApcAnnual } from './apcBulletinDoc.js';
-import { sequencesOfTrimestre, TRIM_TO_SEQ } from '../core/apcEngine.js';
+import { TRIM_TO_SEQ } from '../core/apcEngine.js';
+import { apcSeqNumsForTrimestre, apcSeqIdOfSeqNum } from '../core/apcPeriods.js';
 import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
@@ -58,7 +59,11 @@ export const pvApplicable = (engine) => PV_ENGINES.includes(engine);
 // évaluations : séquence isolée (S1), trimestre entier (T1, en vue annuelle) ou
 // Unité d'Apprentissage du primaire (UA1). Le PV annuel affiche TOUJOURS les
 // trois trimestres — six colonnes de séquences seraient illisibles.
-export function pvUnits({ engine, sys, cycle, countryCode, primSequences = false, period = 't1' }) {
+// `apcReferentiel` (optionnel) sert au seul moteur APC : les séquences d'un
+// trimestre y sont lues par RATTACHEMENT déclaré, en nombre quelconque. Sans lui,
+// repli sur le rythme MINESEC courant. Les moteurs à notes (classic / sc) gardent
+// leur découpage historique en six séquences, inchangé.
+export function pvUnits({ engine, sys, cycle, countryCode, primSequences = false, period = 't1', apcReferentiel = null }) {
   const trim = PV_PERIODS.find((p) => p.key === period)?.trimestre ?? 1;
   const annual = trim === 0;
   const termLabel = (n) => (sys === 'EN' ? `Term ${n}` : `T${n}`);
@@ -71,8 +76,9 @@ export function pvUnits({ engine, sys, cycle, countryCode, primSequences = false
   }
 
   if (engine === 'apc') {
-    if (annual) return [1, 2, 3].map((n) => ({ key: `t${n}`, label: termLabel(n), seqs: TRIM_TO_SEQ[`t${n}`] }));
-    return (TRIM_TO_SEQ[`t${trim}`] || [1, 2]).map((n) => ({ key: `s${n}`, label: `S${n}`, seqs: [n] }));
+    const seqsOf = (tid) => apcSeqNumsForTrimestre(apcReferentiel, tid);
+    if (annual) return [1, 2, 3].map((n) => ({ key: `t${n}`, label: termLabel(n), seqs: seqsOf(`t${n}`) }));
+    return seqsOf(`t${trim}`).map((n) => ({ key: `s${n}`, label: `S${n}`, seqs: [n] }));
   }
 
   // Moteurs à notes (classic / sc). Deux rythmes possibles :
@@ -165,14 +171,10 @@ function buildNotesPv({ cls, sys, students, subjects, gradeMap, units, opts, gra
 // de matière et la moyenne générale viennent de l'assemblage sur la période
 // complète (mêmes règles que le bulletin APC officiel).
 function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annual, trimestreId, gradeScale }) {
-  const seqIdsOf = (nums) => {
-    const all = referentiel?.sequences || [];
-    return nums.map((n) => {
-      const trimSeqs = sequencesOfTrimestre(all, `t${Math.ceil(n / 2)}`);
-      const byNum = trimSeqs.find((s) => s.numero === n);
-      return (byNum || trimSeqs[n % 2 === 1 ? 0 : 1] || trimSeqs[0])?.id;
-    }).filter(Boolean);
-  };
+  // Identifiants de séquence d'une liste de NUMÉROS, par rattachement déclaré au
+  // référentiel. Aucune parité, aucun `Math.ceil(n / 2)` : deux trimestres
+  // peuvent compter un nombre différent de séquences.
+  const seqIdsOf = (nums) => nums.map((n) => apcSeqIdOfSeqNum(referentiel, n)).filter(Boolean);
 
   const colMap = new Map();
   const addCol = (m) => {
@@ -286,7 +288,7 @@ export function buildClassPv(ctx) {
   if (engine === 'apc' && (!apcReferentiel || !apcClasseSlug)) return null;
   if (engine === 'apc_primaire' && (!primReferentiel || !primNiveauSlug)) return null;
 
-  const units = pvUnits({ engine, sys, cycle, countryCode, primSequences, period });
+  const units = pvUnits({ engine, sys, cycle, countryCode, primSequences, period, apcReferentiel });
   const trim = PV_PERIODS.find((p) => p.key === period)?.trimestre ?? 1;
   const annual = trim === 0;
 

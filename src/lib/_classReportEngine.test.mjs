@@ -120,6 +120,36 @@ const students = [{ id: 'e1', name: 'Abena' }, { id: 'e2', name: 'Biya' }, { id:
   ok(!noRef.ready && noRef.reason === 'referentiel', 'sans référentiel chargé : non prêt, raison explicite');
   const badCls = buildClassReport({ engine: 'apc', cls: { id: 'x', level: 'Terminale' }, students, subjects: [], period: { seqs: [1] }, apcNotes, apcReferentiel, scaleMax: 20, passThreshold: 10 });
   ok(!badCls.ready && badCls.reason === 'classe', 'classe hors premier cycle : non prête');
+
+  // ── Rattachement RÉEL des séquences au trimestre ───────────────────────────
+  // Un trimestre peut compter TROIS séquences. L'ancienne résolution par parité
+  // (`n % 2`) n'en voyait que deux et perdait la note posée sur la troisième.
+  const refAsym = { ...apcReferentiel, sequences: [
+    { id: 's1', numero: 1, trimestre_id: 't1' },
+    { id: 's2', numero: 2, trimestre_id: 't1' },
+    { id: 's3', numero: 3, trimestre_id: 't1' },   // 3e séquence de T1 (et non de T2)
+    { id: 's4', numero: 4, trimestre_id: 't2' },
+  ] };
+  const notesAsym = { ...apcNotes, e1_k2_s3: { note: 19 } };  // k2 notée sur la 3e séquence
+  const t1Asym = buildClassReport({
+    engine: 'apc', cls, students, subjects: [],
+    period: { value: 'term_1', kind: 'trimestre', trimestreId: 't1', trimestreIds: ['t1'], seqs: [1, 2, 3] },
+    apcNotes: notesAsym, apcReferentiel: refAsym, scaleMax: 20, passThreshold: 10,
+  });
+  const a1 = t1Asym.rows.find((r) => r.student.id === 'e1');
+  eq(a1.scores.mat, 15, 'T1 à trois séquences : k2 = (11 + 19)/2 = 15, donc Maths = 15');
+  ok(a1.scores.mat !== 13, 'la note de la 3e séquence n\'est PAS perdue (13 = s3 ignorée)');
+  eq(a1.avg, 12.67, 'moyenne générale pondérée (15×4 + 8×2)/6');
+
+  // La période porte ses trimestres : l'annuel en couvre trois sans énumérer
+  // de séquence, et le rapport reste assemblé par trimestre.
+  const anAsym = buildClassReport({
+    engine: 'apc', cls, students, subjects: [],
+    period: { value: 'annuel', kind: 'annuel', trimestreId: null, trimestreIds: ['t1', 't2', 't3'], seqs: [1, 2, 3, 4] },
+    apcNotes: notesAsym, apcReferentiel: refAsym, scaleMax: 20, passThreshold: 10,
+  });
+  eq(anAsym.rows.find((r) => r.student.id === 'e1').scores.mat, 15,
+     'annuel : seul T1 porte des compétences ici → Maths = 15 (T2/T3 vides ignorés, non comptés 0)');
 }
 
 // ══ Primaire APC (MINEDUB) ══════════════════════════════════════════════════

@@ -32,7 +32,9 @@ import {
   competencesFor, matiereAverage, apcCote, coefFor,
   noteScale, APC_DEFAULT_MAX,
 } from '../../core/apcEngine';
-import { apcSeqIdOfSeqNum, apcTrimestreOfSeqNum } from '../../core/apcPeriods';
+import {
+  apcSeqIdOfSeqNum, apcTrimestreOfSeqNum, apcSeqNumsForTrimestre, APC_TRIMESTRE_IDS,
+} from '../../core/apcPeriods';
 
 const APC_MAX = APC_DEFAULT_MAX; // barème par défaut des notes APC (/20)
 
@@ -144,6 +146,28 @@ export default function ApcCompetenceWorkspace() {
 
   const sequenceId  = apcSeqIdOfSeqNum(referentiel, sequence) || `s${sequence}`;
   const trimestreId = apcTrimestreOfSeqNum(referentiel, sequence);
+
+  // ── Choix du TRIMESTRE, puis de la séquence qui lui appartient ──────────────
+  // Les compétences officielles sont définies PAR TRIMESTRE : c'est donc par là
+  // qu'un enseignant raisonne. Jusqu'ici l'écran n'offrait que les séquences et
+  // affichait le trimestre en lecture seule — pour saisir le T2 il fallait
+  // deviner que c'était la séquence 3. Le trimestre devient un choix explicite.
+  //
+  // `sequence` reste l'unique source de vérité : choisir un trimestre
+  // sélectionne sa première séquence. Aucun état parallèle, donc rien à
+  // resynchroniser. Les trimestres proposés sont ceux auxquels le référentiel
+  // rattache réellement des séquences.
+  const TRIMESTRES = useMemo(
+    () => APC_TRIMESTRE_IDS
+      .map((tid) => ({ id: tid, seqs: apcSeqNumsForTrimestre(referentiel, tid) }))
+      .filter((x) => x.seqs.length),
+    [referentiel],
+  );
+  const seqsDuTrimestre = TRIMESTRES.find((x) => x.id === trimestreId)?.seqs || SEQUENCES;
+  const choisirTrimestre = (tid) => {
+    const first = TRIMESTRES.find((x) => x.id === tid)?.seqs?.[0];
+    if (first != null) setSequence(first);
+  };
 
   // Classe sélectionnée + slug référentiel. On ne liste QUE les classes du premier
   // cycle (moteur 'apc') : l'établissement peut aussi contenir du fondamental ou du
@@ -352,11 +376,24 @@ export default function ApcCompetenceWorkspace() {
           <span className="block text-gray-500 mb-1">{t('Classe', 'Class')}</span>
           {renderClassPicker()}
         </label>
+        {/* Trimestre d'abord : c'est l'unité des compétences officielles. */}
+        <label className="text-sm">
+          <span className="block text-gray-500 mb-1">{t('Trimestre', 'Term')}</span>
+          <select value={trimestreId || ''} onChange={(e) => choisirTrimestre(e.target.value)}
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            {TRIMESTRES.map((x) => (
+              <option key={x.id} value={x.id}>
+                {t('Trimestre', 'Term')} {x.id.replace('t', '')}
+              </option>
+            ))}
+          </select>
+        </label>
+        {/* Puis la séquence — mais seulement celles de ce trimestre. */}
         <label className="text-sm">
           <span className="block text-gray-500 mb-1">{t('Séquence', 'Sequence')}</span>
           <select value={sequence} onChange={(e) => setSequence(Number(e.target.value))}
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
-            {SEQUENCES.map((n) => <option key={n} value={n}>{t('Séquence', 'Sequence')} {n}</option>)}
+            {seqsDuTrimestre.map((n) => <option key={n} value={n}>{t('Séquence', 'Sequence')} {n}</option>)}
           </select>
         </label>
         <label className="text-sm">
@@ -371,8 +408,9 @@ export default function ApcCompetenceWorkspace() {
 
       {/* Bandeau trimestre / héritage */}
       <div className="text-xs text-gray-500">
-        {t('Trimestre', 'Term')} {trimestreId?.replace('t', '')} · {t('Coef matière', 'Subject coef')} {matiereCoef} · {' '}
-        {t('compétences héritées par les séquences du trimestre', 'competencies shared by the sequences of the term')}
+        {t('Coef matière', 'Subject coef')} {matiereCoef} · {' '}
+        {t(`les ${seqsDuTrimestre.length} séquence(s) de ce trimestre partagent les mêmes compétences`,
+           `the ${seqsDuTrimestre.length} sequence(s) of this term share the same competencies`)}
         {locked && <span className="ml-2 text-amber-600 font-medium">· {t('Séquence verrouillée (lecture seule)', 'Sequence locked (read-only)')}</span>}
       </div>
 

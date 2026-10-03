@@ -147,16 +147,17 @@ export default function ApcCompetenceWorkspace() {
   const sequenceId  = apcSeqIdOfSeqNum(referentiel, sequence) || `s${sequence}`;
   const trimestreId = apcTrimestreOfSeqNum(referentiel, sequence);
 
-  // ── Choix du TRIMESTRE, puis de la séquence qui lui appartient ──────────────
-  // Les compétences officielles sont définies PAR TRIMESTRE : c'est donc par là
-  // qu'un enseignant raisonne. Jusqu'ici l'écran n'offrait que les séquences et
-  // affichait le trimestre en lecture seule — pour saisir le T2 il fallait
-  // deviner que c'était la séquence 3. Le trimestre devient un choix explicite.
+  // ── La saisie se fait PAR TRIMESTRE ─────────────────────────────────────────
+  // Les compétences officielles sont définies par trimestre, et c'est ainsi que
+  // l'enseignant raisonne : l'écran ne propose donc plus que les trimestres.
   //
-  // `sequence` reste l'unique source de vérité : choisir un trimestre
-  // sélectionne sa première séquence. Aucun état parallèle, donc rien à
-  // resynchroniser. Les trimestres proposés sont ceux auxquels le référentiel
-  // rattache réellement des séquences.
+  // La table des notes, elle, n'a pas de case « trimestre » : sa clé est
+  // `(élève, compétence, séquence)` et `sequence_id` est obligatoire. Une note de
+  // trimestre est donc écrite sur la PREMIÈRE séquence rattachée à ce trimestre
+  // au référentiel (s1 pour T1, s3 pour T2…), jamais sur un numéro deviné. Le
+  // bulletin agrège déjà toutes les séquences du trimestre : avec une seule note,
+  // la moyenne du trimestre EST cette note. Aucune donnée n'a été réécrite pour
+  // cela, et le modèle reste capable d'en porter plusieurs.
   const TRIMESTRES = useMemo(
     () => APC_TRIMESTRE_IDS
       .map((tid) => ({ id: tid, seqs: apcSeqNumsForTrimestre(referentiel, tid) }))
@@ -168,6 +169,15 @@ export default function ApcCompetenceWorkspace() {
     const first = TRIMESTRES.find((x) => x.id === tid)?.seqs?.[0];
     if (first != null) setSequence(first);
   };
+
+  // Si la séquence courante n'est pas la représentante de son trimestre (état
+  // hérité de l'écran précédent, qui laissait choisir n'importe laquelle), on y
+  // revient : la saisie doit toujours porter sur la même séquence pour un
+  // trimestre donné, sinon deux notes cohabiteraient sans que l'écran le montre.
+  useEffect(() => {
+    const premiere = seqsDuTrimestre[0];
+    if (premiere != null && sequence !== premiere) setSequence(premiere);
+  }, [seqsDuTrimestre.join(','), sequence]);
 
   // Classe sélectionnée + slug référentiel. On ne liste QUE les classes du premier
   // cycle (moteur 'apc') : l'établissement peut aussi contenir du fondamental ou du
@@ -248,6 +258,26 @@ export default function ApcCompetenceWorkspace() {
       .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
     [students, classId],
   );
+
+  // Notes déjà posées sur les AUTRES séquences du trimestre, du temps où l'écran
+  // laissait choisir la séquence. Elles n'ont pas été touchées et restent
+  // comptées dans la moyenne du trimestre : on le signale, plutôt que de les
+  // laisser peser sans que personne ne les voie.
+  const notesAutresSeqs = useMemo(() => {
+    if (!competences.length || !classStudents.length) return 0;
+    const autres = seqsDuTrimestre.slice(1)
+      .map((n) => apcSeqIdOfSeqNum(referentiel, n) || `s${n}`);
+    let n = 0;
+    for (const stu of classStudents) {
+      for (const c of competences) {
+        for (const sid of autres) {
+          const r = apcNotes[noteNkey(stu.id, c.id, sid)];
+          if (r?.note != null && r.note !== '') n++;
+        }
+      }
+    }
+    return n;
+  }, [apcNotes, competences, classStudents, seqsDuTrimestre.join(','), referentiel]);
 
   const locked = schoolId && classId ? isSequenceLocked(schoolId, classId, sequence) : false;
 
@@ -388,14 +418,6 @@ export default function ApcCompetenceWorkspace() {
             ))}
           </select>
         </label>
-        {/* Puis la séquence — mais seulement celles de ce trimestre. */}
-        <label className="text-sm">
-          <span className="block text-gray-500 mb-1">{t('Séquence', 'Sequence')}</span>
-          <select value={sequence} onChange={(e) => setSequence(Number(e.target.value))}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
-            {seqsDuTrimestre.map((n) => <option key={n} value={n}>{t('Séquence', 'Sequence')} {n}</option>)}
-          </select>
-        </label>
         <label className="text-sm">
           <span className="block text-gray-500 mb-1">{t('Matière', 'Subject')}</span>
           <select value={matiereId} onChange={(e) => setMatiereId(e.target.value)}
@@ -409,10 +431,20 @@ export default function ApcCompetenceWorkspace() {
       {/* Bandeau trimestre / héritage */}
       <div className="text-xs text-gray-500">
         {t('Coef matière', 'Subject coef')} {matiereCoef} · {' '}
-        {t(`les ${seqsDuTrimestre.length} séquence(s) de ce trimestre partagent les mêmes compétences`,
-           `the ${seqsDuTrimestre.length} sequence(s) of this term share the same competencies`)}
-        {locked && <span className="ml-2 text-amber-600 font-medium">· {t('Séquence verrouillée (lecture seule)', 'Sequence locked (read-only)')}</span>}
+        {t('une note par compétence et par trimestre', 'one grade per competency and per term')}
+        {locked && <span className="ml-2 text-amber-600 font-medium">· {t('Trimestre verrouillé (lecture seule)', 'Term locked (read-only)')}</span>}
       </div>
+
+      {/* Notes héritées d'une autre séquence du même trimestre : elles comptent
+          dans la moyenne, on ne les cache pas. */}
+      {notesAutresSeqs > 0 && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+          {t(
+            `${notesAutresSeqs} note(s) de ce trimestre ont été saisies sur une autre séquence, du temps où l'écran le permettait. Elles sont conservées et comptent toujours dans la moyenne du trimestre, mais ne se modifient plus ici.`,
+            `${notesAutresSeqs} grade(s) for this term were entered on another sequence, back when the screen allowed it. They are kept and still count towards the term average, but can no longer be edited here.`,
+          )}
+        </div>
+      )}
 
       {/* Refus d'un changement de barème qui invaliderait des notes déjà saisies. */}
       {baremeMsg && (
@@ -423,8 +455,8 @@ export default function ApcCompetenceWorkspace() {
 
       {competences.length > 0 && classStudents.length > 0 && (
         <CompetenceGradeIO
-          filename={`notes_${(matieres.find((m) => m.id === matiereId)?.nom || 'matiere').replace(/[\\/:*?"<>|]/g, '-')}_${selectedClass?.name || ''}_S${sequence}`}
-          sheetName={`${t('Séquence', 'Sequence')} ${sequence}`}
+          filename={`notes_${(matieres.find((m) => m.id === matiereId)?.nom || 'matiere').replace(/[\\/:*?"<>|]/g, '-')}_${selectedClass?.name || ''}_${String(trimestreId || '').toUpperCase()}`}
+          sheetName={`${t('Trimestre', 'Term')} ${String(trimestreId || 't1').replace('t', '')}`}
           students={classStudents}
           columns={competences.map((c) => ({ id: c.id, label: c.intitule }))}
           getCell={(sid, cid) => { const r = recordFor(sid, cid); return r?.note != null ? String(r.note) : ''; }}

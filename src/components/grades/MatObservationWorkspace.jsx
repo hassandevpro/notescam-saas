@@ -25,6 +25,7 @@ import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import ReferentielEditor from './ReferentielEditor';
+import MobileEntryList from './MobileEntryList';
 import { withLibelles } from '../../lib/referentielEcole';
 import { canManageClassSubjects } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
@@ -228,7 +229,7 @@ export default function MatObservationWorkspace() {
   function renderClassPicker() {
     return (
       <select value={classId || ''} onChange={(e) => setClassId(e.target.value)}
-        className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
         {matClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>
     );
@@ -322,16 +323,16 @@ export default function MatObservationWorkspace() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
         <SectionSelect classes={classes} classId={classId} setClassId={setClassId} />
-        <label className="text-sm">
+        <label className="text-sm min-w-0">
           <span className="block text-gray-500 mb-1">{t('Classe', 'Class')}</span>
           {renderClassPicker()}
         </label>
-        <label className="text-sm">
+        <label className="text-sm min-w-0">
           <span className="block text-gray-500 mb-1">{t('Trimestre', 'Term')}</span>
           <select value={trimestre} onChange={(e) => setTrimestre(Number(e.target.value))}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
             {[1, 2, 3].map((n) => <option key={n} value={n}>{t('Trimestre', 'Term')} {n}</option>)}
           </select>
         </label>
@@ -414,7 +415,26 @@ export default function MatObservationWorkspace() {
           {t('Aucun élève dans cette classe.', 'No student in this class.')}
         </div>
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-200">
+        <>
+        {/* TÉLÉPHONE — une carte par élève. Le tableau obligeait à balayer l'écran
+            horizontalement pour chaque colonne, en perdant de vue à qui l'on
+            attribuait la cote. */}
+        <MobileEntryList
+          students={classStudents}
+          columns={domaines.map((d) => ({ id: d.id, code: d.code, label: d.intitule }))}
+          subtitle={(stu) => stu.matricule || null}
+          isFilled={(stu, c) => !!(view === 'observations'
+            ? recordFor(stu.id, c.id)?.observation
+            : recordFor(stu.id, c.id)?.niveau_acquis)}
+          renderCell={(stu, c) => (view === 'niveaux'
+            ? <NiveauCell value={recordFor(stu.id, c.id)?.niveau_acquis || ''} sys={sys}
+                onCommit={(v) => saveCell(stu.id, c.id, { niveauAcquis: v })} />
+            : <ObsCell value={recordFor(stu.id, c.id)?.observation || ''}
+                onCommit={(v) => saveCell(stu.id, c.id, { observation: v })} />)}
+        />
+
+        {/* ORDINATEUR — le tableau reste plus rapide dès qu'on a la place. */}
+        <div className="hidden md:block overflow-auto rounded-lg border border-gray-200">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -448,6 +468,7 @@ export default function MatObservationWorkspace() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

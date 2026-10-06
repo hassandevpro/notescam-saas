@@ -28,6 +28,7 @@ import {
 } from '../../core/apcMatiereMatch';
 import ReferentielEditor from './ReferentielEditor';
 import { withLibelles } from '../../lib/referentielEcole';
+import MobileEntryList from './MobileEntryList';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import {
@@ -410,7 +411,7 @@ export default function ApcCompetenceWorkspace() {
   function renderClassPicker() {
     return (
       <select value={classId} onChange={(e) => setClassId(e.target.value)}
-        className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
         {sortedClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>
     );
@@ -458,17 +459,17 @@ export default function ApcCompetenceWorkspace() {
       )}
 
       {/* Sélecteurs */}
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
         <SectionSelect classes={classes} classId={classId} setClassId={setClassId} />
-        <label className="text-sm">
+        <label className="text-sm min-w-0">
           <span className="block text-gray-500 mb-1">{t('Classe', 'Class')}</span>
           {renderClassPicker()}
         </label>
         {/* Trimestre d'abord : c'est l'unité des compétences officielles. */}
-        <label className="text-sm">
+        <label className="text-sm min-w-0">
           <span className="block text-gray-500 mb-1">{t('Trimestre', 'Term')}</span>
           <select value={trimestreId || ''} onChange={(e) => choisirTrimestre(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
             {TRIMESTRES.map((x) => (
               <option key={x.id} value={x.id}>
                 {t('Trimestre', 'Term')} {x.id.replace('t', '')}
@@ -476,7 +477,7 @@ export default function ApcCompetenceWorkspace() {
             ))}
           </select>
         </label>
-        <label className="text-sm">
+        <label className="text-sm min-w-0">
           <span className="block text-gray-500 mb-1">{t('Matière', 'Subject')}</span>
           <select value={matiereId} onChange={(e) => setMatiereId(e.target.value)}
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm min-w-[12rem]">
@@ -571,7 +572,32 @@ export default function ApcCompetenceWorkspace() {
           {t('Aucun élève dans cette classe.', 'No student in this class.')}
         </div>
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-200">
+        <>
+        {/* TÉLÉPHONE — une carte par élève. Les compétences du MINESEC sont des
+            PHRASES : dans un tableau, leur en-tête est tronqué et on note sans
+            savoir sur quoi. Ici le libellé est entier, au-dessus du champ. */}
+        <MobileEntryList
+          students={classStudents}
+          columns={competences.map((c, i) => ({
+            id: c.id, code: `${t('Comp.', 'Comp.')} ${i + 1}`,
+            label: `${c.intitule} · /${baremeFor(c.id)}`,
+          }))}
+          subtitle={(stu) => {
+            const avg = studentAvg(stu.id);
+            return avg == null ? null : `${avg}/20 · ${apcCote(avg).code}`;
+          }}
+          isFilled={(stu, c) => recordFor(stu.id, c.id)?.note != null}
+          renderCell={(stu, c) => (
+            <NoteCell
+              value={recordFor(stu.id, c.id)?.note != null ? String(recordFor(stu.id, c.id).note) : ''}
+              max={baremeFor(c.id)} disabled={locked}
+              onCommit={(v) => saveCell(stu.id, c.id, { note: v })}
+            />
+          )}
+        />
+
+        {/* ORDINATEUR */}
+        <div className="hidden md:block overflow-auto rounded-lg border border-gray-200">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -624,6 +650,7 @@ export default function ApcCompetenceWorkspace() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

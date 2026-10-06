@@ -37,6 +37,7 @@ import {
 import { baremeEnVigueur, notesHorsBareme } from '../../core/primColumnBareme';
 import ReferentielEditor from './ReferentielEditor';
 import { withLibelles } from '../../lib/referentielEcole';
+import MobileEntryList from './MobileEntryList';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
@@ -275,7 +276,7 @@ export default function PrimCompetenceWorkspace() {
   function renderClassPicker() {
     return (
       <select value={classId || ''} onChange={(e) => setClassId(e.target.value)}
-        className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
         {primClasses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>
     );
@@ -366,22 +367,22 @@ export default function PrimCompetenceWorkspace() {
         />
       )}
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
         <SectionSelect classes={classes} classId={classId} setClassId={setClassId} />
-        <label className="text-sm">
+        <label className="text-sm min-w-0">
           <span className="block text-gray-500 mb-1">{t('Classe', 'Class')}</span>
           {renderClassPicker()}
         </label>
-        <label className="text-sm">
+        <label className="text-sm min-w-0">
           <span className="block text-gray-500 mb-1">{t('Unité d’apprentissage', 'Learning unit')}</span>
           <select value={ua} onChange={(e) => setUa(Number(e.target.value))}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
             {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
               <option key={n} value={n}>UA{n} ({t('Trim.', 'Term')} {trimestreOfUA(n)})</option>
             ))}
           </select>
         </label>
-        <label className="text-sm">
+        <label className="text-sm min-w-0">
           <span className="block text-gray-500 mb-1">{t('Compétence', 'Competency')}</span>
           <select value={competenceId} onChange={(e) => setCompetenceId(e.target.value)}
             className="rounded-lg border border-gray-200 px-3 py-2 text-sm min-w-[16rem]">
@@ -441,7 +442,44 @@ export default function PrimCompetenceWorkspace() {
           {t('Barème non chargé pour cette compétence à ce niveau.', 'Scale not loaded for this competency at this level.')}
         </div>
       ) : (
-        <div className="overflow-auto rounded-lg border border-gray-200">
+        <>
+        {/* TÉLÉPHONE — une carte par élève. Le barème reste en tête de carte :
+            il appartient à l'évaluation, pas à l'élève, donc on ne le répète pas
+            douze fois. Le total et la cote s'affichent sous les critères, là où
+            on vient de les produire. */}
+        <div className="md:hidden rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 mb-2 flex flex-wrap gap-x-4 gap-y-1">
+          {criteres.map((c) => (
+            <span key={c.id} className="text-xs text-gray-500 inline-flex items-center gap-1">
+              {c.nom}
+              <BaremeCell value={baremeFor(c.id)} onCommit={(n) => setBareme(c.id, n)} />
+            </span>
+          ))}
+        </div>
+        <MobileEntryList
+          students={classStudents}
+          columns={criteres.map((c) => ({ id: c.id, label: `${c.nom} · /${baremeFor(c.id)}` }))}
+          subtitle={(stu) => {
+            const { achieved, possible } = competenceTotal(stu);
+            if (achieved == null) return null;
+            const cote = primCote(achieved, possible, bareme);
+            return `${achieved}/${possible}${cote ? ` · ${cote.cote}` : ''}`;
+          }}
+          isFilled={(stu, c) => noteFor(stu.id, c.id) !== '' && noteFor(stu.id, c.id) != null}
+          renderCell={(stu, c) => (
+            <NoteCell
+              value={noteFor(stu.id, c.id)}
+              max={baremeFor(c.id)}
+              disabled={!new Set(criteresForStudent(stu).map((x) => x.id)).has(c.id)}
+              onCommit={(v) => savePrimNote({
+                eleveId: stu.id, competenceId, critereId: c.id, ua,
+                note: v, pointsMax: baremeFor(c.id),
+              })}
+            />
+          )}
+        />
+
+        {/* ORDINATEUR */}
+        <div className="hidden md:block overflow-auto rounded-lg border border-gray-200">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -499,6 +537,7 @@ export default function PrimCompetenceWorkspace() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

@@ -14,7 +14,7 @@ import { useT } from '../../lib/i18n';
 import { obsNkey } from '../../lib/matService';
 import { resolveClassEngine, maternelleNiveauSlug } from '../../core/engineResolver';
 import { domainesForMaternelle, MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_CODES } from '../../core/matEngine';
-import { matDomaineLabel } from '../../core/referentielI18n';
+import { matDomaineLabel, matAcquisLabel } from '../../core/referentielI18n';
 import {
   domaineIdsForTeacher, unresolvedSubjectsForTeacher, isClassTitulaire,
 } from '../../core/matDomaineMatch';
@@ -24,14 +24,18 @@ import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 
 // ── Cellule niveau d'acquisition (A / ECA / NA) ─────────────────────────────────
+// L'infobulle de chaque cote suit la langue de l'interface. Les libellés anglais
+// viennent de la table officielle (referentielI18n), pour qu'une cote et sa
+// légende ne se contredisent jamais d'un écran à l'autre.
 function NiveauCell({ value, onCommit }) {
+  const t = useT();
   return (
     <div className="flex gap-1 justify-center">
       {MAT_ACQUIS.map((a) => (
         <button
           key={a.code}
           type="button"
-          title={a.libelle}
+          title={t(a.libelle, matAcquisLabel(a.code, a.libelle, 'EN'))}
           onClick={() => onCommit(value === a.code ? '' : a.code)}
           className={`px-2 py-0.5 rounded text-xs font-bold transition-colors border ${
             value === a.code ? 'text-white border-transparent' : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'
@@ -88,8 +92,16 @@ export default function MatObservationWorkspace() {
   const setClassId = useUiStore((s) => s.setGradesClassId);
   const [trimestre, setTrimestre] = useState(1);
   const [view, setView] = useState('niveaux'); // 'niveaux' | 'observations'
+  // Le chargement du référentiel a-t-il ABOUTI (succès ou échec) ? Sans ce drapeau,
+  // une école dont les domaines ne sont pas encore en base restait bloquée sur
+  // « Chargement du référentiel… » : l'enseignante n'avait ni domaine ni message.
+  const [refLoaded, setRefLoaded] = useState(false);
 
-  useEffect(() => { loadMat(); }, [loadMat]);
+  useEffect(() => {
+    let alive = true;
+    Promise.resolve(loadMat()).finally(() => { if (alive) setRefLoaded(true); });
+    return () => { alive = false; };
+  }, [loadMat]);
 
   const trimestreId = `t${trimestre}`;
 
@@ -170,8 +182,23 @@ export default function MatObservationWorkspace() {
     </button>
   );
 
-  if (!referentiel) {
+  if (!referentiel && !refLoaded) {
     return <div className="p-4 md:p-6"><div>{BackBtn}</div><div className="p-8 text-center text-gray-500">{t('Chargement du référentiel maternelle…', 'Loading nursery framework…')}</div></div>;
+  }
+  // Référentiel chargé mais VIDE : les 8 domaines officiels ne sont pas en base
+  // (migration `supabase_maternelle.sql` non appliquée, ou première ouverture hors
+  // ligne sans cache). Le dire, plutôt que d'afficher une grille sans colonne où
+  // l'enseignante voit ses élèves et aucun domaine à évaluer.
+  if (!domainesAll.length) {
+    return (
+      <div className="p-4 md:p-6">
+        <div>{BackBtn}</div>
+        <div className="p-8 text-center text-gray-500">
+          {t('Les domaines officiels de la maternelle ne sont pas encore disponibles sur cet appareil. Reconnectez-vous à Internet pour les télécharger, ou signalez-le à l’administration.',
+             'The official nursery domains are not available on this device yet. Reconnect to the internet to download them, or report it to the administration.')}
+        </div>
+      </div>
+    );
   }
   if (!matClasses.length) {
     const orphelines = subjectScoped
@@ -262,7 +289,7 @@ export default function MatObservationWorkspace() {
 
       {classStudents.length > 0 && domaines.length > 0 && (
         <CompetenceGradeIO
-          filename={`evaluation_maternelle_${selectedClass?.name || ''}_T${trimestre}`}
+          filename={`${t('evaluation_maternelle', 'nursery_assessment')}_${selectedClass?.name || ''}_T${trimestre}`}
           sheetName={`${t('Trimestre', 'Term')} ${trimestre}`}
           students={classStudents}
           columns={domaines.map((d) => ({ id: d.id, label: d.intitule }))}
@@ -273,7 +300,14 @@ export default function MatObservationWorkspace() {
         />
       )}
 
-      {classStudents.length === 0 ? (
+      {domaines.length === 0 ? (
+        // Enseignant de matière dont aucune matière de CETTE classe ne se rattache
+        // à un domaine : la grille n'aurait aucune colonne. On le dit.
+        <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
+          {t('Aucun domaine à évaluer sur cette classe pour votre compte. Demandez à l’administration de vous affecter vos matières.',
+             'No domain to assess in this class for your account. Ask the administration to assign your subjects.')}
+        </div>
+      ) : classStudents.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
           {t('Aucun élève dans cette classe.', 'No student in this class.')}
         </div>

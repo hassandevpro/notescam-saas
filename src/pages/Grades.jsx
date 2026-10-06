@@ -15,7 +15,7 @@ import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspac
 import ApcCompetenceWorkspace from '../components/grades/ApcCompetenceWorkspace';
 import MatObservationWorkspace from '../components/grades/MatObservationWorkspace';
 import PrimCompetenceWorkspace from '../components/grades/PrimCompetenceWorkspace';
-import { resolveClassEngine, SECTIONS, classSectionKey } from '../core/engineResolver';
+import { resolveClassEngine, defaultRoutingClass, SECTIONS, classSectionKey } from '../core/engineResolver';
 
 const TERMS_EN = [
   { value: 1, label: 'Term 1' },
@@ -473,10 +473,14 @@ export default function Grades() {
     const classEngine = resolveClassEngine(school, selectedClass);
     if (classEngine === 'maternelle')   return <Layout bleed><MatObservationWorkspace /></Layout>;
     if (classEngine === 'apc_primaire') return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
-    // Enseignant en Mode 1 sans classe fondamentale encore résolue : le workspace
-    // primaire auto-sélectionne ses classes affectées (compétences).
+    // Enseignant en Mode 1 sans classe fondamentale encore résolue : on aiguille
+    // sur le poste de SA première classe, et non sur le primaire par défaut. Une
+    // institutrice de PS/MS/GS tombait sinon sur « Aucune classe primaire » :
+    // aucun domaine, aucun élève, rien à noter (cf. defaultRoutingClass).
     if (isSubjectScoped(role, school)) {
-      return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
+      return resolveClassEngine(school, defaultRoutingClass(classes)) === 'maternelle'
+        ? <Layout bleed><MatObservationWorkspace /></Layout>
+        : <Layout bleed><PrimCompetenceWorkspace /></Layout>;
     }
     return <PrincipalGrades />;
   }
@@ -492,6 +496,16 @@ export default function Grades() {
     if (classEngine === 'maternelle')   return <Layout bleed><MatObservationWorkspace /></Layout>;
     if (classEngine === 'apc_primaire') return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
     if (classEngine === 'apc')          return <Layout bleed><ApcCompetenceWorkspace /></Layout>;
+    // Enseignant en Mode 1 dont aucune classe n'est encore choisie : même repli que
+    // le mode fondamental — le poste de SA première classe. Sans lui, une
+    // institutrice de maternelle partait sur la saisie numérique classique, qui n'a
+    // ni domaine ni note à lui proposer en préscolaire.
+    if (isSubjectScoped(role, school) && !selectedClass) {
+      const fallback = resolveClassEngine(school, defaultRoutingClass(classes));
+      if (fallback === 'maternelle')   return <Layout bleed><MatObservationWorkspace /></Layout>;
+      if (fallback === 'apc_primaire') return <Layout bleed><PrimCompetenceWorkspace /></Layout>;
+      if (fallback === 'apc')          return <Layout bleed><ApcCompetenceWorkspace /></Layout>;
+    }
     // 'sc' (lycée) et 'classic' : saisie numérique classique — voir tail commun.
   }
 

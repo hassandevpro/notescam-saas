@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { frApp, enGrade, esGrade } from '../core/bulletinEngine';
-import { MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_LABELS } from '../core/matEngine';
+import { MAT_ACQUIS, MAT_ACQUIS_COLORS } from '../core/matEngine';
+import { matAcquisLabel } from '../core/referentielI18n';
 import { downloadCSV } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
@@ -202,8 +203,14 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
 // ── Corps imprimé du rapport MATERNELLE (MINEDUB) ────────────────────────────
 // Le préscolaire n'a ni note, ni moyenne, ni rang : le document officiel rend
 // compte de l'ACQUISITION (A / ECA / NA) par domaine, jamais d'un classement.
-function acquisitionBodyHtml({ school, selectedClass, period, report, classStudents }) {
-  const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+//
+// Le document se rend dans le SYSTÈME de la classe (`sys`), comme le bulletin
+// officiel maternelle (BulletinMatOfficial) : une Nursery du secteur anglophone
+// sortait son cadre en français alors que son bulletin était déjà bilingue.
+function acquisitionBodyHtml({ school, selectedClass, period, report, classStudents, sys = 'FR' }) {
+  const isEN = sys === 'EN';
+  const L = (fr, en) => (isEN ? en : fr);
+  const today = new Date().toLocaleDateString(isEN ? 'en-GB' : 'fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   const { columns, rows, columnStats, classStats } = report;
   const pct = (n) => (classStats.rated ? Math.round((n / classStats.rated) * 100) : 0);
 
@@ -225,6 +232,10 @@ function acquisitionBodyHtml({ school, selectedClass, period, report, classStude
       <td style="text-align:center;color:#6b7280">${rated}/${total}</td>
     </tr>`).join('');
 
+  // Libellés des cotes dans la langue du document — mêmes mots que la légende du
+  // bas de page et que le bulletin, via la table officielle bilingue.
+  const acquisLabel = (a) => matAcquisLabel(a.code, a.libelle, sys);
+
   const logoTag = school?.logo_url ? `<img src="${school.logo_url}" alt="Logo" class="rc-logo" />` : '';
 
   return `<div class="page">
@@ -238,39 +249,39 @@ function acquisitionBodyHtml({ school, selectedClass, period, report, classStude
     <td class="rc-side"><strong>REPUBLIC OF CAMEROON</strong><br/>Peace – Work – Fatherland<br/>———————<br/>Ministry of Basic Education (MINEDUB)<br/>Regional Delegation ${school?.region || '—'}<br/>Divisional Delegation ${school?.division || '—'}</td>
   </tr></tbody></table>
 
-  <div class="title-bar">RAPPORT D'ACQUISITION — ${(selectedClass?.name || '').toUpperCase()} — ${period.label.toUpperCase()}</div>
+  <div class="title-bar">${L("RAPPORT D'ACQUISITION", 'ACQUISITION REPORT')} — ${(selectedClass?.name || '').toUpperCase()} — ${period.label.toUpperCase()}</div>
 
   <table class="doc-info"><tbody><tr>
-    <td><strong>Classe :</strong> ${selectedClass?.name || '—'}</td>
-    <td><strong>Période :</strong> ${period.label}</td>
-    <td><strong>Effectif :</strong> ${classStudents.length}</td>
-    <td><strong>Date :</strong> ${today}</td>
+    <td><strong>${L('Classe', 'Class')} :</strong> ${selectedClass?.name || '—'}</td>
+    <td><strong>${L('Période', 'Period')} :</strong> ${period.label}</td>
+    <td><strong>${L('Effectif', 'Enrolment')} :</strong> ${classStudents.length}</td>
+    <td><strong>${L('Date', 'Date')} :</strong> ${today}</td>
   </tr></tbody></table>
 
   <div class="stats">
-    <div class="stat"><div class="stat-val">${classStudents.length}</div><div class="stat-lbl">Effectif</div></div>
+    <div class="stat"><div class="stat-val">${classStudents.length}</div><div class="stat-lbl">${L('Effectif', 'Enrolment')}</div></div>
     ${MAT_ACQUIS.map((a) => `<div class="stat">
       <div class="stat-val" style="color:${a.col}">${classStats.counts[a.code]}<span style="font-size:12px;font-weight:400;color:#9ca3af"> · ${pct(classStats.counts[a.code])}%</span></div>
-      <div class="stat-lbl">${a.libelle}</div>
+      <div class="stat-lbl">${acquisLabel(a)}</div>
     </div>`).join('')}
   </div>
 
-  <h3>Niveaux d'acquisition par élève</h3>
+  <h3>${L("Niveaux d'acquisition par élève", 'Acquisition levels by pupil')}</h3>
   <table>
     <thead><tr>
-      <th>Nom complet</th>
+      <th>${L('Nom complet', 'Full name')}</th>
       ${thDomaines}
-      <th style="width:60px">Tendance</th>
+      <th style="width:60px">${L('Tendance', 'Trend')}</th>
     </tr></thead>
     <tbody>${bodyRows}</tbody>
   </table>
 
-  <h3>Synthèse par domaine</h3>
+  <h3>${L('Synthèse par domaine', 'Summary by learning area')}</h3>
   <table>
     <thead><tr>
-      <th>Domaine</th>
+      <th>${L('Domaine', 'Learning area')}</th>
       ${MAT_ACQUIS.map((a) => `<th style="width:70px">${a.code}</th>`).join('')}
-      <th style="width:80px">Évalués</th>
+      <th style="width:80px">${L('Évalués', 'Assessed')}</th>
     </tr></thead>
     <tbody>${domRows}</tbody>
   </table>
@@ -278,13 +289,16 @@ function acquisitionBodyHtml({ school, selectedClass, period, report, classStude
   <table class="foot"><tbody><tr>
     <td style="border:none;width:55%"></td>
     <td class="foot-head" style="width:45%">
-      Le Directeur / La Directrice
+      ${L('Le Directeur / La Directrice', 'The Head Teacher')}
       ${school?.signature_url ? `<img src="${school.signature_url}" alt="Signature" />` : ''}
-      ${school?.stamp_url ? `<img src="${school.stamp_url}" alt="Cachet" />` : ''}
+      ${school?.stamp_url ? `<img src="${school.stamp_url}" alt="${L('Cachet', 'Stamp')}" />` : ''}
     </td>
   </tr></tbody></table>
 
-  <div class="notice">A : Acquis · ECA : En cours d'acquisition · NA : Non acquis. Le préscolaire n'établit ni moyenne, ni classement.</div>
+  <div class="notice">${MAT_ACQUIS.map((a) => `${a.code} : ${acquisLabel(a)}`).join(' · ')}. ${L(
+    "Le préscolaire n'établit ni moyenne, ni classement.",
+    'Pre-primary education awards neither averages nor rankings.',
+  )}</div>
 </div>`;
 }
 
@@ -359,7 +373,8 @@ const bodyHtmlFor = (args) =>
   (args.kind === REPORT_KIND.ACQUISITION ? acquisitionBodyHtml(args) : reportBodyHtml(args));
 
 function printReport(args) {
-  const title = `${args.isGE ? 'Informe' : 'Rapport'} — ${args.selectedClass?.name || ''} — ${args.period?.label || ''}`;
+  const docWord = args.isGE ? 'Informe' : args.sys === 'EN' ? 'Report' : 'Rapport';
+  const title = `${docWord} — ${args.selectedClass?.name || ''} — ${args.period?.label || ''}`;
   const landscape = args.kind === REPORT_KIND.ACQUISITION
     ? (args.classSubjects?.length || 0) > 6
     : args.cols?.subjectScores !== false && (args.classSubjects?.length || 0) > 6;
@@ -1307,7 +1322,7 @@ export default function Reports() {
                 {MAT_ACQUIS.map((a) => (
                   <StatBadge
                     key={a.code}
-                    label={t(a.libelle, MAT_ACQUIS_LABELS[a.code])}
+                    label={t(a.libelle, matAcquisLabel(a.code, a.libelle, 'EN'))}
                     value={stats?.counts?.[a.code] ?? 0}
                     total={stats?.rated || null}
                     accent={a.code === 'A' ? 'green' : a.code === 'ECA' ? 'purple' : 'red'}

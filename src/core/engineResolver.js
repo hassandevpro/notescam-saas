@@ -182,3 +182,23 @@ export function resolveClassEngine(school, cls) {
 // acceptés pour rétro-compatibilité et se comportent comme des sous-ensembles.
 export const OFFICIAL_ENGINE_FLAGS = ['officiel', 'minesec', 'apc_minesec', 'minedub', 'maternelle', 'apc_primaire'];
 export const isOfficialEngine = (flag) => OFFICIAL_ENGINE_FLAGS.includes(flag);
+
+// ── Classe de référence pour AIGUILLER la saisie ───────────────────────────────
+// La page Grades choisit son poste de saisie d'après la classe sélectionnée. Tant
+// qu'aucune ne l'est (premier accès, `gradesClassId` vide), il faut bien partir de
+// quelque part — et ce « quelque part » doit être une classe que le compte voit
+// VRAIMENT. Sans cela, une institutrice dont toutes les classes sont maternelles
+// atterrissait sur le poste du PRIMAIRE, qui lui répondait « Aucune classe
+// primaire » : ni domaine, ni élève, donc rien à noter.
+//
+// Ordre pédagogique (maternelle → second cycle), puis nom : déterministe.
+const SECTION_ORDER = SECTIONS.map((s) => s.key);
+
+export function defaultRoutingClass(classes) {
+  const list = (classes || []).filter(Boolean);
+  if (!list.length) return null;
+  return list.slice().sort((a, b) =>
+    SECTION_ORDER.indexOf(classSectionKey(a)) - SECTION_ORDER.indexOf(classSectionKey(b))
+    || String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true }),
+  )[0];
+}

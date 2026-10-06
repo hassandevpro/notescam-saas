@@ -22,6 +22,7 @@ import { isSubjectScoped } from '../../lib/teacherScope';
 import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
+import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 
 // ── Cellule niveau d'acquisition (A / ECA / NA) ─────────────────────────────────
 // L'infobulle de chaque cote suit la langue de l'interface. Les libellés anglais
@@ -199,6 +200,11 @@ export default function MatObservationWorkspace() {
         </div>
       </div>
     );
+  }
+  // Compte enseignant SANS fiche rattachée : la cause racine est le rattachement,
+  // pas l'affectation des matières. Lui dire d'en réclamer ne mènerait à rien.
+  if (role === 'teacher' && !teacherId && !matClasses.length) {
+    return <div className="p-4 md:p-6 space-y-3"><div>{BackBtn}</div><UnlinkedTeacherNotice /></div>;
   }
   if (!matClasses.length) {
     const orphelines = subjectScoped

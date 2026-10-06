@@ -36,6 +36,7 @@ import {
 } from '../../core/primEngine';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
+import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 
 // ── Barème d'une colonne (une évaluation) ────────────────────────────────────
 // Le barème appartient à l'ÉVALUATION, pas au critère : l'Oral peut être noté /10
@@ -276,6 +277,11 @@ export default function PrimCompetenceWorkspace() {
 
   if (!referentiel) {
     return <div className="p-4 md:p-6"><div>{BackBtn}</div><div className="p-8 text-center text-gray-500">{t('Chargement du référentiel primaire APC…', 'Loading primary APC framework…')}</div></div>;
+  }
+  // Compte enseignant SANS fiche rattachée : la cause racine est le rattachement,
+  // pas l'affectation des matières (voir UnlinkedTeacherNotice).
+  if (role === 'teacher' && !teacherId && !primClasses.length) {
+    return <div className="p-4 md:p-6 space-y-3"><div>{BackBtn}</div><UnlinkedTeacherNotice /></div>;
   }
   if (!primClasses.length) {
     const orphelines = isSubjectTeacher

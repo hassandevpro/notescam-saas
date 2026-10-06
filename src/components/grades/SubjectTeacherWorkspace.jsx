@@ -9,6 +9,7 @@ import { gradeCell } from '../../lib/gradeEntry';
 import { isSequenceLocked, getLockInfo } from '../../lib/lockService';
 import GradeGrid from './GradeGrid';
 import GradeImportPanel from './GradeImportPanel';
+import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 
 // Ordre pédagogique des classes pour le rail (maternelle → Terminale, FR + EN).
 // Heuristique sur le nom : tout nom non reconnu retombe après, trié par libellé.
@@ -179,6 +180,17 @@ export default function SubjectTeacherWorkspace() {
       })}
     </>
   );
+
+  // Compte enseignant SANS fiche rattachée : le rail resterait vide et le poste
+  // entier avec lui. « Aucune classe attribuée » envoyait réclamer une matière,
+  // ce qui ne peut rien débloquer tant que le compte n'est pas relié à sa fiche.
+  if (!teacherId) {
+    return (
+      <div className="p-4 md:p-8 max-w-xl mx-auto">
+        <UnlinkedTeacherNotice />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full">

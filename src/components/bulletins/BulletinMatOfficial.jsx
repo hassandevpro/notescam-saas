@@ -12,7 +12,7 @@ import {
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
 import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
-import { matAcquisLabel } from '../../core/referentielI18n';
+import { matAcquisLabel, matAcquisCode } from '../../core/referentielI18n';
 
 const MAT_COLORS = { A: '#059669', ECA: '#f59e0b', NA: '#ef4444' };
 const MAT_LABELS = { A: 'Acquis', ECA: 'En cours d’acquisition', NA: 'Non acquis' };
@@ -89,7 +89,7 @@ export default function BulletinMatOfficial({
               <td style={{ ...cell, textAlign: 'center' }}>{r.code}</td>
               <td style={cell}><span style={{ marginRight: 5 }} aria-hidden>{domaineIcon(r.intitule)}</span>{r.intitule}</td>
               <td style={{ ...cell, textAlign: 'center' }}>
-                {r.niveau ? <strong style={{ color: MAT_COLORS[r.niveau] }} title={matLevelLabel(r.niveau, sys)}>{MAT_EMOJI[r.niveau]} {r.niveau}</strong> : ''}
+                {r.niveau ? <strong style={{ color: MAT_COLORS[r.niveau] }} title={matLevelLabel(r.niveau, sys)}>{MAT_EMOJI[r.niveau]} {matAcquisCode(r.niveau, sys)}</strong> : ''}
               </td>
               <td style={cell}>{r.observation || ''}</td>
             </tr>
@@ -101,7 +101,7 @@ export default function BulletinMatOfficial({
       <div style={{ fontSize: '8.5pt', color: MAT_TH_TXT, background: MAT_TH_BG, border: `1px solid ${MAT_ACCENT}22`, borderRadius: 6, padding: '3px 8px', marginTop: 4, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
         {L(sys,
           "😀 A = Acquis · 😐 ECA = En cours d'acquisition · ☹️ NA = Non acquis",
-          '😀 A = Achieved · 😐 ECA = In progress · ☹️ NA = Not achieved',
+          '😀 A = Achieved · 😐 IP = In progress · ☹️ NA = Not achieved',
           '😀 A = Logrado · 😐 ECA = En proceso · ☹️ NA = No logrado')}
       </div>
 

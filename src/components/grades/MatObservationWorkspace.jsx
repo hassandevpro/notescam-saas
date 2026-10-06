@@ -14,7 +14,7 @@ import { useT } from '../../lib/i18n';
 import { obsNkey } from '../../lib/matService';
 import { resolveClassEngine, maternelleNiveauSlug } from '../../core/engineResolver';
 import { domainesForMaternelle, MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_CODES } from '../../core/matEngine';
-import { matDomaineLabel, matAcquisLabel } from '../../core/referentielI18n';
+import { matDomaineLabel, matAcquisLabel, matAcquisCode, matAcquisFromInput } from '../../core/referentielI18n';
 import {
   domaineIdsForTeacher, unresolvedSubjectsForTeacher, isClassTitulaire,
 } from '../../core/matDomaineMatch';
@@ -28,7 +28,9 @@ import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 // L'infobulle de chaque cote suit la langue de l'interface. Les libellés anglais
 // viennent de la table officielle (referentielI18n), pour qu'une cote et sa
 // légende ne se contredisent jamais d'un écran à l'autre.
-function NiveauCell({ value, onCommit }) {
+// `sys` = système de la CLASSE : une Nursery anglophone lit « IP », pas « ECA »
+// (sigle français). La valeur commitée reste le code canonique.
+function NiveauCell({ value, sys, onCommit }) {
   const t = useT();
   return (
     <div className="flex gap-1 justify-center">
@@ -36,14 +38,14 @@ function NiveauCell({ value, onCommit }) {
         <button
           key={a.code}
           type="button"
-          title={t(a.libelle, matAcquisLabel(a.code, a.libelle, 'EN'))}
+          title={sys === 'EN' ? matAcquisLabel(a.code, a.libelle, 'EN') : t(a.libelle, matAcquisLabel(a.code, a.libelle, 'EN'))}
           onClick={() => onCommit(value === a.code ? '' : a.code)}
           className={`px-2 py-0.5 rounded text-xs font-bold transition-colors border ${
             value === a.code ? 'text-white border-transparent' : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'
           }`}
           style={value === a.code ? { background: MAT_ACQUIS_COLORS[a.code], borderColor: MAT_ACQUIS_COLORS[a.code] } : {}}
         >
-          {a.code}
+          {matAcquisCode(a.code, sys)}
         </button>
       ))}
     </div>
@@ -299,10 +301,12 @@ export default function MatObservationWorkspace() {
           sheetName={`${t('Trimestre', 'Term')} ${trimestre}`}
           students={classStudents}
           columns={domaines.map((d) => ({ id: d.id, label: d.intitule }))}
-          getCell={(sid, did) => recordFor(sid, did)?.niveau_acquis || ''}
-          normalize={(raw) => { const v = String(raw).trim().toUpperCase(); return MAT_ACQUIS_CODES.includes(v) ? v : null; }}
+          getCell={(sid, did) => matAcquisCode(recordFor(sid, did)?.niveau_acquis || '', sys)}
+          /* Reconnait les deux sigles : une ecole anglophone exporte IP et doit
+             pouvoir reimporter son propre fichier. Stocke toujours le code canonique. */
+          normalize={matAcquisFromInput}
           onImport={(sid, did, v) => saveCell(sid, did, { niveauAcquis: v })}
-          valueHint="A / ECA / NA"
+          valueHint={MAT_ACQUIS_CODES.map((k) => matAcquisCode(k, sys)).join(" / ")}
         />
       )}
 
@@ -340,7 +344,7 @@ export default function MatObservationWorkspace() {
                     return (
                       <td key={d.id} className="px-3 py-1.5">
                         {view === 'niveaux' ? (
-                          <NiveauCell value={rec?.niveau_acquis || ''} onCommit={(v) => saveCell(stu.id, d.id, { niveauAcquis: v })} />
+                          <NiveauCell value={rec?.niveau_acquis || ''} sys={sys} onCommit={(v) => saveCell(stu.id, d.id, { niveauAcquis: v })} />
                         ) : (
                           <ObsCell value={rec?.observation || ''} onCommit={(v) => saveCell(stu.id, d.id, { observation: v })} />
                         )}

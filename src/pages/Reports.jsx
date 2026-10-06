@@ -4,7 +4,7 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { frApp, enGrade, esGrade } from '../core/bulletinEngine';
 import { MAT_ACQUIS, MAT_ACQUIS_COLORS } from '../core/matEngine';
-import { matAcquisLabel } from '../core/referentielI18n';
+import { matAcquisLabel, matAcquisCode } from '../core/referentielI18n';
 import { downloadCSV } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
@@ -221,9 +221,9 @@ function acquisitionBodyHtml({ school, selectedClass, period, report, classStude
       <td style="font-weight:600">${r.student.name}</td>
       ${columns.map((c) => {
         const lvl = r.cotes[c.id];
-        return `<td style="text-align:center;font-weight:700;color:${lvl ? MAT_ACQUIS_COLORS[lvl] : '#9ca3af'}">${lvl || '—'}</td>`;
+        return `<td style="text-align:center;font-weight:700;color:${lvl ? MAT_ACQUIS_COLORS[lvl] : '#9ca3af'}">${lvl ? matAcquisCode(lvl, sys) : '—'}</td>`;
       }).join('')}
-      <td style="text-align:center;font-weight:800;color:${r.cote ? MAT_ACQUIS_COLORS[r.cote] : '#9ca3af'}">${r.cote || '—'}</td>
+      <td style="text-align:center;font-weight:800;color:${r.cote ? MAT_ACQUIS_COLORS[r.cote] : '#9ca3af'}">${r.cote ? matAcquisCode(r.cote, sys) : '—'}</td>
     </tr>`).join('');
 
   const domRows = columnStats.map(({ col, counts, rated, total }) => `<tr>
@@ -280,7 +280,7 @@ function acquisitionBodyHtml({ school, selectedClass, period, report, classStude
   <table>
     <thead><tr>
       <th>${L('Domaine', 'Learning area')}</th>
-      ${MAT_ACQUIS.map((a) => `<th style="width:70px">${a.code}</th>`).join('')}
+      ${MAT_ACQUIS.map((a) => `<th style="width:70px">${matAcquisCode(a.code, sys)}</th>`).join('')}
       <th style="width:80px">${L('Évalués', 'Assessed')}</th>
     </tr></thead>
     <tbody>${domRows}</tbody>
@@ -295,7 +295,7 @@ function acquisitionBodyHtml({ school, selectedClass, period, report, classStude
     </td>
   </tr></tbody></table>
 
-  <div class="notice">${MAT_ACQUIS.map((a) => `${a.code} : ${acquisLabel(a)}`).join(' · ')}. ${L(
+  <div class="notice">${MAT_ACQUIS.map((a) => `${matAcquisCode(a.code, sys)} : ${acquisLabel(a)}`).join(' · ')}. ${L(
     "Le préscolaire n'établit ni moyenne, ni classement.",
     'Pre-primary education awards neither averages nor rankings.',
   )}</div>
@@ -992,8 +992,8 @@ export default function Reports() {
         [t('Nom', 'Name'), t('Matricule', 'Student ID'), ...reportColumns.map((c) => c.name), t('Tendance', 'Trend')],
         ...studentResults.map(({ student, cotes, cote }) => [
           student.name, student.matricule || '',
-          ...reportColumns.map((c) => cotes[c.id] || ''),
-          cote || '',
+          ...reportColumns.map((c) => matAcquisCode(cotes[c.id] || '', sys)),
+          matAcquisCode(cote || '', sys),
         ]),
       ]
       : [
@@ -1017,7 +1017,7 @@ export default function Reports() {
   const handleExportSubjects = () => {
     const rows = isAcquisition
       ? [
-        [t('Domaine', 'Domain'), ...MAT_ACQUIS.map((a) => a.code), t('Évalués', 'Assessed'), t('Effectif', 'Total')],
+        [t('Domaine', 'Domain'), ...MAT_ACQUIS.map((a) => matAcquisCode(a.code, sys)), t('Évalués', 'Assessed'), t('Effectif', 'Total')],
         ...subjectStats.map(({ sub, counts, rated, total }) => [
           sub.name, ...MAT_ACQUIS.map((a) => counts[a.code] ?? 0), rated, total,
         ]),
@@ -1308,7 +1308,7 @@ export default function Reports() {
                 isAcquisition ? 'bg-emerald-100 text-emerald-700'
                   : isEN ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
               }`}>
-                {isAcquisition ? 'A · ECA · NA' : `${sys} /${reportScale}`}
+                {isAcquisition ? MAT_ACQUIS.map((a) => matAcquisCode(a.code, sys)).join(' · ') : `${sys} /${reportScale}`}
               </span>
               {engineBadge && (
                 <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-600">{engineBadge}</span>
@@ -1322,7 +1322,7 @@ export default function Reports() {
                 {MAT_ACQUIS.map((a) => (
                   <StatBadge
                     key={a.code}
-                    label={t(a.libelle, matAcquisLabel(a.code, a.libelle, 'EN'))}
+                    label={sys === 'EN' ? matAcquisLabel(a.code, a.libelle, 'EN') : t(a.libelle, matAcquisLabel(a.code, a.libelle, 'EN'))}
                     value={stats?.counts?.[a.code] ?? 0}
                     total={stats?.rated || null}
                     accent={a.code === 'A' ? 'green' : a.code === 'ECA' ? 'purple' : 'red'}
@@ -1545,14 +1545,14 @@ export default function Reports() {
                               {cotes[c.id] ? (
                                 <span className="px-1.5 py-0.5 rounded text-xs font-bold"
                                   style={{ color: MAT_ACQUIS_COLORS[cotes[c.id]], backgroundColor: `${MAT_ACQUIS_COLORS[cotes[c.id]]}1a` }}>
-                                  {cotes[c.id]}
+                                  {matAcquisCode(cotes[c.id], sys)}
                                 </span>
                               ) : <span className="text-gray-300">—</span>}
                             </td>
                           ))}
                           <td className="px-4 py-3 text-center">
                             {cote ? (
-                              <span className="font-bold text-sm" style={{ color: MAT_ACQUIS_COLORS[cote] }}>{cote}</span>
+                              <span className="font-bold text-sm" style={{ color: MAT_ACQUIS_COLORS[cote] }}>{matAcquisCode(cote, sys)}</span>
                             ) : <span className="text-gray-300">—</span>}
                           </td>
                         </tr>
@@ -1569,7 +1569,7 @@ export default function Reports() {
                     {distribution.map((b) => (
                       <div key={b.label} className="space-y-2">
                         <div className="flex items-end justify-between">
-                          <span className="text-xs font-semibold text-gray-600">{b.label} · {b.libelle}</span>
+                          <span className="text-xs font-semibold text-gray-600">{matAcquisCode(b.label, sys)} · {b.libelle}</span>
                           <span className="text-lg font-bold" style={{ color: MAT_ACQUIS_COLORS[b.label] }}>{b.count}</span>
                         </div>
                         <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -1593,7 +1593,7 @@ export default function Reports() {
                       <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                         <th className="px-5 py-3 text-left">{t('Domaine', 'Domain')}</th>
                         {MAT_ACQUIS.map((a) => (
-                          <th key={a.code} className="px-4 py-3 text-center">{a.code}</th>
+                          <th key={a.code} className="px-4 py-3 text-center">{matAcquisCode(a.code, sys)}</th>
                         ))}
                         <th className="px-4 py-3 text-center">{t('Évalués', 'Assessed')}</th>
                       </tr>

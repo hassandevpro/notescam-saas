@@ -44,10 +44,38 @@ export const MAT_DOMAINE_EN = {
 // maternelle, pour qu'une cote et sa légende ne se contredisent jamais.
 export const MAT_ACQUIS_EN = { a: 'Achieved', eca: 'In progress', na: 'Not achieved' };
 
+// Le SIGLE lui-même, pas seulement son libellé. « A » et « NA » se lisent dans les
+// deux langues (Acquis/Achieved, Non acquis/Not achieved) — « ECA » non : c'est
+// l'abréviation d'« En Cours d'Acquisition », illisible sur un bulletin anglophone,
+// où la cote se dit « In Progress » → IP.
+//
+// CECI EST UN AFFICHAGE, PAS UN STOCKAGE. `mat_observations.niveau_acquis` garde
+// les trois valeurs canoniques 'A' | 'ECA' | 'NA' — c'est ce que sa contrainte de
+// domaine accepte (cf. supabase_mat_observation_sans_cote.sql), et ce qui permet à
+// une école bilingue de produire les deux bulletins depuis la même observation.
+// Rien ne doit écrire 'IP' en base.
+export const MAT_ACQUIS_CODE_EN = { a: 'A', eca: 'IP', na: 'NA' };
+
 export const matDomaineLabel = (domaine, sys) =>
   pick(MAT_DOMAINE_EN, domaine?.id, domaine?.intitule, sys);
 export const matAcquisLabel = (code, fallback, sys) =>
   pick(MAT_ACQUIS_EN, code, fallback, sys);
+
+// Sigle affiché d'une cote, dans le système de la classe. Toujours à partir du
+// code CANONIQUE stocké.
+export const matAcquisCode = (code, sys) =>
+  pick(MAT_ACQUIS_CODE_EN, code, String(code ?? ''), sys);
+
+// Lecture inverse — reconnaît un sigle saisi ou importé, FR comme EN, et rend le
+// code canonique à stocker. Sert à l'import de la grille de saisie : une école
+// anglophone exporte « IP », elle doit pouvoir réimporter son propre fichier.
+export function matAcquisFromInput(raw) {
+  const v = String(raw ?? '').trim().toUpperCase();
+  if (v === 'A') return 'A';
+  if (v === 'NA') return 'NA';
+  if (v === 'ECA' || v === 'IP') return 'ECA';
+  return null;
+}
 
 // ── PRIMAIRE APC (MINEDUB) — Class 1–6 ────────────────────────────────────────
 // Les 11 compétences nationales, fixes du SIL au CM2. Ids = `prim_competences.id`

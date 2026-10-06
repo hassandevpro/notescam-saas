@@ -36,6 +36,7 @@ import {
 } from '../../core/primEngine';
 import { baremeEnVigueur, notesHorsBareme } from '../../core/primColumnBareme';
 import ReferentielEditor from './ReferentielEditor';
+import { withLibelles } from '../../lib/referentielEcole';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
@@ -118,11 +119,13 @@ export default function PrimCompetenceWorkspace() {
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
   const masques        = useSchoolStore((s) => s.refMasques.prim);
+  const libelles       = useSchoolStore((s) => s.refLibelles.prim);
   const loadRefMasques = useSchoolStore((s) => s.loadRefMasques);
   const addRef         = useSchoolStore((s) => s.addRefLigne);
   const renameRef      = useSchoolStore((s) => s.renameRefLigne);
   const removeRef      = useSchoolStore((s) => s.removeRefLigne);
   const restoreRef     = useSchoolStore((s) => s.restoreRefLigne);
+  const resetLibelle   = useSchoolStore((s) => s.resetRefLibelle);
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
@@ -173,7 +176,7 @@ export default function PrimCompetenceWorkspace() {
     // Mode 1 : ne garder que les compétences couvertes par mes matières.
     const mine = competenceIdsForTeacher(subjects, teacherId, classId, referentiel?.competences || []);
     return all.filter((c) => mine.has(c.id));
-  }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId, sys, masques]);
+  }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId, sys, masques, libelles]);
 
   useEffect(() => { loadRefMasques('prim'); }, [loadRefMasques]);
   const [refOpen, setRefOpen] = useState(false);
@@ -334,10 +337,34 @@ export default function PrimCompetenceWorkspace() {
         {BackBtn}
         <h1 className="text-xl font-bold text-gray-800">{t('Saisie primaire APC (par compétences)', 'Primary APC entry (by competencies)')}</h1>
         <p className="text-sm text-gray-500">
-          {t('Compétences nationales MINEDUB — chargées automatiquement. Saisie par Unité d’Apprentissage (UA) ; barème et cote calculés.',
-             'National MINEDUB competencies — loaded automatically. Entry per Learning Unit (UA); scale and grade computed.')}
+          {t('Compétences nationales MINEDUB — chargées automatiquement. Votre école peut les adapter. Saisie par Unité d’Apprentissage (UA) ; barème et cote calculés.',
+             'National MINEDUB competencies — loaded automatically. Your school can adapt them. Entry per Learning Unit (UA); scale and grade computed.')}
         </p>
+        <button type="button" onClick={() => setRefOpen(true)}
+          className="mt-2 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+          {t('Modifier les compétences', 'Edit competencies')}
+        </button>
       </div>
+
+      {refOpen && (
+        <ReferentielEditor
+          titre={t('Compétences du primaire', 'Primary competencies')}
+          lignes={withLibelles(
+            (referentiel?.competences || []).map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) })),
+            libelles,
+          )}
+          masques={masques}
+          motSingulier={t('compétence', 'competency')}
+          renommable={() => true}
+          onRename={(l, nom) => renameRef('prim', l.id, nom)}
+          onAdd={(nom) => addRef('prim', nom)}
+          onMasquer={(l) => removeRef('prim', l.id)}
+          onSupprimer={(l) => removeRef('prim', l.id)}
+          onDemasquer={(l) => restoreRef('prim', l.id)}
+          onResetLibelle={(l) => resetLibelle('prim', l.id)}
+          onClose={() => setRefOpen(false)}
+        />
+      )}
 
       <div className="flex flex-wrap items-end gap-3">
         <SectionSelect classes={classes} classId={classId} setClassId={setClassId} />

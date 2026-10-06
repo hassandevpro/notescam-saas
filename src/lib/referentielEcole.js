@@ -86,3 +86,44 @@ export async function deleteLigne(kind, id) {
   }
   return { ok: true };
 }
+
+// ── SURCHARGE DE LIBELLÉ d'une ligne NATIONALE ───────────────────────────────
+// Renommer la ligne elle-même est exclu : elle appartient aux 44 écoles. Copier
+// la ligne en version maison puis masquer l'originale casserait les notes déjà
+// saisies (la copie a un nouvel id, `*_notes.competence_id` pointe vers l'ancien).
+// On surcharge donc le seul AFFICHAGE, en gardant l'identité officielle intacte —
+// même principe que la maternelle, généralisé aux trois référentiels.
+// Voir supabase_referentiel_libelles.sql.
+
+export async function fetchLibelles(kind, schoolId) {
+  if (!schoolId) return {};
+  const { data, error } = await supabase
+    .from('referentiel_libelles').select('item_id, intitule')
+    .eq('school_id', schoolId).eq('kind', kind);
+  if (error) { console.error('fetchLibelles', kind, error); return null; }
+  return Object.fromEntries((data || []).map((r) => [r.item_id, r.intitule]));
+}
+
+// `intitule` vide ⇒ on RETIRE la surcharge : la ligne reprend son libellé officiel.
+export async function setLibelle(kind, schoolId, itemId, intitule) {
+  if (!schoolId || !itemId) return false;
+  const nom = String(intitule ?? '').trim();
+  const q = nom
+    ? supabase.from('referentiel_libelles')
+        .upsert({ school_id: schoolId, kind, item_id: String(itemId), intitule: nom, maj_le: new Date().toISOString() },
+                { onConflict: 'school_id,kind,item_id' })
+    : supabase.from('referentiel_libelles').delete()
+        .eq('school_id', schoolId).eq('kind', kind).eq('item_id', String(itemId));
+  const { error } = await q;
+  if (error) { console.error('setLibelle', kind, error); return false; }
+  return true;
+}
+
+// Applique les surcharges à une liste déjà localisée. `_override` empêche une
+// relocalisation en aval d'écraser le mot de l'école (cf. matDomaineMatch).
+export function withLibelles(lignes, libelles) {
+  if (!libelles || !Object.keys(libelles).length) return lignes || [];
+  return (lignes || []).map((l) => (libelles[l.id] != null
+    ? { ...l, intitule: libelles[l.id], _override: true }
+    : l));
+}

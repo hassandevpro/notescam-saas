@@ -25,6 +25,7 @@ import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import ReferentielEditor from './ReferentielEditor';
+import { withLibelles } from '../../lib/referentielEcole';
 import { canManageClassSubjects } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
 
@@ -94,6 +95,7 @@ export default function MatObservationWorkspace() {
   const referentiel     = useSchoolStore((s) => s.matReferentiel);
   const observations    = useSchoolStore((s) => s.matObservations);
   const masques         = useSchoolStore((s) => s.refMasques.mat);
+  const libelles        = useSchoolStore((s) => s.refLibelles.mat);
   const loadMat         = useSchoolStore((s) => s.loadMat);
   const saveObservation = useSchoolStore((s) => s.saveMatObservation);
   const configureClassSubjects = useSchoolStore((s) => s.configureClassSubjects);
@@ -101,6 +103,7 @@ export default function MatObservationWorkspace() {
   const renameRef  = useSchoolStore((s) => s.renameRefLigne);
   const removeRef  = useSchoolStore((s) => s.removeRefLigne);
   const restoreRef = useSchoolStore((s) => s.restoreRefLigne);
+  const resetLibelle = useSchoolStore((s) => s.resetRefLibelle);
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
@@ -188,11 +191,11 @@ export default function MatObservationWorkspace() {
     // vers eux) : une école ne les renomme pas en base, elle les réétiquette chez
     // elle par la ligne `subjects` qui porte leur `mat_domaine_id`.
     const base = domainesAll.map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) }));
-    const all = withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, domainesAll));
+    const all = withLibelles(withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, domainesAll)), libelles);
     if (!subjectScoped || estTitulaire) return all;
     const mine = domaineIdsForTeacher(subjects, teacherId, classId, domainesAll);
     return all.filter((d) => mine.has(d.id));
-  }, [domainesAll, sys, subjectScoped, estTitulaire, subjects, teacherId, classId]);
+  }, [domainesAll, sys, subjectScoped, estTitulaire, subjects, teacherId, classId, libelles]);
 
 
   // Mes matières de cette classe qui ne se rattachent à aucun domaine : on les
@@ -355,12 +358,13 @@ export default function MatObservationWorkspace() {
           )}
           masques={masques}
           motSingulier={t('domaine', 'domain')}
-          renommable={(l) => !!l.school_id}
+          renommable={() => true}
           onRename={(l, nom) => renameRef('mat', l.id, nom)}
           onAdd={(nom) => addRef('mat', nom)}
           onMasquer={(l) => removeRef('mat', l.id)}
           onSupprimer={(l) => removeRef('mat', l.id)}
           onDemasquer={(l) => restoreRef('mat', l.id)}
+          onResetLibelle={(l) => resetLibelle('mat', l.id)}
           onClose={() => setDomainesOpen(false)}
         />
       )}

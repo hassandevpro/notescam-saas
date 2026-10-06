@@ -38,6 +38,7 @@ export default function ReferentielEditor({
   onMasquer,                // (ligne) => Promise
   onDemasquer,              // (ligne) => Promise
   onSupprimer,              // (ligne) => Promise<{ liee?: boolean }>
+  onResetLibelle,           // (ligne) => Promise — rendre son libellé officiel
   onClose,
 }) {
   const t = useT();
@@ -110,8 +111,17 @@ export default function ReferentielEditor({
                     <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                       estNational(l) ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-600'
                     }`}>
-                      {estNational(l) ? t('officiel', 'official') : t('maison', 'own')}
+                      {estNational(l)
+                        ? (l._override ? t('renommé', 'renamed') : t('officiel', 'official'))
+                        : t('maison', 'own')}
                     </span>
+                    {/* Une ligne officielle renommée garde son identité : on peut
+                        donc toujours lui rendre son libellé ministériel. */}
+                    {estNational(l) && l._override && onResetLibelle && (
+                      <button type="button" disabled={busy} onClick={() => run(() => onResetLibelle(l))}
+                        title={t('Rendre le libellé officiel', 'Restore the official wording')}
+                        className="shrink-0 text-gray-300 hover:text-brand-600 text-sm">↩</button>
+                    )}
                     {confirmId === l.id ? (
                       <button type="button" disabled={busy} onClick={() => handleRetrait(l)}
                         className="shrink-0 text-xs font-bold text-red-600 hover:text-red-700">✓</button>
@@ -135,6 +145,11 @@ export default function ReferentielEditor({
                     'Click ✓ to delete. Not possible if marks are already attached — hide it instead.')}
             </p>
           )}
+
+          <p className="text-xs text-gray-400">
+            {t('Renommer une ligne « officiel » ne change que son affichage chez vous : son identité ministérielle, vos notes et le bulletin officiel restent intacts.',
+               'Renaming an “official” row only changes how it reads in your school: its ministry identity, your marks and the official report card stay intact.')}
+          </p>
 
           {onAdd && (
             <div className="flex gap-2">

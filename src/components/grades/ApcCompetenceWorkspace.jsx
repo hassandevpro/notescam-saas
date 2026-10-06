@@ -27,6 +27,7 @@ import {
   matiereIdsForTeacher, unresolvedSubjectsForTeacher,
 } from '../../core/apcMatiereMatch';
 import ReferentielEditor from './ReferentielEditor';
+import { withLibelles } from '../../lib/referentielEcole';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import {
@@ -112,11 +113,13 @@ export default function ApcCompetenceWorkspace() {
   const students       = useSchoolStore((s) => s.students);
   const referentiel    = useSchoolStore((s) => s.apcReferentiel);
   const masques        = useSchoolStore((s) => s.refMasques.apc);
+  const libelles       = useSchoolStore((s) => s.refLibelles.apc);
   const loadRefMasques = useSchoolStore((s) => s.loadRefMasques);
   const addRef         = useSchoolStore((s) => s.addRefLigne);
   const renameRef      = useSchoolStore((s) => s.renameRefLigne);
   const removeRef      = useSchoolStore((s) => s.removeRefLigne);
   const restoreRef     = useSchoolStore((s) => s.restoreRefLigne);
+  const resetLibelle   = useSchoolStore((s) => s.resetRefLibelle);
   const apcNotes       = useSchoolStore((s) => s.apcNotes);
   const loadApc        = useSchoolStore((s) => s.loadApc);
   const saveApcNote    = useSchoolStore((s) => s.saveApcNote);
@@ -440,15 +443,16 @@ export default function ApcCompetenceWorkspace() {
           titre={`${t('Compétences', 'Competencies')} — ${matieres.find((m) => m.id === matiereId)?.nom || ''}`}
           sousTitre={t('Pour cette classe, ce trimestre et cette matière. Rien ne sort de votre établissement.',
                        'For this class, term and subject. Nothing leaves your school.')}
-          lignes={competencesToutes}
+          lignes={withLibelles(competencesToutes, libelles)}
           masques={masques}
           motSingulier={t('compétence', 'competency')}
-          renommable={(l) => !!l.school_id}
+          renommable={() => true}
           onRename={(l, nom) => renameRef('apc', l.id, nom)}
           onAdd={(nom) => addRef('apc', nom, contexteApc)}
           onMasquer={(l) => removeRef('apc', l.id)}
           onSupprimer={(l) => removeRef('apc', l.id)}
           onDemasquer={(l) => restoreRef('apc', l.id)}
+          onResetLibelle={(l) => resetLibelle('apc', l.id)}
           onClose={() => setRefOpen(false)}
         />
       )}

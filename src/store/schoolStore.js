@@ -12,7 +12,7 @@ import { fetchSchoolUnits, upsertSchoolUnit, deleteSchoolUnit as sbDeleteSchoolU
 import { fetchReferentiel, refreshApcReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
-import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison } from '../lib/referentielEcole';
+import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, fetchLibelles, setLibelle } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
@@ -319,6 +319,9 @@ export const useSchoolStore = create((set, get) => ({
   // Ce que CETTE ecole a masque dans chaque referentiel national (ids). Masquer
   // ne supprime rien : le national reste intact pour les 43 autres etablissements.
   refMasques:      { mat: [], apc: [], prim: [] },
+  // Libelles de remplacement poses par CETTE ecole sur des lignes NATIONALES.
+  // L'identite officielle est conservee : seules les notes resteraient attachees.
+  refLibelles:     { mat: {}, apc: {}, prim: {} },
   primReferentiel: null,
   primNotes:       {},
   // Référentiels OFFICIELS, avant surcharge. Privés (préfixe `_`) : aucun écran
@@ -832,9 +835,14 @@ export const useSchoolStore = create((set, get) => ({
   loadRefMasques: async (kind) => {
     const { schoolId } = get();
     if (!schoolId || !backendOnline()) return;
-    const ids = await fetchMasques(kind, schoolId);
-    // null = lecture en echec : on ne masque RIEN plutot que de cacher par erreur.
+    const [ids, libelles] = await Promise.all([
+      fetchMasques(kind, schoolId),
+      fetchLibelles(kind, schoolId),
+    ]);
+    // null = lecture en echec : on ne masque RIEN plutot que de cacher par erreur,
+    // et on n'efface pas des surcharges deja connues.
     if (ids) set((st) => ({ refMasques: { ...st.refMasques, [kind]: ids } }));
+    if (libelles) set((st) => ({ refLibelles: { ...st.refLibelles, [kind]: libelles } }));
   },
 
   // `extra` porte ce qui est propre au moteur : pour l'APC, la competence vit dans
@@ -858,15 +866,40 @@ export const useSchoolStore = create((set, get) => ({
     return { data: record };
   },
 
+  // Renommer. Deux chemins, selon a qui appartient la ligne :
+  //   • MAISON   : on modifie la ligne, pour de bon ;
+  //   • NATIONALE: on pose une SURCHARGE de libelle pour cette ecole seule. L'id
+  //     ne bouge pas, donc les notes deja saisies restent attachees et le bulletin
+  //     ministeriel garde son identite. Copier la ligne puis masquer l'originale
+  //     aurait au contraire orpheline le travail en cours.
   renameRefLigne: async (kind, id, intitule) => {
     const { schoolId } = get();
     const nom = String(intitule || '').trim();
     const ligne = get()._refLignes(kind).find((l) => l.id === id);
-    // Une ligne NATIONALE ne se renomme pas : elle appartient aux 44 ecoles.
-    if (!ligne || !nom || ligne.school_id !== schoolId) return { error: 'national' };
+    if (!ligne || !nom || !schoolId) return { error: 'introuvable' };
     if (!backendOnline()) return { error: 'offline' };
-    if (!(await upsertLigne(kind, { ...ligne, intitule: nom }))) return { error: 'refus' };
-    get()._refSetLignes(kind, (prev) => prev.map((l) => (l.id === id ? { ...l, intitule: nom } : l)));
+
+    if (ligne.school_id === schoolId) {
+      if (!(await upsertLigne(kind, { ...ligne, intitule: nom }))) return { error: 'refus' };
+      get()._refSetLignes(kind, (prev) => prev.map((l) => (l.id === id ? { ...l, intitule: nom } : l)));
+      return { data: 'ligne' };
+    }
+
+    if (!(await setLibelle(kind, schoolId, id, nom))) return { error: 'refus' };
+    set((st) => ({ refLibelles: { ...st.refLibelles, [kind]: { ...st.refLibelles[kind], [id]: nom } } }));
+    return { data: 'surcharge' };
+  },
+
+  // Rendre son libelle officiel a une ligne nationale surchargee.
+  resetRefLibelle: async (kind, id) => {
+    const { schoolId } = get();
+    if (!schoolId || !backendOnline()) return { error: 'offline' };
+    if (!(await setLibelle(kind, schoolId, id, ''))) return { error: 'refus' };
+    set((st) => {
+      const copie = { ...st.refLibelles[kind] };
+      delete copie[id];
+      return { refLibelles: { ...st.refLibelles, [kind]: copie } };
+    });
     return { data: true };
   },
 

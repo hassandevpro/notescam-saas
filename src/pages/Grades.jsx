@@ -16,6 +16,8 @@ import ApcCompetenceWorkspace from '../components/grades/ApcCompetenceWorkspace'
 import MatObservationWorkspace from '../components/grades/MatObservationWorkspace';
 import PrimCompetenceWorkspace from '../components/grades/PrimCompetenceWorkspace';
 import { resolveClassEngine, defaultRoutingClass, SECTIONS, classSectionKey } from '../core/engineResolver';
+import { hasCapability } from '../config/capabilities';
+import { toast } from '../store/toastStore';
 
 const TERMS_EN = [
   { value: 1, label: 'Term 1' },
@@ -522,11 +524,13 @@ function PrincipalGrades() {
   const students  = useSchoolStore((s) => s.students);
   const gradeMap  = useSchoolStore((s) => s.gradeMap);
   const saveGrade = useSchoolStore((s) => s.saveGrade);
+  const configureClassSubjects = useSchoolStore((s) => s.configureClassSubjects);
 
   const role           = useAuthStore((s) => s.role);
   const myClassId      = useAuthStore((s) => s.classId);
   const teacherId      = useAuthStore((s) => s.teacherId);
   const school         = useAuthStore((s) => s.school);
+  const permissions    = useAuthStore((s) => s.permissions);
   const schoolLanguage = school?.language || 'francophone';
   const isTeacher = role === 'teacher';
   const country   = useCountry();
@@ -725,6 +729,28 @@ function PrincipalGrades() {
   }, [classId, sequence, saveGrade, locked, isSubjectTeacher, classSubjects]);
 
   const getScores = (studentId) => gradeMap[`${classId}_${studentId}_${sequence}`] || {};
+
+  // Qui peut CRÉER les matières / domaines d'une classe ? Exactement le périmètre
+  // de la policy RLS `subjects: écriture par admins de l'école` : un admin, ou un
+  // compte délégué porteur de /app/classes. Proposer le bouton à une enseignante
+  // ne ferait qu'empiler des insertions rejetées dans la file hors-ligne.
+  const canConfigureSubjects = role === 'admin' || hasCapability(permissions, '/app/classes');
+  const [configuring, setConfiguring] = useState(false);
+  const handleConfigureSubjects = async () => {
+    if (!selectedClass || configuring) return;
+    setConfiguring(true);
+    try {
+      const { created } = await configureClassSubjects(selectedClass);
+      if (!created) {
+        toast.error(t(
+          'Aucun domaine à ajouter — référentiel indisponible, ou classe déjà configurée.',
+          'No domain to add — framework unavailable, or class already configured.',
+        ));
+      }
+    } finally {
+      setConfiguring(false);
+    }
+  };
 
   const noSubjects = classId && classSubjects.length === 0;
   const noStudents = classId && classStudents.length === 0;
@@ -990,9 +1016,35 @@ function PrincipalGrades() {
               `Cette classe n'a pas encore de ${isMaternelle ? 'domaines de compétences' : 'matières'} configurés.`,
               `This class has no ${isMaternelle ? 'competency domains' : 'subjects'} configured yet.`,
             )}{' '}
-            <a href="/app/classes" className="font-semibold underline">
-              {t(isMaternelle ? 'Ajouter des domaines' : 'Ajouter des matières', isMaternelle ? 'Add domains' : 'Add subjects')}
-            </a>
+            {/* Sans matière, la grille n'a aucune colonne : l'enseignante ne voit NI
+                ses élèves NI les cotes A / ECA / NA. Le message renvoyait vers
+                /app/classes — une page d'administration qu'un compte enseignant ne
+                peut pas ouvrir (RLS : seuls les admins, ou un compte delegue sur
+                /app/classes, écrivent dans `subjects`). Elle restait donc dans un
+                cul-de-sac. Deux publics, deux issues : celui qui PEUT configurer
+                configure d'un clic ; l'enseignante apprend quoi demander. */}
+            {canConfigureSubjects ? (
+              <button
+                type="button"
+                onClick={handleConfigureSubjects}
+                disabled={configuring}
+                className="font-semibold underline disabled:opacity-50"
+              >
+                {configuring
+                  ? t('Configuration…', 'Configuring…')
+                  : t(isMaternelle ? 'Configurer les domaines maintenant' : 'Configurer les matières maintenant',
+                      isMaternelle ? 'Configure the domains now' : 'Configure the subjects now')}
+              </button>
+            ) : (
+              <span>
+                {t(isMaternelle
+                    ? "Demandez à l'administration d'ouvrir Classes et de configurer les domaines de cette classe."
+                    : "Demandez à l'administration d'ouvrir Classes et de configurer les matières de cette classe.",
+                   isMaternelle
+                    ? 'Ask the administration to open Classes and configure this class’s domains.'
+                    : 'Ask the administration to open Classes and configure this class’s subjects.')}
+              </span>
+            )}
           </div>
         )}
         {noStudents && (

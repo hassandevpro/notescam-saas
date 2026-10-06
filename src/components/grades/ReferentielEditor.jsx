@@ -46,6 +46,14 @@ export default function ReferentielEditor({
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
 
+  // Hauteur ajustee des le montage : sans cela une phrase de trois lignes
+  // naitrait a la hauteur d'une seule, et il faudrait cliquer pour la decouvrir.
+  const autoGrow = (el) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
   const visibles = lignes.filter((l) => !masques.includes(l.id));
   const caches   = lignes.filter((l) => masques.includes(l.id));
 
@@ -71,7 +79,7 @@ export default function ReferentielEditor({
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose}>
       <div
-        className="bg-white w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl shadow-xl max-h-[88vh] overflow-y-auto"
+        className="bg-white w-full sm:max-w-4xl sm:rounded-2xl rounded-t-2xl shadow-xl max-h-[92vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-start justify-between gap-4">
@@ -95,20 +103,27 @@ export default function ReferentielEditor({
               {visibles.map((l) => {
                 const peutRenommer = renommable(l);
                 return (
-                  <div key={l.id} className="flex items-center gap-2 px-3 py-2 border-b border-gray-50 last:border-0">
-                    {l.code && <span className="w-10 shrink-0 text-[11px] font-bold text-gray-400">{l.code}</span>}
-                    <input
-                      type="text"
+                  <div key={l.id} className="flex items-start gap-2 px-3 py-2 border-b border-gray-50 last:border-0">
+                    {l.code && <span className="w-10 shrink-0 pt-2 text-[11px] font-bold text-gray-400">{l.code}</span>}
+                    <textarea
+                      rows={1}
                       defaultValue={l.intitule}
                       disabled={busy || !peutRenommer}
+                      ref={autoGrow}
+                      onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = `${e.target.scrollHeight}px`; }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); } }}
                       onBlur={(e) => {
-                        const v = e.target.value.trim();
+                        // Normalise les espaces : une zone de texte laisse entrer
+                        // des retours a la ligne, un libelle n'en veut pas.
+                        const v = e.target.value.trim().replace(/\s+/g, ' ');
                         if (v && v !== l.intitule) run(() => onRename?.(l, v));
                         else e.target.value = l.intitule;
                       }}
-                      className="flex-1 min-w-0 rounded border border-gray-200 px-2 py-1 text-sm disabled:bg-transparent disabled:border-transparent disabled:text-gray-500"
+                      className="flex-1 min-w-0 resize-none overflow-hidden rounded border border-gray-200 px-2 py-1.5 text-sm leading-snug
+                        focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
+                        disabled:bg-transparent disabled:border-transparent disabled:text-gray-500"
                     />
-                    <span className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                    <span className={`shrink-0 mt-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                       estNational(l) ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-600'
                     }`}>
                       {estNational(l)

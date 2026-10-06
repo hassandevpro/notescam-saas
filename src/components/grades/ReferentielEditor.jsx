@@ -45,6 +45,11 @@ export default function ReferentielEditor({
   const [nouveau, setNouveau] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
+  // Brouillon { id: texte } — ce que l'utilisateur a tapé SANS l'avoir enregistré.
+  // Plus rien ne part à la sortie du champ : une sauvegarde silencieuse ne laisse
+  // aucune chance de se relire, et c'est ainsi qu'un libellé abîmé est parti en
+  // base sans que personne ne puisse l'arrêter.
+  const [brouillon, setBrouillon] = useState({});
 
   // Hauteur ajustee des le montage : sans cela une phrase de trois lignes
   // naitrait a la hauteur d'une seule, et il faudrait cliquer pour la decouvrir.
@@ -53,6 +58,11 @@ export default function ReferentielEditor({
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
   };
+
+  const modifiees = Object.entries(brouillon).filter(([id, v]) => {
+    const l = lignes.find((x) => x.id === id);
+    return l && v.trim() && v.trim() !== l.intitule;
+  });
 
   const visibles = lignes.filter((l) => !masques.includes(l.id));
   const caches   = lignes.filter((l) => masques.includes(l.id));
@@ -67,6 +77,20 @@ export default function ReferentielEditor({
     setConfirmId(null);
   };
 
+  // Enregistre tout le brouillon d'un coup. La normalisation des espaces se fait
+  // ICI, une seule fois, sur une valeur que l'utilisateur a pu relire.
+  const enregistrer = async () => {
+    if (!modifiees.length) return;
+    await run(async () => {
+      for (const [id, texte] of modifiees) {
+        const ligne = lignes.find((x) => x.id === id);
+        const propre = texte.trim().replace(/s+/g, ' ');
+        if (ligne && propre) await onRename?.(ligne, propre);
+      }
+    });
+    setBrouillon({});
+  };
+
   const handleAdd = async () => {
     const v = nouveau.trim();
     if (!v) return;
@@ -76,8 +100,15 @@ export default function ReferentielEditor({
 
   const cible = lignes.find((l) => l.id === confirmId) || null;
 
+  const fermer = () => {
+    if (modifiees.length && !window.confirm(
+      t('Des libellés modifiés ne sont pas enregistrés. Fermer quand même ?',
+        'Some changed labels are not saved. Close anyway?'))) return;
+    onClose?.();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={fermer}>
       <div
         className="bg-white w-full sm:max-w-4xl sm:rounded-2xl rounded-t-2xl shadow-xl max-h-[92vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -90,7 +121,7 @@ export default function ReferentielEditor({
                               'Rename, remove, or add your own. Nothing leaves your school.')}
             </p>
           </div>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">×</button>
+          <button type="button" onClick={fermer} className="text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">×</button>
         </div>
 
         <div className="p-5 space-y-4">
@@ -112,13 +143,7 @@ export default function ReferentielEditor({
                       ref={autoGrow}
                       onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = `${e.target.scrollHeight}px`; }}
                       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); } }}
-                      onBlur={(e) => {
-                        // Normalise les espaces : une zone de texte laisse entrer
-                        // des retours a la ligne, un libelle n'en veut pas.
-                        const v = e.target.value.trim().replace(/\s+/g, ' ');
-                        if (v && v !== l.intitule) run(() => onRename?.(l, v));
-                        else e.target.value = l.intitule;
-                      }}
+                      onChange={(e) => setBrouillon((b) => ({ ...b, [l.id]: e.target.value }))}
                       className="flex-1 min-w-0 resize-none overflow-hidden rounded border border-gray-200 px-2 py-1.5 text-sm leading-snug
                         focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
                         disabled:bg-transparent disabled:border-transparent disabled:text-gray-500"
@@ -178,6 +203,24 @@ export default function ReferentielEditor({
                 className="btn-primary" style={{ width: 'auto', paddingInline: '1.25rem' }}>
                 {t('Ajouter', 'Add')}
               </button>
+            </div>
+          )}
+
+          {modifiees.length > 0 && (
+            <div className="sticky bottom-0 -mx-5 px-5 py-3 bg-white border-t border-gray-100 flex flex-wrap items-center gap-3">
+              <button type="button" disabled={busy} onClick={enregistrer}
+                className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }}>
+                {busy ? t('Enregistrement…', 'Saving…') : t('Enregistrer', 'Save')}
+              </button>
+              <button type="button" disabled={busy} onClick={() => setBrouillon({})}
+                className="btn-secondary" style={{ width: 'auto' }}>
+                {t('Annuler', 'Cancel')}
+              </button>
+              <span className="text-xs text-gray-500">
+                {modifiees.length} {modifiees.length > 1
+                  ? t('libellés modifiés', 'labels changed')
+                  : t('libellé modifié', 'label changed')}
+              </span>
             </div>
           )}
 

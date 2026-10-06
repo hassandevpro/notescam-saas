@@ -434,6 +434,8 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
     .sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name));
   const studentCount  = students.filter((s) => s.class_id === cls.id).length;
   const teacherCount  = new Set(classSubjects.filter((s) => s.teacher_id).map((s) => s.teacher_id)).size;
+  // Aucun lien enseignant du tout : ni titulaire, ni matière affectée à quiconque.
+  const noTeacherLink = teacherCount === 0;
 
   const [form, setForm]         = useState({ ...cls, max_students: cls.max_students ?? '' });
   const isMaternelle  = (form.cycle || cls.cycle || 'secondaire') === 'maternelle';
@@ -513,6 +515,21 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 <option value="">{t('Aucun enseignant assigné', 'No teacher assigned')}</option>
                 {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
               </select>
+              {/* Une classe sans titulaire ET sans matière affectée n'est VISIBLE
+                  d'aucun enseignant : le périmètre d'un compte enseignant se
+                  déduit de ces deux liens (schoolStore.init). La classe existe,
+                  ses élèves aussi, mais personne ne peut saisir. Au fondamental
+                  c'est le cas courant — l'institutrice enseigne tous les domaines,
+                  donc aucune ligne `subjects` ne porte son nom : le titulariat est
+                  alors son SEUL rattachement. On le dit ici, où on le décide. */}
+              {!form.teacher_id && noTeacherLink && (
+                <p className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+                  {t(
+                    'Sans titulaire ni matière affectée, aucun enseignant ne voit cette classe : elle n’apparaît dans la saisie des notes d’aucun compte.',
+                    'With no class teacher and no assigned subject, no teacher can see this class: it appears in no account’s grade entry.',
+                  )}
+                </p>
+              )}
             </div>
             {/* SECOND enseignant principal : il s'imprime sur les documents et
                 n'ouvre AUCUN droit — dit explicitement sous le champ, sinon

@@ -9,6 +9,46 @@
 // Module PUR (aucun hook, aucun store) : testable par `node`.
 
 import { normName } from './teacherNames.js';
+import { classSectionKey } from '../core/engineResolver.js';
+
+// ── EXCEPTION FONDAMENTALE : la titulaire de maternelle / primaire enseigne TOUT ─
+//
+// Au collège et au lycée, le titulariat ne donne rien à saisir : chaque matière a
+// son spécialiste, et `subjects.teacher_id` dit qui saisit quoi. Le fondamental est
+// l'inverse — une institutrice de PS ou de CE1 tient sa classe entière. Le
+// référentiel maternelle le codifie déjà (voir matDomaineMatch : « le TITULAIRE
+// garde les 8 domaines »), et l'écran maternelle officiel l'applique.
+//
+// LE DÉFAUT MESURÉ : les écrans du monde CLASSIQUE ne l'appliquaient pas. En mode
+// « enseignant de matière », `SubjectTeacherWorkspace` excluait explicitement le
+// titulariat, et `PrincipalGrades` filtrait les matières sur `teacher_id`. Une
+// institutrice titulaire d'une classe de maternelle à qui aucune ligne `subjects`
+// n'est nominativement affectée — le cas NORMAL, puisqu'elle les enseigne toutes —
+// se retrouvait devant « Aucune classe attribuée » et « Aucune matière ne vous est
+// attribuée », sans un élève ni une cote, alors que le store lui donnait bien sa
+// classe (il compte le titulariat, lui).
+//
+// On remonte donc la règle ici, pour que les trois écrans la partagent.
+export function isFundamentalTitulaire(cls, teacherId) {
+  if (!teacherId || !cls || cls.teacher_id !== teacherId) return false;
+  const section = classSectionKey(cls);
+  return section === 'maternelle' || section === 'primaire';
+}
+
+// Vrai quand l'écran doit se limiter aux matières affectées POUR CETTE CLASSE.
+// Même réponse que `isSubjectScoped`, sauf pour la titulaire du fondamental.
+export function isSubjectScopedForClass(role, school, cls, teacherId) {
+  if (!isSubjectScoped(role, school)) return false;
+  return !isFundamentalTitulaire(cls, teacherId);
+}
+
+// Les matières saisissables sur une classe : les siennes, ou TOUTES celles de la
+// classe quand elle en est la titulaire au fondamental.
+export function subjectsForClass(subjects, teacherId, cls, role, school) {
+  const inClass = (subjects || []).filter((s) => s.class_id === cls?.id);
+  if (!isSubjectScopedForClass(role, school, cls, teacherId)) return inClass;
+  return inClass.filter((s) => s.teacher_id === teacherId);
+}
 
 // Réglage d'établissement `schools.grade_entry_mode` :
 // 'principal' (défaut historique) : le titulaire saisit toutes les matières de

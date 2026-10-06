@@ -8,7 +8,7 @@ import Layout from '../components/Layout';
 import { useT, localeForLang } from '../lib/i18n';
 import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../lib/lockService';
 import { useCountry, gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
-import { isSubjectScoped } from '../lib/teacherScope';
+import { isSubjectScoped, isFundamentalTitulaire } from '../lib/teacherScope';
 import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
@@ -442,6 +442,7 @@ function LockReviewModal({ review, periodLabel, className, onConfirm, onClose })
 export default function Grades() {
   const role   = useAuthStore((s) => s.role);
   const school = useAuthStore((s) => s.school);
+  const teacherId = useAuthStore((s) => s.teacherId);
   const engine = school?.bulletin_engine;
   const classes  = useSchoolStore((s) => s.classes);
   const classId  = useUiStore((s) => s.gradesClassId);
@@ -511,7 +512,14 @@ export default function Grades() {
     // 'sc' (lycée) et 'classic' : saisie numérique classique — voir tail commun.
   }
 
+  // Titulaire d'une classe FONDAMENTALE dans une école du monde classique : son
+  // écran est l'historique, le seul qui rende les cotes A / EA / NA de la maternelle
+  // (`cycle === 'maternelle'`). Le poste « enseignant de matière » ne sait saisir que
+  // des notes chiffrées : il ne lui aurait jamais montré de cote, et son rail
+  // l'ignorait faute de `subjects.teacher_id` à son nom.
   if (isSubjectScoped(role, school)) {
+    const routing = classes.find((c) => c.id === classId) || defaultRoutingClass(classes);
+    if (isFundamentalTitulaire(routing, teacherId)) return <PrincipalGrades />;
     return <Layout bleed><SubjectTeacherWorkspace /></Layout>;
   }
   return <PrincipalGrades />;
@@ -638,14 +646,18 @@ function PrincipalGrades() {
 
   const classSubjects = useMemo(() => {
     let list = subjects.filter((s) => s.class_id === classId);
-    // Mode 1 : on ne montre que les matières affectées à cet enseignant.
-    if (isSubjectTeacher) list = list.filter((s) => s.teacher_id === teacherId);
+    // Mode 1 : on ne montre que les matières affectées à cet enseignant — SAUF la
+    // titulaire du fondamental, qui enseigne toute sa classe (voir teacherScope).
+    const cls = classes.find((c) => c.id === classId) || null;
+    if (isSubjectTeacher && !isFundamentalTitulaire(cls, teacherId)) {
+      list = list.filter((s) => s.teacher_id === teacherId);
+    }
     // Matières composites : on saisit les sous-composantes (feuilles), jamais la
     // matière parente (sa note est calculée). On retire donc les parents.
     const parentIds = new Set(list.filter((s) => s.parent_id).map((s) => s.parent_id));
     list = list.filter((s) => !parentIds.has(s.id));
     return list.sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name));
-  }, [subjects, classId, isSubjectTeacher, teacherId]);
+  }, [subjects, classes, classId, isSubjectTeacher, teacherId]);
 
   const classStudents = useMemo(() =>
     students.filter((s) => s.class_id === classId).sort((a, b) => a.name.localeCompare(b.name)),

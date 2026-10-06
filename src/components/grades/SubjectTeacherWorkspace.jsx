@@ -10,6 +10,7 @@ import { isSequenceLocked, getLockInfo } from '../../lib/lockService';
 import GradeGrid from './GradeGrid';
 import GradeImportPanel from './GradeImportPanel';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
+import { isFundamentalTitulaire } from '../../lib/teacherScope';
 
 // Ordre pédagogique des classes pour le rail (maternelle → Terminale, FR + EN).
 // Heuristique sur le nom : tout nom non reconnu retombe après, trié par libellé.
@@ -63,11 +64,15 @@ export default function SubjectTeacherWorkspace() {
     return () => useUiStore.getState().setSidebarHidden(prev);
   }, []);
 
-  // Classes où l'enseignant a une matière affectée (le titulaire ne compte PAS).
+  // Classes où l'enseignant a une matière affectée. Le titulariat ne compte pas au
+  // secondaire (chaque matière a son spécialiste) — MAIS il compte au FONDAMENTAL :
+  // une institutrice de maternelle ou de primaire tient sa classe entière, et aucune
+  // ligne `subjects` ne porte son nom. Sans cette exception elle lisait « Aucune
+  // classe attribuée » devant sa propre classe (voir teacherScope).
   const teacherClasses = useMemo(() => {
     const ids = new Set(subjects.filter((s) => s.teacher_id === teacherId).map((s) => s.class_id));
     return classes
-      .filter((c) => ids.has(c.id))
+      .filter((c) => ids.has(c.id) || isFundamentalTitulaire(c, teacherId))
       .sort((a, b) => classRank(a.name) - classRank(b.name) || a.name.localeCompare(b.name, undefined, { numeric: true }));
   }, [subjects, classes, teacherId]);
 
@@ -85,14 +90,19 @@ export default function SubjectTeacherWorkspace() {
   const isEN  = sys === 'EN';
 
   // Matières de cet enseignant DANS la classe sélectionnée (souvent une seule).
+  // Titulaire au fondamental : TOUTES les matières de la classe, puisqu'elle les
+  // enseigne toutes — sinon le rail affichait sa classe et la zone centrale
+  // répondait « Aucune matière ne vous est attribuée ».
   const mySubjects = useMemo(() => {
     const inClass = subjects.filter((s) => s.class_id === classId);
+    const cls = classes.find((c) => c.id === classId) || null;
+    const mine = isFundamentalTitulaire(cls, teacherId);
     // Matières composites : on saisit les feuilles, pas les parents (calculés).
     const parentIds = new Set(inClass.filter((s) => s.parent_id).map((s) => s.parent_id));
     return inClass
-      .filter((s) => s.teacher_id === teacherId && !parentIds.has(s.id))
+      .filter((s) => (mine || s.teacher_id === teacherId) && !parentIds.has(s.id))
       .sort((a, b) => (a.position ?? 99) - (b.position ?? 99) || a.name.localeCompare(b.name));
-  }, [subjects, classId, teacherId]);
+  }, [subjects, classes, classId, teacherId]);
   const currentSubject = mySubjects.find((s) => s.id === subjectId) || mySubjects[0] || null;
 
   useEffect(() => {

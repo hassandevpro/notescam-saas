@@ -56,7 +56,16 @@ export function criteresForCompetence(referentiel, niveauSlug, competenceId, apt
   const criteresById = new Map((referentiel?.criteres || []).map((c) => [c.id, c]));
   return bareme
     .filter((b) => b.niveau_id === niveauSlug && b.competence_id === competenceId && (b.aptitude || 'apte') === aptitude)
-    .map((b) => ({ id: b.critere_id, nom: criteresById.get(b.critere_id)?.nom || b.critere_id, points_max: Number(b.points_max) || 0, ordre: b.ordre || 0 }))
+    // `points_max_officiel` n'est présent que si l'enseignant a changé le barème
+    // de la colonne (cf. core/baremeOverride.js) : l'écran de saisie s'en sert pour
+    // proposer le retour au barème officiel. Les calculs, eux, lisent `points_max`.
+    .map((b) => ({
+      id: b.critere_id,
+      nom: criteresById.get(b.critere_id)?.nom || b.critere_id,
+      points_max: Number(b.points_max) || 0,
+      points_max_officiel: Number(b.points_max_officiel ?? b.points_max) || 0,
+      ordre: b.ordre || 0,
+    }))
     .sort((a, b) => a.ordre - b.ordre);
 }
 

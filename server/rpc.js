@@ -6,7 +6,7 @@ import { db, getSchool, tx } from './db.js';
 import { randomUUID } from 'node:crypto';
 import { hashPassword } from './security.js';
 import { createRevision, decideRevision, createLineReallocation, decideLineReallocation } from './budgetOps.js';
-import { isParentAccount, allowsStudent, loadScope } from './scopeGuard.js';
+import { isParentAccount, allowsStudent, loadScope, SCHOOL_CREATION_LOCKED } from './scopeGuard.js';
 
 // --- Helpers d'autorisation -------------------------------------------
 function membership(userId) {
@@ -135,6 +135,13 @@ const handlers = {
     if (membership(ctx.userId)) throw new Error('already linked');
 
     let school = getSchool();
+    // Build RESTREINT (utilisateur) : lié à SON école, il ne peut pas en créer
+    // une autre. S'il n'a pas encore d'école, la création est refusée — l'install
+    // ne sert qu'à l'établissement qui y a été mis en place. Le build admin
+    // (NOTESCAM_LOCK_SCHOOL non défini) n'est pas concerné.
+    if (!school && SCHOOL_CREATION_LOCKED) {
+      throw new Error("Cette version est réservée à un établissement existant : la création d'un nouvel établissement est désactivée.");
+    }
     tx(() => {
       if (!school) {
         const id = randomUUID();
@@ -147,8 +154,12 @@ const handlers = {
           'trial', addDaysISO(30));
         school = { id };
       }
-      db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, full_name, active)
-                  VALUES (?,?,?,?,?,1)`)
+      // `scope_global = 1` ÉCRIT, jamais déduit : sans lui le compte prend le
+      // défaut 0 de la colonne et naît AVEUGLE — l'administrateur qui vient
+      // d'installer l'école se faisait refuser sa première classe. Miroir de
+      // supabase_fix_perimetre_mort.sql §3 (cf. scopeGuard.loadScope).
+      db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, full_name, active, scope_global)
+                  VALUES (?,?,?,?,?,1,1)`)
         .run(randomUUID(), school.id, ctx.userId, 'admin', p.p_full_name);
     });
     return null;
@@ -160,8 +171,10 @@ const handlers = {
     const school = getSchool();
     if (!school) throw new Error('École introuvable');
     if (membership(ctx.userId)) return null;
-    db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, full_name, active)
-                VALUES (?,?,?,?,?,1)`)
+    // Même règle que ci-dessus : l'intention de périmètre est écrite (§3 du
+    // correctif cloud). L'admin la restreindra depuis l'écran Périmètre.
+    db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, full_name, active, scope_global)
+                VALUES (?,?,?,?,?,1,1)`)
       .run(randomUUID(), school.id, ctx.userId, 'teacher', p.p_full_name);
     return null;
   },

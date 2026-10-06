@@ -7,6 +7,7 @@
 // « Synchronisation validée à 100 % » ou « Synchronisation incomplète » (+ tables).
 // Un bouton permet en plus de FORCER un contrôle approfondi à la demande.
 import { useEffect, useRef, useState } from 'react';
+import { IS_LAN } from '../lib/edition';
 
 const nf = (n) => (n == null ? '—' : Number(n).toLocaleString('fr-FR'));
 const ms = (v) => (v == null ? '—' : v < 1000 ? `${v} ms` : `${(v / 1000).toFixed(1)} s`);
@@ -107,7 +108,20 @@ export default function SyncStatePanel() {
   const timer = useRef(null);
 
   const loadHealth = () => fetch('/api/sync/health').then((r) => r.json()).then((j) => setHealth(j.data)).catch(() => {});
-  useEffect(() => { loadHealth(); timer.current = setInterval(loadHealth, 10000); return () => clearInterval(timer.current); }, []);
+
+  // Édition CLOUD : `/api/sync/health` n'existe pas. La règle de réécriture de
+  // vercel.json renvoie index.html pour toute route inconnue, donc le sondage
+  // retéléchargeait la page d'accueil toutes les 10 secondes pour que `.json()`
+  // la rejette aussitôt — six requêtes par minute, jetées. Même garde que
+  // SyncBadge et HybridModeCard : ce panneau ne concerne que l'édition LAN.
+  // `IS_LAN` est une constante de build (vite `define`) : au build cloud la
+  // condition est repliée à la compilation et tout ce bloc disparaît du bundle.
+  useEffect(() => {
+    if (!IS_LAN) return undefined;
+    loadHealth();
+    timer.current = setInterval(loadHealth, 10000);
+    return () => clearInterval(timer.current);
+  }, []);
 
   const run = async () => {
     setBusy(true); setErr('');
@@ -124,6 +138,10 @@ export default function SyncStatePanel() {
   // par le serveur après chaque synchro.
   const auto = !forced;
   const active = forced || health?.lastReport || null;
+
+  // Hors LAN, rien à montrer : l'état affiché viendrait d'une API absente.
+  // Placé APRÈS les hooks (règle des hooks), comme dans SyncBadge.
+  if (!IS_LAN) return null;
 
   return (
     <div className="mt-4 border-t border-gray-100 pt-4">

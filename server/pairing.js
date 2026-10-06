@@ -117,8 +117,11 @@ function createLocalAdmin({ email, password, fullName = 'Administrateur' }, scho
   const uid = db.prepare('SELECT id FROM users WHERE email = ?').get(email).id;
   const existing = db.prepare('SELECT id FROM school_users WHERE school_id = ? AND user_id = ?').get(schoolId, uid);
   if (!existing) {
-    db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, active)
-                VALUES (?,?,?,?,1)`).run(randomUUID(), schoolId, uid, 'admin');
+    // `scope_global = 1` écrit explicitement : le défaut 0 de la colonne ferait
+    // naître cet admin aveugle (cf. scopeGuard.loadScope / correctif « périmètre
+    // mort »), et il ne pourrait rien créer sur le serveur qu'il vient d'appairer.
+    db.prepare(`INSERT INTO school_users (id, school_id, user_id, role, active, scope_global)
+                VALUES (?,?,?,?,1,1)`).run(randomUUID(), schoolId, uid, 'admin');
   } else {
     db.prepare(`UPDATE school_users SET role='admin', active=1 WHERE id = ?`).run(existing.id);
   }

@@ -835,6 +835,9 @@ export const ALLOWED_TABLES = new Set([
   'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines', 'mat_observations',
   'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
   'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_bareme_criteres', 'prim_notes',
+  // Barème de saisie fixé par l'enseignant (surcharge du barème officiel).
+  // Absente d'ici, toute écriture échouait en LAN sur « Table non autorisée ».
+  'bareme_notes',
   // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
   'domain_events', 'audit_events', 'signalements',
   // Vie scolaire (surveillant/discipline) — absentes depuis la création du

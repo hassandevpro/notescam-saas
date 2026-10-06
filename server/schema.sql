@@ -1421,6 +1421,31 @@ CREATE TABLE IF NOT EXISTS prim_notes (
 CREATE INDEX IF NOT EXISTS idx_prim_notes_school  ON prim_notes(school_id);
 CREATE INDEX IF NOT EXISTS idx_prim_notes_student ON prim_notes(eleve_id);
 
+-- Barème de saisie personnalisé par l'enseignant (APC /20 par compétence,
+-- primaire = points par critère). L'absence de ligne vaut « barème officiel ».
+-- Portée : le NIVEAU du référentiel, pas la classe — cf. src/core/baremeOverride.js.
+-- Pas de FK sur competence_id/critere_id : les ids du seed LAN diffèrent de ceux
+-- du Cloud, une FK rendrait la ligne irrecevable d'un côté ou de l'autre.
+CREATE TABLE IF NOT EXISTS bareme_notes (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  engine        TEXT NOT NULL CHECK (engine IN ('apc', 'prim')),
+  niveau_slug   TEXT NOT NULL,
+  competence_id TEXT NOT NULL,
+  -- Chaîne vide (jamais NULL) en APC : miroir exact du Cloud, où ce NOT NULL
+  -- rend l'index d'unicité utilisable comme cible d'upsert.
+  critere_id    TEXT NOT NULL DEFAULT '',
+  points_max    NUMERIC NOT NULL CHECK (points_max >= 1 AND points_max <= 200),
+  enseignant_id TEXT,
+  created_at    TEXT,
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bareme_notes_uniq
+  ON bareme_notes(school_id, engine, niveau_slug, competence_id, critere_id);
+CREATE INDEX IF NOT EXISTS idx_bareme_notes_school ON bareme_notes(school_id);
+
 -- ============================================================
 -- Socle P0 — Event Store (outbox), Audit Log, domaine Signalement
 -- ============================================================

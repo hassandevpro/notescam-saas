@@ -270,6 +270,18 @@ redeviennent en attente, la séquence 6 redevient incomplète, les dossiers
 disciplinaires se rouvrent. Vous pouvez donc refaire une prise autant de fois
 que nécessaire, avec exactement les mêmes chiffres à l'écran.
 
+> ⚠️ **Si l'établissement est JUMELÉ au cloud, `--reset` casse le jumelage.** Le
+> générateur retire toutes les lignes et en recrée d'autres avec de NOUVEAUX
+> identifiants : les deux bases ne parlent alors plus des mêmes objets, et la
+> synchro pousse des doublons. Après un `--reset`, il faut refaire la séquence
+> complète : `supabase/seed_college_la_retraite_cleanup.sql` côté cloud, puis
+> l'activation LOCAL FIRST (`/api/activate-cloud/*`), puis le réalignement des
+> identifiants de comptes (`users.id` ← `users.cloud_user_id`, propagé à toutes
+> les colonnes qui référencent un compte).
+>
+> Pour un simple re-tournage, préférez donc **désactiver la synchro** le temps de
+> la session (`POST /api/hybrid/disable`) plutôt que de régénérer la base.
+
 ---
 
 ## Notes techniques

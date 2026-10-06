@@ -18,20 +18,36 @@ import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { isSequenceLocked } from '../../lib/lockService';
 import { noteNkey } from '../../lib/apcService';
 import { firstCycleClasseSlug, resolveClassEngine } from '../../core/engineResolver';
+// Une classe anglophone qui n'a pas encore importé son référentiel CBA retombe
+// sur le catalogue francophone : ses noms de matières sont alors rendus en
+// anglais, comme sur son bulletin.
+import { apcMatiereLabel } from '../../core/referentielI18n';
+import { isSubjectScoped, myClassIds } from '../../lib/teacherScope';
+import {
+  matiereIdsForTeacher, unresolvedSubjectsForTeacher,
+} from '../../core/apcMatiereMatch';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
+import BaremeChip from './BaremeChip';
 import {
   competencesFor, trimestreOfSequence, matiereAverage, apcCote, coefFor,
 } from '../../core/apcEngine';
+// Barème de saisie : l'enseignant peut noter une compétence sur une autre échelle
+// que /20 (une dictée sur 15, un oral sur 10). `apcNoteMax` donne l'échelle de la
+// colonne ; la remise à /20 est faite par `matiereAverage`, pas ici.
+import { APC_NOTE_MAX, apcNoteMax } from '../../core/baremeOverride';
+import { toast } from '../../store/toastStore';
 
-const APC_MAX = 20; // barème officiel des notes APC (premier cycle, /20)
+const APC_MAX = APC_NOTE_MAX; // barème officiel des notes APC (premier cycle, /20)
 
 // ── Cellule note ──────────────────────────────────────────────────────────────
-function NoteCell({ value, disabled, onCommit }) {
+// `max` est le barème de saisie de la COLONNE (/20 par défaut, autre chose si
+// l'enseignant l'a changé) : il borne la saisie et décide de la couleur.
+function NoteCell({ value, max = APC_MAX, disabled, onCommit }) {
   const [local, setLocal] = useState(value ?? '');
   useEffect(() => { setLocal(value ?? ''); }, [value]);
   const commit = () => {
-    const v = validateGrade(local, APC_MAX);
+    const v = validateGrade(local, max);
     if (v === null) { setLocal(value ?? ''); return; }
     if (v !== (value ?? '')) onCommit(v);
   };
@@ -47,7 +63,7 @@ function NoteCell({ value, disabled, onCommit }) {
       className={`w-16 text-center rounded border border-gray-200 px-1 py-1 text-sm
         focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
         disabled:bg-gray-50 disabled:text-gray-400 placeholder:text-gray-300
-        ${gradeColor(local, APC_MAX, 'FR')}`}
+        ${gradeColor(local, max, 'FR')}`}
     />
   );
 }
@@ -56,13 +72,22 @@ export default function ApcCompetenceWorkspace() {
   const t = useT();
   const school   = useAuthStore((s) => s.school);
   const schoolId = school?.id;
+  const role      = useAuthStore((s) => s.role);
+  const teacherId = useAuthStore((s) => s.teacherId);
+  // Mode 1 « enseignant de matière » : l'enseignant ne voit QUE les matières qui
+  // lui sont affectées — et donc que les classes où il en assure au moins une.
+  const subjectScoped = isSubjectScoped(role, school);
 
   const classes        = useSchoolStore((s) => s.classes);
+  const subjects       = useSchoolStore((s) => s.subjects);
   const students       = useSchoolStore((s) => s.students);
   const referentiel    = useSchoolStore((s) => s.apcReferentiel);
   const apcNotes       = useSchoolStore((s) => s.apcNotes);
   const loadApc        = useSchoolStore((s) => s.loadApc);
   const saveApcNote    = useSchoolStore((s) => s.saveApcNote);
+  const saveBareme     = useSchoolStore((s) => s.saveBareme);
+  const countNotesForBareme   = useSchoolStore((s) => s.countNotesForBareme);
+  const rescaleNotesForBareme = useSchoolStore((s) => s.rescaleNotesForBareme);
 
   // Classe partagée avec l'écran classique (uiStore) : le choix de la classe
   // pilote automatiquement le moteur affiché (APC vs classique/second cycle).
@@ -80,12 +105,14 @@ export default function ApcCompetenceWorkspace() {
   // Classe sélectionnée + slug référentiel. On ne liste QUE les classes du premier
   // cycle (moteur 'apc') : l'établissement peut aussi contenir du fondamental ou du
   // second cycle, qui n'ont rien à faire dans ce sélecteur.
-  const sortedClasses = useMemo(
-    () => classes
-      .filter((c) => resolveClassEngine(school, c) === 'apc')
-      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true })),
-    [classes, school],
-  );
+  const sortedClasses = useMemo(() => {
+    let list = classes.filter((c) => resolveClassEngine(school, c) === 'apc');
+    if (subjectScoped) {
+      const mine = myClassIds(subjects, teacherId);
+      list = list.filter((c) => mine.has(c.id));
+    }
+    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  }, [classes, school, subjectScoped, subjects, teacherId]);
   useEffect(() => {
     if (sortedClasses.length && !sortedClasses.some((c) => c.id === classId)) setClassId(sortedClasses[0].id);
   }, [sortedClasses, classId]);
@@ -95,11 +122,17 @@ export default function ApcCompetenceWorkspace() {
 
   // Matières du référentiel ayant au moins une compétence pour (classe, trimestre),
   // avec leur coefficient officiel POUR cette classe (Français = 6 en 6e/5e, 4 en 4e/3e).
-  const matieres = useMemo(() => {
+  const sys = selectedClass?.system || 'FR';
+
+  // Matières du référentiel réellement disponibles pour (classe, trimestre),
+  // avant tout filtrage par enseignant.
+  const matieresDisponibles = useMemo(() => {
     if (!referentiel || !classeSlug || !trimestreId) return [];
     return referentiel.matieres
       .map((m) => ({
         ...m,
+        nom: apcMatiereLabel(m, sys),
+        nomOfficiel: m.nom,
         coef: coefFor(referentiel.classeMatieres, classeSlug, m),
         nbComp: competencesFor(referentiel.competences, { classeId: classeSlug, trimestreId, matiereId: m.id }).length,
       }))
@@ -109,7 +142,25 @@ export default function ApcCompetenceWorkspace() {
         const ob = (referentiel.classeMatieres || []).find((r) => r.classe_id === classeSlug && r.matiere_id === b.id)?.ordre ?? b.ordre ?? 0;
         return oa - ob;
       });
-  }, [referentiel, classeSlug, trimestreId]);
+  }, [referentiel, classeSlug, trimestreId, sys]);
+
+  // Mode 1 : ne garder que les matières couvertes par MES matières affectées.
+  // Le rapprochement est délégué à apcMatiereMatch (noms officiels, sigles,
+  // alias) — une matière locale pouvant en couvrir plusieurs.
+  const matieres = useMemo(() => {
+    if (!subjectScoped) return matieresDisponibles;
+    const mine = matiereIdsForTeacher(subjects, teacherId, classId, matieresDisponibles);
+    return matieresDisponibles.filter((m) => mine.has(m.id));
+  }, [subjectScoped, matieresDisponibles, subjects, teacherId, classId]);
+
+  // Mes matières de cette classe qui ne se rattachent à RIEN : on les nomme,
+  // plutôt que de laisser l'enseignant devant un écran vide sans explication.
+  const matieresOrphelines = useMemo(
+    () => (subjectScoped
+      ? unresolvedSubjectsForTeacher(subjects, teacherId, classId, matieresDisponibles)
+      : []),
+    [subjectScoped, subjects, teacherId, classId, matieresDisponibles],
+  );
 
   const matiereCoef = matieres.find((m) => m.id === matiereId)?.coef ?? 1;
 
@@ -144,7 +195,10 @@ export default function ApcCompetenceWorkspace() {
     });
   };
 
-  // Moyenne matière d'un élève (sur les compétences de la séquence).
+  // Moyenne matière d'un élève (sur les compétences de la séquence). Les notes
+  // sont passées BRUTES : `matiereAverage` les ramène lui-même au barème officiel
+  // /20 d'après le `note_max` de chaque compétence — une seule règle de conversion
+  // pour l'écran, le bulletin et le PV.
   const studentAvg = (eleveId) => {
     const notes = {};
     for (const c of competences) {
@@ -154,11 +208,45 @@ export default function ApcCompetenceWorkspace() {
     return matiereAverage(notes, competences);
   };
 
+  // Changement de barème d'une compétence. La surcharge porte sur le NIVEAU
+  // (toutes les 6e) et non sur la classe : deux classes parallèles doivent rester
+  // comparables sur le même bulletin (cf. core/baremeOverride.js).
+  const changeBareme = async (competence, newMax, { convertir }) => {
+    const oldMax = apcNoteMax(competence);
+    const res = await saveBareme({
+      engine: 'apc', niveauSlug: classeSlug, competenceId: competence.id,
+      pointsMax: newMax, officialMax: APC_MAX,
+    });
+    if (res?.error) { toast.error(res.error); return; }
+    let converted = 0;
+    if (convertir) {
+      converted = await rescaleNotesForBareme({
+        engine: 'apc', competenceId: competence.id, oldMax, newMax,
+      });
+    }
+    toast.success(
+      (newMax === APC_MAX
+        ? t(`Barème officiel rétabli (/${APC_MAX}).`, `Official scale restored (/${APC_MAX}).`)
+        : t(`Barème /${newMax} enregistré.`, `Scale /${newMax} saved.`))
+      + (converted ? t(` ${converted} note(s) converties.`, ` ${converted} mark(s) converted.`) : ''),
+    );
+  };
+
   // ── Rendus d'états vides ─────────────────────────────────────────────────────
   if (!referentiel) {
     return (
       <div className="p-8 text-center text-gray-500">
         {t('Chargement du référentiel APC…', 'Loading APC framework…')}
+      </div>
+    );
+  }
+  if (subjectScoped && sortedClasses.length === 0) {
+    return (
+      <div className="p-8 text-center text-gray-500">
+        {t(
+          'Aucune matière du premier cycle (6e–3e) ne vous est affectée. Demandez à l’administration de vous affecter vos matières dans Matières.',
+          'No first-cycle (6e–3e) subject is assigned to you. Ask the administration to assign your subjects in Subjects.',
+        )}
       </div>
     );
   }
@@ -225,33 +313,64 @@ export default function ApcCompetenceWorkspace() {
       <div className="text-xs text-gray-500">
         {t('Trimestre', 'Term')} {trimestreId?.replace('t', '')} · {t('Coef matière', 'Subject coef')} {matiereCoef} · {' '}
         {t('compétences héritées par les deux séquences du trimestre', 'competencies shared by both sequences of the term')}
+        {' · '}
+        {t(
+          'barème de saisie modifiable dans chaque en-tête — la moyenne reste sur /20',
+          'entry scale editable in each header — the average stays out of 20',
+        )}
         {locked && <span className="ml-2 text-amber-600 font-medium">· {t('Séquence verrouillée (lecture seule)', 'Sequence locked (read-only)')}</span>}
       </div>
 
+      {/* Chaque en-tête de colonne exportée porte son barème : un classeur qui ne
+          dit pas sur quoi l'on saisit revient rempli sur une échelle qu'on ne peut
+          plus deviner. */}
       {competences.length > 0 && classStudents.length > 0 && (
         <CompetenceGradeIO
           filename={`notes_${(matieres.find((m) => m.id === matiereId)?.nom || 'matiere').replace(/[\\/:*?"<>|]/g, '-')}_${selectedClass?.name || ''}_S${sequence}`}
           sheetName={`${t('Séquence', 'Sequence')} ${sequence}`}
           students={classStudents}
-          columns={competences.map((c) => ({ id: c.id, label: c.intitule }))}
+          columns={competences.map((c) => ({ id: c.id, label: `${c.intitule} /${apcNoteMax(c)}` }))}
           getCell={(sid, cid) => { const r = recordFor(sid, cid); return r?.note != null ? String(r.note) : ''; }}
           computed={[
             { label: 'M/20', get: (sid) => studentAvg(sid) ?? '' },
             { label: t('Cote', 'Grade'), get: (sid) => apcCote(studentAvg(sid)).code },
           ]}
-          normalize={(raw) => validateGrade(raw, APC_MAX)}
+          normalize={(raw, cid) => validateGrade(raw, apcNoteMax(competences.find((c) => c.id === cid)))}
           onImport={(sid, cid, v) => saveCell(sid, cid, { note: v })}
           disabled={locked}
-          valueHint="/20"
+          valueHint={competences.some((c) => apcNoteMax(c) !== APC_MAX)
+            ? t('barème indiqué dans chaque en-tête', 'scale shown in each header')
+            : `/${APC_MAX}`}
         />
       )}
 
       {matieres.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
-          {t(
-            'Aucune compétence officielle pour cette classe et ce trimestre. Importez un référentiel MINESEC.',
-            'No official competency for this class and term. Import a MINESEC framework.',
-          )}
+          {matieresOrphelines.length > 0
+            ? (
+              <>
+                {t(
+                  'Ces matières qui vous sont affectées ne correspondent à aucune matière du référentiel officiel : ',
+                  'These subjects assigned to you match no subject of the official framework: ',
+                )}
+                <span className="font-medium text-gray-700">
+                  {[...new Set(matieresOrphelines.map((m) => m.name))].join(', ')}
+                </span>
+                {t(
+                  '. Vérifiez leur orthographe dans Matières — le rapprochement se fait sur le nom.',
+                  '. Check their spelling in Subjects — the match is made on the name.',
+                )}
+              </>
+            )
+            : subjectScoped
+            ? t(
+              'Aucune de vos matières n’a de compétence officielle pour cette classe et ce trimestre.',
+              'None of your subjects has an official competency for this class and term.',
+            )
+            : t(
+              'Aucune compétence officielle pour cette classe et ce trimestre. Importez un référentiel MINESEC.',
+              'No official competency for this class and term. Import a MINESEC framework.',
+            )}
         </div>
       ) : competences.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
@@ -271,7 +390,18 @@ export default function ApcCompetenceWorkspace() {
                 </th>
                 {competences.map((c) => (
                   <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600 max-w-[16rem]" title={c.intitule}>
-                    <span className="block text-[11px] text-gray-400">{t('Comp.', 'Comp.')} {c.ordre}</span>
+                    <span className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                      <span>{t('Comp.', 'Comp.')} {c.ordre}</span>
+                      {/* Le barème de la colonne se change ICI, là où l'on saisit. */}
+                      <BaremeChip
+                        value={apcNoteMax(c)}
+                        officialMax={APC_MAX}
+                        label={c.intitule}
+                        noteCount={countNotesForBareme({ engine: 'apc', competenceId: c.id })}
+                        disabled={locked}
+                        onSave={(max, opts) => changeBareme(c, max, opts)}
+                      />
+                    </span>
                     <span className="block truncate">{c.intitule}</span>
                   </th>
                 ))}
@@ -289,7 +419,8 @@ export default function ApcCompetenceWorkspace() {
                     const rec = recordFor(stu.id, c.id);
                     return (
                       <td key={c.id} className="px-3 py-1.5">
-                        <NoteCell value={rec?.note != null ? String(rec.note) : ''} disabled={locked}
+                        <NoteCell value={rec?.note != null ? String(rec.note) : ''}
+                          max={apcNoteMax(c)} disabled={locked}
                           onCommit={(v) => saveCell(stu.id, c.id, { note: v })} />
                       </td>
                     );

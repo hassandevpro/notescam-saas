@@ -15,6 +15,8 @@
 //   sequence   = { id, numero, trimestre_id }
 //   notes      = { [competence_id]: <nombre> }   (pour un élève × une séquence)
 
+import { toApc20 } from './baremeOverride.js';
+
 // --- Cotes officielles MINESEC (colonne « COTE » du bulletin APC) --------------
 // 5 niveaux : CTBA / CBA / CA / CMA / CNA. Source unique pour que Grades.jsx, le
 // moteur et le PDF restent cohérents. Bornes sur /20 (colonne « [Min – Max] ») —
@@ -111,10 +113,16 @@ const _num = (v) => {
 // --- Moyenne d'une matière ----------------------------------------------------
 // Moyenne (pondérée par competence.coefficient, défaut 1) des compétences NOTÉES
 // de la matière. Les compétences sans note sont ignorées. Renvoie null si aucune.
+//
+// Chaque note est d'abord RAMENÉE À /20. Une compétence peut porter un barème de
+// saisie propre (`note_max`, fixé par l'enseignant dans l'écran de saisie — cf.
+// core/baremeOverride.js) : sans cette remise à l’échelle, une dictée notée /10
+// compterait comme une note /20 et effondrerait la moyenne. Sans surcharge,
+// `toApc20` renvoie la note telle quelle.
 export const matiereAverage = (notes, competences) => {
   let sw = 0, tc = 0;
   for (const c of competences || []) {
-    const n = _num(notes?.[c.id]);
+    const n = _num(toApc20(notes?.[c.id], c));
     if (n === null) continue;
     const coef = c.coefficient == null ? 1 : Number(c.coefficient) || 1;
     sw += n * coef;

@@ -8,6 +8,7 @@ import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
+import { isSubjectScoped } from '../lib/teacherScope';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,11 @@ const _statsCache  = {};
 function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
   const t          = useT();
   const userId     = useAuthStore((s) => s.userId);
+  const role       = useAuthStore((s) => s.role);
+  const school     = useAuthStore((s) => s.school);
+  const teacherId  = useAuthStore((s) => s.teacherId);
+  // Mode 1 : un enseignant de matière ne pointe l'appel que sur SES heures.
+  const subjectScoped = isSubjectScoped(role, school);
 
   const classId    = useUiStore((s) => s.absencesClassId);
   const setClassId    = useUiStore((s) => s.setAbsencesClassId);
@@ -67,9 +73,10 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
     !classId ? [] : students.filter((s) => s.class_id === classId),
   [students, classId]);
 
-  const classSubjects = useMemo(() =>
-    subjects.filter((s) => !s.class_id || s.class_id === classId),
-  [subjects, classId]);
+  const classSubjects = useMemo(() => {
+    const list = subjects.filter((s) => !s.class_id || s.class_id === classId);
+    return subjectScoped ? list.filter((s) => s.teacher_id === teacherId) : list;
+  }, [subjects, classId, subjectScoped, teacherId]);
 
   const loadExisting = useCallback(async () => {
     if (!classId || !date) return;

@@ -20,15 +20,27 @@ import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
-import { gradeEntryMode } from '../../lib/useCountry';
+import { isSubjectScoped } from '../../lib/teacherScope';
+import {
+  competenceIdsForTeacher, unresolvedSubjectsForTeacher,
+} from '../../core/primCompetenceMatch';
 import { primNkey } from '../../lib/primService';
 import { resolveClassEngine, primaireNiveauSlug } from '../../core/engineResolver';
+// Le référentiel national est stocké en français : une classe du secteur
+// anglophone voit ses compétences et ses critères en anglais, ici comme sur son
+// bulletin.
+import { primCompetenceLabel, primCritereLabel } from '../../core/referentielI18n';
 import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal, primCote,
   trimestreOfUA, PRIM_COTE_DEFAULT,
 } from '../../core/primEngine';
+// Barème de saisie : l'enseignant note l'Oral sur 10 et l'Écrit sur 30 s'il le
+// veut — le total et la cote restent des ratios, donc justes dans tous les cas.
+import { primOfficialMax } from '../../core/baremeOverride';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
+import BaremeChip from './BaremeChip';
+import { toast } from '../../store/toastStore';
 
 // ── Cellule note (bornée au barème /points_max du critère) ─────────────────────
 function NoteCell({ value, max, disabled, onCommit }) {
@@ -64,8 +76,11 @@ export default function PrimCompetenceWorkspace() {
   const role      = useAuthStore((s) => s.role);
   const teacherId = useAuthStore((s) => s.teacherId);
   // Mode 1 « enseignant de matière » : l'enseignant ne saisit QUE les compétences
-  // qui lui sont affectées (via la matière matérialisée `prim_competence_id`).
-  const isSubjectTeacher = role === 'teacher' && gradeEntryMode(school) === 'subject';
+  // qui lui sont affectées. Le rattachement passe par `prim_competence_id` quand
+  // il existe, sinon par le NOM de la matière (voir primCompetenceMatch) : exiger
+  // le lien rendait l'écran vide dans toute école ayant saisi son primaire à la
+  // main — c'est-à-dire la majorité.
+  const isSubjectTeacher = isSubjectScoped(role, school);
 
   const classes     = useSchoolStore((s) => s.classes);
   const subjects    = useSchoolStore((s) => s.subjects);
@@ -74,6 +89,9 @@ export default function PrimCompetenceWorkspace() {
   const primNotes   = useSchoolStore((s) => s.primNotes);
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
+  const saveBareme     = useSchoolStore((s) => s.saveBareme);
+  const countNotesForBareme   = useSchoolStore((s) => s.countNotesForBareme);
+  const rescaleNotesForBareme = useSchoolStore((s) => s.rescaleNotesForBareme);
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
@@ -86,14 +104,21 @@ export default function PrimCompetenceWorkspace() {
 
   // Classes primaire APC. En Mode 1, on restreint aux classes où l'enseignant a
   // au moins une compétence affectée.
+  const primClassesAll = useMemo(
+    () => classes.filter((c) => resolveClassEngine(school, c) === 'apc_primaire'),
+    [classes, school],
+  );
+
   const primClasses = useMemo(() => {
-    let list = classes.filter((c) => resolveClassEngine(school, c) === 'apc_primaire');
+    let list = primClassesAll;
     if (isSubjectTeacher) {
-      const ids = new Set(subjects.filter((s) => s.teacher_id === teacherId && s.prim_competence_id).map((s) => s.class_id));
-      list = list.filter((c) => ids.has(c.id));
+      const comps = referentiel?.competences || [];
+      list = list.filter(
+        (c) => competenceIdsForTeacher(subjects, teacherId, c.id, comps).size > 0,
+      );
     }
-    return list.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
-  }, [classes, school, isSubjectTeacher, subjects, teacherId]);
+    return list.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
+  }, [primClassesAll, isSubjectTeacher, subjects, teacherId, referentiel]);
   useEffect(() => {
     if (primClasses.length && !primClasses.some((c) => c.id === classId)) setClassId(primClasses[0].id);
   }, [primClasses, classId]);
@@ -101,17 +126,17 @@ export default function PrimCompetenceWorkspace() {
   const selectedClass = primClasses.find((c) => c.id === classId) || null;
   const niveauSlug = selectedClass ? primaireNiveauSlug(selectedClass.level, selectedClass.name) : null;
 
+  const sys = selectedClass?.system || 'FR';
+
   const competences = useMemo(() => {
     if (!referentiel || !niveauSlug) return [];
-    const all = competencesForNiveau(referentiel, niveauSlug);
+    const all = competencesForNiveau(referentiel, niveauSlug)
+      .map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) }));
     if (!isSubjectTeacher) return all;
-    // Mode 1 : ne garder que les compétences affectées à l'enseignant sur cette classe.
-    const mine = new Set(
-      subjects.filter((s) => s.class_id === classId && s.teacher_id === teacherId && s.prim_competence_id)
-        .map((s) => s.prim_competence_id),
-    );
+    // Mode 1 : ne garder que les compétences couvertes par mes matières.
+    const mine = competenceIdsForTeacher(subjects, teacherId, classId, referentiel?.competences || []);
     return all.filter((c) => mine.has(c.id));
-  }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId]);
+  }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId, sys]);
 
   useEffect(() => {
     if (competences.length && !competences.some((c) => c.id === competenceId)) setCompetenceId(competences[0].id);
@@ -125,8 +150,12 @@ export default function PrimCompetenceWorkspace() {
   // Colonnes de critères pour la compétence sélectionnée. Pour '6a' (sport), le
   // barème dépend de l'aptitude — on affiche l'UNION apte/inapte (la colonne
   // "Pratique" sera grisée ligne par ligne pour un élève inapte, cf. criteresForStudent).
-  const criteresApte   = niveauSlug ? criteresForCompetence(referentiel, niveauSlug, competenceId, 'apte')   : [];
-  const criteresInapte = niveauSlug ? criteresForCompetence(referentiel, niveauSlug, competenceId, 'inapte') : [];
+  const critereRows = (aptitude) => (niveauSlug
+    ? criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude)
+      .map((cr) => ({ ...cr, nom: primCritereLabel(cr, sys) }))
+    : []);
+  const criteresApte   = critereRows('apte');
+  const criteresInapte = critereRows('inapte');
   const criteres = useMemo(() => {
     if (competenceId !== '6a') return criteresApte;
     const byId = new Map(criteresApte.map((c) => [c.id, c]));
@@ -152,6 +181,30 @@ export default function PrimCompetenceWorkspace() {
   };
   const competenceTotal = (stu) => competencePointsTotal(notesByCritereFor(stu.id), criteresForStudent(stu));
 
+  // Changement de barème d'un critère (Oral, Écrit, Pratique, Savoir-être) pour la
+  // compétence affichée. La surcharge porte sur le NIVEAU (tous les CM2) et non sur
+  // la classe : deux classes parallèles doivent rester comparables (baremeOverride.js).
+  const changeBareme = async (critere, newMax, { convertir }) => {
+    const oldMax = Number(critere.points_max);
+    const res = await saveBareme({
+      engine: 'prim', niveauSlug, competenceId, critereId: critere.id,
+      pointsMax: newMax, officialMax: primOfficialMax(critere),
+    });
+    if (res?.error) { toast.error(res.error); return; }
+    let converted = 0;
+    if (convertir) {
+      converted = await rescaleNotesForBareme({
+        engine: 'prim', competenceId, critereId: critere.id, oldMax, newMax,
+      });
+    }
+    toast.success(
+      (newMax === primOfficialMax(critere)
+        ? t(`Barème officiel rétabli (${critere.nom} /${newMax}).`, `Official scale restored (${critere.nom} /${newMax}).`)
+        : t(`${critere.nom} : barème /${newMax} enregistré.`, `${critere.nom}: scale /${newMax} saved.`))
+      + (converted ? t(` ${converted} note(s) converties.`, ` ${converted} mark(s) converted.`) : ''),
+    );
+  };
+
   function renderClassPicker() {
     return (
       <select value={classId || ''} onChange={(e) => setClassId(e.target.value)}
@@ -172,7 +225,38 @@ export default function PrimCompetenceWorkspace() {
     return <div className="p-4 md:p-6"><div>{BackBtn}</div><div className="p-8 text-center text-gray-500">{t('Chargement du référentiel primaire APC…', 'Loading primary APC framework…')}</div></div>;
   }
   if (!primClasses.length) {
-    return <div className="p-4 md:p-6"><div>{BackBtn}</div><div className="p-8 text-center text-gray-500">{t('Aucune classe primaire (SIL–CM2).', 'No primary class (SIL–CM2).')}</div></div>;
+    const orphelines = isSubjectTeacher
+      ? unresolvedSubjectsForTeacher(subjects, teacherId, null, referentiel?.competences || [])
+      : [];
+    return (
+      <div className="p-4 md:p-6">
+        <div>{BackBtn}</div>
+        <div className="p-8 text-center text-gray-500">
+          {orphelines.length > 0
+            ? (
+              <>
+                {t(
+                  'Aucune de vos matières ne se rattache à une compétence nationale (1A–6B) : ',
+                  'None of your subjects maps to a national competency (1A–6B): ',
+                )}
+                <span className="font-medium text-gray-700">
+                  {[...new Set(orphelines.map((m) => m.name))].join(', ')}
+                </span>
+                {t(
+                  '. Demandez à l’administration de les renommer selon le référentiel, ou de vous affecter les matières que vous enseignez réellement.',
+                  '. Ask the administration to rename them after the framework, or to assign you the subjects you actually teach.',
+                )}
+              </>
+            )
+            : isSubjectTeacher && primClassesAll.length > 0
+            ? t(
+              'Aucune matière du primaire ne vous est affectée. Demandez à l’administration de vous affecter vos matières.',
+              'No primary subject is assigned to you. Ask the administration to assign your subjects.',
+            )
+            : t('Aucune classe primaire (SIL–CM2).', 'No primary class (SIL–CM2).')}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -213,6 +297,11 @@ export default function PrimCompetenceWorkspace() {
       <div className="text-xs text-gray-500">
         {t('Barème officiel par critère (points) — variable selon la compétence · le total et la cote se calculent sur les critères déjà saisis.',
            'Official per-criterion scale (points) — varies by competency · total and grade are computed from criteria already entered.')}
+        {' '}
+        {t(
+          'Vous pouvez changer le barème d’un critère sous son nom (Oral, Écrit…) : le total suit.',
+          'You can change a criterion’s scale under its name (Oral, Written…): the total follows.',
+        )}
       </div>
 
       {niveauSlug && criteres.length > 0 && classStudents.length > 0 && (
@@ -254,7 +343,14 @@ export default function PrimCompetenceWorkspace() {
                 {criteres.map((c) => (
                   <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600">
                     <span className="block truncate">{c.nom}</span>
-                    <span className="block text-[11px] text-gray-400">/{c.points_max}</span>
+                    {/* Le barème du critère se change ICI, là où l'on saisit. */}
+                    <BaremeChip
+                      value={c.points_max}
+                      officialMax={primOfficialMax(c)}
+                      label={`${competences.find((x) => x.id === competenceId)?.code || ''} — ${c.nom}`}
+                      noteCount={countNotesForBareme({ engine: 'prim', competenceId, critereId: c.id })}
+                      onSave={(max, opts) => changeBareme(c, max, opts)}
+                    />
                   </th>
                 ))}
                 <th className="px-3 py-2 text-left font-medium text-gray-600">{t('Total · Cote', 'Total · Grade')}</th>

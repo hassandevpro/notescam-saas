@@ -47,15 +47,33 @@ function withTimeout(promise, label, ms = NET_TIMEOUT_MS) {
 //   - applied_decisions / applied_budget_ops : registres d'idempotence LOCAUX (sans school_id) ;
 //   - tables locales (license_activation, migration_state, pwd_mirror_queue, …).
 export const PUSH_ORDER = [
+  // ORDRE FK-SAFE, vérifié contre le graphe réel des clés étrangères du cloud
+  // (245 FK inter-tables). Un parent doit TOUJOURS précéder ses enfants : les
+  // quatre inversions historiques ci-dessous ne cassaient que les écoles qui
+  // exerçaient la relation concernée, d'où des bugs longtemps invisibles.
+  //   • teachers AVANT classes/subjects        (FK teacher_id)
+  //   • student_class_assignments AVANT grades, student_fees, student_absences
+  //   • student_fee_items AVANT fee_payments   (FK student_fee_item_id)
+
   // Structure de base
-  'academic_periods', 'school_units', 'classes', 'subjects', 'students', 'teachers', 'staff', 'grades',
-  'student_fees', 'class_fee_grids', 'fee_payments', 'attendance', 'student_absences',
-  'student_class_assignments', 'school_messages', 'teacher_notifications',
-  'sequence_dates', 'timetable_slots',
+  'academic_periods', 'school_units', 'teachers', 'classes', 'subjects', 'students', 'staff',
+  // Affectations de classe, puis tout ce qui s'y rattache
+  'student_class_assignments', 'grades',
+  // Frais : catalogue → lignes dues → encaissements
+  'student_fees', 'class_fee_grids', 'fee_catalog', 'student_fee_items', 'fee_payments',
+  // Présences et vie de classe
+  'attendance', 'student_absences',
+  'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
   // Notes du moteur officiel (référentiels déjà en cloud)
   'apc_notes', 'mat_observations', 'prim_notes',
-  // Catalogue de frais + arrêtés de caisse
-  'fee_catalog', 'student_fee_items', 'cash_sessions',
+  // Barème de saisie fixé par l'enseignant. Il voyage avec les notes : sans lui,
+  // une compétence saisie sur /10 serait relue sur /20 de l'autre côté. Les ids
+  // de PRIMAIRE sont des slugs stables ('1a', 'oral') et se retrouvent donc tels
+  // quels ; un id de compétence APC (uuid) qui ne correspond à rien de l'autre
+  // côté est simplement ignoré à la lecture (aucune FK, aucune ligne cassée).
+  'bareme_notes',
+  // Arrêtés de caisse
+  'cash_sessions',
   // Budgets V3 (ordre FK)
   'budgets', 'budget_periods', 'budget_chapters',
   'budget_line_periods', 'budget_line_sectors',
@@ -63,6 +81,8 @@ export const PUSH_ORDER = [
   'budget_reallocations', 'budget_revisions', 'budget_line_reallocations',
   // Ressources humaines
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
+  // Paie : catalogue + bulletins AVANT les lignes de bulletin (FK).
+  'hr_payroll_catalog', 'hr_payroll', 'hr_payroll_items',
   // Gouvernance
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   // Immobilisations
@@ -81,7 +101,35 @@ export const PUSH_ORDER = [
 // Journal d'événements : l'insertion directe peut être bloquée par la RLS du cloud
 // (réservée à kernel_emit/service_role). On la traite en BEST-EFFORT : une erreur
 // journalise + saute la table, sans casser toute l'activation.
-const BEST_EFFORT_TABLES = new Set(['domain_events', 'audit_events']);
+const BEST_EFFORT_TABLES = new Set([
+  'domain_events', 'audit_events',
+  // MODULE BUDGETS ENTIER. budgets / budget_chapters / budget_line_* portent une
+  // GARDE MÉTIER qui s'auto-désactive pour le service_role (`IF auth.uid() IS NULL
+  // THEN RETURN NEW` — budget_chapter_activate_guard, budget_alloc_freeze,
+  // budget_active_lock). Ce push-ci s'exécute avec le JWT de l'admin : auth.uid()
+  // est renseigné, la garde s'applique et refuse une ligne ACTIVE dont les
+  // allocations ne sont pas encore poussées — or la FK impose de les pousser APRÈS.
+  // Impasse structurelle du chargement en masse, pas une erreur de données.
+  // Le reste du module suit par dépendance FK (tout référence budget_chapters).
+  // La synchro continue les porte via sync-push, en service_role, sans garde.
+  'budgets', 'budget_periods', 'budget_chapters',
+  'budget_line_periods', 'budget_line_sectors',
+  'budget_expenses', 'budget_unlock_requests',
+  'budget_reallocations', 'budget_revisions', 'budget_line_reallocations',
+  // GOUVERNANCE : RLS active, policy de SELECT seulement — aucune policy INSERT.
+  // L'écriture est réservée au service_role par conception (attribuer un rôle de
+  // gouvernance n'est pas une écriture applicative ordinaire). Le JWT de l'admin
+  // se heurte donc à « new row violates row-level security policy », quoi qu'il
+  // pousse. Portées elles aussi par la synchro continue.
+  'governance_roles', 'user_governance_roles', 'governance_role_history',
+]);
+
+// Tables APPEND-ONLY côté cloud : INSERT accordé, UPDATE RÉVOQUÉ (caisse
+// infalsifiable — un paiement encaissé ne se modifie jamais). L'upsert par défaut
+// génère un ON CONFLICT DO UPDATE, refusé par ce grant : « permission denied for
+// table fee_payments ». On y pousse en ON CONFLICT DO NOTHING (ignoreDuplicates),
+// qui ne demande que l'INSERT et reste idempotent à la reprise.
+const APPEND_ONLY_TABLES = new Set(['fee_payments']);
 
 // Colonnes jsonb côté cloud, stockées en TEXT (JSON) côté LAN : on les REPARSE en
 // objet avant l'upsert (sinon Postgres stocke une chaîne JSON scalaire, pas un tableau).
@@ -259,8 +307,12 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
     let pushedThisTable = 0;
     let skipped = false;
     for (let i = 0; i < rows.length; i += CHUNK) {
-      const batch = rows.slice(i, i + CHUNK).map((r) => stripLocalOnly(remapUserRefs(r), table));
-      const { error } = await supa.from(table).upsert(batch, { onConflict });
+      const batch = dropAllNullColumns(
+        rows.slice(i, i + CHUNK).map((r) => stripLocalOnly(remapUserRefs(r), table)),
+      );
+      const { error } = await supa.from(table).upsert(batch, {
+        onConflict, ignoreDuplicates: APPEND_ONLY_TABLES.has(table),
+      });
       if (error) {
         // Table absente côté cloud, OU table best-effort (journal d'événements dont
         // l'insertion directe est bloquée par la RLS) → SKIP journalisé, sans casser le job.
@@ -298,6 +350,24 @@ export async function runCloudActivation({ url, anonKey, email, password, onProg
 
 // Prépare une ligne pour l'upsert cloud : retire les colonnes locales absentes du
 // cloud, et REPARSE les colonnes jsonb (stockées en TEXT côté LAN) en objet.
+// Retire les colonnes NULLES DANS TOUTES les lignes du lot. Un null explicite
+// court-circuite le DEFAULT de Postgres : student_class_assignments.created_at est
+// NOT NULL DEFAULT now() côté cloud alors que le LAN ne la remplit pas — le push
+// échouait sur « null value violates not-null constraint ». Même raisonnement que
+// pour `schoolPayload` plus haut. PostgREST impose des clés IDENTIQUES au sein d'un
+// même lot : on ne peut donc retirer que les colonnes nulles PARTOUT, ce qui préserve
+// les nulls porteurs de sens (une colonne renseignée ailleurs dans le lot est gardée).
+function dropAllNullColumns(rows) {
+  if (!rows.length) return rows;
+  const drop = Object.keys(rows[0]).filter((k) => rows.every((r) => r[k] === null || r[k] === undefined));
+  if (!drop.length) return rows;
+  return rows.map((r) => {
+    const o = { ...r };
+    for (const k of drop) delete o[k];
+    return o;
+  });
+}
+
 function stripLocalOnly(row, table) {
   const r = { ...row };
   delete r.updated_at; // certaines tables locales l'ont en DEFAULT ; laissé au cloud

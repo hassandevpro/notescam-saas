@@ -34,6 +34,13 @@ import {
 } from '../core/primEngine.js';
 import { MAT_ACQUIS_CODES, MAT_ACQUIS_LABELS, dominantAcquis } from '../core/matEngine.js';
 import { firstCycleClasseSlug, primaireNiveauSlug } from '../core/engineResolver.js';
+// Les intitulés du référentiel officiel (domaines du préscolaire, compétences
+// nationales du primaire, matières du premier cycle) sont stockés en français
+// pour tout le pays : sur une classe du secteur anglophone, on les rend en
+// anglais, comme le fait déjà le cadre du document.
+import {
+  matDomaineLabel, matAcquisLabel, primCompetenceLabel, apcMatiereLabel,
+} from '../core/referentielI18n.js';
 
 // Clés transactionnelles locales. Définitions canoniques : `apcService.noteNkey`,
 // `primService.primNkey`, `matService.obsNkey` — reprises ici parce que ces
@@ -193,7 +200,7 @@ function apcMatiereAvg({ referentiel, apcNotes, classeSlug, trimestreId, seqIds,
   return { moyenne: matiereAverage(notesByComp, comps), comps };
 }
 
-function apcReport({ cls, students, period, apcNotes, apcReferentiel, gradeScale, scaleMax, passThreshold }) {
+function apcReport({ cls, students, period, apcNotes, apcReferentiel, gradeScale, scaleMax, passThreshold, sys }) {
   const classeSlug = firstCycleClasseSlug(cls?.level, cls?.name);
   if (!apcReferentiel) return notReady(REPORT_KIND.NUMERIC, 'referentiel', scaleMax, passThreshold);
   if (!classeSlug)     return notReady(REPORT_KIND.NUMERIC, 'classe', scaleMax, passThreshold);
@@ -211,7 +218,7 @@ function apcReport({ cls, students, period, apcNotes, apcReferentiel, gradeScale
       if (colById.has(m.id)) continue;
       if (!competencesFor(apcReferentiel.competences, { classeId: classeSlug, trimestreId: tid, matiereId: m.id }).length) continue;
       colById.set(m.id, {
-        id: m.id, name: m.nom, max: scaleMax,
+        id: m.id, name: apcMatiereLabel(m, sys), max: scaleMax,
         coef: coefFor(apcReferentiel.classeMatieres, classeSlug, m),
       });
     }
@@ -271,7 +278,7 @@ function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas
   return round2((pcts.reduce((a, b) => a + b, 0) / pcts.length) / 100 * PRIM_GRADE_MAX);
 }
 
-function primReport({ cls, students, period, primNotes, primReferentiel }) {
+function primReport({ cls, students, period, primNotes, primReferentiel, sys }) {
   const scaleMax = PRIM_GRADE_MAX;
   const passThreshold = PRIM_GRADE_MAX / 2;
   const niveauSlug = primaireNiveauSlug(cls?.level, cls?.name);
@@ -287,7 +294,7 @@ function primReport({ cls, students, period, primNotes, primReferentiel }) {
   const comps = competencesForNiveau(primReferentiel, niveauSlug);
   const columns = comps.map((c) => ({
     id: c.id,
-    name: c.code ? `${c.code} — ${c.intitule}` : c.intitule,
+    name: c.code ? `${c.code} — ${primCompetenceLabel(c, sys)}` : primCompetenceLabel(c, sys),
     coef: c.coefficient == null ? 1 : Number(c.coefficient) || 1,
     max: scaleMax,
   }));
@@ -327,10 +334,17 @@ function primReport({ cls, students, period, primNotes, primReferentiel }) {
 // Le préscolaire n'a NI note, NI moyenne, NI rang (cf. matEngine). Le rapport de
 // classe y répond à une autre question : « où en est l'acquisition ? ». On compte
 // donc des niveaux, par domaine et pour la classe.
-function maternelleReport({ students, subjects, period, matObservations }) {
+function maternelleReport({ students, subjects, period, matObservations, sys }) {
+  // Le nom de la matière matérialisée porte l'intitulé FRANÇAIS du domaine (posé à
+  // l'auto-configuration de la classe) : on repasse par `mat_domaine_id` pour le
+  // rendre dans le système de la classe.
   const columns = subjects
     .filter((s) => s.mat_domaine_id)
-    .map((s) => ({ id: s.mat_domaine_id, name: s.name, coef: s.coef, max: null, sub: s }));
+    .map((s) => ({
+      id: s.mat_domaine_id,
+      name: matDomaineLabel({ id: s.mat_domaine_id, intitule: s.name }, sys),
+      coef: s.coef, max: null, sub: s,
+    }));
 
   // Période fondamentale : `seqs` porte le(s) trimestre(s) (1..3).
   const trims = (period.seqs || [1]);
@@ -361,7 +375,7 @@ function maternelleReport({ students, subjects, period, matObservations }) {
     return {
       student, scores: {}, cotes, avg: null, rank: null,
       cote: dominant,
-      appreciation: dominant ? MAT_ACQUIS_LABELS[dominant] : '',
+      appreciation: dominant ? matAcquisLabel(dominant, MAT_ACQUIS_LABELS[dominant], sys) : '',
       ratedCount: observed.length,
     };
   });
@@ -383,7 +397,7 @@ function maternelleReport({ students, subjects, period, matObservations }) {
     classStats: { total: students.length, counts: classCounts, rated, expected },
     distribution: MAT_ACQUIS_CODES.map((code) => ({
       label: code,
-      libelle: MAT_ACQUIS_LABELS[code],
+      libelle: matAcquisLabel(code, MAT_ACQUIS_LABELS[code], sys),
       count: classCounts[code],
       pct: rated ? Math.round((classCounts[code] / rated) * 100) : 0,
     })),

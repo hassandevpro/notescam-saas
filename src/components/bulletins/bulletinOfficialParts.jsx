@@ -225,23 +225,25 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
 }
 
 // ── Numéro de page (par ÉLÈVE) : « Page X sur Y » ─────────────────────────────
-export function PageNumber({ n, total }) {
+// Dernière ligne du document, donc dernière ligne à rester française sur un
+// bulletin anglophone : elle suit le système de la classe comme tout le reste.
+export function PageNumber({ n, total, sys }) {
   if (!total) return null;
   return (
     <div className="apc-pagenum" style={{ textAlign: 'center', fontSize: '8.5pt', color: '#6b7280', marginTop: 5, paddingTop: 3, borderTop: '1px solid #e5e7eb' }}>
-      Page {n} sur {total}
+      {L(sys, `Page ${n} sur ${total}`, `Page ${n} of ${total}`, `Página ${n} de ${total}`)}
     </div>
   );
 }
 
 // ── Feuille A4 officielle = une page physique ─────────────────────────────────
-export function OfficialSheet({ school, pageNo, total, pt = 10, children }) {
+export function OfficialSheet({ school, pageNo, total, pt = 10, sys, children }) {
   return (
     <div className="bulletin-paper apc-sheet" style={{ position: 'relative', fontFamily: bulletinFontFamily(school), fontSize: `${pt}pt`, color: '#111' }}>
       <OfficialWatermark src={school?.logo_url} />
       <div style={{ position: 'relative', zIndex: 1 }}>
         {children}
-        <PageNumber n={pageNo} total={total} />
+        <PageNumber n={pageNo} total={total} sys={sys} />
       </div>
     </div>
   );

@@ -29,6 +29,10 @@ ON CONFLICT (id) DO UPDATE SET nom = EXCLUDED.nom, niveau = EXCLUDED.niveau, cyc
 --    vs 'anglais'…). Coefficients indicatifs, ajustables via l'import de l'école.
 --    `optionnelle = true` ⇒ activée selon l'établissement (langues, matières de
 --    spécialité). Réutilise le même barème/logique que le seed francophone.
+--    Les six dernières (arts → chinese) existaient au premier cycle francophone
+--    sans équivalent anglophone : sans elles, un pivot CBA ne pouvait pas les
+--    référencer et le bulletin anglophone retombait sur le slug français — donc
+--    sur un nom de matière français.
 INSERT INTO public.apc_matieres (id, nom, coefficient, optionnelle, ordre) VALUES
   ('english',            'English Language',        4, false, 1010),
   ('french',             'French',                  3, false, 1020),
@@ -50,7 +54,13 @@ INSERT INTO public.apc_matieres (id, nom, coefficient, optionnelle, ordre) VALUE
   ('national_languages', 'National Languages & Cultures', 1, true, 1180),
   ('german',             'German',                  2, true,  1190),
   ('spanish',            'Spanish',                 2, true,  1200),
-  ('latin',              'Latin (EN)',              2, true,  1210)
+  ('latin',              'Latin (EN)',              2, true,  1210),
+  ('arts',               'Arts and Cultural Education',    1, false, 1220),
+  ('national_cultures',  'National Cultures',              1, false, 1230),
+  ('greek',              'Greek',                          2, true,  1240),
+  ('arabic',             'Arabic',                         2, true,  1250),
+  ('italian',            'Italian',                        2, true,  1260),
+  ('chinese',            'Chinese',                        2, true,  1270)
 ON CONFLICT (id) DO UPDATE
   SET nom = EXCLUDED.nom, coefficient = EXCLUDED.coefficient,
       optionnelle = EXCLUDED.optionnelle, ordre = EXCLUDED.ordre;

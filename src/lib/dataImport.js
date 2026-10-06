@@ -39,6 +39,7 @@ import { getQueueCount } from './sync';
 import { supabase } from './supabase';
 import { gradeEntryToRows } from './schoolService';
 import { useUiStore } from '../store/uiStore';
+import { backendOnline } from './edition';
 import { validateBundle, buildImportRecords } from './dataImportCore';
 
 export { validateBundle } from './dataImportCore';
@@ -100,8 +101,8 @@ export async function importBundle(bundle, { schoolId, flush, onProgress } = {})
   //    en file pour une sync ultérieure.
   // En LAN, le serveur local (localhost) est TOUJOURS joignable même si le poste
   // n'a pas Internet → on ne se fie pas à navigator.onLine, on sync directement.
-  const isLan   = import.meta.env.VITE_EDITION === 'lan';
-  const online  = isLan || (typeof navigator !== 'undefined' && navigator.onLine);
+  // Règle unique de tout le code : lib/edition.js (`backendOnline`).
+  const online  = backendOnline();
   const doFlush = flush ?? online;
   let sync = null;
 

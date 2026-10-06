@@ -167,9 +167,22 @@ export function loadScope(userId) {
   const sections = toList(row.scope_sections);
   const cycles   = toList(row.scope_cycles);
   const classIds = toList(row.scope_class_ids);
-  const global = row.scope_global == null
-    ? (!sections.length && !cycles.length && !classIds.length)  // base non migrée
-    : (row.scope_global === 1 || row.scope_global === true);
+  // PÉRIMÈTRE GLOBAL = explicite (`scope_global`) OU aucun périmètre jamais posé.
+  //
+  // Miroir de supabase_fix_perimetre_mort.sql §2 garde-fou a. Trois listes vides
+  // n'est pas un cloisonnement voulu, c'est un compte NON CONFIGURÉ — et c'est
+  // exactement ce que promet l'écran Périmètre : « tout laisser vide = tout
+  // l'établissement ». Le cloud a reçu ce garde-fou, le serveur LAN non.
+  //
+  // CE QUE ÇA RÉPARE (constaté le 2026-10-01) : `school_users.scope_global` a
+  // pour défaut 0 (db.js) et AUCUNE création de compte ne le renseignait. Le
+  // premier administrateur — celui qui installe l'école — naissait donc aveugle
+  // et se faisait refuser sa toute première classe (« Hors périmètre : cette
+  // donnée appartient à un autre secteur »). Le rattrapage de db.js ne passe
+  // qu'au DÉMARRAGE du serveur : le compte né pendant la session restait aveugle
+  // jusqu'au redémarrage suivant — d'où une panne qui semblait aléatoire.
+  const posed  = sections.length > 0 || cycles.length > 0 || classIds.length > 0;
+  const global = !posed || row.scope_global === 1 || row.scope_global === true;
   return {
     userId, schoolId: row.school_id, sections, cycles, classIds, global,
     role: row.role || null,
@@ -456,7 +469,28 @@ export function allowsClass(scope, classId) {
     if (['maternelle', 'primaire'].includes(cls.section) && scope.cycles.includes('fondamental')) return true;
     if (['premier_cycle', 'second_cycle'].includes(cls.section) && scope.cycles.includes('secondaire')) return true;
   }
+  // Un enseignant atteint TOUJOURS les classes qu'il assure (titulaire ou
+  // matière). Miroir de supabase_fix_perimetre_mort.sql §2 garde-fou b : le
+  // cloisonnement sectoriel n'a jamais eu pour but d'empêcher un professeur de
+  // saisir les notes de SA classe. Hors de ses classes, le cloisonnement
+  // s'applique entièrement.
+  if (teachesClass(scope, classId)) return true;
   return false;
+}
+
+// L'utilisateur assure-t-il cette classe ? Pendant de public.user_teaches_class
+// (supabase_fix_perimetre_mort.sql §1).
+function teachesClass(scope, classId) {
+  if (!scope?.userId || !scope.schoolId || !classId) return false;
+  try {
+    return !!db.prepare(
+      `SELECT 1 FROM teachers t
+        WHERE t.school_id = ? AND t.auth_user_id = ?
+          AND (EXISTS (SELECT 1 FROM classes  c WHERE c.id = ?      AND c.school_id = t.school_id AND c.teacher_id = t.id)
+            OR EXISTS (SELECT 1 FROM subjects s WHERE s.class_id = ? AND s.school_id = t.school_id AND s.teacher_id = t.id))
+        LIMIT 1`,
+    ).get(scope.schoolId, scope.userId, classId, classId);
+  } catch { return false; }
 }
 
 export function allowsStudent(scope, studentId) {
@@ -689,3 +723,73 @@ function matchedRowKeys(op, rule) {
   } catch { /* table sans colonne id : on retombe sur le refus prudent */ }
   throw new Error('Hors périmètre : écriture de masse interdite à un compte sectoriel.');
 }
+
+// ── Écriture de l'établissement : ADMIN uniquement ──────────────────────────
+// Le nom de l'établissement et TOUS les paramètres (type, langue, moteur de
+// bulletin, mode de saisie, calendrier, options avancées…) sont des colonnes de
+// la table `schools`. Le front désactive déjà ces champs hors admin
+// (Settings.jsx : `disabled={!isAdmin}`, onglets `hidden: !isAdmin`), mais rien
+// ne l'imposait CÔTÉ SERVEUR sur l'édition LAN : une requête forgée sur /api/db
+// par un compte enseignant/censeur/surveillant aurait modifié l'école.
+//
+// Cette garde ferme ce contournement. Elle ne touche PAS la création d'école :
+// celle-ci passe par la RPC signup_school_and_admin (server/rpc.js), hors du
+// chemin /api/db gardé ici.
+export function guardSchoolWrite(op, ctx) {
+  if (op.table !== 'schools') return;
+  if (!['insert', 'upsert', 'update', 'delete'].includes(op.action)) return;
+  // Appel INTERNE sans session (amorçage, migrations, seeds de test) : chemin
+  // serveur de confiance. La route HTTP fournit TOUJOURS un userId (sinon 401
+  // avant d'atteindre runQuery), donc un ctx nul n'est jamais une requête
+  // utilisateur — rien à garder.
+  if (!ctx?.userId) return;
+  // Rôle lu DIRECTEMENT, sans passer par loadScope() : cette dernière a un effet
+  // de bord — elle appelle ensureStrictRoleMatrix() et MÉMORISE l'école comme
+  // traitée (scopeGuard `_matrixSeen`). L'invoquer ici, dans la chaîne de gardes
+  // qui précède doUpdate, la déclencherait AVANT que le drapeau strict_role_
+  // enforcement soit écrit — figeant l'école « traitée » à tort et empêchant la
+  // pose ultérieure de la matrice. On ne lit donc que le rôle.
+  const row = db.prepare(
+    'SELECT role FROM school_users WHERE user_id = ? AND active = 1 LIMIT 1',
+  ).get(ctx.userId);
+  // Aucune ligne : installateur non encore rattaché (bootstrap) — comme le
+  // traite guardScopeWrite pour les comptes unscoped. La cible de cette garde,
+  // ce sont les MEMBRES non-admin (enseignant / censeur / surveillant).
+  if (!row) return;
+  if (row.role === 'admin') return;
+  throw new Error("Seul l'administrateur peut modifier les paramètres et le nom de l'établissement.");
+}
+
+// ── Édition RESTREINTE (build « utilisateur ») ──────────────────────────────
+// Deux limites, pilotées par variable d'environnement et posées par le lanceur
+// de l'installateur restreint (packaging/start-server-user.cmd). Non définies
+// = build ADMIN normal, aucune limite. Lues une fois au chargement (l'env est
+// fixé avant le démarrage de node).
+const MAX_CLASSES = (() => {
+  const n = parseInt(process.env.NOTESCAM_MAX_CLASSES || '', 10);
+  return Number.isInteger(n) && n > 0 ? n : null;   // null = illimité
+})();
+
+// Plafonne le NOMBRE de classes d'une école. Ne compte QUE les créations : un
+// upsert qui réécrit une classe déjà existante (édition) passe toujours.
+export function guardClassLimit(op) {
+  if (MAX_CLASSES === null) return;                 // build admin : aucune limite
+  if (op.table !== 'classes') return;
+  if (op.action !== 'insert' && op.action !== 'upsert') return;
+  const rows = Array.isArray(op.values) ? op.values : [op.values];
+  const nouvellesParEcole = new Map();              // créations DANS ce même appel
+  for (const rec of rows) {
+    if (!rec || !rec.school_id) continue;
+    if (rec.id && db.prepare('SELECT 1 FROM classes WHERE id = ?').get(rec.id)) continue; // édition
+    const dejaEnBase = db.prepare('SELECT count(*) AS c FROM classes WHERE school_id = ?').get(rec.school_id).c;
+    const dejaDansAppel = nouvellesParEcole.get(rec.school_id) || 0;
+    if (dejaEnBase + dejaDansAppel >= MAX_CLASSES) {
+      throw new Error(`Cette version est limitée à ${MAX_CLASSES} classes. Contactez l'administrateur de l'établissement.`);
+    }
+    nouvellesParEcole.set(rec.school_id, dejaDansAppel + 1);
+  }
+}
+
+// L'install RESTREINTE est liée à SON école : elle ne peut pas en créer une
+// autre. `signup_school_and_admin` consulte ce drapeau (server/rpc.js).
+export const SCHOOL_CREATION_LOCKED = process.env.NOTESCAM_LOCK_SCHOOL === '1';

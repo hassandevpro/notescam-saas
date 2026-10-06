@@ -116,7 +116,14 @@ Step "Identité de l'application (nom + version)"
   "version": "$AppVersion",
   "type": "module"
 }
-"@ | Set-Content (Join-Path $Stage 'app\package.json') -Encoding utf8
+"@ | ForEach-Object {
+  # Set-Content -Encoding utf8 (PowerShell 5.1) prefixe le fichier d'un BOM UTF-8, et
+  # `JSON.parse` le refuse : appVersion() (server/syncAudit.js) retombait alors sur
+  # « ? », et /api/version, le journal d'audit de synchro et la comparaison de mise
+  # à jour annoncaient « ? » au lieu du numero embarque. On ecrit donc SANS BOM,
+  # comme le heredoc equivalent de packaging/linux/build-package.sh.
+  [IO.File]::WriteAllText((Join-Path $Stage 'app\package.json'), $_, (New-Object Text.UTF8Encoding $false))
+}
 Write-Host "  version embarquée : $AppVersion"
 
 # --- 4. Dépendances runtime du serveur -------------------------------

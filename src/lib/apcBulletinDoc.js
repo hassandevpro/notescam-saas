@@ -15,11 +15,13 @@
 import { sheetOpen, SHEET_CLOSE as SHEET_END, num } from './print/index.js';
 import { officialHeaderHtml, officialSignatureHtml } from './officialDocHeader.js';
 import { noteNkey } from '../core/apcEngine.js';
+import { toApc20 } from '../core/baremeOverride.js';
 import {
   competencesFor, sequencesOfTrimestre, matiereAverage, weightedMatiere,
   generalAverage, apcCoteFromScale, apcBulletinCols, coefFor, APC_COTE_CODES,
 } from '../core/apcEngine.js';
 import { gradeScaleBand, scaleMention } from '../core/bulletinEngine.js';
+import { apcMatiereLabel } from '../core/referentielI18n.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -86,7 +88,11 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
     const compRows = comps.map((c) => {
       const n = compNote(c.id);
       if (n != null) notesByComp[c.id] = n;
-      return { intitule: c.intitule, note: n };
+      // Le bulletin officiel est sur /20. Si l’enseignant a saisi cette
+      // compétence sur un autre barème (core/baremeOverride.js), la colonne
+      // affiche la note RAMENÉE à /20 — pas l’échelle de son épreuve, sinon
+      // le document ne serait plus lisible comme un bulletin MINESEC.
+      return { intitule: c.intitule, note: toApc20(n, c) };
     });
     const moyenne = matiereAverage(notesByComp, comps);
     const coef = coefFor(referentiel.classeMatieres, classeSlug, m);
@@ -94,7 +100,10 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
     // l'école (school.grade_scale) — exactement comme le second cycle.
     const band = gradeScaleBand(moyenne, gradeScale);
     matieres.push({
-      id: m.id, nom: m.nom, coef,
+      // Une classe anglophone qui n'a pas encore importé son référentiel CBA
+      // retombe sur le catalogue francophone : on rend alors le nom de matière en
+      // anglais (le catalogue anglophone, lui, est déjà rédigé en anglais).
+      id: m.id, nom: apcMatiereLabel(m, sys), coef,
       enseignant: teacherByMatiere[m.id] || '',
       competences: compRows,
       moyenne, ponderee: weightedMatiere(moyenne, coef),

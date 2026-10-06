@@ -68,7 +68,7 @@ export default function BulletinApcAnnual({
   );
 
   return (
-    <OfficialSheet school={school} pt={pt} pageNo={1} total={1}>
+    <OfficialSheet school={school} pt={pt} pageNo={1} total={1} sys={sys}>
       <OfficialHeader school={school} sys={sys} title={title} />
       <OfficialIdentity student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} sys={sys} />
 

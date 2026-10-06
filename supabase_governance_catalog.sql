@@ -106,7 +106,10 @@ BEGIN
       '["budget.view","budget.prepare","budget.submit","expense.view","expense.prepare","expense.submit","budget.unlock.request"]',
       '["/app/budgets","/app/budget-global","/app/depenses"]','["budget-global"]','[]'),
     ('caissier','Caissier','Exécute les décaissements',30,'complex',NULL,
-      '["budget.view","expense.view"]','["/app/depenses"]','[]','["expense.pay"]')
+      '["budget.view","expense.view"]',
+      -- Mêmes ONGLETS que le RAF ; pouvoirs inchangés (il paie, il n'approuve pas).
+      '["/app/groupe","/app/reports","/app/budgets","/app/budget-global","/app/depenses"]',
+      '[]','["expense.pay"]')
   ) AS s(code,name,description,rank,scope,sector,permissions,pages,dashboards,workflows)
   ON CONFLICT (school_id, code) DO NOTHING;
 END $$;

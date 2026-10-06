@@ -31,7 +31,8 @@ export default function ExitPermissions() {
       ]}
       rowActions={[
         { label: ['🖨 Imprimer', '🖨 Print'], onClick: (row, ctx) => printExitPermission({
-            school: ctx.school, student: ctx.studentById.get(row.student_id),
+            school: ctx.identityFor(ctx.classById.get(row.class_id)),
+            student: ctx.studentById.get(row.student_id),
             className: ctx.classById.get(row.class_id)?.name, cls: ctx.classById.get(row.class_id),
             permission: row, t: ctx.t,
             typeLabel: labelOf(EXIT_TYPES, row.exit_type, ctx.t),

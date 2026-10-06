@@ -24,6 +24,7 @@ import { setSetting, isCloudSyncEnabled } from './syncFlag.js';
 import { syncHealth, hybridMode } from './syncHealth.js';
 import { attachViaPairing, pairingState } from './pairing.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './cloudEnv.js';
+import { distEdition, wrongEditionPage } from './distEdition.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -504,7 +505,23 @@ app.get('/api/sync/health', async (req, reply) => {
 });
 
 // ====================== STATIC + SPA fallback =========================
-if (existsSync(DIST_DIR)) {
+// Édition du dist servi : un build CLOUD dans dist/ ne parle pas à ce serveur
+// (il parle à Supabase) → on le bloque au lieu de laisser l'école saisir dans le
+// vide. Échappatoire assumée : NOTESCAM_ALLOW_CLOUD_DIST=1 (diagnostic).
+const DIST_EDITION = distEdition(DIST_DIR);
+const DIST_BLOCKED = DIST_EDITION === 'cloud' && process.env.NOTESCAM_ALLOW_CLOUD_DIST !== '1';
+
+if (DIST_BLOCKED) {
+  // L'API reste servie (sauvegardes, mise à jour, diagnostic) ; seule la SPA est
+  // remplacée par la consigne de recompilation.
+  app.register(fastifyStatic, { root: FILES_DIR, prefix: '/files/', decorateReply: false });
+  app.setNotFoundHandler((req, reply) => {
+    if (req.method !== 'GET' || req.url.startsWith('/api') || req.url.startsWith('/files')) {
+      return reply.code(404).send({ error: { message: 'Not found' } });
+    }
+    return reply.code(503).type('text/html').send(wrongEditionPage(DIST_EDITION));
+  });
+} else if (existsSync(DIST_DIR)) {
   app.register(fastifyStatic, { root: DIST_DIR, prefix: '/' });
   app.register(fastifyStatic, { root: FILES_DIR, prefix: '/files/', decorateReply: false });
 
@@ -568,6 +585,17 @@ const start = async () => {
     console.log(`\n  NotesCam LAN — http://localhost:${PORT}`);
     console.log(`  Accessible sur le réseau : http://<IP-du-PC>:${PORT}`);
     console.log(`  Données : ${DATA_DIR}\n`);
+    if (DIST_BLOCKED) {
+      console.error('  ⛔ dist/ est un build CLOUD : l\'application n\'est PAS servie.');
+      console.error('     Cette SPA écrit dans Supabase, pas dans la base de l\'école.');
+      console.error('     Recompiler : npm run build:lan  puis relancer le serveur.\n');
+    } else if (DIST_EDITION === 'cloud') {
+      console.error('  ⚠️  dist/ est un build CLOUD, servi malgré tout (NOTESCAM_ALLOW_CLOUD_DIST=1).');
+      console.error('     Les saisies partiront dans le cloud, pas dans la base locale.\n');
+    } else if (DIST_EDITION === 'unknown') {
+      console.log('  ℹ️  dist/ sans estampille d\'édition (build antérieur) — recompiler avec');
+      console.log('     npm run build:lan lèvera le doute.\n');
+    }
   } catch (err) {
     console.error('Échec démarrage serveur :', err);
     process.exit(1);

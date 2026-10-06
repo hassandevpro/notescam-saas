@@ -54,6 +54,46 @@ ON CONFLICT (id) DO UPDATE
   SET nom = EXCLUDED.nom, coefficient = EXCLUDED.coefficient,
       optionnelle = EXCLUDED.optionnelle, ordre = EXCLUDED.ordre;
 
+INSERT INTO apc_classes (id, cycle_id, nom, niveau) VALUES
+  ('form1', 'premier_cycle', 'Form 1', 1),
+  ('form2', 'premier_cycle', 'Form 2', 2),
+  ('form3', 'premier_cycle', 'Form 3', 3),
+  ('form4', 'premier_cycle', 'Form 4', 4),
+  ('form5', 'premier_cycle', 'Form 5', 5)
+ON CONFLICT (id) DO UPDATE SET nom = EXCLUDED.nom, niveau = EXCLUDED.niveau, cycle_id = EXCLUDED.cycle_id;
+
+INSERT INTO apc_matieres (id, nom, coefficient, optionnelle, ordre) VALUES
+  ('english',            'English Language',        4, false, 1010),
+  ('french',             'French',                  3, false, 1020),
+  ('mathematics',        'Mathematics',             4, false, 1030),
+  ('biology',            'Biology',                 2, false, 1040),
+  ('chemistry',          'Chemistry',               2, false, 1050),
+  ('physics',            'Physics',                 2, false, 1060),
+  ('computer_science',   'Computer Science',        2, false, 1070),
+  ('history',            'History',                 1, false, 1080),
+  ('geography',          'Geography',               1, false, 1090),
+  ('citizenship',        'Citizenship Education',   1, false, 1100),
+  ('physical_education', 'Physical Education',       2, false, 1110),
+  ('literature',         'Literature in English',   2, true,  1120),
+  ('economics',          'Economics',               2, true,  1130),
+  ('commerce',           'Commerce',                2, true,  1140),
+  ('food_science',       'Food Science & Nutrition', 1, true, 1150),
+  ('manual_labour',      'Manual Labour',           1, false, 1160),
+  ('religious_studies',  'Religious Studies',       1, true,  1170),
+  ('national_languages', 'National Languages & Cultures', 1, true, 1180),
+  ('german',             'German',                  2, true,  1190),
+  ('spanish',            'Spanish',                 2, true,  1200),
+  ('latin',              'Latin (EN)',              2, true,  1210),
+  ('arts',               'Arts and Cultural Education',    1, false, 1220),
+  ('national_cultures',  'National Cultures',              1, false, 1230),
+  ('greek',              'Greek',                          2, true,  1240),
+  ('arabic',             'Arabic',                         2, true,  1250),
+  ('italian',            'Italian',                        2, true,  1260),
+  ('chinese',            'Chinese',                        2, true,  1270)
+ON CONFLICT (id) DO UPDATE
+  SET nom = EXCLUDED.nom, coefficient = EXCLUDED.coefficient,
+      optionnelle = EXCLUDED.optionnelle, ordre = EXCLUDED.ordre;
+
 INSERT INTO apc_referentiel_versions (id, label, source, actif)
 VALUES ('9abce227-12a3-48a4-8479-ec262dcf6175', 'MINESEC — Référentiel APC Premier cycle (6e–3e)', 'Bulletins officiels APC ordinaires (DOCX MINESEC)', true)
 ON CONFLICT (id) DO NOTHING;
@@ -1229,122 +1269,10 @@ INSERT INTO prim_criteres (id, nom, poids, ordre) VALUES
 ON CONFLICT (id) DO UPDATE
   SET nom = EXCLUDED.nom, poids = EXCLUDED.poids, ordre = EXCLUDED.ordre;
 
--- Seuils alignés sur le carnet officiel MINEDUB (p.2) : A+ 18-20/20, A 15-17/20,
--- ECA 11-14/20, NA 0-10/20 → 90% / 75% / 55% / 0%.
 INSERT INTO prim_cote_bareme (id, cote, libelle, seuil_min, ordre) VALUES
   ('a_plus','A+','Très bien acquis',90,1),
-  ('a','A','Acquis',75,2),
-  ('eca','ECA','En cours d''acquisition',55,3),
+  ('a','A','Acquis',70,2),
+  ('eca','ECA','En cours d''acquisition',50,3),
   ('na','NA','Non acquis',0,4)
 ON CONFLICT (id) DO UPDATE
   SET cote = EXCLUDED.cote, libelle = EXCLUDED.libelle, seuil_min = EXCLUDED.seuil_min, ordre = EXCLUDED.ordre;
-
--- ============================================================
--- Barème officiel par critère × sous-compétence × niveau (carnet MINEDUB,
--- "Bulletin francophones.pdf"). Niveau I (SIL, CP) — mêmes points aux deux
--- niveaux. Vérifié : somme des critères d'une sous-compétence = son total
--- annoncé ; somme des sous-compétences = total de la compétence nationale
--- (C1=100, C2=60, C3=40, C4=20, C5=20, C6=40 pour 6a-apte OU 6a-inapte + 6b).
--- ============================================================
-INSERT INTO prim_bareme_criteres (id, niveau_id, competence_id, critere_id, aptitude, points_max, ordre) VALUES
-  -- 1A Communiquer en français (40)
-  ('n1-1a-oral','sil','1a','oral','apte',20,1), ('n1-1a-ecrit','sil','1a','ecrit','apte',15,2), ('n1-1a-se','sil','1a','savoir_etre','apte',5,3),
-  ('n1cp-1a-oral','cp','1a','oral','apte',20,1), ('n1cp-1a-ecrit','cp','1a','ecrit','apte',15,2), ('n1cp-1a-se','cp','1a','savoir_etre','apte',5,3),
-  -- 1B Communicate in English (40)
-  ('n1-1b-oral','sil','1b','oral','apte',20,1), ('n1-1b-ecrit','sil','1b','ecrit','apte',15,2), ('n1-1b-se','sil','1b','savoir_etre','apte',5,3),
-  ('n1cp-1b-oral','cp','1b','oral','apte',20,1), ('n1cp-1b-ecrit','cp','1b','ecrit','apte',15,2), ('n1cp-1b-se','cp','1b','savoir_etre','apte',5,3),
-  -- 1C Pratiquer une langue nationale (20)
-  ('n1-1c-oral','sil','1c','oral','apte',10,1), ('n1-1c-ecrit','sil','1c','ecrit','apte',5,2), ('n1-1c-pratique','sil','1c','pratique','apte',3,3), ('n1-1c-se','sil','1c','savoir_etre','apte',2,4),
-  ('n1cp-1c-oral','cp','1c','oral','apte',10,1), ('n1cp-1c-ecrit','cp','1c','ecrit','apte',5,2), ('n1cp-1c-pratique','cp','1c','pratique','apte',3,3), ('n1cp-1c-se','cp','1c','savoir_etre','apte',2,4),
-  -- 2A Mathématiques (30)
-  ('n1-2a-oral','sil','2a','oral','apte',5,1), ('n1-2a-ecrit','sil','2a','ecrit','apte',20,2), ('n1-2a-se','sil','2a','savoir_etre','apte',5,3),
-  ('n1cp-2a-oral','cp','2a','oral','apte',5,1), ('n1cp-2a-ecrit','cp','2a','ecrit','apte',20,2), ('n1cp-2a-se','cp','2a','savoir_etre','apte',5,3),
-  -- 2B Sciences et Technologies (30)
-  ('n1-2b-oral','sil','2b','oral','apte',5,1), ('n1-2b-ecrit','sil','2b','ecrit','apte',5,2), ('n1-2b-pratique','sil','2b','pratique','apte',15,3), ('n1-2b-se','sil','2b','savoir_etre','apte',5,4),
-  ('n1cp-2b-oral','cp','2b','oral','apte',5,1), ('n1cp-2b-ecrit','cp','2b','ecrit','apte',5,2), ('n1cp-2b-pratique','cp','2b','pratique','apte',15,3), ('n1cp-2b-se','cp','2b','savoir_etre','apte',5,4),
-  -- 3A Valeurs sociales (20)
-  ('n1-3a-oral','sil','3a','oral','apte',3,1), ('n1-3a-ecrit','sil','3a','ecrit','apte',3,2), ('n1-3a-pratique','sil','3a','pratique','apte',10,3), ('n1-3a-se','sil','3a','savoir_etre','apte',4,4),
-  ('n1cp-3a-oral','cp','3a','oral','apte',3,1), ('n1cp-3a-ecrit','cp','3a','ecrit','apte',3,2), ('n1cp-3a-pratique','cp','3a','pratique','apte',10,3), ('n1cp-3a-se','cp','3a','savoir_etre','apte',4,4),
-  -- 3B Valeurs citoyennes (20)
-  ('n1-3b-oral','sil','3b','oral','apte',5,1), ('n1-3b-ecrit','sil','3b','ecrit','apte',5,2), ('n1-3b-pratique','sil','3b','pratique','apte',8,3), ('n1-3b-se','sil','3b','savoir_etre','apte',2,4),
-  ('n1cp-3b-oral','cp','3b','oral','apte',5,1), ('n1cp-3b-ecrit','cp','3b','ecrit','apte',5,2), ('n1cp-3b-pratique','cp','3b','pratique','apte',8,3), ('n1cp-3b-se','cp','3b','savoir_etre','apte',2,4),
-  -- 4A Autonomie/initiative/créativité/entrepreneuriat (20)
-  ('n1-4a-oral','sil','4a','oral','apte',5,1), ('n1-4a-ecrit','sil','4a','ecrit','apte',3,2), ('n1-4a-pratique','sil','4a','pratique','apte',10,3), ('n1-4a-se','sil','4a','savoir_etre','apte',2,4),
-  ('n1cp-4a-oral','cp','4a','oral','apte',5,1), ('n1cp-4a-ecrit','cp','4a','ecrit','apte',3,2), ('n1cp-4a-pratique','cp','4a','pratique','apte',10,3), ('n1cp-4a-se','cp','4a','savoir_etre','apte',2,4),
-  -- 5A TIC (20)
-  ('n1-5a-oral','sil','5a','oral','apte',3,1), ('n1-5a-ecrit','sil','5a','ecrit','apte',3,2), ('n1-5a-pratique','sil','5a','pratique','apte',10,3), ('n1-5a-se','sil','5a','savoir_etre','apte',4,4),
-  ('n1cp-5a-oral','cp','5a','oral','apte',3,1), ('n1cp-5a-ecrit','cp','5a','ecrit','apte',3,2), ('n1cp-5a-pratique','cp','5a','pratique','apte',10,3), ('n1cp-5a-se','cp','5a','savoir_etre','apte',4,4),
-  -- 6A activités physiques/sportives — profil APTE (20)
-  ('n1-6a-oral-a','sil','6a','oral','apte',3,1), ('n1-6a-ecrit-a','sil','6a','ecrit','apte',3,2), ('n1-6a-pratique-a','sil','6a','pratique','apte',10,3), ('n1-6a-se-a','sil','6a','savoir_etre','apte',4,4),
-  ('n1cp-6a-oral-a','cp','6a','oral','apte',3,1), ('n1cp-6a-ecrit-a','cp','6a','ecrit','apte',3,2), ('n1cp-6a-pratique-a','cp','6a','pratique','apte',10,3), ('n1cp-6a-se-a','cp','6a','savoir_etre','apte',4,4),
-  -- 6A activités physiques/sportives — profil INAPTE (20, pas de "pratique")
-  ('n1-6a-oral-i','sil','6a','oral','inapte',8,1), ('n1-6a-ecrit-i','sil','6a','ecrit','inapte',10,2), ('n1-6a-se-i','sil','6a','savoir_etre','inapte',2,3),
-  ('n1cp-6a-oral-i','cp','6a','oral','inapte',8,1), ('n1cp-6a-ecrit-i','cp','6a','ecrit','inapte',10,2), ('n1cp-6a-se-i','cp','6a','savoir_etre','inapte',2,3),
-  -- 6B activités artistiques (20)
-  ('n1-6b-oral','sil','6b','oral','apte',4,1), ('n1-6b-ecrit','sil','6b','ecrit','apte',3,2), ('n1-6b-pratique','sil','6b','pratique','apte',10,3), ('n1-6b-se','sil','6b','savoir_etre','apte',3,4),
-  ('n1cp-6b-oral','cp','6b','oral','apte',4,1), ('n1cp-6b-ecrit','cp','6b','ecrit','apte',3,2), ('n1cp-6b-pratique','cp','6b','pratique','apte',10,3), ('n1cp-6b-se','cp','6b','savoir_etre','apte',3,4)
-ON CONFLICT (id) DO UPDATE
-  SET points_max = EXCLUDED.points_max, ordre = EXCLUDED.ordre;
-
--- ============================================================
--- Barème officiel Niveaux II et III (CE1, CE2, CM1, CM2) — carnet MINEDUB,
--- "Bulletin francophones.pdf". Les 4 niveaux partagent EXACTEMENT le même
--- barème (vérifié page par page). Vérifié : somme des critères d'une
--- sous-compétence = son total annoncé ; somme des sous-compétences = total de
--- la compétence nationale (C1=80, C2=80, C3=40, C4=20, C5=40, C6=40).
--- ============================================================
-INSERT INTO prim_bareme_criteres (id, niveau_id, competence_id, critere_id, aptitude, points_max, ordre) VALUES
-  -- ── CE1 ──
-  ('n23-ce1-1a-oral','ce1','1a','oral','apte',12,1), ('n23-ce1-1a-ecrit','ce1','1a','ecrit','apte',15,2), ('n23-ce1-1a-se','ce1','1a','savoir_etre','apte',3,3),
-  ('n23-ce1-1b-oral','ce1','1b','oral','apte',12,1), ('n23-ce1-1b-ecrit','ce1','1b','ecrit','apte',15,2), ('n23-ce1-1b-se','ce1','1b','savoir_etre','apte',3,3),
-  ('n23-ce1-1c-oral','ce1','1c','oral','apte',10,1), ('n23-ce1-1c-ecrit','ce1','1c','ecrit','apte',6,2), ('n23-ce1-1c-pratique','ce1','1c','pratique','apte',2,3), ('n23-ce1-1c-se','ce1','1c','savoir_etre','apte',2,4),
-  ('n23-ce1-2a-oral','ce1','2a','oral','apte',8,1), ('n23-ce1-2a-ecrit','ce1','2a','ecrit','apte',28,2), ('n23-ce1-2a-se','ce1','2a','savoir_etre','apte',4,3),
-  ('n23-ce1-2b-oral','ce1','2b','oral','apte',6,1), ('n23-ce1-2b-ecrit','ce1','2b','ecrit','apte',7,2), ('n23-ce1-2b-pratique','ce1','2b','pratique','apte',20,3), ('n23-ce1-2b-se','ce1','2b','savoir_etre','apte',7,4),
-  ('n23-ce1-3a-oral','ce1','3a','oral','apte',3,1), ('n23-ce1-3a-ecrit','ce1','3a','ecrit','apte',8,2), ('n23-ce1-3a-pratique','ce1','3a','pratique','apte',5,3), ('n23-ce1-3a-se','ce1','3a','savoir_etre','apte',4,4),
-  ('n23-ce1-3b-oral','ce1','3b','oral','apte',3,1), ('n23-ce1-3b-ecrit','ce1','3b','ecrit','apte',9,2), ('n23-ce1-3b-pratique','ce1','3b','pratique','apte',5,3), ('n23-ce1-3b-se','ce1','3b','savoir_etre','apte',3,4),
-  ('n23-ce1-4a-oral','ce1','4a','oral','apte',5,1), ('n23-ce1-4a-ecrit','ce1','4a','ecrit','apte',2,2), ('n23-ce1-4a-pratique','ce1','4a','pratique','apte',11,3), ('n23-ce1-4a-se','ce1','4a','savoir_etre','apte',2,4),
-  ('n23-ce1-5a-oral','ce1','5a','oral','apte',4,1), ('n23-ce1-5a-ecrit','ce1','5a','ecrit','apte',10,2), ('n23-ce1-5a-pratique','ce1','5a','pratique','apte',20,3), ('n23-ce1-5a-se','ce1','5a','savoir_etre','apte',6,4),
-  ('n23-ce1-6a-oral-a','ce1','6a','oral','apte',2,1), ('n23-ce1-6a-ecrit-a','ce1','6a','ecrit','apte',2,2), ('n23-ce1-6a-pratique-a','ce1','6a','pratique','apte',12,3), ('n23-ce1-6a-se-a','ce1','6a','savoir_etre','apte',4,4),
-  ('n23-ce1-6a-oral-i','ce1','6a','oral','inapte',3,1), ('n23-ce1-6a-ecrit-i','ce1','6a','ecrit','inapte',15,2), ('n23-ce1-6a-se-i','ce1','6a','savoir_etre','inapte',2,3),
-  ('n23-ce1-6b-oral','ce1','6b','oral','apte',2,1), ('n23-ce1-6b-ecrit','ce1','6b','ecrit','apte',4,2), ('n23-ce1-6b-pratique','ce1','6b','pratique','apte',12,3), ('n23-ce1-6b-se','ce1','6b','savoir_etre','apte',2,4),
-  -- ── CE2 (identique à CE1) ──
-  ('n23-ce2-1a-oral','ce2','1a','oral','apte',12,1), ('n23-ce2-1a-ecrit','ce2','1a','ecrit','apte',15,2), ('n23-ce2-1a-se','ce2','1a','savoir_etre','apte',3,3),
-  ('n23-ce2-1b-oral','ce2','1b','oral','apte',12,1), ('n23-ce2-1b-ecrit','ce2','1b','ecrit','apte',15,2), ('n23-ce2-1b-se','ce2','1b','savoir_etre','apte',3,3),
-  ('n23-ce2-1c-oral','ce2','1c','oral','apte',10,1), ('n23-ce2-1c-ecrit','ce2','1c','ecrit','apte',6,2), ('n23-ce2-1c-pratique','ce2','1c','pratique','apte',2,3), ('n23-ce2-1c-se','ce2','1c','savoir_etre','apte',2,4),
-  ('n23-ce2-2a-oral','ce2','2a','oral','apte',8,1), ('n23-ce2-2a-ecrit','ce2','2a','ecrit','apte',28,2), ('n23-ce2-2a-se','ce2','2a','savoir_etre','apte',4,3),
-  ('n23-ce2-2b-oral','ce2','2b','oral','apte',6,1), ('n23-ce2-2b-ecrit','ce2','2b','ecrit','apte',7,2), ('n23-ce2-2b-pratique','ce2','2b','pratique','apte',20,3), ('n23-ce2-2b-se','ce2','2b','savoir_etre','apte',7,4),
-  ('n23-ce2-3a-oral','ce2','3a','oral','apte',3,1), ('n23-ce2-3a-ecrit','ce2','3a','ecrit','apte',8,2), ('n23-ce2-3a-pratique','ce2','3a','pratique','apte',5,3), ('n23-ce2-3a-se','ce2','3a','savoir_etre','apte',4,4),
-  ('n23-ce2-3b-oral','ce2','3b','oral','apte',3,1), ('n23-ce2-3b-ecrit','ce2','3b','ecrit','apte',9,2), ('n23-ce2-3b-pratique','ce2','3b','pratique','apte',5,3), ('n23-ce2-3b-se','ce2','3b','savoir_etre','apte',3,4),
-  ('n23-ce2-4a-oral','ce2','4a','oral','apte',5,1), ('n23-ce2-4a-ecrit','ce2','4a','ecrit','apte',2,2), ('n23-ce2-4a-pratique','ce2','4a','pratique','apte',11,3), ('n23-ce2-4a-se','ce2','4a','savoir_etre','apte',2,4),
-  ('n23-ce2-5a-oral','ce2','5a','oral','apte',4,1), ('n23-ce2-5a-ecrit','ce2','5a','ecrit','apte',10,2), ('n23-ce2-5a-pratique','ce2','5a','pratique','apte',20,3), ('n23-ce2-5a-se','ce2','5a','savoir_etre','apte',6,4),
-  ('n23-ce2-6a-oral-a','ce2','6a','oral','apte',2,1), ('n23-ce2-6a-ecrit-a','ce2','6a','ecrit','apte',2,2), ('n23-ce2-6a-pratique-a','ce2','6a','pratique','apte',12,3), ('n23-ce2-6a-se-a','ce2','6a','savoir_etre','apte',4,4),
-  ('n23-ce2-6a-oral-i','ce2','6a','oral','inapte',3,1), ('n23-ce2-6a-ecrit-i','ce2','6a','ecrit','inapte',15,2), ('n23-ce2-6a-se-i','ce2','6a','savoir_etre','inapte',2,3),
-  ('n23-ce2-6b-oral','ce2','6b','oral','apte',2,1), ('n23-ce2-6b-ecrit','ce2','6b','ecrit','apte',4,2), ('n23-ce2-6b-pratique','ce2','6b','pratique','apte',12,3), ('n23-ce2-6b-se','ce2','6b','savoir_etre','apte',2,4),
-  -- ── CM1 (identique) ──
-  ('n23-cm1-1a-oral','cm1','1a','oral','apte',12,1), ('n23-cm1-1a-ecrit','cm1','1a','ecrit','apte',15,2), ('n23-cm1-1a-se','cm1','1a','savoir_etre','apte',3,3),
-  ('n23-cm1-1b-oral','cm1','1b','oral','apte',12,1), ('n23-cm1-1b-ecrit','cm1','1b','ecrit','apte',15,2), ('n23-cm1-1b-se','cm1','1b','savoir_etre','apte',3,3),
-  ('n23-cm1-1c-oral','cm1','1c','oral','apte',10,1), ('n23-cm1-1c-ecrit','cm1','1c','ecrit','apte',6,2), ('n23-cm1-1c-pratique','cm1','1c','pratique','apte',2,3), ('n23-cm1-1c-se','cm1','1c','savoir_etre','apte',2,4),
-  ('n23-cm1-2a-oral','cm1','2a','oral','apte',8,1), ('n23-cm1-2a-ecrit','cm1','2a','ecrit','apte',28,2), ('n23-cm1-2a-se','cm1','2a','savoir_etre','apte',4,3),
-  ('n23-cm1-2b-oral','cm1','2b','oral','apte',6,1), ('n23-cm1-2b-ecrit','cm1','2b','ecrit','apte',7,2), ('n23-cm1-2b-pratique','cm1','2b','pratique','apte',20,3), ('n23-cm1-2b-se','cm1','2b','savoir_etre','apte',7,4),
-  ('n23-cm1-3a-oral','cm1','3a','oral','apte',3,1), ('n23-cm1-3a-ecrit','cm1','3a','ecrit','apte',8,2), ('n23-cm1-3a-pratique','cm1','3a','pratique','apte',5,3), ('n23-cm1-3a-se','cm1','3a','savoir_etre','apte',4,4),
-  ('n23-cm1-3b-oral','cm1','3b','oral','apte',3,1), ('n23-cm1-3b-ecrit','cm1','3b','ecrit','apte',9,2), ('n23-cm1-3b-pratique','cm1','3b','pratique','apte',5,3), ('n23-cm1-3b-se','cm1','3b','savoir_etre','apte',3,4),
-  ('n23-cm1-4a-oral','cm1','4a','oral','apte',5,1), ('n23-cm1-4a-ecrit','cm1','4a','ecrit','apte',2,2), ('n23-cm1-4a-pratique','cm1','4a','pratique','apte',11,3), ('n23-cm1-4a-se','cm1','4a','savoir_etre','apte',2,4),
-  ('n23-cm1-5a-oral','cm1','5a','oral','apte',4,1), ('n23-cm1-5a-ecrit','cm1','5a','ecrit','apte',10,2), ('n23-cm1-5a-pratique','cm1','5a','pratique','apte',20,3), ('n23-cm1-5a-se','cm1','5a','savoir_etre','apte',6,4),
-  ('n23-cm1-6a-oral-a','cm1','6a','oral','apte',2,1), ('n23-cm1-6a-ecrit-a','cm1','6a','ecrit','apte',2,2), ('n23-cm1-6a-pratique-a','cm1','6a','pratique','apte',12,3), ('n23-cm1-6a-se-a','cm1','6a','savoir_etre','apte',4,4),
-  ('n23-cm1-6a-oral-i','cm1','6a','oral','inapte',3,1), ('n23-cm1-6a-ecrit-i','cm1','6a','ecrit','inapte',15,2), ('n23-cm1-6a-se-i','cm1','6a','savoir_etre','inapte',2,3),
-  ('n23-cm1-6b-oral','cm1','6b','oral','apte',2,1), ('n23-cm1-6b-ecrit','cm1','6b','ecrit','apte',4,2), ('n23-cm1-6b-pratique','cm1','6b','pratique','apte',12,3), ('n23-cm1-6b-se','cm1','6b','savoir_etre','apte',2,4),
-  -- ── CM2 (identique) ──
-  ('n23-cm2-1a-oral','cm2','1a','oral','apte',12,1), ('n23-cm2-1a-ecrit','cm2','1a','ecrit','apte',15,2), ('n23-cm2-1a-se','cm2','1a','savoir_etre','apte',3,3),
-  ('n23-cm2-1b-oral','cm2','1b','oral','apte',12,1), ('n23-cm2-1b-ecrit','cm2','1b','ecrit','apte',15,2), ('n23-cm2-1b-se','cm2','1b','savoir_etre','apte',3,3),
-  ('n23-cm2-1c-oral','cm2','1c','oral','apte',10,1), ('n23-cm2-1c-ecrit','cm2','1c','ecrit','apte',6,2), ('n23-cm2-1c-pratique','cm2','1c','pratique','apte',2,3), ('n23-cm2-1c-se','cm2','1c','savoir_etre','apte',2,4),
-  ('n23-cm2-2a-oral','cm2','2a','oral','apte',8,1), ('n23-cm2-2a-ecrit','cm2','2a','ecrit','apte',28,2), ('n23-cm2-2a-se','cm2','2a','savoir_etre','apte',4,3),
-  ('n23-cm2-2b-oral','cm2','2b','oral','apte',6,1), ('n23-cm2-2b-ecrit','cm2','2b','ecrit','apte',7,2), ('n23-cm2-2b-pratique','cm2','2b','pratique','apte',20,3), ('n23-cm2-2b-se','cm2','2b','savoir_etre','apte',7,4),
-  ('n23-cm2-3a-oral','cm2','3a','oral','apte',3,1), ('n23-cm2-3a-ecrit','cm2','3a','ecrit','apte',8,2), ('n23-cm2-3a-pratique','cm2','3a','pratique','apte',5,3), ('n23-cm2-3a-se','cm2','3a','savoir_etre','apte',4,4),
-  ('n23-cm2-3b-oral','cm2','3b','oral','apte',3,1), ('n23-cm2-3b-ecrit','cm2','3b','ecrit','apte',9,2), ('n23-cm2-3b-pratique','cm2','3b','pratique','apte',5,3), ('n23-cm2-3b-se','cm2','3b','savoir_etre','apte',3,4),
-  ('n23-cm2-4a-oral','cm2','4a','oral','apte',5,1), ('n23-cm2-4a-ecrit','cm2','4a','ecrit','apte',2,2), ('n23-cm2-4a-pratique','cm2','4a','pratique','apte',11,3), ('n23-cm2-4a-se','cm2','4a','savoir_etre','apte',2,4),
-  ('n23-cm2-5a-oral','cm2','5a','oral','apte',4,1), ('n23-cm2-5a-ecrit','cm2','5a','ecrit','apte',10,2), ('n23-cm2-5a-pratique','cm2','5a','pratique','apte',20,3), ('n23-cm2-5a-se','cm2','5a','savoir_etre','apte',6,4),
-  ('n23-cm2-6a-oral-a','cm2','6a','oral','apte',2,1), ('n23-cm2-6a-ecrit-a','cm2','6a','ecrit','apte',2,2), ('n23-cm2-6a-pratique-a','cm2','6a','pratique','apte',12,3), ('n23-cm2-6a-se-a','cm2','6a','savoir_etre','apte',4,4),
-  ('n23-cm2-6a-oral-i','cm2','6a','oral','inapte',3,1), ('n23-cm2-6a-ecrit-i','cm2','6a','ecrit','inapte',15,2), ('n23-cm2-6a-se-i','cm2','6a','savoir_etre','inapte',2,3),
-  ('n23-cm2-6b-oral','cm2','6b','oral','apte',2,1), ('n23-cm2-6b-ecrit','cm2','6b','ecrit','apte',4,2), ('n23-cm2-6b-pratique','cm2','6b','pratique','apte',12,3), ('n23-cm2-6b-se','cm2','6b','savoir_etre','apte',2,4)
-ON CONFLICT (id) DO UPDATE
-  SET points_max = EXCLUDED.points_max, ordre = EXCLUDED.ordre;

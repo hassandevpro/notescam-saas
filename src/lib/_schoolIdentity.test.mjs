@@ -1,5 +1,5 @@
 // Test du résolveur d'identité par unité pédagogique (logique pure, `node`).
-import { resolveClassUnit, documentIdentity, classIdentity, studentIdentity } from './schoolIdentity.js';
+import { resolveClassUnit, documentIdentity, classIdentity, studentIdentity, classesIdentity } from './schoolIdentity.js';
 
 let failed = false;
 const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!cond) failed = true; };
@@ -74,6 +74,25 @@ ok(classIdentity(school, clsTle, units) === school, 'classe hors unité → éco
   const eleve = { id: 'e1', class_id: 'c1' };
   const id = studentIdentity(school, eleve, classes, units);
   ok(id.name === 'École Primaire ABC', 'élève de CM2 → identité Primaire');
+}
+
+// ── 8. Document couvrant PLUSIEURS classes ───────────────────────────────────
+// Une liste d'élèves filtrée sur une classe porte le secteur de cette classe ;
+// la même liste sans filtre, qui mélange les secteurs, remonte au complexe.
+{
+  const clsCM1 = { id: 'c5', level: 'CM1', name: 'CM1', school_id: 'sch1' };
+  ok(classesIdentity(school, [clsCM2, clsCM1], units).name === 'École Primaire ABC',
+     'deux classes du primaire → identité Primaire');
+  ok(classesIdentity(school, [clsCM2, cls6e], units) === school,
+     'primaire + collège → identité du complexe');
+  ok(classesIdentity(school, [clsCM2], units).name === 'École Primaire ABC',
+     'une seule classe → son secteur');
+  ok(classesIdentity(school, [clsTle], units) === school,
+     'classe sans unité → complexe');
+  ok(classesIdentity(school, [clsCM2, clsTle], units) === school,
+     'une classe sans unité suffit à remonter au complexe');
+  ok(classesIdentity(school, [], units) === school, 'aucune classe → complexe');
+  ok(classesIdentity(school, [clsCM2, clsCM1], []) === school, 'aucune unité → complexe');
 }
 
 console.log(failed ? '\n❌ ÉCHECS' : '\n✅ Tous les tests passent');

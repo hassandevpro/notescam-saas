@@ -54,12 +54,27 @@ CREATE OR REPLACE FUNCTION public.log_tombstone() RETURNS trigger
   SECURITY DEFINER
   SET search_path = public
 AS $$
-DECLARE sid uuid;
+DECLARE
+  j   jsonb;
+  sid uuid;
+  rid uuid;
 BEGIN
-  sid := CASE WHEN TG_TABLE_NAME = 'schools' THEN OLD.id ELSE OLD.school_id END;
-  IF sid IS NOT NULL THEN
+  -- Suppression d'une école : rien à tracer (cf. point 2 de l'en-tête).
+  IF TG_TABLE_NAME = 'schools' THEN
+    RETURN OLD;
+  END IF;
+
+  j := to_jsonb(OLD);
+  BEGIN
+    sid := NULLIF(j ->> 'school_id', '')::uuid;
+    rid := NULLIF(j ->> 'id', '')::uuid;
+  EXCEPTION WHEN invalid_text_representation THEN
+    RETURN OLD;   -- identifiant non-uuid : rien à tracer, on ne casse pas le DELETE
+  END;
+
+  IF sid IS NOT NULL AND rid IS NOT NULL THEN
     INSERT INTO public.sync_tombstones (school_id, tablename, row_id, deleted_at)
-    VALUES (sid, TG_TABLE_NAME, OLD.id, now())
+    VALUES (sid, TG_TABLE_NAME, rid, now())
     ON CONFLICT (school_id, tablename, row_id) DO UPDATE SET deleted_at = excluded.deleted_at;
   END IF;
   RETURN OLD;

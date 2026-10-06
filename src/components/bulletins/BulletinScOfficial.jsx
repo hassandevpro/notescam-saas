@@ -149,7 +149,7 @@ export default function BulletinScOfficial({
   const sheets = pages.map((slice, i) => {
     const withFooter = i === pages.length - 1 && !footerOwnPage;
     return (
-      <OfficialSheet key={`p${i}`} school={school} pageNo={i + 1} total={total}>
+      <OfficialSheet key={`p${i}`} school={school} pageNo={i + 1} total={total} sys={sys}>
         {i === 0 ? (
           <>
             <OfficialHeader school={school} sys={sys} title={title} basic={basic} {...(accent ? { accent } : {})} />
@@ -172,7 +172,7 @@ export default function BulletinScOfficial({
 
   if (footerOwnPage) {
     sheets.push(
-      <OfficialSheet key="pf" school={school} pageNo={total} total={total}>
+      <OfficialSheet key="pf" school={school} pageNo={total} total={total} sys={sys}>
         <ContinuationHeader title={title} student={student} classLabel={classLabel} serieLabel={serieLabel} sys={sys} />
         {footer}
       </OfficialSheet>

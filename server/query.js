@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
 import { emitApprovalRequestForOp } from './governanceApply.js';
 import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
-import { SCOPED_TABLES, loadScope, isGlobal, rowAllowed, guardScopeWrite, isParentAccount } from './scopeGuard.js';
+import { SCOPED_TABLES, loadScope, isGlobal, rowAllowed, guardScopeWrite, guardSchoolWrite, guardClassLimit, isParentAccount } from './scopeGuard.js';
 
 // --- Suivi des changements pour la sync continue (Phase 2) ------------
 // Horodate la ligne écrite (updated_at/device_id) pour la résolution LWW.
@@ -271,6 +271,8 @@ export function runQuery(op, ctx = null) {
     guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
     guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
     guardScopeWrite(op, ctx);      // cloisonnement secteur : écriture hors périmètre refusée
+    guardSchoolWrite(op, ctx);     // nom + paramètres de l'établissement : admin uniquement
+    guardClassLimit(op);           // édition restreinte : plafond de classes (build utilisateur)
     let result;
     switch (op.action) {
       case 'select': result = doSelect(op, ctx); break;
@@ -479,6 +481,8 @@ export function runOpsGuarded(ops = [], ctx = null) {
     guardBudgetStructure(op);      // P5 : structure/opérations protégées (RPC only)
     guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
     guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
+    guardSchoolWrite(op, ctx);     // nom + paramètres de l'établissement : admin uniquement
+    guardClassLimit(op);           // édition restreinte : plafond de classes (build utilisateur)
     let res;
     switch (op.action) {
       case 'insert': insertOrUpsertCore(op, false); break;

@@ -378,7 +378,10 @@ export default function PrimCompetenceWorkspace() {
           columns={criteres.map((c) => ({ id: c.id, label: `${c.nom} /${baremeFor(c.id)}` }))}
           getCell={(sid, cid) => noteFor(sid, cid)}
           normalize={(raw, cid) => validateGrade(raw, baremeFor(cid))}
-          onImport={(sid, cid, v) => savePrimNote({ eleveId: sid, competenceId, critereId: cid, ua, note: v })}
+          onImport={(sid, cid, v) => savePrimNote({
+            eleveId: sid, competenceId, critereId: cid, ua,
+            note: v, pointsMax: baremeFor(cid),   // même raison qu'à la saisie directe
+          })}
           valueHint={t('barème variable par critère (voir en-tête)', 'scale varies by criterion (see header)')}
         />
       )}
@@ -438,7 +441,15 @@ export default function PrimCompetenceWorkspace() {
                           value={noteFor(stu.id, c.id)}
                           max={baremeFor(c.id)}
                           disabled={!studentCritereIds.has(c.id)}
-                          onCommit={(v) => savePrimNote({ eleveId: stu.id, competenceId, critereId: c.id, ua, note: v })}
+                          // La note NAÎT avec le barème de sa colonne. Sans ce
+                          // `pointsMax`, une note saisie APRÈS un changement de
+                          // barème repartait au barème officiel : la colonne se
+                          // remettait alors toute seule à l'ancienne valeur, et il
+                          // fallait refixer le barème une deuxième fois.
+                          onCommit={(v) => savePrimNote({
+                            eleveId: stu.id, competenceId, critereId: c.id, ua,
+                            note: v, pointsMax: baremeFor(c.id),
+                          })}
                         />
                       </td>
                     ))}

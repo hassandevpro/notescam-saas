@@ -1960,20 +1960,40 @@ export default function Bulletins() {
     return comps.map((c) => {
       const criteres = primCriteresFor(c.id, student);
       const uas = primUAs.map((ua) => {
-        const notesByCritere = {};
+        // DEUX structures, et c'est volontaire : le bulletin AFFICHE une note
+        // (un nombre), le moteur CALCULE sur une note ET son barème. Les mêler
+        // ferait imprimer « [object Object] » dans la case.
+        const notesByCritere = {};   // { [critere_id]: note }        → affichage
+        const baremes = {};          // { [critere_id]: points_max }  → calcul + en-tête
         for (const cr of criteres) {
           const r = primNotes[primNkey(student.id, c.id, cr.id, ua)];
-          if (r?.note != null && r.note !== '') notesByCritere[cr.id] = { note: r.note, max: r.points_max ?? cr.points_max };
+          if (r?.note != null && r.note !== '') {
+            notesByCritere[cr.id] = r.note;
+            // Barème RÉELLEMENT utilisé pour cette évaluation : celui que
+            // l'enseignant a posé, sinon celui du référentiel.
+            baremes[cr.id] = Number(r.points_max ?? cr.points_max);
+          }
         }
-        const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
+        const { achieved, possible } = competencePointsTotal(
+          Object.fromEntries(Object.entries(notesByCritere)
+            .map(([id, note]) => [id, { note, max: baremes[id] }])),
+          criteres,
+        );
         const cote = achieved != null ? primCote(achieved, possible, primBareme) : null;
-        return { ua, trimestre: trimestreOfUA(ua), notesByCritere, achieved, possible, cote: cote?.cote || null };
+        return { ua, trimestre: trimestreOfUA(ua), notesByCritere, baremes, achieved, possible, cote: cote?.cote || null };
       });
       const notedUAs = uas.filter((u) => u.achieved != null);
-      const totalPossible = criteres.reduce((a, cr) => a + (cr.points_max || 0), 0);
+      // Le TOTAL moyenne les points obtenus sur les UA notées : son dénominateur
+      // doit donc être la moyenne des points POSSIBLES de ces mêmes UA, et non la
+      // somme des barèmes officiels. Sinon une compétence entièrement interrogée
+      // sur /5 serait rapportée au /20 du référentiel — et la cote s'effondrerait
+      // alors que l'élève a tout juste.
       const totalAchieved = notedUAs.length
         ? Math.round((notedUAs.reduce((a, u) => a + u.achieved, 0) / notedUAs.length) * 100) / 100
         : null;
+      const totalPossible = notedUAs.length
+        ? Math.round((notedUAs.reduce((a, u) => a + u.possible, 0) / notedUAs.length) * 100) / 100
+        : criteres.reduce((a, cr) => a + (cr.points_max || 0), 0);
       const totalCote = totalAchieved != null ? primCote(totalAchieved, totalPossible, primBareme) : null;
       return { code: c.code, intitule: primCompetenceLabel(c, sys), criteres, uas, totalAchieved, totalPossible, totalCote: totalCote?.cote || null };
     });

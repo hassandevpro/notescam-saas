@@ -75,7 +75,11 @@ function CompetenceUATable({ sys, row }) {
       <tbody>
         {row.criteres.map((cr) => (
           <tr key={cr.id}>
-            <td style={{ ...cell, ...labelCol }}>{cr.nom} {cr.points_max} {L(sys, 'pts', 'pts', 'pts')}</td>
+            {/* Le barème annoncé est celui RÉELLEMENT utilisé sur la période. Il
+                n'est affiché que s'il est le même partout : si l'enseignant a
+                interrogé /5 puis /20, aucun nombre unique ne décrit la ligne, et
+                on retombe sur le barème officiel du référentiel. */}
+            <td style={{ ...cell, ...labelCol }}>{cr.nom} {baremeAffiche(row, cr)} {L(sys, 'pts', 'pts', 'pts')}</td>
             {row.uas.map((u) => {
               const note = u.notesByCritere?.[cr.id];
               const cote = note != null ? row.criteresCote?.[u.ua]?.[cr.id] : null;
@@ -127,6 +131,19 @@ export default function BulletinPrimAnnualUA({
   const ppLabel      = headTeacherLabel(headTeacherCount(profPrincipal), sys, { basic: true });
 
   // Cote par critère (dérivée du barème de CE critère, pas de la compétence
+  // Barème à ANNONCER pour une ligne de critère : celui que l'enseignant a
+  // réellement utilisé, s'il est le même sur toutes les UA notées de la période.
+  // Sinon le barème officiel — aucun nombre unique ne décrirait honnêtement une
+  // ligne interrogée /5 puis /20, et le détail par UA reste lisible juste à côté.
+  const baremeAffiche = (row, cr) => {
+    const vus = new Set();
+    for (const u of row.uas) {
+      const b = u.baremes?.[cr.id];
+      if (b != null) vus.add(Number(b));
+    }
+    return vus.size === 1 ? [...vus][0] : cr.points_max;
+  };
+
   // entière) — calculée ici pour ne pas alourdir le calcul côté Bulletins.jsx.
   const rowsWithCriteresCote = competenceRows.map((row) => {
     const criteresCote = {};
@@ -135,8 +152,12 @@ export default function BulletinPrimAnnualUA({
       for (const cr of row.criteres) {
         const note = u.notesByCritere?.[cr.id];
         if (note == null) continue;
-        // seuils identiques au barème officiel (référentiel), appliqués au /points_max du critère
-        const pct = (Number(note) / cr.points_max) * 100;
+        // Seuils identiques au barème officiel, appliqués au barème RÉELLEMENT
+        // utilisé pour cette évaluation : un 4 sur une interrogation notée /5 est
+        // un A+, pas un NA parce que le référentiel dit /20. Repli sur le barème
+        // du référentiel pour toute note antérieure, qui en vient par définition.
+        const bareme = Number(u.baremes?.[cr.id] ?? cr.points_max) || cr.points_max;
+        const pct = (Number(note) / bareme) * 100;
         criteresCote[u.ua][cr.id] = pct >= 90 ? 'A+' : pct >= 75 ? 'A' : pct >= 55 ? 'ECA' : 'NA';
       }
     }

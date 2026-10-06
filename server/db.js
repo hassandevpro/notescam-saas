@@ -221,6 +221,67 @@ ensureColumn('prim_notes', 'ua', 'ua INTEGER');
 // Pendant de apc_notes.note_max : sans cette colonne, un Oral noté /10 serait
 // relu sur le barème officiel du critère au prochain démarrage — donc faux.
 ensureColumn('prim_notes', 'points_max', 'points_max NUMERIC');
+
+// ── Une observation de maternelle peut précéder sa cote ──────────────────────
+//
+// LE DÉFAUT QUE CECI CORRIGE, remonté le 06/10/2026 par la file de synchro :
+// « null value in column "niveau_acquis" … violates not-null constraint ».
+// L'écran laisse écrire l'observation AVANT de coter — c'est l'ordre naturel du
+// travail — mais la ligne part alors sans cote, et les deux bases la refusaient.
+// Côté Cloud : supabase_mat_observation_sans_cote.sql. Côté LAN : ici.
+//
+// SQLite ne sait pas retirer un NOT NULL par ALTER : il faut reconstruire la
+// table. On ne le fait QUE si l'ancienne contrainte est encore là — la détection
+// porte sur le schéma réel (`notnull` du PRAGMA), pas sur un drapeau de version
+// qu'on pourrait oublier de poser. L'opération est donc idempotente et ne coûte
+// rien aux bases déjà à jour.
+(() => {
+  const col = db.prepare('PRAGMA table_info("mat_observations")').all()
+    .find((r) => r.name === 'niveau_acquis');
+  if (!col || col.notnull === 0) return;   // table absente ou déjà relâchée
+
+  const fk = db.prepare('PRAGMA foreign_keys').get();
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE mat_observations_nouveau (
+        id            TEXT PRIMARY KEY,
+        school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+        eleve_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        domaine_id    TEXT NOT NULL REFERENCES mat_domaines(id),
+        trimestre_id  TEXT NOT NULL REFERENCES apc_trimestres(id),
+        niveau_acquis TEXT CHECK (niveau_acquis IS NULL OR niveau_acquis IN ('A', 'ECA', 'NA')),
+        observation   TEXT,
+        enseignant_id TEXT,
+        date_saisie   TEXT,
+        updated_at    TEXT,
+        version       INTEGER NOT NULL DEFAULT 1,
+        device_id     TEXT,
+        CONSTRAINT mat_observations_uniq UNIQUE (eleve_id, domaine_id, trimestre_id)
+      );
+      INSERT INTO mat_observations_nouveau
+        (id, school_id, eleve_id, domaine_id, trimestre_id, niveau_acquis,
+         observation, enseignant_id, date_saisie, updated_at, version, device_id)
+        SELECT id, school_id, eleve_id, domaine_id, trimestre_id, niveau_acquis,
+               observation, enseignant_id, date_saisie, updated_at, version, device_id
+          FROM mat_observations;
+      DROP TABLE mat_observations;
+      ALTER TABLE mat_observations_nouveau RENAME TO mat_observations;
+      CREATE INDEX IF NOT EXISTS idx_mat_obs_school  ON mat_observations(school_id);
+      CREATE INDEX IF NOT EXISTS idx_mat_obs_student ON mat_observations(eleve_id);
+      COMMIT;
+    `);
+    console.log('[db] mat_observations reconstruite : une observation peut précéder sa cote.');
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* rien à annuler */ }
+    // On NE masque PAS l'échec : une base restée en NOT NULL refusera les
+    // observations non cotées, et il faut pouvoir le lire dans les logs.
+    console.error('[db] reconstruction de mat_observations ÉCHOUÉE —', e.message);
+  } finally {
+    if (fk && fk.foreign_keys) db.exec('PRAGMA foreign_keys = ON');
+  }
+})();
 // Priorité d'une notification (normal|important|urgent) — décide côté Cloud si
 // le canal SMS est autorisé (coût maîtrisé). Doit exister en LAN pour que les
 // SMS déclenchés depuis le serveur LAN (server/notify.js) gardent leur priorité

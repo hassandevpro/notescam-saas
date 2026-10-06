@@ -1390,7 +1390,12 @@ CREATE TABLE IF NOT EXISTS mat_observations (
   eleve_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   domaine_id    TEXT NOT NULL REFERENCES mat_domaines(id),
   trimestre_id  TEXT NOT NULL REFERENCES apc_trimestres(id),
-  niveau_acquis TEXT NOT NULL,
+  -- Cote A/ECA/NA. NULLABLE : l'écran de saisie laisse écrire l'observation AVANT
+  -- de coter (commenter puis évaluer est l'ordre naturel du travail), et les
+  -- lecteurs tolèrent déjà l'absence de cote — cf.
+  -- supabase_mat_observation_sans_cote.sql. Un NOT NULL ici ferait échouer en
+  -- boucle, et en silence, l'envoi d'un commentaire pas encore coté.
+  niveau_acquis TEXT CHECK (niveau_acquis IS NULL OR niveau_acquis IN ('A', 'ECA', 'NA')),
   observation   TEXT,
   enseignant_id TEXT,
   date_saisie   TEXT,

@@ -35,6 +35,7 @@ import {
   trimestreOfUA, PRIM_COTE_DEFAULT,
 } from '../../core/primEngine';
 import { baremeEnVigueur, notesHorsBareme } from '../../core/primColumnBareme';
+import ReferentielEditor from './ReferentielEditor';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
@@ -116,6 +117,12 @@ export default function PrimCompetenceWorkspace() {
   const primNotes   = useSchoolStore((s) => s.primNotes);
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
+  const masques        = useSchoolStore((s) => s.refMasques.prim);
+  const loadRefMasques = useSchoolStore((s) => s.loadRefMasques);
+  const addRef         = useSchoolStore((s) => s.addRefLigne);
+  const renameRef      = useSchoolStore((s) => s.renameRefLigne);
+  const removeRef      = useSchoolStore((s) => s.removeRefLigne);
+  const restoreRef     = useSchoolStore((s) => s.restoreRefLigne);
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
@@ -166,7 +173,10 @@ export default function PrimCompetenceWorkspace() {
     // Mode 1 : ne garder que les compétences couvertes par mes matières.
     const mine = competenceIdsForTeacher(subjects, teacherId, classId, referentiel?.competences || []);
     return all.filter((c) => mine.has(c.id));
-  }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId, sys]);
+  }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId, sys, masques]);
+
+  useEffect(() => { loadRefMasques('prim'); }, [loadRefMasques]);
+  const [refOpen, setRefOpen] = useState(false);
 
   useEffect(() => {
     if (competences.length && !competences.some((c) => c.id === competenceId)) setCompetenceId(competences[0].id);

@@ -24,7 +24,7 @@ import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
-import MatDomainesEditor from './MatDomainesEditor';
+import ReferentielEditor from './ReferentielEditor';
 import { canManageClassSubjects } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
 
@@ -93,10 +93,14 @@ export default function MatObservationWorkspace() {
   const students        = useSchoolStore((s) => s.students);
   const referentiel     = useSchoolStore((s) => s.matReferentiel);
   const observations    = useSchoolStore((s) => s.matObservations);
-  const masques         = useSchoolStore((s) => s.matMasques);
+  const masques         = useSchoolStore((s) => s.refMasques.mat);
   const loadMat         = useSchoolStore((s) => s.loadMat);
   const saveObservation = useSchoolStore((s) => s.saveMatObservation);
   const configureClassSubjects = useSchoolStore((s) => s.configureClassSubjects);
+  const addRef     = useSchoolStore((s) => s.addRefLigne);
+  const renameRef  = useSchoolStore((s) => s.renameRefLigne);
+  const removeRef  = useSchoolStore((s) => s.removeRefLigne);
+  const restoreRef = useSchoolStore((s) => s.restoreRefLigne);
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
@@ -343,7 +347,22 @@ export default function MatObservationWorkspace() {
         )}
       </div>
       {domainesOpen && (
-        <MatDomainesEditor sys={sys} classId={classId} onClose={() => setDomainesOpen(false)} />
+        <ReferentielEditor
+          titre={t('Domaines de la maternelle', 'Nursery domains')}
+          lignes={domainesAll.concat(
+            domainesForMaternelle(referentiel).filter((d) => masques.includes(d.id))
+              .map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) })),
+          )}
+          masques={masques}
+          motSingulier={t('domaine', 'domain')}
+          renommable={(l) => !!l.school_id}
+          onRename={(l, nom) => renameRef('mat', l.id, nom)}
+          onAdd={(nom) => addRef('mat', nom)}
+          onMasquer={(l) => removeRef('mat', l.id)}
+          onSupprimer={(l) => removeRef('mat', l.id)}
+          onDemasquer={(l) => restoreRef('mat', l.id)}
+          onClose={() => setDomainesOpen(false)}
+        />
       )}
         />
       )}

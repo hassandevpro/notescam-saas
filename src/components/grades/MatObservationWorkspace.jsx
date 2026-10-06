@@ -161,6 +161,7 @@ export default function MatObservationWorkspace() {
   });
   const [domainesOpen, setDomainesOpen] = useState(false);
 
+
   // ── Les 8 domaines se matérialisent TOUT SEULS ──────────────────────────────
   // Sans ligne `subjects`, la classe n'a rien à réétiqueter : l'écran affichait
   // une liste vide et renvoyait vers un bouton « Configurer ». C'est une corvée
@@ -184,6 +185,8 @@ export default function MatObservationWorkspace() {
   // Les intitulés du référentiel sont en français en base : une classe du
   // secteur anglophone doit les voir en anglais, ici comme sur son bulletin.
   const sys = selectedClass?.system || 'FR';
+  // Les trois sigles tels que la classe les lit (FR : A/ECA/NA, EN : A/IP/NA).
+  const codesAffiches = MAT_ACQUIS_CODES.map((c) => matAcquisCode(c, sys)).join(' / ');
   const estTitulaire = isClassTitulaire(selectedClass, teacherId);
   const domaines = useMemo(() => {
     // Libellé officiel localisé, PUIS la surcharge de l'école si elle en a une.
@@ -302,8 +305,11 @@ export default function MatObservationWorkspace() {
         {BackBtn}
         <h1 className="text-xl font-bold text-gray-800">{t('Évaluation maternelle (par domaines)', 'Nursery assessment (by domains)')}</h1>
         <p className="text-sm text-gray-500">
-          {t('Domaines officiels MINEDUB — niveaux d’acquisition A / ECA / NA, par trimestre.',
-             'Official MINEDUB domains — acquisition levels A / ECA / NA, per term.')}
+          {/* Les sigles sont DÉRIVÉS du système de la classe, jamais écrits en dur :
+              une Nursery lisait « ECA » dans ce sous-titre et « IP » sur sa grille,
+              deux mots pour la même cote à trois centimètres d'écart. */}
+          {t(`Domaines officiels MINEDUB — niveaux d’acquisition ${codesAffiches}, par trimestre.`,
+             `Official MINEDUB domains — acquisition levels ${codesAffiches}, per term.`)}
         </p>
       </div>
 

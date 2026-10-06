@@ -14,7 +14,7 @@ import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { fetchBaremes, upsertBareme, deleteBareme, buildBaremeRecord, baremeBkey } from '../lib/baremeService';
-import { baremeIndex, applyApcBareme, applyPrimBareme, rescaleNote, BAREME_MIN, BAREME_MAX } from '../core/baremeOverride';
+import { baremeIndex, applyPrimBareme, rescaleNote, BAREME_MIN, BAREME_MAX } from '../core/baremeOverride';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
 import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
@@ -76,24 +76,30 @@ function scopedRoles(school) {
     : new Set(['surveillant']);
 }
 
-// Applique les barèmes de saisie aux deux référentiels par compétences, puis
-// publie le tout. Appelé par CHAQUE chemin qui remplace un référentiel ou les
-// barèmes — c'est le seul endroit où la surcharge entre dans l'état, donc le
-// seul à maintenir. `_apcRefRaw`/`_primRefRaw` gardent la version OFFICIELLE :
-// sans elles, rebaisser un barème se ferait à partir du référentiel déjà
-// surchargé et la correction s'empilerait sur la précédente.
+// Applique les barèmes de saisie du PRIMAIRE au référentiel, puis publie le tout.
+// Appelé par CHAQUE chemin qui remplace un référentiel ou les barèmes — c'est le
+// seul endroit où la surcharge entre dans l'état, donc le seul à maintenir : tout
+// lecteur (saisie, bulletin, PV, rapport de classe) la voit sans qu'on ait à la
+// faire suivre. `_primRefRaw` garde la version OFFICIELLE : sans elle, rebaisser
+// un barème repartirait du référentiel déjà surchargé et les corrections
+// s'empileraient.
+//
+// LE PREMIER CYCLE APC N'EST PAS CONCERNÉ. Il a son propre mécanisme, plus fin :
+// le barème y est porté par la NOTE (`apc_notes.note_max`), si bien qu'une même
+// compétence peut être évaluée /3 sur une séquence et /20 sur une autre. Une
+// surcharge par niveau ne saurait pas exprimer cela, et deux mécanismes
+// concurrents sur le même écran finiraient par se contredire.
 function publishReferentiels(set, get, patch = {}) {
   const st = get();
   const apcRaw  = 'apcRefRaw'  in patch ? patch.apcRefRaw  : st._apcRefRaw;
   const primRaw = 'primRefRaw' in patch ? patch.primRefRaw : st._primRefRaw;
   const rows    = 'baremes'    in patch ? patch.baremes    : st.baremes;
-  const idx = baremeIndex(rows);
   set({
     _apcRefRaw: apcRaw || null,
     _primRefRaw: primRaw || null,
     baremes: rows || [],
-    apcReferentiel:  apcRaw  ? applyApcBareme(apcRaw, idx)   : null,
-    primReferentiel: primRaw ? applyPrimBareme(primRaw, idx) : null,
+    apcReferentiel:  apcRaw || null,
+    primReferentiel: primRaw ? applyPrimBareme(primRaw, baremeIndex(rows)) : null,
   });
 }
 
@@ -848,14 +854,12 @@ export const useSchoolStore = create((set, get) => ({
     return { data: record };
   },
 
-  // Combien de notes cette colonne porte-t-elle déjà ? Sert à ne proposer la
-  // conversion que lorsqu'il y a réellement quelque chose à convertir.
-  countNotesForBareme: ({ engine, competenceId, critereId = '' }) => {
-    const src = engine === 'apc' ? get().apcNotes : get().primNotes;
+  // Combien de notes ce critère porte-t-il déjà ? Sert à ne proposer la conversion
+  // que lorsqu'il y a réellement quelque chose à convertir.
+  countNotesForBareme: ({ competenceId, critereId = '' }) => {
     let n = 0;
-    for (const rec of Object.values(src)) {
-      if (rec.competence_id !== competenceId) continue;
-      if (engine !== 'apc' && rec.critere_id !== critereId) continue;
+    for (const rec of Object.values(get().primNotes)) {
+      if (rec.competence_id !== competenceId || rec.critere_id !== critereId) continue;
       if (rec.note == null || rec.note === '' || rec.note === 'ABS') continue;
       n += 1;
     }
@@ -863,41 +867,27 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   /**
-   * Convertit les notes DÉJÀ SAISIES d'une colonne d'un barème vers un autre
+   * Convertit les notes DÉJÀ SAISIES d'un critère d'un barème vers un autre
    * (16/20 devient 8/10). Proposé au moment du changement : sans elle, un 16 saisi
    * sur /20 serait relu comme 16/10 — au-dessus du barème, et faux au bulletin.
    *
-   * Ne touche QUE la compétence (APC) ou le couple compétence × critère (primaire)
-   * concerné, toutes séquences / UA confondues : le barème vaut pour l'année, les
-   * notes déjà posées aussi.
+   * Ne touche QUE le couple compétence × critère concerné, toutes UA confondues :
+   * le barème vaut pour l'année, les notes déjà posées aussi.
    *
    * Renvoie le nombre de notes converties.
    */
-  rescaleNotesForBareme: async ({ engine, competenceId, critereId = '', oldMax, newMax }) => {
+  rescaleNotesForBareme: async ({ competenceId, critereId = '', oldMax, newMax }) => {
     if (!oldMax || !newMax || Number(oldMax) === Number(newMax)) return 0;
     let n = 0;
-    if (engine === 'apc') {
-      for (const rec of Object.values(get().apcNotes)) {
-        if (rec.competence_id !== competenceId) continue;
-        const next = rescaleNote(rec.note, Number(oldMax), Number(newMax));
-        if (next == null || next === '' || next === rec.note) continue;
-        await get().saveApcNote({
-          eleveId: rec.eleve_id, competenceId: rec.competence_id,
-          sequenceId: rec.sequence_id, note: next, appreciation: rec.appreciation,
-        });
-        n += 1;
-      }
-    } else {
-      for (const rec of Object.values(get().primNotes)) {
-        if (rec.competence_id !== competenceId || rec.critere_id !== critereId) continue;
-        const next = rescaleNote(rec.note, Number(oldMax), Number(newMax));
-        if (next == null || next === '' || next === rec.note) continue;
-        await get().savePrimNote({
-          eleveId: rec.eleve_id, competenceId: rec.competence_id,
-          critereId: rec.critere_id, ua: rec.ua, note: next,
-        });
-        n += 1;
-      }
+    for (const rec of Object.values(get().primNotes)) {
+      if (rec.competence_id !== competenceId || rec.critere_id !== critereId) continue;
+      const next = rescaleNote(rec.note, Number(oldMax), Number(newMax));
+      if (next == null || next === '' || next === rec.note) continue;
+      await get().savePrimNote({
+        eleveId: rec.eleve_id, competenceId: rec.competence_id,
+        critereId: rec.critere_id, ua: rec.ua, note: next,
+      });
+      n += 1;
     }
     return n;
   },

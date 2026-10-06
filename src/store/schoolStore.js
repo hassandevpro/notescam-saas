@@ -11,7 +11,8 @@ import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teach
 import { fetchSchoolUnits, upsertSchoolUnit, deleteSchoolUnit as sbDeleteSchoolUnit } from '../lib/schoolUnitService';
 import { fetchReferentiel, refreshApcReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
-import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
+import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey,
+  fetchMatDomainesMasques, matDomaineMaisonId, upsertMatDomaineMaison, deleteMatDomaineMaison, setMatDomaineMasque } from '../lib/matService';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
@@ -315,6 +316,9 @@ export const useSchoolStore = create((set, get) => ({
   // demande par les écrans de saisie. `matObservations`/`primNotes` = { [nkey]: record }.
   matReferentiel:  null,
   matObservations: {},
+  // Domaines que CETTE ecole a masques (ids). Le national reste intact pour les
+  // autres : on cache chez soi, on ne supprime pas chez tout le monde.
+  matMasques:      [],
   primReferentiel: null,
   primNotes:       {},
   // Référentiels OFFICIELS, avant surcharge. Privés (préfixe `_`) : aucun écran
@@ -776,6 +780,7 @@ export const useSchoolStore = create((set, get) => ({
       refreshMatReferentiel(cachedRef?.__fp ?? null),
       fetchMatObservations(schoolId),
     ]);
+    get().loadMatMasques();
     if (refRes.data) {
       const blob = { ...refRes.data, id: 'referentiel', __fp: refRes.fingerprint };
       await matRefDB.put(blob).catch(() => {});
@@ -791,6 +796,95 @@ export const useSchoolStore = create((set, get) => ({
   }),
 
   // Enregistre/écrase une observation (niveau A·ECA·NA + texte). IDB → cloud/queue.
+  // ── Le referentiel maternelle de L'ECOLE ────────────────────────────────────
+  // Les 8 domaines nationaux sont partages par les 44 ecoles : on ne les renomme
+  // ni ne les supprime jamais en base. L'ecole AJOUTE les siens (school_id pose),
+  // et MASQUE chez elle ceux qu'elle n'utilise pas. La RLS fait respecter la
+  // frontiere ; ces actions ne font que l'exprimer.
+  //
+  // Pas de file hors-ligne ici : contrairement aux notes, configurer son
+  // referentiel n'est pas un geste qu'on fait dans une salle de classe sans
+  // reseau, et une ecriture rejouee plus tard sur une table PARTAGEE merite
+  // d'echouer franchement plutot que de resurgir.
+
+  loadMatMasques: async () => {
+    const { schoolId } = get();
+    if (!schoolId || !backendOnline()) return;
+    const ids = await fetchMatDomainesMasques(schoolId);
+    if (ids) set({ matMasques: ids });
+  },
+
+  addMatDomaineMaison: async (intitule) => {
+    const { schoolId, matReferentiel } = get();
+    const nom = String(intitule || '').trim();
+    if (!schoolId || !nom) return { error: 'intitule' };
+    if (!backendOnline()) return { error: 'offline' };
+    const domaines = matReferentiel?.domaines || [];
+    const id = matDomaineMaisonId(schoolId, nom);
+    if (domaines.some((d) => d.id === id)) return { error: 'existe' };
+    const record = {
+      id, school_id: schoolId, country_code: 'CM', code: null,
+      intitule: nom, ordre: 100 + domaines.length, actif: true,
+    };
+    const ok = await upsertMatDomaineMaison(record);
+    if (!ok) return { error: 'refus' };
+    set((st) => ({
+      matReferentiel: { ...(st.matReferentiel || {}), domaines: [...(st.matReferentiel?.domaines || []), record] },
+    }));
+    return { data: record };
+  },
+
+  renameMatDomaineMaison: async (id, intitule) => {
+    const { matReferentiel, schoolId } = get();
+    const nom = String(intitule || '').trim();
+    const d = (matReferentiel?.domaines || []).find((x) => x.id === id);
+    // Un domaine NATIONAL ne se renomme pas : il appartient aux 44 ecoles. Son
+    // intitule se surcharge par la ligne `subjects` (domaineLabelOverrides).
+    if (!d || !nom || !d.school_id || d.school_id !== schoolId) return { error: 'national' };
+    if (!backendOnline()) return { error: 'offline' };
+    const ok = await upsertMatDomaineMaison({ ...d, intitule: nom });
+    if (!ok) return { error: 'refus' };
+    set((st) => ({
+      matReferentiel: {
+        ...(st.matReferentiel || {}),
+        domaines: (st.matReferentiel?.domaines || []).map((x) => (x.id === id ? { ...x, intitule: nom } : x)),
+      },
+    }));
+    return { data: true };
+  },
+
+  // Retirer un domaine : SUPPRIME s'il est a l'ecole, MASQUE s'il est national.
+  removeMatDomaine: async (id) => {
+    const { schoolId, matReferentiel } = get();
+    const d = (matReferentiel?.domaines || []).find((x) => x.id === id);
+    if (!d || !schoolId) return { error: 'introuvable' };
+    if (!backendOnline()) return { error: 'offline' };
+    if (d.school_id === schoolId) {
+      const ok = await deleteMatDomaineMaison(id);
+      if (!ok) return { error: 'refus' };   // observations liees → la FK refuse
+      set((st) => ({
+        matReferentiel: {
+          ...(st.matReferentiel || {}),
+          domaines: (st.matReferentiel?.domaines || []).filter((x) => x.id !== id),
+        },
+      }));
+      return { data: 'supprime' };
+    }
+    const ok = await setMatDomaineMasque(schoolId, id, true);
+    if (!ok) return { error: 'refus' };
+    set((st) => ({ matMasques: [...new Set([...st.matMasques, id])] }));
+    return { data: 'masque' };
+  },
+
+  restoreMatDomaine: async (id) => {
+    const { schoolId } = get();
+    if (!schoolId || !backendOnline()) return { error: 'offline' };
+    const ok = await setMatDomaineMasque(schoolId, id, false);
+    if (!ok) return { error: 'refus' };
+    set((st) => ({ matMasques: st.matMasques.filter((x) => x !== id) }));
+    return { data: true };
+  },
+
   saveMatObservation: async ({ eleveId, domaineId, trimestreId, niveauAcquis, observation }) => {
     const { schoolId, matObservations } = get();
     if (!schoolId) return;

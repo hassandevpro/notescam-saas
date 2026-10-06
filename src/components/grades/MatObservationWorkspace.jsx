@@ -24,7 +24,7 @@ import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
-import ClassSubjectsEditor from './ClassSubjectsEditor';
+import MatDomainesEditor from './MatDomainesEditor';
 import { canManageClassSubjects } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
 
@@ -93,6 +93,7 @@ export default function MatObservationWorkspace() {
   const students        = useSchoolStore((s) => s.students);
   const referentiel     = useSchoolStore((s) => s.matReferentiel);
   const observations    = useSchoolStore((s) => s.matObservations);
+  const masques         = useSchoolStore((s) => s.matMasques);
   const loadMat         = useSchoolStore((s) => s.loadMat);
   const saveObservation = useSchoolStore((s) => s.saveMatObservation);
   const configureClassSubjects = useSchoolStore((s) => s.configureClassSubjects);
@@ -117,7 +118,12 @@ export default function MatObservationWorkspace() {
   // Les 8 domaines officiels, avant tout filtrage par enseignant. Les intitulés
   // du référentiel sont en français en base ; la localisation se fait plus bas,
   // une fois la classe connue (c'est elle qui porte le système linguistique).
-  const domainesAll = useMemo(() => domainesForMaternelle(referentiel), [referentiel]);
+  // Les domaines de l'ecole : le national (moins ce qu'elle a masque chez elle)
+  // PLUS les siens. Masquer n'efface rien pour les 43 autres etablissements.
+  const domainesAll = useMemo(
+    () => domainesForMaternelle(referentiel).filter((d) => !masques.includes(d.id)),
+    [referentiel, masques],
+  );
 
   // Classes maternelle uniquement (résolues par le moteur).
   const matClassesAll = useMemo(
@@ -332,19 +338,13 @@ export default function MatObservationWorkspace() {
         {canManageDomaines && (
           <button type="button" onClick={() => setDomainesOpen(true)}
             className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-            {t('Renommer les domaines', 'Rename domains')}
+            {t('Modifier les domaines', 'Edit domains')}
           </button>
         )}
       </div>
-
-      {domainesOpen && selectedClass && (
-        <ClassSubjectsEditor
-          cls={selectedClass}
-          role={role}
-          school={school}
-          teacherId={teacherId}
-          isDelegate={isDelegate}
-          onClose={() => setDomainesOpen(false)}
+      {domainesOpen && (
+        <MatDomainesEditor sys={sys} classId={classId} onClose={() => setDomainesOpen(false)} />
+      )}
         />
       )}
 

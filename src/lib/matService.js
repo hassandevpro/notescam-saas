@@ -80,3 +80,49 @@ export async function upsertMatObservation(record) {
   if (error) { console.error('upsertMatObservation', error); return false; }
   return true;
 }
+
+// --- Domaines PROPRES à l'école ------------------------------------------------
+// `mat_domaines` porte désormais `school_id` : NULL = national (lu par tous, écrit
+// par personne), renseigné = domaine maison (lu et écrit par cette école seule).
+// Voir supabase_mat_domaines_par_ecole.sql — la RLS fait respecter la frontière,
+// ces fonctions ne font que l'exprimer côté client.
+
+// Les domaines masqués par l'école : on ne supprime JAMAIS une ligne nationale
+// (elle sert aux 43 autres), on la cache chez soi.
+export async function fetchMatDomainesMasques(schoolId) {
+  if (!schoolId) return [];
+  const { data, error } = await supabase
+    .from('mat_domaines_masques').select('domaine_id').eq('school_id', schoolId);
+  if (error) { console.error('fetchMatDomainesMasques', error); return null; }
+  return (data || []).map((r) => r.domaine_id);
+}
+
+// Id d'un domaine maison : préfixé par l'école, donc jamais en collision avec un
+// slug national ni avec celui d'une autre école (la colonne est la clé primaire,
+// partagée par tout le monde).
+export const matDomaineMaisonId = (schoolId, intitule) =>
+  `ec_${String(schoolId).replace(/-/g, '').slice(0, 12)}_${String(intitule)
+    .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'domaine'}`;
+
+export async function upsertMatDomaineMaison(record) {
+  const { error } = await supabase.from('mat_domaines').upsert(record, { onConflict: 'id' });
+  if (error) { console.error('upsertMatDomaineMaison', error); return false; }
+  return true;
+}
+
+export async function deleteMatDomaineMaison(id) {
+  const { error } = await supabase.from('mat_domaines').delete().eq('id', id);
+  if (error) { console.error('deleteMatDomaineMaison', error); return false; }
+  return true;
+}
+
+export async function setMatDomaineMasque(schoolId, domaineId, masque) {
+  const q = masque
+    ? supabase.from('mat_domaines_masques').upsert({ school_id: schoolId, domaine_id: domaineId })
+    : supabase.from('mat_domaines_masques').delete()
+        .eq('school_id', schoolId).eq('domaine_id', domaineId);
+  const { error } = await q;
+  if (error) { console.error('setMatDomaineMasque', error); return false; }
+  return true;
+}

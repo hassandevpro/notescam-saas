@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS schools (
   country_system     TEXT,                -- 'cameroon_fr' | 'cameroon_en' | 'guinea_eq'
   ge_primary_coef    INTEGER NOT NULL DEFAULT 0,
   grade_entry_mode   TEXT NOT NULL DEFAULT 'principal', -- 'principal' | 'subject'
+  teacher_edits_subjects INTEGER NOT NULL DEFAULT 0, -- le titulaire configure les matieres de sa classe (0 = administration seule)
   primary_period_mode TEXT NOT NULL DEFAULT 'trimestres', -- primaire classique : 'trimestres' (3) | 'sequences' (6)
   bulletin_engine    TEXT NOT NULL DEFAULT 'classic', -- 'classic' | 'officiel' (+ anciens: minesec/minedub/apc…)
   bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic', -- 'synthetic' | 'detailed' (matières composites)

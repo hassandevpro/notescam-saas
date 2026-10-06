@@ -823,6 +823,9 @@ ensureColumn('schools', 'school_year_start_month', 'school_year_start_month INTE
 // autres. Comme strict_role_enforcement et advanced_delegation : 0 par défaut,
 // donc comportement inchangé pour toutes les écoles déjà installées.
 ensureColumn('schools', 'parent_show_rank', 'parent_show_rank INTEGER NOT NULL DEFAULT 0');
+// Parite cloud (supabase_teacher_edits_subjects.sql) : ferme par defaut, donc une
+// base LAN deja installee ne change pas de comportement en recevant la colonne.
+ensureColumn('schools', 'teacher_edits_subjects', 'teacher_edits_subjects INTEGER NOT NULL DEFAULT 0');
 
 // Module Budgets — HIÉRARCHIE cible (annual → period → sector). Colonnes ajoutées
 // aux bases existantes ; les CHECK de forme ne s'appliquent qu'aux bases fraîches/

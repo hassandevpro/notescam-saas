@@ -8,7 +8,8 @@ import Layout from '../components/Layout';
 import { useT, localeForLang } from '../lib/i18n';
 import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../lib/lockService';
 import { useCountry, gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
-import { isSubjectScoped, isFundamentalTitulaire } from '../lib/teacherScope';
+import { isSubjectScoped, isFundamentalTitulaire, canManageClassSubjects, canEditSubjectRow } from '../lib/teacherScope';
+import ClassSubjectsEditor from '../components/grades/ClassSubjectsEditor';
 import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
@@ -532,6 +533,7 @@ function PrincipalGrades() {
   const students  = useSchoolStore((s) => s.students);
   const gradeMap  = useSchoolStore((s) => s.gradeMap);
   const saveGrade = useSchoolStore((s) => s.saveGrade);
+  const teachers  = useSchoolStore((s) => s.teachers);
   const configureClassSubjects = useSchoolStore((s) => s.configureClassSubjects);
 
   const role           = useAuthStore((s) => s.role);
@@ -743,10 +745,19 @@ function PrincipalGrades() {
   const getScores = (studentId) => gradeMap[`${classId}_${studentId}_${sequence}`] || {};
 
   // Qui peut CRÉER les matières / domaines d'une classe ? Exactement le périmètre
-  // de la policy RLS `subjects: écriture par admins de l'école` : un admin, ou un
-  // compte délégué porteur de /app/classes. Proposer le bouton à une enseignante
-  // ne ferait qu'empiler des insertions rejetées dans la file hors-ligne.
-  const canConfigureSubjects = role === 'admin' || hasCapability(permissions, '/app/classes');
+  // des policies RLS — l'administration partout, et, si l'école l'a ouvert, le
+  // titulaire sur SA classe (teacherScope en est le miroir). Proposer le bouton à
+  // qui la base refusera ne ferait qu'empiler des insertions rejetées dans la file
+  // hors-ligne.
+  const isDelegate = hasCapability(permissions, '/app/classes');
+  const canConfigureSubjects = canManageClassSubjects({
+    role, school, cls: selectedClass, teacherId, isDelegate,
+  });
+  // Modifier au moins une ligne — un enseignant de matière ajuste les siennes.
+  const canTouchSubjects = canConfigureSubjects || (selectedClass && classSubjects.some(
+    (s) => canEditSubjectRow({ role, school, cls: selectedClass, teacherId, subject: s, isDelegate }),
+  ));
+  const [subjectsOpen, setSubjectsOpen] = useState(false);
   const [configuring, setConfiguring] = useState(false);
   const handleConfigureSubjects = async () => {
     if (!selectedClass || configuring) return;
@@ -1009,6 +1020,16 @@ function PrincipalGrades() {
                   </span>
                   {isMaternelle && <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-100 text-rose-700">{t('Maternelle', 'Nursery')}</span>}
                   {isPrimaire   && <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-700">{t('Primaire', 'Primary')}</span>}
+                  {/* Gérer les matières SANS passer par /app/classes, qui est une
+                      page d'administration (création, suppression, zone de danger)
+                      et reste fermée aux enseignants. */}
+                  {canTouchSubjects && (
+                    <button type="button" onClick={() => setSubjectsOpen(true)}
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
+                      {t(isMaternelle ? 'Gérer les domaines' : 'Gérer les matières',
+                         isMaternelle ? 'Manage domains' : 'Manage subjects')}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1120,6 +1141,18 @@ function PrincipalGrades() {
             className={selectedClass?.name || ''}
             onConfirm={confirmLock}
             onClose={() => setShowLockModal(false)}
+          />
+        )}
+
+        {subjectsOpen && selectedClass && (
+          <ClassSubjectsEditor
+            cls={selectedClass}
+            role={role}
+            school={school}
+            teacherId={teacherId}
+            isDelegate={isDelegate}
+            teachers={teachers}
+            onClose={() => setSubjectsOpen(false)}
           />
         )}
 

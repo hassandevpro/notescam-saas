@@ -23,6 +23,7 @@
 import { useState } from 'react';
 import { useT } from '../../lib/i18n';
 import { estNational } from '../../lib/referentielEcole';
+import { toast } from '../../store/toastStore';
 
 export default function ReferentielEditor({
   titre,
@@ -70,31 +71,54 @@ export default function ReferentielEditor({
   const run = async (fn) => { setBusy(true); try { return await fn(); } finally { setBusy(false); } };
 
   const handleRetrait = async (ligne) => {
-    await run(async () => {
-      if (estNational(ligne)) await onMasquer?.(ligne);
-      else                    await onSupprimer?.(ligne);
-    });
+    const r = await run(async () => (estNational(ligne) ? onMasquer?.(ligne) : onSupprimer?.(ligne)));
+    if (r?.error) { toast.error(direEchec(r.error)); return; }
     setConfirmId(null);
   };
 
   // Enregistre tout le brouillon d'un coup. La normalisation des espaces se fait
   // ICI, une seule fois, sur une valeur que l'utilisateur a pu relire.
+  // Traduit l'echec rendu par le store en phrase lisible. Se taire serait pire
+  // que de refuser : l'utilisateur revient plus tard, retrouve l'ancien libelle,
+  // et ne peut pas savoir si c'est lui qui s'est trompe ou le logiciel.
+  const direEchec = (code) => {
+    if (code === 'offline') return t('Connexion requise pour enregistrer.', 'Connection required to save.');
+    if (code === 'liee') return t('Impossible : des notes sont déjà rattachées. Masquez la ligne plutôt que de la supprimer.',
+                                  'Not possible: marks are already attached. Hide the row instead of deleting it.');
+    if (code === 'existe') return t('Ce libellé existe déjà.', 'That label already exists.');
+    return t('Enregistrement refusé par le serveur. Si cela persiste, la mise à jour de la base n’a pas encore été appliquée.',
+             'Save refused by the server. If this persists, the database update has not been applied yet.');
+  };
+
   const enregistrer = async () => {
     if (!modifiees.length) return;
+    const echecs = [];
+    const reussis = [];
     await run(async () => {
       for (const [id, texte] of modifiees) {
         const ligne = lignes.find((x) => x.id === id);
         const propre = texte.trim().replace(/s+/g, ' ');
-        if (ligne && propre) await onRename?.(ligne, propre);
+        if (!ligne || !propre) continue;
+        const r = await onRename?.(ligne, propre);
+        if (r?.error) echecs.push(r.error); else reussis.push(id);
       }
     });
-    setBrouillon({});
+    if (echecs.length) toast.error(direEchec(echecs[0]));
+    else if (reussis.length) toast.success(t('Enregistré.', 'Saved.'));
+    // On ne vide QUE ce qui est passe : ce qui a echoue reste a l'ecran, modifie,
+    // pour etre reessaye — on ne fait pas disparaitre le travail de l'utilisateur.
+    setBrouillon((b) => {
+      const reste = { ...b };
+      for (const id of reussis) delete reste[id];
+      return reste;
+    });
   };
 
   const handleAdd = async () => {
-    const v = nouveau.trim();
+    const v = nouveau.trim().replace(/s+/g, ' ');
     if (!v) return;
-    await run(() => onAdd?.(v));
+    const r = await run(() => onAdd?.(v));
+    if (r?.error) { toast.error(direEchec(r.error)); return; }
     setNouveau('');
   };
 

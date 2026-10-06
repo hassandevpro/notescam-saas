@@ -349,11 +349,16 @@ export default function MatObservationWorkspace() {
           </button>
         )}
       </div>
+      {/* La MEME liste que la grille — localisee et surchargee. L'editeur recevait
+          la liste BRUTE (le francais de la base) : une Nursery lisait ses domaines
+          en anglais dans le tableau et en francais ici. Plus les masques, absents
+          de `domaines`, sinon on ne pourrait jamais les retablir. */}
       {domainesOpen && (
         <ReferentielEditor
           titre={t('Domaines de la maternelle', 'Nursery domains')}
-          lignes={domainesAll.concat(
-            domainesForMaternelle(referentiel).filter((d) => masques.includes(d.id))
+          lignes={domaines.concat(
+            domainesForMaternelle(referentiel)
+              .filter((d) => masques.includes(d.id))
               .map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) })),
           )}
           masques={masques}
@@ -366,8 +371,6 @@ export default function MatObservationWorkspace() {
           onDemasquer={(l) => restoreRef('mat', l.id)}
           onResetLibelle={(l) => resetLibelle('mat', l.id)}
           onClose={() => setDomainesOpen(false)}
-        />
-      )}
         />
       )}
 

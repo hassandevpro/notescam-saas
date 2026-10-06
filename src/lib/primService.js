@@ -11,6 +11,7 @@
 // upsert sur ce quadruplet (anti-doublon).
 
 import { supabase } from './supabase';
+import { refreshReferentiel, countFingerprint } from './referentielFingerprint';
 import { uuid } from './uuid';
 // UA (Unité d'Apprentissage, 1-8) remplace trimestre_id comme clé de saisie —
 // le carnet officiel MINEDUB note par UA, pas par trimestre. Définition
@@ -47,6 +48,25 @@ export async function fetchPrimReferentiel() {
     console.error('fetchPrimReferentiel', e);
     return null;
   }
+}
+
+// Tables du référentiel primaire, dans l'ordre exact de `fetchPrimReferentiel`.
+// L'empreinte est le nombre de lignes de chacune : ni version active, ni
+// `updated_at` n'existent ici (cf. referentielFingerprint.js).
+const PRIM_REF_TABLES = [
+  'prim_cycles', 'prim_niveaux', 'prim_competences', 'prim_niveau_competences',
+  'prim_criteres', 'prim_cote_bareme', 'prim_bareme_criteres',
+];
+
+// Référentiel retéléchargé seulement si un compte a bougé. Voir la limite
+// assumée dans referentielFingerprint.js : une correction sur place qui ne
+// change aucun compte reste invisible.
+export function refreshPrimReferentiel(cachedFingerprint) {
+  return refreshReferentiel({
+    cachedFingerprint,
+    fingerprint: () => countFingerprint(PRIM_REF_TABLES),
+    fetchAll: fetchPrimReferentiel,
+  });
 }
 
 // --- Notes --------------------------------------------------------------------

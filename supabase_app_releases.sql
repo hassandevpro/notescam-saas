@@ -27,5 +27,5 @@ CREATE POLICY app_releases_public_read ON public.app_releases FOR SELECT USING (
 
 -- Amorce : la version courante déclarée comme publiée (à mettre à jour à chaque release).
 INSERT INTO public.app_releases (version, channel, mandatory, notes)
-VALUES ('0.2.0', 'stable', false, 'Version courante')
+VALUES ('0.2.2', 'stable', false, 'Secteur de rattachement du personnel (enseignants et administratifs) : colonne declaree, cloisonnement en lecture, imposition a la creation. Suppression d eleve rattache a la caisse : bascule en archivage. Regle anti-doublon a la saisie d un eleve.')
 ON CONFLICT (version) DO NOTHING;

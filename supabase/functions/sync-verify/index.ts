@@ -31,6 +31,10 @@ const TABLES = [
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items',
+  // Échéances des frais périodiques (cantine mensuelle, transport trimestriel)
+  // et arrêtés de caisse. Déclarées synchronisables côté LAN depuis leur
+  // création, mais absentes ici : elles ne quittaient jamais l'école.
+  'fee_schedule_items', 'cash_sessions',
   'attendance', 'student_absences', 'student_class_assignments',
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
   'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',

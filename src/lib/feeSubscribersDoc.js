@@ -34,7 +34,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => (
  * @param {string}  [opts.lang]     langue de l'école (anglophone…)
  * @param {string}  [opts.currency] devise (défaut : celle de l'école)
  */
-export function buildSubscribersHtml({ school, feeName, categoryLabel, rows = [], lang, currency }) {
+export function buildSubscribersHtml({ school, feeName, categoryLabel, rows = [], lang, currency, basic = false }) {
   const isGE = resolveCountryCode(school) === 'guinea_eq';
   const isEn = !isGE && lang === 'anglophone';
   const sys  = isGE ? 'ES' : isEn ? 'EN' : 'FR';
@@ -132,6 +132,7 @@ ${officialHeaderHtml(school, {
     sys,
     title: t('Liste des souscripteurs', 'List of subscribers', 'Lista de inscritos'),
     subtitle: feeName,
+    basic,
   })}
 
 <div class="meta">

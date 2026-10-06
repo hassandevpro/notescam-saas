@@ -34,8 +34,13 @@ import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal, primCote,
   trimestreOfUA, PRIM_COTE_DEFAULT,
 } from '../../core/primEngine';
+// Barème de saisie : l'enseignant note l'Oral sur 10 et l'Écrit sur 30 s'il le
+// veut — le total et la cote restent des ratios, donc justes dans tous les cas.
+import { primOfficialMax } from '../../core/baremeOverride';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
+import BaremeChip from './BaremeChip';
+import { toast } from '../../store/toastStore';
 
 // ── Cellule note (bornée au barème /points_max du critère) ─────────────────────
 function NoteCell({ value, max, disabled, onCommit }) {
@@ -84,6 +89,9 @@ export default function PrimCompetenceWorkspace() {
   const primNotes   = useSchoolStore((s) => s.primNotes);
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
+  const saveBareme     = useSchoolStore((s) => s.saveBareme);
+  const countNotesForBareme   = useSchoolStore((s) => s.countNotesForBareme);
+  const rescaleNotesForBareme = useSchoolStore((s) => s.rescaleNotesForBareme);
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
@@ -172,6 +180,30 @@ export default function PrimCompetenceWorkspace() {
     return out;
   };
   const competenceTotal = (stu) => competencePointsTotal(notesByCritereFor(stu.id), criteresForStudent(stu));
+
+  // Changement de barème d'un critère (Oral, Écrit, Pratique, Savoir-être) pour la
+  // compétence affichée. La surcharge porte sur le NIVEAU (tous les CM2) et non sur
+  // la classe : deux classes parallèles doivent rester comparables (baremeOverride.js).
+  const changeBareme = async (critere, newMax, { convertir }) => {
+    const oldMax = Number(critere.points_max);
+    const res = await saveBareme({
+      engine: 'prim', niveauSlug, competenceId, critereId: critere.id,
+      pointsMax: newMax, officialMax: primOfficialMax(critere),
+    });
+    if (res?.error) { toast.error(res.error); return; }
+    let converted = 0;
+    if (convertir) {
+      converted = await rescaleNotesForBareme({
+        engine: 'prim', competenceId, critereId: critere.id, oldMax, newMax,
+      });
+    }
+    toast.success(
+      (newMax === primOfficialMax(critere)
+        ? t(`Barème officiel rétabli (${critere.nom} /${newMax}).`, `Official scale restored (${critere.nom} /${newMax}).`)
+        : t(`${critere.nom} : barème /${newMax} enregistré.`, `${critere.nom}: scale /${newMax} saved.`))
+      + (converted ? t(` ${converted} note(s) converties.`, ` ${converted} mark(s) converted.`) : ''),
+    );
+  };
 
   function renderClassPicker() {
     return (
@@ -265,6 +297,11 @@ export default function PrimCompetenceWorkspace() {
       <div className="text-xs text-gray-500">
         {t('Barème officiel par critère (points) — variable selon la compétence · le total et la cote se calculent sur les critères déjà saisis.',
            'Official per-criterion scale (points) — varies by competency · total and grade are computed from criteria already entered.')}
+        {' '}
+        {t(
+          'Vous pouvez changer le barème d’un critère sous son nom (Oral, Écrit…) : le total suit.',
+          'You can change a criterion’s scale under its name (Oral, Written…): the total follows.',
+        )}
       </div>
 
       {niveauSlug && criteres.length > 0 && classStudents.length > 0 && (
@@ -306,7 +343,14 @@ export default function PrimCompetenceWorkspace() {
                 {criteres.map((c) => (
                   <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600">
                     <span className="block truncate">{c.nom}</span>
-                    <span className="block text-[11px] text-gray-400">/{c.points_max}</span>
+                    {/* Le barème du critère se change ICI, là où l'on saisit. */}
+                    <BaremeChip
+                      value={c.points_max}
+                      officialMax={primOfficialMax(c)}
+                      label={`${competences.find((x) => x.id === competenceId)?.code || ''} — ${c.nom}`}
+                      noteCount={countNotesForBareme({ engine: 'prim', competenceId, critereId: c.id })}
+                      onSave={(max, opts) => changeBareme(c, max, opts)}
+                    />
                   </th>
                 ))}
                 <th className="px-3 py-2 text-left font-medium text-gray-600">{t('Total · Cote', 'Total · Grade')}</th>

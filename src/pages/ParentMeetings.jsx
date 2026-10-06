@@ -30,8 +30,10 @@ export default function ParentMeetings() {
       ]}
       rowActions={[
         { label: ['🖨 Imprimer', '🖨 Print'], onClick: (row, ctx) => printConvocation({
-            school: ctx.school, student: ctx.studentById.get(row.student_id),
-            className: ctx.classById.get(row.class_id)?.name, meeting: row, t: ctx.t,
+            school: ctx.identityFor(ctx.classById.get(row.class_id)),
+            student: ctx.studentById.get(row.student_id),
+            className: ctx.classById.get(row.class_id)?.name, cls: ctx.classById.get(row.class_id),
+            meeting: row, t: ctx.t,
           }) },
       ]}
     />

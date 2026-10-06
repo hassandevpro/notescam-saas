@@ -59,6 +59,12 @@ export const SCOPED_TABLES = {
   student_fees:              { kind: 'fee_student', col: 'student_id' },
   fee_payments:              { kind: 'fee_student', col: 'student_id' },
   student_fee_items:         { kind: 'fee_student', col: 'student_id' },
+  // Les ÉCHÉANCES d'un frais périodique portent un élève, donc son identité et
+  // sa dette. Elles étaient déclarées synchronisables et écrivables par le
+  // client, mais absentes d'ici : un compte cloisonné Collège lisait — et
+  // pouvait modifier — les échéances des élèves du Primaire. Même rattachement
+  // que le frais attribué dont elles dépendent.
+  fee_schedule_items:        { kind: 'fee_student', col: 'student_id' },
   class_fee_grids:           { kind: 'fee_class',   col: 'class_id' },
 
   // ── Personnel (Phase 3) ───────────────────────────────────────────────────
@@ -77,6 +83,23 @@ function toList(v) {
 
 // Écoles déjà passées par la pose de la matrice dans ce processus (cf. loadScope).
 const _matrixSeen = new Set();
+
+// ── ESPACE PARENT ───────────────────────────────────────────────────────────
+// Ce compte est-il un parent ? Miroir de `public.is_parent_account()`.
+// Ne sert JAMAIS à accorder quoi que ce soit : uniquement à REFUSER, c'est-à-dire
+// à empêcher un compte parent de tomber dans le repli « compte non rattaché =
+// installateur = accès global » de loadScope(). Table absente (base LAN
+// antérieure à la migration) → false, donc comportement d'avant à l'identique.
+export function isParentAccount(userId) {
+  if (!userId) return false;
+  try {
+    return !!db.prepare(
+      'SELECT 1 FROM parent_accounts WHERE user_id = ? AND active = 1',
+    ).get(userId);
+  } catch {
+    return false;
+  }
+}
 
 // Périmètre du compte, ou null s'il n'est membre d'aucune école active.
 export function loadScope(userId) {
@@ -104,7 +127,23 @@ export function loadScope(userId) {
   // impossible. On retombe donc sur le comportement historique : pas de
   // cloisonnement sectoriel. Le cloisonnement ne s'applique qu'aux comptes
   // RATTACHÉS et porteurs d'un périmètre explicite.
-  if (!row) return { schoolId: null, sections: [], cycles: [], classIds: [], global: true, unscoped: true };
+  //
+  // ⚠️ MAIS : un COMPTE PARENT n'a lui non plus aucune ligne school_users — c'est
+  // même sa définition (cf. supabase_parent_portal.sql §1). Sans le contrôle
+  // ci-dessous, il tomberait dans cette trappe et obtiendrait `unscoped: true`,
+  // c'est-à-dire l'ACCÈS TOTAL — exactement l'inverse de ce que fait le cloud,
+  // où l'absence de school_users vaut refus par défaut.
+  //
+  // Le parent reçoit donc un périmètre de REFUS explicite. Il ne lit rien par
+  // /api/db (query.js le rejette d'emblée) et ne passe que par les RPC
+  // parent_*, gardées une à une par parentOwnsStudent().
+  if (!row) {
+    if (isParentAccount(userId)) {
+      return { userId, schoolId: null, sections: [], cycles: [], classIds: [],
+               global: false, unscoped: false, parent: true, role: 'parent' };
+    }
+    return { schoolId: null, sections: [], cycles: [], classIds: [], global: true, unscoped: true };
+  }
 
   // On pose sur le catalogue de l'école les clés d'autorité de la matrice — si et
   // seulement si elle est durcie. Le drapeau n'arrive pas forcément au démarrage
@@ -684,3 +723,73 @@ function matchedRowKeys(op, rule) {
   } catch { /* table sans colonne id : on retombe sur le refus prudent */ }
   throw new Error('Hors périmètre : écriture de masse interdite à un compte sectoriel.');
 }
+
+// ── Écriture de l'établissement : ADMIN uniquement ──────────────────────────
+// Le nom de l'établissement et TOUS les paramètres (type, langue, moteur de
+// bulletin, mode de saisie, calendrier, options avancées…) sont des colonnes de
+// la table `schools`. Le front désactive déjà ces champs hors admin
+// (Settings.jsx : `disabled={!isAdmin}`, onglets `hidden: !isAdmin`), mais rien
+// ne l'imposait CÔTÉ SERVEUR sur l'édition LAN : une requête forgée sur /api/db
+// par un compte enseignant/censeur/surveillant aurait modifié l'école.
+//
+// Cette garde ferme ce contournement. Elle ne touche PAS la création d'école :
+// celle-ci passe par la RPC signup_school_and_admin (server/rpc.js), hors du
+// chemin /api/db gardé ici.
+export function guardSchoolWrite(op, ctx) {
+  if (op.table !== 'schools') return;
+  if (!['insert', 'upsert', 'update', 'delete'].includes(op.action)) return;
+  // Appel INTERNE sans session (amorçage, migrations, seeds de test) : chemin
+  // serveur de confiance. La route HTTP fournit TOUJOURS un userId (sinon 401
+  // avant d'atteindre runQuery), donc un ctx nul n'est jamais une requête
+  // utilisateur — rien à garder.
+  if (!ctx?.userId) return;
+  // Rôle lu DIRECTEMENT, sans passer par loadScope() : cette dernière a un effet
+  // de bord — elle appelle ensureStrictRoleMatrix() et MÉMORISE l'école comme
+  // traitée (scopeGuard `_matrixSeen`). L'invoquer ici, dans la chaîne de gardes
+  // qui précède doUpdate, la déclencherait AVANT que le drapeau strict_role_
+  // enforcement soit écrit — figeant l'école « traitée » à tort et empêchant la
+  // pose ultérieure de la matrice. On ne lit donc que le rôle.
+  const row = db.prepare(
+    'SELECT role FROM school_users WHERE user_id = ? AND active = 1 LIMIT 1',
+  ).get(ctx.userId);
+  // Aucune ligne : installateur non encore rattaché (bootstrap) — comme le
+  // traite guardScopeWrite pour les comptes unscoped. La cible de cette garde,
+  // ce sont les MEMBRES non-admin (enseignant / censeur / surveillant).
+  if (!row) return;
+  if (row.role === 'admin') return;
+  throw new Error("Seul l'administrateur peut modifier les paramètres et le nom de l'établissement.");
+}
+
+// ── Édition RESTREINTE (build « utilisateur ») ──────────────────────────────
+// Deux limites, pilotées par variable d'environnement et posées par le lanceur
+// de l'installateur restreint (packaging/start-server-user.cmd). Non définies
+// = build ADMIN normal, aucune limite. Lues une fois au chargement (l'env est
+// fixé avant le démarrage de node).
+const MAX_CLASSES = (() => {
+  const n = parseInt(process.env.NOTESCAM_MAX_CLASSES || '', 10);
+  return Number.isInteger(n) && n > 0 ? n : null;   // null = illimité
+})();
+
+// Plafonne le NOMBRE de classes d'une école. Ne compte QUE les créations : un
+// upsert qui réécrit une classe déjà existante (édition) passe toujours.
+export function guardClassLimit(op) {
+  if (MAX_CLASSES === null) return;                 // build admin : aucune limite
+  if (op.table !== 'classes') return;
+  if (op.action !== 'insert' && op.action !== 'upsert') return;
+  const rows = Array.isArray(op.values) ? op.values : [op.values];
+  const nouvellesParEcole = new Map();              // créations DANS ce même appel
+  for (const rec of rows) {
+    if (!rec || !rec.school_id) continue;
+    if (rec.id && db.prepare('SELECT 1 FROM classes WHERE id = ?').get(rec.id)) continue; // édition
+    const dejaEnBase = db.prepare('SELECT count(*) AS c FROM classes WHERE school_id = ?').get(rec.school_id).c;
+    const dejaDansAppel = nouvellesParEcole.get(rec.school_id) || 0;
+    if (dejaEnBase + dejaDansAppel >= MAX_CLASSES) {
+      throw new Error(`Cette version est limitée à ${MAX_CLASSES} classes. Contactez l'administrateur de l'établissement.`);
+    }
+    nouvellesParEcole.set(rec.school_id, dejaDansAppel + 1);
+  }
+}
+
+// L'install RESTREINTE est liée à SON école : elle ne peut pas en créer une
+// autre. `signup_school_and_admin` consulte ce drapeau (server/rpc.js).
+export const SCHOOL_CREATION_LOCKED = process.env.NOTESCAM_LOCK_SCHOOL === '1';

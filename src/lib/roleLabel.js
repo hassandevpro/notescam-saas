@@ -10,6 +10,9 @@ export function roleLabel(role, t) {
     case 'surveillant': return t('Surveillant', 'Supervisor', 'Jefe de disciplina');
     case 'superadmin':  return t('Super-administrateur', 'Super admin', 'Superadministrador');
     case 'teacher':     return t('Enseignant', 'Teacher', 'Profesor');
+    // Parent/tuteur : utilisateur EXTERNE. Sans ce cas, le `default` ci-dessous
+    // l'affichait « Enseignant » — un libellé faux, et trompeur sur ses droits.
+    case 'parent':      return t('Parent / Tuteur', 'Parent / Guardian', 'Padre / Tutor');
     default:            return t('Enseignant', 'Teacher', 'Profesor');
   }
 }

@@ -10,6 +10,7 @@
 // upsert sur ce triplet (anti-doublon).
 
 import { supabase } from './supabase';
+import { refreshReferentiel, countFingerprint } from './referentielFingerprint';
 import { uuid } from './uuid';
 
 export const obsNkey = (eleveId, domaineId, trimestreId) =>
@@ -32,6 +33,20 @@ export async function fetchMatReferentiel() {
     console.error('fetchMatReferentiel', e);
     return null;
   }
+}
+
+// Tables du référentiel maternelle, dans l'ordre de `fetchMatReferentiel`.
+// `mat_referentiel_versions` existe mais n'a AUCUNE ligne et n'est pas
+// interrogée : l'empreinte repose donc sur les comptes, avec la même limite
+// assumée que le primaire (cf. referentielFingerprint.js).
+const MAT_REF_TABLES = ['mat_niveaux', 'mat_domaines'];
+
+export function refreshMatReferentiel(cachedFingerprint) {
+  return refreshReferentiel({
+    cachedFingerprint,
+    fingerprint: () => countFingerprint(MAT_REF_TABLES),
+    fetchAll: fetchMatReferentiel,
+  });
 }
 
 // --- Observations -------------------------------------------------------------

@@ -11,6 +11,7 @@ import { seedDemoYear, deleteDemoYear, getDemoClassIds } from '../lib/seedDemo';
 import { seedPeriods } from '../lib/academicPeriodsService';
 import { resolveCountryCode, getCountry } from '../countries';
 import { isOfficialEngine } from '../core/engineResolver';
+import { classIdentity } from '../lib/schoolIdentity';
 import { initDB, classesDB } from '../lib/db';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import { buildRanks, clsStat, multiAvg, getAppreciation } from '../core/bulletinEngine';
@@ -22,6 +23,7 @@ import Layout from '../components/Layout';
 import HubTabs from '../components/hubs/HubTabs';
 import Modal from '../components/Modal';
 import DataImportPanel from '../components/DataImportPanel';
+import { isBasicClass } from '../lib/tutelle';
 
 // ── Assistant de promotion sécurisé (étapes + confirmation forte) ───────────
 // Parcours en 5 étapes : Vérifications → Règles → Aperçu → Confirmation forte
@@ -214,6 +216,7 @@ function PalmaresPanel() {
   const t        = useT();
   const school   = useAuthStore((s) => s.school);
   const classes  = useSchoolStore((s) => s.classes);
+  const schoolUnits = useSchoolStore((s) => s.schoolUnits);
   const students  = useSchoolStore((s) => s.students);
   const subjects  = useSchoolStore((s) => s.subjects);
   const gradeMap  = useSchoolStore((s) => s.gradeMap);
@@ -245,7 +248,10 @@ function PalmaresPanel() {
           isMajor: r.av !== null && r.rankD === '1er',
         };
       });
-      sheets.push(palmaresClassSheet(school, year, { className: cls.name, sys, rows, stats }));
+      // Une feuille par classe : elle porte le nom et le logo du secteur de
+      // cette classe, comme sa tutelle ministérielle juste à côté.
+      sheets.push(palmaresClassSheet(classIdentity(school, cls, schoolUnits), year,
+        { className: cls.name, basic: isBasicClass(cls), sys, rows, stats }));
     }
     return sheets;
   };

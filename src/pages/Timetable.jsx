@@ -22,6 +22,8 @@ import ViewSwitcher       from '../components/timetable/ViewSwitcher';
 import TimetableGrid      from '../components/timetable/TimetableGrid';
 import SlotEditor         from '../components/timetable/SlotEditor';
 import TimetablePrint     from '../components/timetable/TimetablePrint';
+import { tutelleBasic } from '../lib/tutelle';
+import { classIdentity } from '../lib/schoolIdentity';
 import '../styles/timetable.css';
 
 const DAYS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -54,6 +56,7 @@ export default function Timetable() {
   const activeYear = viewYear ?? school?.current_year;
 
   const classes    = useSchoolStore((s) => s.classes);
+  const schoolUnits = useSchoolStore((s) => s.schoolUnits);
   const subjects   = useSchoolStore((s) => s.subjects);
   const teachers   = useSchoolStore((s) => s.teachers);
 
@@ -224,6 +227,13 @@ export default function Timetable() {
     class: t('Classe', 'Class'), teacher: t('Enseignant', 'Teacher'),
     room: t('Salle', 'Room'), subject: t('Matière', 'Subject'),
   }[view];
+  // Tutelle de l’en-tête : la CLASSE affichée quand la vue est « par classe » ;
+  // sinon (vue enseignant ou salle) la composition de l’école tranche.
+  const printClass = view === 'class' ? classes.find((c) => c.id === entityId) : null;
+  const printBasic = tutelleBasic({ cls: printClass, classes });
+  // Identité imprimée : le secteur de la classe affichée. En vue enseignant ou
+  // salle, aucune classe ne tranche — on garde le complexe.
+  const printSchool = printClass ? classIdentity(school, printClass, schoolUnits) : school;
   const printTitle = entityName || t('Emploi du temps', 'Timetable');
   const printSubtitle = `${viewLabel}${activeYear ? '' : ''}`;
 
@@ -237,7 +247,8 @@ export default function Timetable() {
         title={printTitle}
         subtitle={printSubtitle}
         year={activeYear}
-        school={school}
+        school={printSchool}
+        basic={printBasic}
         showClass={showClass}
         t={t}
       />

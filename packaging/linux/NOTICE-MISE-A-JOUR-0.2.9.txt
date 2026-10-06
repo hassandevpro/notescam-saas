@@ -1,0 +1,266 @@
+========================================================================
+NotesCam 0.2.9 — Notice pour l'administrateur du serveur de l'école
+                 THE GENIUS
+========================================================================
+
+Cette version remplace la 0.2.8, installée le 23 septembre 2026.
+
+Elle n'apporte QU'UNE SEULE chose : les bulletins OFFICIELS des classes
+du secteur anglophone sortent désormais entièrement en anglais. C'est le
+seul changement entré dans le produit depuis la 0.2.8.
+
+Aucune migration à lancer à la main. Aucune donnée scolaire modifiée :
+ni élèves, ni notes, ni classes, ni frais, ni paie.
+
+
+LISEZ D'ABORD CECI
+------------------
+
+Votre établissement imprime aujourd'hui le bulletin CLASSIQUE (une ligne
+par matière, une note sur 20 ou sur 100). Le correctif de cette version
+porte sur les bulletins OFFICIELS par compétences — ceux du référentiel
+MINEDUB pour la maternelle et le primaire, et du référentiel MINESEC par
+compétences pour le premier cycle.
+
+TANT QUE VOUS RESTEZ SUR LE BULLETIN CLASSIQUE, CETTE MISE À JOUR NE
+CHANGE RIEN À VOS DOCUMENTS IMPRIMÉS.
+
+Nous vous la livrons quand même, pour deux raisons :
+  - votre serveur reste aligné sur la version publiée, et la prochaine
+    mise à jour partira d'une base à jour ;
+  - le jour où vous passez une classe au bulletin officiel, le correctif
+    est déjà là.
+
+Si vous n'aviez pas prévu ce changement de bulletin, vous pouvez
+installer cette version sans rien faire d'autre : elle est sans effet
+visible, et sans risque.
+
+
+CE QUE CONTIENT LE CORRECTIF
+-----------------------------
+
+Le cadre des bulletins officiels (en-têtes, colonnes, pieds de page,
+signatures) savait déjà se rendre en anglais. Mais les INTITULÉS DU
+RÉFÉRENTIEL NATIONAL — domaines du préscolaire, compétences du primaire,
+critères d'évaluation, noms de matières — sont enregistrés en français,
+une seule fois pour tout le pays. Un bulletin anglophone sortait donc
+avec son cadre en anglais et son contenu en français.
+
+Désormais, pour une classe déclarée en système EN :
+
+  MATERNELLE   Les 8 domaines pédagogiques (« Language and
+               communication », « Psychomotor skills »…), les niveaux
+               d'acquisition (Achieved / In progress / Not achieved) et
+               le titre du bulletin.
+
+  PRIMAIRE     Les 11 compétences nationales (« Communicate in French »,
+               « Use basic notions in mathematics »…), les 4 critères
+               (Oral / Written / Practical / Attitude), les libellés de
+               cote et le titre du bulletin.
+
+  FORM 1-5     Les noms de matières (« Citizenship and Moral Education »
+               au lieu de « Éducation à la Citoyenneté et à la Morale »).
+
+  PARTOUT      Le pied de page « Page 1 sur 1 » devient « Page 1 of 1 »,
+               et la décision du conseil de classe suit désormais la
+               langue de la CLASSE et non celle de l'interface.
+
+La même traduction s'applique aux procès-verbaux, aux rapports de classe
+et aux écrans de saisie des notes.
+
+Une classe anglophone créée à partir de maintenant reçoit directement des
+matières nommées en anglais.
+
+
+CE QUI VOUS CONCERNE DIRECTEMENT
+---------------------------------
+
+Vous avez aujourd'hui 9 classes déclarées en système ANGLAIS, soit 209
+élèves :
+
+        NURSERY 2                              29 élèves
+        Class 1, Class 2, Class 3,
+        Class 4, Class 5, Class 6             124 élèves
+        FORM1, FORM2                           56 élèves
+
+Ce sont ces classes, et elles seules, que le correctif concerne — le jour
+où vous passez au bulletin officiel.
+
+DEUX POINTS À VÉRIFIER DE VOTRE CÔTÉ :
+
+  1. NURSERY 1 EST DÉCLARÉE EN FRANÇAIS, NURSERY 2 EN ANGLAIS.
+     Si NURSERY 1 (29 élèves) est bien une classe anglophone, sa fiche
+     doit être corrigée : Classes → NURSERY 1 → modifier → « Système de
+     notation » → « EN — notes sur 100 ». Sans cela, son bulletin restera
+     en français quoi qu'il arrive. Même vérification utile pour CRECHES
+     et PRE-MATERNELLE si elles accueillent des enfants du secteur
+     anglophone.
+
+     ATTENTION : ce réglage n'est pas qu'une langue. Il fait aussi passer
+     la classe de la notation sur 20 à la notation sur 100. Ne le changez
+     pas en cours de trimestre sur une classe où des notes sont déjà
+     saisies — appelez l'éditeur d'abord.
+
+  2. LES COMPÉTENCES DE FORM 1 ET FORM 2 N'EXISTENT PAS ENCORE.
+     Cette version installe les classes Form 1 à Form 5 et le catalogue
+     des matières anglophones (English Language, Mathematics, Biology,
+     Citizenship Education, Literature in English…). Mais les ÉNONCÉS de
+     compétences du programme anglophone (CBA), eux, ne sont pas fournis :
+     ce sont des textes officiels de programme, que nous ne pouvons pas
+     inventer.
+     Conséquence : sur le bulletin officiel, une classe de Form afficherait
+     son cadre et ses matières en anglais, mais aucune ligne de compétence.
+     Pour les obtenir, il faut nous transmettre le référentiel CBA de vos
+     classes ; nous l'importons.
+     Les classes de maternelle et de primaire, elles, n'ont pas ce
+     problème : leurs référentiels sont complets et traduits.
+
+
+CE QUI N'EST PAS TOUCHÉ
+-----------------------
+  - Aucune donnée scolaire n'est modifiée : élèves, notes, bulletins,
+    classes, frais, encaissements, paie.
+  - La base de données est CONSERVÉE (copie de sûreté automatique avant
+    l'installation).
+  - Le rattachement au Cloud est CONSERVÉ.
+  - Les rôles, les secteurs et les permissions ne bougent pas.
+  - Aucune table ni colonne nouvelle. La seule écriture en base est
+    l'ajout, dans le référentiel national (données de référence, pas vos
+    données), des classes Form 1 à Form 5 et de 27 matières anglophones.
+    Cet ajout est rejouable sans effet de bord.
+
+
+CE QU'IL VOUS FAUT
+------------------
+  - Le fichier :
+        notescam-linux-x64-0.2.9.tar.gz     (52 771 805 octets)
+
+    Empreinte SHA-256, à vérifier AVANT d'installer :
+
+        d61fbcfda6855375aa5827bc77a267a76fd366dda2a80fe72c17ad869f027c37
+
+    Sur le serveur :
+
+        sha256sum notescam-linux-x64-0.2.9.tar.gz
+
+    Si l'empreinte affichée diffère, n'installez pas : le fichier a été
+    abîmé pendant le transfert. Redemandez-le.
+
+  - Le script deploy-correctif-credentials.sh, déjà reçu au 0.2.1.
+  - Un accès au serveur Linux, avec les droits « sudo ».
+  - Environ 5 minutes. Service indisponible ~1 minute.
+
+
+ÉTAPE 1 — INSTALLATION
+----------------------
+        cd ~
+        ls -l notescam-linux-x64-0.2.9.tar.gz
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.9.tar.gz
+
+   (Si le port n'est pas 8080 — « grep PORT /etc/notescam/notescam.env » :
+        sudo PORT=LE_PORT ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.9.tar.gz )
+
+Contrôle :
+
+        curl -s http://127.0.0.1:8080/api/version
+
+  doit contenir : "version":"0.2.9"
+
+
+ÉTAPE 2 — RECHARGER LES POSTES
+-------------------------------
+Sur chaque poste : Ctrl + Maj + R (rechargement forcé). Sans cela, le
+navigateur continue d'afficher l'ancienne version — ce n'est pas une
+panne, c'est sa copie locale.
+
+
+ÉTAPE 3 — VÉRIFICATIONS APRÈS INSTALLATION
+-------------------------------------------
+À faire dans l'heure qui suit, dans cet ordre.
+
+  1. Le service tourne et annonce la bonne version :
+
+        systemctl is-active notescam
+        curl -s http://127.0.0.1:8080/api/version
+
+  2. Le rattachement au Cloud est intact :
+
+        curl -s http://127.0.0.1:8080/api/pair/status
+
+     Le « schoolId » doit être le MÊME qu'avant la mise à jour.
+
+  3. La synchronisation repart. Dans l'application, ouvrez le panneau de
+     synchronisation : l'état doit revenir à « Synchronisation validée à
+     100 % ».
+
+  4. Vos effectifs et vos encaissements n'ont pas bougé : ouvrez la liste
+     des élèves et le tableau de bord des frais, et comparez au relevé que
+     vous aviez avant l'installation.
+
+  5. Vos bulletins sont INCHANGÉS. Imprimez un bulletin d'une classe
+     quelconque : il doit être exactement celui d'avant. C'est le
+     résultat attendu tant que vous restez sur le bulletin classique.
+
+Si l'un de ces cinq points ne répond pas comme décrit, ne tentez rien
+d'autre : passez au retour arrière ci-dessous et prévenez l'éditeur.
+
+
+ÉTAPE 4 — SEULEMENT SI VOUS VOULEZ VOIR LE CORRECTIF
+-----------------------------------------------------
+NE FAITES PAS CETTE ÉTAPE SANS EN AVOIR PARLÉ À L'ÉDITEUR.
+
+Le choix du moteur de bulletin se fait POUR TOUTE L'ÉCOLE, pas classe par
+classe : Paramètres → « Moteur de bulletin » → « Officiel ». Il n'existe
+pas de bascule par classe, et donc pas d'essai sur une seule classe.
+
+Ce que cela entraîne, d'un coup, sur vos 24 classes :
+  - vos classes de maternelle passent au carnet MINEDUB par domaines
+    (A / ECA / NA, sans note ni moyenne) ;
+  - vos classes de primaire — les anglophones COMME les francophones —
+    passent au carnet MINEDUB par compétences, noté par critères sur des
+    barèmes de points, et non plus par matière ;
+  - FORM1, FORM2, 5eme et 6eme BILINGUE passent au bulletin MINESEC par
+    compétences. Pour les deux classes de Form, voir le point 2 plus
+    haut : les compétences anglophones ne sont pas encore fournies.
+
+Autrement dit, ce n'est pas un réglage d'affichage : c'est un changement
+de méthode d'évaluation pour tout l'établissement. Il se défait
+(Paramètres → « Classique ») sans perte de données, mais les notes déjà
+saisies dans un moteur ne se transposent pas dans l'autre.
+
+Si vous franchissez le pas, le contrôle à faire est celui-ci : imprimez
+un bulletin de Class 4. Les 11 compétences doivent s'afficher en anglais
+(« Communicate in English », « Practise social values »…), les critères
+aussi (Oral / Written / Practical / Attitude), et le pied de page doit
+dire « Page 1 of 1 ».
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+La copie de la base est déposée automatiquement avant l'installation dans
+/var/lib/notescam/data/ :
+
+        notescam.db.avant-correctif-<horodatage>
+
+Pour revenir à la 0.2.8 (application ET base) :
+
+        sudo systemctl stop notescam
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.8.tar.gz
+
+Revenir à la 0.2.8 sans toucher à la base est SANS RISQUE : la 0.2.9
+n'ajoute aucune table ni colonne, et les lignes de référentiel qu'elle
+ajoute sont simplement ignorées par l'ancienne version.
+
+Si, et SEULEMENT si, la base elle-même pose problème, restaurez la copie
+prise juste avant l'installation :
+
+        sudo systemctl stop notescam
+        sudo cp -a /var/lib/notescam/data/notescam.db.avant-correctif-<horodatage> \
+                   /var/lib/notescam/data/notescam.db
+        sudo systemctl start notescam
+
+ATTENTION : restaurer la base ANNULE aussi tout ce qui a été saisi depuis
+l'installation. Ne le faites pas de votre propre initiative — appelez
+l'éditeur d'abord.
+
+Ne supprimez jamais la copie de sûreté.

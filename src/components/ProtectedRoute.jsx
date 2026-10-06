@@ -10,7 +10,34 @@ import { useStrictMatrix } from '../lib/useStrictMatrix';
 export function homeForRole(role) {
   if (role === 'superadmin') return '/superadmin';
   if (role === 'teacher')    return '/app/grades';
+  if (role === 'parent')     return '/app/parent';
   return '/app';
+}
+
+/**
+ * Garde de l'ESPACE PARENT.
+ *
+ * Deux refus, et un rappel : ni l'un ni l'autre n'est une mesure de sécurité.
+ * Le refus qui compte est celui de la base — RLS en Cloud, scopeGuard +
+ * query.js en LAN. Même si cette garde tombait, un compte parent obtiendrait
+ * des pages vides et les RPC répondraient `null`. Elle n'est là que pour éviter
+ * d'afficher à quelqu'un une interface qui ne lui répondra jamais.
+ */
+export function ParentRoute({ children }) {
+  const { session, loading, role } = useAuthStore();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-500">
+        Chargement...
+      </div>
+    );
+  }
+  if (!session) return <Navigate to="/parent" replace />;
+  // Un membre du personnel qui tape /app/parent repart chez lui : les deux
+  // mondes ne se croisent pas, dans les deux sens.
+  if (role !== 'parent') return <Navigate to={homeForRole(role)} replace />;
+  return children;
 }
 
 /**
@@ -40,6 +67,13 @@ export default function ProtectedRoute({ children, allow }) {
   if (!session) {
     return <Navigate to="/login" replace />;
   }
+
+  // ESPACE PARENT — un parent n'a RIEN à faire dans l'application du personnel.
+  // Ce contrôle vient avant tous les autres, y compris avant la dispense
+  // superadmin : aucun mécanisme d'élargissement (gouvernance, capacité
+  // déléguée, rôle de base) ne doit pouvoir le contourner par en dessous.
+  // Réponse aux tests 15, 16 et 17 côté interface ; la base répond déjà non.
+  if (role === 'parent') return <Navigate to="/app/parent" replace />;
 
   // Le superadmin (propriétaire de la plateforme) n'est jamais restreint.
   if (role === 'superadmin') return children;

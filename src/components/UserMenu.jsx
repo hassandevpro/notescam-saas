@@ -1,4 +1,5 @@
-// Menu utilisateur de l'en-tête (coin supérieur droit).
+// Menu utilisateur : en-tête (coin supérieur droit) ET pastille flottante
+// (coin inférieur droit) — même composant, même menu, monté deux fois.
 //
 // Affiche [photo] Prénom ▼ ; au clic, déroule un menu :
 //   • Mon profil               → /app/profile
@@ -10,6 +11,9 @@
 // Entièrement responsive : sur très petit écran, seuls la photo + le chevron
 // restent visibles (le nom est masqué) pour ne jamais pousser les autres
 // éléments de l'en-tête hors de l'écran.
+//
+// `dropUp` : déroule le menu VERS LE HAUT. Indispensable pour l'exemplaire
+// flottant du bas de page, dont le menu sortirait de l'écran par le bas.
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
@@ -46,7 +50,7 @@ const I = {
   logout: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
 };
 
-export default function UserMenu({ onLogout }) {
+export default function UserMenu({ onLogout, dropUp = false }) {
   const navigate = useNavigate();
   const user     = useAuthStore((s) => s.user);
   const school   = useAuthStore((s) => s.school);
@@ -118,7 +122,7 @@ export default function UserMenu({ onLogout }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-2 w-60 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-card-lg border border-slate-200 z-[60] overflow-hidden py-1"
+          className={`absolute right-0 ${dropUp ? 'bottom-full mb-2' : 'top-full mt-2'} w-60 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-card-lg border border-slate-200 z-[60] overflow-hidden py-1`}
         >
           {/* En-tête : identité */}
           <div className="flex items-center gap-3 px-3 py-3 border-b border-slate-100">
@@ -147,7 +151,7 @@ export default function UserMenu({ onLogout }) {
 
       {/* Mini-notification (photo) */}
       {toast && (
-        <div className={`absolute right-0 top-full mt-2 z-[70] px-3 py-2 rounded-lg shadow-card-lg border text-xs font-medium whitespace-nowrap ${
+        <div className={`absolute right-0 ${dropUp ? 'bottom-full mb-2' : 'top-full mt-2'} z-[70] px-3 py-2 rounded-lg shadow-card-lg border text-xs font-medium whitespace-nowrap ${
           toast.type === 'ok' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'
         }`}>
           {toast.type === 'ok' ? '✓ ' : '⚠️ '}{toast.text}

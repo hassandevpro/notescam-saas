@@ -11,6 +11,7 @@
 // écraser une note. L'écriture cloud upsert sur ce triplet (anti-doublon).
 
 import { supabase } from './supabase';
+import { refreshReferentiel, versionFingerprint } from './referentielFingerprint';
 import { uuid } from './uuid';
 // Définition canonique dans le moteur pur (lisible sans la couche Supabase).
 import { noteNkey } from '../core/apcEngine';
@@ -56,6 +57,18 @@ export async function fetchReferentiel() {
     console.error('fetchReferentiel', e);
     return null;
   }
+}
+
+// Référentiel officiel, retéléchargé SEULEMENT si la version active a changé.
+// L'empreinte est l'id de la version active : les imports en insèrent une neuve
+// à chaque publication (cf. referentielFingerprint.js). `fetchReferentiel` reste
+// le chemin autoritatif — aucun delta, aucune fusion partielle.
+export function refreshApcReferentiel(cachedFingerprint) {
+  return refreshReferentiel({
+    cachedFingerprint,
+    fingerprint: () => versionFingerprint('apc_referentiel_versions'),
+    fetchAll: fetchReferentiel,
+  });
 }
 
 // --- Notes --------------------------------------------------------------------

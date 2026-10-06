@@ -453,21 +453,26 @@ export default function ApcCompetenceWorkspace() {
         </div>
       )}
 
+      {/* Chaque en-tête de colonne exportée porte son barème : un classeur qui ne
+          dit pas sur quoi l'on saisit revient rempli sur une échelle qu'on ne peut
+          plus deviner. */}
       {competences.length > 0 && classStudents.length > 0 && (
         <CompetenceGradeIO
           filename={`notes_${(matieres.find((m) => m.id === matiereId)?.nom || 'matiere').replace(/[\\/:*?"<>|]/g, '-')}_${selectedClass?.name || ''}_${String(trimestreId || '').toUpperCase()}`}
           sheetName={`${t('Trimestre', 'Term')} ${String(trimestreId || 't1').replace('t', '')}`}
           students={classStudents}
-          columns={competences.map((c) => ({ id: c.id, label: c.intitule }))}
+          columns={competences.map((c) => ({ id: c.id, label: `${c.intitule} /${baremeFor(c.id)}` }))}
           getCell={(sid, cid) => { const r = recordFor(sid, cid); return r?.note != null ? String(r.note) : ''; }}
           computed={[
             { label: 'M/20', get: (sid) => studentAvg(sid) ?? '' },
             { label: t('Cote', 'Grade'), get: (sid) => apcCote(studentAvg(sid)).code },
           ]}
-          normalize={(raw) => validateGrade(raw, APC_MAX)}
+          normalize={(raw, cid) => validateGrade(raw, baremeFor(cid))}
           onImport={(sid, cid, v) => saveCell(sid, cid, { note: v })}
           disabled={locked}
-          valueHint="/20"
+          valueHint={competences.some((c) => baremeFor(c.id) !== APC_MAX)
+            ? t('barème indiqué dans chaque en-tête', 'scale shown in each header')
+            : `/${APC_MAX}`}
         />
       )}
 

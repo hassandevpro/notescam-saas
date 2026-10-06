@@ -12,7 +12,10 @@ const DB_NAME = 'NotesCamDB';
 // Bump à 15 : socle P0 — outbox d'events (`domain_events`), journal d'audit
 //             (`audit_events`) et domaine transverse `signalements`. Offline-first :
 //             les events/signalements créés hors-ligne survivent et se synchronisent.
-const DB_VERSION = 16;
+// Bump à 17 : barèmes de saisie personnalisés (`bareme_notes`). Doivent être
+//             hors-ligne : sans eux, une note saisie sur /10 serait relue sur /20
+//             au rechargement, et la moyenne affichée serait fausse.
+const DB_VERSION = 17;
 
 let _db = null;
 
@@ -233,6 +236,18 @@ export async function initDB() {
         const s = db.createObjectStore('student_class_assignments', { keyPath: 'id' });
         s.createIndex('by_school',  'school_id');
         s.createIndex('by_student', 'student_id');
+      }
+
+      // --- v17 (barèmes de saisie personnalisés) ---
+      // Surcharge du barème officiel, fixée par l'enseignant dans l'écran de
+      // saisie. `bkey` = clé d'unicité locale
+      // `${engine}_${niveau_slug}_${competence_id}_${critere_id || ''}` : elle
+      // retrouve et écrase la ligne d'un barème déjà fixé, exactement comme
+      // `nkey` pour une note.
+      if (!db.objectStoreNames.contains('bareme_notes')) {
+        const s = db.createObjectStore('bareme_notes', { keyPath: 'id' });
+        s.createIndex('by_school', 'school_id');
+        s.createIndex('by_bkey',   'bkey', { unique: true });
       }
     };
 
@@ -521,6 +536,14 @@ export const primNotesDB = {
   put: (r) => idbPut('prim_notes', r),
   putMany: (rs) => idbPutMany('prim_notes', rs),
   delete: (id) => idbDelete('prim_notes', id),
+};
+export const baremeDB = {
+  getAll: () => idbGetAll('bareme_notes'),
+  getByBkey: (bkey) => idbGetByIndex('bareme_notes', 'by_bkey', bkey),
+  put: (r) => idbPut('bareme_notes', r),
+  putMany: (rs) => idbPutMany('bareme_notes', rs),
+  delete: (id) => idbDelete('bareme_notes', id),
+  deleteMany: (ids) => idbDeleteMany('bareme_notes', ids),
 };
 
 export const schoolUnitsDB = {

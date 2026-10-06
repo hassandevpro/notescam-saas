@@ -16,6 +16,7 @@ import Layout from '../Layout';
 import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
 import { localizedOptions } from '../../core/disciplineTerms';
+import { classIdentity } from '../../lib/schoolIdentity';
 import {
   useVsContext, VsHeader, ClassStudentPicker, Field, fmtDate, todayISO, inputCls,
 } from './vsCommon';
@@ -25,7 +26,7 @@ export default function RecordsPage({
   rowActions = [],
 }) {
   const t = useT();
-  const { school, schoolId, yearLabel, classes, students, userId } = useVsContext();
+  const { school, schoolId, yearLabel, classes, students, userId, schoolUnits } = useVsContext();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // null | 'new' | row
@@ -34,7 +35,11 @@ export default function RecordsPage({
 
   const studentById = useMemo(() => new Map(students.map((s) => [s.id, s])), [students]);
   const classById   = useMemo(() => new Map(classes.map((c) => [c.id, c])), [classes]);
-  const ctx = { t, school, studentById, classById, fmtDate };
+  // `identityFor(cls)` : identité à imprimer sur un document qui vise UNE classe
+  // (le secteur de cette classe), pour que convocations et autorisations de
+  // sortie sortent sous le bon nom et le bon logo. Sans classe → le complexe.
+  const identityFor = (cls) => (cls ? classIdentity(school, cls, schoolUnits) : school);
+  const ctx = { t, school, studentById, classById, fmtDate, identityFor };
 
   const load = async () => {
     if (!schoolId) return;

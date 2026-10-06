@@ -68,6 +68,8 @@ ensureColumn('timetable_slots', 'room', 'room TEXT');       // salle du cours (V
 // l'assignation « disparaissait » au rechargement. Voir aussi le garde-fou plus bas.
 ensureColumn('classes',  'cycle',        'cycle TEXT');
 ensureColumn('classes',  'teacher_id',   'teacher_id TEXT');
+// Second enseignant principal — MENTION, pas un droit (cf. src/lib/headTeachers.js).
+ensureColumn('classes',  'teacher2_id',  'teacher2_id TEXT');
 ensureColumn('classes',  'max_students', 'max_students INTEGER');
 ensureColumn('classes',  'grade_max',    'grade_max INTEGER'); // barème de classe (/10, /20, /30…)
 ensureColumn('classes',  'unit_id',      'unit_id TEXT');       // rattachement à une unité pédagogique (complexe scolaire)
@@ -179,6 +181,11 @@ ensureColumn('fee_catalog', 'allow_exemption', 'allow_exemption INTEGER NOT NULL
 // Un paiement peut viser UNE période. Jumelle de student_fee_item_id : les trois
 // cas cohabitent (un mois précis, un service sans mois, la scolarité globale).
 ensureColumn('fee_payments', 'fee_schedule_item_id', 'fee_schedule_item_id TEXT');
+// Date d'entrée de l'élève DANS CE SERVICE, distincte de son inscription à
+// l'école : un élève présent depuis septembre peut prendre la cantine en
+// février. NULL = repli sur la date scolaire, donc comportement inchangé pour
+// toutes les souscriptions antérieures.
+ensureColumn('student_fee_items', 'started_at', 'started_at TEXT');
 // Traçabilité de la CAISSE : qui a encaissé. `recorded_by` (id du compte) était
 // déjà écrit par l'app mais pickColumns l'avalait en LAN → l'info était perdue.
 // `recorded_by_name` fige le NOM au moment de l'encaissement : un reçu réimprimé
@@ -746,6 +753,12 @@ ensureColumn('budgets', 'start_date', 'start_date TEXT');
 ensureColumn('budgets', 'end_date',   'end_date TEXT');
 ensureColumn('schools', 'school_year_start_month', 'school_year_start_month INTEGER');
 
+// ESPACE PARENT — publication du RANG au parent, décidée par l'établissement.
+// Le rang est une donnée COMPARATIVE : l'afficher situe l'enfant par rapport aux
+// autres. Comme strict_role_enforcement et advanced_delegation : 0 par défaut,
+// donc comportement inchangé pour toutes les écoles déjà installées.
+ensureColumn('schools', 'parent_show_rank', 'parent_show_rank INTEGER NOT NULL DEFAULT 0');
+
 // Module Budgets — HIÉRARCHIE cible (annual → period → sector). Colonnes ajoutées
 // aux bases existantes ; les CHECK de forme ne s'appliquent qu'aux bases fraîches/
 // réinitialisées, mais les triggers `budgets_hier_guard_*` + index partiels (dans
@@ -829,6 +842,9 @@ export const ALLOWED_TABLES = new Set([
   'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines', 'mat_observations',
   'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
   'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_bareme_criteres', 'prim_notes',
+  // Barème de saisie fixé par l'enseignant (surcharge du barème officiel).
+  // Absente d'ici, toute écriture échouait en LAN sur « Table non autorisée ».
+  'bareme_notes',
   // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
   'domain_events', 'audit_events', 'signalements',
   // Vie scolaire (surveillant/discipline) — absentes depuis la création du

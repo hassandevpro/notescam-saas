@@ -12,6 +12,7 @@ import { useCountry } from '../lib/useCountry';
 import { COUNTRIES } from '../countries';
 import { resolveClassEngine } from '../core/engineResolver';
 import { parseClassName } from '../core/classNameParser';
+import { headTeacherText } from '../lib/headTeachers';
 
 const SYSTEMS = ['FR', 'EN'];
 
@@ -449,6 +450,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
     await onSave({
       ...form,
       teacher_id:   form.teacher_id   || null,
+      teacher2_id:  form.teacher2_id  || null,
       max_students: form.max_students !== '' ? Number(form.max_students) : null,
     });
     setSaving(false);
@@ -511,6 +513,23 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 <option value="">{t('Aucun enseignant assigné', 'No teacher assigned')}</option>
                 {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
               </select>
+            </div>
+            {/* SECOND enseignant principal : il s'imprime sur les documents et
+                n'ouvre AUCUN droit — dit explicitement sous le champ, sinon
+                l'école croira avoir donné un accès à quelqu'un qui ne l'a pas. */}
+            <div>
+              <label className="form-label">{t('Deuxième enseignant principal', 'Second class teacher')}</label>
+              <select className="form-input" value={form.teacher2_id || ''} onChange={set('teacher2_id')}>
+                <option value="">{t('Aucun', 'None')}</option>
+                {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
+              </select>
+              <p className="text-[11px] text-slate-500 mt-1">
+                {form.teacher2_id && form.teacher2_id === form.teacher_id
+                  ? t('Même enseignant que ci-dessus : son nom ne sera imprimé qu’une fois.',
+                      'Same teacher as above: the name will be printed only once.')
+                  : t('Son nom figure sur les bulletins et les documents. Il ne donne pas accès à la classe.',
+                      'Printed on report cards and documents. Grants no access to the class.')}
+              </p>
             </div>
             <div>
               <label className="form-label">{t('Cycle', 'Cycle')}</label>
@@ -1001,7 +1020,9 @@ export default function Classes() {
       map[cls.id] = {
         studentCount: students.filter((s) => s.class_id === cls.id).length,
         subjectCount: subjects.filter((s) => s.class_id === cls.id).length,
-        teacherName:  teachers.find((t) => t.id === cls.teacher_id)?.name || null,
+        // Les DEUX enseignants principaux : la carte et le tableau doivent
+        // montrer ce que porteront les documents (src/lib/headTeachers.js).
+        teacherName:  headTeacherText(cls, teachers) || null,
       };
     });
     return map;

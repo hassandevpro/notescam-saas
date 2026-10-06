@@ -67,3 +67,22 @@ export function studentIdentity(school, student, classes, units) {
     : null;
   return classIdentity(school, cls, units);
 }
+
+// Identité d'un document qui couvre PLUSIEURS classes (liste d'élèves sans
+// filtre, emploi du temps d'un enseignant qui tourne sur deux secteurs…) :
+// l'unité commune si toutes les classes la partagent, sinon l'école.
+//
+// Même parti pris que `isBasicSchool` (lib/tutelle.js) pour la tutelle
+// ministérielle : sur un document qui mélange les secteurs, aucune des deux
+// identités ne serait juste pour tout le monde — on remonte donc au complexe,
+// qui les englobe. Liste vide ⇒ école, comme avant.
+export function classesIdentity(school, classes, units) {
+  const liste = (classes || []).filter(Boolean);
+  if (!liste.length) return school;
+  const first = resolveClassUnit(units, liste[0]);
+  if (!first) return school;
+  for (let i = 1; i < liste.length; i++) {
+    if (resolveClassUnit(units, liste[i])?.id !== first.id) return school;
+  }
+  return documentIdentity(school, first);
+}

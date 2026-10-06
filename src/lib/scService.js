@@ -6,6 +6,18 @@
 // dédiée ici.
 
 import { supabase } from './supabase';
+import { refreshReferentiel, versionFingerprint } from './referentielFingerprint';
+
+// Référentiel officiel, retéléchargé SEULEMENT si la version active a changé.
+// Même empreinte autoritative que l'APC : l'import insère une nouvelle ligne de
+// version à chaque publication. `fetchScReferentiel` reste le chemin complet.
+export function refreshScReferentiel(cachedFingerprint) {
+  return refreshReferentiel({
+    cachedFingerprint,
+    fingerprint: () => versionFingerprint('sc_referentiel_versions'),
+    fetchAll: fetchScReferentiel,
+  });
+}
 
 export async function fetchScReferentiel() {
   try {

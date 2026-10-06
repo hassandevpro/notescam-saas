@@ -126,6 +126,11 @@ CREATE TABLE IF NOT EXISTS classes (
   -- classe avant l'enseignant -> on garde l'id même si la ligne teacher n'est
   -- pas (encore) là, au lieu de rejeter tout l'upsert (FK ON globalement).
   teacher_id   TEXT,
+  -- SECOND enseignant principal (demande de THE GENIUS, 23/09/2026). Mention
+  -- seule : il s'imprime sur les documents et n'ouvre AUCUN droit — le périmètre
+  -- et les notifications restent attachés à `teacher_id` (cf. src/lib/headTeachers.js).
+  -- Même absence de FK dure, pour la même raison que ci-dessus.
+  teacher2_id  TEXT,
   max_students INTEGER,
   -- Rattachement explicite à une unité pédagogique (repli auto par section sinon).
   unit_id      TEXT REFERENCES school_units(id) ON DELETE SET NULL,
@@ -356,6 +361,32 @@ CREATE TABLE IF NOT EXISTS cash_sessions (
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(school_id, date, cashier_id)
 );
+-- Miroir LAN des deux CHECK du Cloud (cash_sessions_no_self_validation,
+-- cash_sessions_variance_explained). Sans eux, un arrêté accepté ici serait
+-- refusé à la montée par sync-push — erreur loguée côté Edge, ligne perdue avec
+-- la purge de l'outbox. Triggers et non CHECK : SQLite n'ajoute pas de
+-- contrainte à une table existante, et une base déjà installée doit être gardée
+-- elle aussi. N'agit qu'à l'écriture : aucune ligne existante n'est modifiée.
+CREATE TRIGGER IF NOT EXISTS cash_sessions_cloud_checks_ins
+BEFORE INSERT ON cash_sessions
+BEGIN
+  SELECT CASE
+    WHEN NEW.validated_by IS NOT NULL AND NEW.validated_by = NEW.cashier_id
+      THEN RAISE(ABORT, 'cash_sessions_no_self_validation: personne ne valide son propre comptage')
+    WHEN NEW.status <> 'open' AND NEW.variance <> 0 AND trim(coalesce(NEW.explanation, '')) = ''
+      THEN RAISE(ABORT, 'cash_sessions_variance_explained: un ecart non nul doit etre justifie')
+  END;
+END;
+CREATE TRIGGER IF NOT EXISTS cash_sessions_cloud_checks_upd
+BEFORE UPDATE ON cash_sessions
+BEGIN
+  SELECT CASE
+    WHEN NEW.validated_by IS NOT NULL AND NEW.validated_by = NEW.cashier_id
+      THEN RAISE(ABORT, 'cash_sessions_no_self_validation: personne ne valide son propre comptage')
+    WHEN NEW.status <> 'open' AND NEW.variance <> 0 AND trim(coalesce(NEW.explanation, '')) = ''
+      THEN RAISE(ABORT, 'cash_sessions_variance_explained: un ecart non nul doit etre justifie')
+  END;
+END;
 CREATE INDEX IF NOT EXISTS idx_cash_sessions_school ON cash_sessions(school_id, date);
 
 -- --- Budgets (prévisionnel) ----------------------------------
@@ -797,6 +828,10 @@ CREATE TABLE IF NOT EXISTS student_fee_items (
   academic_year TEXT, name TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'autre',
   amount INTEGER NOT NULL DEFAULT 0, mandatory INTEGER NOT NULL DEFAULT 0,
   payment_type TEXT NOT NULL DEFAULT 'unique', status TEXT NOT NULL DEFAULT 'active',
+  -- Entrée dans CE service (ISO). NULL = repli sur la date d'inscription
+  -- scolaire. Aucune période entièrement écoulée avant elle n'est facturée ;
+  -- la période EN COURS à cette date est due en entier.
+  started_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (student_id, fee_catalog_id, academic_year)
 );
@@ -1389,6 +1424,31 @@ CREATE TABLE IF NOT EXISTS prim_notes (
 CREATE INDEX IF NOT EXISTS idx_prim_notes_school  ON prim_notes(school_id);
 CREATE INDEX IF NOT EXISTS idx_prim_notes_student ON prim_notes(eleve_id);
 
+-- Barème de saisie personnalisé par l'enseignant (APC /20 par compétence,
+-- primaire = points par critère). L'absence de ligne vaut « barème officiel ».
+-- Portée : le NIVEAU du référentiel, pas la classe — cf. src/core/baremeOverride.js.
+-- Pas de FK sur competence_id/critere_id : les ids du seed LAN diffèrent de ceux
+-- du Cloud, une FK rendrait la ligne irrecevable d'un côté ou de l'autre.
+CREATE TABLE IF NOT EXISTS bareme_notes (
+  id            TEXT PRIMARY KEY,
+  school_id     TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  engine        TEXT NOT NULL CHECK (engine IN ('apc', 'prim')),
+  niveau_slug   TEXT NOT NULL,
+  competence_id TEXT NOT NULL,
+  -- Chaîne vide (jamais NULL) en APC : miroir exact du Cloud, où ce NOT NULL
+  -- rend l'index d'unicité utilisable comme cible d'upsert.
+  critere_id    TEXT NOT NULL DEFAULT '',
+  points_max    NUMERIC NOT NULL CHECK (points_max >= 1 AND points_max <= 200),
+  enseignant_id TEXT,
+  created_at    TEXT,
+  updated_at    TEXT,
+  version       INTEGER NOT NULL DEFAULT 1,
+  device_id     TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bareme_notes_uniq
+  ON bareme_notes(school_id, engine, niveau_slug, competence_id, critere_id);
+CREATE INDEX IF NOT EXISTS idx_bareme_notes_school ON bareme_notes(school_id);
+
 -- ============================================================
 -- Socle P0 — Event Store (outbox), Audit Log, domaine Signalement
 -- ============================================================
@@ -1723,3 +1783,43 @@ CREATE TABLE IF NOT EXISTS discipline_statistics (
   device_id     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_discipline_statistics ON discipline_statistics(school_id, council_date);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ESPACE PARENT — miroir LAN de supabase_parent_portal.sql
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Un compte parent n'entre JAMAIS dans school_users : cette table est le pivot
+-- de toute l'autorisation (cloud comme LAN), et y ranger un parent lui ouvrirait
+-- l'établissement entier. Son identité vit ici, et lui seul.
+--
+-- Ces deux tables sont volontairement ABSENTES de ALLOWED_TABLES (server/db.js) :
+-- l'API générique /api/db ne les expose pas. Le rattachement d'un enfant à un
+-- parent passe uniquement par les RPC, comme la RLS l'impose côté cloud.
+
+CREATE TABLE IF NOT EXISTS parent_accounts (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  full_name  TEXT,
+  phone      TEXT,
+  email      TEXT,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS parent_student_links (
+  id             TEXT PRIMARY KEY,
+  parent_user_id TEXT NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+  school_id      TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+  student_id     TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  relationship   TEXT NOT NULL DEFAULT 'tuteur',
+  is_primary     INTEGER NOT NULL DEFAULT 0,
+  active         INTEGER NOT NULL DEFAULT 1,
+  created_by     TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  revoked_at     TEXT,
+  revoked_by     TEXT,
+  UNIQUE(parent_user_id, student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_parent_links_parent  ON parent_student_links(parent_user_id, active);
+CREATE INDEX IF NOT EXISTS idx_parent_links_student ON parent_student_links(student_id, active);
+CREATE INDEX IF NOT EXISTS idx_parent_links_school  ON parent_student_links(school_id);

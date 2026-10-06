@@ -44,9 +44,15 @@ export function sheet(content, opts = {}) {
 }
 
 // ── En-tête officiel (République / Ministère / délégations + établissement) ──
-export function officialHeaderHtml(school, sys, { profile = DEFAULT_PROFILE } = {}) {
+// `basic` : tutelle du FONDAMENTAL (MINEDUB). Calculée par l'appelant avec
+// src/lib/tutelle.js. Défaut `false` = MINESEC, comportement d'avant.
+export function officialHeaderHtml(school, sys, { profile = DEFAULT_PROFILE, basic = false } = {}) {
   const S = scaleFor(profile);
-  const officials = bulletinOfficials(school);
+  // `sys` n'est VOLONTAIREMENT pas transmis : cette variante ne l'a jamais fait,
+  // et il décide de l'ordre des blocs en pays bilingue. L'ajouter changerait
+  // l'en-tête de documents déjà en circulation (relevés, palmarès) — un autre
+  // sujet que la tutelle, à traiter pour lui-même.
+  const officials = bulletinOfficials(school, { basic });
   const blocks = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
   const centerW = bilingual ? '34%' : '50%';

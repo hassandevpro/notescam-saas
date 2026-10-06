@@ -19,8 +19,10 @@ const L = (sys, fr, en, es) => (sys === 'EN' ? en : sys === 'ES' ? (es || fr) : 
 const fmt = (v) => (v === null || v === undefined || v === '' ? '—' : v);
 
 // En-tête officiel (république/ministère/établissement) hérité du pays.
-function headerHtml(school, sys, year, primary) {
-  const officials = bulletinOfficials(school);
+// `basic` : tutelle du fondamental (MINEDUB). Vient de l’appelant, qui seul sait
+// si le document vise une classe du fondamental ou tout l’établissement.
+function headerHtml(school, sys, year, primary, basic = false) {
+  const officials = bulletinOfficials(school, { basic });
   const blocks = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
   const sideW = bilingual ? '33%' : '50%';
@@ -112,7 +114,7 @@ export function tableSheet(school, year, p, group, sys) {
 
   return `
     ${sheetOpen({ school, profile: landscape ? 'large' : 'standard', fontSize: 10 })}
-      ${headerHtml(school, sys, year, p.primaryColor)}
+      ${headerHtml(school, sys, year, p.primaryColor, p.basic)}
       ${bannerHtml(p, sys, group.title)}
       ${p.introText ? `<p style="font-size:10px;text-align:center;margin:4px 0 8px;font-style:italic;color:#475569">${esc(p.introText)}</p>` : ''}
       <table style="width:100%;border-collapse:collapse">
@@ -130,7 +132,7 @@ export function certificateSheet(school, year, p, row, sys) {
   return `
     ${sheetOpen({ school, fontSize: 12 })}
       <div class="nc-frame" style="min-height:265mm;box-sizing:border-box;padding:10mm;border:6px double ${esc(p.primaryColor)}">
-      ${headerHtml(school, sys, year, p.primaryColor)}
+      ${headerHtml(school, sys, year, p.primaryColor, p.basic)}
       <div style="text-align:center;margin-top:18mm">
         <div style="font-size:30px;font-weight:bold;letter-spacing:2px;color:${esc(p.primaryColor)}">${esc(p.title || L(sys, "CERTIFICAT D'HONNEUR", 'CERTIFICATE OF HONOUR', 'CERTIFICADO DE HONOR'))}</div>
         <p style="font-size:13px;margin-top:14px;color:#475569">${esc(p.introText || L(sys, 'Décerné à', 'Awarded to', 'Otorgado a'))}</p>
@@ -166,7 +168,7 @@ export function posterSheet(school, year, p, group, sys) {
   return `
     ${sheetOpen({ school, fontSize: 12 })}
       <div style="padding:4mm">
-      ${headerHtml(school, sys, year, p.primaryColor)}
+      ${headerHtml(school, sys, year, p.primaryColor, p.basic)}
       <div style="text-align:center;margin:10mm 0 6mm">
         <div style="font-size:34px;font-weight:bold;color:${esc(p.primaryColor)}">🏆 ${esc(p.title || L(sys, "TABLEAU D'HONNEUR", 'HONOUR ROLL', 'CUADRO DE HONOR'))}</div>
         ${group.title ? `<div style="font-size:18px;color:#475569;margin-top:4px">${esc(group.title)}</div>` : ''}
@@ -186,7 +188,7 @@ export function posterSheet(school, year, p, group, sys) {
 export function diplomaSheet(school, year, p, row, sys) {
   const GOLD = '#b8860b';
   const NAVY = p.primaryColor && p.primaryColor !== '#7c2d12' ? p.primaryColor : '#1e3a8a';
-  const officials = bulletinOfficials(school);
+  const officials = bulletinOfficials(school, { basic: !!p.basic });
   const b0 = officials?.blocks?.[0] || {};
   const cc = resolveCountryCode(school);
   const flag = FLAG[cc] || '';
@@ -324,8 +326,9 @@ export function diplomaSheet(school, year, p, row, sys) {
 // template.personalization = { title, primaryColor, introText, congratsText,
 //   specialMention, columns, orientation }
 // template.layout = 'table' | 'certificate' | 'poster'
-export function buildHonorRollSheets(template, groups, school, { year } = {}) {
+export function buildHonorRollSheets(template, groups, school, { year, basic = false } = {}) {
   const p = {
+    basic,
     title: '', primaryColor: '#7c2d12', introText: '', congratsText: '', specialMention: '',
     columns: ['rank', 'name', 'class', 'avg', 'mention'], orientation: 'portrait',
     ...(template.personalization || {}),

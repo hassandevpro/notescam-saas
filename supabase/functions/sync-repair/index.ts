@@ -25,7 +25,7 @@ const TABLES = new Set([
   'governance_role_history', 'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance',
   'hr_career_events', 'signalement_comments', 'signalement_history', 'notifications',
   'notification_outbox', 'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
-  'fee_catalog', 'student_fee_items', 'attendance', 'student_absences', 'student_class_assignments',
+  'fee_catalog', 'student_fee_items', 'fee_schedule_items', 'cash_sessions', 'attendance', 'student_absences', 'student_class_assignments',
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions', 'student_warnings',
   'student_detentions', 'parent_meetings', 'exit_permissions', 'school_messages',
   'teacher_notifications', 'sequence_dates', 'timetable_slots',

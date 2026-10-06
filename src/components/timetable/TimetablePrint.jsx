@@ -6,7 +6,7 @@ import { officialHeaderHtml, officialSignatureHtml } from '../../lib/officialDoc
 // Masqué à l'écran, révélé à l'impression (cf. timetable.css). En-tête officiel
 // APC (blocs pays + logo + barre de titre) + grille colorée ; pied à signature
 // unique du chef d'établissement (standard plateforme).
-export default function TimetablePrint({ slots = [], ranges = [], dayLabels = [], title, subtitle, year, school, showClass = false, t }) {
+export default function TimetablePrint({ slots = [], ranges = [], dayLabels = [], title, subtitle, year, school, showClass = false, basic = false, t }) {
   const cellFor = (range, day) =>
     slots.find((s) => s.day_of_week === day && slotInRange(s, range));
 
@@ -17,7 +17,7 @@ export default function TimetablePrint({ slots = [], ranges = [], dayLabels = []
   return (
     <div className="tt-print">
       <div className="tt-paper">
-        <div dangerouslySetInnerHTML={{ __html: officialHeaderHtml(school, { sys, title: headerTitle, subtitle: headerSub }) }} />
+        <div dangerouslySetInnerHTML={{ __html: officialHeaderHtml(school, { sys, title: headerTitle, subtitle: headerSub, basic }) }} />
 
         {ranges.length === 0 ? (
           <p className="tt-cell-empty" style={{ padding: '24px 0' }}>—</p>

@@ -73,5 +73,36 @@ const vide = statementByFamily([], () => 0);
 ok(vide.total.due === 0 && vide.total.balance === 0 && vide.academique.lignes.length === 0,
   '20. un élève sans frais donne un relevé à zéro, pas une erreur', vide.total);
 
+// ── B4 : le dû d'un frais PÉRIODIQUE vient de son échéancier ────────────────
+// Sans injection, `amount` fait foi — et `amount` est le prix d'UNE période. Une
+// cantine à 15 000/mois payée trois mois afficherait « dû 15 000, payé 45 000 » :
+// un relevé impossible à présenter à un parent.
+const periodiques = [
+  { id: 'c1', name: 'Cantine', category: 'cantine', amount: 15000, status: 'active' },
+  { id: 'i1', name: 'Inscription', category: 'inscription', amount: 50000, status: 'active' },
+];
+const payeDe = (i) => (i.id === 'c1' ? 45000 : 50000);
+const duDe = (i) => (i.id === 'c1' ? 120000 : 50000);   // 8 mois facturés
+
+const sansInjection = statementByFamily(periodiques, payeDe);
+ok(sansInjection.service.due === 15000,
+  '21. sans injection, le dû reste `amount` — comportement inchangé des frais à versement unique', sansInjection.service.due);
+
+const avecInjection = statementByFamily(periodiques, payeDe, duDe);
+ok(avecInjection.service.due === 120000,
+  '22. avec l’échéancier injecté, la cantine doit l’année, pas un mois', avecInjection.service.due);
+ok(avecInjection.service.balance === 75000,
+  '23. et son solde est celui que la famille doit vraiment', avecInjection.service.balance);
+ok(avecInjection.academique.due === 50000,
+  '24. un frais non périodique n’est pas affecté par l’injection', avecInjection.academique.due);
+ok(avecInjection.total.due === 170000 && avecInjection.total.balance === 75000,
+  '25. les totaux suivent', avecInjection.total);
+
+// Une période exemptée sort du dû : c'est l'appelant qui l'a retirée (moteur
+// d'échéancier), et le relevé doit le refléter sans le recalculer lui-même.
+const exempte = statementByFamily(periodiques, payeDe, (i) => (i.id === 'c1' ? 105000 : 50000));
+ok(exempte.service.balance === 60000,
+  '26. un mois exempté allège le solde de la famille, il ne le gonfle pas', exempte.service.balance);
+
 console.log(ko === 0 ? '\n✅ Tous les tests passent' : `\n❌ ÉCHEC : ${ko}`);
 process.exitCode = ko === 0 ? 0 : 1;

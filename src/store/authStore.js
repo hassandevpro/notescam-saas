@@ -16,6 +16,8 @@ function ctxFromState(s) {
     scope: s.scope, permissions: s.permissions,
     governanceRoles: s.governanceRoles, governanceRoleRows: s.governanceRoleRows,
     governanceCatalog: s.governanceCatalog, governanceAssignments: s.governanceAssignments,
+    // Espace parent : identité + enfants rattachés (role === 'parent' uniquement).
+    parentId: s.parentId, children: s.children,
   };
 }
 
@@ -71,6 +73,12 @@ export const useAuthStore = create((set, get) => ({
   governanceRoleRows: [], // affectations ACTIVES { role, sector, dates, status }
   governanceCatalog: [],  // catalogue de rôles de l'école (permissions/menus/dashboards)
   governanceAssignments: [], // TOUTES les affectations de ce compte (actives ou non)
+  // ── ESPACE PARENT ─────────────────────────────────────────────────────────
+  // `role === 'parent'` désigne un utilisateur EXTERNE, jamais membre de
+  // school_users. Il n'hérite d'aucune permission du personnel : ni rôle de
+  // base, ni capacité déléguée, ni rôle de gouvernance.
+  parentId: null,    // id de la fiche parent_accounts
+  children: [],      // enfants rattachés — AFFICHAGE seul ; le serveur revérifie
   loading: true,
   error: null,
   _pendingSignup: false, // true pendant le flux signup pour bloquer onAuthStateChange
@@ -116,6 +124,8 @@ export const useAuthStore = create((set, get) => ({
           governanceRoleRows: ctx?.governanceRoleRows ?? [],
           governanceCatalog: ctx?.governanceCatalog ?? [],
           governanceAssignments: ctx?.governanceAssignments ?? [],
+          parentId: ctx?.parentId ?? null,
+          children: ctx?.children ?? [],
           loading: false,
         });
         syncUiLangToSchool(ctx?.school);
@@ -167,6 +177,8 @@ export const useAuthStore = create((set, get) => ({
         classId: null,
         schoolUserId: null,
         teacherId: null,
+        parentId: null,
+        children: [],
       });
       return;
     }
@@ -212,6 +224,8 @@ export const useAuthStore = create((set, get) => ({
       governanceRoleRows: ctx?.governanceRoleRows ?? [],
       governanceCatalog: ctx?.governanceCatalog ?? [],
       governanceAssignments: ctx?.governanceAssignments ?? [],
+      parentId: ctx?.parentId ?? null,
+      children: ctx?.children ?? [],
       loading: false,
     });
     syncUiLangToSchool(ctx?.school);
@@ -283,6 +297,8 @@ export const useAuthStore = create((set, get) => ({
       governanceRoleRows: [],
       governanceCatalog: [],
       governanceAssignments: [],
+      parentId: null,
+      children: [],
     });
   },
 }));

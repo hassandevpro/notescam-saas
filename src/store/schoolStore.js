@@ -7,12 +7,14 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB, assignmentsDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, baremeDB, schoolUnitsDB, assignmentsDB } from '../lib/db';
 import { fetchSchoolUnits, upsertSchoolUnit, deleteSchoolUnit as sbDeleteSchoolUnit } from '../lib/schoolUnitService';
-import { fetchReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
-import { fetchScReferentiel } from '../lib/scService';
-import { fetchMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
-import { fetchPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
+import { fetchReferentiel, refreshApcReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
+import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
+import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
+import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
+import { fetchBaremes, upsertBareme, deleteBareme, buildBaremeRecord, baremeBkey } from '../lib/baremeService';
+import { baremeIndex, applyApcBareme, applyPrimBareme, rescaleNote, BAREME_MIN, BAREME_MAX } from '../core/baremeOverride';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
 import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
@@ -72,6 +74,41 @@ function scopedRoles(school) {
   return isAdvancedDelegation(school)
     ? new Set(['surveillant', 'censeur'])
     : new Set(['surveillant']);
+}
+
+// Applique les barèmes de saisie aux deux référentiels par compétences, puis
+// publie le tout. Appelé par CHAQUE chemin qui remplace un référentiel ou les
+// barèmes — c'est le seul endroit où la surcharge entre dans l'état, donc le
+// seul à maintenir. `_apcRefRaw`/`_primRefRaw` gardent la version OFFICIELLE :
+// sans elles, rebaisser un barème se ferait à partir du référentiel déjà
+// surchargé et la correction s'empilerait sur la précédente.
+function publishReferentiels(set, get, patch = {}) {
+  const st = get();
+  const apcRaw  = 'apcRefRaw'  in patch ? patch.apcRefRaw  : st._apcRefRaw;
+  const primRaw = 'primRefRaw' in patch ? patch.primRefRaw : st._primRefRaw;
+  const rows    = 'baremes'    in patch ? patch.baremes    : st.baremes;
+  const idx = baremeIndex(rows);
+  set({
+    _apcRefRaw: apcRaw || null,
+    _primRefRaw: primRaw || null,
+    baremes: rows || [],
+    apcReferentiel:  apcRaw  ? applyApcBareme(apcRaw, idx)   : null,
+    primReferentiel: primRaw ? applyPrimBareme(primRaw, idx) : null,
+  });
+}
+
+// Un référentiel officiel peut être demandé par plusieurs écrans EN MÊME TEMPS
+// (le Dashboard monte loadApc pendant que Bulletins le monte aussi). Sans ce
+// verrou, chacun ferait sa propre vérification d'empreinte PUIS son propre
+// téléchargement. Une seule opération en vol par référentiel ; tous les
+// appelants reçoivent la même promesse, donc le même résultat.
+const _refInFlight = new Map();
+function onceInFlight(key, task) {
+  const running = _refInFlight.get(key);
+  if (running) return running;
+  const p = Promise.resolve().then(task).finally(() => _refInFlight.delete(key));
+  _refInFlight.set(key, p);
+  return p;
 }
 
 // Throttle : 1 notification max par (classId_sequence) toutes les 2 min
@@ -282,6 +319,16 @@ export const useSchoolStore = create((set, get) => ({
   matObservations: {},
   primReferentiel: null,
   primNotes:       {},
+  // BARÈMES DE SAISIE personnalisés par les enseignants (table `bareme_notes`).
+  // La surcharge est appliquée UNE FOIS, dans publishReferentiels, sur
+  // `apcReferentiel` et `primReferentiel` : tout lecteur (saisie, bulletin, PV,
+  // rapport de classe) la voit sans avoir à la faire suivre, et aucun chemin ne
+  // peut l'oublier.
+  baremes: [],
+  // Référentiels OFFICIELS, avant surcharge. Privés (préfixe `_`) : aucun écran
+  // ne doit les lire — ils servent à recalculer la surcharge depuis l'origine.
+  _apcRefRaw:  null,
+  _primRefRaw: null,
   loading:      false,
   error:        null,
 
@@ -294,6 +341,12 @@ export const useSchoolStore = create((set, get) => ({
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
           classes: [], subjects: [], students: [], archivedStudents: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], schoolUnits: [], assignments: [], gradeMap: {},
           academicPeriods: [], activeSequence: null });
+    // Les barèmes de saisie sont PAR ÉCOLE alors que les référentiels officiels sont
+    // GLOBAUX : les garder en changeant d'école ferait relire les notes de la
+    // nouvelle sur l'échelle de l'ancienne, jusqu'au prochain loadBaremes. On passe
+    // par publishReferentiels pour que les référentiels publiés soient réellement
+    // défaits de l'ancienne surcharge, pas seulement la liste vidée.
+    publishReferentiels(set, get, { baremes: [] });
 
     try {
       await initDB();
@@ -633,10 +686,13 @@ export const useSchoolStore = create((set, get) => ({
   // ── Moteur APC (compétences) ───────────────────────────────────────────────
   // Charge le référentiel officiel + les notes de l'école (IDB d'abord, puis
   // refresh cloud si online). Appelé par l'écran de saisie APC à son montage.
-  loadApc: async () => {
+  loadApc: () => onceInFlight('apc', async () => {
     const { schoolId } = get();
     if (!schoolId) return;
     await initDB();
+    // Les barèmes de saisie font partie du référentiel tel que l'école le lit :
+    // les charger plus tard ferait afficher une moyenne fausse entre-temps.
+    await get().loadBaremes();
 
     // 1) Cache IDB immédiat
     const [cachedRef, idbNotes] = await Promise.all([
@@ -645,15 +701,21 @@ export const useSchoolStore = create((set, get) => ({
     ]);
     const notesMap = {};
     for (const n of (idbNotes || []).filter((n) => n.school_id === schoolId)) notesMap[n.nkey] = n;
-    set({ apcReferentiel: cachedRef || null, apcNotes: notesMap });
+    set({ apcNotes: notesMap });
+    publishReferentiels(set, get, { apcRefRaw: cachedRef || null });
 
-    // 2) Refresh cloud (best-effort)
+    // 2) Refresh cloud (best-effort). Le RÉFÉRENTIEL n'est retéléchargé que si
+    // son empreinte a changé : sinon le cache IDB peint plus haut fait foi et
+    // aucune ligne ne transite. Les notes de l'école, elles, sont inchangées.
     if (!backendOnline()) return;
-    const [ref, notes] = await Promise.all([fetchReferentiel(), fetchApcNotes(schoolId)]);
-    if (ref) {
-      const blob = { ...ref, id: 'referentiel' };
+    const [refRes, notes] = await Promise.all([
+      refreshApcReferentiel(cachedRef?.__fp ?? null),
+      fetchApcNotes(schoolId),
+    ]);
+    if (refRes.data) {
+      const blob = { ...refRes.data, id: 'referentiel', __fp: refRes.fingerprint };
       await apcRefDB.put(blob).catch(() => {});
-      set({ apcReferentiel: blob });
+      publishReferentiels(set, get, { apcRefRaw: blob });
     }
     if (notes) {
       const fresh = {};
@@ -662,7 +724,7 @@ export const useSchoolStore = create((set, get) => ({
       await apcNotesDB.putMany(records).catch(() => {});
       set({ apcNotes: fresh });
     }
-  },
+  }),
 
   // Enregistre/écrase une note de compétence (write IDB → cloud sinon queue).
   // Réutilise l'id existant (via nkey) pour rester idempotent online/offline.
@@ -695,26 +757,171 @@ export const useSchoolStore = create((set, get) => ({
     }
   },
 
+  // ── Barèmes de saisie personnalisés ────────────────────────────────────────
+  // L'enseignant fixe l'échelle de SON épreuve (une dictée sur 15, un oral sur 10)
+  // dans l'écran de saisie ; le calcul ramène tout au barème officiel
+  // (core/baremeOverride.js). IDB d'abord, puis refresh cloud — comme les notes :
+  // un barème invisible hors-ligne ferait relire sur /20 une note saisie sur /10.
+  loadBaremes: () => onceInFlight('baremes', async () => {
+    const { schoolId } = get();
+    if (!schoolId) return;
+    await initDB();
+    const cached = (await baremeDB.getAll().catch(() => [])).filter((b) => b.school_id === schoolId);
+    publishReferentiels(set, get, { baremes: cached });
+
+    if (!backendOnline()) return;
+    const rows = await fetchBaremes(schoolId);
+    if (!rows) return;   // hors-ligne ou erreur : le cache IDB fait foi
+    const records = rows.map((b) => ({
+      ...b,
+      bkey: baremeBkey(b.engine, b.niveau_slug, b.competence_id, b.critere_id),
+    }));
+    // Un barème rétabli au barème officiel par un collègue est SUPPRIMÉ côté cloud.
+    // Sans ce nettoyage, il ressusciterait du cache au prochain démarrage.
+    const vivants = new Set(records.map((r) => r.id));
+    const morts = cached.filter((b) => !vivants.has(b.id)).map((b) => b.id);
+    if (morts.length) await baremeDB.deleteMany(morts).catch(() => {});
+    await baremeDB.putMany(records).catch(() => {});
+    publishReferentiels(set, get, { baremes: records });
+  }),
+
+  /**
+   * Fixe (ou rétablit) le barème de saisie d'une compétence APC / d'un critère du
+   * primaire.
+   *
+   * `pointsMax` égal au barème OFFICIEL -> la ligne est SUPPRIMÉE plutôt que
+   * stockée : l'absence de ligne EST le barème officiel, et une ligne « /20 »
+   * figerait le jour où le référentiel officiel change.
+   *
+   * @param engine       'apc' | 'prim'
+   * @param niveauSlug   '6e'…'3e' (APC) | 'sil'…'cm2' (primaire)
+   * @param competenceId id de compétence du référentiel
+   * @param critereId    id de critère (primaire) ; omis en APC
+   * @param pointsMax    nouveau barème
+   * @param officialMax  barème officiel de la colonne (décide de la suppression)
+   */
+  saveBareme: async ({ engine, niveauSlug, competenceId, critereId = '', pointsMax, officialMax }) => {
+    const { schoolId, baremes } = get();
+    if (!schoolId) return { error: 'École introuvable' };
+    const max = Number(pointsMax);
+    if (!isFinite(max) || max < BAREME_MIN || max > BAREME_MAX) {
+      return { error: `Barème invalide (attendu entre ${BAREME_MIN} et ${BAREME_MAX}).` };
+    }
+    const teacherId = useAuthStore.getState().teacherId || null;
+    const bkey = baremeBkey(engine, niveauSlug, competenceId, critereId);
+    // Filet anti-désynchronisation mémoire/IDB — même raison que savePrimNote : un
+    // id neuf sur un bkey déjà présent en IDB se fait rejeter par l'index unique
+    // 'by_bkey', et le barème « disparaît » sans erreur visible.
+    const existing = baremes.find((b) => b.bkey === bkey)
+      || (await baremeDB.getByBkey(bkey).catch(() => []))[0];
+
+    // Retour au barème officiel : la surcharge est supprimée.
+    if (officialMax != null && max === Number(officialMax)) {
+      if (!existing) return { data: null };
+      await baremeDB.delete(existing.id).catch(() => {});
+      publishReferentiels(set, get, { baremes: baremes.filter((b) => b.id !== existing.id) });
+      if (backendOnline()) {
+        deleteBareme(existing.id).then((ok) => {
+          if (!ok) queueOffline({ table: 'bareme_notes', operation: 'delete', payload: { id: existing.id } });
+        });
+      } else {
+        queueOffline({ table: 'bareme_notes', operation: 'delete', payload: { id: existing.id } });
+      }
+      return { data: null };
+    }
+
+    const record = buildBaremeRecord({
+      id: existing?.id, schoolId, engine, niveauSlug, competenceId, critereId,
+      pointsMax: max, enseignantId: teacherId,
+    });
+    await baremeDB.put(record).catch(() => {});
+    publishReferentiels(set, get, {
+      baremes: [...baremes.filter((b) => b.bkey !== bkey), record],
+    });
+    if (backendOnline()) {
+      upsertBareme(record).then((ok) => {
+        if (!ok) queueOffline({ table: 'bareme_notes', operation: 'upsert', payload: record });
+      });
+    } else {
+      queueOffline({ table: 'bareme_notes', operation: 'upsert', payload: record });
+    }
+    return { data: record };
+  },
+
+  // Combien de notes cette colonne porte-t-elle déjà ? Sert à ne proposer la
+  // conversion que lorsqu'il y a réellement quelque chose à convertir.
+  countNotesForBareme: ({ engine, competenceId, critereId = '' }) => {
+    const src = engine === 'apc' ? get().apcNotes : get().primNotes;
+    let n = 0;
+    for (const rec of Object.values(src)) {
+      if (rec.competence_id !== competenceId) continue;
+      if (engine !== 'apc' && rec.critere_id !== critereId) continue;
+      if (rec.note == null || rec.note === '' || rec.note === 'ABS') continue;
+      n += 1;
+    }
+    return n;
+  },
+
+  /**
+   * Convertit les notes DÉJÀ SAISIES d'une colonne d'un barème vers un autre
+   * (16/20 devient 8/10). Proposé au moment du changement : sans elle, un 16 saisi
+   * sur /20 serait relu comme 16/10 — au-dessus du barème, et faux au bulletin.
+   *
+   * Ne touche QUE la compétence (APC) ou le couple compétence × critère (primaire)
+   * concerné, toutes séquences / UA confondues : le barème vaut pour l'année, les
+   * notes déjà posées aussi.
+   *
+   * Renvoie le nombre de notes converties.
+   */
+  rescaleNotesForBareme: async ({ engine, competenceId, critereId = '', oldMax, newMax }) => {
+    if (!oldMax || !newMax || Number(oldMax) === Number(newMax)) return 0;
+    let n = 0;
+    if (engine === 'apc') {
+      for (const rec of Object.values(get().apcNotes)) {
+        if (rec.competence_id !== competenceId) continue;
+        const next = rescaleNote(rec.note, Number(oldMax), Number(newMax));
+        if (next == null || next === '' || next === rec.note) continue;
+        await get().saveApcNote({
+          eleveId: rec.eleve_id, competenceId: rec.competence_id,
+          sequenceId: rec.sequence_id, note: next, appreciation: rec.appreciation,
+        });
+        n += 1;
+      }
+    } else {
+      for (const rec of Object.values(get().primNotes)) {
+        if (rec.competence_id !== competenceId || rec.critere_id !== critereId) continue;
+        const next = rescaleNote(rec.note, Number(oldMax), Number(newMax));
+        if (next == null || next === '' || next === rec.note) continue;
+        await get().savePrimNote({
+          eleveId: rec.eleve_id, competenceId: rec.competence_id,
+          critereId: rec.critere_id, ua: rec.ua, note: next,
+        });
+        n += 1;
+      }
+    }
+    return n;
+  },
+
   // ── Moteur SECOND CYCLE MINESEC ────────────────────────────────────────────
   // Charge le référentiel (séries/coefficients/groupes). IDB d'abord, puis refresh
   // cloud. Appelé par Classes (auto-config) et le routage des bulletins.
-  loadSc: async () => {
+  loadSc: () => onceInFlight('sc', async () => {
     await initDB();
     const cached = await scRefDB.get().catch(() => null);
     if (cached) set({ scReferentiel: cached });
     if (!backendOnline()) return cached || null;
-    const ref = await fetchScReferentiel();
-    if (ref) {
-      const blob = { ...ref, id: 'referentiel' };
+    const refRes = await refreshScReferentiel(cached?.__fp ?? null);
+    if (refRes.data) {
+      const blob = { ...refRes.data, id: 'referentiel', __fp: refRes.fingerprint };
       await scRefDB.put(blob).catch(() => {});
       set({ scReferentiel: blob });
       return blob;
     }
     return get().scReferentiel;
-  },
+  }),
 
   // ── Moteur MATERNELLE (domaines / observations A·ECA·NA) ───────────────────
-  loadMat: async () => {
+  loadMat: () => onceInFlight('mat', async () => {
     const { schoolId } = get();
     if (!schoolId) return;
     await initDB();
@@ -727,9 +934,12 @@ export const useSchoolStore = create((set, get) => ({
     set({ matReferentiel: cachedRef || null, matObservations: obsMap });
 
     if (!backendOnline()) return;
-    const [ref, obs] = await Promise.all([fetchMatReferentiel(), fetchMatObservations(schoolId)]);
-    if (ref) {
-      const blob = { ...ref, id: 'referentiel' };
+    const [refRes, obs] = await Promise.all([
+      refreshMatReferentiel(cachedRef?.__fp ?? null),
+      fetchMatObservations(schoolId),
+    ]);
+    if (refRes.data) {
+      const blob = { ...refRes.data, id: 'referentiel', __fp: refRes.fingerprint };
       await matRefDB.put(blob).catch(() => {});
       set({ matReferentiel: blob });
     }
@@ -740,7 +950,7 @@ export const useSchoolStore = create((set, get) => ({
       await matObsDB.putMany(records).catch(() => {});
       set({ matObservations: fresh });
     }
-  },
+  }),
 
   // Enregistre/écrase une observation (niveau A·ECA·NA + texte). IDB → cloud/queue.
   saveMatObservation: async ({ eleveId, domaineId, trimestreId, niveauAcquis, observation }) => {
@@ -769,24 +979,29 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   // ── Moteur PRIMAIRE APC (compétences × critères /10) ───────────────────────
-  loadPrim: async () => {
+  loadPrim: () => onceInFlight('prim', async () => {
     const { schoolId } = get();
     if (!schoolId) return;
     await initDB();
+    await get().loadBaremes();   // cf. loadApc
     const [cachedRef, idbNotes] = await Promise.all([
       primRefDB.get().catch(() => null),
       primNotesDB.getAll().catch(() => []),
     ]);
     const notesMap = {};
     for (const n of (idbNotes || []).filter((n) => n.school_id === schoolId)) notesMap[n.nkey] = n;
-    set({ primReferentiel: cachedRef || null, primNotes: notesMap });
+    set({ primNotes: notesMap });
+    publishReferentiels(set, get, { primRefRaw: cachedRef || null });
 
     if (!backendOnline()) return;
-    const [ref, notes] = await Promise.all([fetchPrimReferentiel(), fetchPrimNotes(schoolId)]);
-    if (ref) {
-      const blob = { ...ref, id: 'referentiel' };
+    const [refRes, notes] = await Promise.all([
+      refreshPrimReferentiel(cachedRef?.__fp ?? null),
+      fetchPrimNotes(schoolId),
+    ]);
+    if (refRes.data) {
+      const blob = { ...refRes.data, id: 'referentiel', __fp: refRes.fingerprint };
       await primRefDB.put(blob).catch(() => {});
-      set({ primReferentiel: blob });
+      publishReferentiels(set, get, { primRefRaw: blob });
     }
     if (notes) {
       const fresh = {};
@@ -795,7 +1010,7 @@ export const useSchoolStore = create((set, get) => ({
       await primNotesDB.putMany(records).catch(() => {});
       set({ primNotes: fresh });
     }
-  },
+  }),
 
   // Enregistre/écrase une note (compétence × critère × UA 1-8). IDB → cloud/queue.
   savePrimNote: async ({ eleveId, competenceId, critereId, ua, note }) => {
@@ -2083,7 +2298,7 @@ export const useSchoolStore = create((set, get) => ({
     return record;
   },
 
-  addPayment: async (studentId, { amount, date, note, student_fee_item_id = null }) => {
+  addPayment: async (studentId, { amount, date, note, student_fee_item_id = null, fee_schedule_item_id = null }) => {
     const { schoolId, activeYear, fees, feePayments } = get();
     const { userId, fullName } = useAuthStore.getState();
     const parsedAmount = parseInt(amount, 10) || 0;
@@ -2107,6 +2322,13 @@ export const useSchoolStore = create((set, get) => ({
       recorded_by_name: fullName || null,
       // Lien optionnel vers un frais précis du catalogue (null = paiement global).
       student_fee_item_id: student_fee_item_id || null,
+      // Lien optionnel vers UNE PÉRIODE de ce frais (cantine de novembre, 2e
+      // trimestre de transport). C'est lui qui permet de dire ce qui a été versé
+      // mois par mois sans jamais STOCKER le payé (cf. paidForSchedule).
+      // Un versement couvrant plusieurs périodes produit autant d'écritures :
+      // elles restent contre-passables une par une, comme lorsque la famille
+      // annule février seul.
+      fee_schedule_item_id: fee_schedule_item_id || null,
       created_at:    new Date().toISOString(),
     };
 
@@ -2272,6 +2494,11 @@ export const useSchoolStore = create((set, get) => ({
       recorded_by:   userId,
       recorded_by_name: fullName || null,
       student_fee_item_id: payment.student_fee_item_id || null,
+      // La contre-passation reprend AUSSI la période visée. Sans ce report, le
+      // versement négatif n'entrerait dans aucun échéancier : annuler la cantine
+      // de novembre laisserait novembre affiché « payé », et le solde de la
+      // famille mentirait dans le seul écran où elle le lit.
+      fee_schedule_item_id: payment.fee_schedule_item_id || null,
       reversal_of:   paymentId,
       void_reason:   motif,
       created_at:    new Date().toISOString(),

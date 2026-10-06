@@ -22,8 +22,9 @@ export function useVsContext() {
   const viewYear = useUiStore((s) => s.viewYear);
   const classes  = useSchoolStore((s) => s.classes);
   const students = useSchoolStore((s) => s.students);
+  const schoolUnits = useSchoolStore((s) => s.schoolUnits);
   const yearLabel = viewYear ?? school?.current_year ?? '';
-  return { school, schoolId: school?.id, yearLabel, classes, students, userId };
+  return { school, schoolId: school?.id, yearLabel, classes, students, userId, schoolUnits };
 }
 
 // Sélecteur Section → Classe → Élève (contrôlé). Les classes/élèves sont déjà

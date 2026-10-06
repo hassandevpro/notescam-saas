@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from './Modal';
 import HonorAward, { awardSize, awardStyleFromTemplate } from './HonorAward';
+import { isBasicClass } from '../lib/tutelle';
 import { imageToDataUrl } from '../lib/idCardService';
 import { exportIdCardsPdf } from '../lib/idCardPdf';
 import { getSchoolTheme } from '../lib/schoolTheme';
@@ -92,6 +93,8 @@ export default function HonorAwardModal({ open, onClose, rows = [], school, unit
     style,
     countryCode,
     year: year || school?.current_year || '',
+    // Tutelle du diplôme : celle de la CLASSE de l’élève récompensé.
+    basic: isBasicClass(classes.find((c) => c.id === r.classId)),
   });
 
   const handleExport = async (mode) => {

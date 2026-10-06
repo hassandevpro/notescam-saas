@@ -70,6 +70,24 @@ function seed() {
     F('f-col', 'el-col1');
     F('f-pri', 'el-pri1');
 
+    // Frais attribué + ÉCHÉANCE pour un élève de chaque secteur : c'est la paire
+    // qui permet de vérifier que le cloisonnement suit bien jusqu'aux périodes.
+    const SFI = (id, st) => db.prepare(
+      'INSERT INTO student_fee_items (id,school_id,student_id,name,academic_year,amount) VALUES (?,?,?,?,?,?)',
+    ).run(id, SCHOOL, st, 'Cantine', '2026-2027', 15000);
+    SFI('sfi-col', 'el-col1');
+    SFI('sfi-pri', 'el-pri1');
+    // Dates d'entrée DANS LE SERVICE (B6) : une donnee financiere de plus a
+    // ne pas laisser fuir d'un secteur a l'autre.
+    db.prepare("UPDATE student_fee_items SET started_at='2026-09-01' WHERE id='sfi-col'").run();
+    db.prepare("UPDATE student_fee_items SET started_at='2026-11-15' WHERE id='sfi-pri'").run();
+    const ECH = (id, st, sfi) => db.prepare(
+      `INSERT INTO fee_schedule_items (id,school_id,student_id,student_fee_item_id,academic_year,period_key,amount_due,status)
+       VALUES (?,?,?,?,?,?,?,?)`,
+    ).run(id, SCHOOL, st, sfi, '2026-2027', '2026-11', 15000, 'due');
+    ECH('ech-col', 'el-col1', 'sfi-col');
+    ECH('ech-pri', 'el-pri1', 'sfi-pri');
+
     U('u-col', 'principal.college@test.cm');   SU('su1', SCHOOL, 'u-col', 'censeur',     '["secondaire"]',  0);
     U('u-pri', 'principal.primaire@test.cm');  SU('su2', SCHOOL, 'u-pri', 'censeur',     '["fondamental"]', 0);
     U('u-surv', 'surveillant.pri@test.cm');    SU('su3', SCHOOL, 'u-surv', 'surveillant','["fondamental"]', 0);
@@ -198,6 +216,39 @@ try {
   const nGlo = (await sel(T.raf, 'students')).data.length;
   ok(nCol === 2 && nPri === 3 && nGlo === 5,
     '14. Dashboard : compteurs cloisonnes (College 2 / Primaire 3 / GLOBAL 5)', { nCol, nPri, nGlo });
+
+  // 16-18. ÉCHÉANCES DE FRAIS (B5) : une période porte un élève, donc sa dette.
+  // La table était synchronisable et écrivable par le client mais absente du
+  // garde sectoriel : un compte Collège lisait — et pouvait exempter — les
+  // échéances des élèves du Primaire. Une exemption fait sortir une créance du
+  // dû : c'est une écriture qui efface de l'argent à percevoir.
+  ok(JSON.stringify(ids(await sel(T.col, 'fee_schedule_items'))) === JSON.stringify(['ech-col']),
+    '16. ECHEANCES : College ne voit QUE celles de ses eleves',
+    ids(await sel(T.col, 'fee_schedule_items')));
+  ok(JSON.stringify(ids(await sel(T.pri, 'fee_schedule_items'))) === JSON.stringify(['ech-pri']),
+    '17. ECHEANCES : Primaire ne voit QUE les siennes',
+    ids(await sel(T.pri, 'fee_schedule_items')));
+
+  // L'écriture, pas seulement la lecture : exempter l'echeance d'un eleve d'un
+  // autre secteur doit etre REFUSE cote serveur.
+  const wEch = await q(T.col, {
+    table: 'fee_schedule_items', action: 'update',
+    values: { status: 'exempted' },
+    filters: [{ col: 'id', op: 'eq', val: 'ech-pri' }],
+  });
+  ok(!!wEch.error, '18. EXEMPTER une echeance du Primaire depuis College -> REFUSE', wEch);
+
+  // 19-20. SOUSCRIPTIONS AUX SERVICES (B6) : la date d’entree est une donnee
+  // financiere de l’eleve. Elle suit le meme cloisonnement que le reste.
+  ok(JSON.stringify(ids(await sel(T.col, 'student_fee_items'))) === JSON.stringify(['sfi-col']),
+    '19. SOUSCRIPTIONS : College ne voit QUE celles de ses eleves',
+    ids(await sel(T.col, 'student_fee_items')));
+  const wSfi = await q(T.col, {
+    table: 'student_fee_items', action: 'update',
+    values: { started_at: '2026-01-01' },
+    filters: [{ col: 'id', op: 'eq', val: 'sfi-pri' }],
+  });
+  ok(!!wSfi.error, '20. MODIFIER la date d’entree d’un eleve du Primaire depuis College -> REFUSE', wSfi);
 
   // 15. Non-régression : un compte GLOBAL garde tout
   ok(ids(await sel(T.raf, 'classes')).length === 5,

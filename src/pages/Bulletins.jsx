@@ -33,6 +33,7 @@ import {
 } from '../core/primEngine';
 import { domainesForMaternelle } from '../core/matEngine';
 import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineMatch';
+import { withLibelles } from '../lib/referentielEcole';
 // Les intitulés du référentiel officiel sont stockés en français pour tout le
 // pays : sur une classe du secteur anglophone, on les rend en anglais.
 import { matDomaineLabel, primCompetenceLabel, primCritereLabel, primCoteLabel } from '../core/referentielI18n';
@@ -42,7 +43,7 @@ import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
 import { buildApcRanks, SEQ_TO_TRIM } from '../core/apcEngine';
 import {
   apcBulletinPeriods, apcPeriodLabel, resolveApcPeriod,
-  isApcAnnualPeriod, apcSeqIdsForTrimestre,
+  isApcAnnualPeriod, isApcSequencePeriod, apcSeqIdsForTrimestre,
 } from '../core/apcPeriods';
 import { assembleScBulletin, scDisciplineConseil, matieresForSerieClasse } from '../core/scEngine';
 import { perSubjectRanksAndStats, classProfile } from '../lib/scBulletinPdf';
@@ -1583,7 +1584,15 @@ export default function Bulletins() {
   const loadApc        = useSchoolStore((s) => s.loadApc);
   const scReferentiel  = useSchoolStore((s) => s.scReferentiel);
   const loadSc         = useSchoolStore((s) => s.loadSc);
+  const loadRefMasques  = useSchoolStore((s) => s.loadRefMasques);
   const matReferentiel  = useSchoolStore((s) => s.matReferentiel);
+  // Ce que l'ecole a masque / renomme dans les referentiels nationaux.
+  const matMasques      = useSchoolStore((s) => s.refMasques.mat);
+  const matLibelles     = useSchoolStore((s) => s.refLibelles.mat);
+  const primMasques     = useSchoolStore((s) => s.refMasques.prim);
+  const primLibelles    = useSchoolStore((s) => s.refLibelles.prim);
+  const apcLibelles     = useSchoolStore((s) => s.refLibelles.apc);
+  const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
   const matObservations = useSchoolStore((s) => s.matObservations);
   const loadMat         = useSchoolStore((s) => s.loadMat);
   const primReferentiel = useSchoolStore((s) => s.primReferentiel);
@@ -1717,13 +1726,15 @@ export default function Bulletins() {
     && primaryPeriodMode(school) === 'sequences';
 
   // Périodes de bulletin du SECONDAIRE APC : T1 · T2 · T3 · Annuel, et rien d'autre.
-  // La séquence est l'unité de SAISIE des évaluations, jamais une période de
-  // bulletin : le référentiel MINESEC définit les compétences PAR TRIMESTRE
-  // (apc_competences.trimestre_id), héritées par les séquences de ce trimestre —
-  // un « bulletin de séquence » n'exposait donc qu'une fraction arbitraire des
-  // compétences du trimestre. Les séquences couvertes par chaque trimestre sont
-  // lues du référentiel (cf. core/apcPeriods), pas déduites d'un numéro.
-  const apcPeriods = useMemo(() => apcBulletinPeriods(apcReferentiel), [apcReferentiel]);
+  // Les quatre périodes de référence (T1, T2, T3, annuel) ET chaque séquence,
+  // tirable en bulletin à la demande. Le document de séquence ne liste que les
+  // compétences qu'elle a réellement évaluées — cf. core/apcPeriods pour ce que
+  // cela implique, et `onlyEvaluated` plus bas. Les séquences de chaque trimestre
+  // sont lues du référentiel, pas déduites d'un numéro.
+  const apcPeriods = useMemo(
+    () => apcBulletinPeriods(apcReferentiel, { withSequences: true }),
+    [apcReferentiel],
+  );
 
   const periodsForClass =
     isApc
@@ -1733,8 +1744,8 @@ export default function Bulletins() {
         : isFundamentalClass
           ? (primSequences ? PERIODS : PERIODS_PRIMAIRE)
           : sys === 'EN' ? PERIODS_EN : PERIODS;
-  // Une clé de bulletin de séquence héritée de l'UI (« seq_3 », persistée dans
-  // uiStore) retombe sur le premier trimestre au lieu de vider l'écran.
+  // Une clé persistée dans uiStore retrouve sa période ; une clé inconnue retombe
+  // sur le premier trimestre au lieu de vider l'écran.
   const period = isApc
     ? resolveApcPeriod(periodsForClass, periodKey)
     : (periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0]);
@@ -1765,17 +1776,28 @@ export default function Bulletins() {
 
   // ── APC (premier cycle) — données du bulletin officiel pour l'aperçu écran ───
   // Charge le référentiel à la sélection d'une classe APC (idempotent côté store).
-  useEffect(() => { if (isApc) loadApc(); }, [isApc, loadApc]);
+  useEffect(() => { if (isApc) { loadApc(); loadRefMasques('apc'); } }, [isApc, loadApc, loadRefMasques]);
 
   // Slug de classe référentiel ('6e'…'3e') + trimestre de la période.
-  // La période APC est un TRIMESTRE (t1|t2|t3) ou l'ANNUEL ; ses séquences
-  // viennent du rattachement déclaré au référentiel, en nombre quelconque.
+  // La période APC est une SÉQUENCE, un TRIMESTRE (t1|t2|t3) ou l'ANNUEL. Une
+  // séquence porte le trimestre dont elle relève : les compétences restent donc
+  // celles du trimestre, seules les notes de la séquence sont retenues.
   const apcClasseSlug = isApc ? firstCycleClasseSlug(selectedClass?.level, selectedClass?.name) : null;
   const apcAnnual     = isApc && isApcAnnualPeriod(period);   // bulletin annuel (T1+T2+T3)
+  const apcSequence   = isApc && isApcSequencePeriod(period); // bulletin d'une séquence
   const apcTrimId     = period.trimestreId || 't1';
+  // Séquences agrégées : celle de la période si c'en est une, sinon toutes celles
+  // du trimestre. L'annuel n'en retient aucune (il repasse par les trimestres).
   const apcSeqIds = useMemo(
-    () => (isApc && !apcAnnual ? apcSeqIdsForTrimestre(apcReferentiel, apcTrimId) : []),
-    [isApc, apcAnnual, apcReferentiel, apcTrimId],
+    () => (!isApc || apcAnnual
+      ? []
+      : apcSequence
+        ? (period.seqIds || [])
+        : apcSeqIdsForTrimestre(apcReferentiel, apcTrimId)),
+    // `seqIds` est un tableau reconstruit à chaque rendu : on dépend de son
+    // CONTENU, comme les autres mémos de cet écran (`period.seqs.join(',')`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isApc, apcAnnual, apcSequence, (period.seqIds || []).join(','), apcReferentiel, apcTrimId],
   );
 
   const apcProfPrincipal = headTeacherText(selectedClass, teachers);
@@ -1786,16 +1808,27 @@ export default function Bulletins() {
 
   // Données assemblées par élève. Annuel → assembleApcAnnual (T1/T2/T3 par matière) ;
   // sinon assemblePeriod (séquence ou trimestre, par compétence).
+  const apcReferentielEcole = useMemo(() => {
+    if (!apcReferentiel) return apcReferentiel;
+    return {
+      ...apcReferentiel,
+      competences: withLibelles(
+        (apcReferentiel.competences || []).filter((c) => !apcMasques.includes(c.id)),
+        apcLibelles,
+      ),
+    };
+  }, [apcReferentiel, apcMasques, apcLibelles]);
+
   const apcDataById = useMemo(() => {
-    if (!isApc || !apcReferentiel || !apcClasseSlug) return {};
+    if (!isApc || !apcReferentielEcole || !apcClasseSlug) return {};
     const out = {};
     for (const s of classStudents) {
       out[s.id] = apcAnnual
-        ? assembleApcAnnual(apcReferentiel, apcNotes, { classeSlug: apcClasseSlug, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale, sys })
-        : assemblePeriod(apcReferentiel, apcNotes, { classeSlug: apcClasseSlug, trimestreId: apcTrimId, seqIds: apcSeqIds, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale, sys });
+        ? assembleApcAnnual(apcReferentielEcole, apcNotes, { classeSlug: apcClasseSlug, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale, sys })
+        : assemblePeriod(apcReferentielEcole, apcNotes, { classeSlug: apcClasseSlug, trimestreId: apcTrimId, seqIds: apcSeqIds, student: s, teacherByMatiere: apcTeacherMap, gradeScale: school?.grade_scale, sys, onlyEvaluated: apcSequence });
     }
     return out;
-  }, [isApc, apcAnnual, apcReferentiel, apcClasseSlug, apcTrimId, apcSeqIds, classStudents, apcNotes, apcTeacherMap, school?.grade_scale, sys]);
+  }, [isApc, apcAnnual, apcSequence, apcReferentielEcole, apcClasseSlug, apcTrimId, apcSeqIds, classStudents, apcNotes, apcTeacherMap, school?.grade_scale, sys]);
 
   // Rangs (moyennes générales) + profil de la classe pour le pied du bulletin.
   const apcRanks = useMemo(() => {
@@ -1817,23 +1850,32 @@ export default function Bulletins() {
     };
   }, [isApc, apcDataById]);
 
-  // Titre officiel du bulletin : un trimestre ou l'annuel. Il n'existe plus de
-  // titre « BULLETIN DE LA … SÉQUENCE » — le bulletin de séquence n'existe plus.
+  // Titre officiel du bulletin : une séquence, un trimestre ou l'annuel.
+  // Le titre d'une séquence NOMME SON TRIMESTRE (« … SÉQUENCE 3 (T2) ») : le
+  // document ne listant que les compétences évaluées dans la séquence, le
+  // trimestre de rattachement est la seule indication de ce qu'il couvre.
   const apcTitle = useMemo(() => {
     if (!isApc) return '';
     const en = sys === 'EN';
     if (apcAnnual) return en ? 'ANNUAL REPORT CARD' : 'BULLETIN ANNUEL';
+    if (apcSequence) {
+      const n = period.seqs?.[0];
+      const trim = (apcTrimId || 't1').toUpperCase();   // 't2' → 'T2'
+      return en
+        ? `SEQUENCE ${n} REPORT CARD (${trim})`
+        : `BULLETIN DE LA SÉQUENCE ${n} (${trim})`;
+    }
     return { t1: en ? 'FIRST TERM REPORT CARD'  : 'BULLETIN SCOLAIRE DU PREMIER TRIMESTRE',
              t2: en ? 'SECOND TERM REPORT CARD' : 'BULLETIN SCOLAIRE DU DEUXIÈME TRIMESTRE',
              t3: en ? 'THIRD TERM REPORT CARD'  : 'BULLETIN SCOLAIRE DU TROISIÈME TRIMESTRE' }[apcTrimId]
            || (en ? 'FIRST TERM REPORT CARD' : 'BULLETIN SCOLAIRE DU PREMIER TRIMESTRE');
-  }, [isApc, apcAnnual, sys, apcTrimId]);
+  }, [isApc, apcAnnual, apcSequence, period.seqs, sys, apcTrimId]);
 
   // Prêt à afficher : référentiel chargé + classe reconnue 1er cycle + des élèves.
   const apcReady = isApc && !!apcReferentiel && !!apcClasseSlug && classStudents.length > 0;
 
   // ── PRIMAIRE APC (SIL–CM2) — données du bulletin officiel (aperçu écran) ─────
-  useEffect(() => { if (isPrim) loadPrim(); }, [isPrim, loadPrim]);
+  useEffect(() => { if (isPrim) { loadPrim(); loadRefMasques('prim'); } }, [isPrim, loadPrim, loadRefMasques]);
   const primNiveauSlug = isPrim ? primaireNiveauSlug(selectedClass?.level, selectedClass?.name) : null;
   const PRIM_GRADE_MAX = 10;
   const primAnnual = isPrim && period.value === 'annuel'; // moyenne annuelle = UA1..UA8
@@ -1903,7 +1945,10 @@ export default function Bulletins() {
 
   const primDataById = useMemo(() => {
     if (!isPrim || !primReferentiel || !primNiveauSlug) return {};
-    const comps = competencesForNiveau(primReferentiel, primNiveauSlug);
+    const comps = withLibelles(
+      competencesForNiveau(primReferentiel, primNiveauSlug).filter((c) => !primMasques.includes(c.id)),
+      primLibelles,
+    );
     const out = {};
     for (const s of classStudents) {
       const rows = comps.map((c) => {
@@ -1914,7 +1959,7 @@ export default function Bulletins() {
         // d'acquisition »…) — dérivée, jamais saisie. Absente sur compétence non notée.
         const notesByCritere = primNotesByCritereFor(s.id, c.id, s);
         return {
-          code: c.code, intitule: primCompetenceLabel(c, sys), moyenne, coef,
+          code: c.code, intitule: c._override ? c.intitule : primCompetenceLabel(c, sys), moyenne, coef,
           cote: cote ? cote.cote : null,
           appreciation: cote ? primCoteLabel(cote.cote, cote.libelle, sys) : '',
           notesByCritere,
@@ -1957,7 +2002,10 @@ export default function Bulletins() {
   // coût négligeable).
   const primAnnualRowsFor = (student) => {
     if (!isPrim || !primReferentiel || !primNiveauSlug) return [];
-    const comps = competencesForNiveau(primReferentiel, primNiveauSlug);
+    const comps = withLibelles(
+      competencesForNiveau(primReferentiel, primNiveauSlug).filter((c) => !primMasques.includes(c.id)),
+      primLibelles,
+    );
     return comps.map((c) => {
       const criteres = primCriteresFor(c.id, student);
       const uas = primUAs.map((ua) => {
@@ -1996,7 +2044,7 @@ export default function Bulletins() {
         ? Math.round((notedUAs.reduce((a, u) => a + u.possible, 0) / notedUAs.length) * 100) / 100
         : criteres.reduce((a, cr) => a + (cr.points_max || 0), 0);
       const totalCote = totalAchieved != null ? primCote(totalAchieved, totalPossible, primBareme) : null;
-      return { code: c.code, intitule: primCompetenceLabel(c, sys), criteres, uas, totalAchieved, totalPossible, totalCote: totalCote?.cote || null };
+      return { code: c.code, intitule: c._override ? c.intitule : primCompetenceLabel(c, sys), criteres, uas, totalAchieved, totalPossible, totalCote: totalCote?.cote || null };
     });
   };
 
@@ -2013,14 +2061,20 @@ export default function Bulletins() {
   const primReady = isPrim && !!primReferentiel && !!primNiveauSlug && classStudents.length > 0;
 
   // ── MATERNELLE (PS/MS/GS) — données du bulletin officiel (aperçu écran) ──────
-  useEffect(() => { if (isMat) loadMat(); }, [isMat, loadMat]);
+  useEffect(() => { if (isMat) { loadMat(); loadRefMasques('mat'); } }, [isMat, loadMat, loadRefMasques]);
   const matTrimId = `t${period.seqs?.[0] || 1}`;
   // Domaines officiels, puis la surcharge de l'école (ligne `subjects` portant
   // `mat_domaine_id`) : le bulletin imprime le mot que l'enseignante lit a l'ecran.
+  // Deux surcharges se cumulent — la ligne `subjects` (historique) puis la table
+  // `referentiel_libelles` — et un domaine masqué par l'école ne s'imprime pas.
+  // L'enseignante ne peut pas saisir sous un intitulé et éditer sous un autre.
   const matDomaines = useMemo(() => {
-    const base = domainesForMaternelle(matReferentiel);
-    return withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, base));
-  }, [matReferentiel, subjects, classId]);
+    const base = domainesForMaternelle(matReferentiel).filter((d) => !matMasques.includes(d.id));
+    return withLibelles(
+      withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, base)),
+      matLibelles,
+    );
+  }, [matReferentiel, subjects, classId, matMasques, matLibelles]);
 
   const matDataById = useMemo(() => {
     if (!isMat || !matReferentiel) return {};
@@ -2615,10 +2669,11 @@ export default function Bulletins() {
             <div className="flex-1 min-w-[180px] max-w-xs">
               <label className="form-label">{t('Période', 'Period')}</label>
               <select className="form-input" value={periodKey} onChange={(e) => setPeriodKey(e.target.value)}>
-                {/* Secondaire APC : trois trimestres + l'annuel. Aucune séquence —
-                    la séquence sert à SAISIR les évaluations (écran Notes), pas à
-                    éditer un bulletin. Les séquences agrégées par chaque trimestre
-                    viennent du référentiel, d'où le libellé calculé. */}
+                {/* Secondaire APC : les trimestres (document complet), chaque
+                    séquence, et l'annuel. Le bulletin de trimestre liste TOUTES
+                    les compétences du référentiel ; celui d'une séquence ne liste
+                    que ce qu'elle a évalué — d'où la mention portée sur le groupe.
+                    Les séquences de chaque trimestre viennent du référentiel. */}
                 {isApc ? (
                   <>
                     <optgroup label={t('Trimestres', 'Terms')}>
@@ -2628,6 +2683,15 @@ export default function Bulletins() {
                         </option>
                       ))}
                     </optgroup>
+                    {periodsForClass.some((p) => p.kind === 'sequence') && (
+                      <optgroup label={t('Séquences (évalué seulement)', 'Sequences (assessed only)')}>
+                        {periodsForClass.filter((p) => p.kind === 'sequence').map((p) => (
+                          <option key={p.value} value={p.value}>
+                            {p.label} {`(${(p.trimestreId || 't1').toUpperCase()})`}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                     <optgroup label={t('Récapitulatif', 'Summary')}>
                       {periodsForClass.filter((p) => p.kind === 'annuel').map((p) => (
                         <option key={p.value} value={p.value}>

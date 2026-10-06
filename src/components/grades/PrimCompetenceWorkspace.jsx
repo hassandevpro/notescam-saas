@@ -34,6 +34,7 @@ import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal, primCote,
   trimestreOfUA, PRIM_COTE_DEFAULT,
 } from '../../core/primEngine';
+import { baremeEnVigueur, notesHorsBareme } from '../../core/primColumnBareme';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
@@ -216,26 +217,25 @@ export default function PrimCompetenceWorkspace() {
   // (elles le portent), sinon celui que l'enseignant vient de poser, sinon le
   // barème officiel du référentiel. La même colonne peut donc valoir /10 sur une
   // UA et /20 sur une autre.
-  const baremeFor = (critereId) => {
-    const officiel = criteres.find((c) => c.id === critereId)?.points_max;
-    for (const stu of classStudents) {
-      const r = primNotes[primNkey(stu.id, competenceId, critereId, ua)];
-      if (r?.points_max != null) return Number(r.points_max);
-      if (r?.note != null && r.note !== '') return Number(officiel);  // note sans barème = officiel
-    }
-    return pendingBareme[`${competenceId}_${critereId}`] ?? Number(officiel);
-  };
+  const baremeFor = (critereId) => baremeEnVigueur(
+    classStudents.map((stu) => primNotes[primNkey(stu.id, competenceId, critereId, ua)]),
+    criteres.find((c) => c.id === critereId)?.points_max,
+    pendingBareme[`${competenceId}_${critereId}`],
+  );
 
   // Changement de barème d'une colonne (Oral, Écrit, Pratique, Savoir-être) pour
   // cette compétence et cette UA. REFUSÉ si une note déjà saisie le dépasse : on ne
   // transforme pas en silence un 18/20 en 18/10. L'enseignant corrige d'abord les
   // notes concernées — même règle que l'écran du premier cycle.
   const setBareme = (critereId, nouveau) => {
-    const trop = classStudents.filter((stu) => {
-      const r = primNotes[primNkey(stu.id, competenceId, critereId, ua)];
-      const n = r?.note == null || r.note === '' ? null : Number(r.note);
-      return n != null && !Number.isNaN(n) && n > nouveau;
-    });
+    const trop = notesHorsBareme(
+      classStudents.map((stu) => ({
+        id: stu.id,
+        name: stu.name,
+        note: primNotes[primNkey(stu.id, competenceId, critereId, ua)]?.note,
+      })),
+      nouveau,
+    );
     if (trop.length) {
       setBaremeMsg({
         critereId,

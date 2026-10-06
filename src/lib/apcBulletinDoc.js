@@ -62,10 +62,17 @@ const TRIM_TITLE = {
 // Période = une ou plusieurs séquences (`seqIds`). Les compétences restent celles
 // du trimestre `trimestreId` (héritées par ses séquences) ; seules les notes des
 // séquences listées sont moyennées. Permet un bulletin de séquence (1 seq) OU de
-// trimestre (les 2 seqs) sans dupliquer la logique.
+// trimestre (toutes ses seqs) sans dupliquer la logique.
 //   Pour chaque matière : ses compétences (N/xx = moyenne des séquences retenues),
 //   M/xx (moyenne matière), coef (par classe), M×coef, cote.
-export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId, seqIds, student, teacherByMatiere = {}, gradeScale, sys = 'FR' }) {
+//
+// `onlyEvaluated` — bulletin de SÉQUENCE : on ne liste que les compétences
+// réellement notées dans la séquence, et on omet la matière qui n'en a aucune.
+// AUCUNE moyenne ne change : `matiereAverage` ignore déjà les compétences sans
+// note (jamais comptées 0), donc le filtre ne touche que la liste affichée.
+// Le bulletin TRIMESTRIEL garde la liste complète — c'est lui qui doit montrer
+// ce qui reste à évaluer (cf. core/apcPeriods, « le bulletin de séquence »).
+export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId, seqIds, student, teacherByMatiere = {}, gradeScale, sys = 'FR', onlyEvaluated = false }) {
   const seqs = seqIds && seqIds.length
     ? seqIds
     : sequencesOfTrimestre(referentiel.sequences, trimestreId).map((s) => s.id);
@@ -101,7 +108,12 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
       if (v != null) notesByComp[c.id] = v;           // matiereAverage normalise
       return { intitule: c.intitule, note: v?.note ?? null, max: v?.max ?? null };
     });
+    // La moyenne se calcule sur TOUTES les compétences du trimestre (celles sans
+    // note étant ignorées) : elle est donc identique avec ou sans le filtre.
     const moyenne = matiereAverage(notesByComp, comps);
+    const compRowsShown = onlyEvaluated ? compRows.filter((r) => r.note != null) : compRows;
+    // Matière sans aucune compétence évaluée dans la séquence : rien à imprimer.
+    if (onlyEvaluated && !compRowsShown.length) continue;
     const coef = coefFor(referentiel.classeMatieres, classeSlug, m);
     // Appréciation + intervalle [Min–Max] pilotés par le barème configurable de
     // l'école (school.grade_scale) — exactement comme le second cycle.
@@ -112,7 +124,7 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
       // anglais (le catalogue anglophone, lui, est déjà rédigé en anglais).
       id: m.id, nom: apcMatiereLabel(m, sys), coef,
       enseignant: teacherByMatiere[m.id] || '',
-      competences: compRows,
+      competences: compRowsShown,
       moyenne, ponderee: weightedMatiere(moyenne, coef),
       cote: apcCoteFromScale(moyenne, gradeScale).code,
       appreciation: scaleMention(band, gradeScale, sys),

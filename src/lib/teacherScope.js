@@ -92,42 +92,31 @@ export function mySubjectNames(subjects, teacherId, classId) {
 // ── QUI PEUT CONFIGURER LES MATIÈRES D'UNE CLASSE ────────────────────────────
 //
 // Miroir EXACT de la policy RLS `subjects: écriture par l'enseignant de la classe`
-// (supabase_teacher_edits_subjects.sql). Les deux doivent dire la même chose : si
-// l'écran propose un bouton que la base refusera, l'écriture part en file
-// hors-ligne et y tourne en boucle — c'est le défaut corrigé en cd04fd9 pour
-// `mat_observations`, on ne le recrée pas ici.
+// (supabase_teacher_edits_subjects_toujours.sql). Les deux doivent dire la même
+// chose : si l'écran propose un bouton que la base refusera, l'écriture part en
+// file hors-ligne et y tourne en boucle — le défaut corrigé en cd04fd9 pour
+// `mat_observations`, qu'on ne recrée pas ici.
 //
-// Trois portes, de la plus large à la plus étroite :
-//   • l'ADMINISTRATION (admin, ou compte délégué portant /app/classes) : tout,
-//     partout, comme avant. L'interrupteur d'école ne la concerne pas.
-//   • le TITULAIRE d'une classe : toutes les matières de SA classe — créer,
-//     renommer, supprimer. C'est le sens du titulariat, de la maternelle à la
-//     Terminale.
-//   • l'ENSEIGNANT DE MATIÈRE : seulement SES propres lignes. Il ajuste le
-//     barème de son cours, il ne supprime pas celui d'un collègue.
+// AUCUN RÉGLAGE. Le droit ne dépend pas d'une case cochée : une enseignante ne
+// doit pas attendre qu'on l'autorise à nommer les matières de sa propre classe.
+// La sécurité ne tient pas à un interrupteur, elle tient au PÉRIMÈTRE :
+//   • l'ADMINISTRATION (admin, ou délégué /app/classes) : tout, partout ;
+//   • le TITULAIRE : toutes les matières de SA classe — créer, renommer,
+//     supprimer. Tous les cycles, de la maternelle à la Terminale ;
+//   • l'ENSEIGNANT DE MATIÈRE : SES propres lignes seulement. Il ajuste le barème
+//     de son cours, il ne supprime pas celui d'un collègue.
 //
-// Les deux dernières ne s'ouvrent que si l'école a mis `teacher_edits_subjects`
-// à true : fermé par défaut, aucune école ne change de comportement sans l'avoir
-// décidé.
-
-// L'école a-t-elle ouvert le droit ? Tolère les trois formes rencontrées
-// (booléen Postgres, entier 0/1 SQLite, et leur rendu texte) — même précaution
-// que `isAdvancedDelegation`.
-export function teacherEditsSubjects(school) {
-  const v = school?.teacher_edits_subjects;
-  return v === true || v === 1 || v === '1' || v === 't' || v === 'true';
-}
+// Chacun chez soi, sans demander la permission — et le cloisonnement par secteur
+// s'applique par-dessus, côté base.
 
 // Gérer LA LISTE : ajouter et supprimer des matières de cette classe.
 export function canManageClassSubjects({ role, school, cls, teacherId, isDelegate = false }) {
   if (role === 'admin' || isDelegate) return true;
-  if (!teacherEditsSubjects(school)) return false;
   return !!teacherId && !!cls && cls.teacher_id === teacherId;
 }
 
 // Modifier UNE ligne (nom, coef, barème, enseignant affecté).
 export function canEditSubjectRow({ role, school, cls, teacherId, subject, isDelegate = false }) {
   if (canManageClassSubjects({ role, school, cls, teacherId, isDelegate })) return true;
-  if (!teacherEditsSubjects(school)) return false;
   return !!teacherId && subject?.teacher_id === teacherId;
 }

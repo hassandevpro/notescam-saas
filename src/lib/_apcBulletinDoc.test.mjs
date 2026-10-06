@@ -233,5 +233,52 @@ const c1m = bySubject(t1m, 'francais').competences[0];
 eq(c1m.max, 20, 'barèmes mélangés sur une même compétence → résultat ramené sur /20');
 eq(c1m.note, 16.67, 'et vaut (66,67 % + 100 %)/2 = 83,33 % ≈ 16,67/20');
 
+// ── S · BULLETIN DE SÉQUENCE (`onlyEvaluated`) ──────────────────────────────
+// Le bulletin d'une séquence ne liste que ce qu'elle a évalué, et n'imprime pas
+// une matière qu'elle n'a pas touchée. Le filtre est d'AFFICHAGE : aucune
+// moyenne, aucune somme de coefficients ne doit bouger.
+console.log('\n── S · bulletin de séquence : seul l\'évalué est listé ──');
+
+const seqOpts = { ...ctx, trimestreId: 't1', seqIds: ['s1'] };
+const s1Brut   = assemblePeriod(referentiel, notes, seqOpts);                        // sans filtre
+const s1Filtre = assemblePeriod(referentiel, notes, { ...seqOpts, onlyEvaluated: true });
+
+// Français : c1 est notée en s1 (12) ; c2 ne l'est qu'en s3, c3 jamais.
+const frBrut   = bySubject(s1Brut, 'francais');
+const frFiltre = bySubject(s1Filtre, 'francais');
+eq(frBrut.competences.length, 3, 'sans filtre : les 3 compétences du trimestre sont listées');
+eq(frFiltre.competences.length, 1, 'avec filtre : seule c1, évaluée en s1');
+eq(frFiltre.competences[0].intitule, 'Lire un texte courant', 'et c\'est bien la compétence notée');
+eq(frFiltre.competences[0].note, 12, 'sa note est celle de la séquence (12), non la moyenne du trimestre');
+ok(!frFiltre.competences.some((c) => c.note === null),
+   'aucune ligne vide ne subsiste dans le bulletin de séquence');
+
+// Un VRAI zéro reste une évaluation : la matière doit rester imprimée.
+const mathFiltre = bySubject(s1Filtre, 'mathematiques');
+ok(!!mathFiltre, 'Maths reste présente : m1 = 0 est une note, pas une absence de note');
+eq(mathFiltre.competences.length, 1, 'Maths : la compétence notée 0 est listée');
+eq(mathFiltre.competences[0].note, 0, 'et le zéro est bien un zéro');
+
+// EPS n'a rien été évaluée en s1 (chaîne vide) : la matière disparaît du document.
+ok(!!bySubject(s1Brut, 'eps'), 'sans filtre : EPS figure avec sa ligne non évaluée');
+ok(!bySubject(s1Filtre, 'eps'), 'avec filtre : EPS, sans aucune évaluation, n\'est pas imprimée');
+
+// LE POINT CENTRAL : le filtre ne touche QUE la liste affichée.
+eq(s1Filtre.moyenneGenerale, s1Brut.moyenneGenerale, 'moyenne générale inchangée par le filtre');
+eq(s1Filtre.coefSum, s1Brut.coefSum, 'somme des coefficients inchangée');
+eq(s1Filtre.mxSum, s1Brut.mxSum, 'somme des M×coef inchangée');
+eq(frFiltre.moyenne, frBrut.moyenne, 'moyenne de Français inchangée');
+eq(frFiltre.coef, 6, 'le coef par classe reste celui de la 6e');
+
+// Une séquence sans la moindre note ne produit aucune matière — et ne plante pas.
+const s2Vide = assemblePeriod(referentiel, notes, { ...ctx, trimestreId: 't2', seqIds: ['s5'], onlyEvaluated: true });
+eq(s2Vide.matieres.length, 0, 'séquence s5, aucune note : aucune matière imprimée');
+eq(s2Vide.moyenneGenerale, null, 'et aucune moyenne générale inventée');
+
+// Le TRIMESTRE, lui, garde la liste complète : c'est le document qui doit
+// montrer ce qui reste à évaluer.
+eq(bySubject(assembleTrimester(referentiel, notes, { ...ctx, trimestreId: 't1' }), 'francais').competences.length, 3,
+   'le bulletin trimestriel conserve les 3 compétences, évaluées ou non');
+
 console.log(failed ? '\n❌ DES TESTS ONT ÉCHOUÉ' : '\n✅ Tous les tests d\'assemblage des bulletins APC passent');
 process.exit(failed ? 1 : 0);

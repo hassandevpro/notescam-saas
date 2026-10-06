@@ -10,9 +10,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  teacherEditsSubjects, canManageClassSubjects, canEditSubjectRow,
-} from './teacherScope.js';
+import { canManageClassSubjects, canEditSubjectRow } from './teacherScope.js';
 
 const MOI = 'teacher-1';
 const COLLEGUE = 'teacher-2';
@@ -26,31 +24,26 @@ const maMatiere  = { id: 's1', class_id: 'c2', name: 'Maths',    teacher_id: MOI
 const saMatiere  = { id: 's2', class_id: 'c2', name: 'Français', teacher_id: COLLEGUE };
 const orpheline  = { id: 's3', class_id: 'c2', name: 'EPS',      teacher_id: null };
 
-test("l'interrupteur tolère les formes booléennes du cloud ET du LAN", () => {
-  assert.equal(teacherEditsSubjects({ teacher_edits_subjects: true }), true);
-  assert.equal(teacherEditsSubjects({ teacher_edits_subjects: 1 }), true,  'SQLite');
-  assert.equal(teacherEditsSubjects({ teacher_edits_subjects: '1' }), true);
-  assert.equal(teacherEditsSubjects({ teacher_edits_subjects: 't' }), true, 'rendu texte Postgres');
-  assert.equal(teacherEditsSubjects({ teacher_edits_subjects: false }), false);
-  assert.equal(teacherEditsSubjects({ teacher_edits_subjects: 0 }), false);
-  assert.equal(teacherEditsSubjects({}), false, 'colonne absente → fermé');
-  assert.equal(teacherEditsSubjects(null), false);
+test('AUCUN RÉGLAGE : le droit ne dépend d’aucune case cochée', () => {
+  // L'interrupteur `teacher_edits_subjects` a été retiré
+  // (supabase_teacher_edits_subjects_toujours.sql). Une école qui ne l'a jamais
+  // connu, et une école qui l'avait laissé à false, se comportent pareil : le
+  // titulaire gère sa classe. La sécurité tient au PÉRIMÈTRE, pas à un réglage.
+  for (const school of [{}, fermee, ouverte, null]) {
+    assert.equal(canManageClassSubjects({ role: 'teacher', school, cls: maClasse, teacherId: MOI }), true,
+      JSON.stringify(school));
+  }
 });
 
-test("l'administration n'est pas concernée par l'interrupteur", () => {
-  for (const school of [ouverte, fermee]) {
+test("l'administration garde tout, partout", () => {
+  for (const school of [{}, fermee, ouverte]) {
     assert.equal(canManageClassSubjects({ role: 'admin', school, cls: sonClasse, teacherId: null }), true);
     assert.equal(canManageClassSubjects({ role: 'censeur', school, cls: sonClasse, teacherId: null, isDelegate: true }), true,
       'compte délégué portant /app/classes');
   }
 });
 
-test('interrupteur FERMÉ : un enseignant ne peut rien, même sur sa classe', () => {
-  assert.equal(canManageClassSubjects({ role: 'teacher', school: fermee, cls: maClasse, teacherId: MOI }), false);
-  assert.equal(canEditSubjectRow({ role: 'teacher', school: fermee, cls: sonClasse, teacherId: MOI, subject: maMatiere }), false);
-});
-
-test('interrupteur OUVERT : le titulaire gère SA classe, pas celle du collègue', () => {
+test('le titulaire gère SA classe, jamais celle du collègue', () => {
   assert.equal(canManageClassSubjects({ role: 'teacher', school: ouverte, cls: maClasse, teacherId: MOI }), true);
   assert.equal(canManageClassSubjects({ role: 'teacher', school: ouverte, cls: sonClasse, teacherId: MOI }), false);
 });

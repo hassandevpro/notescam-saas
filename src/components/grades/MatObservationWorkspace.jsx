@@ -6,7 +6,7 @@
 //
 // Monté par Grades.jsx quand la classe est résolue 'maternelle'.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../../store/schoolStore';
 import { useUiStore } from '../../store/uiStore';
@@ -95,6 +95,7 @@ export default function MatObservationWorkspace() {
   const observations    = useSchoolStore((s) => s.matObservations);
   const loadMat         = useSchoolStore((s) => s.loadMat);
   const saveObservation = useSchoolStore((s) => s.saveMatObservation);
+  const configureClassSubjects = useSchoolStore((s) => s.configureClassSubjects);
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
@@ -139,6 +140,34 @@ export default function MatObservationWorkspace() {
   const selectedClass = matClasses.find((c) => c.id === classId) || null;
   const niveauSlug = selectedClass ? maternelleNiveauSlug(selectedClass.level, selectedClass.name) : null;
 
+  // Qui peut (re)configurer les domaines de cette classe ? Même règle que partout
+  // ailleurs — teacherScope est le miroir de la policy RLS.
+  const isDelegate = hasCapability(permissions, '/app/classes');
+  const canManageDomaines = canManageClassSubjects({
+    role, school, cls: selectedClass, teacherId, isDelegate,
+  });
+  const [domainesOpen, setDomainesOpen] = useState(false);
+
+  // ── Les 8 domaines se matérialisent TOUT SEULS ──────────────────────────────
+  // Sans ligne `subjects`, la classe n'a rien à réétiqueter : l'écran affichait
+  // une liste vide et renvoyait vers un bouton « Configurer ». C'est une corvée
+  // sans décision — le contenu est le référentiel officiel, il n'y a rien à
+  // choisir. On le pose donc à l'ouverture, en silence.
+  //
+  // `configureClassSubjects` est idempotente (no-op si la classe a déjà des
+  // matières) et le ref est garanti chargé ici. On ne tente RIEN si le compte
+  // n'a pas le droit d'écrire : une insertion refusée par la RLS repartirait en
+  // boucle dans la file hors-ligne (cf. cd04fd9).
+  const tentees = useRef(new Set());
+  useEffect(() => {
+    if (!selectedClass || !domainesAll.length) return;
+    if (!canManageDomaines) return;
+    if (subjects.some((s) => s.class_id === selectedClass.id)) return;
+    if (tentees.current.has(selectedClass.id)) return;
+    tentees.current.add(selectedClass.id);
+    configureClassSubjects(selectedClass);
+  }, [selectedClass, domainesAll.length, canManageDomaines, subjects, configureClassSubjects]);
+
   // Les intitulés du référentiel sont en français en base : une classe du
   // secteur anglophone doit les voir en anglais, ici comme sur son bulletin.
   const sys = selectedClass?.system || 'FR';
@@ -155,13 +184,6 @@ export default function MatObservationWorkspace() {
     return all.filter((d) => mine.has(d.id));
   }, [domainesAll, sys, subjectScoped, estTitulaire, subjects, teacherId, classId]);
 
-  // Qui peut réétiqueter les domaines de cette classe ? Même règle que partout
-  // ailleurs (teacherScope = miroir de la policy RLS).
-  const isDelegate = hasCapability(permissions, '/app/classes');
-  const canManageDomaines = canManageClassSubjects({
-    role, school, cls: selectedClass, teacherId, isDelegate,
-  });
-  const [domainesOpen, setDomainesOpen] = useState(false);
 
   // Mes matières de cette classe qui ne se rattachent à aucun domaine : on les
   // nomme. Sans objet pour un titulaire, qui garde les 8 domaines.

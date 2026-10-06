@@ -27,7 +27,6 @@ import SwitchToLocalCard from '../components/SwitchToLocalCard';
 import HybridModeCard from '../components/HybridModeCard';
 import PrepareHybridCard from '../components/PrepareHybridCard';
 import AcademicSetupWizard from '../components/setup/AcademicSetupWizard';
-import { teacherEditsSubjects } from '../lib/teacherScope';
 
 // Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
 function buildGeScale(maxScale = 10) {
@@ -455,8 +454,6 @@ export default function Settings() {
         cnps_number:      school.cnps_number       || '',
         payslip_font_size: school.payslip_font_size || 'normal',
         grade_entry_mode: school.grade_entry_mode === 'subject' ? 'subject' : 'principal',
-        // Fermé par défaut : une école ne change pas de droits sans l'avoir décidé.
-        teacher_edits_subjects: teacherEditsSubjects(school),
         primary_period_mode: school.primary_period_mode === 'sequences' ? 'sequences' : 'trimestres',
         // Deux mondes présentés à l'admin : Classique vs Officiel (unifié). Tout
         // drapeau officiel « historique » (minesec/minedub…) est remonté sur 'officiel'.
@@ -897,35 +894,6 @@ export default function Settings() {
                 </div>
               )}
 
-              {/* ── Configuration des matières par les enseignants ─────────── */}
-              <div className="mt-5 pt-5 border-t border-gray-100">
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    disabled={!isAdmin}
-                    checked={!!form.teacher_edits_subjects}
-                    onChange={(e) => setForm((f) => ({ ...f, teacher_edits_subjects: e.target.checked }))}
-                    className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 disabled:opacity-60"
-                  />
-                  <span>
-                    <span className="block font-semibold text-gray-900 text-sm">
-                      {t("Les enseignants configurent les matières de leur classe",
-                         'Teachers configure their own class’s subjects',
-                         'Los profesores configuran las asignaturas de su clase')}
-                    </span>
-                    <span className="block text-xs text-gray-500 mt-1">
-                      {t("Le titulaire d'une classe peut ajouter, renommer et retirer ses matières — tous les cycles, de la maternelle à la Terminale. Un enseignant de matière ne modifie que les lignes qui lui sont affectées : il ne peut pas toucher à celles d'un collègue.",
-                         'A class teacher can add, rename and remove their class’s subjects — every cycle, from nursery to final year. A subject teacher only edits the rows assigned to them: they cannot touch a colleague’s.',
-                         'El tutor puede añadir, renombrar y quitar las asignaturas de su clase. Un profesor de asignatura solo modifica las suyas.')}
-                    </span>
-                    <span className="block text-xs text-gray-400 mt-1">
-                      {t("Décoché, la configuration reste réservée à l'administration — comportement par défaut.",
-                         'Unchecked, configuration stays reserved to the administration — default behaviour.',
-                         'Sin marcar, la configuración queda reservada a la administración.')}
-                    </span>
-                  </span>
-                </label>
-              </div>
             </Section>
 
             {/* ── Rythme d'évaluation du primaire classique ────────────────── */}

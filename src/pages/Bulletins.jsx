@@ -32,6 +32,7 @@ import {
   primNoteScale,
 } from '../core/primEngine';
 import { domainesForMaternelle } from '../core/matEngine';
+import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineMatch';
 // Les intitulés du référentiel officiel sont stockés en français pour tout le
 // pays : sur une classe du secteur anglophone, on les rend en anglais.
 import { matDomaineLabel, primCompetenceLabel, primCritereLabel, primCoteLabel } from '../core/referentielI18n';
@@ -2014,7 +2015,12 @@ export default function Bulletins() {
   // ── MATERNELLE (PS/MS/GS) — données du bulletin officiel (aperçu écran) ──────
   useEffect(() => { if (isMat) loadMat(); }, [isMat, loadMat]);
   const matTrimId = `t${period.seqs?.[0] || 1}`;
-  const matDomaines = useMemo(() => domainesForMaternelle(matReferentiel), [matReferentiel]);
+  // Domaines officiels, puis la surcharge de l'école (ligne `subjects` portant
+  // `mat_domaine_id`) : le bulletin imprime le mot que l'enseignante lit a l'ecran.
+  const matDomaines = useMemo(() => {
+    const base = domainesForMaternelle(matReferentiel);
+    return withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, base));
+  }, [matReferentiel, subjects, classId]);
 
   const matDataById = useMemo(() => {
     if (!isMat || !matReferentiel) return {};
@@ -2023,7 +2029,7 @@ export default function Bulletins() {
       out[s.id] = {
         rows: matDomaines.map((d) => {
           const r = matObservations[obsNkey(s.id, d.id, matTrimId)];
-          return { code: d.code, intitule: matDomaineLabel(d, sys), niveau: r?.niveau_acquis || '', observation: r?.observation || '' };
+          return { code: d.code, intitule: d._override ? d.intitule : matDomaineLabel(d, sys), niveau: r?.niveau_acquis || '', observation: r?.observation || '' };
         }),
       };
     }

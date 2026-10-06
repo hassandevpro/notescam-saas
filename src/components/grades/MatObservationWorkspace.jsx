@@ -17,12 +17,16 @@ import { domainesForMaternelle, MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_CODES 
 import { matDomaineLabel, matAcquisLabel, matAcquisCode, matAcquisFromInput } from '../../core/referentielI18n';
 import {
   domaineIdsForTeacher, unresolvedSubjectsForTeacher, isClassTitulaire,
+  domaineLabelOverrides, withDomaineOverrides,
 } from '../../core/matDomaineMatch';
 import { isSubjectScoped } from '../../lib/teacherScope';
 import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
+import ClassSubjectsEditor from './ClassSubjectsEditor';
+import { canManageClassSubjects } from '../../lib/teacherScope';
+import { hasCapability } from '../../config/capabilities';
 
 // ── Cellule niveau d'acquisition (A / ECA / NA) ─────────────────────────────────
 // L'infobulle de chaque cote suit la langue de l'interface. Les libellés anglais
@@ -76,6 +80,7 @@ export default function MatObservationWorkspace() {
   const navigate = useNavigate();
   const school = useAuthStore((s) => s.school);
   const role      = useAuthStore((s) => s.role);
+  const permissions = useAuthStore((s) => s.permissions);
   const teacherId = useAuthStore((s) => s.teacherId);
   // Mode 1 « enseignant de matière » : l'enseignant ne voit que SES domaines.
   // Exception assumée — le TITULAIRE garde les 8 : en maternelle, le référentiel
@@ -139,11 +144,24 @@ export default function MatObservationWorkspace() {
   const sys = selectedClass?.system || 'FR';
   const estTitulaire = isClassTitulaire(selectedClass, teacherId);
   const domaines = useMemo(() => {
-    const all = domainesAll.map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) }));
+    // Libellé officiel localisé, PUIS la surcharge de l'école si elle en a une.
+    // Les 8 domaines sont nationaux (et `mat_observations.domaine_id` porte une FK
+    // vers eux) : une école ne les renomme pas en base, elle les réétiquette chez
+    // elle par la ligne `subjects` qui porte leur `mat_domaine_id`.
+    const base = domainesAll.map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) }));
+    const all = withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, domainesAll));
     if (!subjectScoped || estTitulaire) return all;
     const mine = domaineIdsForTeacher(subjects, teacherId, classId, domainesAll);
     return all.filter((d) => mine.has(d.id));
   }, [domainesAll, sys, subjectScoped, estTitulaire, subjects, teacherId, classId]);
+
+  // Qui peut réétiqueter les domaines de cette classe ? Même règle que partout
+  // ailleurs (teacherScope = miroir de la policy RLS).
+  const isDelegate = hasCapability(permissions, '/app/classes');
+  const canManageDomaines = canManageClassSubjects({
+    role, school, cls: selectedClass, teacherId, isDelegate,
+  });
+  const [domainesOpen, setDomainesOpen] = useState(false);
 
   // Mes matières de cette classe qui ne se rattachent à aucun domaine : on les
   // nomme. Sans objet pour un titulaire, qui garde les 8 domaines.
@@ -286,7 +304,27 @@ export default function MatObservationWorkspace() {
             {t('Observations', 'Observations')}
           </button>
         </div>
+        {/* Réétiqueter les domaines POUR CETTE ÉCOLE. Le bouton manquait ici :
+            l'éditeur n'existait que sur l'écran de saisie classique, donc une
+            classe de maternelle officielle n'y donnait aucun accès. */}
+        {canManageDomaines && (
+          <button type="button" onClick={() => setDomainesOpen(true)}
+            className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+            {t('Renommer les domaines', 'Rename domains')}
+          </button>
+        )}
       </div>
+
+      {domainesOpen && selectedClass && (
+        <ClassSubjectsEditor
+          cls={selectedClass}
+          role={role}
+          school={school}
+          teacherId={teacherId}
+          isDelegate={isDelegate}
+          onClose={() => setDomainesOpen(false)}
+        />
+      )}
 
       {!niveauSlug && (
         <div className="text-xs text-amber-600">

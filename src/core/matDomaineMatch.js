@@ -124,3 +124,47 @@ export function unresolvedSubjectsForTeacher(subjects, teacherId, classId, domai
 export function isClassTitulaire(cls, teacherId) {
   return !!teacherId && !!cls && cls.teacher_id === teacherId;
 }
+
+// ── INTITULÉ AFFICHÉ D'UN DOMAINE : la surcharge de l'école prime ─────────────
+//
+// POURQUOI UNE SURCHARGE PLUTÔT QU'UNE ÉDITION. `mat_domaines` est une table
+// NATIONALE, partagée par toutes les écoles du pays : y renommer « Psychomotor
+// skills » le renommerait pour les 43 autres. Et on ne peut pas non plus laisser
+// une école inventer son propre domaine — `mat_observations.domaine_id` porte une
+// clé étrangère vers `mat_domaines(id)`, donc une observation ne peut pointer que
+// vers un domaine officiel.
+//
+// La ligne `subjects` de la classe EST la surcharge : elle est propre à l'école,
+// elle porte déjà `mat_domaine_id` (posé par l'auto-configuration), et son `name`
+// est librement modifiable par l'établissement. On garde donc l'IDENTITÉ
+// officielle (l'id, donc la FK et le bulletin ministériel) et on affiche le mot
+// de l'école.
+//
+//   subjects : { class_id, name: 'Éveil au langage', mat_domaine_id: 'langage_communication' }
+//   → D1 s'affiche « Éveil au langage » dans CETTE école, « Langage et
+//     communication » partout ailleurs.
+//
+// `fallback` reçoit le libellé officiel déjà localisé (matDomaineLabel) : la
+// surcharge l'emporte, sinon on rend le national.
+export function domaineLabelOverrides(subjects, classId, domaines) {
+  const out = new Map();
+  for (const s of subjects || []) {
+    if (classId && s.class_id !== classId) continue;
+    const id = domaineIdForSubject(s, domaines);
+    const nom = String(s?.name ?? '').trim();
+    // Première ligne gagnante : une classe n'a qu'une matière par domaine après
+    // auto-configuration, et deux lignes rivales ne doivent pas clignoter.
+    if (id && nom && !out.has(id)) out.set(id, nom);
+  }
+  return out;
+}
+
+// Applique les surcharges à une liste de domaines déjà localisés.
+export function withDomaineOverrides(domaines, overrides) {
+  if (!overrides?.size) return domaines || [];
+  // `_override` marque la ligne : en aval, matDomaineLabel() relocaliserait depuis
+  // l'id et ecraserait le mot de l'ecole. Le drapeau dit « ne retraduis pas ».
+  return (domaines || []).map((d) => (overrides.has(d.id)
+    ? { ...d, intitule: overrides.get(d.id), _override: true }
+    : d));
+}

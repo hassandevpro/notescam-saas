@@ -34,13 +34,38 @@ import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal, primCote,
   trimestreOfUA, PRIM_COTE_DEFAULT,
 } from '../../core/primEngine';
-// Barème de saisie : l'enseignant note l'Oral sur 10 et l'Écrit sur 30 s'il le
-// veut — le total et la cote restent des ratios, donc justes dans tous les cas.
-import { primOfficialMax } from '../../core/baremeOverride';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
-import BaremeChip from './BaremeChip';
-import { toast } from '../../store/toastStore';
+
+// ── Barème d'une colonne (une évaluation) ────────────────────────────────────
+// Le barème appartient à l'ÉVALUATION, pas au critère : l'Oral peut être noté /10
+// en UA1 et /20 en UA3. Il est donc stocké sur chaque note
+// (`prim_notes.points_max`) et relu depuis elles. Même forme que son pendant du
+// premier cycle (ApcCompetenceWorkspace) : les deux écrans de saisie se tiennent.
+function BaremeCell({ value, disabled, onCommit }) {
+  const [local, setLocal] = useState(String(value ?? ''));
+  useEffect(() => { setLocal(String(value ?? '')); }, [value]);
+  const commit = () => {
+    const n = parseFloat(String(local).replace(',', '.'));
+    if (!Number.isFinite(n) || n <= 0) { setLocal(String(value ?? '')); return; }
+    if (n !== value) onCommit(n);
+  };
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[11px] font-normal text-gray-500">
+      /
+      <input
+        type="text"
+        value={local}
+        disabled={disabled}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+        className="w-9 text-center rounded border border-gray-200 px-0.5 py-0.5 text-[11px]
+          focus:outline-none focus:border-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
+      />
+    </span>
+  );
+}
 
 // ── Cellule note (bornée au barème /points_max du critère) ─────────────────────
 function NoteCell({ value, max, disabled, onCommit }) {
@@ -89,14 +114,17 @@ export default function PrimCompetenceWorkspace() {
   const primNotes   = useSchoolStore((s) => s.primNotes);
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
-  const saveBareme     = useSchoolStore((s) => s.saveBareme);
-  const countNotesForBareme   = useSchoolStore((s) => s.countNotesForBareme);
-  const rescaleNotesForBareme = useSchoolStore((s) => s.rescaleNotesForBareme);
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
   const [ua, setUa] = useState(1);
   const [competenceId, setCompetenceId] = useState('');
+  // Barème posé sur une colonne encore VIDE : il n'a nulle part où être stocké
+  // (le barème vit sur les notes) tant qu'aucune note n'existe. On le retient donc
+  // le temps de la saisie, pour que la colonne s'affiche et se borne déjà au bon
+  // barème — la première note l'écrira.
+  const [pendingBareme, setPendingBareme] = useState({});
+  const [baremeMsg, setBaremeMsg] = useState(null);
 
   useEffect(() => { loadPrim(); }, [loadPrim]);
 
@@ -171,38 +199,63 @@ export default function PrimCompetenceWorkspace() {
     const r = primNotes[primNkey(eleveId, competenceId, critereId, ua)];
     return r?.note != null ? String(r.note) : '';
   };
+  // Les notes sont passées AVEC leur barème : `competencePointsTotal` additionne
+  // les points possibles note par note, et non le barème officiel de la colonne.
   const notesByCritereFor = (eleveId) => {
     const out = {};
     for (const cr of criteres) {
       const r = primNotes[primNkey(eleveId, competenceId, cr.id, ua)];
-      if (r?.note != null && r.note !== '') out[cr.id] = r.note;
+      if (r?.note != null && r.note !== '') out[cr.id] = { note: r.note, max: r.points_max ?? cr.points_max };
     }
     return out;
   };
   const competenceTotal = (stu) => competencePointsTotal(notesByCritereFor(stu.id), criteresForStudent(stu));
 
-  // Changement de barème d'un critère (Oral, Écrit, Pratique, Savoir-être) pour la
-  // compétence affichée. La surcharge porte sur le NIVEAU (tous les CM2) et non sur
-  // la classe : deux classes parallèles doivent rester comparables (baremeOverride.js).
-  const changeBareme = async (critere, newMax, { convertir }) => {
-    const oldMax = Number(critere.points_max);
-    const res = await saveBareme({
-      engine: 'prim', niveauSlug, competenceId, critereId: critere.id,
-      pointsMax: newMax, officialMax: primOfficialMax(critere),
-    });
-    if (res?.error) { toast.error(res.error); return; }
-    let converted = 0;
-    if (convertir) {
-      converted = await rescaleNotesForBareme({
-        engine: 'prim', competenceId, critereId: critere.id, oldMax, newMax,
-      });
+  // Barème EN VIGUEUR pour une colonne : celui des notes déjà saisies de cette UA
+  // (elles le portent), sinon celui que l'enseignant vient de poser, sinon le
+  // barème officiel du référentiel. La même colonne peut donc valoir /10 sur une
+  // UA et /20 sur une autre.
+  const baremeFor = (critereId) => {
+    const officiel = criteres.find((c) => c.id === critereId)?.points_max;
+    for (const stu of classStudents) {
+      const r = primNotes[primNkey(stu.id, competenceId, critereId, ua)];
+      if (r?.points_max != null) return Number(r.points_max);
+      if (r?.note != null && r.note !== '') return Number(officiel);  // note sans barème = officiel
     }
-    toast.success(
-      (newMax === primOfficialMax(critere)
-        ? t(`Barème officiel rétabli (${critere.nom} /${newMax}).`, `Official scale restored (${critere.nom} /${newMax}).`)
-        : t(`${critere.nom} : barème /${newMax} enregistré.`, `${critere.nom}: scale /${newMax} saved.`))
-      + (converted ? t(` ${converted} note(s) converties.`, ` ${converted} mark(s) converted.`) : ''),
-    );
+    return pendingBareme[`${competenceId}_${critereId}`] ?? Number(officiel);
+  };
+
+  // Changement de barème d'une colonne (Oral, Écrit, Pratique, Savoir-être) pour
+  // cette compétence et cette UA. REFUSÉ si une note déjà saisie le dépasse : on ne
+  // transforme pas en silence un 18/20 en 18/10. L'enseignant corrige d'abord les
+  // notes concernées — même règle que l'écran du premier cycle.
+  const setBareme = (critereId, nouveau) => {
+    const trop = classStudents.filter((stu) => {
+      const r = primNotes[primNkey(stu.id, competenceId, critereId, ua)];
+      const n = r?.note == null || r.note === '' ? null : Number(r.note);
+      return n != null && !Number.isNaN(n) && n > nouveau;
+    });
+    if (trop.length) {
+      setBaremeMsg({
+        critereId,
+        text: t(
+          `Barème /${nouveau} refusé : ${trop.length} note(s) le dépassent (${trop.slice(0, 3).map((s) => s.name).join(', ')}${trop.length > 3 ? '…' : ''}). Corrigez-les d'abord.`,
+          `Scale /${nouveau} refused: ${trop.length} grade(s) exceed it (${trop.slice(0, 3).map((s) => s.name).join(', ')}${trop.length > 3 ? '…' : ''}). Fix them first.`,
+        ),
+      });
+      return;
+    }
+    setBaremeMsg(null);
+    setPendingBareme((p) => ({ ...p, [`${competenceId}_${critereId}`]: nouveau }));
+    // Les notes déjà saisies suivent le nouveau barème de l'évaluation.
+    for (const stu of classStudents) {
+      const r = primNotes[primNkey(stu.id, competenceId, critereId, ua)];
+      if (r?.note != null && r.note !== '') {
+        savePrimNote({
+          eleveId: stu.id, competenceId, critereId, ua, note: r.note, pointsMax: nouveau,
+        });
+      }
+    }
   };
 
   function renderClassPicker() {
@@ -297,21 +350,28 @@ export default function PrimCompetenceWorkspace() {
       <div className="text-xs text-gray-500">
         {t('Barème officiel par critère (points) — variable selon la compétence · le total et la cote se calculent sur les critères déjà saisis.',
            'Official per-criterion scale (points) — varies by competency · total and grade are computed from criteria already entered.')}
-        {' '}
+        {' · '}
         {t(
-          'Vous pouvez changer le barème d’un critère sous son nom (Oral, Écrit…) : le total suit.',
-          'You can change a criterion’s scale under its name (Oral, Written…): the total follows.',
+          'le barème se change sous le nom du critère (Oral, Écrit…) et vaut pour cette UA : le total suit',
+          'the scale is editable under the criterion name (Oral, Written…) and applies to this unit: the total follows',
         )}
       </div>
+
+      {/* Refus d'un changement de barème qui invaliderait des notes déjà saisies. */}
+      {baremeMsg && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {baremeMsg.text}
+        </div>
+      )}
 
       {niveauSlug && criteres.length > 0 && classStudents.length > 0 && (
         <CompetenceGradeIO
           filename={`notes_primaire_${selectedClass?.name || ''}_${(competences.find((c) => c.id === competenceId)?.code || 'competence')}_UA${ua}`}
           sheetName={`UA${ua}`}
           students={classStudents}
-          columns={criteres.map((c) => ({ id: c.id, label: `${c.nom} /${c.points_max}` }))}
+          columns={criteres.map((c) => ({ id: c.id, label: `${c.nom} /${baremeFor(c.id)}` }))}
           getCell={(sid, cid) => noteFor(sid, cid)}
-          normalize={(raw, cid) => validateGrade(raw, criteres.find((c) => c.id === cid)?.points_max ?? 20)}
+          normalize={(raw, cid) => validateGrade(raw, baremeFor(cid))}
           onImport={(sid, cid, v) => savePrimNote({ eleveId: sid, competenceId, critereId: cid, ua, note: v })}
           valueHint={t('barème variable par critère (voir en-tête)', 'scale varies by criterion (see header)')}
         />
@@ -343,14 +403,10 @@ export default function PrimCompetenceWorkspace() {
                 {criteres.map((c) => (
                   <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600">
                     <span className="block truncate">{c.nom}</span>
-                    {/* Le barème du critère se change ICI, là où l'on saisit. */}
-                    <BaremeChip
-                      value={c.points_max}
-                      officialMax={primOfficialMax(c)}
-                      label={`${competences.find((x) => x.id === competenceId)?.code || ''} — ${c.nom}`}
-                      noteCount={countNotesForBareme({ engine: 'prim', competenceId, critereId: c.id })}
-                      onSave={(max, opts) => changeBareme(c, max, opts)}
-                    />
+                    {/* Barème de CETTE évaluation : celui du référentiel par
+                        défaut, modifiable là où l'on saisit. */}
+                    <BaremeCell value={baremeFor(c.id)}
+                      onCommit={(n) => setBareme(c.id, n)} />
                   </th>
                 ))}
                 <th className="px-3 py-2 text-left font-medium text-gray-600">{t('Total · Cote', 'Total · Grade')}</th>
@@ -374,7 +430,7 @@ export default function PrimCompetenceWorkspace() {
                       <td key={c.id} className="px-3 py-1.5">
                         <NoteCell
                           value={noteFor(stu.id, c.id)}
-                          max={c.points_max}
+                          max={baremeFor(c.id)}
                           disabled={!studentCritereIds.has(c.id)}
                           onCommit={(v) => savePrimNote({ eleveId: stu.id, competenceId, critereId: c.id, ua, note: v })}
                         />

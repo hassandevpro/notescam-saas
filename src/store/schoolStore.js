@@ -7,14 +7,12 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, baremeDB, schoolUnitsDB, assignmentsDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB, assignmentsDB } from '../lib/db';
 import { fetchSchoolUnits, upsertSchoolUnit, deleteSchoolUnit as sbDeleteSchoolUnit } from '../lib/schoolUnitService';
 import { fetchReferentiel, refreshApcReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
-import { fetchBaremes, upsertBareme, deleteBareme, buildBaremeRecord, baremeBkey } from '../lib/baremeService';
-import { baremeIndex, applyPrimBareme, rescaleNote, BAREME_MIN, BAREME_MAX } from '../core/baremeOverride';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
 import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
@@ -76,30 +74,24 @@ function scopedRoles(school) {
     : new Set(['surveillant']);
 }
 
-// Applique les barèmes de saisie du PRIMAIRE au référentiel, puis publie le tout.
-// Appelé par CHAQUE chemin qui remplace un référentiel ou les barèmes — c'est le
-// seul endroit où la surcharge entre dans l'état, donc le seul à maintenir : tout
-// lecteur (saisie, bulletin, PV, rapport de classe) la voit sans qu'on ait à la
-// faire suivre. `_primRefRaw` garde la version OFFICIELLE : sans elle, rebaisser
-// un barème repartirait du référentiel déjà surchargé et les corrections
-// s'empileraient.
+// Publie les deux référentiels par compétences tels que le cloud les a rendus.
 //
-// LE PREMIER CYCLE APC N'EST PAS CONCERNÉ. Il a son propre mécanisme, plus fin :
-// le barème y est porté par la NOTE (`apc_notes.note_max`), si bien qu'une même
-// compétence peut être évaluée /3 sur une séquence et /20 sur une autre. Une
-// surcharge par niveau ne saurait pas exprimer cela, et deux mécanismes
-// concurrents sur le même écran finiraient par se contredire.
+// IL N'Y A PLUS DE SURCHARGE À APPLIQUER ICI. Le barème de saisie est porté par
+// la NOTE, des deux côtés : `apc_notes.note_max` (premier cycle) et
+// `prim_notes.points_max` (primaire). Une même colonne peut donc être évaluée /10
+// sur une unité d'apprentissage et /20 sur la suivante — ce qu'une surcharge par
+// niveau ne savait pas exprimer. Cette fonction reste le point de passage unique
+// des référentiels : y revenir est plus simple que de retrouver, un jour, les
+// quatre endroits qui les publiaient chacun à leur façon.
 function publishReferentiels(set, get, patch = {}) {
   const st = get();
   const apcRaw  = 'apcRefRaw'  in patch ? patch.apcRefRaw  : st._apcRefRaw;
   const primRaw = 'primRefRaw' in patch ? patch.primRefRaw : st._primRefRaw;
-  const rows    = 'baremes'    in patch ? patch.baremes    : st.baremes;
   set({
     _apcRefRaw: apcRaw || null,
     _primRefRaw: primRaw || null,
-    baremes: rows || [],
     apcReferentiel:  apcRaw || null,
-    primReferentiel: primRaw ? applyPrimBareme(primRaw, baremeIndex(rows)) : null,
+    primReferentiel: primRaw || null,
   });
 }
 
@@ -325,12 +317,6 @@ export const useSchoolStore = create((set, get) => ({
   matObservations: {},
   primReferentiel: null,
   primNotes:       {},
-  // BARÈMES DE SAISIE personnalisés par les enseignants (table `bareme_notes`).
-  // La surcharge est appliquée UNE FOIS, dans publishReferentiels, sur
-  // `apcReferentiel` et `primReferentiel` : tout lecteur (saisie, bulletin, PV,
-  // rapport de classe) la voit sans avoir à la faire suivre, et aucun chemin ne
-  // peut l'oublier.
-  baremes: [],
   // Référentiels OFFICIELS, avant surcharge. Privés (préfixe `_`) : aucun écran
   // ne doit les lire — ils servent à recalculer la surcharge depuis l'origine.
   _apcRefRaw:  null,
@@ -347,12 +333,6 @@ export const useSchoolStore = create((set, get) => ({
     set({ loading: true, error: null, schoolId, activeYear: activeYear || null,
           classes: [], subjects: [], students: [], archivedStudents: [], teachers: [], staff: [], fees: [], feePayments: [], classFeeGrids: [], schoolUnits: [], assignments: [], gradeMap: {},
           academicPeriods: [], activeSequence: null });
-    // Les barèmes de saisie sont PAR ÉCOLE alors que les référentiels officiels sont
-    // GLOBAUX : les garder en changeant d'école ferait relire les notes de la
-    // nouvelle sur l'échelle de l'ancienne, jusqu'au prochain loadBaremes. On passe
-    // par publishReferentiels pour que les référentiels publiés soient réellement
-    // défaits de l'ancienne surcharge, pas seulement la liste vidée.
-    publishReferentiels(set, get, { baremes: [] });
 
     try {
       await initDB();
@@ -696,9 +676,6 @@ export const useSchoolStore = create((set, get) => ({
     const { schoolId } = get();
     if (!schoolId) return;
     await initDB();
-    // Les barèmes de saisie font partie du référentiel tel que l'école le lit :
-    // les charger plus tard ferait afficher une moyenne fausse entre-temps.
-    await get().loadBaremes();
 
     // 1) Cache IDB immédiat
     const [cachedRef, idbNotes] = await Promise.all([
@@ -761,135 +738,6 @@ export const useSchoolStore = create((set, get) => ({
     } else {
       queueOffline({ table: 'apc_notes', operation: 'upsert', payload: record });
     }
-  },
-
-  // ── Barèmes de saisie personnalisés ────────────────────────────────────────
-  // L'enseignant fixe l'échelle de SON épreuve (une dictée sur 15, un oral sur 10)
-  // dans l'écran de saisie ; le calcul ramène tout au barème officiel
-  // (core/baremeOverride.js). IDB d'abord, puis refresh cloud — comme les notes :
-  // un barème invisible hors-ligne ferait relire sur /20 une note saisie sur /10.
-  loadBaremes: () => onceInFlight('baremes', async () => {
-    const { schoolId } = get();
-    if (!schoolId) return;
-    await initDB();
-    const cached = (await baremeDB.getAll().catch(() => [])).filter((b) => b.school_id === schoolId);
-    publishReferentiels(set, get, { baremes: cached });
-
-    if (!backendOnline()) return;
-    const rows = await fetchBaremes(schoolId);
-    if (!rows) return;   // hors-ligne ou erreur : le cache IDB fait foi
-    const records = rows.map((b) => ({
-      ...b,
-      bkey: baremeBkey(b.engine, b.niveau_slug, b.competence_id, b.critere_id),
-    }));
-    // Un barème rétabli au barème officiel par un collègue est SUPPRIMÉ côté cloud.
-    // Sans ce nettoyage, il ressusciterait du cache au prochain démarrage.
-    const vivants = new Set(records.map((r) => r.id));
-    const morts = cached.filter((b) => !vivants.has(b.id)).map((b) => b.id);
-    if (morts.length) await baremeDB.deleteMany(morts).catch(() => {});
-    await baremeDB.putMany(records).catch(() => {});
-    publishReferentiels(set, get, { baremes: records });
-  }),
-
-  /**
-   * Fixe (ou rétablit) le barème de saisie d'une compétence APC / d'un critère du
-   * primaire.
-   *
-   * `pointsMax` égal au barème OFFICIEL -> la ligne est SUPPRIMÉE plutôt que
-   * stockée : l'absence de ligne EST le barème officiel, et une ligne « /20 »
-   * figerait le jour où le référentiel officiel change.
-   *
-   * @param engine       'apc' | 'prim'
-   * @param niveauSlug   '6e'…'3e' (APC) | 'sil'…'cm2' (primaire)
-   * @param competenceId id de compétence du référentiel
-   * @param critereId    id de critère (primaire) ; omis en APC
-   * @param pointsMax    nouveau barème
-   * @param officialMax  barème officiel de la colonne (décide de la suppression)
-   */
-  saveBareme: async ({ engine, niveauSlug, competenceId, critereId = '', pointsMax, officialMax }) => {
-    const { schoolId, baremes } = get();
-    if (!schoolId) return { error: 'École introuvable' };
-    const max = Number(pointsMax);
-    if (!isFinite(max) || max < BAREME_MIN || max > BAREME_MAX) {
-      return { error: `Barème invalide (attendu entre ${BAREME_MIN} et ${BAREME_MAX}).` };
-    }
-    const teacherId = useAuthStore.getState().teacherId || null;
-    const bkey = baremeBkey(engine, niveauSlug, competenceId, critereId);
-    // Filet anti-désynchronisation mémoire/IDB — même raison que savePrimNote : un
-    // id neuf sur un bkey déjà présent en IDB se fait rejeter par l'index unique
-    // 'by_bkey', et le barème « disparaît » sans erreur visible.
-    const existing = baremes.find((b) => b.bkey === bkey)
-      || (await baremeDB.getByBkey(bkey).catch(() => []))[0];
-
-    // Retour au barème officiel : la surcharge est supprimée.
-    if (officialMax != null && max === Number(officialMax)) {
-      if (!existing) return { data: null };
-      await baremeDB.delete(existing.id).catch(() => {});
-      publishReferentiels(set, get, { baremes: baremes.filter((b) => b.id !== existing.id) });
-      if (backendOnline()) {
-        deleteBareme(existing.id).then((ok) => {
-          if (!ok) queueOffline({ table: 'bareme_notes', operation: 'delete', payload: { id: existing.id } });
-        });
-      } else {
-        queueOffline({ table: 'bareme_notes', operation: 'delete', payload: { id: existing.id } });
-      }
-      return { data: null };
-    }
-
-    const record = buildBaremeRecord({
-      id: existing?.id, schoolId, engine, niveauSlug, competenceId, critereId,
-      pointsMax: max, enseignantId: teacherId,
-    });
-    await baremeDB.put(record).catch(() => {});
-    publishReferentiels(set, get, {
-      baremes: [...baremes.filter((b) => b.bkey !== bkey), record],
-    });
-    if (backendOnline()) {
-      upsertBareme(record).then((ok) => {
-        if (!ok) queueOffline({ table: 'bareme_notes', operation: 'upsert', payload: record });
-      });
-    } else {
-      queueOffline({ table: 'bareme_notes', operation: 'upsert', payload: record });
-    }
-    return { data: record };
-  },
-
-  // Combien de notes ce critère porte-t-il déjà ? Sert à ne proposer la conversion
-  // que lorsqu'il y a réellement quelque chose à convertir.
-  countNotesForBareme: ({ competenceId, critereId = '' }) => {
-    let n = 0;
-    for (const rec of Object.values(get().primNotes)) {
-      if (rec.competence_id !== competenceId || rec.critere_id !== critereId) continue;
-      if (rec.note == null || rec.note === '' || rec.note === 'ABS') continue;
-      n += 1;
-    }
-    return n;
-  },
-
-  /**
-   * Convertit les notes DÉJÀ SAISIES d'un critère d'un barème vers un autre
-   * (16/20 devient 8/10). Proposé au moment du changement : sans elle, un 16 saisi
-   * sur /20 serait relu comme 16/10 — au-dessus du barème, et faux au bulletin.
-   *
-   * Ne touche QUE le couple compétence × critère concerné, toutes UA confondues :
-   * le barème vaut pour l'année, les notes déjà posées aussi.
-   *
-   * Renvoie le nombre de notes converties.
-   */
-  rescaleNotesForBareme: async ({ competenceId, critereId = '', oldMax, newMax }) => {
-    if (!oldMax || !newMax || Number(oldMax) === Number(newMax)) return 0;
-    let n = 0;
-    for (const rec of Object.values(get().primNotes)) {
-      if (rec.competence_id !== competenceId || rec.critere_id !== critereId) continue;
-      const next = rescaleNote(rec.note, Number(oldMax), Number(newMax));
-      if (next == null || next === '' || next === rec.note) continue;
-      await get().savePrimNote({
-        eleveId: rec.eleve_id, competenceId: rec.competence_id,
-        critereId: rec.critere_id, ua: rec.ua, note: next,
-      });
-      n += 1;
-    }
-    return n;
   },
 
   // ── Moteur SECOND CYCLE MINESEC ────────────────────────────────────────────
@@ -973,7 +821,6 @@ export const useSchoolStore = create((set, get) => ({
     const { schoolId } = get();
     if (!schoolId) return;
     await initDB();
-    await get().loadBaremes();   // cf. loadApc
     const [cachedRef, idbNotes] = await Promise.all([
       primRefDB.get().catch(() => null),
       primNotesDB.getAll().catch(() => []),
@@ -1003,7 +850,12 @@ export const useSchoolStore = create((set, get) => ({
   }),
 
   // Enregistre/écrase une note (compétence × critère × UA 1-8). IDB → cloud/queue.
-  savePrimNote: async ({ eleveId, competenceId, critereId, ua, note }) => {
+  //
+  // `pointsMax` est le barème de CETTE évaluation. Omis, on conserve celui déjà
+  // enregistré : changer une note ne doit pas ramener en silence la colonne au
+  // barème officiel. Il n'est donc PAS défauté ici — seul l'écran de saisie le
+  // pose, explicitement.
+  savePrimNote: async ({ eleveId, competenceId, critereId, ua, note, pointsMax }) => {
     const { schoolId, primNotes } = get();
     if (!schoolId) return;
     const teacherId = useAuthStore.getState().teacherId || null;
@@ -1015,6 +867,7 @@ export const useSchoolStore = create((set, get) => ({
     const record = buildPrimNoteRecord({
       id: existing?.id, schoolId, eleveId, competenceId, critereId, ua,
       enseignantId: teacherId, note,
+      pointsMax: pointsMax === undefined ? existing?.points_max : pointsMax,
     });
     await primNotesDB.put(record);
     set({ primNotes: { ...get().primNotes, [nkey]: record } });

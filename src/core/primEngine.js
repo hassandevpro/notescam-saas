@@ -56,35 +56,59 @@ export function criteresForCompetence(referentiel, niveauSlug, competenceId, apt
   const criteresById = new Map((referentiel?.criteres || []).map((c) => [c.id, c]));
   return bareme
     .filter((b) => b.niveau_id === niveauSlug && b.competence_id === competenceId && (b.aptitude || 'apte') === aptitude)
-    // `points_max_officiel` n'est présent que si l'enseignant a changé le barème
-    // de la colonne (cf. core/baremeOverride.js) : l'écran de saisie s'en sert pour
-    // proposer le retour au barème officiel. Les calculs, eux, lisent `points_max`.
     .map((b) => ({
       id: b.critere_id,
       nom: criteresById.get(b.critere_id)?.nom || b.critere_id,
       points_max: Number(b.points_max) || 0,
-      points_max_officiel: Number(b.points_max_officiel ?? b.points_max) || 0,
       ordre: b.ordre || 0,
     }))
     .sort((a, b) => a.ordre - b.ordre);
 }
 
+// Normalise une note de critère en { note, max }, ou null si NON ÉVALUÉE.
+// Accepte indifféremment :
+//   • une valeur brute      : 8, '8'          → sur le barème du référentiel ;
+//   • une évaluation datée  : { note, max }   → sur SON propre barème.
+// Non évaluée : absente, null, '', 'ABS'. Un ZÉRO reste une vraie note.
+//
+// `defaultMax` est le barème OFFICIEL du critère (il varie d'un critère à l'autre,
+// contrairement au /20 fixe du premier cycle) : une note sans barème propre est
+// donc lue sur le barème national, ce qui laisse tout l'historique inchangé.
+//
+// Pendant de `noteScale` (core/apcEngine.js) — même idée, barème par défaut
+// différent. Les deux restent séparés : ce sont deux systèmes éducatifs distincts
+// et le jour où l'un change de règle, l'autre ne doit pas bouger.
+export const primNoteScale = (raw, defaultMax) => {
+  const src = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : { note: raw };
+  const n = _num(src.note);
+  if (n === null) return null;
+  const m = Number(src.max ?? src.points_max ?? defaultMax);
+  return { note: n, max: Number.isFinite(m) && m > 0 ? m : (Number(defaultMax) || 0) };
+};
+
 // Points obtenus pour UNE occurrence (une UA) d'une sous-compétence : SOMME des
 // notes déjà saisies pour ses critères (pas une moyenne pondérée — le barème
 // officiel note chaque sous-compétence sur un total de points variable, ex. 40 pour
 // 1A). Les critères non encore notés sont ignorés. { achieved: null } si rien saisi.
-//   notesByCritere : { [critere_id]: note }
+//   notesByCritere : { [critere_id]: note | { note, max } }
 //   criteres       : [{ id, points_max }] (criteresForCompetence)
+//
+// LE BARÈME EST CELUI DE L'ÉVALUATION, PAS CELUI DE LA COLONNE. L'enseignant peut
+// interroger l'Oral sur 10 en UA1 et sur 20 en UA3 : le total possible suit chaque
+// note. Sommer les points obtenus d'un côté et les barèmes officiels de l'autre
+// donnerait un pourcentage faux dès que les deux divergent.
 export function competencePointsTotal(notesByCritere, criteres) {
   let achieved = 0, possible = 0, any = false;
   for (const cr of criteres || []) {
-    const n = _num(notesByCritere?.[cr.id]);
-    if (n === null) continue;
+    const v = primNoteScale(notesByCritere?.[cr.id], cr.points_max);
+    if (v === null) continue;
     any = true;
-    achieved += n;
-    possible += cr.points_max || 0;
+    achieved += v.note;
+    possible += v.max;
   }
-  return any ? { achieved: Math.round(achieved * 100) / 100, possible } : { achieved: null, possible: null };
+  return any
+    ? { achieved: Math.round(achieved * 100) / 100, possible: Math.round(possible * 100) / 100 }
+    : { achieved: null, possible: null };
 }
 
 // Compétences actives applicables à un niveau, triées par ordre. Par défaut TOUTES

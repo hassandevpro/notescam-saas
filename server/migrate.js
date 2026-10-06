@@ -43,12 +43,7 @@ const TABLE_ORDER = [
   'sequence_dates', 'timetable_slots', 'evaluation_system', 'country_education_config',
   // Notes du moteur officiel (référentiels non migrés → installés par le seed LAN)
   'apc_notes', 'mat_observations', 'prim_notes',
-  // Barème de saisie fixé par l'enseignant. Il voyage avec les notes : sans lui,
-  // une compétence saisie sur /10 serait relue sur /20 de l'autre côté. Les ids
-  // de PRIMAIRE sont des slugs stables ('1a', 'oral') et se retrouvent donc tels
-  // quels ; un id de compétence APC (uuid) qui ne correspond à rien de l'autre
-  // côté est simplement ignoré à la lecture (aucune FK, aucune ligne cassée).
-  'bareme_notes',
+
   // Catalogue de frais + arrêtés de caisse
   'fee_catalog', 'student_fee_items', 'cash_sessions',
   // Budgets V3 (ordre FK)

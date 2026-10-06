@@ -29,6 +29,7 @@ import { classIdentity } from '../lib/schoolIdentity';
 import {
   competencesForNiveau, bulletinRows as primBulletinRows, generalAverage as primGeneralAverage,
   primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresForCompetence, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
+  primNoteScale,
 } from '../core/primEngine';
 import { domainesForMaternelle } from '../core/matEngine';
 // Les intitulés du référentiel officiel sont stockés en français pour tout le
@@ -1861,7 +1862,7 @@ export default function Bulletins() {
       const notesByCritere = {};
       for (const cr of criteres) {
         const r = primNotes[primNkey(eleveId, compId, cr.id, ua)];
-        if (r?.note != null && r.note !== '') notesByCritere[cr.id] = r.note;
+        if (r?.note != null && r.note !== '') notesByCritere[cr.id] = { note: r.note, max: r.points_max ?? cr.points_max };
       }
       const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
       return achieved != null && possible ? (achieved / possible) * 100 : null;
@@ -1871,18 +1872,30 @@ export default function Bulletins() {
     return Math.round((avgPct / 100 * PRIM_GRADE_MAX) * 100) / 100;
   };
 
-  // Détail par critère (moyenne simple des UA de la période, sur l'échelle du
-  // barème officiel de ce critère) — pour l'affichage détaillé du bulletin
-  // trimestriel. { [critere_id]: { note, max, nom } }.
+  // Détail par critère sur la période, RAMENÉ au barème officiel de ce critère —
+  // pour l'affichage détaillé du bulletin trimestriel.
+  // { [critere_id]: { note, max, nom } }.
+  //
+  // On moyenne les PROPORTIONS, pas les valeurs brutes : chaque note porte son
+  // propre barème (`prim_notes.points_max`), et l'Oral peut être noté /10 en UA1
+  // puis /20 en UA3. Moyenner 8 et 15 donnerait 11,5 — un nombre qui ne veut rien
+  // dire sur aucune des deux échelles ; moyenner 80 % et 75 % donne 77,5 %, qu'on
+  // réexprime sur le barème officiel. Quand toutes les UA sont sur ce barème (tout
+  // l'historique), le résultat est identique à l'ancien calcul.
   const primNotesByCritereFor = (eleveId, compId, student) => {
     const criteres = primCriteresFor(compId, student);
     const out = {};
     for (const cr of criteres) {
       const vals = primUAs
-        .map((ua) => primNotes[primNkey(eleveId, compId, cr.id, ua)]?.note)
-        .filter((v) => v != null && v !== '')
-        .map(Number);
-      if (vals.length) out[cr.id] = { note: Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100, max: cr.points_max, nom: cr.nom };
+        .map((ua) => primNoteScale(primNotes[primNkey(eleveId, compId, cr.id, ua)], cr.points_max))
+        .filter((v) => v !== null && v.max > 0);
+      if (!vals.length) continue;
+      const ratio = vals.reduce((a, v) => a + (v.note / v.max), 0) / vals.length;
+      out[cr.id] = {
+        note: Math.round(ratio * cr.points_max * 100) / 100,
+        max: cr.points_max,
+        nom: cr.nom,
+      };
     }
     return out;
   };
@@ -1950,7 +1963,7 @@ export default function Bulletins() {
         const notesByCritere = {};
         for (const cr of criteres) {
           const r = primNotes[primNkey(student.id, c.id, cr.id, ua)];
-          if (r?.note != null && r.note !== '') notesByCritere[cr.id] = r.note;
+          if (r?.note != null && r.note !== '') notesByCritere[cr.id] = { note: r.note, max: r.points_max ?? cr.points_max };
         }
         const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
         const cote = achieved != null ? primCote(achieved, possible, primBareme) : null;

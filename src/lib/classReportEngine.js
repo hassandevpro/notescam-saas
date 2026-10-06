@@ -275,7 +275,7 @@ function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas
     const notesByCritere = {};
     for (const cr of criteres) {
       const r = primNotes?.[primKey(student.id, competenceId, cr.id, ua)];
-      if (r?.note != null && r.note !== '') notesByCritere[cr.id] = r.note;
+      if (r?.note != null && r.note !== '') notesByCritere[cr.id] = { note: r.note, max: r.points_max ?? cr.points_max };
     }
     const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
     return achieved != null && possible ? (achieved / possible) * 100 : null;

@@ -237,7 +237,7 @@ function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bar
     const notesByCritere = {};
     for (const cr of criteres) {
       const rec = notes[primNkey(student.id, comp.id, cr.id, ua)];
-      if (rec?.note != null && rec.note !== '') notesByCritere[cr.id] = rec.note;
+      if (rec?.note != null && rec.note !== '') notesByCritere[cr.id] = { note: rec.note, max: rec.points_max ?? cr.points_max };
     }
     const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
     return achieved != null && possible ? r2((achieved / possible) * GRADE_MAX) : null;

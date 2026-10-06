@@ -66,12 +66,7 @@ export const PUSH_ORDER = [
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
   // Notes du moteur officiel (référentiels déjà en cloud)
   'apc_notes', 'mat_observations', 'prim_notes',
-  // Barème de saisie fixé par l'enseignant. Il voyage avec les notes : sans lui,
-  // une compétence saisie sur /10 serait relue sur /20 de l'autre côté. Les ids
-  // de PRIMAIRE sont des slugs stables ('1a', 'oral') et se retrouvent donc tels
-  // quels ; un id de compétence APC (uuid) qui ne correspond à rien de l'autre
-  // côté est simplement ignoré à la lecture (aucune FK, aucune ligne cassée).
-  'bareme_notes',
+
   // Arrêtés de caisse
   'cash_sessions',
   // Budgets V3 (ordre FK)

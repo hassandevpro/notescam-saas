@@ -217,6 +217,10 @@ ensureColumn('students', 'sport_aptitude', "sport_aptitude TEXT NOT NULL DEFAULT
 // installs existantes : colonne ajoutée nullable (aucune vraie donnée de notes primaire APC en
 // prod à ce jour ; trimestre_id reste en base, simplement plus référencé par le code).
 ensureColumn('prim_notes', 'ua', 'ua INTEGER');
+// Barème de l'évaluation primaire (cf. supabase_prim_note_points_max.sql).
+// Pendant de apc_notes.note_max : sans cette colonne, un Oral noté /10 serait
+// relu sur le barème officiel du critère au prochain démarrage — donc faux.
+ensureColumn('prim_notes', 'points_max', 'points_max NUMERIC');
 // Priorité d'une notification (normal|important|urgent) — décide côté Cloud si
 // le canal SMS est autorisé (coût maîtrisé). Doit exister en LAN pour que les
 // SMS déclenchés depuis le serveur LAN (server/notify.js) gardent leur priorité
@@ -842,9 +846,6 @@ export const ALLOWED_TABLES = new Set([
   'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines', 'mat_observations',
   'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
   'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_bareme_criteres', 'prim_notes',
-  // Barème de saisie fixé par l'enseignant (surcharge du barème officiel).
-  // Absente d'ici, toute écriture échouait en LAN sur « Table non autorisée ».
-  'bareme_notes',
   // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
   'domain_events', 'audit_events', 'signalements',
   // Vie scolaire (surveillant/discipline) — absentes depuis la création du

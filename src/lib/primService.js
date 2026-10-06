@@ -81,7 +81,7 @@ export async function fetchPrimNotes(schoolId) {
 //   NOT NULL héritée de prim_notes côté Supabase (colonne vestige, plus utilisée
 //   en lecture — cf. trimestreOfUA). Ignoré silencieusement côté LAN (colonne
 //   absente du schéma récent, filtrée par pickColumns).
-export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, critereId, ua, enseignantId, note }) {
+export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, critereId, ua, enseignantId, note, pointsMax }) {
   return {
     id: id || uuid(),
     school_id: schoolId,
@@ -92,6 +92,13 @@ export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, crite
     trimestre_id: `t${trimestreOfUA(ua)}`,
     enseignant_id: enseignantId || null,
     note: note === '' || note === undefined ? null : note,
+    // Barème de CETTE évaluation. NULL = le barème officiel du référentiel pour ce
+    // critère — c'est ce que valent toutes les notes antérieures, qu'aucun écran
+    // n'a jamais pu saisir autrement. Le moteur lit NULL comme « barème officiel »
+    // (primEngine.primNoteScale), donc rien n'est à reprendre.
+    points_max: pointsMax === '' || pointsMax === undefined || pointsMax === null
+      ? null
+      : Number(pointsMax),
     date_saisie: new Date().toISOString(),
     nkey: primNkey(eleveId, competenceId, critereId, ua),
   };

@@ -360,10 +360,19 @@ export default function Layout({ children, bleed = false }) {
         {/* pb-24 sur mobile : dégage la bottom-nav fixe (h-16). En mode `bleed`
             (écran plein écran focalisé), la page gère elle-même son padding et
             occupe toute la hauteur disponible. */}
+        {/* `h-full` est CONSERVÉ : les écrans en plein écran focalisé (rail de
+            classes de SubjectTeacherWorkspace) s'appuient dessus pour tenir toute
+            la hauteur. Leur contenu long déborde donc de cette boîte figée, et le
+            padding bas, place au bas de la boîte, ne degage rien — c'est à chaque
+            écran de prévoir son propre dégagement (cf. `pb-28` des postes de
+            saisie). Hors `bleed`, la boîte suit son contenu et le padding opère.
+            La barre mesure h-16 PLUS l'encoche du téléphone : le dégagement ajoute
+            la même `env(safe-area-inset-bottom)`, sinon il manque sa hauteur sur
+            les appareils qui en ont une. */}
         {bleed ? (
           <div className="h-full pb-16 md:pb-0">{children}</div>
         ) : (
-          <div className="p-4 pb-24 md:p-8">{children}</div>
+          <div className="p-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:p-8 md:pb-8">{children}</div>
         )}
       </main>
 

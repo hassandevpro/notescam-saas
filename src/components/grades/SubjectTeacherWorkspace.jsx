@@ -218,7 +218,7 @@ export default function SubjectTeacherWorkspace() {
 
       {/* Zone centrale */}
       <main className="flex-1 min-w-0 h-full overflow-y-auto">
-        <div className="px-4 md:px-8 py-5 md:py-7 max-w-5xl mx-auto">
+        <div className="px-4 md:px-8 py-5 md:py-7 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-7 max-w-5xl mx-auto">
 
           {/* Rail mobile — barre horizontale scrollable */}
           <div className="md:hidden -mx-4 px-4 mb-4 overflow-x-auto">

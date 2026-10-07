@@ -301,7 +301,7 @@ export default function MatObservationWorkspace() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
+    <div className="p-4 md:p-6 space-y-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6">
       <div>
         {BackBtn}
         <h1 className="text-xl font-bold text-gray-800">{t('Évaluation maternelle (par domaines)', 'Nursery assessment (by domains)')}</h1>

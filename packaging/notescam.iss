@@ -51,10 +51,13 @@ Source: "{#StageDir}\install-service.ps1";  DestDir: "{app}"; Flags: ignoreversi
 Source: "{#StageDir}\uninstall-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
 ; Script de mise à jour — utilisé par l'OTA (le serveur lui passe l'installeur signé).
 Source: "{#StageDir}\update-notescam.ps1";  DestDir: "{app}"; Flags: ignoreversion
+; Secours hors ligne : réinitialiser un mot de passe oublié (aucun e-mail en LAN).
+Source: "{#StageDir}\reinitialiser-mot-de-passe.cmd"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; Raccourci = ouvrir l'app dans le navigateur (c'est une web-app servie en local)
 Name: "{group}\NotesCam (LAN)"; Filename: "http://localhost:8080"
+Name: "{group}\Réinitialiser un mot de passe"; Filename: "{app}\reinitialiser-mot-de-passe.cmd"; IconFilename: "{sys}\shell32.dll"; IconIndex: 48
 Name: "{group}\Désinstaller NotesCam"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\NotesCam (LAN)"; Filename: "http://localhost:8080"; Tasks: desktopicon
 

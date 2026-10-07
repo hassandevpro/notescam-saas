@@ -26,6 +26,7 @@
     "import:sqlite": "node scripts/sqlite-to-pivot.mjs",
     "import:csv": "node scripts/csv-to-pivot.mjs",
     "license": "node packaging/license/make-license.mjs",
+    "reset:password": "node server/reset-password-cli.mjs",
     "video": "remotion studio remotion/index.jsx",
     "video:render": "remotion render remotion/index.jsx",
     "video:record": "node remotion/recorder/record-demos.mjs"

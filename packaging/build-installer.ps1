@@ -144,6 +144,13 @@ Copy-Item (Join-Path $Here 'uninstall-service.ps1') $Stage -Force
 # signé puis passe la main à ce script (sauvegarde, arrêt, installation, relance).
 # Sans lui dans l'installation, l'OTA retombe sur la mise à jour manuelle.
 Copy-Item (Join-Path $Here 'update-notescam.ps1')   $Stage -Force
+# Secours « mot de passe oublié » : en LAN il n'y a ni e-mail ni lien de
+# réinitialisation, et l'écran qui redéfinit un mot de passe exige d'être DÉJÀ
+# connecté. Sans cet outil sur le PC, une école qui oublie son mot de passe
+# d'administration perd l'accès à toute l'administration — et personne ne peut
+# l'aider à distance. L'outil lui-même (server/reset-password-cli.mjs) est déjà
+# embarqué avec le reste de server\ à l'étape 3.
+Copy-Item (Join-Path $Here 'reinitialiser-mot-de-passe.cmd') $Stage -Force
 
 # --- 6. Compilation de l'installateur (Inno Setup) -------------------
 Step "Compilation de l'installateur (Inno Setup)"

@@ -48,6 +48,7 @@ Options : `-NodeVersion v24.16.0` (version Node précise), `-AppVersion 1.0.0`.
 | `start-server.cmd` | lanceur (variables d'env + node + log) exécuté par la tâche |
 | `install-service.ps1` | enregistre la tâche planifiée + règle pare-feu, démarre |
 | `uninstall-service.ps1` | retire tâche + pare-feu (conserve les données) |
+| `reinitialiser-mot-de-passe.cmd` | secours : réinitialise un mot de passe oublié (hors ligne) |
 
 ## Vérifié
 
@@ -55,6 +56,52 @@ Le **layout exact de l'installation** (node.exe portable + app + 2 dépendances
 runtime) a été testé : la SPA est servie, le fallback de routing fonctionne,
 l'API complète répond. Seul `node.exe` (≈ 80 Mo) + `fastify`/`@fastify/static`
 sont nécessaires à l'exécution — aucun module natif, aucune compilation.
+
+## Mot de passe oublié (secours hors ligne)
+
+En LAN il n'y a ni e-mail ni lien « mot de passe oublié », et l'écran qui
+redéfinit un mot de passe exige d'être **déjà connecté**. Une école dont le
+directeur oublie son mot de passe perdrait donc l'accès à toute
+l'administration. L'installateur embarque pour cela un outil de secours, à
+lancer **sur le PC serveur** :
+
+- Menu Démarrer → **NotesCam → Réinitialiser un mot de passe**
+- ou double-clic sur `C:\Program Files\NotesCam\reinitialiser-mot-de-passe.cmd`
+
+Il demande l'élévation (la base vit dans `C:\ProgramData\NotesCam\data`, écrite
+par le compte SYSTÈME), liste les comptes de connexion, puis demande lequel
+réinitialiser et avec quel mot de passe (vide = généré, lisible, sans caractère
+ambigu). Le serveur peut rester allumé. **Rien ne sort du PC.**
+
+En ligne de commande (console administrateur), ou en développement :
+
+```powershell
+# sur un PC d'école installé
+& "C:\Program Files\NotesCam\node\node.exe" `
+  "C:\Program Files\NotesCam\app\server\reset-password-cli.mjs" `
+  --data-dir "C:\ProgramData\NotesCam\data" --liste
+
+# en développement (base server/data)
+npm run reset:password -- --liste
+npm run reset:password -- --email directeur@ecole.cm
+npm run reset:password -- --email directeur@ecole.cm --mot-de-passe 'Rentree2026!'
+```
+
+ÉCOLE DÉJÀ INSTALLÉE, version antérieure à l'outil : pas besoin de réinstaller.
+Copier sur une clé USB `server/reset-password-cli.mjs`, `server/resetPassword.js`
+et `packaging/reinitialiser-mot-de-passe.cmd`, puis lancer le `.cmd` sur le PC.
+Il emprunte le `node.exe` et la base de l'installation présente (`--app-dir`) et
+n'écrit rien dans Program Files. Le hachage vient TOUJOURS de l'installation
+dépannée : une empreinte scrypt calculée par une autre version du code
+verrouillerait l'école en silence.
+
+L'outil ne révèle aucun mot de passe existant (scrypt est à sens unique), ne
+touche qu'**un** compte à la fois, et laisse rôles, périmètres et données
+intacts. Installation hybride : le cloud s'aligne seul à la première connexion
+réussie (`mirrorToCloud`, `/api/auth/login`). Fichiers :
+`server/reset-password-cli.mjs`, `server/resetPassword.js` (+ test
+`server/_reset_password.test.mjs`), `packaging/reinitialiser-mot-de-passe.cmd`.
+
 
 ## Notes d'exploitation
 

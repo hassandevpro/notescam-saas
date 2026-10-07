@@ -27,9 +27,18 @@ const _num = (v) => {
   return isNaN(n) ? null : n;
 };
 
+// ÉCHELLE DU PRIMAIRE APC. Le total officiel d'un relevé CM1/CM2 est de 300
+// points, ramenés à une moyenne pour la lecture. Elle s'exprime sur 20, comme
+// partout ailleurs dans le système scolaire camerounais.
+//
+// La moyenne est DÉRIVÉE D'UN POURCENTAGE puis mise à cette échelle : changer la
+// constante change l'affichage, jamais la COTE — celle-ci compare la moyenne à
+// gradeMax, donc le même ratio. Les bulletins déjà imprimés gardent leur sens.
+export const PRIM_GRADE_MAX = 20;
+
 // Cote APC d'une moyenne : plus haute bande du barème dont seuil_min ≤ pourcentage.
 // avg et gradeMax dans la même échelle (défaut /10). Renvoie { cote, libelle } ou null.
-export function primCote(avg, gradeMax = 10, bareme = PRIM_COTE_DEFAULT) {
+export function primCote(avg, gradeMax = PRIM_GRADE_MAX, bareme = PRIM_COTE_DEFAULT) {
   if (avg == null || !gradeMax) return null;
   const pct = (avg / gradeMax) * 100;
   const bands = (bareme && bareme.length ? bareme : PRIM_COTE_DEFAULT)
@@ -165,7 +174,7 @@ export function generalAverage(rows) {
 //   criteres      : critères actifs
 //   notes         : { [competence_id]: { [critere_id]: note } }
 // Renvoie [{ competence, moyenne, coef, cote }].
-export function bulletinRows(competences, criteres, notes, gradeMax = 10, bareme = PRIM_COTE_DEFAULT) {
+export function bulletinRows(competences, criteres, notes, gradeMax = PRIM_GRADE_MAX, bareme = PRIM_COTE_DEFAULT) {
   return (competences || []).map((c) => {
     const moyenne = competenceAverage(notes?.[c.id], criteres);
     const coef = c.coefficient == null ? 1 : Number(c.coefficient) || 1;
@@ -199,7 +208,7 @@ export const buildPrimRanks = (students, avgById, excl = {}) => {
 
 // Convertit les compétences du niveau en `subjects` à créer pour une classe primaire
 // APC (matérialisation UI + affectation enseignant). Barème /10 par défaut.
-export function subjectsFromPrimReferentiel(competences, { schoolId, classId, gradeMax = 10, makeId }) {
+export function subjectsFromPrimReferentiel(competences, { schoolId, classId, gradeMax = PRIM_GRADE_MAX, makeId }) {
   return (competences || []).map((c, i) => ({
     id: makeId(),
     school_id: schoolId,

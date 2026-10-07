@@ -53,8 +53,11 @@ const matKey  = (eleveId, domaineId, trimestreId) => `${eleveId}_${domaineId}_${
 
 export const REPORT_KIND = { NUMERIC: 'numeric', ACQUISITION: 'acquisition' };
 
-// Échelle du primaire APC : le carnet officiel note /10.
-export const PRIM_GRADE_MAX = 10;
+// Échelle du primaire APC — SOURCE UNIQUE dans le moteur, réexportée ici pour les
+// appelants historiques. Elle était redéfinie en dur à deux endroits (ici et dans
+// Bulletins) : une correction n'en touchait qu'un, et l'écran se serait mis à
+// contredire le bulletin imprimé.
+export { PRIM_GRADE_MAX } from '../core/primEngine.js';
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const num = (v) => {

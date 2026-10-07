@@ -19,6 +19,9 @@ import {
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
 import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
+// L'échelle vient du moteur : un « /10 » écrit en dur dans le libellé se serait
+// mis à mentir dès que l'échelle change.
+import { PRIM_GRADE_MAX } from '../../core/primEngine';
 
 const PRIM_COTE_COLORS = { 'A+': '#059669', A: '#10b981', ECA: '#f59e0b', NA: '#ef4444' };
 const PRIM_ACCENT = '#047857';
@@ -179,7 +182,7 @@ export default function BulletinPrimAnnualUA({
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <tbody>
                   <tr><td colSpan={2} style={th}>{L(sys, "Bilan de l'élève", "Student's summary", 'Balance del alumno')}</td></tr>
-                  <tr><td style={cell}>{L(sys, 'Moyenne générale /10', 'General average /10', 'Promedio general /10')}</td><td style={{ ...cell, textAlign: 'center' }}><strong>{fix2(moyenneGenerale)}</strong></td></tr>
+                  <tr><td style={cell}>{L(sys, `Moyenne générale /${PRIM_GRADE_MAX}`, `General average /${PRIM_GRADE_MAX}`, `Promedio general /${PRIM_GRADE_MAX}`)}</td><td style={{ ...cell, textAlign: 'center' }}><strong>{fix2(moyenneGenerale)}</strong></td></tr>
                   <tr><td style={cell}>{L(sys, 'Cote générale', 'General grade', 'Nota general')}</td><td style={{ ...cell, textAlign: 'center' }}>
                     <strong style={{ color: moyenneGenerale != null ? PRIM_COTE_COLORS[coteGenerale] : undefined }}>{moyenneGenerale != null ? coteGenerale : ''}</strong>
                   </td></tr>

@@ -200,15 +200,49 @@ export default function PrimCompetenceWorkspace() {
     : []);
   const criteresApte   = critereRows('apte');
   const criteresInapte = critereRows('inapte');
+  // Les QUATRE critères officiels sont toujours proposés — Oral, Écrit, Pratique,
+  // Savoir-être. Jusqu'ici, une colonne n'apparaissait QUE si le barème national
+  // portait une ligne pour elle : « Pratique » manquait sur 1A, 1B et 2A, et
+  // l'école n'avait aucun moyen de l'ajouter depuis l'écran. Le barème SIL/CP
+  // totalise d'ailleurs 280 au lieu de 300 — les 20 points manquants sont très
+  // probablement ces trois colonnes absentes.
+  //
+  // Un critère sans barème officiel naît donc à ZÉRO, repéré `aNoter` : il est
+  // visible, son barème est saisissable, et tant qu'il vaut 0 il ne compte dans
+  // aucun total. L'école pose le chiffre de SON relevé ; on n'en invente aucun.
   const criteres = useMemo(() => {
-    if (competenceId !== '6a') return criteresApte;
-    const byId = new Map(criteresApte.map((c) => [c.id, c]));
-    for (const c of criteresInapte) if (!byId.has(c.id)) byId.set(c.id, c);
-    return [...byId.values()].sort((a, b) => a.ordre - b.ordre);
-  }, [competenceId, criteresApte, criteresInapte]);
+    const base = competenceId === '6a'
+      ? (() => {
+        const byId = new Map(criteresApte.map((c) => [c.id, c]));
+        for (const c of criteresInapte) if (!byId.has(c.id)) byId.set(c.id, c);
+        return [...byId.values()];
+      })()
+      : criteresApte;
+
+    const connus = new Set(base.map((c) => c.id));
+    const manquants = (referentiel?.criteres || [])
+      .filter((c) => !connus.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        nom: primCritereLabel(c, sys),
+        points_max: 0,
+        ordre: c.ordre ?? 99,
+        aNoter: true,
+      }));
+    return [...base, ...manquants].sort((a, b) => a.ordre - b.ordre);
+  }, [competenceId, criteresApte, criteresInapte, referentiel, sys]);
   // Barème réellement applicable à UN élève (dépend de son aptitude pour '6a').
-  const criteresForStudent = (stu) =>
-    competenceId === '6a' ? (stu.sport_aptitude === 'inapte' ? criteresInapte : criteresApte) : criteresApte;
+  // Le périmètre d'un élève suit son aptitude, PLUS les critères activés par
+  // l'école (barème posé à la main). Sans cela, une note saisie dans une colonne
+  // nouvellement ouverte n'entrerait dans aucun total — elle s'afficherait sans
+  // jamais compter, ce qui est pire que de ne pas pouvoir la saisir.
+  const criteresForStudent = (stu) => {
+    const officiels = competenceId === '6a'
+      ? (stu.sport_aptitude === 'inapte' ? criteresInapte : criteresApte)
+      : criteresApte;
+    const connus = new Set(officiels.map((c) => c.id));
+    return [...officiels, ...criteres.filter((c) => c.aNoter && !connus.has(c.id) && baremeFor(c.id) > 0)];
+  };
 
   // Note d'une cellule (compétence × critère × UA courante).
   const noteFor = (eleveId, critereId) => {
@@ -451,6 +485,9 @@ export default function PrimCompetenceWorkspace() {
           {criteres.map((c) => (
             <span key={c.id} className="text-xs text-gray-500 inline-flex items-center gap-1">
               {c.nom}
+              {c.aNoter && baremeFor(c.id) <= 0 && (
+                <span className="text-[10px] text-amber-600">{t('à définir', 'to set')}</span>
+              )}
               <BaremeCell value={baremeFor(c.id)} onCommit={(n) => setBareme(c.id, n)} />
             </span>
           ))}
@@ -486,7 +523,15 @@ export default function PrimCompetenceWorkspace() {
                 <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
                 {criteres.map((c) => (
                   <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600">
-                    <span className="block truncate">{c.nom}</span>
+                    <span className="block truncate">
+                      {c.nom}
+                      {/* Critère officiel sans barème national : la colonne est
+                          visible, mais non saisissable tant que l'école n'a pas
+                          posé son chiffre — on ne note pas sur /0. */}
+                      {c.aNoter && baremeFor(c.id) <= 0 && (
+                        <span className="ml-1 text-[10px] font-normal text-amber-600">{t('à définir', 'to set')}</span>
+                      )}
+                    </span>
                     {/* Barème de CETTE évaluation : celui du référentiel par
                         défaut, modifiable là où l'on saisit. */}
                     <BaremeCell value={baremeFor(c.id)}

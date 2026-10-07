@@ -1,20 +1,32 @@
 // Périodes de BULLETIN du secondaire APC (premier cycle MINESEC) — logique pure
 // (ni React, ni store, ni réseau), testable en Node.
 //
-// ── RÈGLE MÉTIER, DÉFINITIVE ─────────────────────────────────────────────────
-//   • une SÉQUENCE est une unité de SAISIE des évaluations ;
-//   • un TRIMESTRE est l'unité de BULLETIN ;
-//   • l'ANNUEL est la SYNTHÈSE de T1 + T2 + T3.
+// ── RÈGLE MÉTIER ─────────────────────────────────────────────────────────────
+//   • un TRIMESTRE est l'unité de BULLETIN de référence ;
+//   • l'ANNUEL est la SYNTHÈSE de T1 + T2 + T3 ;
+//   • une SÉQUENCE est d'abord l'unité de SAISIE des évaluations, et peut AUSSI
+//     être tirée en bulletin — c'est la pratique des établissements.
 //
-// Il n'existe donc AUCUN bulletin de séquence. Ce n'est pas une préférence
-// d'affichage : le référentiel MINESEC définit les compétences PAR TRIMESTRE
-// (apc_competences.trimestre_id), héritées par les séquences de ce trimestre.
-// Un « bulletin de séquence » n'exposait qu'une fraction arbitraire des
-// compétences trimestrielles — un document officiellement faux.
+// ── LE BULLETIN DE SÉQUENCE, ET CE QU'IL NE DIT PAS ──────────────────────────
+// Le référentiel MINESEC définit les compétences PAR TRIMESTRE
+// (`apc_competences.trimestre_id`), héritées par les séquences de ce trimestre.
+// Une séquence n'en couvre donc qu'une PARTIE, et le bulletin de séquence ne
+// liste QUE les compétences réellement évaluées dans cette séquence : il ne
+// signale pas celles du trimestre qui restent à évaluer.
 //
-// L'annuel n'est pas une quatrième période de saisie : son `trimestreId` est
-// null, aucune note ne s'y écrit, et il se recalcule depuis les trois
-// trimestres (cf. assembleApcAnnual).
+// C'est un choix produit assumé (demandé le 2026-10-06), pas un oubli. Le
+// document trimestriel reste la seule vue complète du référentiel, et la
+// moyenne d'une séquence ne porte que sur l'évalué — `matiereAverage` ignore
+// les compétences sans note, jamais comptées 0.
+//
+// Les périodes de séquence ne sont servies qu'À LA DEMANDE
+// (`apcBulletinPeriods(ref, { withSequences: true })`), afin que les surfaces
+// trimestrielles par nature — rapports de classe, procès-verbaux de conseil —
+// gardent exactement le rythme qu'elles avaient.
+//
+// L'annuel n'est pas une période de saisie : son `trimestreId` est null, aucune
+// note ne s'y écrit, et il se recalcule depuis les trois trimestres (cf.
+// assembleApcAnnual).
 //
 // ── SOURCE UNIQUE ────────────────────────────────────────────────────────────
 // Bulletins, rapports de classe et procès-verbaux puisent ICI leur rythme, pour
@@ -37,9 +49,30 @@ import { SEQ_TO_TRIM, sequencesOfTrimestre } from './apcEngine.js';
 // la base avant d'atteindre le moteur.
 export const APC_TRIMESTRE_IDS = ['t1', 't2', 't3'];
 
-// Les clés de période de bulletin, et elles seules. Aucune ne commence par
-// « seq » : c'est l'invariant que verrouille `_apcPeriods.test.mjs`.
+// Les clés de période FIXES : les trois trimestres et l'annuel. Les périodes de
+// séquence n'y figurent pas — leur nombre est lu du référentiel, elles sont donc
+// DÉRIVÉES (cf. `apcBulletinPeriods(ref, { withSequences: true })`).
 export const APC_BULLETIN_PERIOD_VALUES = ['term_1', 'term_2', 'term_3', 'annuel'];
+
+// ── Clés de période de SÉQUENCE ──────────────────────────────────────────────
+// Forme 'seq_<numéro global>' ('seq_3'). Le numéro, et non l'identifiant de
+// ligne, parce que c'est lui que l'utilisateur voit et que persiste `uiStore`.
+
+export const apcSequencePeriodValue = (num) => `seq_${num}`;
+
+// Le numéro porté par une clé 'seq_N', null si ce n'en est pas une.
+export const apcSeqNumOfPeriodValue = (v) => {
+  const m = /^seq_(\d+)$/.exec(String(v ?? ''));
+  return m ? Number(m[1]) : null;
+};
+
+export const isApcSequencePeriodValue = (v) => apcSeqNumOfPeriodValue(v) !== null;
+
+// Libellés d'une séquence — fournis comme DONNÉES, comme ceux des trimestres,
+// pour que le module reste pur. L'anglais suit le document officiel.
+export const apcSequenceLabels = (num) => ({
+  fr: `Séquence ${num}`, en: `Sequence ${num}`, es: `Secuencia ${num}`, short: `S${num}`,
+});
 
 // Libellés fournis comme DONNÉES (le module reste pur — aucune dépendance i18n).
 // L'anglais suit le document officiel (« FIRST TERM REPORT CARD »), d'où « Term »
@@ -67,8 +100,13 @@ export const isApcAnnualPeriod = (p) => p?.kind === 'annuel' || p?.value === 'an
 // Période trimestrielle (porte un trimestre unique et des notes à agréger).
 export const isApcTrimestrePeriod = (p) => p?.kind === 'trimestre' && !!p?.trimestreId;
 
-// Clé reconnue comme période de bulletin APC.
-export const isApcBulletinPeriodValue = (v) => APC_BULLETIN_PERIOD_VALUES.includes(v);
+// Période de séquence : UNE séquence du trimestre qu'elle porte. On teste la
+// NATURE, jamais `seqs.length === 1` — un trimestre peut n'avoir qu'une séquence.
+export const isApcSequencePeriod = (p) => p?.kind === 'sequence';
+
+// Clé reconnue comme période de bulletin APC — fixe ou de séquence.
+export const isApcBulletinPeriodValue = (v) =>
+  APC_BULLETIN_PERIOD_VALUES.includes(v) || isApcSequencePeriodValue(v);
 
 // Le trimestre d'une clé de période ('term_2' → 't2'), null pour l'annuel.
 export const apcTrimestreOfPeriodValue = (v) =>
@@ -115,7 +153,7 @@ export function apcSeqIdOfSeqNum(referentiel, num) {
   return tid ? (apcSequencesOfTrimestre(referentiel, tid).find((s) => Number(s.numero) === n)?.id ?? null) : null;
 }
 
-// ── Les quatre périodes de bulletin, séquences résolues ──────────────────────
+// ── Les périodes de bulletin, séquences résolues ─────────────────────────────
 // Renvoie [{ value, kind, trimestreId, trimestreIds, seqs, seqIds, short, fr, en, es }].
 //
 // `seqs` (numéros) et `seqIds` restent exposés parce que des composants partagés
@@ -125,37 +163,80 @@ export function apcSeqIdOfSeqNum(referentiel, num) {
 //
 // `trimestreIds` vaut [tid] pour un trimestre et les trois pour l'annuel — c'est
 // ce que lisent les surfaces qui doivent assembler plusieurs trimestres.
-export function apcBulletinPeriods(referentiel) {
-  const seqsByTrim = {};
-  const idsByTrim  = {};
-  for (const tid of APC_TRIMESTRE_IDS) {
-    seqsByTrim[tid] = apcSeqNumsForTrimestre(referentiel, tid);
-    idsByTrim[tid]  = apcSeqIdsForTrimestre(referentiel, tid);
-  }
-  return APC_PERIOD_SHAPE.map((p) => {
+// `withSequences` insère, AVANT chaque trimestre, ses propres séquences — l'ordre
+// dans lequel le travail se fait : S1, S2, T1, S3, S4, T2, S5, S6, T3, Annuel.
+// Par défaut elles ne sont PAS servies : les surfaces trimestrielles par nature
+// (rapports de classe, procès-verbaux) appellent sans option et ne voient rien
+// changer.
+export function apcBulletinPeriods(referentiel, { withSequences = false } = {}) {
+  // Les LIGNES de séquence par trimestre, source unique de `seqs` et `seqIds` :
+  // on ne fait jamais correspondre deux tableaux par leur index.
+  const rowsByTrim = {};
+  for (const tid of APC_TRIMESTRE_IDS) rowsByTrim[tid] = apcSequencesOfTrimestre(referentiel, tid);
+
+  // Numéro exploitable d'une ligne. `Number(null)` vaut 0 et `Number('')` aussi :
+  // une ligne sans numéro produirait donc une « Séquence 0 ». On écarte le vide
+  // AVANT de convertir.
+  const seqNum = (row) => {
+    if (row?.numero == null || row.numero === '') return null;
+    const n = Number(row.numero);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const numsOf = (tid) => (rowsByTrim[tid] || []).map(seqNum).filter((n) => n !== null);
+  const idsOf  = (tid) => (rowsByTrim[tid] || []).map((s) => s.id).filter(Boolean);
+
+  const out = [];
+  for (const p of APC_PERIOD_SHAPE) {
+    if (withSequences && p.kind === 'trimestre') {
+      for (const row of rowsByTrim[p.trimestreId] || []) {
+        const num = seqNum(row);
+        // Une ligne sans numéro exploitable ou sans identifiant ne peut pas être
+        // tirée en bulletin : ni libellé à afficher, ni note à retrouver.
+        if (num === null || !row.id) continue;
+        out.push({
+          value: apcSequencePeriodValue(num),
+          kind: 'sequence',
+          trimestreId: p.trimestreId,
+          trimestreIds: [p.trimestreId],
+          seqs: [num],
+          seqIds: [row.id],
+          ...apcSequenceLabels(num),
+        });
+      }
+    }
     const trimestreIds = p.trimestreId ? [p.trimestreId] : [...APC_TRIMESTRE_IDS];
-    return {
+    out.push({
       ...p,
       trimestreIds,
-      seqs:   trimestreIds.flatMap((tid) => seqsByTrim[tid] || []),
-      seqIds: trimestreIds.flatMap((tid) => idsByTrim[tid] || []),
+      seqs:   trimestreIds.flatMap(numsOf),
+      seqIds: trimestreIds.flatMap(idsOf),
       ...APC_PERIOD_LABELS[p.value],
-    };
-  });
+    });
+  }
+  return out;
 }
 
 // Libellé d'une période selon le SYSTÈME de la classe ('FR' | 'EN' | 'ES'),
 // comme le reste des documents officiels — pas selon la langue de l'interface.
 export const apcPeriodLabel = (period, sys = 'FR') => {
-  const l = APC_PERIOD_LABELS[period?.value];
+  // Les trimestres ont leurs libellés en table ; une séquence porte les siens,
+  // posés à la construction (son numéro n'est pas connu d'avance).
+  const l = APC_PERIOD_LABELS[period?.value] || (period?.fr ? period : null);
   if (!l) return '';
   return sys === 'EN' ? l.en : sys === 'ES' ? l.es : l.fr;
 };
 
-// La période de bulletin correspondant à une clé persistée, avec repli sur le
-// premier trimestre. Une clé historique « seq_3 » (bulletin de séquence, supprimé)
-// retombe ainsi sur T1 au lieu de laisser l'écran sans période.
+// La période de bulletin correspondant à une clé persistée, avec repli sur la
+// PREMIÈRE période servie. Une clé « seq_3 » retrouve sa séquence quand la liste
+// en contient (écran Bulletins) et retombe sur T1 quand elle n'en contient pas
+// (rapports, procès-verbaux) — au lieu de laisser l'écran sans période.
 export function resolveApcPeriod(periods, periodKey) {
   const list = periods && periods.length ? periods : apcBulletinPeriods(null);
-  return list.find((p) => p.value === periodKey) || list[0];
+  const found = list.find((p) => p.value === periodKey);
+  if (found) return found;
+  // Repli sur le PREMIER TRIMESTRE, pas sur `list[0]` : quand les séquences sont
+  // servies, la première entrée est S1 — or une clé inconnue doit retomber sur le
+  // document de référence, le trimestre.
+  return list.find((p) => p.value === 'term_1') || list[0];
 }

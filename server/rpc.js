@@ -2,7 +2,7 @@
 // Chaque RPC reçoit (params, ctx) où ctx = { userId } issu du JWT vérifié.
 // L'autorisation (ex-RLS) est imposée ICI, explicitement, sur chaque appel.
 
-import { db, getSchool, tx } from './db.js';
+import { db, getSchool, tx, ALLOWED_TABLES, quoteIdent } from './db.js';
 import { randomUUID } from 'node:crypto';
 import { hashPassword } from './security.js';
 import { createRevision, decideRevision, createLineReallocation, decideLineReallocation } from './budgetOps.js';
@@ -836,6 +836,32 @@ const handlers = {
         WHERE l.student_id = ?
         ORDER BY l.active DESC, a.full_name`,
     ).all(p.p_student_id);
+  },
+
+  // SAUVEGARDE / EXPORT COMPLET — miroir de public.backup_catalog (cloud).
+  // Même règle de découverte : toute table portant `school_id` (+ `schools`).
+  // Restreinte aux tables de l'API générique (ALLOWED_TABLES) : c'est par elle
+  // que l'export lit et que la restauration écrit. Une table avec school_id
+  // hors liste est renvoyée dans `unreachable`, pour qu'un oubli se voie — et
+  // reste couverte par la sauvegarde fichier (.db) du serveur.
+  backup_catalog(p, ctx) {
+    const schoolId = requireAdmin(ctx);
+    if (p.p_school && p.p_school !== schoolId) throw new Error('Non autorisé');
+    const names = db.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
+    ).all().map((r) => r.name);
+    const tables = [], unreachable = [];
+    for (const name of names) {
+      const cols = db.prepare(`PRAGMA table_info(${quoteIdent(name)})`).all();
+      const scoped = name === 'schools' || cols.some((c) => c.name === 'school_id');
+      if (!scoped) continue;
+      if (!ALLOWED_TABLES.has(name)) { unreachable.push(name); continue; }
+      const pk = cols.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name);
+      const deps = [...new Set(db.prepare(`PRAGMA foreign_key_list(${quoteIdent(name)})`).all().map((f) => f.table))];
+      tables.push({ table: name, scope: name === 'schools' ? 'id' : 'school_id', pk: pk.length ? pk : ['id'], deps, columns: cols.map((c) => c.name) });
+    }
+    if (unreachable.length) console.warn(`[backup] tables avec school_id hors API (non exportées en JSON) : ${unreachable.join(', ')}`);
+    return tables;
   },
 };
 

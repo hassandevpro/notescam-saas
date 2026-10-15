@@ -3,7 +3,7 @@
 // (contrairement à un copier brut en mode WAL). Rotation pour borner le disque.
 
 import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { db, DATA_DIR } from './db.js';
 import { parityStatus } from './parityGate.js';
 
@@ -48,12 +48,28 @@ export function listBackups() {
     .sort((a, b) => (a.at < b.at ? 1 : -1));
 }
 
+// Rotation à deux étages. Avant : seules les 14 dernières copies (toutes les
+// 2 h) étaient gardées, soit ~28 h d'historique — une erreur découverte le
+// surlendemain n'était plus rattrapable. Désormais : les KEEP plus récentes
+// + la plus récente de chaque jour sur KEEP_DAYS jours.
+const KEEP_DAYS = Number(process.env.NOTESCAM_BACKUP_KEEP_DAYS || 14);
+export function selectToDelete(files, { keep = KEEP, keepDays = KEEP_DAYS, now = Date.now() } = {}) {
+  const sorted = [...files].sort((a, b) => b.t - a.t);
+  const kept = new Set(sorted.slice(0, keep).map((x) => x.f));
+  const days = new Set();
+  for (const { f, t } of sorted) {
+    if (now - t > keepDays * 86400000) continue;
+    const day = new Date(t).toISOString().slice(0, 10);
+    if (!days.has(day)) { days.add(day); kept.add(f); }
+  }
+  return sorted.filter((x) => !kept.has(x.f)).map((x) => x.f);
+}
+
 function rotate() {
   const files = readdirSync(BACKUP_DIR)
     .filter((f) => f.startsWith('notescam-') && f.endsWith('.db'))
-    .map((f) => ({ f, t: statSync(join(BACKUP_DIR, f)).mtimeMs }))
-    .sort((a, b) => b.t - a.t);
-  for (const { f } of files.slice(KEEP)) {
+    .map((f) => ({ f, t: statSync(join(BACKUP_DIR, f)).mtimeMs }));
+  for (const f of selectToDelete(files)) {
     try { unlinkSync(join(BACKUP_DIR, f)); } catch { /* ignore */ }
     try { unlinkSync(join(BACKUP_DIR, f + '.meta.json')); } catch { /* ignore */ }
   }
@@ -65,6 +81,33 @@ export function scheduleBackups(hours = 2) {
   setInterval(() => {
     runBackup().catch((e) => console.error('[backup] échec :', e.message));
   }, hours * 3600 * 1000).unref();
+}
+
+// Résout un nom de sauvegarde en chemin, UNIQUEMENT s'il s'agit d'une
+// sauvegarde listée : un nom venant du client ne doit jamais désigner un autre
+// fichier du disque (`../notescam.db`, chemin absolu…).
+export function backupPath(file) {
+  if (typeof file !== 'string' || basename(file) !== file) return null;
+  if (!/^notescam-[\w.-]+\.db$/.test(file)) return null;
+  const full = join(BACKUP_DIR, file);
+  return existsSync(full) ? full : null;
+}
+
+// Contrôle d'intégrité AVANT de programmer une restauration : on ne remplace
+// pas une base saine par un fichier corrompu.
+export async function verifyBackupFile(path) {
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    const d = new DatabaseSync(path, { readOnly: true });
+    try {
+      const r = d.prepare('PRAGMA integrity_check').get();
+      const school = d.prepare('SELECT id, name FROM schools LIMIT 1').get() || null;
+      const ok = r && Object.values(r)[0] === 'ok';
+      return { ok, detail: ok ? null : Object.values(r || {})[0], school };
+    } finally { d.close?.(); }
+  } catch (e) {
+    return { ok: false, detail: e.message, school: null };
+  }
 }
 
 export { BACKUP_DIR };

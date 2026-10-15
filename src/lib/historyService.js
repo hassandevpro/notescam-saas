@@ -155,43 +155,28 @@ export async function restoreFromTrash(trashItem, store) {
   });
 }
 
-// Exporte toute la base IndexedDB locale en JSON pour sauvegarde manuelle.
-export async function exportLocalBackup(schoolId) {
-  const [
-    { classesDB, subjectsDB, studentsDB, gradesDB, teachersDB, feesDB, feePaymentsDB },
-  ] = await Promise.all([import('./db')]);
-  const dump = {
-    school_id: schoolId,
-    exported_at: new Date().toISOString(),
-    classes:       await classesDB.getAll(),
-    subjects:      await subjectsDB.getAll(),
-    students:      await studentsDB.getAll(),
-    grades:        await gradesDB.getAll(),
-    teachers:      await teachersDB.getAll(),
-    student_fees:  await feesDB.getAll(),
-    fee_payments:  await feePaymentsDB.getAll(),
-    trash:         await trashDB.getAll(),
-    audit_log:     await auditDB.getAll(),
-  };
-  return dump;
-}
-
-// Restaure une sauvegarde JSON exportée précédemment.
-// Mode "merge" : ajoute/écrase par clé sans supprimer ce qui existe déjà.
-export async function importLocalBackup(json) {
-  if (!json || typeof json !== 'object') throw new Error('Sauvegarde invalide');
-  const db = await import('./db');
-  const map = {
-    classes: db.classesDB, subjects: db.subjectsDB, students: db.studentsDB,
-    grades: db.gradesDB, teachers: db.teachersDB,
-    student_fees: db.feesDB, fee_payments: db.feePaymentsDB,
-  };
-  for (const [key, store] of Object.entries(map)) {
-    if (Array.isArray(json[key]) && json[key].length) {
-      await store.putMany(json[key]);
-    }
-  }
-}
+// ── `exportLocalBackup` / `importLocalBackup` ONT ÉTÉ RETIRÉES ─────────────
+//
+// Elles alimentaient l'onglet « Audit & Sauvegardes → Exporter une sauvegarde
+// complète », qui annonçait « toutes vos données locales » et énumérait NEUF
+// magasins IndexedDB, écrits à la main, sur les VINGT-NEUF que la base compte.
+// Ne partaient jamais, entre autres : `apc_notes` (toutes les notes du premier
+// cycle), `prim_notes` (tout le primaire APC), `mat_obs`, `staff`,
+// `class_fee_grids`, `academic_periods`, `school_units`, `signalements`. Une
+// école qui exportait, reformatait son poste et restaurait retrouvait ses élèves
+// — sans une seule note, sans personnel. Et l'import était asymétrique : la
+// fonction d'export écrivait `trash` et `audit_log`, celle d'import ne les
+// relisait pas, sa table de correspondance ne les contenant pas.
+//
+// La sauvegarde vit désormais dans Paramètres → Sauvegarde & restauration
+// (`src/lib/backupCore.js`, `backupEngine.js`, `backupService.js`,
+// `server/backup.js`, `supabase_backup_restore.sql`, cf. docs/BACKUP_RESTORE.md).
+// Elle ne tient AUCUNE liste de tables : à chaque export, les tables sont
+// découvertes dans le schéma réel — toute table portant `school_id` en fait
+// partie, en cloud comme en LAN. Un module ajouté demain y entre d'office.
+//
+// Ne pas les réintroduire ici : deux systèmes de sauvegarde aux couvertures
+// différentes, c'est la garantie qu'une école restaurera un jour le mauvais.
 
 export async function listAudit({ schoolId, limit = 500 } = {}) {
   let items = await auditDB.getAll();

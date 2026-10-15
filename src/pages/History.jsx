@@ -2,6 +2,7 @@
 // Toute la logique passe par historyService — pas d'accès direct à l'IDB ici.
 
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import HubTabs from '../components/hubs/HubTabs';
 import { useT } from '../lib/i18n';
@@ -12,7 +13,6 @@ import { useSchoolStore } from '../store/schoolStore';
 import {
   listTrash, purgeTrashItem, restoreFromTrash,
   listAudit, describeAction, TRASH_LABELS,
-  exportLocalBackup, importLocalBackup,
 } from '../lib/historyService';
 
 function formatDate(ts, lang) {
@@ -23,6 +23,7 @@ function formatDate(ts, lang) {
 
 export default function History() {
   const t        = useT();
+  const navigate = useNavigate();
   const lang     = useUiStore((s) => s.uiLang);
   const role     = useAuthStore((s) => s.role);
   const schoolId = useAuthStore((s) => s.school?.id);
@@ -65,29 +66,6 @@ export default function History() {
     if (!window.confirm(t('Supprimer définitivement ?', 'Permanently delete?', '¿Eliminar definitivamente?'))) return;
     await purgeTrashItem(item.id);
     refresh();
-  };
-
-  const handleExport = async () => {
-    const dump = await exportLocalBackup(schoolId);
-    const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `notescam-backup-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImport = async (file) => {
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const json = JSON.parse(text);
-      await importLocalBackup(json);
-      setMsg({ type: 'ok', text: t('Sauvegarde restaurée. Rafraîchissez la page.', 'Backup restored. Refresh the page.', 'Copia restaurada. Refresque la página.') });
-    } catch (err) {
-      setMsg({ type: 'err', text: err.message });
-    }
   };
 
   if (!auditOpenToAll && role !== 'admin' && !hasCapability(permissions, '/app/historique')) {
@@ -234,43 +212,59 @@ export default function History() {
     );
   }
 
+  // ── Renvoi vers l'UNIQUE système de sauvegarde ────────────────────────────
+  //
+  // CE QUI VIVAIT ICI, ET POURQUOI ON L'A RETIRÉ. Cet onglet proposait
+  // « Exporter une sauvegarde complète » et annonçait « toutes vos données
+  // locales ». L'export énumérait en réalité NEUF magasins, écrits à la main,
+  // sur les VINGT-NEUF que la base locale compte. Ne partaient jamais, entre
+  // autres : `apc_notes` (toutes les notes du premier cycle), `prim_notes`
+  // (tout le primaire APC), `mat_obs`, `staff`, `class_fee_grids`,
+  // `academic_periods`, `school_units`, `signalements`. Une école qui exportait,
+  // reformatait son poste et restaurait retrouvait ses élèves — sans une seule
+  // note. Silencieusement. À la restauration, l'asymétrie doublait la perte :
+  // l'export écrivait `trash` et `audit_log`, l'import ne les relisait pas.
+  //
+  // Paramètres → Sauvegarde & restauration fait désormais le travail, et le
+  // fait autrement : les tables sont DÉCOUVERTES dans le schéma réel (toute
+  // table portant `school_id`), en cloud comme en LAN. Un module ajouté demain
+  // y entre d'office — c'est précisément ce qu'une liste tenue à la main ne
+  // sait pas faire, et c'est pourquoi vingt magasins étaient restés dehors.
+  //
+  // On ne RÉPARE pas cet écran, on le retire : deux systèmes de sauvegarde aux
+  // couvertures différentes, c'est la garantie qu'une école restaurera un jour
+  // le mauvais. L'onglet survit en PANNEAU DE RENVOI plutôt qu'en page
+  // disparue : qui cherche ses sauvegardes ici doit être conduit au bon endroit,
+  // pas accueilli par une absence.
   function renderBackup() {
+    const ouvrirSauvegardes = () => {
+      // HubTabs retient l'onglet actif dans localStorage : on l'y pose avant de
+      // naviguer, pour atterrir directement sur le bon onglet des Paramètres.
+      try { localStorage.setItem('nc_settings_tab', 'backup'); } catch { /* sans effet */ }
+      navigate('/app/settings');
+    };
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
-          <div>
-            <h3 className="font-semibold text-gray-900 mb-1">
-              {t('Exporter une sauvegarde complète', 'Export full backup', 'Exportar copia completa')}
-            </h3>
-            <p className="text-sm text-gray-500 mb-3">
-              {t(
-                'Génère un fichier JSON contenant toutes vos données locales. Conservez-le en lieu sûr.',
-                'Generates a JSON file with all local data. Keep it in a safe place.',
-                'Genera un fichero JSON con todos los datos locales. Guárdelo a salvo.'
-              )}
-            </p>
-            <button onClick={handleExport} className="btn-primary !w-auto px-5">
-              {t('Exporter maintenant', 'Export now', 'Exportar ahora')}
-            </button>
-          </div>
-
-          <div className="border-t border-gray-100 pt-6">
-            <h3 className="font-semibold text-gray-900 mb-1">
-              {t('Restaurer une sauvegarde', 'Restore a backup', 'Restaurar copia')}
-            </h3>
-            <p className="text-sm text-gray-500 mb-3">
-              {t(
-                'Réinjecte les données contenues dans le fichier JSON (fusion, pas de suppression).',
-                'Reinserts the data from a JSON file (merge, no deletion).',
-                'Reintroduce los datos del fichero JSON (sin borrar nada).'
-              )}
-            </p>
-            <label className="btn-secondary !w-auto px-5 cursor-pointer inline-block">
-              {t('Choisir un fichier…', 'Choose a file…', 'Elegir un fichero…')}
-              <input type="file" accept="application/json" className="hidden"
-                     onChange={(e) => handleImport(e.target.files?.[0])} />
-            </label>
-          </div>
-        </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h3 className="font-semibold text-gray-900 mb-1">
+          {t('Les sauvegardes ont déménagé', 'Backups have moved', 'Las copias se han movido')}
+        </h3>
+        <p className="text-sm text-gray-500 mb-4">
+          {t(
+            'Sauvegarde automatique, export complet et restauration sont désormais dans Paramètres → Sauvegarde & restauration. Cette page couvrait moins d’un tiers de vos données : elle a été retirée pour qu’il n’existe qu’un seul endroit, et qu’il soit complet.',
+            'Automatic backup, full export and restore now live in Settings → Backup & restore. This page covered less than a third of your data: it was removed so that there is a single place, and it is complete.',
+            'La copia automática, la exportación completa y la restauración están ahora en Ajustes → Copias y restauración. Esta página cubría menos de un tercio de los datos.'
+          )}
+        </p>
+        {role === 'admin' ? (
+          <button onClick={ouvrirSauvegardes} className="btn-primary !w-auto px-5">
+            {t('Ouvrir Sauvegarde & restauration', 'Open Backup & restore', 'Abrir Copias y restauración')}
+          </button>
+        ) : (
+          <p className="text-xs text-gray-400">
+            {t('Accès réservé aux administrateurs.', 'Admin only.', 'Solo administradores.')}
+          </p>
+        )}
+      </div>
     );
   }
 }

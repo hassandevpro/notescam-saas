@@ -1,0 +1,459 @@
+========================================================================
+NotesCam 0.3.3 — Notice pour l'administrateur du serveur de l'école
+                 THE GENIUS
+========================================================================
+
+Cette version remplace la 0.2.9, installée le 26 septembre 2026.
+
+Le numéro saute de 0.2.9 à 0.3.3 : les versions Windows et Linux portent
+désormais le même numéro, puisqu'elles contiennent le même code. Il n'y a
+aucune version intermédiaire que vous auriez manquée.
+
+Elle apporte trois choses, détaillées plus bas :
+  1. le matricule des élèves de maternelle et de primaire s'attribue
+     tout seul ;
+  2. la fiche de l'élève gagne « Quartier de résidence » et « Ancien
+     établissement », et l'import/export des élèves transporte enfin la
+     totalité du dossier ;
+  3. la moyenne du carnet officiel de primaire s'exprime sur 20 au lieu
+     de 10 ;
+  4. un barème de notation modifié reste modifié — il ne retombe plus tout
+     seul sur le barème officiel ;
+  5. le bulletin classique tient sur UNE page ;
+  6. une matière ajoutée peut être classée (langues, sciences…) au lieu de
+     tomber dans « Autre ».
+
+CE QUI VOUS CONCERNE, CHEZ VOUS
+-------------------------------
+  OUI   Le point 1. Vos classes Class 1 à Class 6 sont reconnues comme
+        du primaire : leurs nouveaux élèves recevront un matricule
+        automatique. C'est le changement que votre secrétariat verra.
+        Vos classes FORM et vos classes bilingues ne sont PAS touchées.
+
+  OUI   Le point 2. Les deux nouveaux champs et l'import/export complet
+        valent pour tout l'établissement, toutes sections confondues.
+
+  OUI   Le point 3, et c'est le seul changement qui touche un document
+        IMPRIMÉ. Votre primaire est sur le carnet ministériel (Oral /
+        Écrit / Pratique / Savoir-être) : la moyenne générale de ce
+        carnet s'affiche aujourd'hui sur 10, elle s'affichera sur 20.
+        Un élève à 7,5/10 sera écrit 15/20.
+        LA COTE NE CHANGE POUR AUCUN ÉLÈVE — voir le point 3 détaillé,
+        c'est l'essentiel à retenir.
+        Votre secondaire reste sur le bulletin classique : ses bulletins
+        sont identiques, au chiffre près.
+
+  OUI   Le point 4, et il touche le travail quotidien de vos enseignants
+        du primaire : c'est leur écran de saisie par compétences (Oral /
+        Écrit / Pratique / Savoir-être) qui est concerné.
+
+  OUI   Les points 5 et 6. Le bulletin classique est celui de vos classes
+        FORM et bilingues : il cessera de déborder sur une 2e page. Et vos
+        matières locales (LMC, EFPS, Travaux Pratiques, langue nationale)
+        pourront enfin être classées.
+
+Aucune donnée scolaire n'est modifiée : ni élèves, ni notes, ni classes,
+ni frais, ni paie. Les mots de passe ne sont ni lus ni modifiés. Le
+rattachement de l'école au Cloud est conservé — aucun ré-appairage,
+aucun code à saisir.
+
+
+LISEZ D'ABORD CECI — UNE VÉRIFICATION AVANT D'INSTALLER
+--------------------------------------------------------
+
+Contrairement à toutes les versions précédentes, celle-ci AJOUTE TROIS
+COLONNES à la base de données : `quartier` et `ecole_origine` sur la table
+des élèves, et `category` sur celle des matières. C'est ce qui rend la
+vérification ci-dessous nécessaire.
+
+Si, et SEULEMENT si, votre serveur est en mode hybride (synchronisation
+continue avec le Cloud), le Cloud doit recevoir la même modification
+AVANT cette installation. Sans elle, chaque fiche élève envoyée au Cloud
+serait refusée, puis oubliée — sans aucun message à l'écran.
+
+Lancez ces deux commandes et envoyez le résultat à l'éditeur :
+
+        sudo sqlite3 /var/lib/notescam/data/notescam.db \
+          "SELECT value FROM app_settings WHERE key='cloud_sync';"
+
+        grep NOTESCAM_CLOUD_SYNC /etc/notescam/notescam.env
+
+  - Les deux ne renvoient RIEN, ou renvoient 0
+        -> votre serveur n'est pas en mode hybride. Vous pouvez
+           installer immédiatement, rien d'autre à faire.
+
+  - L'une des deux renvoie 1
+        -> N'INSTALLEZ PAS ENCORE. Prévenez l'éditeur : il a une
+           opération d'une minute à faire côté Cloud, après quoi il vous
+           dira de continuer.
+
+Si la commande `sqlite3` n'existe pas sur le serveur, ce n'est pas grave :
+envoyez seulement le résultat de la seconde, et dites-le à l'éditeur.
+
+Tant que vous y êtes, cette troisième commande confirme votre réglage de
+bulletins — celui qui explique pourquoi votre primaire est sur le carnet
+ministériel et votre secondaire sur le bulletin classique :
+
+        sudo sqlite3 /var/lib/notescam/data/notescam.db \
+          "SELECT name, bulletin_engine FROM schools;"
+
+Le résultat attendu est `apc_primaire` ou `minedub`. Avec l'un ou l'autre,
+vos classes Class 1 à Class 6 utilisent le carnet ministériel, et vos
+classes FORM et bilingues restent au bulletin classique : c'est bien ce
+que décrit le point 3.
+
+
+1. LE MATRICULE S'ATTRIBUE TOUT SEUL (maternelle et primaire)
+-------------------------------------------------------------
+
+C'est le changement que votre secrétariat verra en premier.
+
+Jusqu'ici, pour un élève de Class 1 à Class 6, il fallait inventer un
+matricule à la main. Désormais, dès qu'une classe de maternelle ou de
+primaire est choisie dans la fiche d'inscription, le matricule se remplit
+automatiquement, sous la forme :
+
+        P250001, P250002, P250003…      pour le primaire
+        M250001, M250002…               pour la maternelle
+
+soit : la lettre de la section, les deux chiffres de l'année scolaire,
+puis un numéro qui avance de 1 à chaque inscription. Le compteur repart à
+1 à chaque rentrée, et il est séparé entre maternelle et primaire.
+
+CE QUI N'EST PAS TOUCHÉ :
+  - le champ reste MODIFIABLE. Si vous tapez votre propre numéro, il est
+    conservé tel quel, le logiciel ne le remplace pas ;
+  - vos matricules EXISTANTS ne sont ni renommés ni renumérotés, quel que
+    soit leur format. La numérotation automatique démarre à côté ;
+  - les classes de Form et les classes bilingues du secondaire ne sont
+    PAS concernées : ces élèves arrivent avec un matricule d'examen ou
+    celui de leur ancien établissement, et le réécrire casserait le lien
+    avec leur dossier ;
+  - en MODIFICATION d'un élève déjà inscrit, rien n'est proposé — on ne
+    renumérote pas un élève par accident.
+
+À l'import d'une liste (fichier Excel ou CSV), les lignes de maternelle
+et de primaire sans matricule en reçoivent un, et l'écran affiche combien
+ont été attribués avant que vous validiez. Une ligne qui porte déjà un
+matricule n'est jamais touchée.
+
+ET VOS ÉLÈVES DÉJÀ INSCRITS ? Ils ne sont pas oubliés, mais ils ne sont
+pas servis automatiquement — attribuer des centaines de numéros sans
+prévenir serait une mauvaise idée. Un bouton apparaît dans l'écran
+Élèves :
+
+        « Attribuer les matricules manquants (N) »
+
+Le N est le nombre exact d'élèves concernés. Le bouton n'apparaît QUE
+s'il y a quelque chose à rattraper, et il demande confirmation en
+annonçant le compte par section et les premiers numéros avant d'écrire.
+
+Les numéros suivent l'ordre du REGISTRE : classe par classe, puis ordre
+alphabétique. Ce n'est pas l'ordre d'inscription dans le logiciel, c'est
+celui de votre liste d'appel. Relancer l'opération une seconde fois ne
+renumérote personne : elle ne sert plus à rien, et le bouton disparaît.
+
+Tout cela fonctionne SANS INTERNET : le numéro est calculé sur le serveur
+de l'école, à partir des élèves déjà inscrits.
+
+
+2. LA FICHE ÉLÈVE ET L'IMPORT/EXPORT
+-------------------------------------
+
+Deux informations nouvelles sur la fiche de l'élève :
+
+  - Quartier de résidence — le secteur seul (« Bastos »), séparé de
+    l'adresse. Il devient ainsi exploitable pour regrouper les élèves :
+    ramassage scolaire, visites à domicile, convocation des parents par
+    secteur. L'adresse complète reste dans son propre champ.
+
+  - Ancien établissement — l'école d'où vient l'élève. Le logiciel savait
+    qu'un élève était « transféré » sans savoir d'où il arrivait ;
+    l'information finissait dans l'adresse ou dans les notes de frais, où
+    rien ne pouvait s'en servir.
+
+Les deux sont optionnels. Les fiches existantes restent telles quelles,
+avec ces deux champs vides.
+
+CE QUI CHANGE AUSSI, et qui vous fera gagner du temps : l'import et
+l'export des élèves transportent maintenant la TOTALITÉ du dossier — lieu
+de naissance, adresse, quartier, les deux téléphones, père, mère, leurs
+professions, tuteur légal, ancien établissement, les deux statuts.
+
+Avant, l'export ne sortait que 9 colonnes sur 17, et un import venant
+d'un autre logiciel ne reprenait que 5 champs : tout le dossier familial
+était perdu en silence, à ressaisir élève par élève.
+
+Conséquence pratique : le fichier que vous exportez depuis l'écran Élèves
+se RÉIMPORTE maintenant tel quel. Vous pouvez donc exporter, corriger en
+masse dans Excel, puis réimporter. Une colonne absente de votre fichier
+n'efface rien : seules les colonnes présentes sont mises à jour.
+
+
+3. LA MOYENNE DU CARNET DE PRIMAIRE PASSE SUR 20
+-------------------------------------------------
+
+C'EST LE SEUL CHANGEMENT QUI TOUCHE UN DOCUMENT IMPRIMÉ CHEZ VOUS.
+
+Il porte sur le carnet MINISTÉRIEL du primaire — celui du référentiel
+MINEDUB, noté par compétences avec les quatre critères Oral, Écrit,
+Pratique et Savoir-être. C'est celui que vos classes Class 1 à Class 6
+utilisent. Vos classes FORM et bilingues, elles, sont sur le bulletin
+classique : leurs bulletins ne changent pas d'un caractère.
+
+CE QUI CHANGE, CONCRÈTEMENT. La moyenne générale de ce carnet s'affiche
+aujourd'hui sur 10. Elle s'affichera sur 20, comme partout ailleurs dans
+le système scolaire camerounais. Le libellé suit : « Moyenne générale
+/10 » devient « Moyenne générale /20 ». Un élève à 7,5/10 sera écrit
+15/20 ; un élève à 5/10 sera écrit 10/20.
+
+RIEN NE CHANGE AU FOND, et c'est l'essentiel à faire comprendre à vos
+enseignants. La moyenne est calculée en POURCENTAGE des points obtenus
+sur les points possibles, puis mise à l'échelle d'affichage : seul le
+nombre écrit double. En particulier :
+
+  - les NOTES SAISIES par les enseignants ne bougent pas. Vous continuez
+    à saisir Oral, Écrit, Pratique et Savoir-être exactement comme avant,
+    sur les mêmes barèmes de points ;
+  - la COTE — A+, A, ECA, NA — est IDENTIQUE, élève par élève. Elle
+    compare la moyenne au barème, donc le même rapport : 7,5 sur 10 et
+    15 sur 20, c'est le même 75 %. Aucun élève ne change de cote ;
+  - le classement et le taux de réussite ne bougent pas non plus, pour
+    la même raison.
+
+Autrement dit : si vous réimprimez un carnet déjà sorti, les appréciations
+et les cotes seront les mêmes, et seul le nombre de la moyenne aura
+doublé. Les carnets déjà distribués aux parents gardent leur sens.
+
+PRÉVENEZ VOS ENSEIGNANTS DU PRIMAIRE AVANT LA PREMIÈRE IMPRESSION. C'est
+le genre de changement qui fait croire à une erreur de calcul si personne
+n'a été averti.
+
+
+4. UN BARÈME MODIFIÉ RESTE MODIFIÉ
+----------------------------------
+
+C'est une correction, pas une nouveauté — et elle concerne directement vos
+enseignants du primaire.
+
+CE QUI SE PASSAIT. Dans l'écran de saisie par compétences, un enseignant
+peut changer le barème d'une colonne (Oral, Écrit, Pratique, Savoir-être)
+pour une compétence et une unité d'apprentissage données. S'il le faisait
+sur une colonne encore VIDE — c'est-à-dire AVANT de noter, ce qui est le
+geste naturel — le choix n'était retenu que le temps où l'écran restait
+ouvert. Dès qu'il changeait d'UA, quittait l'écran ou rechargeait la page,
+la colonne retombait au barème officiel du référentiel.
+
+LA CONSÉQUENCE, et c'est pour cela que ça compte : l'enseignant saisissait
+ensuite ses notes sur un barème qu'il n'avait pas choisi, sans rien voir
+d'anormal. Une note de 8 destinée à un /10 était enregistrée comme 8 sur
+le barème officiel.
+
+CE QUI CHANGE. Le barème est désormais enregistré dès qu'il est posé, même
+sur une colonne vide. Il est donc le même pour tout le monde, sur tous les
+postes, et il survit à un rechargement comme à une coupure de courant.
+
+CE QUI NE CHANGE PAS :
+  - les notes déjà saisies ne sont pas retouchées ;
+  - le refus de baisser un barème sous une note existante reste en place :
+    on ne transforme pas en silence un 18/20 en 18/10. L'enseignant
+    corrige d'abord les notes concernées, et le logiciel lui dit
+    lesquelles ;
+  - le barème peut toujours différer d'une UA à l'autre pour la même
+    colonne. C'est voulu : une évaluation n'a pas à peser comme la
+    précédente.
+
+Rien à faire de votre côté : la correction agit dès l'installation.
+
+
+5. LE BULLETIN CLASSIQUE TIENT SUR UNE PAGE
+-------------------------------------------
+
+CE QUI SE PASSAIT. Au-delà d'une dizaine de matières, le bas du bulletin
+classique — résultats, observations, signatures — partait sur une 2e page
+presque vide. Sur une classe de 22 élèves, cela fait 22 feuilles perdues
+par impression, et un bulletin qu'il faut agrafer pour qu'il reste entier.
+
+CE QUI CHANGE. Avant d'imprimer, chaque bulletin est mesuré et réduit
+juste ce qu'il faut pour tenir sur une page. La réduction s'arrête à un
+PLANCHER DE LISIBILITÉ : un bulletin trop chargé pour être réduit sans
+devenir illisible n'est PAS écrasé — il continue sur deux pages, et
+l'écran vous le signale après l'impression, en nommant la cause (trop de
+matières). Mieux vaut deux pages lisibles qu'une page qu'on ne peut plus
+lire.
+
+L'aperçu à l'écran n'est pas touché : seule la feuille qui part à
+l'imprimante est réduite.
+
+À VÉRIFIER CHEZ VOUS, parce que cela dépend du nombre de matières de vos
+classes : imprimez un bulletin d'une classe de FORM en aperçu avant de
+lancer une série. Voir l'étape 8 du contrôle ci-dessous.
+
+
+6. CLASSER UNE MATIÈRE À L'AJOUT
+---------------------------------
+
+CE QUI SE PASSAIT. La famille d'une matière (langues, sciences,
+littéraire, informatique, EPS) n'était enregistrée nulle part : elle était
+DEVINÉE à partir du nom, par une liste de mots-clés français et anglais.
+Une matière comme « LMC », « EFPS », « Travaux Pratiques » ou une langue
+nationale n'y figure pas : elle tombait donc dans « Autre » — grise dans
+l'emploi du temps, indistinguable d'une récréation — et il n'existait
+aucun moyen de corriger, puisque rien n'était stocké.
+
+CE QUI CHANGE. Dans Classes → Matières, chaque matière a maintenant une
+colonne « Classement ». À l'ajout d'une matière personnalisée, le choix
+est proposé dans la même ligne.
+
+L'option par défaut s'appelle « auto » et affiche entre parenthèses ce
+que la déduction donnerait — par exemple « auto (Autre) ». Vous voyez donc
+immédiatement quelles matières ont besoin que vous tranchiez.
+
+RIEN N'EST IMPOSÉ : toutes vos matières existantes restent en « auto » et
+se comportent exactement comme avant. Vous classez celles que vous voulez,
+quand vous voulez.
+
+
+CE QU'IL VOUS FAUT
+------------------
+  - Les 2 fichiers reçus :
+        notescam-linux-x64-0.3.3.tar.gz   (environ 51 Mo)
+        deploy-correctif-credentials.sh   (petit fichier texte)
+    Si vous avez encore le script d'une mise à jour précédente, il fait
+    le même travail : inutile d'en redemander un.
+  - Un accès au serveur Linux de l'école, avec les droits « sudo ».
+  - Environ 5 minutes. Le service sera indisponible ~1 minute.
+
+À faire de préférence en dehors des heures de saisie des notes.
+
+
+INSTALLATION — 4 COMMANDES
+--------------------------
+
+1) Placez-vous dans le dossier contenant les 2 fichiers :
+
+        cd ~
+
+2) Vérifiez qu'ils sont bien là :
+
+        ls -l notescam-linux-x64-0.3.3.tar.gz deploy-correctif-credentials.sh
+
+3) Préparez le script :
+
+        sed -i 's/\r$//' deploy-correctif-credentials.sh
+        chmod +x deploy-correctif-credentials.sh
+
+4) Lancez l'installation :
+
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.3.3.tar.gz
+
+   (Si NotesCam n'écoute pas sur le port 8080 — vérifiable avec
+    « grep PORT /etc/notescam/notescam.env » — utilisez plutôt :
+        sudo PORT=LE_PORT ./deploy-correctif-credentials.sh notescam-linux-x64-0.3.3.tar.gz )
+
+
+RÉSULTAT ATTENDU
+----------------
+Le script travaille environ 2 minutes, puis affiche un bloc « VERDICT ».
+
+  OK — « Toutes les vérifications locales sont PASS. »
+        -> C'est bon. Passez au contrôle de 30 secondes ci-dessous.
+
+  ÉCHEC — « N vérification(s) en échec »
+        -> N'allez pas plus loin, et ne changez aucun mot de passe.
+           Envoyez à l'éditeur le résultat de :
+
+              sudo journalctl -u notescam --since '-10 min' --no-pager | tail -50
+
+
+CONTRÔLE DE 30 SECONDES, À FAIRE VOUS-MÊME
+-------------------------------------------
+1) Ouvrez NotesCam depuis un poste de l'école.
+
+2) Allez dans Élèves, puis « Ajouter un élève ». Choisissez une classe de
+   primaire (Class 1 à Class 6).
+   -> Le champ Matricule doit se remplir seul, avec un numéro commençant
+      par P25, et la mention « Attribué automatiquement — modifiable »
+      doit apparaître juste en dessous.
+
+3) Dans la même fiche, vérifiez la présence des champs « Quartier de
+   résidence » et « Ancien établissement ».
+
+4) N'enregistrez pas cet élève de test : cliquez sur Annuler.
+
+5) Toujours dans Élèves, regardez la barre de boutons en haut.
+   -> Si certains de vos élèves de Class ou de maternelle n'ont pas de
+      matricule, le bouton « Attribuer les matricules manquants (N) »
+      doit être visible. Vous pouvez l'utiliser maintenant ou plus tard.
+   -> S'il n'apparaît pas, c'est que tous vos élèves du primaire et de la
+      maternelle ont déjà un matricule. C'est bon signe, pas une panne.
+
+6) Faites vérifier par un enseignant du primaire : dans son écran de
+   saisie, qu'il change le barème d'une colonne encore vide, qu'il quitte
+   l'écran, puis qu'il y revienne.
+   -> Le barème qu'il a posé doit toujours être là.
+
+7) Allez dans Classes, ouvrez une classe de FORM, section Matières.
+   -> Une colonne « Classement » doit apparaître, et chaque matière doit
+      afficher « auto (…) » tant que vous n'avez rien choisi.
+
+8) Toujours dans Bulletins, affichez un bulletin d'une classe de FORM et
+   lancez l'aperçu avant impression de votre navigateur (Ctrl+P).
+   -> Le bulletin doit tenir sur UNE page, signatures comprises.
+   -> S'il en occupe deux, un message doit apparaître à l'écran après
+      l'impression. Ce n'est pas une panne : la classe a trop de matières
+      pour que le bulletin soit réduit sans devenir illisible. Dites-le à
+      l'éditeur avec le nom de la classe.
+
+9) Allez dans Bulletins, choisissez une classe de Class 1 à Class 6 et
+   affichez l'aperçu d'un carnet.
+   -> La ligne doit dire « Moyenne générale /20 », et le nombre doit être
+      le double de ce que vous lisiez avant la mise à jour.
+   -> La cote (A+, A, ECA, NA) doit être la MÊME qu'avant. Si une cote a
+      changé, ne distribuez rien et prévenez l'éditeur : ce serait le
+      seul signe d'un vrai problème.
+
+Si l'une de ces vérifications échoue, le poste affiche peut-être une
+version en cache : faites Ctrl+Maj+R sur le poste, puis recommencez. Si
+cela ne suffit pas, prévenez l'éditeur.
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+La copie de la base est déposée automatiquement avant l'installation dans
+/var/lib/notescam/data/ :
+
+        notescam.db.avant-correctif-<horodatage>
+
+Pour revenir à la 0.2.9 (application seule, base conservée) :
+
+        sudo systemctl stop notescam
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.2.9.tar.gz
+
+ATTENTION, UNE DIFFÉRENCE AVEC LES MISES À JOUR PRÉCÉDENTES. Les notices
+antérieures pouvaient affirmer que le retour arrière était sans aucun
+effet, parce qu'elles n'ajoutaient ni table ni colonne. Celle-ci en
+ajoute trois. Revenir à la 0.2.9 reste SANS RISQUE pour vos données : les
+trois colonnes supplémentaires sont simplement ignorées par l'ancienne
+version, et rien n'est effacé. Mais les quartiers et anciens
+établissements saisis entre-temps — ainsi que le classement des matières —
+deviennent invisibles dans l'écran,
+jusqu'à ce que la 0.3.3 soit réinstallée — ils ne sont pas perdus, ils
+dorment dans la base.
+
+Les matricules attribués automatiquement, eux, restent visibles : ce sont
+des matricules ordinaires, dans la colonne qui existait déjà.
+
+Si, et SEULEMENT si, la base elle-même pose problème, restaurez la copie
+prise juste avant l'installation :
+
+        sudo systemctl stop notescam
+        sudo cp -a /var/lib/notescam/data/notescam.db.avant-correctif-<horodatage> \
+                   /var/lib/notescam/data/notescam.db
+        sudo systemctl start notescam
+
+ATTENTION : restaurer la base ANNULE aussi tout ce qui a été saisi depuis
+l'installation. Ne le faites pas de votre propre initiative — appelez
+l'éditeur d'abord.
+
+Ne supprimez jamais la copie de sûreté.

@@ -23,6 +23,7 @@ import { isSubjectScoped } from '../../lib/teacherScope';
 import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
+import GradeBundleIO from './GradeBundleIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import ReferentielEditor from './ReferentielEditor';
 import MobileEntryList from './MobileEntryList';
@@ -387,6 +388,12 @@ export default function MatObservationWorkspace() {
              'Level not recognized (expected PS/MS/GS) — domains remain editable.')}
         </div>
       )}
+
+      {/* Échange de notes entre postes : export global de TOUTES ses notes
+          (toutes classes, tous moteurs) et, pour un admin, import du fichier
+          d'un enseignant. La barre ci-dessous, elle, ne porte que la grille
+          affichée. */}
+      <GradeBundleIO />
 
       {classStudents.length > 0 && domaines.length > 0 && (
         <CompetenceGradeIO

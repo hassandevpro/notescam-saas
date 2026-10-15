@@ -46,10 +46,23 @@ export const useUiStore = create((set) => ({
   bulletinsPeriodKey: 'seq_1',
   bulletinsStudentId: '',
   bulletinsFormat:    'apc',
+  // Bulletin PRIMAIRE APC : disposition et orientation.
+  //   primLayout      'auto' | 'compact' | 'detail'
+  //     'auto' suit la période — une seule UA donne la vue compacte (carnet de
+  //     référence), un trimestre ou une année la vue détaillée par UA.
+  //   primOrientation 'portrait' | 'landscape'
+  //     Branché sur les profils d'impression du socle (`bulletin` / `large`).
+  // Comme le reste de cet écran, ces deux réglages vivent dans le store d'UI :
+  // ils suivent le poste, pas l'établissement. Un réglage par établissement
+  // demanderait une colonne `schools` et une migration de plus.
+  primLayout:         'auto',
+  primOrientation:    'portrait',
   setBulletinsClassId:   (v) => set({ bulletinsClassId: v }),
   setBulletinsPeriodKey: (v) => set({ bulletinsPeriodKey: v }),
   setBulletinsStudentId: (v) => set({ bulletinsStudentId: v }),
   setBulletinsFormat:    (v) => set({ bulletinsFormat: v }),
+  setPrimLayout:         (v) => set({ primLayout: v }),
+  setPrimOrientation:    (v) => set({ primOrientation: v }),
 
   // Grades page navigation — persisted across route changes
   gradesClassId:   '',

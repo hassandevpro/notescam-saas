@@ -25,6 +25,7 @@ import { syncHealth, hybridMode } from './syncHealth.js';
 import { attachViaPairing, pairingState } from './pairing.js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './cloudEnv.js';
 import { distEdition, wrongEditionPage } from './distEdition.js';
+import { filesPreHandler, issueFileToken, fileCookieHeader } from './fileAccess.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
@@ -77,7 +78,23 @@ app.post('/api/auth/login', (req, reply) => {
   // Clair disponible : on s'assure que le cloud a le MÊME mot de passe (fire-and-forget,
   // ne bloque jamais la connexion ; échec → file chiffrée rejouée plus tard).
   mirrorToCloud(row.id, row.email, password).catch(() => {});
+  // Cookie de lecture des fichiers : c'est le seul porteur qu'un `<img src>`
+  // transmette tout seul (cf. server/fileAccess.js). Posé systématiquement, même
+  // protection inactive, pour qu'activer NOTESCAM_PROTECT_FILES ne casse pas
+  // l'affichage des sessions déjà ouvertes.
+  reply.header('Set-Cookie', fileCookieHeader(issueFileToken(row.id)));
   return { data: { session: sessionFor(row), user: sessionFor(row).user }, error: null };
+});
+
+// Rétablit le cookie de fichiers d'une session DÉJÀ ouverte (rechargement de
+// page, session restaurée depuis sessionStorage, cookie expiré au bout de ses
+// 12 heures). Sans cette route, un utilisateur connecté avant l'activation de
+// la protection verrait ses photos disparaître jusqu'à sa prochaine connexion.
+app.get('/api/files/session', (req, reply) => {
+  const { userId } = authOf(req);
+  if (!userId) return reply.code(401).send({ error: { message: 'Non authentifié' } });
+  reply.header('Set-Cookie', fileCookieHeader(issueFileToken(userId)));
+  return { data: { ok: true }, error: null };
 });
 
 app.get('/api/auth/me', (req) => {
@@ -463,7 +480,11 @@ app.get('/api/sync/verify', async (req, reply) => {
     const { verifyIntegrity } = await import('./syncVerify.js');
     const { markVerification } = await import('./syncHealth.js');
     const { recordSyncAudit } = await import('./syncAudit.js');
-    const report = await verifyIntegrity();
+    // À LA DEMANDE : plafond levé (`maxScopes: 0`). Un administrateur qui
+    // déclenche un contrôle veut une localisation COMPLÈTE et accepte de la
+    // payer une fois. Le budget de 24 appels ne s'applique qu'aux cycles
+    // automatiques, qui se rejouent toutes les cinq minutes.
+    const report = await verifyIntegrity({ maxScopes: 0 });
     markVerification(report);
     recordSyncAudit({ kind: 'verify', ok: report.ok, actor: userId, ip: req.ip, tables: report.summary?.total, hash: report.globalChecksum?.lan, report, detail: { trigger: 'ondemand', mismatches: report.mismatches } });
     return { data: report, error: null };
@@ -510,6 +531,21 @@ app.get('/api/sync/health', async (req, reply) => {
 // vide. Échappatoire assumée : NOTESCAM_ALLOW_CLOUD_DIST=1 (diagnostic).
 const DIST_EDITION = distEdition(DIST_DIR);
 const DIST_BLOCKED = DIST_EDITION === 'cloud' && process.env.NOTESCAM_ALLOW_CLOUD_DIST !== '1';
+
+// AUTORISATION DE LECTURE DES FICHIERS (/files/) — voir server/fileAccess.js.
+//
+// Un seul crochet `onRequest`, plutôt qu'un `preHandler` par enregistrement de
+// `fastifyStatic` : le préfixe est servi depuis DEUX branches (dist bloqué et
+// dist normal), et le gestionnaire de route inconnue y répond aussi. Un crochet
+// global ne peut pas être oublié dans l'une des trois.
+//
+// Le contrôle de remontée de répertoire s'applique toujours ; l'exigence d'un
+// jeton n'est active que si NOTESCAM_PROTECT_FILES=1. Sans cette variable, le
+// comportement reste identique à aujourd'hui.
+app.addHook('onRequest', (req, reply, done) => {
+  if (!req.url.startsWith('/files/')) return done();
+  return filesPreHandler(req, reply, done);
+});
 
 if (DIST_BLOCKED) {
   // L'API reste servie (sauvegardes, mise à jour, diagnostic) ; seule la SPA est

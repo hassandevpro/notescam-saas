@@ -5,7 +5,7 @@
 // notamment dans les zones rurales ou avec une connexion intermittente. Les
 // entrées peuvent être synchronisées plus tard via le syncQueue si nécessaire.
 
-import { trashDB, auditDB, syncQueueDB } from './db';
+import { trashDB, auditDB, syncQueueDB, syncQuarantineDB } from './db';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 
@@ -80,6 +80,13 @@ export async function purgeTrashItem(id) {
 // Annule toute opération `delete` encore en file de sync pour cette ligne.
 // Sans cela, la suppression précédente (mise en file car elle avait échoué côté
 // cloud) serait rejouée au prochain flush et re-supprimerait l'élément restauré.
+//
+// C'est le SEUL endroit, hors du moteur de synchronisation, qui retire une
+// opération de la file — et l'opération retirée est une suppression que
+// l'utilisateur vient lui-même de révoquer en restaurant la ligne. Aucune
+// donnée saisie n'est donc perdue. L'intention annulée est tout de même copiée
+// en quarantaine : une suppression révoquée est une décision, et le registre
+// des écritures non transmises doit pouvoir en rendre compte.
 async function cancelQueuedDelete(table, rowId) {
   if (!table || !rowId) return;
   try {
@@ -87,6 +94,10 @@ async function cancelQueuedDelete(table, rowId) {
     let removed = 0;
     for (const op of queue) {
       if (op.table === table && op.operation === 'delete' && op.payload?.id === rowId) {
+        const { id, ...rest } = op;
+        try {
+          await syncQuarantineDB.push({ ...rest, queue_id: id, reason: 'annule_par_restauration' });
+        } catch { /* la trace est best-effort, l'annulation ne doit pas échouer */ }
         await syncQueueDB.delete(op.id);
         removed++;
       }

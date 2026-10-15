@@ -15,7 +15,10 @@ const DB_NAME = 'NotesCamDB';
 // Bump à 17 : magasin `bareme_notes` (surcharge de barème par niveau).
 // Bump à 18 : ce magasin est RETIRÉ — le barème est porté par la note elle-même
 //             (`prim_notes.points_max`, `apc_notes.note_max`), pas par le niveau.
-const DB_VERSION = 18;
+// Bump à 20 : magasin `syncQuarantine` — destination de toute écriture que la
+//             file ne parvient pas à transmettre. Rien n'y expire : c'est ce
+//             magasin qui remplace la suppression silencieuse par âge.
+const DB_VERSION = 20;
 
 let _db = null;
 
@@ -250,6 +253,27 @@ export async function initDB() {
       if (db.objectStoreNames.contains('bareme_notes')) {
         db.deleteObjectStore('bareme_notes');
       }
+
+      // --- v19 (Programme d'Éducation Bilingue Spécial, premier cycle) ---
+      // Cache du référentiel de l'arrêté 239-23 (séries/domaines/matières/
+      // serie_matieres). Un seul blob keyé 'referentiel', comme sc_ref. Magasin
+      // DISTINCT de sc_ref : les deux arrêtés ont leur propre cycle de vie.
+      if (!db.objectStoreNames.contains('bil_ref')) {
+        db.createObjectStore('bil_ref', { keyPath: 'id' });
+      }
+
+      // --- v20 (QUARANTAINE : une écriture non transmise ne doit JAMAIS être
+      //          détruite) ---
+      // `syncQueue` perdait ses éléments de plus de 48 h, sans trace et AVANT
+      // toute tentative d'envoi : des notes saisies vendredi soir hors ligne
+      // disparaissaient à l'ouverture du lundi matin. Ce magasin est la
+      // destination de tout ce que la file ne peut pas transmettre — il n'a
+      // aucune expiration et rien ne le vide automatiquement.
+      if (!db.objectStoreNames.contains('syncQuarantine')) {
+        const s = db.createObjectStore('syncQuarantine', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('by_table', 'table');
+        s.createIndex('by_reason', 'reason');
+      }
     };
 
     req.onsuccess = (e) => {
@@ -417,10 +441,32 @@ export const gradesDB = {
 export const syncQueueDB = {
   getAll: () => idbGetAll('syncQueue'),
   // op = { table, operation: 'upsert'|'delete', payload }
-  push: (op) => idbAdd('syncQueue', { ...op, timestamp: Date.now() }),
+  // `timestamp` est posé par défaut mais JAMAIS écrasé : un élément réinjecté
+  // depuis la quarantaine doit garder sa date de SAISIE, pas celle de sa
+  // réinjection — c'est cette date qui prouve quand l'enseignant a noté.
+  push: (op) => idbAdd('syncQueue', { timestamp: Date.now(), ...op }),
   // Empile plusieurs ops en une transaction (repli offline de l'import).
-  pushMany: (ops) => idbAddMany('syncQueue', ops.map((o) => ({ ...o, timestamp: Date.now() }))),
+  pushMany: (ops) => idbAddMany('syncQueue', ops.map((o) => ({ timestamp: Date.now(), ...o }))),
   delete: (id) => idbDelete('syncQueue', id),
+  // Réécrit un élément EN PLACE (même `id`) : sert à mémoriser le nombre de
+  // tentatives et la dernière erreur. Sans cette trace, « 48 h » était le seul
+  // critère disponible pour décider du sort d'un élément — un critère qui ne dit
+  // rien de la raison de l'échec.
+  update: (item) => idbPut('syncQueue', item),
+};
+
+// QUARANTAINE — tout ce que la file ne peut pas transmettre.
+//
+// Aucune expiration, aucun vidage automatique : c'est la contrepartie de la
+// suppression par âge qui faisait disparaître des notes. Un élément n'en sort
+// que sur action explicite (réinjection dans la file, ou purge demandée après
+// export). `movedAt` et `reason` servent au rapport remis à l'enseignant.
+export const syncQuarantineDB = {
+  getAll: () => idbGetAll('syncQuarantine'),
+  push: (item) => idbAdd('syncQuarantine', { ...item, movedAt: Date.now() }),
+  pushMany: (items) => idbAddMany('syncQuarantine', items.map((i) => ({ ...i, movedAt: Date.now() }))),
+  delete: (id) => idbDelete('syncQuarantine', id),
+  deleteMany: (ids) => idbDeleteMany('syncQuarantine', ids),
 };
 
 export const teachersDB = {
@@ -511,6 +557,12 @@ export const apcBulletinsDB = {
 export const scRefDB = {
   get: () => idbGet('sc_ref', 'referentiel'),
   put: (record) => idbPut('sc_ref', { ...record, id: 'referentiel' }),
+};
+
+// --- Moteur PROGRAMME BILINGUE SPECIAL (premier cycle) ---
+export const bilRefDB = {
+  get: () => idbGet('bil_ref', 'referentiel'),
+  put: (record) => idbPut('bil_ref', { ...record, id: 'referentiel' }),
 };
 
 // --- Moteurs FONDAMENTAL MINEDUB (maternelle + primaire APC) ---

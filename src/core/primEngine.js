@@ -120,6 +120,130 @@ export function competencePointsTotal(notesByCritere, criteres) {
     : { achieved: null, possible: null };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// TOTAUX EN POINTS — « Total obtenu : 177,83 / 240 ».
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// CE QUE CES FONCTIONS FONT, ET CE QU'ELLES NE FONT PAS.
+//
+// Elles calculent des TOTAUX DE POINTS : par compétence, par période, et le
+// total général d'un élève. Elles servent la ligne « Total obtenu » du carnet,
+// les totaux par compétence, et la mention « provisoire » (« sur 240 et non sur
+// 300 »).
+//
+// ELLES NE CALCULENT PAS LA MOYENNE GÉNÉRALE. Décision du 2026-10-12 : la
+// moyenne générale reste celle du bulletin APC primaire existant, c'est-à-dire
+// `generalAverage` — moyenne des compétences pondérée par coefficient. Elle ne
+// change pas.
+//
+// IL FAUT SAVOIR QUE LES DEUX LIGNES NE SE DÉDUISENT PAS L'UNE DE L'AUTRE.
+// Sur le carnet de référence, la moyenne est le total ramené à l'échelle :
+// 177,83 / 240 × 20 = 14,82. Avec `generalAverage`, les mêmes notes donnent
+// 15,08 / 20 — l'écart (0,26 point, mesuré sur un élève réel de Class 2 en
+// UA 1) vient des barèmes hétérogènes du référentiel : 1A est noté sur 40,
+// 3A sur 20, et la somme des points donne donc à 1A le double du poids que lui
+// accorde une moyenne à coefficients égaux.
+//
+// Autrement dit : « Total obtenu » et « Moyenne » sont deux lectures, pas un
+// calcul et son résultat. Ne pas « corriger » l'une pour la faire coller à
+// l'autre sans décision explicite — ce serait changer tous les bulletins.
+//
+// ── LA PART QUI N'EST PAS DANS LE CARNET DE RÉFÉRENCE ─────────────────────
+// Le carnet fourni ne couvre qu'UNE unité d'apprentissage. Il ne dit RIEN de
+// l'agrégation d'un trimestre (3 UA) ni d'une année (8 UA). Faute de règle
+// ministérielle écrite, on étend la règle du carnet de la façon la plus
+// directe : on somme les points obtenus et les barèmes de TOUTES les
+// évaluations réellement saisies dans la période. Le dénominateur reflète donc
+// ce qui a été évalué, exactement comme le « /240 au lieu de /300 » du carnet.
+//
+// CONSÉQUENCE ASSUMÉE : une UA plus densément évaluée pèse davantage dans le
+// trimestre. C'est cohérent avec une règle en points, mais ce n'est PAS une
+// règle ministérielle vérifiée — elle est isolée dans `pointsForPeriod` pour
+// être remplaçable sans toucher au reste.
+
+/**
+ * Points d'une compétence sur une PÉRIODE (une ou plusieurs UA).
+ *
+ * @param {Function} noteAt  (ua, critereId) => note | { note, max } | null
+ * @param {Array} criteres   [{ id, points_max }]
+ * @param {Array} uas        UA de la période, ex. [1,2,3]
+ * @returns {{ achieved: number|null, possible: number|null, uasNotees: number }}
+ */
+export function pointsForPeriod(noteAt, criteres, uas) {
+  let achieved = 0, possible = 0, uasNotees = 0;
+  for (const ua of uas || []) {
+    const parCritere = {};
+    for (const cr of criteres || []) parCritere[cr.id] = noteAt(ua, cr.id);
+    const t = competencePointsTotal(parCritere, criteres);
+    if (t.achieved === null) continue;
+    achieved += t.achieved;
+    possible += t.possible;
+    uasNotees += 1;
+  }
+  return uasNotees
+    ? { achieved: Math.round(achieved * 100) / 100, possible: Math.round(possible * 100) / 100, uasNotees }
+    : { achieved: null, possible: null, uasNotees: 0 };
+}
+
+/**
+ * Total GÉNÉRAL d'un élève : somme des points de ses compétences évaluées.
+ *
+ * Les compétences non évaluées sont exclues du numérateur ET du dénominateur —
+ * c'est le « total out of 240, not 300 » du carnet. Les compter 0 transformerait
+ * une compétence non encore enseignée en échec.
+ *
+ * @param {Array} rows  [{ achieved, possible }] — une entrée par compétence
+ * @returns {{ achieved, possible, pct, evaluees, nonEvaluees }}
+ */
+export function pointsOverall(rows) {
+  let achieved = 0, possible = 0, evaluees = 0, nonEvaluees = 0;
+  for (const r of rows || []) {
+    if (r?.achieved == null || !r?.possible) { nonEvaluees += 1; continue; }
+    achieved += Number(r.achieved);
+    possible += Number(r.possible);
+    evaluees += 1;
+  }
+  if (!evaluees) return { achieved: null, possible: null, pct: null, evaluees: 0, nonEvaluees };
+  return {
+    achieved: Math.round(achieved * 100) / 100,
+    possible: Math.round(possible * 100) / 100,
+    pct: Math.round((achieved / possible) * 10000) / 100,
+    evaluees,
+    nonEvaluees,
+  };
+}
+
+/**
+ * Un total de points ramené à l'échelle d'affichage : 177,83 / 240 → 14,82/20.
+ *
+ * ⚠ CE N'EST PAS LA MOYENNE GÉNÉRALE DU BULLETIN. Celle-ci reste
+ * `generalAverage` (décision du 2026-10-12). Cette fonction existe pour
+ * exprimer un total en points sur l'échelle /20 quand un écran le demande
+ * explicitement — jamais pour remplacer la moyenne générale en silence.
+ */
+export function pointsAverage(achieved, possible, gradeMax = PRIM_GRADE_MAX) {
+  const a = _num(achieved), p = _num(possible);
+  if (a === null || !p) return null;
+  return Math.round((a / p) * gradeMax * 100) / 100;
+}
+
+/**
+ * Barème TOTAL d'un niveau, toutes compétences confondues (300 chez Bright
+ * Continent). Sert à dire « sur 240 et non sur 300 » dans la mention
+ * « provisoire » : sans ce dénominateur théorique, l'école ne peut pas voir
+ * quelle part du programme reste à évaluer.
+ */
+export function niveauPointsTotal(referentiel, niveauSlug, competences, aptitude = 'apte') {
+  let total = 0;
+  for (const c of competences || []) {
+    for (const cr of criteresForCompetence(referentiel, niveauSlug, c.id, aptitude) || []) {
+      const m = Number(cr.points_max);
+      if (Number.isFinite(m) && m > 0) total += m;
+    }
+  }
+  return Math.round(total * 100) / 100;
+}
+
 // Compétences actives applicables à un niveau, triées par ordre. Par défaut TOUTES
 // (les 11 sont fixes) ; `niveauComp` permet des exceptions/surcharges de coef.
 export function competencesForNiveau(referentiel, niveauSlug) {

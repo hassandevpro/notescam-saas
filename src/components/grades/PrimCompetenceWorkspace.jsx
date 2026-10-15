@@ -40,6 +40,7 @@ import { withLibelles } from '../../lib/referentielEcole';
 import MobileEntryList from './MobileEntryList';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
+import GradeBundleIO from './GradeBundleIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 
 // ── Barème d'une colonne (une évaluation) ────────────────────────────────────
@@ -295,15 +296,38 @@ export default function PrimCompetenceWorkspace() {
       return;
     }
     setBaremeMsg(null);
+    // `pendingBareme` ne sert plus qu'à l'affichage IMMÉDIAT, le temps que les
+    // écritures ci-dessous arrivent. Ce n'est plus le seul domicile du barème.
     setPendingBareme((p) => ({ ...p, [`${competenceId}_${critereId}`]: nouveau }));
-    // Les notes déjà saisies suivent le nouveau barème de l'évaluation.
+
+    // ── LE BARÈME EST ÉCRIT POUR TOUTE LA COLONNE, PAS SEULEMENT POUR LES
+    //    ÉLÈVES DÉJÀ NOTÉS ───────────────────────────────────────────────────
+    //
+    // LE DÉFAUT QUE CECI CORRIGE : la boucle ne touchait que les élèves qui
+    // avaient déjà une note, parce que « le barème vit sur les notes ». Sur une
+    // colonne encore VIDE — le cas normal, puisqu'on règle le barème AVANT de
+    // noter — rien n'était écrit : le choix ne vivait que dans l'état React.
+    // L'enseignant posait /10, quittait l'écran ou changeait d'UA, revenait, et
+    // la colonne était retombée au barème officiel du référentiel. Il saisissait
+    // alors ses notes sur un barème qu'il n'avait pas choisi, sans le voir.
+    //
+    // On écrit donc une ligne pour CHAQUE élève de la classe, en conservant sa
+    // note actuelle (ou `null` s'il n'en a pas). Une ligne sans note persiste le
+    // barème sans rien affirmer sur l'élève, et le reste du produit l'ignore
+    // déjà : `competencePointsTotal` et `primAverageForCompetence` ne comptent
+    // que les notes non vides, et `indexPrimNotes` (progression de saisie)
+    // écarte explicitement `!filled(note)` — la colonne ne passera donc pas
+    // pour « saisie ».
+    //
+    // Aucune migration n'est nécessaire : `prim_notes.note` est nullable et
+    // `points_max` existe déjà, en LAN comme en cloud.
     for (const stu of classStudents) {
       const r = primNotes[primNkey(stu.id, competenceId, critereId, ua)];
-      if (r?.note != null && r.note !== '') {
-        savePrimNote({
-          eleveId: stu.id, competenceId, critereId, ua, note: r.note, pointsMax: nouveau,
-        });
-      }
+      savePrimNote({
+        eleveId: stu.id, competenceId, critereId, ua,
+        note: r?.note ?? null,
+        pointsMax: nouveau,
+      });
     }
   };
 
@@ -441,6 +465,12 @@ export default function PrimCompetenceWorkspace() {
           {baremeMsg.text}
         </div>
       )}
+
+      {/* Échange de notes entre postes : export global de TOUTES ses notes
+          (toutes classes, tous moteurs) et, pour un admin, import du fichier
+          d'un enseignant. La barre ci-dessous, elle, ne porte que la grille
+          affichée. */}
+      <GradeBundleIO />
 
       {niveauSlug && criteres.length > 0 && classStudents.length > 0 && (
         <CompetenceGradeIO

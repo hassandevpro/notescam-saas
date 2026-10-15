@@ -24,7 +24,11 @@ DefaultGroupName=NotesCam
 DisableProgramGroupPage=yes
 UninstallDisplayName=NotesCam (LAN)
 OutputDir=Output
+#ifdef SeedLabel
+OutputBaseFilename=NotesCam-Setup-{#SeedLabel}
+#else
 OutputBaseFilename=NotesCam-Setup
+#endif
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -53,6 +57,12 @@ Source: "{#StageDir}\uninstall-service.ps1"; DestDir: "{app}"; Flags: ignorevers
 Source: "{#StageDir}\update-notescam.ps1";  DestDir: "{app}"; Flags: ignoreversion
 ; Secours hors ligne : réinitialiser un mot de passe oublié (aucun e-mail en LAN).
 Source: "{#StageDir}\reinitialiser-mot-de-passe.cmd"; DestDir: "{app}"; Flags: ignoreversion
+; Pose la base embarquée au 1er démarrage — JAMAIS par-dessus une base existante.
+Source: "{#StageDir}\seed-data.ps1";        DestDir: "{app}"; Flags: ignoreversion
+#ifdef SeedLabel
+; Base d'établissement embarquée (installeur « {#SeedLabel} ») + ses fichiers.
+Source: "{#StageDir}\seed\*"; DestDir: "{app}\seed"; Flags: recursesubdirs createallsubdirs ignoreversion
+#endif
 
 [Icons]
 ; Raccourci = ouvrir l'app dans le navigateur (c'est une web-app servie en local)
@@ -65,6 +75,12 @@ Name: "{autodesktop}\NotesCam (LAN)"; Filename: "http://localhost:8080"; Tasks: 
 Name: "desktopicon"; Description: "Créer un raccourci sur le Bureau"; GroupDescription: "Raccourcis :"
 
 [Run]
+; 0) Pose la base d'établissement embarquée, SI ce PC n'en a pas déjà une.
+;    Sans données embarquées, le script ne fait rien. Doit passer AVANT le
+;    démarrage du serveur : au 1er lancement il créerait une base vide.
+Filename: "powershell.exe"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\seed-data.ps1"" -InstallDir ""{app}"""; \
+  StatusMsg: "Installation des données de l'établissement…"; Flags: runhidden waituntilterminated
 ; 1) Enregistre la tâche planifiée (boot, SYSTEM) + règle pare-feu + démarre
 Filename: "powershell.exe"; \
   Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-service.ps1"" -InstallDir ""{app}"""; \

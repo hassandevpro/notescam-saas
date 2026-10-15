@@ -57,7 +57,22 @@ export const REPORT_KIND = { NUMERIC: 'numeric', ACQUISITION: 'acquisition' };
 // appelants historiques. Elle était redéfinie en dur à deux endroits (ici et dans
 // Bulletins) : une correction n'en touchait qu'un, et l'écran se serait mis à
 // contredire le bulletin imprimé.
-export { PRIM_GRADE_MAX } from '../core/primEngine.js';
+//
+// IMPORT *ET* RE-EXPORT, et non le seul `export { X } from …`.
+//
+// LE DÉFAUT QUE CECI CORRIGE : `export { PRIM_GRADE_MAX } from '…'` rend bien le
+// nom disponible aux modules qui IMPORTENT celui-ci, mais ne l'introduit PAS
+// dans la portée locale — c'est une ré-exportation, pas une liaison. Or ce
+// fichier s'en sert comme d'une variable ordinaire trois fois plus bas
+// (`primAverageForCompetence`, `primReport`). Résultat : `ReferenceError:
+// PRIM_GRADE_MAX is not defined` dès qu'un rapport de classe du PRIMAIRE est
+// calculé — l'écran ne tombait pas en panne au chargement, il tombait au moment
+// précis où le directeur demandait le rapport d'une classe de SIL à CM2.
+// Les autres sections (maternelle, 1er/2nd cycle) ne passent pas par ces
+// lignes, ce qui explique que le défaut ait survécu : il ne se déclenche que
+// sur une partie des classes.
+import { PRIM_GRADE_MAX } from '../core/primEngine.js';
+export { PRIM_GRADE_MAX };
 
 const round2 = (n) => Math.round(n * 100) / 100;
 const num = (v) => {

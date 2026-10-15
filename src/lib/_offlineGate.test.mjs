@@ -38,7 +38,16 @@ const rel = (p) => p.replace(SRC, 'src').replace(/\\/g, '/');
 {
   const guilty = walk(SRC).filter((p) => {
     if (/[\\/]lib[\\/]edition\.js$/.test(p)) return false;      // la source unique
-    if (/_offlineGate\.test\.mjs$/.test(p)) return false;       // ce fichier
+    // Les TESTS et leurs chargeurs sont hors périmètre, pas seulement celui-ci.
+    //
+    // POURQUOI : un test qui vérifie cette règle doit forcément NOMMER ce
+    // qu'elle interdit. N'exclure que `_offlineGate.test.mjs` suffisait tant
+    // qu'il était seul ; depuis que `components/_syncGuards.test.mjs` contrôle
+    // le même invariant, les deux s'accusaient MUTUELLEMENT — chacun voyait
+    // l'autre comme fautif, et deux tests rouges masquaient le vrai signal.
+    // L'exclusion ne desserre rien : ces fichiers ne sont jamais compilés dans
+    // le bundle, et l'invariant porte sur ce qui est LIVRÉ.
+    if (/[\\/]_[^\\/]*\.(test|hooks)\.mjs$/.test(p)) return false;
     return /navigator\.onLine/.test(stripComments(readFileSync(p, 'utf8')));
   });
   ok(guilty.length === 0,

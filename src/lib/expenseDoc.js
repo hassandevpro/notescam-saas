@@ -4,6 +4,15 @@
 // S'appuie sur le socle lib/printDoc (window.print, offline). Aucune donnée réseau.
 import { openPrintDocument, docRef, esc } from './printDoc.js';
 import { EXPENSE_STATUS_UI } from '../components/expenses/expenseUi.js';
+import { categoryLabel, subcategoryLabel } from './expenseCategories.js';
+
+// « Objet » d'une dépense = catégorie — sous-catégorie, en libellés lisibles.
+// Les deux champs stockent une CLÉ du référentiel ; une valeur hors référentiel
+// (saisie libre, ou antérieure au référentiel) est imprimée telle quelle.
+const objetDe = (tr, expense) => [
+  expense?.category ? (categoryLabel(expense.category) ? tr(...categoryLabel(expense.category)) : expense.category) : '',
+  expense?.subcategory ? (subcategoryLabel(expense.subcategory) ? tr(...subcategoryLabel(expense.subcategory)) : expense.subcategory) : '',
+].filter(Boolean).join(' — ');
 
 const yearOf = (dateStr, school) =>
   String(dateStr || '').slice(0, 4) || String(school?.current_year || '').slice(0, 4) || String(new Date().getFullYear());
@@ -21,7 +30,7 @@ export function printExpenseVoucher(expense, { school, t, money, chapterPath, se
   const ref = docRef('BD', yearOf(expense?.expense_date, school), expense?.id);
   const row = (k, v) => v ? `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
 
-  const objet = [expense?.category, expense?.subcategory].filter(Boolean).join(' — ');
+  const objet = objetDe(tr, expense);
   const bodyHtml = `
     <div class="box avoid-break" style="display:flex;justify-content:space-between;align-items:center;gap:16px">
       <div>
@@ -72,7 +81,7 @@ export function printExpenseList(rows, { school, t, money, budget, chapterLabel,
       <tr class="${i % 2 === 0 ? 'even' : ''}">
         <td class="center">${esc(e.expense_date || '—')}</td>
         <td>${esc(label(e.budget_chapter_id))}</td>
-        <td>${esc([e.category, e.subcategory].filter(Boolean).join(' — ') || '—')}</td>
+        <td>${esc(objetDe(tr, e) || '—')}</td>
         <td>${esc(e.supplier || '—')}</td>
         <td class="num">${esc(money(e.amount))}</td>
         <td>${esc(statusLabel(tr, e.status))}</td>

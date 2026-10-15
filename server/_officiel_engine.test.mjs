@@ -21,7 +21,13 @@ const T = { op: 'eq', col: 'actif', val: true };
 
 // ── 1) Référentiel seedé ─────────────────────────────────────────────────────
 ok(rows('apc_matieres').length >= 20,          'APC : matières seedées', rows('apc_matieres').length);
-ok(rows('apc_classes').length === 4,           'APC : 4 classes (6e–3e)', rows('apc_classes').length);
+// apc_classes porte les DEUX sous-systèmes du premier cycle depuis b0edb5a :
+// 6e–3e (francophone) + Form 1–5 (anglophone). L'assertion « === 4 » datait de
+// 576d27f, quand seul le francophone était seedé. On vérifie les deux listes
+// nommément plutôt qu'un total : un total ne dit pas QUELLE classe a disparu.
+const classesApc = rows('apc_classes').map((c) => c.id).sort();
+ok(classesApc.join(',') === '3e,4e,5e,6e,form1,form2,form3,form4,form5',
+   'APC : 6e–3e + Form 1–5 seedées', classesApc.join(','));
 const comps = rows('apc_competences', [T]);
 ok(comps.length > 400,                          'APC : compétences actives chargées', comps.length);
 ok(rows('apc_referentiel_versions', [T]).length === 1, 'APC : une version active', rows('apc_referentiel_versions', [T]).length);
@@ -69,10 +75,12 @@ must({ table: 'mat_observations', action: 'insert', values: {
 } });
 ok(rows('mat_observations').length === 1, 'Maternelle : observation persistée', rows('mat_observations').length);
 
-// prim_note (compétence + critère + trimestre seedés).
+// prim_note (compétence + critère + unité d'apprentissage seedés).
+// Le primaire est découpé en UA, pas en trimestres : `trimestre_id` n'existe pas
+// sur prim_notes (pickColumns l'avalait en silence) et `ua` est NOT NULL.
 must({ table: 'prim_notes', action: 'insert', values: {
   id: 'pn1', school_id: 'sch1', eleve_id: 'stu1', competence_id: '1a',
-  critere_id: 'oral', trimestre_id: 't1', note: 8,
+  critere_id: 'oral', ua: 1, note: 8,
 } });
 ok(rows('prim_notes').length === 1, 'Primaire : note critère persistée', rows('prim_notes').length);
 

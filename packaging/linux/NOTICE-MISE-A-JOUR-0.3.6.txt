@@ -1,0 +1,201 @@
+========================================================================
+NotesCam 0.3.6 — Notice pour l'administrateur du serveur de l'école
+                 THE GENIUS
+========================================================================
+
+Cette version corrige UNE SEULE chose, mais c'est la plus grave que nous
+ayons rencontrée : des notes saisies par les enseignants pouvaient
+disparaître.
+
+Elle remplace la version actuellement installée chez vous. Pour savoir
+laquelle c'est, sur le serveur :
+
+    curl -s http://localhost:8080/api/version
+
+Si vous êtes en 0.3.3 ou en 0.3.4, cette mise à jour s'applique
+directement : il n'y a aucune version intermédiaire à passer avant.
+
+
+CE QUI SE PASSAIT, ET POURQUOI
+------------------------------
+Quand un enseignant saisissait des notes alors que le serveur de l'école
+n'était pas joignable — poste éteint, réseau coupé, session expirée — ses
+notes étaient mises en attente dans son navigateur, et l'écran affichait
+bien « en attente ».
+
+Mais l'application supprimait toute saisie en attente de plus de
+48 heures. Et elle le faisait AU DÉMARRAGE, AVANT même d'essayer de
+l'envoyer.
+
+Conséquence : des notes saisies le vendredi soir, sur un poste sans
+réseau, étaient détruites à l'ouverture du lundi matin. Elles n'avaient
+jamais été envoyées une seule fois. Aucun message ne le signalait, ni à
+l'enseignant, ni au directeur.
+
+C'est ce que vos enseignants décrivaient en disant que les notes
+« restaient le soir et n'étaient plus là le lendemain ». Ce n'était pas
+un problème de synchronisation avec le cloud, et ce n'était pas une
+erreur de leur part.
+
+
+CE QUE LA 0.3.6 CHANGE
+----------------------
+Une saisie qui n'est pas arrivée au serveur n'est désormais JAMAIS
+supprimée. Trois changements :
+
+  1. L'application essaie d'abord d'envoyer. Elle n'écarte plus rien
+     avant d'avoir essayé. L'âge d'une saisie ne la condamne plus :
+     une note de trois semaines faite sur un poste hors réseau est
+     parfaitement valide, et elle partira.
+
+  2. Une saisie que le serveur refuse reste conservée sur le poste, avec
+     la raison du refus, et reste visible. Avant, elle disparaissait.
+
+  3. Le bouton qui « vidait la file d'attente » ne détruit plus rien. Il
+     s'appelle maintenant « Mettre de côté (réversible) » : il télécharge
+     d'abord une copie des saisies, demande confirmation, puis les met de
+     côté sans les supprimer. Un administrateur peut tout remettre en
+     file.
+
+Un nouveau bouton apparaît aussi : « Télécharger la preuve des saisies ».
+Il produit un fichier contenant tout ce qui n'est pas arrivé au serveur.
+C'est de lui que parle la section suivante.
+
+
+À FAIRE APRÈS L'INSTALLATION — IMPORTANT
+----------------------------------------
+Cette mise à jour arrête les pertes à venir. Elle ne dit pas, à elle
+seule, s'il reste des notes bloquées aujourd'hui sur les postes de vos
+enseignants. C'est à vous de le relever, et c'est urgent : tant qu'une
+saisie est bloquée dans un navigateur, elle n'est nulle part ailleurs.
+
+Sur CHAQUE poste d'enseignant qui a saisi des notes :
+
+  1. Ouvrez NotesCam sur le poste, avec le compte de l'enseignant.
+  2. En haut de l'écran, cliquez sur l'indicateur de synchronisation
+     (il affiche « N en attente », « échecs sync », ou « Synchronisé »).
+  3. Cliquez sur « Télécharger la preuve des saisies ».
+  4. Conservez le fichier .json obtenu, en notant de quel poste et de
+     quel enseignant il vient, et transmettez-le à l'éditeur.
+
+Faites-le AVANT toute autre manipulation sur ces postes, et en
+particulier avant de vider le cache d'un navigateur ou de réinstaller
+quoi que ce soit.
+
+Si l'indicateur affiche « Synchronisé » et qu'aucun bouton n'apparaît,
+c'est que ce poste n'a rien en attente : notez-le et passez au suivant.
+
+Ce bouton n'existe qu'à partir de cette version. Il est inutile de le
+chercher avant d'avoir installé la mise à jour.
+
+
+CE QUE CETTE MISE À JOUR NE FAIT PAS
+------------------------------------
+Elle ne retrouve PAS les notes déjà détruites. Celles-là sont perdues, et
+nous préférons vous le dire franchement plutôt que de vous laisser
+l'espérer.
+
+Les sauvegardes automatiques du serveur ne permettent pas davantage de
+les récupérer : elles sont prises toutes les deux heures et seules les
+14 dernières sont conservées, ce qui couvre un peu plus d'une seule
+journée. Une perte constatée le lundi pour une saisie du vendredi n'y est
+plus.
+
+Si des notes anciennes manquent dans vos bulletins, il faudra les
+ressaisir. Signalez-le à l'éditeur en joignant les fichiers de preuve :
+ils diront exactement ce qui est encore récupérable.
+
+
+CE QUI N'EST PAS TOUCHÉ
+-----------------------
+  - Aucune donnée scolaire n'est modifiée : ni élèves, ni notes, ni
+    classes, ni frais, ni paiements.
+  - Le dossier de données /var/lib/notescam/data n'est PAS touché par
+    l'installation. Le script remplace uniquement le programme, dans
+    /opt/notescam.
+  - La configuration /etc/notescam/notescam.env est conservée telle
+    quelle : même port, même dossier de données.
+  - Le rattachement de l'école au cloud est conservé. Aucun nouvel
+    appairage, aucun code à saisir.
+  - Les comptes et les mots de passe ne sont ni lus ni modifiés.
+  - Aucune migration de base de données n'est nécessaire, ni sur votre
+    serveur ni dans le cloud. Rien n'est à faire du côté de l'éditeur.
+
+
+AVANT D'INSTALLER
+-----------------
+Bien que le dossier de données ne soit pas touché, prenez une sauvegarde
+depuis l'application : Paramètres, puis la section Sauvegarde, puis
+« Sauvegarder maintenant ». Cela prend quelques secondes et ne coûte
+rien.
+
+Choisissez un moment hors des heures de saisie des notes. Le service sera
+indisponible une à deux minutes.
+
+
+INSTALLATION
+------------
+Copiez l'archive sur le serveur, puis :
+
+    tar xzf notescam-linux-x64-0.3.6.tar.gz
+    cd notescam-linux-x64
+    sudo ./install.sh
+
+Ne passez PAS de numéro de port à la commande : le port actuel est lu
+dans la configuration existante et conservé.
+
+Le script arrête le service, remplace le programme, puis redémarre le
+service et vérifie qu'il répond. S'il échoue, il s'arrête et affiche la
+raison ; l'installation reste alors en l'état.
+
+
+RÉSULTAT ATTENDU
+----------------
+À la fin, le script affiche :
+
+    [OK] NotesCam démarré et actif au boot.
+      Local  : http://localhost:8080
+      Réseau : http://<adresse-ip>:8080
+
+Vérifiez ensuite la version :
+
+    curl -s http://localhost:8080/api/version
+
+Elle doit annoncer 0.3.6.
+
+Puis, sur un poste d'enseignant : ouvrez NotesCam et cliquez sur
+l'indicateur de synchronisation en haut de l'écran. Le bouton
+« Télécharger la preuve des saisies » doit apparaître.
+
+
+SUR LES POSTES DES ENSEIGNANTS
+------------------------------
+Chaque navigateur récupère la nouvelle interface tout seul, au premier
+chargement de la page. Si un enseignant voit encore l'ancien écran,
+qu'il recharge la page une fois (Ctrl+F5), ou qu'il ferme et réouvre son
+navigateur.
+
+Au premier chargement, le navigateur met à jour son stockage local pour
+accueillir les saisies mises de côté. C'est automatique et sans perte ;
+cela peut prendre une seconde de plus que d'habitude.
+
+Ne videz pas le cache d'un navigateur avant d'avoir relevé la preuve des
+saisies (section plus haut). Vider le cache détruirait précisément ce que
+nous cherchons à récupérer.
+
+
+SI ÇA ÉCHOUE
+------------
+Le service ne redémarre pas :
+
+    journalctl -u notescam -e
+
+Faites une photo ou copiez les dernières lignes et envoyez-les à
+l'éditeur.
+
+Pour revenir à la version précédente, réinstallez simplement son archive
+de la même façon (tar xzf, puis sudo ./install.sh). Le dossier de données
+n'étant jamais touché, aucune donnée n'est perdue dans l'opération.
+
+N'entreprenez aucune autre réparation de vous-même, et ne restaurez pas
+une sauvegarde de la base sans en parler à l'éditeur.

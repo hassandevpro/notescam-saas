@@ -19,6 +19,13 @@ const STUBS = {
           return {
             getPublicUrl(path) {
               globalThis.__assetCalls.push({ kind: 'getPublicUrl', bucket, path });
+              // __assetLan = reproduit localClient.storageFrom (édition LAN) :
+              // les fichiers sont servis sur la MÊME ORIGINE que la SPA, donc
+              // l'URL rendue est RELATIVE. C'est la forme qui a révélé le
+              // double préfixe ; le test doit pouvoir l'exercer telle quelle.
+              if (globalThis.__assetLan) {
+                return { data: { publicUrl: '/files/' + bucket + '/' + path } };
+              }
               return { data: { publicUrl: 'https://exemple.supabase.co/storage/v1/object/public/' + bucket + '/' + path } };
             },
             async createSignedUrl(path, ttl) {

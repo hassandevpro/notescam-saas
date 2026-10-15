@@ -158,6 +158,12 @@ function rawRowsToStudents(raw) {
     ['lieu', 'lugar', 'place']);
   const lieuIdx      = col(['lieunaissance', 'lugarnacimiento', 'placeofbirth', 'lieu_naissance', 'birthplace', 'lieu']);
   const adresseIdx   = col(['adresse', 'direccion', 'address']);
+  // Quartier de résidence — colonne À PART de l'adresse : c'est le secteur, et
+  // il doit rester groupable (ramassage scolaire, visites, convocations).
+  // `quartier` n'apparaît dans aucun candidat d'`adresse`, et réciproquement :
+  // les deux colonnes d'un même fichier ne se volent pas.
+  const quartierIdx  = col(['quartierresidence', 'quartierderesidence', 'quartier',
+    'neighbourhood', 'neighborhood', 'barrio', 'district']);
   const phoneIdx     = col(['telephone', 'telefono', 'téléphone', 'tel', 'phone', 'parent_phone']);
   const urgenceIdx   = col(['contacturgence', 'contactoemergencia', 'emergencycontact', 'contact_urgence', 'urgence', 'emergency']);
   const pereNomIdx   = col(['nompere', 'nombrepadre', 'fathername', 'nom_pere', 'father', 'padre', 'pere']);
@@ -166,7 +172,40 @@ function rawRowsToStudents(raw) {
   const mereProfIdx  = col(['professionmere', 'profesionmadre', 'motherjob', 'profession_mere']);
   const tuteurIdx    = col(['tuteur', 'tutor', 'guardian']);
   const classeIdx    = col(['classe', 'clase', 'class', 'classname', 'class_name']);
-  const statutIdx    = col(['statut', 'estado', 'status', 'inscription', 'type_eleve', 'typeeleve']);
+  // Les DEUX statuts sont indépendants (cf. Students.jsx) et se piègent l'un
+  // l'autre à la recherche approximative :
+  //   • `statut`               = dans la classe  (nouveau/redoublant/transféré) ;
+  //   • `statut_etablissement` = dans l'école    (nouveau/ancien) → frais d'inscription.
+  // « Statut établissement » CONTIENT « statut », et l'en-tête anglais
+  // « schoolStatus » contient « status ». Un fichier qui ne porte QUE la colonne
+  // établissement voyait donc `statutIdx` la capturer, et le statut de classe
+  // recevait « ancien » — valeur que `normalizeStatut` rejette, donc un champ
+  // présent mais VIDE, qui écrase le statut déjà enregistré au réimport. On
+  // écarte explicitement les en-têtes d'établissement du statut de classe.
+  // Pas de candidat « etablissement » seul : il se retrouverait dans
+  // « Établissement d'origine », et le statut lirait un nom d'école — que
+  // `normalizeStatutEtab` rejette, donc un champ vide qui écrase. Les candidats
+  // portent tous le mot « statut/status/estado », et `origine` est écarté.
+  const statutEtabIdx = col(['statutetablissement', 'statut_etablissement', 'statutetab',
+    'statutecole', 'schoolstatus', 'statusschool', 'estadoescuela', 'estadocentro'],
+    ['origine', 'origen', 'provenance']);
+  const statutIdx    = col(['statut', 'estado', 'status', 'inscription', 'type_eleve', 'typeeleve'],
+    ['etablissement', 'etab', 'school', 'escuela', 'centro']);
+  // École d'origine : d'où vient l'élève. `pays`/`country` sont écartés, sinon
+  // le candidat « origine » capture une colonne « Pays d'origine ».
+  // Ancien établissement / école d'origine. Les écoles disent les deux, d'où les
+  // deux familles de candidats. `pays`/`country` sont écartés, sinon le candidat
+  // générique « origine » capture une colonne « Pays d'origine ».
+  const ecoleOrigIdx = col(['ancienetablissement', 'ancienneecole', 'etablissementprecedent',
+    'ecoleprecedente', 'ecoleorigine', 'ecoledorigine', 'etablissementorigine',
+    'ecoleprovenance', 'schoolorigin', 'originschool', 'previousschool', 'formerschool',
+    'escuelaorigen', 'centroorigen', 'escuelaanterior', 'provenance', 'origine', 'origen'],
+    ['pays', 'country', 'pais']);
+  // Aptitude sportive (barème EPS du carnet MINEDUB primaire, compétence 6A).
+  // Reconnue à l'import pour que le fichier EXPORTÉ par l'écran Élèves se
+  // réimporte complètement, sans perdre cette colonne au passage.
+  const aptitudeIdx  = col(['aptitudesportive', 'sportaptitude', 'sportfitness',
+    'aptitudfisica', 'aptitude', 'eps']);
 
   if (prenomIdx === -1 && nomIdx === -1) {
     return { rows: [], error: msg('noStudentCols') };
@@ -201,6 +240,19 @@ function rawRowsToStudents(raw) {
         tuteur:           str(tuteurIdx),
         class_name:       str(classeIdx),
         statut:           statutIdx >= 0 ? normalizeStatut(str(statutIdx)) : '',
+        // Les champs AJOUTÉS sont omis quand le fichier n'a pas la colonne,
+        // au lieu d'être posés à ''. Un champ présent-mais-vide est converti en
+        // NULL par `sanitizeStudent` et ÉCRASE la valeur enregistrée : réimporter
+        // un ancien fichier d'inscription (ce que recommande la notice 0.2.5)
+        // effacerait donc ce que le secrétariat a saisi à la main entre-temps.
+        ...(quartierIdx   >= 0 ? { quartier: str(quartierIdx) } : {}),
+        ...(ecoleOrigIdx  >= 0 ? { ecole_origine: str(ecoleOrigIdx) } : {}),
+        ...(statutEtabIdx >= 0 ? { statut_etablissement: normalizeStatutEtab(str(statutEtabIdx)) } : {}),
+        // `sport_aptitude` est NOT NULL en base : on ne pose la clé que si la
+        // colonne existe ET donne une valeur reconnue.
+        ...(aptitudeIdx >= 0 && normalizeAptitude(str(aptitudeIdx))
+          ? { sport_aptitude: normalizeAptitude(str(aptitudeIdx)) }
+          : {}),
       };
     })
     .filter((r) => r.name);
@@ -213,6 +265,35 @@ function normalizeStatut(val) {
   if (['n', 'nouveau', 'new', 'nouvelle', 'nuevo', 'nueva', '0', 'non'].includes(v)) return 'nouveau';
   if (['r', 'redoublant', 'redoublante', 'repeating', 'repetidor', 'repetidora', 'repite', '1', 'oui', 'red'].includes(v)) return 'redoublant';
   if (['t', 'transfere', 'transféré', 'transfer', 'transfert', 'transferido', 'transferida', 'trasladado', 'mutation'].includes(v)) return 'transfere';
+  return '';
+}
+
+// Statut DANS L'ÉTABLISSEMENT (nouveau/ancien) — pilote les frais d'inscription
+// (cf. `inscriptionApplies`). Distinct du statut de classe : un élève peut être
+// « nouveau dans l'établissement » ET « redoublant ».
+//
+// « redoublant » et « transféré » n'ont PAS d'équivalent ici : un redoublant est
+// par définition un ancien, un transféré un nouveau. On les traduit donc plutôt
+// que de rendre '' — c'est l'information que l'école a écrite, et la facturation
+// de l'inscription en dépend.
+function normalizeStatutEtab(val) {
+  const v = String(val ?? '').trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (['n', 'nouveau', 'nouvelle', 'new', 'nuevo', 'nueva',
+       't', 'transfere', 'transfer', 'transfert', 'transferido', 'trasladado'].includes(v)) return 'nouveau';
+  if (['a', 'ancien', 'ancienne', 'old', 'existing', 'returning', 'antiguo', 'antigua',
+       'r', 'redoublant', 'redoublante', 'repeating', 'repetidor'].includes(v)) return 'ancien';
+  return '';
+}
+
+// Aptitude sportive : 'apte' | 'inapte' (colonne NOT NULL DEFAULT 'apte').
+// Rend '' si la valeur n'est pas reconnue — l'appelant n'écrit alors rien,
+// plutôt que de déclarer inapte un élève sur un libellé mal lu.
+function normalizeAptitude(val) {
+  const v = String(val ?? '').trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (['inapte', 'unfit', 'no apto', 'noapto', 'inapta', 'dispense', 'dispensee', 'exempt'].includes(v)) return 'inapte';
+  if (['apte', 'fit', 'apto', 'apta', 'oui', 'yes', 'si'].includes(v)) return 'apte';
   return '';
 }
 
@@ -492,13 +573,16 @@ const STUDENT_TEMPLATE = {
     sheet:    'Modèle élèves',
     rows: [
       ['matricule', 'prenom', 'nom', 'dateNaissance', 'lieuNaissance',
-       'sexe', 'statut', 'adresse', 'telephone', 'contactUrgence',
+       'sexe', 'statut', 'statutEtablissement', 'ancienEtablissement',
+       'quartier', 'adresse', 'telephone', 'contactUrgence',
        'nomPere', 'professionPere', 'nomMere', 'professionMere', 'tuteur', 'classe'],
       ['s260001', 'Jean', 'DUPONT', '2015-03-15', 'Yaoundé',
-       'MALE', 'nouveau', 'Quartier Bastos, Yaoundé', '677123456', '699987654',
+       'MALE', 'nouveau', 'nouveau', 'EP de Bastos',
+       'Bastos', 'Rue 1.234, Yaoundé', '677123456', '699987654',
        'Pierre DUPONT', 'Ingénieur', 'Marie DUPONT', 'Enseignante', '', 'CP A'],
       ['s260002', 'Brigitte', 'ELOUNDOU', '2014-09-22', 'Douala',
-       'FEMALE', 'redoublant', 'Akwa, Douala', '655000001', '',
+       'FEMALE', 'redoublant', 'ancien', '',
+       'Akwa', 'Rue Njo-Njo, Douala', '655000001', '',
        'Paul ELOUNDOU', 'Commerçant', 'Anne ELOUNDOU', 'Ménagère', '', 'CP A'],
     ],
   },
@@ -507,13 +591,16 @@ const STUDENT_TEMPLATE = {
     sheet:    'Students template',
     rows: [
       ['studentId', 'firstName', 'lastName', 'dateOfBirth', 'placeOfBirth',
-       'gender', 'status', 'address', 'phone', 'emergencyContact',
+       'gender', 'status', 'schoolStatus', 'previousSchool',
+       'neighbourhood', 'address', 'phone', 'emergencyContact',
        'fatherName', 'fatherJob', 'motherName', 'motherJob', 'guardian', 'class'],
       ['s260001', 'John', 'SMITH', '2015-03-15', 'Malabo',
-       'MALE', 'new', '12 Independence Ave., Malabo', '222123456', '222987654',
+       'MALE', 'new', 'new', 'Malabo Primary School',
+       'Ela Nguema', '12 Independence Ave., Malabo', '222123456', '222987654',
        'Peter SMITH', 'Engineer', 'Mary SMITH', 'Teacher', '', '1st A'],
       ['s260002', 'Grace', 'JONES', '2014-09-22', 'Bata',
-       'FEMALE', 'repeating', 'Mondoasi district, Bata', '222000001', '',
+       'FEMALE', 'repeating', 'old', '',
+       'Mondoasi', 'Mondoasi district, Bata', '222000001', '',
        'Paul JONES', 'Trader', 'Anne JONES', 'Homemaker', '', '1st A'],
     ],
   },
@@ -522,13 +609,16 @@ const STUDENT_TEMPLATE = {
     sheet:    'Modelo alumnos',
     rows: [
       ['matricula', 'nombre', 'apellidos', 'fechaNacimiento', 'lugarNacimiento',
-       'sexo', 'estado', 'direccion', 'telefono', 'contactoEmergencia',
+       'sexo', 'estado', 'estadoCentro', 'escuelaAnterior',
+       'barrio', 'direccion', 'telefono', 'contactoEmergencia',
        'nombrePadre', 'profesionPadre', 'nombreMadre', 'profesionMadre', 'tutor', 'clase'],
       ['s260001', 'Juan', 'MBA NDONG', '2015-03-15', 'Malabo',
-       'MASCULINO', 'nuevo', 'Barrio Ela Nguema, Malabo', '222123456', '222987654',
+       'MASCULINO', 'nuevo', 'nuevo', 'Escuela Ela Nguema',
+       'Ela Nguema', 'Calle 12, Malabo', '222123456', '222987654',
        'Pedro MBA', 'Ingeniero', 'María NDONG', 'Profesora', '', '1º A'],
       ['s260002', 'Lucía', 'OYANA OBONO', '2014-09-22', 'Bata',
-       'FEMENINO', 'repetidor', 'Barrio Mondoasi, Bata', '222000001', '',
+       'FEMENINO', 'repetidor', 'antiguo', '',
+       'Mondoasi', 'Calle 3, Bata', '222000001', '',
        'Pablo OYANA', 'Comerciante', 'Ana OBONO', 'Ama de casa', '', '1º A'],
     ],
   },

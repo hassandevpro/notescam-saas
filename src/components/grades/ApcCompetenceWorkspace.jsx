@@ -31,6 +31,7 @@ import { withLibelles } from '../../lib/referentielEcole';
 import MobileEntryList from './MobileEntryList';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
+import GradeBundleIO from './GradeBundleIO';
 import {
   competencesFor, matiereAverage, apcCote, coefFor,
   noteScale, APC_DEFAULT_MAX,
@@ -358,11 +359,27 @@ export default function ApcCompetenceWorkspace() {
       return;
     }
     setBaremeMsg(null);
+    // Affichage immédiat seulement : ce n'est plus le seul domicile du barème.
     setPendingBareme((p) => ({ ...p, [competenceId]: nouveau }));
-    // Les notes déjà saisies suivent le nouveau barème de l'évaluation.
+
+    // ÉCRIT POUR TOUTE LA COLONNE, pas seulement pour les élèves déjà notés.
+    // Même défaut, même correctif que l'écran du primaire : sur une colonne
+    // encore vide — le cas normal, puisqu'on règle le barème AVANT de noter —
+    // rien n'était écrit, et le choix mourait avec l'état React. L'enseignant
+    // revenait sur un barème qu'il n'avait pas choisi.
+    //
+    // `saveCell` conserve la note existante et `buildApcNoteRecord` normalise
+    // une note vide en `null` : une ligne sans note persiste donc le barème sans
+    // rien affirmer sur l'élève. La progression de saisie l'ignore
+    // (`gradeEntryProgress` teste `filled(note)`), et `matiereAverage` ne reçoit
+    // que les notes non nulles via `noteScale`.
+    //
+    // Cas particulier /20 : `note_max` est volontairement stocké NULL pour le
+    // barème historique. La colonne retombe alors sur `APC_DEFAULT_MAX`, qui
+    // vaut 20 — la valeur affichée est donc la bonne, par convention et non par
+    // accident.
     for (const stu of classStudents) {
-      const r = recordFor(stu.id, competenceId);
-      if (r?.note != null && r.note !== '') saveCell(stu.id, competenceId, { noteMax: nouveau });
+      saveCell(stu.id, competenceId, { noteMax: nouveau });
     }
   };
 
@@ -511,6 +528,12 @@ export default function ApcCompetenceWorkspace() {
           {baremeMsg.text}
         </div>
       )}
+
+      {/* Échange de notes entre postes : export global de TOUTES ses notes
+          (toutes classes, tous moteurs) et, pour un admin, import du fichier
+          d'un enseignant. La barre ci-dessous, elle, ne porte que la grille
+          affichée. */}
+      <GradeBundleIO />
 
       {/* Chaque en-tête de colonne exportée porte son barème : un classeur qui ne
           dit pas sur quoi l'on saisit revient rempli sur une échelle qu'on ne peut

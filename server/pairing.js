@@ -94,7 +94,10 @@ async function defaultVerifyIntegrity() {
   const { verifyIntegrity } = await import('./syncVerify.js');
   const { recordSyncAudit } = await import('./syncAudit.js');
   const { markVerification } = await import('./syncHealth.js');
-  const report = await verifyIntegrity();
+  // Appairage : contrôle COMPLET, plafond d'appels levé (`maxScopes: 0`).
+  // C'est une opération unique, et une bascule en hybride ne doit pas reposer
+  // sur une localisation partielle.
+  const report = await verifyIntegrity({ maxScopes: 0 });
   markVerification(report); // publie le rapport de la synchro INITIALE pour l'UI
   recordSyncAudit({ kind: 'verify', ok: report.ok, detail: { trigger: 'pairing', mismatches: report.mismatches, total: report.summary?.total } });
   if (!report.ok) {
@@ -217,7 +220,7 @@ export async function attachViaPairing({ code, localAdmin }, deps = {}) {
   onStage('integrity');
   let integrityReport;
   try {
-    integrityReport = await verifyIntegrity(schoolId);
+    integrityReport = await verifyIntegrity({ maxScopes: 0 });
   } catch (e) {
     // Données divergentes (ou Cloud injoignable) → on RESTE en Cloud, pas de bascule.
     return { ok: false, stage: 'integrity', schoolId, integrity, error: e.message, report: e.report || null, hybrid: false };

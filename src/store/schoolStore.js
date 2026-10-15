@@ -7,14 +7,16 @@
 // This is the exact format bulletinEngine expects for allGrades.
 
 import { create } from 'zustand';
-import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB, assignmentsDB } from '../lib/db';
+import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, bilRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB, assignmentsDB } from '../lib/db';
 import { fetchSchoolUnits, upsertSchoolUnit, deleteSchoolUnit as sbDeleteSchoolUnit } from '../lib/schoolUnitService';
 import { fetchReferentiel, refreshApcReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
+import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
 import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, fetchLibelles, setLibelle } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
+import { buildBilSubjectsForClass } from '../lib/bilAutoConfig';
 import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
 import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
 import { buildSubjectsForPrimClass } from '../lib/primAutoConfig';
@@ -118,6 +120,28 @@ async function queueOffline(op) {
   useUiStore.getState().incrementPending();
 }
 
+// Envoi au serveur AVEC FILET, pour les écritures qu'on ne peut pas perdre.
+//
+// Le motif historique — `envoi(...).then((ok) => { if (!ok) queueOffline(op) })`
+// — ne voit que les échecs qui RÉSOLVENT. Un REJET (panne de transport,
+// exception inattendue dans une couche intermédiaire) ne déclenche pas `.then`,
+// et l'écriture n'entrait alors jamais dans la file : rien ne la rejouait et
+// rien ne la signalait, alors que l'écran avait affiché « enregistré ».
+//
+// La cause première est corrigée dans `localClient.apiJson`, qui résout
+// désormais au lieu de rejeter. Ce filet reste posé sur les NOTES, parce que
+// c'est la donnée que l'école a réellement perdue et que son coût de ressaisie
+// est le plus élevé : une couche qui rejetterait pour une autre raison ne doit
+// pas pouvoir reproduire la panne.
+function sendOrQueue(promise, op) {
+  return Promise.resolve(promise)
+    .then((ok) => { if (!ok) return queueOffline(op); })
+    .catch((e) => {
+      console.error('[notes] envoi rejeté — mise en file', op.table, e?.message ?? e);
+      return queueOffline(op);
+    });
+}
+
 function gradeKey(classId, studentId, sequence) {
   return `${classId}_${studentId}_${sequence}`;
 }
@@ -143,9 +167,10 @@ function coerceGridRow(g) {
 // Only sanitizes fields that are explicitly present in data — never adds null overrides for
 // absent fields, which would wipe existing values when doing a partial update (e.g. class_id only).
 const NULLABLE_STUDENT_FIELDS = [
-  'date_naissance', 'gender', 'statut', 'matricule', 'parent_phone', 'lieu_naissance',
+  'date_naissance', 'gender', 'statut', 'statut_etablissement', 'matricule',
+  'parent_phone', 'lieu_naissance',
   'adresse', 'contact_urgence', 'nom_pere', 'profession_pere',
-  'nom_mere', 'profession_mere', 'tuteur',
+  'nom_mere', 'profession_mere', 'tuteur', 'quartier', 'ecole_origine',
 ];
 const GENDER_MAP = { m: 'Masculin', masculin: 'Masculin', male: 'Masculin', garcon: 'Masculin', h: 'Masculin', homme: 'Masculin', f: 'Feminin', feminin: 'Feminin', female: 'Feminin', fille: 'Feminin', femme: 'Feminin' };
 
@@ -312,6 +337,7 @@ export const useSchoolStore = create((set, get) => ({
   // Moteur SECOND CYCLE MINESEC : référentiel séries/coefficients/groupes (cache
   // IDB → refresh cloud), chargé à la demande par Classes/Grades.
   scReferentiel: null,
+  bilReferentiel: null,
   // Moteurs FONDAMENTAL MINEDUB : référentiels + transactionnel chargés à la
   // demande par les écrans de saisie. `matObservations`/`primNotes` = { [nkey]: record }.
   matReferentiel:  null,
@@ -739,9 +765,7 @@ export const useSchoolStore = create((set, get) => ({
     set({ apcNotes: { ...get().apcNotes, [nkey]: record } });
 
     if (backendOnline()) {
-      upsertApcNote(record).then((ok) => {
-        if (!ok) queueOffline({ table: 'apc_notes', operation: 'upsert', payload: record });
-      });
+      sendOrQueue(upsertApcNote(record), { table: 'apc_notes', operation: 'upsert', payload: record });
     } else {
       queueOffline({ table: 'apc_notes', operation: 'upsert', payload: record });
     }
@@ -763,6 +787,25 @@ export const useSchoolStore = create((set, get) => ({
       return blob;
     }
     return get().scReferentiel;
+  }),
+
+  // ── Moteur PROGRAMME BILINGUE SPÉCIAL (premier cycle) ─────────────────────
+  // Charge le référentiel de l'arrêté 239-23 (séries/domaines/coefficients).
+  // IDB d'abord, puis refresh cloud — même contrat que loadSc, mais sur les
+  // tables bil_* : importer l'un des deux arrêtés ne touche jamais l'autre.
+  loadBil: () => onceInFlight('bil', async () => {
+    await initDB();
+    const cached = await bilRefDB.get().catch(() => null);
+    if (cached) set({ bilReferentiel: cached });
+    if (!backendOnline()) return cached || null;
+    const refRes = await refreshBilReferentiel(cached?.__fp ?? null);
+    if (refRes.data) {
+      const blob = { ...refRes.data, id: 'referentiel', __fp: refRes.fingerprint };
+      await bilRefDB.put(blob).catch(() => {});
+      set({ bilReferentiel: blob });
+      return blob;
+    }
+    return get().bilReferentiel;
   }),
 
   // ── Moteur MATERNELLE (domaines / observations A·ECA·NA) ───────────────────
@@ -945,9 +988,7 @@ export const useSchoolStore = create((set, get) => ({
     await matObsDB.put(record);
     set({ matObservations: { ...get().matObservations, [nkey]: record } });
     if (backendOnline()) {
-      upsertMatObservation(record).then((ok) => {
-        if (!ok) queueOffline({ table: 'mat_observations', operation: 'upsert', payload: record });
-      });
+      sendOrQueue(upsertMatObservation(record), { table: 'mat_observations', operation: 'upsert', payload: record });
     } else {
       queueOffline({ table: 'mat_observations', operation: 'upsert', payload: record });
     }
@@ -1009,9 +1050,7 @@ export const useSchoolStore = create((set, get) => ({
     await primNotesDB.put(record);
     set({ primNotes: { ...get().primNotes, [nkey]: record } });
     if (backendOnline()) {
-      upsertPrimNote(record).then((ok) => {
-        if (!ok) queueOffline({ table: 'prim_notes', operation: 'upsert', payload: record });
-      });
+      sendOrQueue(upsertPrimNote(record), { table: 'prim_notes', operation: 'upsert', payload: record });
     } else {
       queueOffline({ table: 'prim_notes', operation: 'upsert', payload: record });
     }
@@ -1241,6 +1280,7 @@ export const useSchoolStore = create((set, get) => ({
     // concerné) : SECOND CYCLE (série), PREMIER CYCLE APC (6e–3e), MATERNELLE
     // (PS/MS/GS → domaines) ou PRIMAIRE APC (SIL…CM2 → compétences nationales).
     await get().autoConfigSecondCycle(record);
+    await get().autoConfigBilingue(record);
     await get().autoConfigApc(record);
     await get().autoConfigMat(record);
     await get().autoConfigPrim(record);
@@ -1350,6 +1390,32 @@ export const useSchoolStore = create((set, get) => ({
     return { created: subs.length };
   },
 
+  // Crée les `subjects` d'une classe du PROGRAMME D'ÉDUCATION BILINGUE SPÉCIAL
+  // (premier cycle) depuis le référentiel de l'arrêté 239-23. Le sous-système se
+  // déduit du niveau (6e–3e → francophone, Form 1–5 → anglophone) : aucune série
+  // à saisir, contrairement au second cycle. No-op si la classe n'est pas résolue
+  // 'bilingue' ou si elle a déjà des matières. Renvoie { created }.
+  autoConfigBilingue: async (cls) => {
+    const school = useAuthStore.getState().school;
+    if (resolveClassEngine(school, cls) !== 'bilingue') return { created: 0 };
+    const ref = get().bilReferentiel || await get().loadBil();
+    const subs = buildBilSubjectsForClass({ referentiel: ref, school, cls, makeId: uuid });
+    if (!subs.length) return { created: 0 };
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
   // Crée un tronc commun de `subjects` pour une classe du MONDE CLASSIQUE
   // (notes/20 FR, /100 EN). No-op si la classe n'est pas résolue 'classic' (un
   // moteur officiel s'en charge), si le système est ES (Guinée Éq.), ou si la
@@ -1380,11 +1446,12 @@ export const useSchoolStore = create((set, get) => ({
   // ne fait rien si la classe a déjà des matières. Renvoie { created }.
   configureClassSubjects: async (cls) => {
     const r1 = await get().autoConfigSecondCycle(cls);
+    const rb = await get().autoConfigBilingue(cls);
     const r2 = await get().autoConfigApc(cls);
     const r3 = await get().autoConfigMat(cls);
     const r4 = await get().autoConfigPrim(cls);
     const r5 = await get().autoConfigClassic(cls);
-    return { created: (r1?.created || 0) + (r2?.created || 0) + (r3?.created || 0) + (r4?.created || 0) + (r5?.created || 0) };
+    return { created: (r1?.created || 0) + (rb?.created || 0) + (r2?.created || 0) + (r3?.created || 0) + (r4?.created || 0) + (r5?.created || 0) };
   },
 
   updateClass: async (id, data) => {
@@ -2097,14 +2164,12 @@ export const useSchoolStore = create((set, get) => ({
         // la ligne (`merged`). En mode « enseignant de matière », la RLS rejette
         // les notes des matières non affectées : ré-upserter `merged` ferait
         // échouer la sauvegarde. Le delta est aussi plus correct/rapide en Mode 2.
-        upsertGradeEntry(classId, studentId, sequence, scores, schoolId).then((ok) => {
-          if (!ok) queueOffline({ table: 'grades', operation: 'upsert', payload: { ...record, scores } });
-        });
+        sendOrQueue(upsertGradeEntry(classId, studentId, sequence, scores, schoolId),
+                    { table: 'grades', operation: 'upsert', payload: { ...record, scores } });
       }
       if (hasSpecial) {
-        upsertAbsenceEntry(classId, studentId, sequence, merged, schoolId).then((ok) => {
-          if (!ok) queueOffline({ table: 'student_absences', operation: 'upsert', payload: record });
-        });
+        sendOrQueue(upsertAbsenceEntry(classId, studentId, sequence, merged, schoolId),
+                    { table: 'student_absences', operation: 'upsert', payload: record });
       }
 
       // Notif admin — upsert (1 ligne max par enseignant/classe/séquence), throttle 30 min

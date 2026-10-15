@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { useSchoolStore } from './store/schoolStore';
 import { useUiStore } from './store/uiStore';
-import { flushSyncQueue, getQueueCount, pruneExpiredItems } from './lib/sync';
+import { flushSyncQueue, getQueueCount } from './lib/sync';
 import { requestPersistentStorage } from './lib/db';
 import { backendOnline, IS_LAN } from './lib/edition';
 import { installDocumentScaleVars } from './lib/documentScaleVars';
@@ -207,8 +207,12 @@ export default function App() {
 
     useUiStore.getState().setSyncing();
     try {
-      const { failed, failedItems = [] } = await flushSyncQueue();
-      if (failed === 0) {
+      const { failed, failedItems = [], stalled = 0 } = await flushSyncQueue();
+      // Un élément que le serveur refuse obstinément n'est plus rejoué, mais il
+      // est TOUJOURS en file : annoncer « Synchronisé » serait un mensonge, et
+      // c'est précisément ce genre de faux positif qui a laissé croire que des
+      // notes étaient remontées. Il reste donc signalé jusqu'à son traitement.
+      if (failed === 0 && stalled === 0) {
         useUiStore.getState().setSynced();
         setTimeout(() => useUiStore.getState().setIdle(), 3000);
         // PAS de rechargement complet ici. La file vient de POUSSER des lignes
@@ -219,7 +223,13 @@ export default function App() {
         // session et au retour de connexion, là où d'autres postes ont pu
         // écrire.
       } else {
-        useUiStore.getState().setSyncError(failed, failedItems);
+        const items = stalled > 0
+          ? [...failedItems, {
+              table: 'saisies bloquées', operation: `${stalled} élément(s)`,
+              error: 'Refusées de façon répétée par le serveur. Conservées sur ce poste — utilisez « Télécharger la preuve ».',
+            }]
+          : failedItems;
+        useUiStore.getState().setSyncError(failed + stalled, items);
       }
     } catch (err) {
       console.error('triggerSync', err);
@@ -233,11 +243,15 @@ export default function App() {
     // Initialize online status + pending count from IDB. En LAN, le backend est
     // le serveur local (joignable sans Internet) → toujours « en ligne ».
     useUiStore.getState().setOnlineStatus(backendOnline());
-    // Purge stale/repeatedly-failed items first, then count + flush
-    pruneExpiredItems().then(() => {
-      getQueueCount().then((n) => useUiStore.getState().setPendingCount(n));
-      triggerSync();
-    });
+    // On COMPTE, puis on ENVOIE. Rien n'est écarté avant d'avoir essayé.
+    //
+    // Ici se trouvait `pruneExpiredItems()`, qui supprimait les éléments de plus
+    // de 48 h AVANT cette première tentative : une saisie faite vendredi soir
+    // hors ligne était détruite à l'ouverture du lundi matin, sans avoir jamais
+    // été envoyée. L'écartement éventuel est désormais une décision explicite
+    // (`quarantineUnsendable`), postérieure à l'envoi, et réversible.
+    getQueueCount().then((n) => useUiStore.getState().setPendingCount(n));
+    triggerSync();
 
     const onOnline = () => {
       useUiStore.getState().setOnlineStatus(true);

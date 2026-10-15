@@ -10,6 +10,9 @@ import { useT } from '../../lib/i18n';
 import { useMoney } from '../../lib/useMoney';
 import { indexAllocations, checkExpense, lineSectorIds, resolvePeriodForDate } from '../../lib/budgetLinesEngine';
 import { unitLabel } from '../budgets/BudgetHierarchyModals';
+import {
+  LIBRE, categoryOptions, subcategoryOptions, categoryLabel, subcategoryLabel,
+} from '../../lib/expenseCategories';
 
 const field = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none';
 const lbl = 'block text-xs font-semibold text-gray-500 mb-1';
@@ -27,6 +30,10 @@ export default function ExpenseFormModalV3({
   const [sectorId, setSectorId] = useState(expense?.school_unit_id || ''); // '' = Complexe/Global
   const [category, setCategory] = useState(expense?.category || '');
   const [subcategory, setSub] = useState(expense?.subcategory || '');
+  // Saisie libre : la liste couvre les cas courants, pas tous les cas. Ces deux
+  // drapeaux ouvrent un champ texte sans sortir de la logique de la liste.
+  const [catLibre, setCatLibre] = useState(false);
+  const [subLibre, setSubLibre] = useState(false);
   const [supplier, setSupplier] = useState(expense?.supplier || '');
   const [amount, setAmount] = useState(expense?.amount ?? '');
   const [requester, setRequester] = useState(expense?.requester || '');
@@ -49,6 +56,47 @@ export default function ExpenseFormModalV3({
     if (sectorId && !allowedUnitIds.has(sectorId)) setSectorId('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineId]);
+
+  // Options proposées : référentiel + tout ce que l'école emploie déjà + la
+  // valeur de la dépense en cours d'édition (cf. expenseCategories.js).
+  const catOptions = useMemo(() => categoryOptions(expenses, expense?.category || ''), [expenses, expense?.category]);
+  const subOptions = useMemo(
+    () => subcategoryOptions(expenses, category, expense?.subcategory || ''),
+    [expenses, category, expense?.subcategory],
+  );
+  const labelOf = (triplet, brut) => (triplet ? t(...triplet) : brut);
+
+  // Deux familles DISTINCTES dans la liste, et c'est volontaire : une école peut
+  // déjà avoir saisi « Transport » en texte libre alors que le référentiel porte
+  // la clé `transport`. Ce sont deux valeurs différentes en base, donc deux
+  // options — les présenter dans un même bloc ferait croire à un doublon.
+  // L'`optgroup` dit laquelle est la nomenclature et laquelle est l'historique.
+  const GROUPE_MAISON = t('Déjà utilisées dans l’établissement', 'Already used in this school', 'Ya utilizadas en el centro');
+  const renderOptions = (opts, label) => {
+    const connues = opts.filter((o) => o.known);
+    const maison = opts.filter((o) => !o.known);
+    return (
+      <>
+        {connues.map((o) => <option key={`k-${o.value}`} value={o.value}>{labelOf(label(o.value), o.value)}</option>)}
+        {maison.length > 0 && (
+          <optgroup label={GROUPE_MAISON}>
+            {maison.map((o) => <option key={`m-${o.value}`} value={o.value}>{o.value}</option>)}
+          </optgroup>
+        )}
+      </>
+    );
+  };
+
+  // Changer de catégorie invalide la sous-catégorie : les sous-catégories sont
+  // propres à leur catégorie, garder l'ancienne produirait un couple incohérent
+  // (« Cantine / Extincteurs »). On ne touche à rien tant que l'utilisateur
+  // n'a pas lui-même changé de catégorie — sinon l'ouverture du formulaire en
+  // modification effacerait la sous-catégorie déjà enregistrée.
+  const changeCategory = (value) => {
+    if (value === LIBRE) { setCatLibre(true); setCategory(''); }
+    else { setCatLibre(false); setCategory(value); }
+    setSub(''); setSubLibre(false);
+  };
 
   const verdict = useMemo(() => {
     if (!line || !periodId) return null;
@@ -162,11 +210,36 @@ export default function ExpenseFormModalV3({
           </div>
           <div>
             <label className={lbl}>{t('Catégorie', 'Category', 'Categoría')}</label>
-            <input className={field} value={category} onChange={(e) => setCategory(e.target.value)} />
+            <select className={field} value={catLibre ? LIBRE : category} onChange={(e) => changeCategory(e.target.value)}>
+              <option value="">{t('— aucune —', '— none —', '— ninguna —')}</option>
+              {renderOptions(catOptions, categoryLabel)}
+              <option value={LIBRE}>{t('Autre — préciser…', 'Other — specify…', 'Otra — especificar…')}</option>
+            </select>
+            {catLibre && (
+              <input className={`${field} mt-2`} value={category} autoFocus
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder={t('Nom de la catégorie', 'Category name', 'Nombre de la categoría')} />
+            )}
           </div>
           <div>
             <label className={lbl}>{t('Sous-catégorie', 'Sub-category', 'Subcategoría')}</label>
-            <input className={field} value={subcategory} onChange={(e) => setSub(e.target.value)} />
+            <select className={field} value={subLibre ? LIBRE : subcategory} disabled={!category && !catLibre}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === LIBRE) { setSubLibre(true); setSub(''); } else { setSubLibre(false); setSub(v); }
+              }}>
+              <option value="">{t('— aucune —', '— none —', '— ninguna —')}</option>
+              {renderOptions(subOptions, subcategoryLabel)}
+              <option value={LIBRE}>{t('Autre — préciser…', 'Other — specify…', 'Otra — especificar…')}</option>
+            </select>
+            {subLibre && (
+              <input className={`${field} mt-2`} value={subcategory} autoFocus
+                onChange={(e) => setSub(e.target.value)}
+                placeholder={t('Nom de la sous-catégorie', 'Sub-category name', 'Nombre de la subcategoría')} />
+            )}
+            {!category && !catLibre && (
+              <p className="text-[11px] text-gray-400 mt-1">{t('Choisissez d’abord une catégorie.', 'Choose a category first.', 'Elija primero una categoría.')}</p>
+            )}
           </div>
           <div className="sm:col-span-2">
             <label className={lbl}>{t('Justificatif (référence / lien)', 'Receipt (reference / link)', 'Justificante')}</label>

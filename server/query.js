@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
 import { emitApprovalRequestForOp } from './governanceApply.js';
 import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
-import { SCOPED_TABLES, loadScope, isGlobal, rowAllowed, guardScopeWrite, guardSchoolWrite, guardClassLimit, isParentAccount } from './scopeGuard.js';
+import { SCOPED_TABLES, loadScope, isGlobal, rowAllowed, guardScopeWrite, guardSchoolIsolation, guardSchoolWrite, guardClassLimit, isParentAccount } from './scopeGuard.js';
 
 // --- Suivi des changements pour la sync continue (Phase 2) ------------
 // Horodate la ligne écrite (updated_at/device_id) pour la résolution LWW.
@@ -270,6 +270,7 @@ export function runQuery(op, ctx = null) {
     guardBudgetStructure(op);      // P5 : pas de modif silencieuse / d'écriture directe des opérations
     guardBudgetLine(op);           // v3 : activation ligne (config + plafond annuel) + gel
     guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
+    guardSchoolIsolation(op, ctx); // étanchéité INTER-ÉCOLES : vaut aussi pour un compte global
     guardScopeWrite(op, ctx);      // cloisonnement secteur : écriture hors périmètre refusée
     guardSchoolWrite(op, ctx);     // nom + paramètres de l'établissement : admin uniquement
     guardClassLimit(op);           // édition restreinte : plafond de classes (build utilisateur)
@@ -483,6 +484,13 @@ export function runOpsGuarded(ops = [], ctx = null) {
     guardBudgetAllocations(op);    // v3 : gel des allocations d'une ligne active/clôturée
     guardSchoolWrite(op, ctx);     // nom + paramètres de l'établissement : admin uniquement
     guardClassLimit(op);           // édition restreinte : plafond de classes (build utilisateur)
+    // CLOISONNEMENT — ces deux gardes MANQUAIENT sur le chemin du lot : /api/db
+    // les appliquait, /api/db/batch non. Un lot pouvait donc écrire dans le
+    // secteur d'un autre responsable, voire dans un AUTRE établissement, alors
+    // que la même op passée à l'unité était refusée. Constaté par
+    // server/_bulletinSecurityE2E.test.mjs.
+    guardSchoolIsolation(op, ctx); // étanchéité inter-établissements
+    guardScopeWrite(op, ctx);      // cloisonnement sectoriel
     let res;
     switch (op.action) {
       case 'insert': insertOrUpsertCore(op, false); break;

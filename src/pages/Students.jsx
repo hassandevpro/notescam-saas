@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, lazy, Suspense } from 'react';
+import { useState, useRef, useMemo, useEffect, lazy, Suspense } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
@@ -26,6 +26,10 @@ import { toast } from '../store/toastStore';
 import { usePlan } from '../lib/plan';
 import { resolveCountryCode } from '../countries';
 import { classSectionKey, SECTIONS } from '../core/engineResolver';
+import {
+  classeAutoMatricule, prochainMatriculePourClasse, attribuerMatriculesImport,
+  planRattrapageMatricules,
+} from '../lib/matriculeAuto';
 import { useUiStore } from '../store/uiStore';
 
 // Locale d'affichage des dates selon la langue UI courante.
@@ -68,7 +72,7 @@ const EMPTY_FORM = {
   adresse: '', parent_phone: '', contact_urgence: '',
   nom_pere: '', profession_pere: '', nom_mere: '', profession_mere: '',
   tuteur: '', class_id: '', statut: '', statut_etablissement: '',
-  sport_aptitude: 'apte',
+  quartier: '', ecole_origine: '', sport_aptitude: 'apte',
 };
 
 // Score de complétude du dossier élève (matricule, classe, sexe, naissance,
@@ -81,7 +85,7 @@ function studentCompleteness(s) {
   return { pct, status };
 }
 
-function StudentForm({ initial, classes, onSave, onCancel }) {
+function StudentForm({ initial, classes, onSave, onCancel, effectif = [], annee = '' }) {
   const t = useT();
   const uiLang = useUiStore((s) => s.uiLang);
   // Locale du sélecteur de date natif (calendrier) : suit la langue de l'UI.
@@ -116,6 +120,39 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
       setForm((prev) => ({ ...prev, class_id: '' }));
     }
   };
+
+  // ── MATRICULE AUTOMATIQUE — maternelle et primaire ───────────────────────
+  // En maternelle et au primaire, l'enfant arrive sans numéro d'aucune sorte et
+  // la secrétaire en inventait un à la main : d'où des trous, des doublons et
+  // trois formats dans la même école. Dès qu'une classe de ces deux sections est
+  // choisie, on propose le numéro suivant (cf. src/lib/matriculeAuto.js).
+  //
+  // Le champ reste MODIFIABLE : la proposition n'est écrite que si le matricule
+  // est vide, ou s'il contient encore la proposition précédente (cas du
+  // changement de classe). Un numéro tapé à la main n'est donc jamais écrasé —
+  // une école qui a déjà sa propre numérotation garde la main.
+  //
+  // En MODIFICATION d'un élève, `initial.matricule` est déjà renseigné : rien
+  // n'est proposé, et renuméroter un élève inscrit ne se fait pas par accident.
+  const [propose, setPropose] = useState(null);
+  const classeChoisie = useMemo(
+    () => (classes || []).find((c) => c.id === form.class_id) || null,
+    [classes, form.class_id],
+  );
+  useEffect(() => {
+    if (!classeChoisie || !classeAutoMatricule(classeChoisie)) return;
+    const actuel = String(form.matricule ?? '').trim();
+    if (actuel && actuel !== propose) return;          // saisi à la main : on ne touche pas
+    const suivant = prochainMatriculePourClasse(effectif, classeChoisie, annee);
+    if (!suivant || suivant === actuel) return;
+    setPropose(suivant);
+    setForm((prev) => ({ ...prev, matricule: suivant }));
+    // `propose` est volontairement hors dépendances : l'inclure relancerait
+    // l'effet à chaque proposition écrite, donc en boucle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classeChoisie, effectif, annee]);
+
+  const matriculeAuto = !!propose && String(form.matricule ?? '').trim() === propose;
 
   // Photo : `photoFile` = blob JPEG redimensionné prêt à uploader ; `photoPreview`
   // = URL d'aperçu (photo existante en édition, ou aperçu local après sélection).
@@ -229,6 +266,11 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
           <label className="form-label">{t('Matricule', 'Student ID')}</label>
           <input type="text" className="form-input" placeholder={t('Ex : YDE250086', 'E.g. YDE250086', 'Ej. : ML250086')}
             value={form.matricule} onChange={set('matricule')} />
+          {matriculeAuto && (
+            <p className="text-[11px] text-emerald-600 mt-1">
+              {t('Attribué automatiquement — modifiable.', 'Assigned automatically — editable.', 'Asignado automáticamente — editable.')}
+            </p>
+          )}
         </div>
         <div>
           <label className="form-label">{t('Sexe', 'Gender')}</label>
@@ -260,6 +302,12 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
           <input type="text" className="form-input" placeholder={t('Ex : Yaoundé', 'E.g. Yaoundé', 'Ej. : Malabo')}
             value={form.lieu_naissance || ''} onChange={set('lieu_naissance')} />
         </div>
+        <div className="col-span-2 md:col-span-1">
+          <label className="form-label">{t('Ancien établissement', 'Previous school')}</label>
+          <input type="text" className="form-input" placeholder={t('Ex : EP de Bastos', 'E.g. Malabo Primary School', 'Ej. : Escuela Ela Nguema')}
+            value={form.ecole_origine || ''} onChange={set('ecole_origine')} />
+          <p className="text-[11px] text-gray-400 mt-1">{t("Établissement de provenance — pour un élève transféré ou nouveau.", 'Where the student comes from — for a transferred or new student.')}</p>
+        </div>
         <div>
           <label className="form-label">{t('Aptitude sportive', 'Sport fitness')}</label>
           <select className="form-input" value={form.sport_aptitude || 'apte'} onChange={set('sport_aptitude')}>
@@ -283,8 +331,14 @@ function StudentForm({ initial, classes, onSave, onCancel }) {
             value={form.contact_urgence || ''} onChange={set('contact_urgence')} />
         </div>
         <div>
+          <label className="form-label">{t('Quartier de résidence', 'Neighbourhood')}</label>
+          <input type="text" className="form-input" placeholder={t('Ex : Bastos', 'E.g. Ela Nguema', 'Ej. : Ela Nguema')}
+            value={form.quartier || ''} onChange={set('quartier')} />
+          <p className="text-[11px] text-gray-400 mt-1">{t('Secteur seul — sert à grouper (ramassage, convocations).', 'Area only — used for grouping (bus routes, parent meetings).')}</p>
+        </div>
+        <div>
           <label className="form-label">{t('Adresse', 'Address')}</label>
-          <input type="text" className="form-input" placeholder={t('Quartier, ville', 'Neighbourhood, city', 'Barrio, ciudad')}
+          <input type="text" className="form-input" placeholder={t('Rue, repère, ville', 'Street, landmark, city', 'Calle, referencia, ciudad')}
             value={form.adresse || ''} onChange={set('adresse')} />
         </div>
         <div>
@@ -361,7 +415,7 @@ function printStudentList(students, classes, teachers, school, classFilter, cols
 }
 
 // ── Import panel (inchangé) ───────────────────────────────────────────────────
-function ImportPanel({ classes, onImport, onCancel }) {
+function ImportPanel({ classes, onImport, onCancel, effectif = [], annee = '' }) {
   const t = useT();
   const [fallbackClassId, setFallbackClassId] = useState('');
   const [preview, setPreview]   = useState(null);
@@ -400,7 +454,17 @@ function ImportPanel({ classes, onImport, onCancel }) {
       return { ...rest, class_id: class_id || null };
     });
 
-  const resolvedRows  = resolveRows();
+  // MATRICULE AUTOMATIQUE sur les lignes de maternelle et de primaire qui n'en
+  // portent pas. C'est le cas le PLUS fréquent : une école importe sa liste de
+  // maternelle depuis un tableur où la colonne matricule est vide, puisque c'est
+  // précisément le numéro qu'elle n'a pas encore. Sans cette étape, l'import
+  // créait des centaines d'élèves sans numéro, à reprendre un par un.
+  // Une ligne déjà numérotée n'est jamais touchée (cf. src/lib/matriculeAuto.js).
+  const { rows: resolvedRows, attribues: matriculesAttribues } = useMemo(
+    () => attribuerMatriculesImport(resolveRows(), { students: effectif, classes, annee }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preview, fallbackClassId, classes, effectif, annee],
+  );
   const withClass     = resolvedRows.filter((r) => r.class_id);
   const withoutClass  = resolvedRows.length - withClass.length;
   const needsFallback = withoutClass > 0;
@@ -540,6 +604,11 @@ function ImportPanel({ classes, onImport, onCancel }) {
               {withoutClass > 0 && (
                 <span className="text-xs text-amber-600 font-medium">
                   {withClass.length} {t('avec classe', 'with class')} · {withoutClass} {t('sans classe', 'without class')}
+                </span>
+              )}
+              {matriculesAttribues > 0 && (
+                <span className="text-xs text-emerald-600 font-medium">
+                  {matriculesAttribues} {t('matricule(s) attribué(s) automatiquement', 'student ID(s) assigned automatically')}
                 </span>
               )}
             </div>
@@ -707,6 +776,22 @@ export default function Students() {
   const classLevel = (id) => classes.find((c) => c.id === id)?.level || '';
   // Section pédagogique d'une classe (par nom → fiable) pour le filtre par cycle.
   const classSection = (id) => classSectionKey(classes.find((c) => c.id === id) || null);
+
+  // ── Base de calcul du matricule automatique ──────────────────────────────
+  // Les ARCHIVÉS comptent. Un élève archivé garde son matricule (il reste sur
+  // ses bulletins, ses reçus et son dossier) : l'ignorer reviendrait à
+  // réattribuer son numéro au prochain inscrit, et deux enfants partageraient
+  // un identifiant à travers l'historique de l'école.
+  const effectifPourMatricule = useMemo(
+    () => [...(students || []), ...(archivedStudents || [])],
+    [students, archivedStudents],
+  );
+  // L'année de l'école fait foi ; à défaut, celle portée par les classes (une
+  // école peut avoir des classes datées sans `current_year` au niveau école).
+  const anneeScolaire = useMemo(
+    () => school?.current_year || (classes || []).find((c) => c?.current_year)?.current_year || '',
+    [school, classes],
+  );
   const availableSections = useMemo(() => {
     const present = new Set(classes.map(classSectionKey));
     return SECTIONS.filter((s) => present.has(s.key));
@@ -780,15 +865,79 @@ export default function Students() {
   const openImport = () => { setEditing(null); setShowForm(false); setShowImport(true); };
   const closeAll   = () => { setShowForm(false); setShowImport(false); setEditing(null); };
 
+  // ── RATTRAPAGE DES MATRICULES (maternelle + primaire) ────────────────────
+  // Le remplissage automatique ne joue qu'à l'inscription et à l'import : à
+  // l'installation de cette version, l'effectif DÉJÀ inscrit reste sans numéro.
+  // Cette action le rattrape en une fois.
+  //
+  // Elle DEMANDE CONFIRMATION en annonçant le nombre exact et les trois premiers
+  // numéros : attribuer des matricules en masse ne doit pas partir d'un clic
+  // involontaire, et l'opération ne se défait pas d'un bouton.
+  const [matriculeBusy, setMatriculeBusy] = useState(false);
+  const rattrapageMatricules = useMemo(
+    () => planRattrapageMatricules(effectifPourMatricule, classes, anneeScolaire),
+    [effectifPourMatricule, classes, anneeScolaire],
+  );
+
+  const handleRattrapageMatricules = async () => {
+    const { plan, parSection } = rattrapageMatricules;
+    if (!plan.length) return;
+    const detail = Object.entries(parSection)
+      .map(([sec, n]) => `${n} en ${sec}`).join(', ');
+    const apercu = plan.slice(0, 3).map((p) => `${p.name} → ${p.matricule}`).join('\n');
+    const reste = plan.length > 3 ? `\n… et ${plan.length - 3} autre(s)` : '';
+    const ok = window.confirm(
+      `${t('Attribuer un matricule à', 'Assign a student ID to')} ${plan.length} ${t('élève(s)', 'student(s)')} (${detail}) ?\n\n`
+      + `${apercu}${reste}\n\n`
+      + t('Les élèves qui ont déjà un matricule ne sont pas touchés.',
+          'Students who already have a student ID are left untouched.'),
+    );
+    if (!ok) return;
+    setMatriculeBusy(true);
+    try {
+      // Séquentiel, et non en parallèle : chaque écriture passe par le store
+      // (IndexedDB + file de synchro). Un Promise.all de 300 écritures sature
+      // la file et rend l'ordre d'arrivée imprévisible.
+      for (const p of plan) await updateStudent(p.id, { matricule: p.matricule });
+    } finally {
+      setMatriculeBusy(false);
+    }
+  };
+
   const handleExport = () => {
     const cls = classFilter ? classNameById(classFilter) : 'tous';
+    // L'export sort TOUT le dossier élève, et ses en-têtes sont ceux que
+    // `parseStudentsSheet` sait relire : le fichier exporté se réimporte donc
+    // tel quel (sauvegarde, transfert d'une école à l'autre, correction en
+    // masse dans Excel puis réimport). Avant, il ne sortait que 9 colonnes sur
+    // 17 — le dossier familial entier (parents, professions, tuteur, contact
+    // d'urgence) et les deux statuts n'étaient exportables par aucun écran.
+    //
+    // « Âge » est calculé, donc en lecture seule : aucun candidat d'import ne
+    // le reconnaît, il est ignoré au réimport. C'est voulu — la date fait foi.
     const rows = [
-      [t('Nom', 'Name'), t('Matricule', 'Student ID'), t('Genre', 'Gender'), t('Date de naissance', 'Date of birth'), t('Lieu de naissance', 'Place of birth'), t('Âge', 'Age'), t('Classe', 'Class'), t('Téléphone', 'Phone'), t('Adresse', 'Address')],
+      [t('Nom', 'Name'), t('Matricule', 'Student ID'), t('Genre', 'Gender'),
+       t('Date de naissance', 'Date of birth'), t('Lieu de naissance', 'Place of birth'),
+       t('Âge', 'Age'), t('Classe', 'Class'),
+       t('Statut établissement', 'School status'), t('Statut classe', 'Class status'),
+       t('Ancien établissement', 'Previous school'),
+       t('Téléphone', 'Phone'), t("Contact d'urgence", 'Emergency contact'),
+       t('Quartier de résidence', 'Neighbourhood'), t('Adresse', 'Address'),
+       t('Nom du père', "Father's name"), t('Profession père', "Father's profession"),
+       t('Nom de la mère', "Mother's name"), t('Profession mère', "Mother's profession"),
+       t('Tuteur légal', 'Legal guardian'), t('Aptitude sportive', 'Sport fitness')],
       ...visible.map((s) => [
         s.name, s.matricule || '', s.gender || '',
         s.date_naissance || '', s.lieu_naissance || '',
         calcAge(s.date_naissance) ?? '',
-        classNameById(s.class_id), s.parent_phone || '', s.adresse || '',
+        classNameById(s.class_id),
+        s.statut_etablissement || '', s.statut || '',
+        s.ecole_origine || '',
+        s.parent_phone || '', s.contact_urgence || '',
+        s.quartier || '', s.adresse || '',
+        s.nom_pere || '', s.profession_pere || '',
+        s.nom_mere || '', s.profession_mere || '',
+        s.tuteur || '', s.sport_aptitude || '',
       ]),
     ];
     downloadExcel(`eleves_${cls}_${new Date().toISOString().slice(0, 10)}.xlsx`, rows, t('Élèves', 'Students'));
@@ -929,6 +1078,22 @@ export default function Students() {
           </div>
           <div className="flex gap-2 flex-wrap">
               {canEdit && <button onClick={openImport} className="btn-secondary">{t('Importer', 'Import')}</button>}
+              {/* N'apparaît QUE s'il y a quelque chose à rattraper : un bouton
+                  permanent inviterait à cliquer sans raison, et laisserait
+                  croire qu'il reste des élèves sans numéro. */}
+              {canEdit && rattrapageMatricules.plan.length > 0 && (
+                <button
+                  onClick={handleRattrapageMatricules}
+                  disabled={matriculeBusy}
+                  className="btn-secondary"
+                  title={t('Maternelle et primaire uniquement. Les élèves déjà numérotés ne sont pas touchés.',
+                           'Nursery and primary only. Students who already have an ID are left untouched.')}
+                >
+                  {matriculeBusy
+                    ? t('Attribution…', 'Assigning…')
+                    : `${t('Attribuer les matricules manquants', 'Assign missing student IDs')} (${rattrapageMatricules.plan.length})`}
+                </button>
+              )}
               {visible.length > 0 && (
                 <>
                   <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
@@ -1088,12 +1253,20 @@ export default function Students() {
                   classes={classes}
                   onSave={handleSave}
                   onCancel={closeAll}
+                  effectif={effectifPourMatricule}
+                  annee={anneeScolaire}
                 />
               </Modal>
             )}
             {showImport && (
               <Modal title={t('Importer des élèves', 'Import students')} onClose={closeAll} size="lg">
-                <ImportPanel classes={classes} onImport={addStudent} onCancel={closeAll} />
+                <ImportPanel
+                  classes={classes}
+                  onImport={addStudent}
+                  onCancel={closeAll}
+                  effectif={effectifPourMatricule}
+                  annee={anneeScolaire}
+                />
               </Modal>
             )}
 

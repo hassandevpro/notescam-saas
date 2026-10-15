@@ -35,7 +35,7 @@
 // recopiés — une empreinte scrypt calculée par une autre version du code
 // verrouillerait l'école en silence.
 // ════════════════════════════════════════════════════════════════════════════
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
@@ -60,6 +60,8 @@ Réinitialiser un mot de passe NotesCam (édition LAN, hors ligne)
   --liste                      affiche les comptes de connexion
   --email <e-mail>             compte à réinitialiser
   --mot-de-passe <texte>       nouveau mot de passe (sinon : généré)
+  --fichier <liste.txt>        applique une liste « email ; motdepasse »
+                               (une par ligne, # = commentaire) — tout ou rien
   --data-dir <dossier>         base à ouvrir (défaut : server/data)
   --app-dir <dossier>          dossier « server » de l'installation à dépanner
                                (défaut : celui de ce fichier)
@@ -99,7 +101,7 @@ const { db } = await imp(APP_DIR, 'db.js');
 const { hashPassword } = await imp(APP_DIR, 'security.js');
 // La logique de réinitialisation, elle, voyage AVEC cet outil (clé USB) : une
 // installation ancienne ne la contient pas.
-const { listAccounts, resetPassword, generatePassword, MIN_LENGTH } = await imp(__dirname, 'resetPassword.js');
+const { listAccounts, resetPassword, resetPasswordsBatch, parseLignes, generatePassword, MIN_LENGTH } = await imp(__dirname, 'resetPassword.js');
 
 // --- Affichage --------------------------------------------------------
 function afficherComptes() {
@@ -121,6 +123,48 @@ function afficherComptes() {
 
 // --- Exécution --------------------------------------------------------
 if (has('--liste', '--list')) { afficherComptes(); process.exit(0); }
+
+// --- Liste « email ; motdepasse » (préparation d'une base d'établissement) ---
+const FICHIER = opt('--fichier', '--file');
+if (FICHIER) {
+  let texte;
+  try { texte = readFileSync(FICHIER, 'utf8'); }
+  catch (e) {
+    console.error('');
+    console.error(`❌ Liste illisible : ${e.message}`);
+    console.error('');
+    process.exit(2);
+  }
+  const { entrees, erreurs: fmt } = parseLignes(texte);
+  if (fmt.length) {
+    console.error('');
+    console.error("❌ Liste mal formée — rien n'a été modifié :");
+    for (const m of fmt) console.error('   ' + m);
+    console.error('');
+    process.exit(2);
+  }
+  if (!entrees.length) {
+    console.error('');
+    console.error('❌ Liste vide — rien à appliquer.');
+    console.error('');
+    process.exit(2);
+  }
+  const r = resetPasswordsBatch(db, hashPassword, entrees);
+  if (!r.ok) {
+    console.error('');
+    console.error('❌ Liste refusée — AUCUN compte modifié :');
+    for (const m of r.erreurs) console.error('   ' + m);
+    console.error('');
+    console.error('   « --liste » affiche les e-mails exacts des comptes.');
+    console.error('');
+    process.exit(1);
+  }
+  console.log('');
+  console.log(`✅ ${r.appliques.length} mot(s) de passe appliqué(s) — base : ${DATA_DIR}`);
+  for (const c of r.appliques) console.log(`   - ${c.email}${c.full_name ? `  (${c.full_name})` : ''}`);
+  console.log('');
+  process.exit(0);
+}
 
 let email = opt('--email', '--mail');
 let motDePasse = opt('--mot-de-passe', '--password', '--mdp');

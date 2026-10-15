@@ -76,7 +76,12 @@ function effectContaining(src, needle) {
   const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   const guilty = walk(srcRoot).filter((p) => {
     if (/[\\/]lib[\\/]edition\.js$/.test(p)) return false;            // la source unique
-    if (/_syncGuards\.test\.mjs$/.test(p)) return false;              // ce fichier
+    // Les TESTS et leurs chargeurs sont hors périmètre, pas seulement celui-ci :
+    // un test qui vérifie la règle doit nommer ce qu'elle interdit. Même
+    // exclusion que `lib/_offlineGate.test.mjs`, qui contrôle le MÊME invariant
+    // — faute de quoi les deux s'accusent mutuellement. Ces fichiers ne sont
+    // jamais compilés dans le bundle, l'invariant porte sur ce qui est livré.
+    if (/[\\/]_[^\\/]*\.(test|hooks)\.mjs$/.test(p)) return false;
     return /navigator\.onLine/.test(stripComments(readFileSync(p, 'utf8')));
   });
   ok(guilty.length === 0,

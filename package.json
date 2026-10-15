@@ -1,7 +1,7 @@
 {
   "name": "notescam-saas",
   "private": true,
-  "version": "0.2.6",
+  "version": "0.3.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -27,9 +27,12 @@
     "import:csv": "node scripts/csv-to-pivot.mjs",
     "license": "node packaging/license/make-license.mjs",
     "reset:password": "node server/reset-password-cli.mjs",
+    "seed:ecole": "node packaging/make-seed-ecole.mjs",
     "video": "remotion studio remotion/index.jsx",
     "video:render": "remotion render remotion/index.jsx",
-    "video:record": "node remotion/recorder/record-demos.mjs"
+    "video:record": "node remotion/recorder/record-demos.mjs",
+    "test:bilingue": "node src/core/_bilEngine.test.mjs && node --experimental-loader ./scripts/lib/esm-resolve.mjs src/lib/_bilAutoConfig.test.mjs && node server/_bilSeed.test.mjs && node server/_bulletinAccess.test.mjs && node server/_bulletinSecurityE2E.test.mjs",
+    "demo:bilingue": "node --experimental-loader ./scripts/lib/esm-resolve.mjs scripts/demo-bilingue-bulletins.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

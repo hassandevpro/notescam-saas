@@ -109,6 +109,17 @@ export const primaireNiveauSlug = (level, name = '') => {
   return null;
 };
 
+// ── Programme Bilingue Spécial : classes EN SERVICE ──────────────────────────
+// Source de vérité unique (bilEngine la ré-exporte). Form 4 et Form 5 figurent
+// dans le référentiel de l'arrêté 239-23 mais ne sont PAS en service : l'arrêté
+// y prévoit des « matières au choix selon les orientations », dont ni les
+// combinaisons offertes par l'établissement ni l'affectation par élève ne sont
+// connues. Une Form 4 configurée aujourd'hui ne recevrait que ses 4 matières
+// obligatoires, et son total de coefficients serait donc FAUX.
+export const BIL_CLASSES_EN_SERVICE  = ['6e', '5e', '4e', '3e', 'form1', 'form2', 'form3'];
+export const BIL_CLASSES_HORS_SERVICE = ['form4', 'form5'];
+export const isBilClasseEnService = (classeSlug) => BIL_CLASSES_EN_SERVICE.includes(classeSlug);
+
 export const isMaternelle = (level, name = '') => maternelleNiveauSlug(level, name) !== null;
 export const isPrimaire   = (level, name = '') => primaireNiveauSlug(level, name) !== null;
 
@@ -150,6 +161,37 @@ function engineFromFlag(flag, cls) {
       return null;
     case 'apc_minesec':
       return isFirstCycle(level, name) ? 'apc' : null;
+    case 'bilingue_special':
+      // Programme d'Éducation Bilingue Spécial (arrêté 239-23/MINESEC du
+      // 14/06/2023) — matières + coefficients, PREMIER CYCLE uniquement :
+      // 6e–3e (section I-2) et Form 1–5 (section II-2). L'arrêté ne couvre
+      // aucune classe de second cycle, donc on ne route rien au-delà.
+      //
+      // Drapeau DÉDIÉ à dessein : ni 'minesec' ni 'officiel' n'y mènent, pour
+      // qu'aucune école déjà configurée ne bascule de moteur sans décision
+      // explicite. Une école ordinaire qui n'ouvre qu'une section bilingue pose
+      // la surcharge `classes.bulletin_engine = 'bilingue_special'`.
+      //
+      // ⚠️ PROFIL D'ÉCOLE COMPLET, et non « premier cycle seulement ».
+      // `schools.bulletin_engine` vaut pour TOUTE l'école. Une première version
+      // ne traitait ici que le premier cycle et renvoyait null partout ailleurs :
+      // une école qui activait le bilingue perdait du même coup le bulletin
+      // officiel de son PRIMAIRE, de sa MATERNELLE et de son SECOND CYCLE, tous
+      // retombés en 'classic' — sans message, le bulletin disparaissait
+      // simplement de l'écran. Ce drapeau se comporte donc comme 'officiel',
+      // à une substitution près : le premier cycle part sur le programme
+      // bilingue spécial au lieu de l'APC ordinaire.
+      if (isMaternelle(level, name)) return 'maternelle';
+      if (isPrimaire(level, name))   return 'apc_primaire';
+      // Form 4 / Form 5 EXCLUES tant que l'établissement n'a pas arrêté ses
+      // orientations : leur référentiel comporte des matières « au choix », donc
+      // un total de coefficients incomplet. Elles retombent sur le moteur
+      // classique — mieux vaut un bulletin qui ne se dit pas officiel qu'un
+      // bulletin officiel bâti sur un référentiel partiel.
+      if (BIL_CLASSES_EN_SERVICE.includes(firstCycleClasseSlug(level, name))) return 'bilingue';
+      if (isFirstCycle(level, name)) return null;   // Form 4/5 : aucun moteur officiel
+      if (cls?.serie || isSecondCycle(level, name)) return 'sc';
+      return null;
     case 'minesec':
       if (isFirstCycle(level, name)) return 'apc';
       if (cls?.serie || isSecondCycle(level, name)) return 'sc';
@@ -169,7 +211,7 @@ function engineFromFlag(flag, cls) {
 }
 
 // Moteur effectif d'une classe :
-//   'maternelle' | 'apc_primaire' | 'apc' | 'sc' | 'classic'.
+//   'maternelle' | 'apc_primaire' | 'apc' | 'sc' | 'bilingue' | 'classic'.
 // La surcharge `classes.bulletin_engine` prime sur `school.bulletin_engine`.
 export function resolveClassEngine(school, cls) {
   const override = cls?.bulletin_engine;
@@ -180,7 +222,7 @@ export function resolveClassEngine(school, cls) {
 // Drapeaux d'établissement de la FAMILLE OFFICIELLE (par opposition à 'classic').
 // 'officiel' est le drapeau unifié (fondamental + secondaire) ; les autres restent
 // acceptés pour rétro-compatibilité et se comportent comme des sous-ensembles.
-export const OFFICIAL_ENGINE_FLAGS = ['officiel', 'minesec', 'apc_minesec', 'minedub', 'maternelle', 'apc_primaire'];
+export const OFFICIAL_ENGINE_FLAGS = ['officiel', 'minesec', 'apc_minesec', 'minedub', 'maternelle', 'apc_primaire', 'bilingue_special'];
 export const isOfficialEngine = (flag) => OFFICIAL_ENGINE_FLAGS.includes(flag);
 
 // ── Classe de référence pour AIGUILLER la saisie ───────────────────────────────

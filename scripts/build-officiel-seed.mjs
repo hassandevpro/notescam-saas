@@ -31,6 +31,7 @@ const SOURCES = [
   'supabase_apc_referentiel_data.sql', // apc_referentiel_versions/competences/classe_matieres
   'supabase_sc_minesec.sql',         // sc_groupes/series
   'supabase_sc_referentiel_data.sql', // sc_series(ext)/matieres/version/serie_matieres
+  'supabase_bilingue_special_data.sql', // bil_series/groupes/matieres/version/serie_matieres
   'supabase_maternelle.sql',         // mat_niveaux/domaines
   'supabase_apc_primaire.sql',       // prim_cycles/niveaux/competences/criteres/cote_bareme
 ];
@@ -40,6 +41,7 @@ const WHITELIST = new Set([
   'apc_referentiel_versions', 'apc_cycles', 'apc_classes', 'apc_trimestres',
   'apc_sequences', 'apc_matieres', 'apc_competences', 'apc_classe_matieres',
   'sc_referentiel_versions', 'sc_series', 'sc_groupes', 'sc_matieres', 'sc_serie_matieres',
+  'bil_referentiel_versions', 'bil_series', 'bil_groupes', 'bil_matieres', 'bil_serie_matieres',
   'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines',
   'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
   'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme',

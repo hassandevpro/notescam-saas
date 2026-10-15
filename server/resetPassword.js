@@ -85,3 +85,63 @@ export function resetPassword(db, hashPassword, { email, password }) {
   if (info.changes !== 1) throw new Error("La base n'a pas été modifiée (compte disparu entre-temps ?).");
   return { id: user.id, email: user.email, full_name: user.full_name, password: pwd };
 }
+
+// ── Liste de mots de passe, compte par compte ────────────────────────────
+// Sert à préparer une base d'établissement avant de l'embarquer dans un
+// installeur : la migration Cloud → LAN ne peut pas lire les mots de passe du
+// cloud (ils sont hachés là-bas aussi) et donne un aléatoire à chaque compte
+// non-admin. L'école arrive donc avec des comptes inutilisables tant que
+// personne ne leur redonne un mot de passe.
+//
+// TOUT OU RIEN. On valide les lignes d'abord, on écrit ensuite : une liste dont
+// la moitié passe laisserait une base à moitié préparée, et personne ne saurait
+// quels comptes sont utilisables. Une erreur -> rien n'est écrit.
+export function parseLignes(texte) {
+  const entrees = [];
+  const erreurs = [];
+  let n = 0;
+  for (const brute of String(texte).split(/\r?\n/)) {
+    n++;
+    const ligne = brute.trim();
+    if (!ligne || ligne.startsWith('#')) continue;
+    // Premier séparateur SEULEMENT : un mot de passe peut contenir ; ou =.
+    const m = ligne.match(/^([^;=\s]+)\s*[;=]\s*(.+)$/);
+    if (!m) { erreurs.push(`ligne ${n} : format attendu « email ; motdepasse » — « ${ligne} »`); continue; }
+    entrees.push({ ligne: n, email: m[1].trim(), password: m[2] });
+  }
+  return { entrees, erreurs };
+}
+
+export function resetPasswordsBatch(db, hashPassword, entrees) {
+  const erreurs = [];
+  const vus = new Set();
+  const prets = [];
+  for (const e of entrees) {
+    const cle = e.email.toLowerCase();
+    if (vus.has(cle)) { erreurs.push(`ligne ${e.ligne} : ${e.email} apparaît deux fois`); continue; }
+    vus.add(cle);
+    const user = findAccount(db, e.email);
+    if (!user) { erreurs.push(`ligne ${e.ligne} : aucun compte « ${e.email} »`); continue; }
+    if (String(e.password).length < MIN_LENGTH) {
+      erreurs.push(`ligne ${e.ligne} : ${e.email} — mot de passe trop court (${MIN_LENGTH} min.)`);
+      continue;
+    }
+    prets.push({ ...e, user });
+  }
+  if (erreurs.length) return { ok: false, erreurs, appliques: [] };
+
+  const stmt = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    for (const p of prets) stmt.run(hashPassword(p.password), p.user.id);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    return { ok: false, erreurs: [`écriture interrompue : ${e.message} — aucune modification`], appliques: [] };
+  }
+  return {
+    ok: true,
+    erreurs: [],
+    appliques: prets.map((p) => ({ email: p.user.email, full_name: p.user.full_name })),
+  };
+}

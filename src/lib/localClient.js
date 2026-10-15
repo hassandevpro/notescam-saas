@@ -48,7 +48,33 @@ function emitAuth(event) {
 }
 function setSession(session, event) {
   _session = session; saveSession(session); emitAuth(event);
+  // Toute session qui s'ouvre doit disposer du cookie de fichiers, y compris
+  // celles créées par `signUp` (que la route de connexion ne traverse pas).
+  if (session?.access_token) refreshFileCookie();
 }
+
+// COOKIE DE LECTURE DES FICHIERS.
+//
+// `<img src>` n'envoie pas d'en-tête `Authorization` : quand la protection de
+// /files/ est active (cf. server/fileAccess.js), seul un cookie permet au
+// navigateur d'afficher les photos, logos, cachets et signatures. Le serveur le
+// pose à la connexion ; cet appel le RÉTABLIT pour une session restaurée depuis
+// sessionStorage (rechargement de page) ou dont le cookie a expiré.
+//
+// Best-effort et silencieux : un échec n'empêche ni la connexion ni la
+// navigation, et tant que la protection est inactive il ne change rien.
+function refreshFileCookie() {
+  if (!_session?.access_token) return;
+  fetch(`${BASE}/api/files/session`, {
+    method: 'GET',
+    headers: authHeaders(),
+    credentials: 'same-origin',
+  }).catch(() => { /* la protection est peut-être inactive, ou le serveur absent */ });
+}
+
+// Au chargement du module : une session restaurée n'est pas passée par
+// `signInWithPassword`, donc elle n'a pas reçu de cookie.
+if (typeof window !== 'undefined') refreshFileCookie();
 
 function authHeaders(extra = {}) {
   const h = { ...extra };
@@ -64,11 +90,43 @@ async function apiJson(path, { method = 'POST', body, headers } = {}) {
     setSession(null, 'SIGNED_OUT');
     return { data: null, error: { message: 'Session expirée pour inactivité. Veuillez vous reconnecter.' } };
   }
-  const res = await fetch(BASE + path, {
-    method,
-    headers: authHeaders({ 'Content-Type': 'application/json', ...headers }),
-    body: body != null ? JSON.stringify(body) : undefined,
-  });
+  // UNE PANNE DE TRANSPORT DOIT RÉSOUDRE, JAMAIS REJETER.
+  //
+  // `fetch` rejette quand l'hôte ne répond pas : service arrêté, câble
+  // débranché, Wi-Fi tombé, requête interrompue par la fermeture de l'onglet.
+  // Sans ce try/catch, l'exception traversait le client et ressortait chez
+  // l'appelant, qui ne l'attendait pas :
+  //
+  //   upsertGradeEntry(...).then((ok) => { if (!ok) queueOffline(...) })
+  //
+  // Un REJET ne déclenche pas `.then`, et il n'y a pas de `.catch`. La note
+  // saisie n'entrait donc JAMAIS dans la file de synchronisation : aucun rejeu,
+  // aucun décompte « en attente », aucune trace — alors que l'écran venait
+  // d'afficher qu'elle était enregistrée. En édition LAN, où `backendOnline()`
+  // vaut toujours true (edition.js:20) et où la branche hors-ligne de
+  // `saveGrade` est donc du code mort, c'était la principale perte de notes.
+  //
+  // Le client Supabase réel résout, lui, avec `{ data, error }` même sur échec
+  // réseau. On s'aligne : tout le code applicatif lit déjà cette forme.
+  // `offline: true` distingue la panne de transport — qu'il faut rejouer — du
+  // refus métier (RLS, validation), qu'il ne faut pas rejouer indéfiniment.
+  let res;
+  try {
+    res = await fetch(BASE + path, {
+      method,
+      headers: authHeaders({ 'Content-Type': 'application/json', ...headers }),
+      body: body != null ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    return {
+      data: null,
+      error: {
+        message: `Serveur de l'école injoignable (${e?.message || 'erreur réseau'})`,
+        offline: true,
+        cause: e?.name || 'NetworkError',
+      },
+    };
+  }
   let json = null;
   try { json = await res.json(); } catch { /* corps vide */ }
   if (!res.ok && json == null) return { data: null, error: { message: `HTTP ${res.status}` } };

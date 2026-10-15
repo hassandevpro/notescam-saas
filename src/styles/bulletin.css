@@ -337,7 +337,26 @@
   }
 
   /* Le bulletin occupe toute la page et tient sur UNE seule page :
-     chaque .bulletin-paper est isolé et son contenu mis à l'échelle au besoin. */
+     chaque .bulletin-paper est isolé et son contenu mis à l'échelle au besoin.
+
+     LA MISE À L'ÉCHELLE EST RÉELLE DEPUIS lib/print/fitLiveSheets.js. Elle
+     manquait : ce commentaire décrivait une intention, et seul le compactage
+     statique ci-dessous l'approchait — suffisant pour une dizaine de matières,
+     dépassé au-delà, le bas du bulletin partant sur une 2e page presque vide.
+
+     `--nc-fit` est posée par JS AVANT window.print(), feuille par feuille, et
+     retirée après. Absente (cas normal à l'écran, ou bulletin qui tient déjà),
+     le repli à 1 ne change rien : aucune règle ne s'applique à vide.
+
+     La largeur est divisée par le facteur pour compenser la réduction, sinon le
+     bulletin réduit n'occuperait plus que `facteur` × la largeur de la page.
+     Même technique que le socle HTML autonome (printLayout.js). */
+  .bulletin-paper {
+    transform-origin: top left;
+    transform: scale(var(--nc-fit, 1));
+    width: calc(100% / var(--nc-fit, 1));
+  }
+
   .bulletin-paper {
     box-shadow: none;
     margin: 0;

@@ -1268,6 +1268,57 @@ CREATE TABLE IF NOT EXISTS sc_serie_matieres (
   CONSTRAINT sc_serie_matieres_uniq UNIQUE (serie_id, classe_id, matiere_id)
 );
 
+-- ── Programme d'Éducation Bilingue Spécial — premier cycle ───────────────────
+-- Arrêté n°239-23/MINESEC du 14/06/2023, sections I-2 (6e–3e) et II-2 (Form 1–5).
+-- Tables DÉDIÉES : l'import SC désactive sa version précédente, donc partager les
+-- tables sc_* ferait disparaître l'un des deux arrêtés à chaque import.
+CREATE TABLE IF NOT EXISTS bil_referentiel_versions (
+  id           TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  label        TEXT NOT NULL,
+  source       TEXT,
+  imported_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  actif        INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS bil_series (
+  id           TEXT PRIMARY KEY,          -- 'bil_fr' | 'bil_en'
+  nom          TEXT NOT NULL,
+  categorie    TEXT NOT NULL DEFAULT 'bilingue_special',
+  description  TEXT,
+  ordre        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS bil_groupes (
+  id     TEXT PRIMARY KEY,                -- domaine d'apprentissage
+  nom    TEXT NOT NULL,
+  ordre  INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS bil_matieres (
+  id                    TEXT PRIMARY KEY,
+  nom                   TEXT NOT NULL,
+  code                  TEXT,
+  domaine_apprentissage TEXT,
+  ordre                 INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS bil_serie_matieres (
+  id                     TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  serie_id               TEXT NOT NULL REFERENCES bil_series(id)   ON DELETE CASCADE,
+  classe_id              TEXT NOT NULL,   -- '6e'…'3e' | 'form1'…'form5'
+  matiere_id             TEXT NOT NULL REFERENCES bil_matieres(id) ON DELETE CASCADE,
+  groupe_id              TEXT NOT NULL REFERENCES bil_groupes(id),
+  coefficient            NUMERIC NOT NULL,
+  charge_horaire         NUMERIC,         -- affichage seul — jamais un coefficient
+  obligatoire            INTEGER NOT NULL DEFAULT 1,
+  actif                  INTEGER NOT NULL DEFAULT 1,
+  referentiel_version_id TEXT REFERENCES bil_referentiel_versions(id) ON DELETE SET NULL,
+  CONSTRAINT bil_serie_matieres_uniq UNIQUE (serie_id, classe_id, matiere_id)
+);
+
+CREATE INDEX IF NOT EXISTS bil_serie_matieres_lookup
+  ON bil_serie_matieres (serie_id, classe_id);
+
 -- ── Maternelle (domaines / observations A·ECA·NA) ────────────────────────────
 CREATE TABLE IF NOT EXISTS mat_referentiel_versions (
   id           TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),

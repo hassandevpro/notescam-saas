@@ -208,11 +208,42 @@ export function buildImportRecords(bundle, schoolId, existing = {}) {
         else {
           studentId = uuid();
           studentByKey.set(stKey, studentId);
+          // TOUT le modèle élève, pas seulement l'identité.
+          //
+          // Avant, l'import pivot ne reprenait que name/matricule/gender/statut/
+          // date_naissance : une reprise depuis un autre logiciel perdait en
+          // silence le lieu de naissance, l'adresse, les deux parents et leurs
+          // professions, le tuteur et les contacts — c'est-à-dire tout le dossier
+          // familial, que l'école devait ressaisir à la main pour chaque élève.
+          // Ces champs alimentent le responsable légal du reçu (receiptDoc.js) et
+          // le cartouche des bulletins officiels : les perdre n'est pas cosmétique.
           out.students.push({
             id: studentId, school_id: schoolId, class_id: classId,
             name: st.name, matricule: st.matricule ?? null,
             gender: mapGender(st.gender), statut: st.statut ?? null,
+            statut_etablissement: st.statut_etablissement ?? null,
             date_naissance: st.date_naissance ?? null,
+            lieu_naissance:  st.lieu_naissance ?? null,
+            // `quartier` est le SECTEUR de résidence, distinct d'`adresse` :
+            // il doit rester groupable (ramassage scolaire, convocations).
+            quartier:        st.quartier ?? null,
+            adresse:         st.adresse ?? null,
+            parent_phone:    st.parent_phone ?? st.telephone ?? null,
+            contact_urgence: st.contact_urgence ?? null,
+            nom_pere:        st.nom_pere ?? null,
+            profession_pere: st.profession_pere ?? null,
+            nom_mere:        st.nom_mere ?? null,
+            profession_mere: st.profession_mere ?? null,
+            tuteur:          st.tuteur ?? null,
+            // Ancien établissement (cf. supabase_student_quartier_origine.sql).
+            // `ecole_origine` est le nom canonique de la colonne ; les deux
+            // autres clés sont acceptées parce que ce sont les mots qu'emploient
+            // les dossiers papier et les logiciels d'où l'on reprend les données.
+            ecole_origine:   st.ecole_origine ?? st.ancien_etablissement
+                          ?? st.ecole_provenance ?? null,
+            // `sport_aptitude` est NOT NULL DEFAULT 'apte' en base : y envoyer
+            // null ferait échouer l'insertion de l'élève entier.
+            sport_aptitude:  st.sport_aptitude || 'apte',
           });
         }
 

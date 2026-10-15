@@ -33,10 +33,27 @@ const STUBS = {
     export const syncQueueDB = {
       getAll: async () => globalThis.__syncQueue.slice(),
       delete: async (id) => { globalThis.__syncQueue = globalThis.__syncQueue.filter((x) => x.id !== id); },
+      update: async (item) => {
+        globalThis.__syncQueue = globalThis.__syncQueue.map((x) => (x.id === item.id ? item : x));
+      },
+      pushMany: async (ops) => {
+        let next = globalThis.__syncQueue.reduce((m, x) => Math.max(m, x.id || 0), 0);
+        for (const op of ops) globalThis.__syncQueue.push({ timestamp: Date.now(), ...op, id: ++next });
+      },
+    };
+    export const syncQuarantineDB = {
+      getAll: async () => globalThis.__syncQuarantine.slice(),
+      pushMany: async (items) => {
+        let next = globalThis.__syncQuarantine.reduce((m, x) => Math.max(m, x.id || 0), 0);
+        for (const it of items) globalThis.__syncQuarantine.push({ ...it, id: ++next, movedAt: Date.now() });
+      },
+      deleteMany: async (ids) => {
+        globalThis.__syncQuarantine = globalThis.__syncQuarantine.filter((x) => !ids.includes(x.id));
+      },
     };
     export const studentsDB = { get: async () => null, put: async () => {} };`,
   '../store/uiStore': `
-    export const useUiStore = { getState: () => ({ decrementPending() {}, setPendingCount() {} }) };`,
+    export const useUiStore = { getState: () => ({ decrementPending() {}, setPendingCount() {}, setIdle() {} }) };`,
 };
 
 export async function resolve(specifier, context, next) {

@@ -16,6 +16,7 @@
 globalThis.__assetCalls = [];
 globalThis.__assetSign = 'ok';
 globalThis.__assetToken = 1;
+globalThis.__assetLan = false;   // true = client LAN (URL relative, même origine)
 
 const calls = globalThis.__assetCalls;
 const reset = () => { calls.length = 0; globalThis.__assetSign = 'ok'; };
@@ -131,6 +132,93 @@ ok(String(e4).includes('/object/sign/'), 'la reprise après échec renvoie une U
 reset();
 for (let i = 0; i < 5; i++) assetUrlSync(PUB); // 5 remontages du même logo
 eq(calls.length, 0, 'INVARIANT : afficher 5 fois un asset public ne déclenche AUCUNE requête');
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RÉGRESSION — URL RELATIVE DE L'ÉDITION LAN (photos qui « disparaissent »)
+// ═══════════════════════════════════════════════════════════════════════════
+// `localClient.getPublicUrl` sert les fichiers sur la MÊME ORIGINE que la SPA :
+// il écrit donc `/files/<bucket>/<chemin>` en base, une URL RELATIVE. Or
+// `assetPath` ne cherchait le marqueur de bucket que dans une URL `http(s)` :
+// la valeur tombait dans la branche « chemin déjà relatif », son préfixe
+// `/files/school-assets/` était conservé, puis RÉAPPLIQUÉ à la construction.
+//
+// Résultat observé en production LAN :
+//     /files/school-assets/files/school-assets/ecole1/students/eleve42.jpg → 404
+//
+// Photo de bulletin, logo, signature et tampon passent tous par ce chemin
+// (`AssetImg`, `BulletinPhoto`) : tous étaient donc absents des bulletins LAN.
+const LAN = '/files/school-assets/ecole1/students/eleve42.jpg?v=1760000000000';
+
+eq(assetPath(LAN), 'ecole1/students/eleve42.jpg',
+  'LAN : le chemin extrait est RELATIF AU BUCKET (préfixe /files/<bucket>/ retiré)');
+ok(!String(assetPath(LAN)).includes('files/school-assets'),
+  'LAN : le préfixe de service ne subsiste jamais dans le chemin');
+
+// Sous le client LAN (cf. __assetLan dans _assetUrl.hooks.mjs), l'URL rendue
+// doit être EXACTEMENT celle que le serveur d'école sert.
+reset();
+globalThis.__assetLan = true;
+eq(assetUrlSync(LAN), '/files/school-assets/ecole1/students/eleve42.jpg?v=1760000000000',
+  'LAN : URL rendue identique à celle servie par le serveur — et `?v=` PRÉSERVÉ');
+ok(!String(assetUrlSync(LAN)).includes('school-assets/files/'),
+  'LAN : plus aucun double préfixe (le 404 d’origine)');
+eq(countOf('createSignedUrl'), 0, 'LAN : aucune signature pour un bucket public');
+globalThis.__assetLan = false;
+
+// Le chemin remis aux API de stockage ne doit JAMAIS porter le suffixe : signer
+// « x.jpg?v=1 » ne désigne aucun objet.
+reset();
+await signedUrl(LAN, 60);
+eq(calls.find((c) => c.kind === 'createSignedUrl')?.path, 'ecole1/students/eleve42.jpg',
+  'LAN : la signature porte sur le chemin NU, sans le cache-buster');
+
+// Même forme relative sans cache-buster, et avec fragment.
+eq(assetPath('/files/school-assets/ecole1/logo.png'), 'ecole1/logo.png',
+  'LAN : forme relative sans query');
+eq(assetPath('/files/school-assets/ecole1/logo.png#page=1'), 'ecole1/logo.png',
+  'LAN : le fragment est retiré du chemin');
+reset();
+ok(String(assetUrlSync('/files/school-assets/ecole1/logo.png#page=1')).endsWith('#page=1'),
+  'LAN : le fragment est préservé dans l’URL rendue');
+
+// ── Le cache-buster survit aussi sur une URL absolue (cloud) ────────────────
+const PUB_V = `${PUB}?v=42`;
+eq(assetPath(PUB_V), 'ecole1/logo.png', 'cloud : query ignorée pour le chemin');
+reset();
+eq(assetUrlSync(PUB_V), PUB_V, 'cloud : URL absolue rendue telle quelle, `?v=` compris');
+
+// ── Un chemin brut conserve son suffixe une fois l’URL construite ───────────
+reset();
+ok(String(assetUrlSync('ecole1/logo.png?v=7')).endsWith('/school-assets/ecole1/logo.png?v=7'),
+  'chemin brut + query → URL publique construite AVEC la query');
+
+// ── Aucune régression sur les valeurs étrangères ────────────────────────────
+eq(assetPath('https://ailleurs.example/x/school-assets-faux.png'), null,
+  'un chemin qui RESSEMBLE au marqueur sans l’être reste hors bucket');
+eq(assetPath('/files/autre-bucket/ecole1/x.png'), 'files/autre-bucket/ecole1/x.png',
+  'un autre bucket n’est pas réécrit (comportement inchangé)');
+// ── Séparateur doublé : un chemin de stockage ne commence jamais par « / » ──
+// `createSignedUrl('/x.jpg')` et `createSignedUrl('x.jpg')` désignent deux clés
+// différentes, et seule la seconde existe. Une valeur « …/school-assets//x.jpg »
+// laissait un slash en tête du chemin extrait, d'où une URL « …//x.jpg ».
+eq(assetPath('/files/school-assets//eleve42.jpg'), 'eleve42.jpg',
+  'séparateur doublé après le marqueur : chemin nu');
+eq(assetPath('//files/school-assets/eleve42.jpg'), 'eleve42.jpg',
+  'double slash initial : chemin nu');
+eq(assetPath(`${PUB.replace('/school-assets/', '/school-assets//')}`), 'ecole1/logo.png',
+  'séparateur doublé dans une URL absolue : chemin nu');
+reset();
+globalThis.__assetLan = true;
+ok(!/[^:]\/\//.test(String(assetUrlSync('/files/school-assets//eleve42.jpg'))),
+  'aucune URL rendue ne porte de double slash');
+eq(assetUrlSync('/files/school-assets//eleve42.jpg'), '/files/school-assets/eleve42.jpg',
+  'séparateur doublé → URL normalisée');
+globalThis.__assetLan = false;
+
+eq(assetPath('/files/school-assets/'), '', 'marqueur en fin de chaîne → chemin vide (valeur rendue telle quelle)');
+eq(assetPath('  '), null, 'valeur blanche = non gérée');
+eq(assetPath('data:image/png;base64,c2Nob29sLWFzc2V0cw=='), null,
+  'data: reste non géré même si son contenu encodé évoque le bucket');
 
 console.log(failed ? '\n❌ Des tests ont échoué' : '\n✅ Tous les tests passent');
 process.exit(failed ? 1 : 0);

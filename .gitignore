@@ -82,6 +82,14 @@ packaging/_stage_*/
 packaging/_cache/
 packaging/_verify/
 packaging/Output/
+# Paquets de mise à jour « sans installeur » (packaging/preparer-maj-usb.ps1) :
+# dist + server + src recompilés, régénérables à la demande. Quelques Mo par
+# paquet, et autant de copies que de dates — rien à versionner.
+packaging/Output-maj/
+# Bases d'établissement produites pour un installeur chargé (make-seed-ecole.mjs) :
+# données RÉELLES d'une école (élèves, notes, paiements, comptes). Jamais dans le
+# dépôt, même par accident.
+packaging/_seed/
 
 # Idem pour le paquet Linux (runtime Node téléchargé + build + tarball) :
 # ~440 Mo régénérés par packaging/linux/build-package.sh, jamais dans le dépôt.

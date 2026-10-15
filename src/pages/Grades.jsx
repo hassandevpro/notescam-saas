@@ -12,6 +12,7 @@ import { isSubjectScoped, isFundamentalTitulaire, canManageClassSubjects, canEdi
 import ClassSubjectsEditor from '../components/grades/ClassSubjectsEditor';
 import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
+import GradeBundleIO from '../components/grades/GradeBundleIO';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
 import ApcCompetenceWorkspace from '../components/grades/ApcCompetenceWorkspace';
 import MatObservationWorkspace from '../components/grades/MatObservationWorkspace';
@@ -1086,6 +1087,12 @@ function PrincipalGrades() {
             <a href="/app/students" className="font-semibold underline">{t('Ajouter des élèves', 'Add students')}</a>
           </div>
         )}
+
+        {/* Échange de notes entre postes. Volontairement HORS des conditions de
+            classe : l'export est global (toutes les classes, tous les moteurs,
+            toutes les séquences) et l'import de l'admin n'a pas à dépendre de la
+            classe affichée — c'est le fichier qui porte sa destination. */}
+        <GradeBundleIO />
 
         {showImport && classId && !isMaternelle && (
           <GradeImportPanel

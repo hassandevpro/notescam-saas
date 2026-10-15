@@ -10,6 +10,10 @@ import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
 import { useCountry } from '../lib/useCountry';
 import { COUNTRIES } from '../countries';
+// Classement des matieres : meme referentiel que l'emploi du temps, pour qu'une
+// matiere n'ait pas deux familles selon l'ecran qui la regarde.
+import { CATEGORIES, DEFAULT_CATEGORY } from '../config/timetableConfig';
+import { inferCategory } from '../lib/timetableEngine';
 import { resolveClassEngine } from '../core/engineResolver';
 import { parseClassName } from '../core/classNameParser';
 import { headTeacherText } from '../lib/headTeachers';
@@ -442,7 +446,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
   const [confirmDel, setConfDel] = useState(false);
-  const [customSubject, setCustomSubject] = useState({ name: '', coef: 1 });
+  const [customSubject, setCustomSubject] = useState({ name: '', coef: 1, category: '' });
 
   const set = (field) => (e) => { setSaved(false); setForm((f) => ({ ...f, [field]: e.target.value })); };
 
@@ -579,11 +583,12 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
             </p>
             <div className="border border-gray-200 rounded-xl overflow-hidden">
               {/* En-tête tableau */}
-              <div className="grid grid-cols-[24px_1fr_72px_72px_180px] gap-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              <div className="grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 <div />
                 <div>{t('Matière', 'Subject')}</div>
                 <div className="text-center">Coef</div>
                 <div className="text-center">/ Max</div>
+                <div>{t('Classement', 'Category')}</div>
                 <div>{t('Enseignant', 'Teacher')}</div>
               </div>
 
@@ -594,7 +599,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 return (
                   <div
                     key={name}
-                    className={`grid grid-cols-[24px_1fr_72px_72px_180px] gap-3 items-center px-4 py-2.5 ${
+                    className={`grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 items-center px-4 py-2.5 ${
                       i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                     } ${checked ? '' : 'opacity-50 hover:opacity-80'} transition-opacity`}
                   >
@@ -631,6 +636,18 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                         />
                         <select
                           className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
+                          value={existing.category || ''}
+                          onChange={(e) => updateSubject(existing.id, { category: e.target.value || null })}
+                        >
+                          <option value="">
+                            {t('auto', 'auto')} ({t(...inferCategory(existing.name).label)})
+                          </option>
+                          {[...CATEGORIES, DEFAULT_CATEGORY].map((c) => (
+                            <option key={c.id} value={c.id}>{t(...c.label)}</option>
+                          ))}
+                        </select>
+                        <select
+                          className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
                           value={existing.teacher_id || ''}
                           onChange={(e) => updateSubject(existing.id, { teacher_id: e.target.value || null })}
                         >
@@ -642,6 +659,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                       <>
                         <div className="text-center text-xs text-gray-200">—</div>
                         <div className="text-center text-xs text-gray-200">—</div>
+                        <div className="text-xs text-gray-200">—</div>
                         <div className="text-xs text-gray-200">—</div>
                       </>
                     )}
@@ -655,7 +673,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 .map((sub, i) => (
                   <div
                     key={sub.id}
-                    className={`grid grid-cols-[24px_1fr_72px_72px_180px] gap-3 items-center px-4 py-2.5 ${
+                    className={`grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 items-center px-4 py-2.5 ${
                       (catalog.length + i) % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                     }`}
                   >
@@ -686,6 +704,26 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                         if (v !== sub.max) updateSubject(sub.id, { max: v });
                       }}
                     />
+                    {/* CLASSEMENT de la matière. Tant qu'il est vide, le produit
+                        déduit la famille du NOM — c'est ce qui faisait tomber
+                        « LMC », « EFPS » ou « Travaux Pratiques » dans « Autre »,
+                        sans recours. L'option « auto » affiche donc entre
+                        parenthèses ce que la déduction donnerait, pour que le
+                        choix soit éclairé plutôt que deviné. */}
+                    <select
+                      className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
+                      value={sub.category || ''}
+                      onChange={(e) => updateSubject(sub.id, { category: e.target.value || null })}
+                      title={t('Famille de la matière — sert aux couleurs de l’emploi du temps et au regroupement.',
+                               'Subject family — drives timetable colours and grouping.')}
+                    >
+                      <option value="">
+                        {t('auto', 'auto')} ({t(...inferCategory(sub.name).label)})
+                      </option>
+                      {[...CATEGORIES, DEFAULT_CATEGORY].map((c) => (
+                        <option key={c.id} value={c.id}>{t(...c.label)}</option>
+                      ))}
+                    </select>
                     <select
                       className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
                       value={sub.teacher_id || ''}
@@ -698,7 +736,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 ))}
 
               {/* Ligne ajout matière personnalisée */}
-              <div className="grid grid-cols-[24px_1fr_72px_72px_180px] gap-3 items-center px-4 py-3 bg-brand-50/60 border-t border-brand-100">
+              <div className="grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 items-center px-4 py-3 bg-brand-50/60 border-t border-brand-100">
                 <div className="text-brand-400 text-lg font-bold text-center leading-none">+</div>
                 <input
                   type="text"
@@ -711,8 +749,12 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     e.preventDefault();
                     if (!customSubject.name.trim()) return;
                     const max = (cls.system || 'FR') === 'EN' ? 100 : 20;
-                    addSubject({ name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1, max, class_id: cls.id, teacher_id: null });
-                    setCustomSubject({ name: '', coef: 1 });
+                    addSubject({
+                      name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1, max,
+                      class_id: cls.id, teacher_id: null,
+                      category: customSubject.category || null,
+                    });
+                    setCustomSubject({ name: '', coef: 1, category: '' });
                   }}
                 />
                 <input
@@ -722,14 +764,37 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                   onChange={(e) => setCustomSubject((p) => ({ ...p, coef: e.target.value }))}
                 />
                 <div className="text-center text-xs text-gray-300">{t('auto', 'auto', 'auto')}</div>
+                {/* CLASSEMENT À LA CRÉATION. C'est ici que la matière était
+                    perdue : ajoutée sans famille, elle tombait dans « Autre »
+                    dès l'emploi du temps, et il fallait deviner qu'on pouvait
+                    la reclasser ailleurs. L'option « auto » montre ce que la
+                    déduction par le nom donnerait, et se met à jour pendant la
+                    frappe — l'école voit donc tout de suite si elle doit
+                    trancher elle-même. */}
+                <select
+                  className="w-full text-xs border border-brand-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
+                  value={customSubject.category || ''}
+                  onChange={(e) => setCustomSubject((prev) => ({ ...prev, category: e.target.value }))}
+                >
+                  <option value="">
+                    {t('auto', 'auto')} ({t(...inferCategory(customSubject.name).label)})
+                  </option>
+                  {[...CATEGORIES, DEFAULT_CATEGORY].map((c) => (
+                    <option key={c.id} value={c.id}>{t(...c.label)}</option>
+                  ))}
+                </select>
                 <button
                   type="button"
                   disabled={!customSubject.name.trim()}
                   onClick={() => {
                     if (!customSubject.name.trim()) return;
                     const max = (cls.system || 'FR') === 'EN' ? 100 : 20;
-                    addSubject({ name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1, max, class_id: cls.id, teacher_id: null });
-                    setCustomSubject({ name: '', coef: 1 });
+                    addSubject({
+                      name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1, max,
+                      class_id: cls.id, teacher_id: null,
+                      category: customSubject.category || null,
+                    });
+                    setCustomSubject({ name: '', coef: 1, category: '' });
                   }}
                   className="px-3 py-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors"
                 >

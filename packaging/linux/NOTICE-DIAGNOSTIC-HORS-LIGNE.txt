@@ -1,0 +1,103 @@
+========================================================================
+NotesCam — « ça ne fonctionne pas sans connexion »
+Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+À QUOI SERT CETTE PROCÉDURE
+---------------------------
+NotesCam, édition Linux, est conçu pour fonctionner SANS Internet : la
+base de données est sur le serveur de l'école, et les postes parlent à ce
+serveur, pas au Cloud.
+
+Quand une école constate que « sans connexion, rien ne marche », la cause
+est l'une de cinq, et aucune ne se distingue à l'écran. Le script
+ci-dessous les teste toutes et affiche le verdict.
+
+LECTURE SEULE : il ne modifie RIEN. Aucune donnée touchée, aucun service
+redémarré, aucune base écrite. On peut le lancer autant de fois qu'on
+veut, y compris en pleine journée de saisie.
+
+
+CE QU'IL VOUS FAUT
+------------------
+  - Le fichier reçu :  diagnostic-hors-ligne.sh
+  - Un accès au serveur Linux de l'école, avec les droits « sudo ».
+  - 2 minutes.
+
+À faire de préférence AVEC INTERNET DÉBRANCHÉ, pour reproduire
+exactement la situation dont se plaignent les utilisateurs.
+
+
+LES 3 COMMANDES
+---------------
+Ouvrez un terminal sur le serveur (ou connectez-vous en SSH), puis :
+
+1) Placez-vous dans le dossier contenant le fichier reçu :
+
+        cd ~
+
+2) Préparez le script :
+
+        sed -i 's/\r$//' diagnostic-hors-ligne.sh
+
+3) Lancez-le :
+
+        sudo bash diagnostic-hors-ligne.sh
+
+   (Si NotesCam n'écoute pas sur le port 8080 :
+        sudo bash diagnostic-hors-ligne.sh --port LE_PORT )
+
+
+RÉSULTAT ATTENDU
+----------------
+Le script affiche une suite de lignes [OK] / [!] / [KO], puis un bloc
+« VERDICT ».
+
+  ✅ « Aucun problème détecté côté serveur »
+        -> Le serveur fonctionne bien sans Internet. Le problème est
+           alors sur les POSTES. La cause la plus fréquente, de très
+           loin : le poste tape « localhost:8080 ».
+
+           « localhost » désigne TOUJOURS la machine sur laquelle on le
+           tape. Sur une tablette, il cherche un serveur NotesCam DANS
+           la tablette. Il faut taper l'adresse du serveur, que le
+           script affiche dans la section « URL à taper sur les autres
+           postes », par exemple :
+
+                 http://192.168.1.42:8080
+
+           Seul le serveur lui-même a le droit d'utiliser localhost.
+
+  ❌ « N point(s) à corriger »
+        -> Chaque ligne dit quoi faire. Si ce n'est pas clair, envoyez
+           à l'éditeur TOUT l'affichage du script (copier-coller
+           complet, du haut jusqu'au verdict).
+
+
+LES CINQ CAUSES TESTÉES
+-----------------------
+Pour information, ce que le script vérifie :
+
+  1. L'interface installée est-elle la bonne édition ? Une interface
+     compilée pour le Cloud écrit dans le Cloud et non dans la base de
+     l'école : sans Internet, « ça refuse d'enregistrer ».
+
+  2. La base locale contient-elle des comptes ? Un compte créé dans le
+     Cloud n'arrive au serveur de l'école qu'une fois le pont
+     d'identifiants passé, ce qui exige Internet AU MOINS UNE FOIS.
+     Sinon : « Email ou mot de passe incorrect », hors ligne, pour tout
+     le monde. Réparable sur place, sans Internet.
+
+  3. Le service tourne-t-il, et écoute-t-il sur tout le réseau ?
+
+  4. Quelle adresse les postes doivent-ils taper ? (voir ci-dessus)
+
+  5. La licence est-elle activée ? L'activation est hors-ligne, mais
+     tant qu'aucune clé n'est saisie, l'écran reste bloquant.
+
+
+EN CAS DE DOUTE
+---------------
+Le script ne casse rien et n'écrit rien. En cas de message inquiétant,
+ne tentez aucune réparation de vous-même : envoyez l'affichage complet
+à l'éditeur, qui vous guidera.

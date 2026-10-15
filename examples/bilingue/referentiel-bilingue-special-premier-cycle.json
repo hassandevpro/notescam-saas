@@ -1,0 +1,1520 @@
+{
+  "version": {
+    "label": "Arrete n 239-23/MINESEC du 14 juin 2023 - Programme d Education Bilingue Special (premier cycle)",
+    "source": "Arrete n 239-23/MINESEC du 14 juin 2023, sections I-2 (francophone, p.2-3) et II-2 (anglophone, p.5-6). Visa Services du Premier Ministre n 002688 du 06 juin 2023."
+  },
+  "series": [
+    {
+      "id": "bil_fr",
+      "nom": "Programme d’Éducation Bilingue Spécial — francophone",
+      "categorie": "bilingue_special",
+      "description": "Arrêté 239-23 section I-2. Classes 6e à 3e."
+    },
+    {
+      "id": "bil_en",
+      "nom": "Special Bilingual Education Programme — anglophone",
+      "categorie": "bilingue_special",
+      "description": "Arrêté 239-23 section II-2. Forms 1 to 5."
+    }
+  ],
+  "groupes": [
+    {
+      "id": "fr_d1",
+      "nom": "Langues et littératures",
+      "ordre": 1
+    },
+    {
+      "id": "fr_d2",
+      "nom": "Sciences humaines",
+      "ordre": 2
+    },
+    {
+      "id": "fr_d3",
+      "nom": "Sciences et technologies",
+      "ordre": 3
+    },
+    {
+      "id": "fr_d4",
+      "nom": "Arts et cultures nationales",
+      "ordre": 4
+    },
+    {
+      "id": "fr_d5",
+      "nom": "Développement personnel",
+      "ordre": 5
+    },
+    {
+      "id": "en_d1",
+      "nom": "Langues et littératures",
+      "ordre": 6
+    },
+    {
+      "id": "en_d2",
+      "nom": "Sciences humaines et sociales",
+      "ordre": 7
+    },
+    {
+      "id": "en_d3",
+      "nom": "Sciences et technologies",
+      "ordre": 8
+    },
+    {
+      "id": "en_d4",
+      "nom": "Développement personnel",
+      "ordre": 9
+    },
+    {
+      "id": "en_d0",
+      "nom": "Matières obligatoires",
+      "ordre": 10
+    }
+  ],
+  "matieres": [
+    {
+      "id": "intensive_english_language",
+      "nom": "Intensive English (Language)",
+      "domaine": "Langues et littératures"
+    },
+    {
+      "id": "intensive_english_literature",
+      "nom": "Intensive English (Literature)",
+      "domaine": "Langues et littératures"
+    },
+    {
+      "id": "francais",
+      "nom": "Français",
+      "domaine": "Langues et littératures"
+    },
+    {
+      "id": "langue_vivante_2",
+      "nom": "Langue Vivante II (LVII)",
+      "domaine": "Langues et littératures"
+    },
+    {
+      "id": "lettres_classiques",
+      "nom": "Lettres classiques (Latin/Grec)",
+      "domaine": "Langues et littératures"
+    },
+    {
+      "id": "citizenship_education",
+      "nom": "Citizenship Education",
+      "domaine": "Sciences humaines"
+    },
+    {
+      "id": "geographie",
+      "nom": "Géographie",
+      "domaine": "Sciences humaines"
+    },
+    {
+      "id": "histoire",
+      "nom": "Histoire",
+      "domaine": "Sciences humaines"
+    },
+    {
+      "id": "informatique",
+      "nom": "Informatique",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "mathematiques",
+      "nom": "Mathématiques",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "pct",
+      "nom": "Physique-Chimie-Technologie",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "sciences",
+      "nom": "Sciences",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "svteehb",
+      "nom": "SVTEEHB",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "education_artistique",
+      "nom": "Éducation artistique et culturelle",
+      "domaine": "Arts et cultures nationales"
+    },
+    {
+      "id": "cultures_nationales",
+      "nom": "Cultures Nationales",
+      "domaine": "Arts et cultures nationales"
+    },
+    {
+      "id": "langues_nationales",
+      "nom": "Langues Nationales",
+      "domaine": "Arts et cultures nationales"
+    },
+    {
+      "id": "eps",
+      "nom": "Éducation Physique et Sportive",
+      "domaine": "Développement personnel"
+    },
+    {
+      "id": "travail_manuel",
+      "nom": "Travail Manuel (TM)",
+      "domaine": "Développement personnel"
+    },
+    {
+      "id": "francais_intensif_langue",
+      "nom": "Français intensif (Langue)",
+      "domaine": "Langues et littératures"
+    },
+    {
+      "id": "francais_intensif_litterature",
+      "nom": "Français intensif (Littérature)",
+      "domaine": "Langues et littératures"
+    },
+    {
+      "id": "english_language",
+      "nom": "English Language",
+      "domaine": "Langues et littératures"
+    },
+    {
+      "id": "economics",
+      "nom": "Economics",
+      "domaine": "Sciences humaines et sociales"
+    },
+    {
+      "id": "ecm",
+      "nom": "Éducation à la Citoyenneté et à la Morale",
+      "domaine": "Sciences humaines et sociales"
+    },
+    {
+      "id": "geography",
+      "nom": "Geography",
+      "domaine": "Sciences humaines et sociales"
+    },
+    {
+      "id": "history",
+      "nom": "History",
+      "domaine": "Sciences humaines et sociales"
+    },
+    {
+      "id": "computer_sciences",
+      "nom": "Computer Sciences",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "biology",
+      "nom": "Biology",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "chemistry",
+      "nom": "Chemistry",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "food_nutrition",
+      "nom": "Food and Nutrition",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "home_economics",
+      "nom": "Home Economics",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "mathematics",
+      "nom": "Mathematics",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "physics",
+      "nom": "Physics",
+      "domaine": "Sciences et technologies"
+    },
+    {
+      "id": "manual_labour",
+      "nom": "Manual Labour",
+      "domaine": "Développement personnel"
+    },
+    {
+      "id": "logic",
+      "nom": "Logic",
+      "domaine": "Sciences humaines et sociales"
+    },
+    {
+      "id": "geology",
+      "nom": "Geology",
+      "domaine": "Sciences et technologies"
+    }
+  ],
+  "entries": [
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "intensive_english_language",
+      "groupe": "fr_d1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "intensive_english_language",
+      "groupe": "fr_d1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "intensive_english_language",
+      "groupe": "fr_d1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "intensive_english_language",
+      "groupe": "fr_d1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "intensive_english_literature",
+      "groupe": "fr_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "intensive_english_literature",
+      "groupe": "fr_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "intensive_english_literature",
+      "groupe": "fr_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "intensive_english_literature",
+      "groupe": "fr_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "francais",
+      "groupe": "fr_d1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "francais",
+      "groupe": "fr_d1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "francais",
+      "groupe": "fr_d1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "francais",
+      "groupe": "fr_d1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "langue_vivante_2",
+      "groupe": "fr_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "langue_vivante_2",
+      "groupe": "fr_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "lettres_classiques",
+      "groupe": "fr_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "lettres_classiques",
+      "groupe": "fr_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "lettres_classiques",
+      "groupe": "fr_d1",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "lettres_classiques",
+      "groupe": "fr_d1",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "citizenship_education",
+      "groupe": "fr_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "citizenship_education",
+      "groupe": "fr_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "citizenship_education",
+      "groupe": "fr_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "citizenship_education",
+      "groupe": "fr_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "geographie",
+      "groupe": "fr_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "geographie",
+      "groupe": "fr_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "geographie",
+      "groupe": "fr_d2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "geographie",
+      "groupe": "fr_d2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "histoire",
+      "groupe": "fr_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "histoire",
+      "groupe": "fr_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "histoire",
+      "groupe": "fr_d2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "histoire",
+      "groupe": "fr_d2",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "informatique",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "informatique",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "informatique",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "informatique",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "mathematiques",
+      "groupe": "fr_d3",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "mathematiques",
+      "groupe": "fr_d3",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "mathematiques",
+      "groupe": "fr_d3",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "mathematiques",
+      "groupe": "fr_d3",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "pct",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "pct",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "sciences",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "sciences",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "svteehb",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "svteehb",
+      "groupe": "fr_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "education_artistique",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "education_artistique",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "education_artistique",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "education_artistique",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "cultures_nationales",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "cultures_nationales",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "cultures_nationales",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "cultures_nationales",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "langues_nationales",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "langues_nationales",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "langues_nationales",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "langues_nationales",
+      "groupe": "fr_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "eps",
+      "groupe": "fr_d5",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "eps",
+      "groupe": "fr_d5",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "eps",
+      "groupe": "fr_d5",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "eps",
+      "groupe": "fr_d5",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "6e",
+      "matiere": "travail_manuel",
+      "groupe": "fr_d5",
+      "coef": 1,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "5e",
+      "matiere": "travail_manuel",
+      "groupe": "fr_d5",
+      "coef": 1,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "4e",
+      "matiere": "travail_manuel",
+      "groupe": "fr_d5",
+      "coef": 1,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_fr",
+      "classe": "3e",
+      "matiere": "travail_manuel",
+      "groupe": "fr_d5",
+      "coef": 1,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "francais_intensif_langue",
+      "groupe": "en_d1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "francais_intensif_langue",
+      "groupe": "en_d1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "francais_intensif_langue",
+      "groupe": "en_d1",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "francais_intensif_litterature",
+      "groupe": "en_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "francais_intensif_litterature",
+      "groupe": "en_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "francais_intensif_litterature",
+      "groupe": "en_d1",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "english_language",
+      "groupe": "en_d1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "english_language",
+      "groupe": "en_d1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "english_language",
+      "groupe": "en_d1",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "economics",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "ecm",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "ecm",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "ecm",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "geography",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "geography",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "geography",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "history",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "history",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "history",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "computer_sciences",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "computer_sciences",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "computer_sciences",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "biology",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "biology",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "biology",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "chemistry",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "chemistry",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "chemistry",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "food_nutrition",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "home_economics",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "home_economics",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "mathematics",
+      "groupe": "en_d3",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "mathematics",
+      "groupe": "en_d3",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "mathematics",
+      "groupe": "en_d3",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "physics",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "physics",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "physics",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "eps",
+      "groupe": "en_d4",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "eps",
+      "groupe": "en_d4",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "eps",
+      "groupe": "en_d4",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form1",
+      "matiere": "manual_labour",
+      "groupe": "en_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form2",
+      "matiere": "manual_labour",
+      "groupe": "en_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form3",
+      "matiere": "manual_labour",
+      "groupe": "en_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "francais_intensif_langue",
+      "groupe": "en_d0",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "francais_intensif_langue",
+      "groupe": "en_d0",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "francais_intensif_litterature",
+      "groupe": "en_d0",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "francais_intensif_litterature",
+      "groupe": "en_d0",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "english_language",
+      "groupe": "en_d0",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "english_language",
+      "groupe": "en_d0",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "mathematics",
+      "groupe": "en_d0",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "mathematics",
+      "groupe": "en_d0",
+      "coef": 4,
+      "charge": 4,
+      "obligatoire": true
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "economics",
+      "groupe": "en_d2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "economics",
+      "groupe": "en_d2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "ecm",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "ecm",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "geography",
+      "groupe": "en_d2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "geography",
+      "groupe": "en_d2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "history",
+      "groupe": "en_d2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "history",
+      "groupe": "en_d2",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "logic",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "logic",
+      "groupe": "en_d2",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "computer_sciences",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "computer_sciences",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "biology",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "biology",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "chemistry",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "chemistry",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "geology",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "geology",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "food_nutrition",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "food_nutrition",
+      "groupe": "en_d3",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "physics",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "physics",
+      "groupe": "en_d3",
+      "coef": 3,
+      "charge": 3,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "eps",
+      "groupe": "en_d4",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "eps",
+      "groupe": "en_d4",
+      "coef": 2,
+      "charge": 2,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form4",
+      "matiere": "manual_labour",
+      "groupe": "en_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": false
+    },
+    {
+      "serie": "bil_en",
+      "classe": "form5",
+      "matiere": "manual_labour",
+      "groupe": "en_d4",
+      "coef": 1,
+      "charge": 1,
+      "obligatoire": false
+    }
+  ]
+}

@@ -181,14 +181,22 @@ const students = [{ id: 'e1', name: 'Abena' }, { id: 'e2', name: 'Biya' }, { id:
     primNotes, primReferentiel,
   });
 
-  eq(rep.scaleMax, PRIM_GRADE_MAX, 'le carnet primaire note /10, pas /20');
-  eq(rep.passThreshold, 5, 'seuil = moitié du barème /10');
+  // L'échelle vient du MOTEUR (primEngine.PRIM_GRADE_MAX), source unique depuis
+  // 8dac543 : le carnet primaire s'exprime sur 20, comme le reste du système
+  // scolaire camerounais. On compare à la constante importée plutôt qu'à un
+  // nombre écrit ici, pour que ce test suive la décision au lieu de la figer.
+  eq(rep.scaleMax, PRIM_GRADE_MAX, 'le barème vient du moteur, pas d une valeur en dur');
+  eq(rep.passThreshold, PRIM_GRADE_MAX / 2, 'seuil de réussite = moitié du barème');
   eq(rep.columns.length, 2, 'colonnes = compétences nationales du niveau');
   eq(rep.columns[0].name, '1A — Lire', 'la compétence est libellée code + intitulé');
   const r1 = rep.rows.find((r) => r.student.id === 'e1');
-  eq(r1.scores.k1, 7.5, 'compétence 1A : moyenne des pourcentages des UA du trimestre');
-  eq(r1.scores.k2, 5, 'compétence 2A : 10/20 → 5/10');
-  eq(r1.avg, 6.67, 'moyenne générale pondérée par coefficient de compétence');
+  // Les attendus sont EXPRIMÉS en pourcentage × barème, pas en nombres figés :
+  // c'est ce que calcule le moteur (une moyenne dérivée d'un pourcentage puis
+  // mise à l'échelle), et cela reste juste si le barème change un jour.
+  const sur = (pct) => Math.round((pct / 100) * PRIM_GRADE_MAX * 100) / 100;
+  eq(r1.scores.k1, sur(75), 'compétence 1A : moyenne des pourcentages des UA du trimestre (75 %)');
+  eq(r1.scores.k2, sur(50), 'compétence 2A : 10/20 des points, soit 50 %');
+  eq(r1.avg, sur(66.67), 'moyenne générale pondérée par coefficient de compétence');
   ok(['A+', 'A', 'ECA', 'NA'].includes(r1.cote), 'une cote APC est dérivée');
   eq(rep.rows.find((r) => r.student.id === 'e2').avg, null, 'les UA du trimestre 2 ne fuient pas sur le trimestre 1');
 

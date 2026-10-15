@@ -21,7 +21,15 @@
 
 param(
   [string] $NodeVersion = 'latest',   # 'latest' = dernière v24 de nodejs.org
-  [string] $AppVersion  = ''          # défaut : version de package.json
+  [string] $AppVersion  = '',         # défaut : version de package.json
+  # Installeur CHARGÉ DES DONNÉES d'un établissement : dossier de données LAN à
+  # embarquer (celui qui contient notescam.db + files\). L'école installe et se
+  # connecte avec SES identifiants, sans Internet. Voir packaging/stage-seed.mjs.
+  [string] $SeedData    = '',
+  # Suffixe du nom de l'installeur produit (obligatoire avec -SeedData) : un
+  # installeur chargé de données ne doit JAMAIS porter le même nom qu'un
+  # installeur vierge — on ne distribue pas les données d'une école par erreur.
+  [string] $SeedLabel   = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,10 +89,29 @@ try {
 Copy-Item (Join-Path $Root 'dist') (Join-Path $Stage 'app\dist') -Recurse -Force
 
 # --- 3. Copie du serveur (sans données ni node_modules) --------------
+#
+# CE QUE LES EXCLUSIONS FERMENT, mesuré sur le .exe du 2026-10-09 : l'installeur
+# embarquait 16 fichiers de données et de secrets, parce que seuls `data` et
+# `_test_data` étaient écartés —
+#   server\data-demo\       la base de démonstration « COLLÈGE LA RETRAITE »
+#                           (232 élèves, 10 054 notes, 738 paiements, 16 comptes)
+#                           AVEC jwt-secret.key, mirror.key, server-token.key ;
+#   server\GENIUS-sauvegarde-*.db  une base nommée d'après une école cliente.
+# Rien de tout cela n'est lu à l'exécution — le serveur travaille dans
+# NOTESCAM_DATA_DIR (C:\ProgramData\NotesCam\data) et génère ses propres clés à
+# la première ouverture. C'était donc du poids mort… déposé sur le disque de
+# CHAQUE école, clés de signature comprises.
+#
+# On exclut par NATURE de fichier (*.db, *.key, *.pem) et pas seulement par
+# dossier : la prochaine base de travail posée dans server\ sera écartée d'office,
+# sans que personne ait à y penser. `license-pubkey.txt` n'est pas touché (c'est
+# un .txt), et aucun fichier nécessaire au serveur ne porte ces extensions.
 Step "Copie du serveur"
 $srcServer = Join-Path $Root 'server'
 $dstServer = Join-Path $Stage 'app\server'
-robocopy $srcServer $dstServer /E /XD data _test_data node_modules /XF *.log | Out-Null
+robocopy $srcServer $dstServer /E `
+  /XD data data-demo _test_data node_modules `
+  /XF *.log *.db *.db-wal *.db-shm *.db-journal *.key *.pem | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "robocopy a échoué (code $LASTEXITCODE)" }
 $global:LASTEXITCODE = 0   # robocopy : 0-7 = succès
 
@@ -151,6 +178,51 @@ Copy-Item (Join-Path $Here 'update-notescam.ps1')   $Stage -Force
 # l'aider à distance. L'outil lui-même (server/reset-password-cli.mjs) est déjà
 # embarqué avec le reste de server\ à l'étape 3.
 Copy-Item (Join-Path $Here 'reinitialiser-mot-de-passe.cmd') $Stage -Force
+# Pose la base d'établissement embarquée au premier démarrage. Toujours embarqué,
+# même sans -SeedData : sans dossier seed\ il ne fait rien, et l'installeur
+# vierge reste strictement identique dans son comportement.
+Copy-Item (Join-Path $Here 'seed-data.ps1')          $Stage -Force
+
+# --- 5 bis. Base d'établissement embarquée (option) ------------------
+$SeedArgs = @()
+if ($SeedData) {
+  Step "Base d'établissement à embarquer"
+  if (-not (Test-Path (Join-Path $SeedData 'notescam.db'))) {
+    throw "-SeedData : aucune base ici -> " + (Join-Path $SeedData 'notescam.db')
+  }
+  if (-not $SeedLabel) {
+    throw "-SeedData exige -SeedLabel (ex. -SeedLabel bright-continent) : un installeur charge de donnees ne doit pas porter le nom d'un installeur vierge."
+  }
+  # Prepare le dossier _stage/seed : repli du WAL, purge de l etat du poste de build,
+  # AUCUN secret embarqué, et rapport affiché de ce qui part dans l'installeur.
+  & node (Join-Path $Here 'stage-seed.mjs') $SeedData (Join-Path $Stage 'seed')
+  if ($LASTEXITCODE -ne 0) { throw "stage-seed.mjs a echoue" }
+  $SeedArgs = @("/DSeedLabel=$SeedLabel")
+}
+
+# --- 5 bis. CONTRÔLE : aucune donnée d'école dans le payload ---------
+# Les exclusions de l'étape 3 sont la ceinture ; ceci est les bretelles. Un
+# installeur part chez des dizaines d'écoles : mieux vaut un build qui échoue
+# qu'un .exe qui distribue la base ou les clés de quelqu'un d'autre.
+#
+# `node_modules` est hors périmètre : des paquets npm embarquent légitimement des
+# certificats de test, et ce n'est pas notre payload.
+Step "Contrôle du payload (aucune donnée, aucune clé)"
+$suspects = Get-ChildItem (Join-Path $Stage 'app') -Recurse -File `
+              -Include '*.db','*.db-wal','*.db-shm','*.db-journal','*.key','*.pem' `
+              -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '\\node_modules\\' }
+if ($suspects) {
+  $suspects | ForEach-Object { Write-Host "   $($_.FullName)" -ForegroundColor Red }
+  throw "$($suspects.Count) fichier(s) de donnees/secrets dans le payload. Build interrompu : rien ne sort."
+}
+# NOTE : ce fichier est en UTF-8 SANS BOM, et PowerShell 5.1 le lit alors en
+# ANSI (c'est pourquoi la console affiche « PrÃ©paration »). Les accents passent,
+# mais PAS un tiret cadratin : U+2014 se decode en « â€” », dont le dernier
+# caractere U+201D est accepte par PowerShell comme un GUILLEMET OUVRANT. Une
+# seule occurrence dans du code casse l'analyse du reste du fichier, avec une
+# erreur signalee 20 lignes plus loin. D'ou l'ASCII strict dans cette ligne.
+Write-Host "  OK - le payload ne porte que du code." -ForegroundColor Green
 
 # --- 6. Compilation de l'installateur (Inno Setup) -------------------
 Step "Compilation de l'installateur (Inno Setup)"
@@ -162,9 +234,10 @@ $iscc = @(
 
 $iss = Join-Path $Here 'notescam.iss'
 if ($iscc) {
-  & $iscc "/DAppVersion=$AppVersion" "/DStageDir=$Stage" $iss
+  & $iscc "/DAppVersion=$AppVersion" "/DStageDir=$Stage" @SeedArgs $iss
   if ($LASTEXITCODE -ne 0) { throw "ISCC a echoue" }
-  $exe = Join-Path $Here 'Output\NotesCam-Setup.exe'
+  $base = if ($SeedLabel) { "NotesCam-Setup-$SeedLabel" } else { 'NotesCam-Setup' }
+  $exe = Join-Path $Here "Output\$base.exe"
   Write-Host "`n[OK] Installateur pret : $exe" -ForegroundColor Green
 } else {
   Write-Warning "Inno Setup (ISCC.exe) introuvable. Staging pret dans : $Stage"

@@ -23,3 +23,7 @@ export {
   signatureBlockHtml, verificationBlockHtml, footerHtml,
   buildPrintDocument, printSheets, openPrintWindow, PRINT_RESULT, BOOT_SCRIPT,
 } from './printLayout';
+
+export {
+  fitLiveSheets, resetLiveSheets, facteurFit, MIN_FIT_SCALE, FIT_VAR,
+} from './fitLiveSheets';

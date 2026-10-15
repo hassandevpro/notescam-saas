@@ -54,7 +54,7 @@ export const slotsOverlap = (a, b) =>
 
 // ── Catégorie / couleur ──────────────────────────────────────────────────────
 // Déduit la catégorie d'un cours à partir du nom de la matière (ou du libellé
-// libre). Heuristique par mots-clés : aucune colonne supplémentaire nécessaire.
+// libre). Heuristique par mots-clés, sans colonne en base.
 export function inferCategory(name) {
   const n = normalizeLabel(name);
   if (!n) return DEFAULT_CATEGORY;
@@ -64,13 +64,39 @@ export function inferCategory(name) {
   return DEFAULT_CATEGORY;
 }
 
+/**
+ * Catégorie EFFECTIVE d'une matière : son classement CHOISI s'il existe, sinon
+ * la déduction par mots-clés.
+ *
+ * POURQUOI LE CHOIX PASSE DEVANT. L'heuristique ne connaît que des mots-clés
+ * français et anglais courants. Une école qui ajoute « LMC », « EFPS »,
+ * « Travaux Pratiques » ou une langue nationale voit sa matière tomber dans
+ * « Autre » — grise, en bas de tri, indistinguable des récréations — sans aucun
+ * moyen de corriger, puisque la catégorie était recalculée à chaque affichage.
+ * Le classement est désormais une donnée de la matière, que l'école pose à la
+ * création. La déduction reste le DÉFAUT proposé, pas le verdict.
+ *
+ * Une catégorie inconnue (référentiel modifié depuis, faute de saisie) retombe
+ * sur la déduction plutôt que sur « Autre » : mieux vaut une couleur devinée
+ * qu'un classement perdu.
+ *
+ * @param {object} subject  ligne `subjects` ({ name, category })
+ * @param {string} [libelle] libellé libre du créneau, quand il n'y a pas de matière
+ */
+export function categoryForSubject(subject, libelle = null) {
+  const choisie = subject?.category;
+  if (choisie && CATEGORY_BY_ID[choisie]) return CATEGORY_BY_ID[choisie];
+  return inferCategory(subject?.name || libelle);
+}
+
 // Résout le « titre + enseignant + salle + catégorie/couleur » d'un créneau.
 export function decorateSlot(slot, { subjects = [], teachers = [], classes = [] } = {}) {
   const subject = subjects.find((s) => s.id === slot.subject_id) || null;
   const teacher = teachers.find((t) => t.id === slot.teacher_id) || null;
   const cls = classes.find((c) => c.id === slot.class_id) || null;
   const title = subject?.name || slot.label || '—';
-  const category = inferCategory(subject?.name || slot.label);
+  // Classement CHOISI par l'école s'il existe, sinon déduction par mots-clés.
+  const category = categoryForSubject(subject, slot.label);
   return {
     ...slot,
     title,

@@ -42,6 +42,7 @@ const EMPTY_EDIT = {
   name: '', matricule: '', gender: '', date_naissance: '', lieu_naissance: '',
   adresse: '', parent_phone: '', contact_urgence: '',
   nom_pere: '', profession_pere: '', nom_mere: '', profession_mere: '', tuteur: '',
+  quartier: '', ecole_origine: '',
 };
 
 function EditForm({ student, classes, onSave, onClose }) {
@@ -147,6 +148,11 @@ function EditForm({ student, classes, onSave, onClose }) {
           <label className="form-label">{t('Lieu de naissance', 'Place of birth')}</label>
           <input type="text" className="form-input" value={form.lieu_naissance || ''} onChange={set('lieu_naissance')} />
         </div>
+        <div className="col-span-2">
+          <label className="form-label">{t('Ancien établissement', 'Previous school')}</label>
+          <input type="text" className="form-input" placeholder={t('Établissement de provenance', 'Where the student comes from')}
+            value={form.ecole_origine || ''} onChange={set('ecole_origine')} />
+        </div>
       </div>
 
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest pt-1">{t('Contact & famille', 'Contact & family')}</p>
@@ -159,9 +165,15 @@ function EditForm({ student, classes, onSave, onClose }) {
           <label className="form-label">{t("Contact d'urgence", 'Emergency contact')}</label>
           <input type="tel" className="form-input" value={form.contact_urgence || ''} onChange={set('contact_urgence')} />
         </div>
-        <div className="col-span-2">
+        <div>
+          <label className="form-label">{t('Quartier de résidence', 'Neighbourhood')}</label>
+          <input type="text" className="form-input" placeholder={t('Ex : Bastos', 'E.g. Ela Nguema')}
+            value={form.quartier || ''} onChange={set('quartier')} />
+        </div>
+        <div>
           <label className="form-label">{t('Adresse', 'Address')}</label>
-          <input type="text" className="form-input" value={form.adresse || ''} onChange={set('adresse')} />
+          <input type="text" className="form-input" placeholder={t('Rue, repère, ville', 'Street, landmark, city')}
+            value={form.adresse || ''} onChange={set('adresse')} />
         </div>
         <div>
           <label className="form-label">{t('Nom du père', "Father's name")}</label>
@@ -643,11 +655,12 @@ export default function StudentProfile() {
               <InfoRow label={t('Sexe', 'Gender')}                   value={genderLabel} />
               <InfoRow label={t('Date de naissance', 'Date of birth')} value={fmtDate(student.date_naissance)} />
               <InfoRow label={t('Lieu de naissance', 'Place of birth')} value={student.lieu_naissance} />
+              <InfoRow label={t('Ancien établissement', 'Previous school')} value={student.ecole_origine} />
               <InfoRow label={t("Date d'inscription", 'Enrollment date')} value={fmtDate(student.created_at)} />
               {/* Auteur de l'inscription, figé au moment du geste. Absent sur les
                   élèves inscrits avant la traçabilité (ou importés en masse). */}
               <InfoRow label={t('Inscrit par', 'Enrolled by', 'Inscrito por')} value={student.created_by_name} />
-              {!student.date_naissance && !student.lieu_naissance && (
+              {!student.date_naissance && !student.lieu_naissance && !student.ecole_origine && (
                 <p className="text-xs text-gray-400 py-2">{t('Aucune information personnelle renseignée.', 'No personal information provided.')}</p>
               )}
             </SectionCard>
@@ -686,10 +699,11 @@ export default function StudentProfile() {
             </SectionCard>
 
             <SectionCard title={t('Informations de contact', 'Contact information')}>
+              <InfoRow label={t('Quartier de résidence', 'Neighbourhood')} value={student.quartier} />
               <InfoRow label={t('Adresse', 'Address')}               value={student.adresse} />
               <InfoRow label={t('Téléphone', 'Phone')}               value={student.parent_phone} />
               <InfoRow label={t("Contact d'urgence", 'Emergency contact')} value={student.contact_urgence} />
-              {!student.adresse && !student.parent_phone && !student.contact_urgence && (
+              {!student.adresse && !student.quartier && !student.parent_phone && !student.contact_urgence && (
                 <p className="text-xs text-gray-400 py-2">{t('Aucune information de contact renseignée.', 'No contact information provided.')}</p>
               )}
             </SectionCard>

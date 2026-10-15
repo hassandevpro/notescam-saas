@@ -12,7 +12,7 @@ const dir = mkdtempSync(join(tmpdir(), 'nc-reset-'));
 process.env.NOTESCAM_DATA_DIR = dir;
 const { db } = await import('./db.js');
 const { hashPassword, verifyPassword } = await import('./security.js');
-const { listAccounts, findAccount, resetPassword, generatePassword, MIN_LENGTH } =
+const { listAccounts, findAccount, resetPassword, resetPasswordsBatch, parseLignes, generatePassword, MIN_LENGTH } =
   await import('./resetPassword.js');
 
 let pass = 0, fail = 0;
@@ -81,6 +81,54 @@ ok(tirages.size >= 199, 'généré : aléatoire (200 tirages quasi tous distinct
 const gen = generatePassword();
 ok(resetPassword(db, hashPassword, { email: 'awa@ecole.cm', password: gen }) &&
    verifyPassword(gen, hashOf('u2')), 'généré : accepté par le serveur tel quel', gen);
+
+// --- Liste « email ; motdepasse » (préparation d'une base embarquée) ----
+// Tout ou rien : une liste à moitié appliquée laisserait une école avec des
+// comptes utilisables et des comptes muets, sans que personne sache lesquels.
+const { entrees, erreurs: fmt } = parseLignes([
+  '# commentaire ignoré',
+  '',
+  'directeur@ecole.cm ; Direction2026!',
+  'awa@ecole.cm = Classe2026!',
+].join(String.fromCharCode(10)));
+ok(fmt.length === 0 && entrees.length === 2, 'liste : lignes lues, commentaires et vides ignorés', [fmt, entrees.length]);
+ok(entrees[0].email === 'directeur@ecole.cm' && entrees[0].password === 'Direction2026!', 'liste : séparateur « ; »', entrees[0]);
+ok(entrees[1].password === 'Classe2026!', 'liste : séparateur « = » accepté', entrees[1]);
+
+// Un mot de passe peut contenir le séparateur : seul le PREMIER compte.
+const { entrees: e2 } = parseLignes('x@y.cm ; mot;de=passe!');
+ok(e2[0].password === 'mot;de=passe!', 'liste : seul le premier séparateur compte', e2[0]);
+const { erreurs: e3 } = parseLignes('ligne sans separateur');
+ok(e3.length === 1 && /format attendu/.test(e3[0]), 'liste : ligne mal formée signalée', e3);
+
+// Refus : une seule ligne fautive et RIEN ne doit être écrit.
+const avantLot = [hashOf('u1'), hashOf('u2')];
+const refus = resetPasswordsBatch(db, hashPassword, [
+  { ligne: 1, email: 'directeur@ecole.cm', password: 'Direction2026!' },
+  { ligne: 2, email: 'inconnu@ecole.cm', password: 'Quelque2026!' },
+]);
+ok(refus.ok === false && /aucun compte/i.test(refus.erreurs.join(' ')), 'lot : compte inconnu → refus', refus.erreurs);
+ok(hashOf('u1') === avantLot[0] && hashOf('u2') === avantLot[1], 'lot : refus = AUCUNE écriture (tout ou rien)');
+
+const courtLot = resetPasswordsBatch(db, hashPassword, [{ ligne: 1, email: 'directeur@ecole.cm', password: 'court' }]);
+ok(courtLot.ok === false && /trop court/i.test(courtLot.erreurs.join(' ')), 'lot : mot de passe trop court → refus', courtLot.erreurs);
+ok(hashOf('u1') === avantLot[0], 'lot : trop court = aucune écriture');
+
+const doublon = resetPasswordsBatch(db, hashPassword, [
+  { ligne: 1, email: 'directeur@ecole.cm', password: 'Direction2026!' },
+  { ligne: 2, email: 'DIRECTEUR@ecole.cm', password: 'Autre2026!' },
+]);
+ok(doublon.ok === false && /deux fois/i.test(doublon.erreurs.join(' ')), 'lot : même compte deux fois (casse différente) → refus', doublon.erreurs);
+
+// Application réussie : chaque compte ouvre avec LE SIEN.
+const lot = resetPasswordsBatch(db, hashPassword, [
+  { ligne: 1, email: 'directeur@ecole.cm', password: 'Direction2026!' },
+  { ligne: 2, email: 'awa@ecole.cm', password: 'Classe2026!' },
+]);
+ok(lot.ok && lot.appliques.length === 2, 'lot : 2 comptes appliqués', lot);
+ok(verifyPassword('Direction2026!', hashOf('u1')), 'lot : le directeur ouvre avec le sien');
+ok(verifyPassword('Classe2026!', hashOf('u2')), 'lot : l’enseignante ouvre avec le sien');
+ok(!verifyPassword('Classe2026!', hashOf('u1')), 'lot : les mots de passe ne sont pas interchangés');
 
 console.log(`\n=== ${fail === 0 ? 'OK' : 'ÉCHEC'} : ${pass} ok, ${fail} ko ===`);
 try { rmSync(dir, { recursive: true, force: true }); } catch { /* WAL verrouillé sous Windows */ }

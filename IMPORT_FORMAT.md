@@ -1,5 +1,11 @@
 # NotesCam — Import de données historiques (migration depuis une autre app)
 
+> Pour faire remonter les **notes de l'année en cours** depuis le poste de chaque
+> enseignant vers la base de l'administration, ce n'est pas ce format : voir
+> [docs/ECHANGE_NOTES_ENSEIGNANTS.md](docs/ECHANGE_NOTES_ENSEIGNANTS.md)
+> (format `notescam-notes/v1`, export global par enseignant, import avec aperçu
+> et détection des conflits).
+
 Permet de reprendre **plusieurs années** d'historique (élèves, classes, matières,
 notes, frais, personnel) d'un établissement venant d'un autre logiciel.
 Fonctionne **à l'identique en cloud (Supabase) et en LAN (serveur local)** car
@@ -77,6 +83,16 @@ des lignes rattachées à l'école courante. Les années importées apparaissent
             {
               "name": "NDONGO Paul", "matricule": "M-2019-001",
               "gender": "M", "date_naissance": "2008-05-01", "statut": "Redoublant",
+              "statut_etablissement": "ancien",      // nouveau|ancien -> frais d'inscription
+              "lieu_naissance": "Yaoundé",
+              "quartier": "Bastos",                  // SECTEUR seul, groupable
+              "adresse": "Rue 1.234, Yaoundé",       // le reste du détail
+              "parent_phone": "677123456", "contact_urgence": "699987654",
+              "nom_pere": "NDONGO Pierre", "profession_pere": "Ingénieur",
+              "nom_mere": "ABENA Marie",   "profession_mere": "Enseignante",
+              "tuteur": "",                          // si différent des parents
+              "ecole_origine": "EP de Bastos",       // ancien établissement
+              "sport_aptitude": "apte",              // apte|inapte (défaut: apte)
               "grades": [ { "subject": "Mathématiques", "sequence": 1, "value": 14 } ],
               "fees": {
                 "frais_annuels": 50000,
@@ -100,11 +116,43 @@ des lignes rattachées à l'école courante. Les années importées apparaissent
 | `classes[].name/level/section/system` | `classes.*` | `system` défaut `FR` |
 | `subjects[].name/coef/max` | `subjects.*` | `coef` défaut 1, `max` défaut 20 |
 | `students[].name/matricule/gender/...` | `students.*` | `gender` normalisé (M/F → Masculin/Feminin) |
+| `students[].quartier` | `students.quartier` | secteur de résidence, **distinct d'`adresse`** : reste groupable |
+| `students[].ecole_origine` | `students.ecole_origine` | ancien établissement ; `ancien_etablissement` et `ecole_provenance` acceptés comme alias |
+| `students[].sport_aptitude` | `students.sport_aptitude` | `apte`|`inapte` ; **jamais null** (colonne NOT NULL) — absent ⇒ `apte` |
 | `grades[].subject/sequence/value` | `grades` | regroupé en 1 ligne IDB par (classe,élève,séquence) ; valeurs en texte |
 | `fees` + `fees.payments[]` | `student_fees` + `fee_payments` | `academic_year` = l'année de la classe |
 | `staff[]` (+ `contracts`/`leaves`/`career_events`) | `staff` + `hr_contracts`/`hr_leaves`/`hr_career_events` | satellites RH rattachés à l'agent |
 | `fee_catalog[]` | `fee_catalog` | frais configurables (obligatoire/optionnel) |
 | `assets[]` | `assets` | registre des immobilisations |
+
+### Champs d'un élève
+
+Tous optionnels sauf `name`. Un champ **absent** du fichier n'est pas écrit, donc
+n'écrase rien : c'est ce qui rend un réimport de rattrapage sans danger.
+
+| Champ | Sens |
+|---|---|
+| `name` **(requis)** | nom complet ; normalisé en majuscules à l'écriture |
+| `matricule` | identifiant de l'école ; sert de clé naturelle avec la classe |
+| `gender` | `M`/`F`/`Masculin`/`Feminin`/`male`… → normalisé |
+| `statut` | dans la **classe** : `nouveau`|`redoublant`|`transfere` — informatif |
+| `statut_etablissement` | dans l'**école** : `nouveau`|`ancien` — pilote les frais d'inscription |
+| `date_naissance` | `AAAA-MM-JJ` (le tableur accepte aussi `JJ/MM/AAAA` et les séries Excel) |
+| `lieu_naissance` | lieu de naissance |
+| `quartier` | **quartier de résidence** : le secteur seul, pour grouper (ramassage, convocations) |
+| `adresse` | le reste de l'adresse (rue, repère, ville) |
+| `parent_phone` | téléphone du parent/tuteur — destinataire des SMS |
+| `contact_urgence` | second numéro, en cas d'urgence |
+| `nom_pere` / `profession_pere` | père |
+| `nom_mere` / `profession_mere` | mère |
+| `tuteur` | tuteur légal, si différent des parents |
+| `ecole_origine` | **ancien établissement** (établissement de provenance) |
+| `sport_aptitude` | `apte`|`inapte` — barème EPS du carnet MINEDUB primaire (compétence 6A) |
+
+> `quartier` et `ecole_origine` exigent `supabase_student_quartier_origine.sql`
+> côté cloud. En LAN, `server/db.js` les pose au démarrage. **Si la colonne
+> manque d'un côté, la valeur est jetée en silence** à l'écriture comme à la
+> synchronisation — c'est le défaut qui avait vidé les champs parents.
 
 ### Clés naturelles & idempotence
 

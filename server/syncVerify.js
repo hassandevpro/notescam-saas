@@ -133,14 +133,44 @@ function diffScopes(lan, cloud) {
   return out;
 }
 
+// ── BUDGET D'APPELS DE PORTÉE PAR CYCLE ─────────────────────────────────────
+//
+// Le coût de l'audit n'était borné par RIEN. En régime normal il est d'un seul
+// appel (`tablelevel`), mais sur divergence il descend par portée : un appel
+// pour les classes, un pour les séquences, puis UN PAR CLASSE DIVERGENTE pour
+// les élèves. Quarante classes divergentes dans `grades` font 42 appels pour
+// cette seule table — et le cycle se rejoue toutes les cinq minutes.
+//
+// Une divergence PERSISTANTE (celle qui ne se répare pas) transformait donc
+// l'audit en boucle : 8 640 cycles par mois × quelques centaines d'appels, soit
+// le quota d'invocations du plan Supabase consommé par un seul défaut non résolu.
+//
+// Le budget ci-dessous plafonne les appels de portée d'un cycle. Ce qui n'a pas
+// pu être localisé n'est pas OUBLIÉ : le rapport est marqué `truncated`, les
+// divergences restent signalées au niveau table, et le cycle suivant REPREND où
+// celui-ci s'est arrêté (reprise tournante `_resumeAt`). La convergence continue
+// donc, simplement cadencée — et aucune erreur n'est masquée : `ok` reste faux
+// tant qu'une table diverge.
+const DEFAULT_MAX_SCOPES = Number(process.env.NOTESCAM_VERIFY_MAX_SCOPES || 24);
+
+// Position de reprise entre deux cycles, pour que le budget ne brûle pas
+// toujours sur la même table et n'affame pas les suivantes.
+let _resumeAt = 0;
+
+// Le budget est-il épuisé ? Un dépassement n'est pas une erreur : c'est une
+// localisation remise au cycle suivant.
+const budgetEpuise = (counter) => counter.scopes >= counter.max;
+
 // Descente ciblée dans UNE table suivie divergente : classe → élève (+ séquence).
-// N'interroge QUE les partitions nécessaires (compteur `scopes`). Renvoie la
-// localisation { table, classes:[{class_id, students:[...], sequences:[...]}], tableOnly }.
+// N'interroge QUE les partitions nécessaires (compteur `scopes`), et s'arrête net
+// quand le budget du cycle est consommé. Renvoie la localisation
+// { table, classes:[{class_id, students:[...], sequences:[...]}], tableOnly, truncated }.
 async function descend(edge, table, counter) {
   const dims = new Set(tableColumns(table));
   const node = { table, label: labelOf(table), classes: [] };
 
   if (!dims.has('class_id')) { node.tableOnly = true; return node; } // pas de dimension → localisation au niveau table
+  if (budgetEpuise(counter)) { node.tableOnly = true; node.truncated = true; return node; }
 
   // Niveau classe.
   const cloudClasses = (await edge({ op: 'scope', table, scope: 'class' }))?.parts || {}; counter.scopes++;
@@ -149,12 +179,20 @@ async function descend(edge, table, counter) {
 
   // Séquences divergentes (peu de clés) — utile pour les notes.
   let divSeq = [];
-  if (dims.has('sequence')) {
+  if (dims.has('sequence') && !budgetEpuise(counter)) {
     const cloudSeq = (await edge({ op: 'scope', table, scope: 'seq' }))?.parts || {}; counter.scopes++;
     divSeq = diffScopes(localScope(table, 'seq'), cloudSeq);
   }
 
   for (const cls of divClasses) {
+    // Les classes non examinées faute de budget sont NOMMÉES dans le rapport :
+    // le cycle suivant doit pouvoir y revenir, et l'administrateur doit savoir
+    // que la localisation est partielle.
+    if (budgetEpuise(counter)) {
+      node.truncated = true;
+      node.pendingClasses = divClasses.slice(divClasses.indexOf(cls));
+      break;
+    }
     const entry = { class_id: cls, students: [], sequences: divSeq };
     if (dims.has('student_id')) {
       const studentKeys = distinctChildKeys(table, 'student_id', 'class_id', [cls]);
@@ -178,10 +216,13 @@ function ensureLocalMerkle(promote) {
 }
 
 // Audit hiérarchique complet. @param edge transport injectable. @param promote (voir ci-dessus).
-export async function verifyIntegrity({ edge = defaultEdge, promote = true } = {}) {
+export async function verifyIntegrity({ edge = defaultEdge, promote = true, maxScopes } = {}) {
   ensureLocalMerkle(promote);
   const policy = currentPolicy();
-  const counter = { scopes: 0 };
+  // `maxScopes: 0` lève le plafond (audit à la demande d'un administrateur, qui
+  // veut une localisation complète et accepte d'en payer le coût une fois).
+  const max = maxScopes === 0 ? Infinity : (maxScopes ?? DEFAULT_MAX_SCOPES);
+  const counter = { scopes: 0, max };
 
   // (1) Niveau table : le Cloud renvoie ses checksums (merkle pour les tables suivies,
   //     plain md5 pour les autres). On ne compare que les tables miroir sous la politique.
@@ -223,9 +264,28 @@ export async function verifyIntegrity({ edge = defaultEdge, promote = true } = {
     });
   }
 
-  // (2) Descente ciblée UNIQUEMENT dans les tables suivies divergentes.
+  // (2) Descente ciblée UNIQUEMENT dans les tables suivies divergentes, et dans
+  //     la limite du budget du cycle. REPRISE TOURNANTE : on commence par la
+  //     table qui suit celle où le cycle précédent s'est arrêté, sans quoi le
+  //     budget serait toujours consommé par les premières et les dernières ne
+  //     seraient jamais localisées.
   const divergences = [];
-  for (const t of trackedDiverging) divergences.push(await descend(edge, t, counter));
+  const n = trackedDiverging.length;
+  if (n) {
+    const depart = _resumeAt % n;
+    let i = 0;
+    for (; i < n; i++) {
+      const t = trackedDiverging[(depart + i) % n];
+      divergences.push(await descend(edge, t, counter));
+      if (budgetEpuise(counter) && i + 1 < n) { i++; break; }
+    }
+    // Où reprendre au prochain cycle. Remis à zéro quand tout a été parcouru.
+    _resumeAt = i >= n ? 0 : (depart + i) % n;
+  } else {
+    _resumeAt = 0;
+  }
+  const truncated = counter.scopes >= counter.max || divergences.some((d) => d.truncated);
+  const tablesNonLocalisees = n ? trackedDiverging.filter((t) => !divergences.some((d) => d.table === t)) : [];
 
   const byName = Object.fromEntries(tables.map((t) => [t.table, t]));
   const ok = mismatches.length === 0;
@@ -242,9 +302,20 @@ export async function verifyIntegrity({ edge = defaultEdge, promote = true } = {
     divergences,
     dashboard: buildDashboard(byName),
     globalChecksum: { lan: lanGlobal, cloud: cloudGlobal, match: lanGlobal === cloudGlobal },
+    // `truncated` dit que la LOCALISATION est partielle — jamais que l'audit
+    // est passé. `ok` reste faux tant qu'une table diverge : rien n'est masqué.
+    truncated,
+    pendingTables: tablesNonLocalisees,
     summary: {
       total: tables.length, matched: tables.length - mismatches.length,
       mismatched: mismatches.length, skipped, scopesCompared: counter.scopes,
+      scopeBudget: counter.max === Infinity ? null : counter.max,
+      truncated,
+      pendingTables: tablesNonLocalisees.length,
     },
   };
 }
+
+// Remet la reprise tournante à zéro. Utile aux tests, et après une réparation
+// complète : le cycle suivant repart de la première table divergente.
+export function resetVerifyResume() { _resumeAt = 0; }

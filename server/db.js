@@ -149,8 +149,19 @@ ensureColumn('subjects', 'formula',     'formula TEXT');
 ensureColumn('subjects', 'sc_groupe',          'sc_groupe TEXT');        // 'g1' | 'g2' (bulletin lycée)
 ensureColumn('subjects', 'sc_groupe_ordre',    'sc_groupe_ordre INTEGER');
 ensureColumn('subjects', 'charge_horaire',     'charge_horaire NUMERIC');
+// Programme d'Éducation Bilingue Spécial (1er cycle) : domaine d'apprentissage
+// de l'arrêté 239-23 + caractère obligatoire (Form 4/5 : matières au choix).
+ensureColumn('subjects', 'bil_domaine',        'bil_domaine TEXT');
+ensureColumn('subjects', 'bil_domaine_ordre',  'bil_domaine_ordre INTEGER');
+ensureColumn('subjects', 'bil_obligatoire',    'bil_obligatoire INTEGER');
 ensureColumn('subjects', 'mat_domaine_id',     'mat_domaine_id TEXT');   // lien matière↔domaine maternelle
 ensureColumn('subjects', 'prim_competence_id', 'prim_competence_id TEXT'); // lien matière↔compétence primaire
+// Classement explicite de la matière (cf. supabase_subject_category.sql).
+// La catégorie était DÉDUITE du nom à chaque affichage : « LMC », « EFPS »,
+// « Travaux Pratiques » ou une langue nationale tombaient dans « Autre », sans
+// moyen de corriger. NULL = non classée, le produit déduit alors du nom —
+// aucune matière existante ne change de comportement.
+ensureColumn('subjects', 'category',           'category TEXT');
 ensureColumn('schools',  'currency',     "currency TEXT NOT NULL DEFAULT 'XAF'"); // devise officielle (affichage multi-devises)
 ensureColumn('schools',  'ge_grade_max', 'ge_grade_max INTEGER');  // barème GE (/10 ou /20) — lu par geGradeMax()
 ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // pilotage des périodes : 'auto' | 'manual'
@@ -330,6 +341,24 @@ ensureColumn('students', 'profession_pere', 'profession_pere TEXT');
 ensureColumn('students', 'nom_mere',        'nom_mere TEXT');
 ensureColumn('students', 'profession_mere', 'profession_mere TEXT');
 ensureColumn('students', 'tuteur',          'tuteur TEXT');
+
+// Quartier de résidence + ancien établissement — cf.
+// supabase_student_quartier_origine.sql pour le détail du pourquoi.
+//
+// `quartier` ne double PAS `adresse` : l'adresse est un texte libre d'une ligne
+// où le quartier est noyé, donc inexploitable. Une colonne propre rend le
+// GROUP BY possible — ramassage scolaire, visites à domicile, convocation des
+// parents par secteur.
+//
+// `ecole_origine` = d'OÙ vient l'élève. Le modèle savait déjà qu'il est
+// « transféré » et « nouveau dans l'établissement », mais pas de quel
+// établissement il arrive : l'information finissait dans `adresse` ou dans les
+// notes de frais, où rien ne l'exploite.
+//
+// Les deux sont du texte libre : au guichet, refuser une valeur hors
+// référentiel bloquerait une inscription.
+ensureColumn('students', 'quartier',        'quartier TEXT');
+ensureColumn('students', 'ecole_origine',   'ecole_origine TEXT');
 
 ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
 // Attributions de gouvernance : fenêtre de validité + statut (Phase 1 rôles).
@@ -907,6 +936,7 @@ export const ALLOWED_TABLES = new Set([
   'apc_referentiel_versions', 'apc_cycles', 'apc_classes', 'apc_trimestres',
   'apc_sequences', 'apc_matieres', 'apc_competences', 'apc_classe_matieres', 'apc_notes',
   'sc_referentiel_versions', 'sc_series', 'sc_groupes', 'sc_matieres', 'sc_serie_matieres',
+  'bil_referentiel_versions', 'bil_series', 'bil_groupes', 'bil_matieres', 'bil_serie_matieres',
   'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines', 'mat_observations',
   'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
   'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_bareme_criteres', 'prim_notes',

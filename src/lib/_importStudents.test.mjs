@@ -44,9 +44,9 @@ const fin   = src.indexOf('\nfunction ', debut + 10);
 const corps = src.slice(debut, fin > 0 ? fin : undefined);
 const tel   = (x) => x;
 const rawRowsToStudents = new Function(
-  'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate', 'normalizeStatut', 'normalizeStatutEtab',
+  'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate', 'normalizeStatut', 'normalizeStatutEtab', 'normalizeAptitude',
   `${corps}; return rawRowsToStudents;`,
-)(() => 'erreur', tel, tel, tel, tel, tel);
+)(() => 'erreur', tel, tel, tel, tel, tel, tel);
 
 let echecs = 0;
 const ok = (cond, libelle, obtenu) => {
@@ -128,9 +128,9 @@ ok(vraieNormalizeDate('2012-03-04') === '2012-03-04',
   'témoin : une vraie date traverse la normalisation', vraieNormalizeDate('2012-03-04'));
 
 const reel = new Function(
-  'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate', 'normalizeStatut', 'normalizeStatutEtab',
+  'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate', 'normalizeStatut', 'normalizeStatutEtab', 'normalizeAptitude',
   `${corps}; return rawRowsToStudents;`,
-)(() => 'erreur', tel, tel, vraieNormalizeDate, tel, tel);
+)(() => 'erreur', tel, tel, vraieNormalizeDate, tel, tel, tel);
 const avecVraieDate = reel([
   ['Matricule', 'Prénom', 'Nom', 'Lieu de naissance', 'Date de naissance'],
   ['S1', 'Sandrine', 'ABEGA', LIEU, DATE],

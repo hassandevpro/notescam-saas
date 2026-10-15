@@ -12,9 +12,10 @@
 import { supabase } from './supabase';
 import { refreshReferentiel, countFingerprint } from './referentielFingerprint';
 import { uuid } from './uuid';
+import { obsNkey } from '../core/matEngine';
 
-export const obsNkey = (eleveId, domaineId, trimestreId) =>
-  `${eleveId}_${domaineId}_${trimestreId}`;
+// Définie dans le moteur pur (core/matEngine) : une seule source pour la clé.
+export { obsNkey };
 
 // --- Référentiel --------------------------------------------------------------
 export async function fetchMatReferentiel() {

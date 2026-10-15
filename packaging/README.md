@@ -49,6 +49,9 @@ Options : `-NodeVersion v24.16.0` (version Node précise), `-AppVersion 1.0.0`.
 | `install-service.ps1` | enregistre la tâche planifiée + règle pare-feu, démarre |
 | `uninstall-service.ps1` | retire tâche + pare-feu (conserve les données) |
 | `reinitialiser-mot-de-passe.cmd` | secours : réinitialise un mot de passe oublié (hors ligne) |
+| `make-seed-ecole.mjs` | produit la base d'une école depuis le cloud (étape 1 d'un installeur chargé) |
+| `stage-seed.mjs` | prépare cette base pour l'embarquement (WAL replié, état local purgé, zéro secret) |
+| `seed-data.ps1` | pose la base embarquée sur le PC — jamais par-dessus une base existante |
 
 ## Vérifié
 
@@ -56,6 +59,58 @@ Le **layout exact de l'installation** (node.exe portable + app + 2 dépendances
 runtime) a été testé : la SPA est servie, le fallback de routing fonctionne,
 l'API complète répond. Seul `node.exe` (≈ 80 Mo) + `fastify`/`@fastify/static`
 sont nécessaires à l'exécution — aucun module natif, aucune compilation.
+
+## Installeur chargé des données d'une école (installation hors ligne)
+
+Par défaut l'installeur est **vierge** : l'école le rattache à son compte cloud au
+premier démarrage (assistant « code d'appairage » ou identifiants cloud), ce qui
+exige **Internet sur le PC de l'école**. Quand ce PC n'a pas Internet, on produit
+un installeur qui porte déjà la base de l'établissement : il installe, démarre, et
+l'école **se connecte avec ses identifiants habituels**.
+
+```bash
+# 1. Produire la base depuis le cloud (mot de passe demande a l'ecran)
+node packaging/make-seed-ecole.mjs --label bright-continent --email <admin cloud>
+#    -> packaging/_seed/bright-continent/   (base + fichiers de l'ecole)
+
+# 2. Construire l'installeur qui la porte
+powershell -ExecutionPolicy Bypass -File packaging/build-installer.ps1 `
+  -NodeVersion v24.20.0 -SeedData packaging/_seed/bright-continent -SeedLabel bright-continent
+#    -> packaging/Output/NotesCam-Setup-bright-continent.exe
+```
+
+`-SeedLabel` est **obligatoire** avec `-SeedData` et nomme le `.exe` produit : un
+installeur qui contient les données d'une école ne doit jamais porter le même nom
+qu'un installeur vierge — on ne distribue pas les élèves d'une école par mégarde.
+
+Ce qui est embarqué : `notescam.db` + `files/` (logos, cachets, signatures,
+photos). Ce qui ne l'est **jamais** : les clés propres à un poste (jeton serveur
+scellé, clé JWT, clé RSA du canal d'identifiants, clé de la file de miroir) — le
+PC de l'école les génère au premier démarrage. L'état local du poste de build
+(files et curseurs de synchro, file de miroir des mots de passe, réglages locaux)
+est purgé, et `stage-seed.mjs` **affiche l'école, les effectifs et les comptes**
+avant de produire quoi que ce soit.
+
+À l'installation, `seed-data.ps1` ne pose la base **que si le PC n'en a pas
+déjà une**. Une réinstallation, une mise à jour ou une réparation conserve
+toujours les données présentes : l'installeur ne peut pas effacer une année
+scolaire.
+
+Mots de passe : le compte **admin** utilisé à l'étape 1 garde son mot de passe
+cloud en local. Les autres comptes reçoivent un mot de passe aléatoire (le cloud
+ne laisse pas lire les mots de passe). Pour livrer une école prête à travailler,
+on pose une liste **entre les étapes 1 et 2** :
+
+```bash
+# comptes.txt :  email ; motdepasse     (une ligne par compte, # = commentaire)
+npm run reset:password -- --data-dir packaging/_seed/bright-continent --liste
+npm run reset:password -- --data-dir packaging/_seed/bright-continent --fichier comptes.txt
+```
+
+La liste est **tout ou rien** : un compte inconnu, un mot de passe trop court ou
+un doublon, et aucune écriture n'a lieu — une base à moitié préparée livrerait à
+l'école des comptes muets sans que personne sache lesquels. Ne pas laisser
+`comptes.txt` dans le dépôt.
 
 ## Mot de passe oublié (secours hors ligne)
 

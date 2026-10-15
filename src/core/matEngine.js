@@ -60,3 +60,13 @@ export function subjectsFromMatReferentiel(domaines, { schoolId, classId, makeId
     mat_domaine_id: d.id,
   }));
 }
+
+// ── Clé locale d'une observation de maternelle ───────────────────────────────
+// Identité d'une observation = (élève, domaine, trimestre). Définie ICI (module
+// pur), comme primNkey et noteNkey le sont dans leur moteur : l'échange de notes
+// entre postes doit pouvoir la construire sans traîner la couche Supabase, et il
+// n'existe qu'UNE définition — deux divergeraient un jour, et l'import ne
+// retrouverait plus les observations déjà saisies.
+// `lib/matService` la réexporte.
+export const obsNkey = (eleveId, domaineId, trimestreId) =>
+  `${eleveId}_${domaineId}_${trimestreId}`;

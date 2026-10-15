@@ -69,7 +69,15 @@ find "$STAGE/app/server" -name '*.log' -delete
 # la base de THE GENIUS laissee a la racine de server/. Rien de tout cela n'est
 # necessaire : install.sh ne lit aucune cle du paquet, elles sont generees a
 # l'installation dans /var/lib/notescam/data.
-find "$STAGE/app" \( -name '*.db' -o -name '*.db-journal' -o -name '*.key' -o -name '.env*' \) -delete
+# `*.db-wal` / `*.db-shm` manquaient : une base SQLite en mode WAL arretee sans
+# checkpoint laisse ses ecritures recentes dans le -wal, qui partait donc seul.
+# `*.pem` manquait aussi (cf. credential-rsa.pem du dossier de donnees).
+find "$STAGE/app" \( -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' \
+  -o -name '*.db-journal' -o -name '*.key' -o -name '*.pem' -o -name '.env*' \) -delete
+
+# Le controle de ce nettoyage est plus bas, a l'etape « Garde-fou » : une seule
+# verification, apres TOUTES les copies (y compris npm install), plutot que deux
+# a moitie placees.
 
 # Moteurs purs partagés importés par le serveur (budgetGuard, gouvernance
 # hybride H1-H7) : mêmes chemins relatifs que le build Windows (app/src/...).
@@ -89,7 +97,14 @@ step "Identité de l'application (nom + version)"
 # On n'écrit QUE l'identité, pas le package.json de la racine : les dépendances du
 # front (react, vite…) n'ont rien à faire sur un serveur d'école, et les y déclarer
 # ferait croire à un audit qu'elles y sont installées.
-APP_VERSION="$(grep -m1 '"version"' "$ROOT/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+# Version du paquet. Par defaut celle de package.json, surchargeable :
+#     APP_VERSION=0.3.3 ./build-package.sh
+# La surcharge n est pas un confort. Mesure du 2026-10-12 : package.json porte
+# 0.2.6, alors que le dernier tarball livre est 0.2.9 et le dernier installeur
+# Windows 0.3.2. Construire « par defaut » produirait donc un paquet qui
+# s annonce PLUS VIEUX que celui deja installe dans les ecoles, et la
+# comparaison de mise a jour (OTA) le verrait comme une regression.
+APP_VERSION="${APP_VERSION:-$(grep -m1 '"version"' "$ROOT/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')}"
 cat > "$STAGE/app/package.json" <<JSON
 {
   "name": "notescam-app",
@@ -132,8 +147,12 @@ step "Garde-fou : ni base ni secret dans le paquet"
 # Le nettoyage ci-dessus vise ce qu'on connait ; ce controle vise ce qu'on ne
 # connait pas encore. Un paquet client ne doit JAMAIS transporter de base ni de
 # cle : plutot echouer ici que le decouvrir apres livraison.
+# `*.db-wal` / `*.db-shm` ajoutes le 2026-10-12 : une base SQLite arretee sans
+# checkpoint laisse ses ecritures recentes dans le -wal, qui passait donc seul a
+# travers ce controle. `*.pem` ajoute pour la meme raison (credential-rsa.pem).
 intrus="$(find "$STAGE" -path "$STAGE/node" -prune -o -type f \
-  \( -name '*.db' -o -name '*.db-journal' -o -name '*.key' -o -name '.env*' \) -print)"
+  \( -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' -o -name '*.db-journal' \
+     -o -name '*.key' -o -name '*.pem' -o -name '.env*' \) -print)"
 if [[ -n "$intrus" ]]; then
   echo "ERREUR : ces fichiers ne doivent pas etre livres — construction interrompue :" >&2
   echo "$intrus" >&2
@@ -142,7 +161,7 @@ fi
 echo "  aucune base, aucune cle"
 
 step "Archive finale"
-APP_VERSION="$(grep -m1 '"version"' "$ROOT/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+APP_VERSION="${APP_VERSION:-$(grep -m1 '"version"' "$ROOT/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')}"
 PKG="notescam-linux-x64-$APP_VERSION.tar.gz"
 tar -czf "$OUT/$PKG" -C "$STAGE_PARENT" notescam-linux-x64
 

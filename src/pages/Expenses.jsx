@@ -36,6 +36,7 @@ import { hasPermission, canValidateAmount } from '../governance/governanceEngine
 import { catalogOrDefault } from '../governance/defaultCatalog';
 import { GOV_PERM } from '../governance/permissions';
 import { financeRemoteMode } from '../lib/budgetRemote';
+import { categoryLabel, subcategoryLabel } from '../lib/expenseCategories';
 
 const Badge = ({ ui, t }) => <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${ui.color}`}>{t(...ui.label)}</span>;
 
@@ -130,6 +131,11 @@ export default function Expenses() {
   const periodName = useMemo(() => new Map(periods.map((p) => [p.id, p.name])), [periods]);
   const unitName = useMemo(() => new Map(units.map((u) => [u.id, unitLabel(t, u)])), [units, t]);
   const sectorLabelOf = (e) => (e.school_unit_id ? (unitName.get(e.school_unit_id) || '—') : t('Complexe/Global', 'Complex/Global', 'Complejo/Global'));
+  // Catégories : on stocke une clé, on affiche un libellé. Une valeur hors
+  // référentiel (saisie libre, ou héritée d'avant la liste déroulante) s'affiche
+  // telle qu'elle a été tapée.
+  const catTxt = (k) => { const l = categoryLabel(k); return l ? t(...l) : (k || ''); };
+  const subTxt = (k) => { const l = subcategoryLabel(k); return l ? t(...l) : (k || ''); };
 
   const lineExpenses = useMemo(() => expenses.filter((e) => e.budget_chapter_id === lineId), [expenses, lineId]);
   const lineRequests = useMemo(() => requests.filter((r) => r.budget_chapter_id === lineId), [requests, lineId]);
@@ -344,7 +350,7 @@ export default function Expenses() {
                         return (
                           <tr key={e.id} className="border-t border-gray-100 hover:bg-gray-50/50">
                             <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{e.expense_date || '—'}</td>
-                            <td className="px-4 py-2"><div className="font-medium text-gray-800">{e.category || t('Dépense', 'Expense', 'Gasto')}</div>{e.subcategory && <div className="text-xs text-gray-400">{e.subcategory}</div>}</td>
+                            <td className="px-4 py-2"><div className="font-medium text-gray-800">{catTxt(e.category) || t('Dépense', 'Expense', 'Gasto')}</div>{e.subcategory && <div className="text-xs text-gray-400">{subTxt(e.subcategory)}</div>}</td>
                             <td className="px-4 py-2 text-gray-600">{periodName.get(e.budget_period_id) || '—'}</td>
                             <td className="px-4 py-2 text-gray-600">{sectorLabelOf(e)}</td>
                             <td className="px-4 py-2 text-gray-600">{e.supplier || '—'}</td>

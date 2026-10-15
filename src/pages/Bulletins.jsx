@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, createElement } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
 import { useUiStore } from '../store/uiStore';
@@ -10,7 +10,7 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import AssetImg from '../components/AssetImg';
 import '../styles/bulletin.css';
-import { setPrintProfile } from '../lib/print';
+import { setPrintProfile, fitLiveSheets, resetLiveSheets } from '../lib/print';
 import { useT } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 import WhatsappFirstModal from '../components/notify/WhatsappFirstModal';
@@ -21,7 +21,10 @@ import BulletinTheme from '../components/bulletins/BulletinTheme';
 import BulletinApcOfficial from '../components/bulletins/BulletinApcOfficial';
 import BulletinApcAnnual from '../components/bulletins/BulletinApcAnnual';
 import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
+import BulletinBilOfficial, { BulletinBilAnnual } from '../components/bulletins/BulletinBilOfficial';
 import BulletinPrimAnnualUA from '../components/bulletins/BulletinPrimAnnualUA';
+import BulletinPrimCompact from '../components/bulletins/BulletinPrimCompact';
+import { buildCompactRows } from '../core/primCompactRows';
 import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
 import { mkCell, mkTH, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
 import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
@@ -29,7 +32,10 @@ import { classIdentity } from '../lib/schoolIdentity';
 import {
   competencesForNiveau, bulletinRows as primBulletinRows, generalAverage as primGeneralAverage,
   primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresForCompetence, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
-  primNoteScale,
+  primNoteScale, PRIM_GRADE_MAX,
+  // Totaux en points : servent la ligne « Total obtenu » et la mention
+  // « provisoire ». La MOYENNE generale reste generalAverage (primGeneralAverage).
+  pointsOverall, niveauPointsTotal,
 } from '../core/primEngine';
 import { domainesForMaternelle } from '../core/matEngine';
 import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineMatch';
@@ -46,6 +52,8 @@ import {
   isApcAnnualPeriod, isApcSequencePeriod, apcSeqIdsForTrimestre,
 } from '../core/apcPeriods';
 import { assembleScBulletin, scDisciplineConseil, matieresForSerieClasse } from '../core/scEngine';
+import { assembleBilBulletin, assembleBilAnnual, matieresForBilClasse } from '../core/bilEngine';
+import { bilRefKeyForClass } from '../lib/bilAutoConfig';
 import { perSubjectRanksAndStats, classProfile } from '../lib/scBulletinPdf';
 import { teacherByMatiere as teacherByMatiereMap, teacherIndexById, normName } from '../lib/teacherNames';
 import { resolveCountryCode, bulletinOfficials } from '../countries';
@@ -1547,7 +1555,18 @@ export default function Bulletins() {
   // marge 8 mm). Déclarée à l'affichage de l'écran et retirée en le quittant —
   // les autres écrans imprimables (conseil de classe, emploi du temps) ont la
   // leur, et deux règles @page concurrentes se contrediraient.
-  useEffect(() => setPrintProfile('bulletin'), []);
+  // Orientation du bulletin PRIMAIRE : les deux profils existent déjà dans le
+  // socle (`bulletin` = A4 portrait 8 mm, `large` = A4 paysage 8 mm) ; seul le
+  // branchement manquait. Le profil est reposé à chaque changement
+  // d'orientation, et `setPrintProfile` remplace la règle @page précédente —
+  // deux déclarations concurrentes se contrediraient.
+  const primLayoutPref  = useUiStore((s) => s.primLayout);
+  const setPrimLayout   = useUiStore((s) => s.setPrimLayout);
+  const primOrientation = useUiStore((s) => s.primOrientation);
+  const setPrimOrientation = useUiStore((s) => s.setPrimOrientation);
+  useEffect(() => {
+    setPrintProfile(primOrientation === 'landscape' ? 'large' : 'bulletin');
+  }, [primOrientation]);
 
   const PERIODS = [
     { value: 'seq_1',  label: t('Séquence 1',  'Sequence 1'),  short: 'Séq 1', seqs: [1] },
@@ -1562,11 +1581,33 @@ export default function Bulletins() {
     { value: 'annuel', label: t('Annuel',       'Annual'),      short: 'Ann.',  seqs: [1, 2, 3, 4, 5, 6] },
   ];
 
+  // Périodes du PRIMAIRE APC. Trois granularités, de la plus fine à la plus large :
+  //
+  //   UA 1-8     une unité d'apprentissage — le carnet officiel du MINEDUB est
+  //              rempli à cette maille, et c'est à cette maille que l'école
+  //              remet un relevé aux parents. C'est ce niveau qui MANQUAIT :
+  //              l'écran n'offrait que le trimestre, donc un enseignant ne
+  //              pouvait pas sortir le relevé de l'UA qu'il venait de clore.
+  //   Trimestre  les UA du trimestre (UA_PAR_TRIMESTRE : 1-3, 4-6, 7-8)
+  //   Annuel     les huit UA
+  //
+  // `uas` porte la liste EXPLICITE, au lieu de la redériver plus bas de
+  // `seqs[0]` : une période d'une seule UA n'a pas de numéro de trimestre à
+  // donner, et la dérivation l'aurait ramenée au trimestre entier.
+  // `seqs` reste renseigné — d'autres écrans et la persistance s'en servent.
   const PERIODS_PRIMAIRE = [
-    { value: 'tri_1',  label: t('Trimestre 1', 'Quarter 1'), short: 'T1',   seqs: [1] },
-    { value: 'tri_2',  label: t('Trimestre 2', 'Quarter 2'), short: 'T2',   seqs: [2] },
-    { value: 'tri_3',  label: t('Trimestre 3', 'Quarter 3'), short: 'T3',   seqs: [3] },
-    { value: 'annuel', label: t('Annuel',       'Annual'),    short: 'Ann.', seqs: [1, 2, 3] },
+    ...[1, 2, 3, 4, 5, 6, 7, 8].map((ua) => ({
+      value: `ua_${ua}`,
+      label: t(`UA ${ua}`, `UL ${ua}`),
+      short: `UA${ua}`,
+      seqs: [trimestreOfUA(ua)],
+      uas: [ua],
+      ua,
+    })),
+    { value: 'tri_1',  label: t('Trimestre 1', 'Quarter 1'), short: 'T1',   seqs: [1], uas: UA_PAR_TRIMESTRE[1] },
+    { value: 'tri_2',  label: t('Trimestre 2', 'Quarter 2'), short: 'T2',   seqs: [2], uas: UA_PAR_TRIMESTRE[2] },
+    { value: 'tri_3',  label: t('Trimestre 3', 'Quarter 3'), short: 'T3',   seqs: [3], uas: UA_PAR_TRIMESTRE[3] },
+    { value: 'annuel', label: t('Annuel',       'Annual'),    short: 'Ann.', seqs: [1, 2, 3], uas: [1, 2, 3, 4, 5, 6, 7, 8] },
   ];
 
   const rawSchool      = useAuthStore((s) => s.school);
@@ -1584,6 +1625,8 @@ export default function Bulletins() {
   const loadApc        = useSchoolStore((s) => s.loadApc);
   const scReferentiel  = useSchoolStore((s) => s.scReferentiel);
   const loadSc         = useSchoolStore((s) => s.loadSc);
+  const bilReferentiel = useSchoolStore((s) => s.bilReferentiel);
+  const loadBil        = useSchoolStore((s) => s.loadBil);
   const loadRefMasques  = useSchoolStore((s) => s.loadRefMasques);
   const matReferentiel  = useSchoolStore((s) => s.matReferentiel);
   // Ce que l'ecole a masque / renomme dans les referentiels nationaux.
@@ -1624,6 +1667,8 @@ export default function Bulletins() {
   const setFormat    = useUiStore((s) => s.setBulletinsFormat);
 
   const [printAll,        setPrintAll]        = useState(false);
+  // Bulletins trop longs pour tenir sur une page même réduits (cf. imprimerAjuste).
+  const [fitWarning,      setFitWarning]      = useState(0);
   const [sectionFilter,   setSectionFilter]   = useState('');
   const [showOrderModal,  setShowOrderModal]  = useState(false);
   const [sidebarSearch,   setSidebarSearch]   = useState('');
@@ -1678,6 +1723,9 @@ export default function Bulletins() {
   // imprimables (window.print), comme les autres bulletins — plus d'export PDF lourd.
   const isApc         = classEngine === 'apc';
   const isSc          = classEngine === 'sc';
+  // Programme d'Éducation Bilingue Spécial (arrêté 239-23) — premier cycle
+  // uniquement, moteur et maquette DÉDIÉS, indépendants du second cycle.
+  const isBil         = classEngine === 'bilingue';
   const isPrim        = classEngine === 'apc_primaire';   // primaire APC (compétences /10)
   const isMat         = classEngine === 'maternelle';     // maternelle (domaines A/ECA/NA)
   // Les bulletins officiels MINESEC sont des FORMATS de plus (à côté de Classique/
@@ -1687,9 +1735,12 @@ export default function Bulletins() {
   const showScOfficial  = isSc  && format === 'sc_officiel';
   const showPrimOfficial = isPrim && format === 'prim_officiel';
   const showMatOfficial  = isMat  && format === 'mat_officiel';
+  const showBilOfficial  = isBil  && format === 'bil_officiel';
   // On ajoute l'option officielle adaptée à la classe sans retirer les autres.
   const formatsForClass = isApc
     ? [...FORMATS, { key: 'apc_officiel', label: t('APC officiel', 'Official APC'), icon: '🏛️' }]
+    : isBil
+      ? [...FORMATS, { key: 'bil_officiel', label: t('Bilingue spécial', 'Special bilingual'), icon: '🏛️' }]
     : isSc
       ? [...FORMATS, { key: 'sc_officiel', label: t('2nd cycle officiel', 'Official 2nd cycle'), icon: '🏛️' }]
     : isPrim
@@ -1877,11 +1928,28 @@ export default function Bulletins() {
   // ── PRIMAIRE APC (SIL–CM2) — données du bulletin officiel (aperçu écran) ─────
   useEffect(() => { if (isPrim) { loadPrim(); loadRefMasques('prim'); } }, [isPrim, loadPrim, loadRefMasques]);
   const primNiveauSlug = isPrim ? primaireNiveauSlug(selectedClass?.level, selectedClass?.name) : null;
-  const PRIM_GRADE_MAX = 10;
+  // `PRIM_GRADE_MAX` vient du moteur (primEngine) — il n'est PLUS redéfini ici.
+  // Une constante locale `= 10` masquait la source unique : depuis le passage de
+  // la moyenne du primaire sur 20 (8dac543), l'écran et le bulletin imprimé
+  // affichaient 10 pendant que le rapport de classe calculait sur 20, sur un
+  // chiffre que personne ne recalcule à la main.
+  // La COTE ne bouge pas : `primCote` compare la moyenne à `gradeMax`, donc le
+  // même ratio — A+/A/ECA/NA restent identiques, élève par élève. Seul le
+  // nombre affiché double.
   const primAnnual = isPrim && period.value === 'annuel'; // moyenne annuelle = UA1..UA8
   // UA (Unité d'Apprentissage, 1-8) couvertes par la période courante — la saisie
   // se fait par UA, pas par trimestre (carnet officiel MINEDUB).
-  const primUAs = primAnnual ? [1, 2, 3, 4, 5, 6, 7, 8] : (UA_PAR_TRIMESTRE[period.seqs?.[0] || 1] || [1, 2, 3]);
+  // `period.uas` fait foi quand la période le porte (toutes les périodes du
+  // primaire le font désormais). Le repli sur `UA_PAR_TRIMESTRE[seqs[0]]` reste
+  // pour une clé persistée par une version antérieure, qui n'a pas ce champ :
+  // sans lui, l'écran repartirait sur une liste d'UA vide.
+  const primUAs = period.uas
+    ? period.uas
+    : (primAnnual ? [1, 2, 3, 4, 5, 6, 7, 8] : (UA_PAR_TRIMESTRE[period.seqs?.[0] || 1] || [1, 2, 3]));
+  // Vrai quand la période ne couvre qu'UNE unité d'apprentissage : le gabarit
+  // compact n'a alors qu'une colonne de notes par critère, et le titre annonce
+  // l'UA et non le trimestre.
+  const primSingleUA = isPrim && primUAs.length === 1 ? primUAs[0] : null;
   const primBareme = primReferentiel?.bareme?.length ? primReferentiel.bareme : PRIM_COTE_DEFAULT;
 
   // Barème (critères + points_max) d'UNE compétence pour UN élève — l'aptitude
@@ -2048,6 +2116,44 @@ export default function Bulletins() {
     });
   };
 
+  // ── DONNÉES DU GABARIT COMPACT (disposition du carnet de référence) ───────
+  //
+  // Construit PAR-DESSUS `primAnnualRowsFor`, et non à côté. C'est délibéré :
+  // les deux gabarits doivent lire les MÊMES totaux. Recalculer ici aurait créé
+  // deux vérités pour une même période — l'écran compact et l'écran détaillé
+  // auraient fini par afficher deux cotes différentes pour le même élève.
+  //
+  // CE QUE CELA IMPLIQUE SUR L'AGRÉGATION MULTI-UA. Le total par compétence
+  // reste celui du bulletin existant : la MOYENNE des points sur les UA notées
+  // (cf. le commentaire de `primAnnualRowsFor` — un trimestre reste ainsi
+  // comparable au barème d'une seule UA). Ce n'est PAS `pointsForPeriod`, qui
+  // SOMME les points et que j'ai ajoutée au moteur. Les deux restent
+  // disponibles et testées ; la règle de somme attend une validation de l'école
+  // ou de l'inspection avant d'être branchée, et le choix est donc explicite
+  // plutôt que silencieux.
+  //
+  // Pour une période d'UNE SEULE UA — le cas du carnet de référence — moyenne
+  // et somme coïncident : le total reproduit exactement le « 177,83 / 240 »
+  // imprimé.
+  const primCompactDataFor = (student) => {
+    const compRows = primAnnualRowsFor(student);
+    if (!compRows.length) return null;
+    // Tout le calcul est dans le moteur (src/core/primCompactRows.js), testable
+    // sous Node. L'ecran ne fait que lui passer les lignes de CET eleve — ce qui
+    // rend impossible une fuite d'un eleve vers le bulletin d'un autre.
+    return buildCompactRows(compRows);
+  };
+
+  // Barème THÉORIQUE du niveau (300 chez Bright Continent) : sert uniquement à
+  // la mention « provisoire », pour dire quelle part du programme reste à
+  // évaluer. Mémoïsé — il ne dépend que du référentiel et du niveau.
+  const primNiveauTotal = useMemo(() => {
+    if (!isPrim || !primReferentiel || !primNiveauSlug) return null;
+    const comps = competencesForNiveau(primReferentiel, primNiveauSlug)
+      .filter((c) => !primMasques.includes(c.id));
+    return niveauPointsTotal(primReferentiel, primNiveauSlug, comps);
+  }, [isPrim, primReferentiel, primNiveauSlug, primMasques]);
+
   // Titre du bulletin : rendu dans le SYSTÈME de la classe, comme `apcTitle`.
   const primTitle = (() => {
     const n = period.seqs?.[0] || 1;
@@ -2059,6 +2165,12 @@ export default function Bulletins() {
     return `BULLETIN DU ${['PREMIER', 'DEUXIÈME', 'TROISIÈME'][n - 1] || ''} TRIMESTRE — PRIMAIRE APC`;
   })();
   const primReady = isPrim && !!primReferentiel && !!primNiveauSlug && classStudents.length > 0;
+
+  // Disposition EFFECTIVE : 'auto' suit la période (une seule UA → compacte),
+  // sinon le choix explicite de l'utilisateur s'applique.
+  const primLayout = primLayoutPref === 'auto'
+    ? (primSingleUA ? 'compact' : 'detail')
+    : primLayoutPref;
 
   // ── MATERNELLE (PS/MS/GS) — données du bulletin officiel (aperçu écran) ──────
   useEffect(() => { if (isMat) { loadMat(); loadRefMasques('mat'); } }, [isMat, loadMat, loadRefMasques]);
@@ -2168,6 +2280,85 @@ export default function Bulletins() {
     return out;
   }, [showScOfficial, scEnrichedSubjects, gradeMap, classId, period.seqs, classStudents, sys, gOpts.maxScale, gOpts.useCoef, school?.grade_scale, teachers]);
 
+  // ── PROGRAMME BILINGUE SPÉCIAL (premier cycle) ─────────────────────────────
+  // Même structure que le second cycle, mais sur le référentiel de l'arrêté
+  // 239-23 et avec sa PROPRE règle de moyenne : Σ(Moy×Coef) / Σcoef.
+  useEffect(() => { if (isBil) loadBil(); }, [isBil, loadBil]);
+
+  const bilEnrichedSubjects = useMemo(() => {
+    if (!isBil) return classSubjects;
+    const key = bilRefKeyForClass(selectedClass);
+    if (!bilReferentiel || !key) return classSubjects;
+    const rows = matieresForBilClasse(bilReferentiel, key);
+    if (!rows.length) return classSubjects;
+    const byName = new Map(rows.map((r) => [normName(r.nom), r]));
+    // Enrichit matière par matière depuis le référentiel : domaine + coefficient
+    // + charge. Un coefficient saisi à la main par l'école n'est pas écrasé.
+    return classSubjects.map((s) => {
+      if (s.bil_domaine_ordre != null) return s;
+      const r = byName.get(normName(s.name));
+      if (!r) return s;
+      return {
+        ...s,
+        bil_domaine: r.domaine_nom,
+        bil_domaine_ordre: r.domaine_ordre,
+        bil_obligatoire: r.obligatoire,
+        charge_horaire: s.charge_horaire ?? r.charge_horaire,
+        coef: (s.coef != null && s.coef !== 1) ? s.coef : (r.coefficient || s.coef),
+      };
+    });
+  }, [isBil, classSubjects, bilReferentiel, selectedClass]);
+
+  // Période annuelle : pilote la maquette ET l'agrégation.
+  const bilIsAnnuel = period.seqs.length >= 4;
+
+  const bilTitle = useMemo(() => {
+    if (!showBilOfficial) return '';
+    const en = sys === 'EN';
+    const prog = en ? 'SPECIAL BILINGUAL EDUCATION PROGRAMME' : "PROGRAMME D'ÉDUCATION BILINGUE SPÉCIAL";
+    const base = en ? 'REPORT CARD' : 'BULLETIN SCOLAIRE';
+    if (period.seqs.length >= 4) return `${en ? 'ANNUAL ' : ''}${base}${en ? '' : ' ANNUEL'} — ${prog}`;
+    if (period.seqs.length >= 2) {
+      const trim = { t1: en ? 'FIRST TERM' : 'PREMIER TRIMESTRE',
+                     t2: en ? 'SECOND TERM' : 'DEUXIÈME TRIMESTRE',
+                     t3: en ? 'THIRD TERM' : 'TROISIÈME TRIMESTRE' }[scTrimId];
+      return `${base} — ${prog} — ${trim}`;
+    }
+    return `${base} — ${prog} — ${en ? `SEQUENCE ${period.seqs[0]}` : `SÉQUENCE ${period.seqs[0]}`}`;
+  }, [showBilOfficial, sys, period.seqs.join(','), scTrimId]);
+
+  const bilDataById = useMemo(() => {
+    if (!showBilOfficial || !bilEnrichedSubjects.length || !classStudents.length) return {};
+    const subs = bilEnrichedSubjects;
+    const teachersById = teacherIndexById(teachers);
+    const { ranks, stats } = perSubjectRanksAndStats(subs, gradeMap, classId, period.seqs, classStudents);
+    const stats2 = classProfile(subs, gradeMap, classId, period.seqs, classStudents, sys, gOpts);
+    const ranked = buildRanks(classStudents, gradeMap, classId, period.seqs, subs, sys, {}, gOpts);
+    const generalRankById = Object.fromEntries(ranked.map((s) => [s.id, s.rankD]));
+    const key = bilRefKeyForClass(selectedClass);
+    // Période ANNUELLE : on agrège les trois trimestres (assembleBilAnnual), pas
+    // les 6 séquences d'un coup — sinon la colonne « Trim. 1/2/3 » n'existerait pas.
+    const isAnnuel = period.seqs.length >= 4;
+    const termSeqs = [[1, 2], [3, 4], [5, 6]];
+    const out = {};
+    for (const s of classStudents) {
+      const commun = {
+        subjects: subs, allGrades: gradeMap, classId, student: s,
+        serieId: key?.serieId, maxScale: gOpts.maxScale ?? 20, gradeScale: school?.grade_scale,
+        subjectRanks: ranks, subjectStats: stats, classStats: stats2, teachersById,
+        generalRank: generalRankById[s.id],
+      };
+      const data = isAnnuel
+        ? assembleBilAnnual({ ...commun, termSeqs })
+        : assembleBilBulletin({ ...commun, seqs: period.seqs });
+      // La discipline et la décision réutilisent la saisie EXISTANTE (mêmes clés
+      // __abs_j__/__conduite__/__decision__ que les autres bulletins).
+      const discipline = scDisciplineConseil(gradeMap, classId, s.id, period.seqs);
+      out[s.id] = { data, discipline, decision: discipline.decision || '' };
+    }
+    return out;
+  }, [showBilOfficial, bilEnrichedSubjects, gradeMap, classId, period.seqs, classStudents, sys, gOpts.maxScale, school?.grade_scale, teachers, selectedClass]);
+
   // QR (data-URL) par élève pour le bulletin — même payload que la carte scolaire
   // (buildCardId) → un scan identifie l'élève de façon cohérente.
   const [qrMap, setQrMap] = useState({});
@@ -2214,10 +2405,11 @@ export default function Bulletins() {
     // format officiel devenu inapplicable.
     const newEngine = resolveClassEngine(school, cls);
     if (newEngine === 'apc')                                     setFormat('apc_officiel');
+    else if (newEngine === 'bilingue')                           setFormat('bil_officiel');
     else if (newEngine === 'sc')                                 setFormat('sc_officiel');
     else if (newEngine === 'apc_primaire')                       setFormat('prim_officiel');
     else if (newEngine === 'maternelle')                         setFormat('mat_officiel');
-    else if (['apc_officiel', 'sc_officiel', 'prim_officiel', 'mat_officiel'].includes(format)) setFormat('classic');
+    else if (['apc_officiel', 'sc_officiel', 'prim_officiel', 'mat_officiel', 'bil_officiel'].includes(format)) setFormat('classic');
   }, [classId, classes]);
 
   const ranks = useMemo(() => {
@@ -2306,7 +2498,10 @@ export default function Bulletins() {
 
   useEffect(() => {
     if (!printAll) return;
-    const timer = setTimeout(() => { window.print(); setPrintAll(false); }, 150);
+    // 150 ms : le temps que React ait monté tous les bulletins de la classe.
+    // La mesure doit venir APRÈS ce montage, sinon elle porterait sur un DOM
+    // incomplet et la plupart des feuilles repartiraient sans réduction.
+    const timer = setTimeout(() => { imprimerAjuste(); setPrintAll(false); }, 150);
     return () => clearTimeout(timer);
   }, [printAll]);
 
@@ -2326,13 +2521,39 @@ export default function Bulletins() {
     ? Math.max(0, STARTER_DAILY_PRINT_LIMIT - printCount)
     : Infinity;
 
+  // Ajuste les feuilles, imprime, puis retire l'ajustement.
+  //
+  // Le retrait est fait dans un `finally` ET après l'impression : `window.print()`
+  // est synchrone et bloquant dans Chrome, mais une exception pendant la mesure
+  // ne doit pas laisser l'écran avec des bulletins rétrécis — la variable CSS ne
+  // joue qu'en @media print, mais autant ne rien laisser derrière.
+  const imprimerAjuste = () => {
+    let bilan = { ajustees: 0, debordantes: 0, total: 0 };
+    try {
+      bilan = fitLiveSheets('.bulletin-paper', 'bulletin');
+      window.print();
+    } finally {
+      resetLiveSheets('.bulletin-paper');
+    }
+    // Un bulletin trop long pour être réduit sans devenir illisible coulera sur
+    // une 2e page. On le DIT, plutôt que de laisser l'école le découvrir à
+    // l'imprimante — et le message nomme le levier : moins de matières, ou un
+    // barème de matières composites.
+    if (bilan.debordantes > 0) {
+      setFitWarning(bilan.debordantes);
+      setTimeout(() => setFitWarning(0), 8000);
+    }
+  };
+
   const handlePrintSingle = () => {
     if (plan === 'starter') {
       if (printRemaining <= 0) { setShowUpgradeModal(true); return; }
       incrementDailyPrint();
       setPrintCount((c) => c + 1);
     }
-    window.print();
+    // Le bulletin doit tenir sur UNE page : on mesure et on réduit juste avant
+    // d'imprimer, puis on retire la réduction. Voir lib/print/fitLiveSheets.js.
+    imprimerAjuste();
   };
 
   const handlePrintAll = () => {
@@ -2450,6 +2671,40 @@ export default function Bulletins() {
   const renderPrimBulletin = (student) => {
     const d = primDataById[student.id];
     if (!d) return null;
+
+    // DEUX DISPOSITIONS pour les mêmes données :
+    //   compacte  — une ligne par compétence, critères en colonnes (carnet de
+    //               référence). Lisible pour UNE unité d'apprentissage.
+    //   détaillée — un mini-tableau par compétence, UA en colonnes. Lisible pour
+    //               un trimestre ou une année, où l'on suit la progression.
+    // Le défaut suit la période : une seule UA → compacte. L'utilisateur peut
+    // forcer l'autre, parce qu'une école peut préférer la vue compacte même en
+    // trimestriel (moins de papier).
+    if (primLayout === 'compact') {
+      const c = primCompactDataFor(student);
+      if (!c) return null;
+      return (
+        <WatermarkWrap key={student.id} active={f.watermark}>
+          <BulletinPrimCompact
+            school={school} sys={sys}
+            cls={selectedClass} student={student}
+            effectif={classStudents.length} titulaire={apcProfPrincipal}
+            periodLabel={period.label}
+            critereColumns={c.critereColumns} rows={c.rows}
+            overall={c.overall} nonEvalueesCodes={c.nonEvalueesCodes}
+            niveauTotal={primNiveauTotal}
+            // La MOYENNE reste celle du bulletin APC primaire (generalAverage) :
+            // elle vient de `primDataById`, inchangée.
+            moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
+            appreciationGenerale={d.appreciationGenerale}
+            rank={primRanks[student.id]}
+            coteBareme={primBareme}
+            pt={primOrientation === 'landscape' ? 9 : 8.5}
+          />
+        </WatermarkWrap>
+      );
+    }
+
     return (
       <WatermarkWrap key={student.id} active={f.watermark}>
         <BulletinPrimAnnualUA
@@ -2521,6 +2776,19 @@ export default function Bulletins() {
                       {notifyingBulletins ? t('Préparation…', 'Preparing…') : t('Notifier les parents', 'Notify parents')}
                     </button>
                   )}
+                  {/* Un bulletin trop long pour tenir sur une page même réduit au
+                      plancher de lisibilité : on le dit APRÈS l'impression, en
+                      nommant le levier, au lieu de laisser l'école le découvrir
+                      sur la feuille. */}
+                  {fitWarning > 0 && (
+                    <span className="no-print text-xs font-medium text-amber-600 self-center">
+                      {fitWarning === 1
+                        ? t('1 bulletin dépasse une page : trop de matières pour la réduire sans la rendre illisible.',
+                            '1 report card exceeds one page: too many subjects to shrink it legibly.')
+                        : t(`${fitWarning} bulletins dépassent une page : trop de matières pour les réduire sans les rendre illisibles.`,
+                            `${fitWarning} report cards exceed one page: too many subjects to shrink them legibly.`)}
+                    </span>
+                  )}
                   {selectedStudent && (
                     <button
                       onClick={handlePrintSingle}
@@ -2558,6 +2826,59 @@ export default function Bulletins() {
         {/* Sélecteur de format — masqué pour Guinea Ecuatorial (un seul format
             officiel). Pour les classes MINESEC, on AJOUTE l'option officielle
             (APC ou 2nd cycle) sans retirer Classique/Moderne/APC. */}
+        {/* ── PRIMAIRE APC : disposition et orientation ──────────────────
+            Deux reglages, et seulement pour le bulletin officiel du primaire.
+            Ils ne touchent QUE la mise en page : aucun calcul ne depend d'eux,
+            la moyenne reste la meme dans les deux dispositions. */}
+        {showPrimOfficial && primReady && (
+          <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
+            <span className="text-sm font-medium text-gray-500">{t('Disposition :', 'Layout:')}</span>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              {[
+                { key: 'auto',    label: t('Auto', 'Auto') },
+                { key: 'compact', label: t('Compacte', 'Compact') },
+                { key: 'detail',  label: t('Détaillée par UA', 'Detailed by UL') },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setPrimLayout(key)}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    primLayoutPref === key ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <span className="text-sm font-medium text-gray-500 ml-2">{t('Orientation :', 'Orientation:')}</span>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              {[
+                { key: 'portrait',  label: t('Portrait', 'Portrait') },
+                { key: 'landscape', label: t('Paysage', 'Landscape') },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setPrimOrientation(key)}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    primOrientation === key ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <span className="text-xs text-gray-400 italic">
+              {primLayoutPref === 'auto'
+                ? (primSingleUA
+                    ? t(`Auto : UA ${primSingleUA} → vue compacte`, `Auto: UL ${primSingleUA} → compact view`)
+                    : t('Auto : période multi-UA → vue détaillée', 'Auto: multi-UL period → detailed view'))
+                : t('Réglage manuel', 'Manual setting')}
+            </span>
+          </div>
+        )}
+
         {cycle === 'secondaire' && schoolCountryCode !== 'guinea_eq' && (
           <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
             <span className="text-sm font-medium text-gray-500">{t('Format :', 'Format:')}</span>
@@ -2960,6 +3281,47 @@ export default function Bulletins() {
                     decision={scDataById[selectedStudent.id].decision}
                   />
                 </WatermarkWrap>
+              )}
+
+              {/* Programme Bilingue Spécial (1er cycle) — aperçu écran imprimable.
+                  Trimestriel et ANNUEL ont chacun leur maquette ; les deux
+                  consomment le même objet que leur PDF respectif. */}
+              {showBilOfficial && !printAll && selectedStudent && bilDataById[selectedStudent.id] && (
+                <WatermarkWrap active={f.watermark}>
+                  {createElement(bilIsAnnuel ? BulletinBilAnnual : BulletinBilOfficial, {
+                    school, sys, title: bilTitle,
+                    student: selectedStudent, classLabel: selectedClass?.name || '',
+                    effectif: classStudents.length, titulaire: scProfPrincipal,
+                    seqs: period.seqs, maxScale: gOpts.maxScale ?? 20,
+                    data: bilDataById[selectedStudent.id].data,
+                    discipline: bilDataById[selectedStudent.id].discipline,
+                    decision: bilDataById[selectedStudent.id].decision,
+                  })}
+                </WatermarkWrap>
+              )}
+
+              {/* Génération EN LOT : toute la classe, une feuille par élève. */}
+              {showBilOfficial && printAll && classStudents.map((student) => (
+                bilDataById[student.id] ? (
+                  <WatermarkWrap key={student.id} active={f.watermark}>
+                    {createElement(bilIsAnnuel ? BulletinBilAnnual : BulletinBilOfficial, {
+                      school, sys, title: bilTitle,
+                      student, classLabel: selectedClass?.name || '',
+                      effectif: classStudents.length, titulaire: scProfPrincipal,
+                      seqs: period.seqs, maxScale: gOpts.maxScale ?? 20,
+                      data: bilDataById[student.id].data,
+                      discipline: bilDataById[student.id].discipline,
+                      decision: bilDataById[student.id].decision,
+                    })}
+                  </WatermarkWrap>
+                ) : null
+              ))}
+
+              {showBilOfficial && !printAll && !selectedStudent && (
+                <div className="bg-white rounded-xl p-12 text-center shadow-sm border border-gray-100 no-print">
+                  <div className="text-4xl mb-3">🏛️</div>
+                  <p className="text-gray-500 text-sm">{t('Cliquez sur un élève dans la liste pour afficher son bulletin bilingue spécial.', 'Click a student in the list to view their special bilingual report card.')}</p>
+                </div>
               )}
 
               {showScOfficial && !printAll && !selectedStudent && (

@@ -9,6 +9,7 @@ import { gradeCell } from '../../lib/gradeEntry';
 import { isSequenceLocked, getLockInfo } from '../../lib/lockService';
 import GradeGrid from './GradeGrid';
 import GradeImportPanel from './GradeImportPanel';
+import GradeBundleIO from './GradeBundleIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import { isFundamentalTitulaire } from '../../lib/teacherScope';
 
@@ -297,6 +298,11 @@ export default function SubjectTeacherWorkspace() {
                   </div>
                 </div>
               )}
+
+              {/* Échange de notes entre postes : l'enseignant exporte TOUTES ses
+                  notes en un fichier pour l'administration. Le panneau CSV
+                  ci-dessous, lui, ne concerne que la grille affichée. */}
+              <GradeBundleIO />
 
               {showImport && (
                 <div className="mb-5">

@@ -48,14 +48,55 @@ export function isPublicBucket(bucket = ASSET_BUCKET) {
   return BUCKET_PUBLIC[bucket] === true;
 }
 
-// Extrait le chemin de stockage depuis une valeur stockée (URL publique/signée
-// ou chemin brut). Renvoie null si la valeur n'appartient pas à notre bucket.
+// Sépare la partie « chemin » de son suffixe (`?query` et/ou `#fragment`).
+// Le suffixe ne fait JAMAIS partie du chemin remis aux API de stockage — signer
+// « photo.jpg?v=1 » ne désigne aucun objet — mais il doit survivre jusqu'à l'URL
+// affichée, sans quoi le cache-buster `?v=` posé à l'upload est perdu et le
+// navigateur continue de servir l'ancienne photo après un remplacement.
+function splitSuffix(value) {
+  const i = value.search(/[?#]/);
+  return i === -1 ? { base: value, suffix: '' } : { base: value.slice(0, i), suffix: value.slice(i) };
+}
+
+// Un chemin extrait d'une URL est encodé ; un chemin déjà brut ne l'est pas.
+// Un `%` isolé (nom de fichier exotique) ferait lever decodeURIComponent : on
+// préfère alors la valeur telle quelle plutôt que de perdre l'asset.
+function safeDecode(path) {
+  try { return decodeURIComponent(path); } catch { return path; }
+}
+
+// Extrait le chemin de stockage, RELATIF AU BUCKET, depuis une valeur stockée.
+// Renvoie null si la valeur n'appartient pas à notre bucket.
+//
+// Les quatre formes rencontrées en base :
+//   1. URL absolue Supabase  `https://…/object/public/school-assets/ecole1/x.jpg`
+//   2. URL relative LAN      `/files/school-assets/ecole1/x.jpg?v=176…`
+//   3. chemin déjà relatif   `ecole1/students/42.jpg`
+//   4. valeur étrangère      logo distant, `data:` → null (affichée telle quelle)
+//
+// Le cas 2 est celui que produit l'édition LAN (`localClient.getPublicUrl`).
+// Il était traité comme le cas 3 : le préfixe `/files/school-assets/` était
+// conservé DANS le chemin, puis réappliqué à la construction de l'URL, d'où un
+// `/files/school-assets/files/school-assets/…` en 404. La recherche du marqueur
+// ne dépend donc plus du schéma : seule compte la présence de `/school-assets/`.
 export function assetPath(stored) {
   if (!stored || typeof stored !== 'string') return null;
-  if (!/^https?:|^data:/.test(stored)) return stored.replace(/^\/+/, '').split('?')[0]; // déjà un chemin
-  const i = stored.indexOf(MARKER);
-  if (i === -1) return null; // pas un asset géré (logo distant, etc.)
-  return decodeURIComponent(stored.slice(i + MARKER.length).split('?')[0]);
+  const value = stored.trim();
+  if (!value) return null;
+  // Testé en premier : une image en ligne n'a pas de chemin, et son contenu
+  // encodé ne doit jamais être confondu avec un marqueur de bucket.
+  if (/^data:/i.test(value)) return null;
+
+  const { base } = splitSuffix(value);
+  const i = base.indexOf(MARKER);
+  // Un chemin de stockage ne commence JAMAIS par « / » : `createSignedUrl('/x.jpg')`
+  // et `createSignedUrl('x.jpg')` désignent deux clés différentes, et la seconde
+  // seule existe. Un séparateur doublé en base (« …/school-assets//x.jpg », vu à
+  // l'import) doit donc être absorbé ici, sur les DEUX branches.
+  const nu = (p) => p.replace(/^\/+/, '');
+  if (i !== -1) return nu(safeDecode(base.slice(i + MARKER.length)));  // cas 1 ET 2
+  if (/^https?:/i.test(value)) return null;                            // cas 4 : hors bucket
+  return nu(base);                                                     // cas 3 : déjà relatif
 }
 
 // PURE — quelle stratégie pour cette valeur stockée, sans aucun appel réseau ?
@@ -72,8 +113,10 @@ export function assetUrlPlan(stored, bucketIsPublic = isPublicBucket()) {
   // Déjà une URL http de NOTRE bucket : on la rend telle quelle, sans la
   // reconstruire. C'est exactement celle que le CDN a déjà en cache — et celle
   // que l'ancien premier rendu utilisait, donc zéro changement observable.
-  if (/^https?:/.test(stored)) return { kind: 'as-is', url: stored };
-  return { kind: 'public', path };
+  if (/^https?:/i.test(stored)) return { kind: 'as-is', url: stored };
+  // `suffix` est réappliqué à l'URL construite (cache-buster préservé). Il n'est
+  // PAS porté par `path`, qui sert aussi de clé de signature et de cache.
+  return { kind: 'public', path, suffix: splitSuffix(String(stored).trim()).suffix };
 }
 
 function buildPublicUrl(path) {
@@ -90,7 +133,10 @@ function buildPublicUrl(path) {
 export function assetUrlSync(stored, bucketIsPublic = isPublicBucket()) {
   const plan = assetUrlPlan(stored, bucketIsPublic);
   if (plan.kind === 'as-is') return plan.url;
-  if (plan.kind === 'public') return buildPublicUrl(plan.path) || stored;
+  if (plan.kind === 'public') {
+    const url = buildPublicUrl(plan.path);
+    return url ? url + (plan.suffix || '') : stored;
+  }
   return null; // 'sign' → passer par assetUrl()
 }
 

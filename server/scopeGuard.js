@@ -14,7 +14,7 @@
 // gouvernance, RH…) ne portent pas de donnée d'élève et restent hors
 // cloisonnement — le filtrage par école suffit.
 
-import { db, ensureStrictRoleMatrix } from './db.js';
+import { db, ensureStrictRoleMatrix, quoteIdent } from './db.js';
 
 // Table -> colonne portant le rattachement.
 //   kind 'class'        : la colonne est un id de classe (ou `id` pour classes)
@@ -621,6 +621,95 @@ export function applyPersonnelSector(op, scope) {
 // Tables d'ARGENT : leur écriture exige l'autorité financière, pas seulement le
 // périmètre. Miroir de `is_school_cashier` → `is_finance_officer` côté Postgres.
 const MONEY_TABLES = new Set(['student_fees', 'fee_payments', 'student_fee_items', 'class_fee_grids']);
+
+// ── ÉTANCHÉITÉ INTER-ÉTABLISSEMENTS À L'ÉCRITURE ────────────────────────────
+// `guardScopeWrite` court-circuite tout contrôle pour un compte GLOBAL
+// (`if (isGlobal(scope)) return;`) : en écriture, l'étanchéité inter-écoles
+// n'était donc PAS appliquée à ces comptes, alors que la lecture, elle, la
+// garantit (`rowAllowed` compare school_id même pour un compte global).
+//
+// Sans effet tant qu'une base LAN n'héberge qu'une école — mais une sauvegarde
+// restaurée ou un poste mutualisé suffisait à ouvrir la porte. Cette garde la
+// ferme, pour TOUTE table portant un `school_id`, quel que soit le périmètre.
+//
+// Elle ne touche pas :
+//   • les appels INTERNES sans session (amorçage, migrations, seeds) ;
+//   • les comptes `unscoped` (installateur LAN pas encore rattaché, cf. loadScope) ;
+//   • les bases mono-école, où elle ne peut rien refuser.
+const _schoolIdCols = new Map();
+function hasSchoolId(table) {
+  if (_schoolIdCols.has(table)) return _schoolIdCols.get(table);
+  let has = false;
+  try {
+    has = db.prepare(`PRAGMA table_info(${quoteIdent(table)})`).all()
+      .some((c) => c.name === 'school_id');
+  } catch { has = false; }
+  _schoolIdCols.set(table, has);
+  return has;
+}
+
+export function guardSchoolIsolation(op, ctx) {
+  if (!['insert', 'upsert', 'update', 'delete'].includes(op.action)) return;
+  if (!ctx?.userId) return;                       // chemin serveur de confiance
+  if (!hasSchoolId(op.table)) return;
+
+  // École lue DIRECTEMENT, sans passer par loadScope() — même précaution que
+  // `guardSchoolWrite` : loadScope a un EFFET DE BORD (ensureStrictRoleMatrix +
+  // mémoïsation `_matrixSeen`). L'appeler ici, en tête de la chaîne de gardes,
+  // figerait l'école comme « traitée » AVANT que le drapeau strict_role_enforcement
+  // soit écrit — ce qui empêche la pose ultérieure de la matrice de rôles.
+  // (Régression constatée par server/_strict_matrix_seed.test.mjs.)
+  let schoolId = null;
+  try {
+    schoolId = db.prepare(
+      'SELECT school_id FROM school_users WHERE user_id = ? AND active = 1 LIMIT 1',
+    ).get(ctx.userId)?.school_id ?? null;
+  } catch { return; }
+  // Aucune ligne : installateur LAN pas encore rattaché (bootstrap), même
+  // traitement que les comptes `unscoped` de loadScope.
+  if (!schoolId) return;
+  const scope = { schoolId };
+
+  const refus = 'Hors établissement : cette donnée appartient à un autre établissement.';
+
+  // 1) Valeurs ÉCRITES : un school_id explicite doit être celui du compte.
+  const values = op.values == null ? [] : (Array.isArray(op.values) ? op.values : [op.values]);
+  for (const v of values) {
+    if (v && v.school_id != null && v.school_id !== scope.schoolId) throw new Error(refus);
+  }
+
+  if (!['update', 'delete'].includes(op.action)) return;
+
+  // 2) Lignes VISÉES par un update/delete : aucune ne doit sortir de l'école.
+  const eqId = (op.filters || []).find((f) => f.op === 'eq' && f.col === 'id');
+  const inId = (op.filters || []).find((f) => f.op === 'in' && f.col === 'id' && Array.isArray(f.val) && f.val.length);
+  try {
+    if (eqId) {
+      const row = db.prepare(`SELECT school_id FROM ${quoteIdent(op.table)} WHERE id = ?`).get(eqId.val);
+      if (row && row.school_id != null && row.school_id !== scope.schoolId) throw new Error(refus);
+      return;
+    }
+    if (inId) {
+      const ph = inId.val.map(() => '?').join(',');
+      const rows = db.prepare(`SELECT DISTINCT school_id FROM ${quoteIdent(op.table)} WHERE id IN (${ph})`).all(...inId.val);
+      if (rows.some((r) => r.school_id != null && r.school_id !== scope.schoolId)) throw new Error(refus);
+      return;
+    }
+    // 3) Écriture de masse sans ciblage par id : on ne peut pas savoir ce qu'elle
+    // touchera. On ne refuse QUE si la base contient réellement une autre école —
+    // une seule lecture indexée, et aucun effet sur une base mono-école.
+    const etranger = db.prepare(
+      `SELECT 1 FROM ${quoteIdent(op.table)} WHERE school_id IS NOT NULL AND school_id <> ? LIMIT 1`,
+    ).get(scope.schoolId);
+    if (etranger) {
+      throw new Error('Écriture de masse refusée : la base contient des données d’un autre établissement.');
+    }
+  } catch (e) {
+    if (e instanceof Error && /établissement/.test(e.message)) throw e;
+    // Table sans colonne id, ou filtre illisible : on ne bloque pas sur un
+    // incident technique, les autres gardes restent en place.
+  }
+}
 
 export function guardScopeWrite(op, ctx) {
   const rule = SCOPED_TABLES[op.table];

@@ -16,6 +16,7 @@
 globalThis.__syncCalls = [];
 globalThis.__syncQueue = [];
 globalThis.__syncFail = { table: null, rowValue: null };
+globalThis.__syncQuarantine = [];
 
 const calls = globalThis.__syncCalls;
 const setQueue = (q) => { globalThis.__syncQueue = q; };

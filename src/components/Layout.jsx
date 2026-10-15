@@ -5,7 +5,7 @@ import { useUiStore }   from '../store/uiStore';
 import { useNotificationsStore } from '../store/notificationsStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { useAppNotificationsStore } from '../store/appNotificationsStore';
-import { flushSyncQueue, clearSyncQueue, pruneExpiredItems } from '../lib/sync';
+import { flushSyncQueue, clearSyncQueue, exportPendingWrites } from '../lib/sync';
 import Sidebar from './nav/Sidebar';
 import MobileNav from './nav/MobileNav';
 import NotificationBell from './NotificationBell';
@@ -66,19 +66,48 @@ function SyncIndicator() {
     setRetrying(true);
     setOpen(false);
     useUiStore.getState().setSyncing();
-    await pruneExpiredItems();
-    const { failed, failedItems = [] } = await flushSyncQueue();
+    // On essaie DIRECTEMENT. L'appel à `pruneExpiredItems()` qui se trouvait ici
+    // supprimait les éléments de plus de 48 h avant la tentative : demander
+    // « Réessayer » pouvait donc faire disparaître ce qu'on voulait renvoyer.
+    const { failed, failedItems = [], stalled = 0 } = await flushSyncQueue();
     setRetrying(false);
-    if (failed === 0) {
+    // `stalled` compte les saisies encore en file mais plus rejouées : elles ne
+    // doivent pas être absorbées par un « Synchronisé » rassurant.
+    if (failed === 0 && stalled === 0) {
       useUiStore.getState().setSynced();
       setTimeout(() => useUiStore.getState().setIdle(), 3000);
     } else {
-      useUiStore.getState().setSyncError(failed, failedItems);
+      useUiStore.getState().setSyncError(failed + stalled, failedItems);
     }
   };
 
-  const handleClear = async (e) => {
+  // Télécharge ce qui n'est pas arrivé au serveur — file + quarantaine. C'est la
+  // preuve que l'enseignant conserve : elle ne dépend plus du navigateur qui a
+  // fait la saisie.
+  const handleExport = async (e) => {
     e.stopPropagation();
+    const report = await exportPendingWrites();
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `notescam-saisies-non-transmises-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // « Mettre de côté » ne détruit plus rien : les éléments partent en
+  // quarantaine, d'où ils restent exportables et réinjectables. Le rapport est
+  // téléchargé AVANT le déplacement, pour qu'un refus de la confirmation laisse
+  // quand même une trace entre les mains de l'utilisateur.
+  const handleSetAside = async (e) => {
+    e.stopPropagation();
+    await handleExport(e);
+    if (!window.confirm(
+      `${failedCount} saisie(s) vont être mises de côté et retirées de la file d'envoi.\n\n`
+      + 'Elles ne sont pas supprimées : le fichier qui vient d\'être téléchargé en '
+      + 'contient la copie, et un administrateur peut les remettre en file.\n\nContinuer ?'
+    )) return;
     setOpen(false);
     await clearSyncQueue();
   };
@@ -128,7 +157,8 @@ function SyncIndicator() {
               {failedCount} opération{failedCount > 1 ? 's' : ''} en échec
             </p>
             <p className="text-xs text-slate-400 mt-0.5">
-              Échec après plusieurs tentatives. Ces données ne seront plus retentées.
+              Ces saisies sont conservées sur ce poste et seront renvoyées
+              automatiquement. Aucune n'est supprimée.
             </p>
           </div>
 
@@ -154,10 +184,16 @@ function SyncIndicator() {
               Réessayer maintenant
             </button>
             <button
-              onClick={handleClear}
-              className="w-full py-2 px-3 bg-slate-50 hover:bg-red-50 hover:text-red-600 text-slate-500 text-xs font-medium rounded-lg border border-slate-200 transition-colors"
+              onClick={handleExport}
+              className="w-full py-2 px-3 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium rounded-lg border border-slate-200 transition-colors"
             >
-              Vider la file d'attente
+              Télécharger la preuve des saisies
+            </button>
+            <button
+              onClick={handleSetAside}
+              className="w-full py-2 px-3 bg-white hover:bg-amber-50 hover:text-amber-700 text-slate-400 text-xs font-medium rounded-lg border border-slate-200 transition-colors"
+            >
+              Mettre de côté (réversible)
             </button>
           </div>
         </div>

@@ -29,6 +29,27 @@ const PRIM_TH_BG  = '#d1fae5';
 const PRIM_TH_TXT = '#065f46';
 const TRIM_LABELS = { fr: ['Premier', 'Deuxième', 'Troisième'], en: ['First', 'Second', 'Third'], es: ['Primer', 'Segundo', 'Tercer'] };
 
+// Barème à ANNONCER pour une ligne de critère : celui que l'enseignant a
+// réellement utilisé, s'il est le même sur toutes les UA notées de la période.
+// Sinon le barème officiel — aucun nombre unique ne décrirait honnêtement une
+// ligne interrogée /5 puis /20, et le détail par UA reste lisible juste à côté.
+//
+// AU NIVEAU DU MODULE, et pas dans un composant : le seul appelant est
+// `CompetenceUATable` ci-dessous. Défini dans `BulletinPrimAnnualUA`, il était
+// hors de portée à l'appel et faisait lever « baremeAffiche is not defined » à
+// CHAQUE rendu d'un bulletin primaire détaillé par UA — donc un écran blanc, React
+// démontant tout l'arbre sur une exception de rendu. La fonction est pure (elle ne
+// dépend que de ses deux arguments) : la hisser ici suffit, et la met hors de
+// portée d'une nouvelle erreur de placement.
+const baremeAffiche = (row, cr) => {
+  const vus = new Set();
+  for (const u of row.uas) {
+    const b = u.baremes?.[cr.id];
+    if (b != null) vus.add(Number(b));
+  }
+  return vus.size === 1 ? [...vus][0] : cr.points_max;
+};
+
 // ── Un mini-tableau (une compétence) ────────────────────────────────────────────
 // `row.uas` peut être un sous-ensemble (bulletin trimestriel : UA1-3, UA4-6 ou
 // UA7-8) ou les 8 UA (vue annuelle) — la largeur du tableau et le regroupement
@@ -134,19 +155,6 @@ export default function BulletinPrimAnnualUA({
   const ppLabel      = headTeacherLabel(headTeacherCount(profPrincipal), sys, { basic: true });
 
   // Cote par critère (dérivée du barème de CE critère, pas de la compétence
-  // Barème à ANNONCER pour une ligne de critère : celui que l'enseignant a
-  // réellement utilisé, s'il est le même sur toutes les UA notées de la période.
-  // Sinon le barème officiel — aucun nombre unique ne décrirait honnêtement une
-  // ligne interrogée /5 puis /20, et le détail par UA reste lisible juste à côté.
-  const baremeAffiche = (row, cr) => {
-    const vus = new Set();
-    for (const u of row.uas) {
-      const b = u.baremes?.[cr.id];
-      if (b != null) vus.add(Number(b));
-    }
-    return vus.size === 1 ? [...vus][0] : cr.points_max;
-  };
-
   // entière) — calculée ici pour ne pas alourdir le calcul côté Bulletins.jsx.
   const rowsWithCriteresCote = competenceRows.map((row) => {
     const criteresCote = {};

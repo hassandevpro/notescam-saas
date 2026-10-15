@@ -142,6 +142,7 @@ class QueryBuilder {
     this._filters = [];
     this._order = [];
     this._limit = null;
+    this._offset = 0;
     this._single = false;
     this._maybeSingle = false;
     this._values = null;
@@ -171,13 +172,15 @@ class QueryBuilder {
 
   order(col, opts = {}) { this._order.push({ col, ascending: opts.ascending !== false }); return this; }
   limit(n) { this._limit = n; return this; }
+  // Même sémantique que supabase-js : bornes INCLUSES.
+  range(from, to) { this._offset = from; this._limit = to - from + 1; return this; }
   single() { this._single = true; return this; }
   maybeSingle() { this._single = true; this._maybeSingle = true; return this; }
 
   _op() {
     return {
       table: this.table, action: this.action, columns: this.columns,
-      filters: this._filters, order: this._order, limit: this._limit,
+      filters: this._filters, order: this._order, limit: this._limit, offset: this._offset,
       single: this._single, maybeSingle: this._maybeSingle,
       values: this._values, onConflict: this._onConflict,
       returning: this._returning || (this.action === 'select'),

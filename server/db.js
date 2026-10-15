@@ -3,7 +3,7 @@
 // design : naturellement sérialisé, ce qui convient à une école.
 
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -19,6 +19,45 @@ export const DATA_DIR = resolve(process.env.NOTESCAM_DATA_DIR || join(__dirname,
 mkdirSync(DATA_DIR, { recursive: true });
 
 export const DB_PATH = join(DATA_DIR, 'notescam.db');
+
+// --- Restauration programmée ------------------------------------------
+// Remplacer la base pendant que le serveur tourne est impossible proprement :
+// des dizaines de modules tiennent `db` ouvert. La restauration est donc
+// PROGRAMMÉE (POST /api/backup/restore écrit `restore-pending.json`) puis
+// appliquée ICI, au démarrage, AVANT toute ouverture de la base.
+// La base remplacée n'est jamais détruite : elle part, avec son WAL (qui peut
+// contenir des transactions validées non encore reportées), dans
+// DATA_DIR/pre-restore/ — hors du dossier des sauvegardes, donc hors rotation.
+export const RESTORE_MARKER = join(DATA_DIR, 'restore-pending.json');
+export const RESTORE_RESULT = join(DATA_DIR, 'restore-last.json');
+export function applyPendingRestore(dataDir = DATA_DIR, dbPath = DB_PATH) {
+  const marker = join(dataDir, 'restore-pending.json');
+  if (!existsSync(marker)) return null;
+  const result = { at: new Date().toISOString() };
+  try {
+    const { source, label } = JSON.parse(readFileSync(marker, 'utf8'));
+    result.source = source; result.label = label || null;
+    if (!source || !existsSync(source)) throw new Error(`sauvegarde introuvable : ${source}`);
+    const keepDir = join(dataDir, 'pre-restore');
+    mkdirSync(keepDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const safety = join(keepDir, `notescam-avant-restauration-${stamp}.db`);
+    if (existsSync(dbPath)) {
+      renameSync(dbPath, safety);
+      for (const ext of ['-wal', '-shm']) if (existsSync(dbPath + ext)) renameSync(dbPath + ext, safety + ext);
+    }
+    copyFileSync(source, dbPath);
+    result.ok = true; result.previous = safety;
+    console.warn(`[restore] base restaurée depuis ${source} ; ancienne base conservée : ${safety}`);
+  } catch (e) {
+    result.ok = false; result.error = e.message;
+    console.error(`[restore] ÉCHEC, base actuelle conservée : ${e.message}`);
+  }
+  try { writeFileSync(join(dataDir, 'restore-last.json'), JSON.stringify(result, null, 2)); } catch { /* best-effort */ }
+  try { unlinkSync(marker); } catch { /* best-effort */ }
+  return result;
+}
+applyPendingRestore();
 
 export const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL');    // lecteurs concurrents + écriture sûre

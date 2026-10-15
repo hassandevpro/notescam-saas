@@ -27,6 +27,7 @@ import SwitchToLocalCard from '../components/SwitchToLocalCard';
 import HybridModeCard from '../components/HybridModeCard';
 import PrepareHybridCard from '../components/PrepareHybridCard';
 import AcademicSetupWizard from '../components/setup/AcademicSetupWizard';
+import BackupPanel from '../components/settings/BackupPanel';
 
 // Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
 function buildGeScale(maxScale = 10) {
@@ -583,6 +584,7 @@ export default function Settings() {
     { id: 'users',         label: t('Utilisateurs', 'Users', 'Usuarios'),                           render: renderUsers,       hidden: !isAdmin },
     { id: 'calendar',      label: t('Calendrier scolaire', 'School calendar', 'Calendario'),        render: renderCalendar,    hidden: !isAdmin },
     { id: 'sms',           label: t('SMS', 'SMS', 'SMS'),                                           render: renderSms,        hidden: !isAdmin },
+    { id: 'backup',        label: t('Sauvegarde & restauration', 'Backup & restore', 'Copias y restauración'), render: () => <BackupPanel />, hidden: !isAdmin },
     { id: 'advanced',      label: t('Paramètres avancés', 'Advanced settings', 'Avanzado'),         render: renderAdvanced,    hidden: !isAdmin },
   ];
 

@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { dirname, join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, createReadStream, existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, createReadStream, existsSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 import { db, getSchool, DATA_DIR } from './db.js';
@@ -236,6 +236,60 @@ app.get('/api/backup/list', async (req, reply) => {
   if (!requireLocalAdmin(req, reply)) return;
   const { listBackups } = await import('./backup.js');
   return { data: listBackups(), error: null };
+});
+
+// Téléchargement d'une sauvegarde (copie sur clé USB / autre PC).
+app.get('/api/backup/file/:file', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { backupPath } = await import('./backup.js');
+  const p = backupPath(req.params.file);
+  if (!p) return reply.code(404).send({ error: { message: 'Sauvegarde introuvable' } });
+  reply.header('Content-Type', 'application/octet-stream');
+  reply.header('Content-Disposition', `attachment; filename="${req.params.file}"`);
+  return reply.send(createReadStream(p));
+});
+
+// Restauration COMPLÈTE de la base depuis une sauvegarde du serveur.
+// Programmée, appliquée au prochain démarrage (cf. applyPendingRestore, db.js).
+// REFUSÉE en mode hybride : la base restaurée repartirait de ses anciens
+// curseurs de synchronisation, et le Cloud — plus récent — réécraserait les
+// lignes restaurées et rejouerait les suppressions. En hybride, on restaure
+// par import JSON (les lignes réinsérées sont datées de maintenant, donc
+// gagnantes, et repoussées au Cloud).
+app.post('/api/backup/restore', async (req, reply) => {
+  const userId = requireLocalAdmin(req, reply);
+  if (!userId) return;
+  if (isCloudSyncEnabled()) {
+    return reply.code(409).send({ error: { message: 'Synchronisation Cloud active : la restauration de fichier serait écrasée par le Cloud. Utilisez « Restaurer depuis un fichier JSON ».' } });
+  }
+  const { backupPath, verifyBackupFile, listBackups } = await import('./backup.js');
+  const file = req.body?.file;
+  const p = backupPath(file);
+  if (!p) return reply.code(404).send({ error: { message: 'Sauvegarde introuvable' } });
+  const check = await verifyBackupFile(p);
+  if (!check.ok) return reply.code(422).send({ error: { message: `Sauvegarde corrompue, restauration refusée (${check.detail})` } });
+  const current = getSchool();
+  if (current && check.school && check.school.id !== current.id) {
+    return reply.code(422).send({ error: { message: 'Cette sauvegarde appartient à un autre établissement.' } });
+  }
+  const meta = listBackups().find((b) => b.file === file) || {};
+  const { RESTORE_MARKER } = await import('./db.js');
+  writeFileSync(RESTORE_MARKER, JSON.stringify({ source: p, label: meta.label || file, emergency: !!meta.emergency, requestedBy: userId, at: new Date().toISOString() }));
+  return { data: { scheduled: true, file, emergency: !!meta.emergency, restartRequired: true }, error: null };
+});
+
+app.delete('/api/backup/restore', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { RESTORE_MARKER } = await import('./db.js');
+  try { unlinkSync(RESTORE_MARKER); } catch { /* rien de programmé */ }
+  return { data: { cancelled: true }, error: null };
+});
+
+app.get('/api/backup/restore/status', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { RESTORE_MARKER, RESTORE_RESULT } = await import('./db.js');
+  const read = (f) => { try { return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null; } catch { return null; } };
+  return { data: { pending: read(RESTORE_MARKER), last: read(RESTORE_RESULT), cloudSync: isCloudSyncEnabled() }, error: null };
 });
 
 // État de PARITÉ Cloud ↔ LAN (pour l'UI + les gardes update/version/restauration).

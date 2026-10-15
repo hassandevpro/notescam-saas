@@ -315,6 +315,8 @@ function doSelect(op, ctx = null) {
     if (ord.length) sql += ' ORDER BY ' + ord.join(', ');
   }
   if (op.limit != null) sql += ` LIMIT ${Number(op.limit) | 0}`;
+  // .range(from, to) côté client → LIMIT/OFFSET (pagination de l'export complet).
+  if (op.limit != null && op.offset) sql += ` OFFSET ${Math.max(0, Number(op.offset) | 0)}`;
   if (op.single) sql += op.limit == null ? ' LIMIT 2' : '';
 
   let rows = db.prepare(sql).all(...where.params);

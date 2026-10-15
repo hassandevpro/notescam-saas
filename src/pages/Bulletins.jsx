@@ -39,6 +39,10 @@ import {
 } from '../core/primEngine';
 import { domainesForMaternelle } from '../core/matEngine';
 import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineMatch';
+// Périmètre RÉEL de la classe dans le référentiel national : une matière
+// décochée dans l'écran Classes ne doit pas s'imprimer sur le bulletin officiel.
+// Le garde-fou (aucun filtre si rien n'est reconnu) est dans le module.
+import { scopeOf, applyScope } from '../core/refClassScope';
 import { withLibelles } from '../lib/referentielEcole';
 // Les intitulés du référentiel officiel sont stockés en français pour tout le
 // pays : sur une classe du secteur anglophone, on les rend en anglais.
@@ -1859,16 +1863,30 @@ export default function Bulletins() {
 
   // Données assemblées par élève. Annuel → assembleApcAnnual (T1/T2/T3 par matière) ;
   // sinon assemblePeriod (séquence ou trimestre, par compétence).
+  // Matières que la classe ENSEIGNE réellement. Le bulletin APC listait les
+  // matières du référentiel national sans regarder les matières de la classe :
+  // décocher « Informatique » en 6e laissait la ligne s'imprimer, vide. `scopeOf`
+  // rend `null` si rien n'est reconnu, et `applyScope` ne filtre alors pas — un
+  // bulletin avec une matière en trop vaut mieux qu'un bulletin amputé.
+  const apcScope = useMemo(
+    () => (isApc ? scopeOf('apc', classSubjects, apcReferentiel?.matieres) : null),
+    [isApc, classSubjects, apcReferentiel],
+  );
+
   const apcReferentielEcole = useMemo(() => {
     if (!apcReferentiel) return apcReferentiel;
+    // Le périmètre porte sur les MATIÈRES, la liste filtrée sur les COMPÉTENCES :
+    // on lit donc `c.matiere_id`.
+    const dansLaClasse = applyScope(
+      apcScope,
+      (apcReferentiel.competences || []).filter((c) => !apcMasques.includes(c.id)),
+      (c) => c.matiere_id,
+    );
     return {
       ...apcReferentiel,
-      competences: withLibelles(
-        (apcReferentiel.competences || []).filter((c) => !apcMasques.includes(c.id)),
-        apcLibelles,
-      ),
+      competences: withLibelles(dansLaClasse, apcLibelles),
     };
-  }, [apcReferentiel, apcMasques, apcLibelles]);
+  }, [apcReferentiel, apcMasques, apcLibelles, apcScope]);
 
   const apcDataById = useMemo(() => {
     if (!isApc || !apcReferentielEcole || !apcClasseSlug) return {};
@@ -2011,12 +2029,35 @@ export default function Bulletins() {
     return out;
   };
 
-  const primDataById = useMemo(() => {
-    if (!isPrim || !primReferentiel || !primNiveauSlug) return {};
-    const comps = withLibelles(
-      competencesForNiveau(primReferentiel, primNiveauSlug).filter((c) => !primMasques.includes(c.id)),
+  // Compétences du niveau que la classe TRAITE réellement — une seule liste pour
+  // les trois usages ci-dessous (données du bulletin, détail par UA, barème
+  // théorique du niveau). Les trois DOIVENT voir la même liste : si le total du
+  // niveau comptait une compétence que le bulletin n'imprime pas, la mention
+  // « provisoire » mentirait sur ce qui reste à évaluer.
+  //
+  // `prim_competence_id` de la ligne `subjects` fait foi quand il est posé,
+  // sinon l'appariement par nom ; aucun filtre si rien n'est reconnu.
+  const primScope = useMemo(
+    () => (isPrim && primReferentiel && primNiveauSlug
+      ? scopeOf('prim', classSubjects, competencesForNiveau(primReferentiel, primNiveauSlug))
+      : null),
+    [isPrim, primReferentiel, primNiveauSlug, classSubjects],
+  );
+
+  const primCompetencesEcole = useMemo(() => {
+    if (!isPrim || !primReferentiel || !primNiveauSlug) return [];
+    return withLibelles(
+      applyScope(
+        primScope,
+        competencesForNiveau(primReferentiel, primNiveauSlug).filter((c) => !primMasques.includes(c.id)),
+      ),
       primLibelles,
     );
+  }, [isPrim, primReferentiel, primNiveauSlug, primMasques, primLibelles, primScope]);
+
+  const primDataById = useMemo(() => {
+    if (!isPrim || !primReferentiel || !primNiveauSlug) return {};
+    const comps = primCompetencesEcole;
     const out = {};
     for (const s of classStudents) {
       const rows = comps.map((c) => {
@@ -2070,10 +2111,7 @@ export default function Bulletins() {
   // coût négligeable).
   const primAnnualRowsFor = (student) => {
     if (!isPrim || !primReferentiel || !primNiveauSlug) return [];
-    const comps = withLibelles(
-      competencesForNiveau(primReferentiel, primNiveauSlug).filter((c) => !primMasques.includes(c.id)),
-      primLibelles,
-    );
+    const comps = primCompetencesEcole;
     return comps.map((c) => {
       const criteres = primCriteresFor(c.id, student);
       const uas = primUAs.map((ua) => {
@@ -2149,10 +2187,8 @@ export default function Bulletins() {
   // évaluer. Mémoïsé — il ne dépend que du référentiel et du niveau.
   const primNiveauTotal = useMemo(() => {
     if (!isPrim || !primReferentiel || !primNiveauSlug) return null;
-    const comps = competencesForNiveau(primReferentiel, primNiveauSlug)
-      .filter((c) => !primMasques.includes(c.id));
-    return niveauPointsTotal(primReferentiel, primNiveauSlug, comps);
-  }, [isPrim, primReferentiel, primNiveauSlug, primMasques]);
+    return niveauPointsTotal(primReferentiel, primNiveauSlug, primCompetencesEcole);
+  }, [isPrim, primReferentiel, primNiveauSlug, primCompetencesEcole]);
 
   // Titre du bulletin : rendu dans le SYSTÈME de la classe, comme `apcTitle`.
   const primTitle = (() => {
@@ -2180,13 +2216,25 @@ export default function Bulletins() {
   // Deux surcharges se cumulent — la ligne `subjects` (historique) puis la table
   // `referentiel_libelles` — et un domaine masqué par l'école ne s'imprime pas.
   // L'enseignante ne peut pas saisir sous un intitulé et éditer sous un autre.
+  // `subjects` servait ICI uniquement à renommer les domaines — jamais à décider
+  // lesquels s'impriment. Un domaine décoché dans l'écran Classes continuait donc
+  // d'apparaître sur le bulletin. `mat_domaine_id` de la ligne `subjects` fait foi
+  // quand il est posé (auto-configuration), sinon l'appariement par intitulé.
+  const matScope = useMemo(
+    () => (isMat ? scopeOf('mat', classSubjects, domainesForMaternelle(matReferentiel)) : null),
+    [isMat, classSubjects, matReferentiel],
+  );
+
   const matDomaines = useMemo(() => {
-    const base = domainesForMaternelle(matReferentiel).filter((d) => !matMasques.includes(d.id));
+    const base = applyScope(
+      matScope,
+      domainesForMaternelle(matReferentiel).filter((d) => !matMasques.includes(d.id)),
+    );
     return withLibelles(
       withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, base)),
       matLibelles,
     );
-  }, [matReferentiel, subjects, classId, matMasques, matLibelles]);
+  }, [matReferentiel, subjects, classId, matMasques, matLibelles, matScope]);
 
   const matDataById = useMemo(() => {
     if (!isMat || !matReferentiel) return {};
@@ -2826,6 +2874,38 @@ export default function Bulletins() {
         {/* Sélecteur de format — masqué pour Guinea Ecuatorial (un seul format
             officiel). Pour les classes MINESEC, on AJOUTE l'option officielle
             (APC ou 2nd cycle) sans retirer Classique/Moderne/APC. */}
+        {/* ── Ce que les matières DÉCOCHÉES retirent du bulletin ──────────
+            Les bulletins officiels listaient le référentiel national sans
+            regarder les matières de la classe : décocher n'avait aucun effet.
+            Elles font foi désormais — et l'écran DIT ce qui a été écarté, pour
+            qu'une matière manquante se voie ici et non à l'impression, devant
+            un parent. Rien ne s'affiche quand rien n'est écarté. */}
+        {(() => {
+          const scope = showApcOfficial ? apcScope
+            : showPrimOfficial ? primScope
+            : showMatOfficial ? matScope
+            : null;
+          const n = scope?.exclus?.length || 0;
+          if (!n) return null;
+          const quoi = showApcOfficial
+            ? t('matière(s) du référentiel', 'referential subject(s)')
+            : showMatOfficial
+              ? t('domaine(s) du référentiel', 'referential domain(s)')
+              : t('compétence(s) du référentiel', 'referential competenc(ies)');
+          return (
+            <div className="mb-4 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 no-print">
+              <strong>{n}</strong> {quoi}{' '}
+              {t('ne sont pas cochées pour cette classe et ne sont donc pas imprimées',
+                 'are not selected for this class and are therefore not printed')}
+              {' — '}
+              <span className="font-mono text-slate-500">{scope.exclus.join(', ')}</span>
+              {'. '}
+              {t('Pour en réintégrer une, cochez-la dans Classes.',
+                 'To bring one back, tick it in Classes.')}
+            </div>
+          );
+        })()}
+
         {/* ── PRIMAIRE APC : disposition et orientation ──────────────────
             Deux reglages, et seulement pour le bulletin officiel du primaire.
             Ils ne touchent QUE la mise en page : aucun calcul ne depend d'eux,

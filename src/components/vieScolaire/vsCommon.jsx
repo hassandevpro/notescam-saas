@@ -7,8 +7,10 @@ import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import SectionFilterSelect, { inSection } from '../SectionFilterSelect';
+import { localISODate } from '../../core/attendanceEngine';
 
-export function todayISO() { return new Date().toISOString().slice(0, 10); }
+// Date LOCALE (toISOString() = UTC : la veille entre 0 h et 1 h à Douala).
+export function todayISO() { return localISODate(); }
 
 export function fmtDate(d) {
   if (!d) return '—';

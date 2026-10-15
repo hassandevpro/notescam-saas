@@ -4,6 +4,9 @@ import { useAuthStore } from '../store/authStore';
 import { buildRanks } from '../core/bulletinEngine';
 import { vieScolaireAutoConduite } from '../core/scEngine';
 import { vieScolaire } from '../lib/vieScolaireService';
+import { aggregateAttendance, attendanceAuto } from '../core/attendanceEngine';
+import { fetchTimetableSlots } from '../lib/schoolService';
+import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { resolveCountryCode } from '../countries';
@@ -131,13 +134,13 @@ function Toggle({ on, onChange, label, hint, accent = 'brand' }) {
 // ── Indication Vie scolaire — sanctions officielles agrégées pour la séquence,
 // à côté du champ manuel correspondant. Jamais d'écrasement silencieux : le
 // bouton Appliquer copie la valeur, le conseil garde la main.
-function AutoHint({ auto, current, onApply, t }) {
+function AutoHint({ auto, current, onApply, t, label }) {
   const n = num(current);
   if (!auto) return null;
   return (
     <div className="flex items-center justify-between px-1 -mt-1.5 mb-1.5">
       <span className="text-[11px] text-slate-400">
-        {t('Vie scolaire', 'Student life')} : <strong className={auto > 0 ? 'text-slate-600' : ''}>{auto}</strong>
+        {label || t('Vie scolaire', 'Student life')} : <strong className={auto > 0 ? 'text-slate-600' : ''}>{auto}</strong>
       </span>
       {auto !== n && (
         <button type="button" onClick={onApply} className="text-[11px] font-semibold text-brand-600 hover:text-brand-700">
@@ -194,6 +197,35 @@ export default function ConseilDeClasse() {
     });
     return () => { alive = false; };
   }, [school?.id, school?.current_year]);
+
+  // APPEL QUOTIDIEN → heures d'absence du bulletin (core/attendanceEngine).
+  // Chargé pour la classe ouverte ; proposé à côté des champs, jamais imposé.
+  const academicPeriods = useSchoolStore((s) => s.academicPeriods);
+  const [attRows, setAttRows]   = useState([]);
+  const [lateRows, setLateRows] = useState([]);
+  const [ttSlots, setTtSlots]   = useState([]);
+  useEffect(() => {
+    if (!school?.id || !classId) { setAttRows([]); setLateRows([]); return; }
+    let alive = true;
+    const year = school.current_year;
+    Promise.all([
+      supabase.from('attendance').select('student_id, class_id, subject_id, date, session, status')
+        .eq('school_id', school.id).eq('class_id', classId).eq('year_label', year),
+      supabase.from('late_arrivals').select('student_id, class_id, date')
+        .eq('school_id', school.id).eq('class_id', classId).eq('year_label', year),
+      fetchTimetableSlots(school.id, year),
+    ]).then(([att, late, tt]) => {
+      if (!alive) return;
+      setAttRows(att?.data || []);
+      setLateRows(late?.data || []);
+      setTtSlots(tt || []);
+    }).catch(() => { /* suggestions indisponibles : la saisie manuelle reste possible */ });
+    return () => { alive = false; };
+  }, [school?.id, school?.current_year, classId]);
+  const attAgg = useMemo(
+    () => aggregateAttendance(attRows, { periods: academicPeriods, timetable: ttSlots, lateArrivals: lateRows, year: school?.current_year }),
+    [attRows, lateRows, ttSlots, academicPeriods, school?.current_year],
+  );
 
   const cls      = classes.find((c) => c.id === classId) || null;
   const sys      = cls?.system || 'FR';
@@ -289,7 +321,30 @@ export default function ConseilDeClasse() {
   const classAvg = stats.moy !== null ? stats.moy.toFixed(2) : '—';
 
   const assistRow = analyzed.find((r) => r.stu.id === assistId) || null;
-  const assistAuto = assistRow ? vieScolaireAutoConduite(vsActions, classId, assistRow.stu.id, [seq]) : null;
+  const assistAuto = assistRow
+    ? { ...vieScolaireAutoConduite(vsActions, classId, assistRow.stu.id, [seq]), ...attendanceAuto(attAgg, assistRow.stu.id, seq) }
+    : null;
+
+  // Élèves dont le bulletin diffère de l'appel pour cette séquence. Seuls ceux
+  // qui ONT des heures à l'appel : une école qui ne fait pas l'appel ne doit
+  // pas se voir proposer de remettre ses absences à zéro.
+  const attDiffs = useMemo(() => rows.flatMap((r) => {
+    const a = attendanceAuto(attAgg, r.stu.id, seq);
+    if (!a.absJAuto && !a.absNJAuto) return [];
+    const same = num(r.scores['__abs_j__']) === a.absJAuto && num(r.scores['__abs_nj__']) === a.absNJAuto;
+    return same ? [] : [{ studentId: r.stu.id, ...a }];
+  }), [rows, attAgg, seq]);
+  const applyAttendanceAll = useCallback(() => {
+    if (!attDiffs.length) return;
+    const msg = t(
+      `Reporter les heures de l'appel sur le bulletin de ${attDiffs.length} élève(s) ? Les valeurs saisies à la main pour ces élèves seront remplacées.`,
+      `Copy attendance hours to the report card of ${attDiffs.length} student(s)? Manually entered values for them will be replaced.`,
+    );
+    if (!window.confirm(msg)) return;
+    for (const d of attDiffs) {
+      saveGrade(classId, d.studentId, seq, { __abs_j__: String(d.absJAuto), __abs_nj__: String(d.absNJAuto) });
+    }
+  }, [attDiffs, classId, seq, saveGrade, t]);
 
   // ── KPI du tableau de bord pédagogique ─────────────────────────────────────
   const KPIS = [
@@ -332,6 +387,15 @@ export default function ConseilDeClasse() {
 
             {classId && (
               <div className="flex items-center gap-2 shrink-0">
+                {attDiffs.length > 0 && (
+                  <button
+                    onClick={applyAttendanceAll}
+                    title={t("Le bulletin ne correspond pas à l'appel quotidien pour ces élèves", 'The report card does not match daily attendance for these students')}
+                    className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors"
+                  >
+                    {t(`Reporter l'appel (${attDiffs.length})`, `Apply attendance (${attDiffs.length})`)}
+                  </button>
+                )}
                 <button
                   onClick={() => setShowPreview((v) => !v)}
                   className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
@@ -1009,7 +1073,14 @@ function DecisionAssistant({ row, pass, scale, honorMode, DECISIONS, onClose, on
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{t('Assiduité', 'Attendance')}</h3>
             <div className="space-y-2">
               <Stepper label={t('Absences justifiées (h)', 'Excused absences (h)')}    value={scores['__abs_j__']}  onChange={(v) => onField('__abs_j__', v)} />
+              <AutoHint auto={vsAuto?.absJAuto} current={scores['__abs_j__']} t={t} label={t('Appel', 'Attendance')}
+                onApply={() => onField('__abs_j__', String(vsAuto.absJAuto))} />
               <Stepper accent="red" label={t('Absences non justifiées (h)', 'Unexcused absences (h)')} value={scores['__abs_nj__']} onChange={(v) => onField('__abs_nj__', v)} />
+              <AutoHint auto={vsAuto?.absNJAuto} current={scores['__abs_nj__']} t={t} label={t('Appel', 'Attendance')}
+                onApply={() => onField('__abs_nj__', String(vsAuto.absNJAuto))} />
+              {vsAuto?.latesAuto > 0 && (
+                <p className="text-[11px] text-slate-400 px-1">{t('Retards à l’appel', 'Late arrivals')} : <strong className="text-slate-600">{vsAuto.latesAuto}</strong></p>
+              )}
             </div>
           </section>
 

@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { useT } from '../../lib/i18n';
 import { BlockCard, CountPill, LoadingCard } from './shared';
 import { todayISO } from './useDashboardData';
+import { distinctStudents } from '../../core/attendanceEngine';
 
 function DayStat({ label, value, tone, to }) {
   const tones = {
@@ -37,7 +38,10 @@ export default function DisciplineBlock({ loading, snapshot, attendanceToday, cl
     const incidents = (snapshot?.incidents || []).filter(inScope);
     const actions   = (snapshot?.actions || []).filter(inScope);
     const lateToday = (snapshot?.lateArrivals || []).filter((r) => r.date === today && inScope(r));
-    const absentToday = (attendanceToday || []).filter((a) => a.status === 'absent');
+    // En élèves distincts (même règle que le tableau de bord Vie scolaire) :
+    // absent en H1 et H2 = un absent ; retard à l'appel ET au registre = un retard.
+    const absentTodayCount = distinctStudents(attendanceToday, (a) => a.status === 'absent');
+    const lateTodayCount = distinctStudents([...lateToday, ...(attendanceToday || []).filter((a) => a.status === 'retard')]);
 
     const monthPrefix = today.slice(0, 7);
     const inMonth = (list) => list.filter((r) => (r.date || '').startsWith(monthPrefix)).length;
@@ -53,8 +57,8 @@ export default function DisciplineBlock({ loading, snapshot, attendanceToday, cl
       .slice(0, 5);
 
     return {
-      lateToday: lateToday.length,
-      absentToday: absentToday.length,
+      lateToday: lateTodayCount,
+      absentToday: absentTodayCount,
       incidentsMonth: inMonth(incidents),
       actionsMonth: inMonth(actions),
       recidivists,

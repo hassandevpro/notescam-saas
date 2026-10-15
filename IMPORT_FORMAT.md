@@ -91,7 +91,12 @@ des lignes rattachées à l'école courante. Les années importées apparaissent
               "nom_pere": "NDONGO Pierre", "profession_pere": "Ingénieur",
               "nom_mere": "ABENA Marie",   "profession_mere": "Enseignante",
               "tuteur": "",                          // si différent des parents
+              "profession_tuteur": "",               // pendant de profession_pere/mere
               "ecole_origine": "EP de Bastos",       // ancien établissement
+              "date_entree": "2024",                 // registre : année, année scolaire ou date ISO
+              "motif_entree": "ED",                  // ED|ET|concours|test… (texte libre)
+              "date_sortie": "",                     // vide = toujours inscrit
+              "motif_sortie": "",                    // NM|EX|TF|DM|LM|DC… (texte libre)
               "sport_aptitude": "apte",              // apte|inapte (défaut: apte)
               "grades": [ { "subject": "Mathématiques", "sequence": 1, "value": 14 } ],
               "fees": {
@@ -118,6 +123,8 @@ des lignes rattachées à l'école courante. Les années importées apparaissent
 | `students[].name/matricule/gender/...` | `students.*` | `gender` normalisé (M/F → Masculin/Feminin) |
 | `students[].quartier` | `students.quartier` | secteur de résidence, **distinct d'`adresse`** : reste groupable |
 | `students[].ecole_origine` | `students.ecole_origine` | ancien établissement ; `ancien_etablissement` et `ecole_provenance` acceptés comme alias |
+| `students[].date_entree` / `motif_entree` | `students.*` | registre matricule ; `annee_entree` et `motif_admission` acceptés comme alias |
+| `students[].date_sortie` / `motif_sortie` | `students.*` | registre matricule ; `annee_sortie` et `motif_depart` acceptés comme alias |
 | `students[].sport_aptitude` | `students.sport_aptitude` | `apte`|`inapte` ; **jamais null** (colonne NOT NULL) — absent ⇒ `apte` |
 | `grades[].subject/sequence/value` | `grades` | regroupé en 1 ligne IDB par (classe,élève,séquence) ; valeurs en texte |
 | `fees` + `fees.payments[]` | `student_fees` + `fee_payments` | `academic_year` = l'année de la classe |
@@ -146,13 +153,29 @@ n'écrase rien : c'est ce qui rend un réimport de rattrapage sans danger.
 | `nom_pere` / `profession_pere` | père |
 | `nom_mere` / `profession_mere` | mère |
 | `tuteur` | tuteur légal, si différent des parents |
+| `profession_tuteur` | profession du tuteur / du parent responsable |
 | `ecole_origine` | **ancien établissement** (établissement de provenance) |
+| `date_entree` | entrée dans l'établissement : `2024`, `2024-2025` ou `2024-09-15` |
+| `motif_entree` | registre matricule : `ED` = étude de dossier, `ET` = dossier + test ; **texte libre** |
+| `date_sortie` | sortie, même format ; vide = toujours inscrit |
+| `motif_sortie` | `NM` normale, `EX` exclusion, `TF` transfert, `DM` démission, `LM` longue maladie, `DC` décès ; **texte libre** |
 | `sport_aptitude` | `apte`|`inapte` — barème EPS du carnet MINEDUB primaire (compétence 6A) |
 
+> **Les dates du registre sont du TEXTE, pas des dates.** Les registres portent
+> le plus souvent l'ANNÉE seule (« 2024 ») : une colonne `date` aurait forcé à
+> inventer un mois et un jour, ou à jeter la valeur. Les trois formes admises se
+> trient correctement entre elles.
+>
+> **Les motifs ne sont pas contraints** (aucun enum, aucun CHECK). Les registres
+> réels portent « concours » ou « test » là où la légende ne prévoit que ED et
+> ET : une contrainte aurait fait échouer l'import de l'élève entier.
+
 > `quartier` et `ecole_origine` exigent `supabase_student_quartier_origine.sql`
-> côté cloud. En LAN, `server/db.js` les pose au démarrage. **Si la colonne
-> manque d'un côté, la valeur est jetée en silence** à l'écriture comme à la
-> synchronisation — c'est le défaut qui avait vidé les champs parents.
+> côté cloud ; `date_entree`, `motif_entree`, `date_sortie`, `motif_sortie` et
+> `profession_tuteur` exigent `supabase_student_registre_matricule.sql`. En LAN,
+> `server/db.js` les pose au démarrage. **Si la colonne manque d'un côté, la
+> valeur est jetée en silence** à l'écriture comme à la synchronisation — c'est
+> le défaut qui avait vidé les champs parents.
 
 ### Clés naturelles & idempotence
 

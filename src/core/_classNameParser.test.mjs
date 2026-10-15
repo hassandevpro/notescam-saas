@@ -144,6 +144,61 @@ const p = (raw, school, country = FR) => parseClassName(raw, { school, country }
   ok(r.grade_max === null,    'Primero A → barème null (/geMax)');
 }
 
+// ── Abréviations que les écoles ÉCRIVENT ─────────────────────────────────────
+//
+// Le catalogue pays dit « 6ème », « 1ère », « Terminale ». Les registres et les
+// onglets de tableur disent « 6e », « 1re », « Tle ». Avant les alias, AUCUN de
+// ces noms n'était reconnu : niveau null, confiance basse, moteur retombé sur
+// « classique » et aucune matière auto-configurée. Les 14 noms ci-dessous sont
+// ceux d'un classeur réel de collège-lycée.
+{
+  const attendu = [
+    ['6e',     '6ème',      'apc', null, ''],
+    ['5eg',    '5ème',      'apc', null, 'g'],
+    ['5ef',    '5ème',      'apc', null, 'f'],
+    ['4eg',    '4ème',      'apc', null, 'g'],
+    ['4ef',    '4ème',      'apc', null, 'f'],
+    ['3e',     '3ème',      'apc', null, ''],
+    ['2ndeA4', '2nde',      'sc',  'a4', ''],
+    ['2ndeC',  '2nde',      'sc',  'c',  ''],
+    ['1èreA4', '1ère',      'sc',  'a4', ''],
+    ['1èreC',  '1ère',      'sc',  'c',  ''],
+    ['1èreD',  '1ère',      'sc',  'd',  ''],
+    ['TleA4',  'Terminale', 'sc',  'a4', ''],
+    ['TleC',   'Terminale', 'sc',  'c',  ''],
+    ['TleD',   'Terminale', 'sc',  'd',  ''],
+  ];
+  for (const [nom, niveau, moteur, serie, suffixe] of attendu) {
+    const r = p(nom, minesec);
+    ok(r.level === niveau && r.engine === moteur && r.serie === serie
+       && r.displaySuffix === suffixe && r.confidence === 'high',
+      `${nom} → ${niveau}${serie ? ' série ' + serie : ''} (${moteur})`
+      + (r.level === niveau ? '' : ` [obtenu: ${r.level} / ${r.engine} / ${r.serie}]`));
+  }
+}
+
+// LA RÉGRESSION À NE PAS INTRODUIRE : l'alias est plus COURT que le libellé
+// officiel, et c'est la longueur de ce qui a été RAPPROCHÉ — pas celle du
+// libellé — qui découpe le suffixe. « TleA4 » (5 caractères) rapproché de
+// « Terminale » (9) faisait consommer tout le nom : suffixe vide, série perdue.
+{
+  const r = p('TleA4', minesec);
+  ok(r.serie === 'a4', 'TleA4 → la serie A4 survit au decoupage du suffixe');
+}
+// Et le libellé OFFICIEL reste prioritaire sur l'alias qui en est un préfixe.
+{
+  const r = p('6ème B', minesec);
+  ok(r.level === '6ème' && r.displaySuffix === 'B',
+    '6ème B → le libelle officiel gagne sur l alias « 6e », section « B » intacte');
+  const t = p('Terminale D', minesec);
+  ok(t.level === 'Terminale' && t.serie === 'd',
+    'Terminale D → libelle complet prioritaire sur l alias « tle »');
+}
+// Autres abréviations courantes.
+for (const [nom, niveau] of [['1reD', '1ère'], ['2deC', '2nde'], ['Term D', 'Terminale'], ['Seconde A4', '2nde']]) {
+  ok(p(nom, minesec).level === niveau, `${nom} → ${niveau}`);
+}
+
 // Entrée vide → null (le formulaire n'affiche pas d'aperçu).
 ok(p('', classic) === null,   'nom vide → null');
 ok(p('   ', classic) === null,'espaces → null');

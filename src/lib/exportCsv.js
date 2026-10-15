@@ -156,7 +156,13 @@ function rawRowsToStudents(raw) {
   // « nee » seul est volontairement ABSENT : il se retrouverait dans « année ».
   const dateIdx      = col(['datenaissance', 'fechanacimiento', 'dateofbirth', 'date_naissance', 'dob', 'birthdate', 'naissance', 'neele', 'nele'],
     ['lieu', 'lugar', 'place']);
-  const lieuIdx      = col(['lieunaissance', 'lugarnacimiento', 'placeofbirth', 'lieu_naissance', 'birthplace', 'lieu']);
+  // La colonne COMBINÉE « date et lieu de naissance » est écartée d'ici : elle
+  // contient le mot « lieu », et la recherche approximative la rencontrait AVANT
+  // une vraie colonne « Lieu de naissance » placée plus loin dans le fichier. Un
+  // fichier portant les DEUX voyait donc le lieu lu dans la colonne combinée. Le
+  // cas combiné est traité à part, par `dateLieuIdx` + `splitDateLieu`.
+  const lieuIdx      = col(['lieunaissance', 'lugarnacimiento', 'placeofbirth', 'lieu_naissance', 'birthplace', 'lieu'],
+    ['dateetlieu', 'datetlieu', 'datelieu', 'dateandplace', 'fechaylugar']);
   const adresseIdx   = col(['adresse', 'direccion', 'address']);
   // Quartier de résidence — colonne À PART de l'adresse : c'est le secteur, et
   // il doit rester groupable (ramassage scolaire, visites, convocations).
@@ -166,11 +172,48 @@ function rawRowsToStudents(raw) {
     'neighbourhood', 'neighborhood', 'barrio', 'district']);
   const phoneIdx     = col(['telephone', 'telefono', 'téléphone', 'tel', 'phone', 'parent_phone']);
   const urgenceIdx   = col(['contacturgence', 'contactoemergencia', 'emergencycontact', 'contact_urgence', 'urgence', 'emergency']);
-  const pereNomIdx   = col(['nompere', 'nombrepadre', 'fathername', 'nom_pere', 'father', 'padre', 'pere']);
-  const pereProfIdx  = col(['professionpere', 'profesionpadre', 'fatherjob', 'profession_pere']);
-  const mereNomIdx   = col(['nommere', 'nombremadre', 'mothername', 'nom_mere', 'mother', 'madre', 'mere']);
-  const mereProfIdx  = col(['professionmere', 'profesionmadre', 'motherjob', 'profession_mere']);
-  const tuteurIdx    = col(['tuteur', 'tutor', 'guardian']);
+  // DEUX défauts fermés ici, trouvés en éprouvant les en-têtes réels.
+  //
+  // 1. « Profession DU père » / « Profession DE LA mère ». Normalisés
+  //    « professiondupere » / « professiondelamere », ils ne contenaient pas
+  //    « professionpere » : aucun candidat ne les reconnaissait, et les deux
+  //    professions repartaient VIDES — alors que ce sont les tournures les plus
+  //    naturelles en français.
+  // 2. Pire, le candidat générique « pere » de la colonne NOM rencontrait cette
+  //    même colonne : « Profession du père » était lu comme le NOM du père, et
+  //    « Ingénieur » s'affichait à la place d'une personne. Même piège côté
+  //    anglais avec « fatherJob », que « father » capturait.
+  // Les exclusions écartent donc toute colonne de profession ou de contact des
+  // candidats de NOM, et les tournures avec article sont ajoutées aux candidats
+  // de PROFESSION.
+  const SANS_PROFESSION = ['profession', 'profesion', 'job', 'metier', 'oficio',
+    'phone', 'telephone', 'tel', 'contact', 'mail'];
+  const pereNomIdx   = col(['nompere', 'nombrepadre', 'fathername', 'nom_pere', 'father', 'padre', 'pere'],
+    SANS_PROFESSION);
+  const pereProfIdx  = col(['professionpere', 'professiondupere', 'profesionpadre',
+    'profesiondelpadre', 'fatherjob', 'fathersprofession', 'profession_pere']);
+  const mereNomIdx   = col(['nommere', 'nombremadre', 'mothername', 'nom_mere', 'mother', 'madre', 'mere'],
+    SANS_PROFESSION);
+  const mereProfIdx  = col(['professionmere', 'professiondelamere', 'professiondemere',
+    'profesionmadre', 'profesiondelamadre', 'motherjob', 'mothersprofession', 'profession_mere']);
+  // « Nom du parent » / « Responsable » : beaucoup de registres ne nomment qu'UN
+  // responsable, sans dire s'il s'agit du père, de la mère ou d'un tuteur. Le
+  // ranger dans `nom_pere` affirmerait une paternité que le registre n'affirme
+  // pas — plusieurs de ces responsables portent un prénom féminin. Il va donc
+  // dans `tuteur`, le champ qui ne présume rien, sa profession dans
+  // `profession_tuteur`.
+  //
+  // Les exclusions ferment le piège du candidat générique « parent » : sans
+  // elles, un en-tête « parent_phone » ou « Téléphone parent » était capturé
+  // comme NOM du tuteur, et un numéro de téléphone atterrissait dans un champ nom.
+  const tuteurIdx    = col(['tuteur', 'tutor', 'guardian', 'nomparent', 'nomduparent',
+    'responsablelegal', 'responsable', 'parent'],
+  // `profesion` (sans le second s) et `job` sont écartés en plus de
+  // `profession` : sans eux, « profesionTutor » (espagnol) et « guardianJob »
+  // (anglais) étaient capturés par les candidats génériques `tutor`/`guardian`,
+  // et la PROFESSION du tuteur devenait son NOM.
+    ['phone', 'telephone', 'tel', 'contact', 'profession', 'profesion', 'job',
+     'mail', 'adresse', 'address']);
   const classeIdx    = col(['classe', 'clase', 'class', 'classname', 'class_name']);
   // Les DEUX statuts sont indépendants (cf. Students.jsx) et se piègent l'un
   // l'autre à la recherche approximative :
@@ -207,6 +250,45 @@ function rawRowsToStudents(raw) {
   const aptitudeIdx  = col(['aptitudesportive', 'sportaptitude', 'sportfitness',
     'aptitudfisica', 'aptitude', 'eps']);
 
+  // ── REGISTRE MATRICULE : entrée / sortie de l'établissement ───────────────
+  // Colonnes du registre officiel — cf. supabase_student_registre_matricule.sql.
+  //
+  // Leurs en-têtes réels PORTENT LEUR LÉGENDE. Le registre d'où vient ce besoin
+  // écrit « motif d'entrée: ED=étudedossier, ET=étudedossier+test » et, pour la
+  // sortie, « motif: NM=normale, EX=exclusion, TF=transfert, … ». Normalisé, le
+  // second ne contient PAS le mot « sortie » : d'où le candidat générique
+  // « motif », et l'exclusion d'« entree » pour qu'il ne capture pas la colonne
+  // d'entrée — qui, elle, porte le mot.
+  const dateEntreeIdx  = col(['dateentree', 'datedentree', 'anneeentree', 'anneedentree',
+    'entrydate', 'dateofentry', 'fechaentrada', 'dateadmission'],
+    ['sortie', 'exit', 'salida', 'naissance', 'birth', 'nacimiento', 'motif', 'reason']);
+  const motifEntreeIdx = col(['motifentree', 'motifdentree', 'motifadmission',
+    'entryreason', 'reasonforentry', 'motivoentrada'],
+    ['sortie', 'exit', 'salida']);
+  const dateSortieIdx  = col(['datesortie', 'datedesortie', 'anneesortie', 'anneedesortie',
+    'exitdate', 'dateofexit', 'leavingdate', 'fechasalida'],
+    ['entree', 'entry', 'admission', 'naissance', 'birth', 'nacimiento', 'motif', 'reason']);
+  const motifSortieIdx = col(['motifsortie', 'motifdesortie', 'motifdepart',
+    'exitreason', 'leavingreason', 'motivosalida', 'motif'],
+    ['entree', 'entry', 'admission', 'archiv', 'paiement', 'payment']);
+  // Profession du tuteur — pendant de profession_pere / profession_mere. Le
+  // candidat générique « profession » n'est atteignable qu'après exclusion du
+  // père et de la mère : sinon « Profession du père » était lu DEUX fois, et la
+  // profession du père devenait aussi celle du tuteur.
+  const profTuteurIdx  = col(['professiontuteur', 'professiondututeur', 'professionparent',
+    'professionduparent', 'guardianjob', 'jobguardian', 'profesiontutor', 'profession'],
+    ['pere', 'mere', 'father', 'mother', 'padre', 'madre', 'eleve', 'student']);
+
+  // Colonne COMBINÉE « date et lieu de naissance », telle que la portent les
+  // registres manuscrits recopiés dans un tableur (« 28/03/2013 à Yaoundé »).
+  //
+  // Sans elle, le fichier perdait la date ET le lieu. L'en-tête contient le mot
+  // « lieu », donc `dateIdx` l'écarte (son exclusion `['lieu']`) et `lieuIdx` la
+  // capture : le lieu de naissance recevait la chaîne ENTIÈRE, « 28/03/2013 à
+  // Yaoundé », et la date de naissance repartait vide.
+  const dateLieuIdx = col(['dateetlieudenaissance', 'dateetlieunaissance', 'datelieunaissance',
+    'dateandplaceofbirth', 'fechaylugardenacimiento']);
+
   if (prenomIdx === -1 && nomIdx === -1) {
     return { rows: [], error: msg('noStudentCols') };
   }
@@ -214,6 +296,12 @@ function rawRowsToStudents(raw) {
   const rows = raw.slice(1)
     .map((cols) => {
       const str = (i) => i >= 0 ? String(cols[i] || '').trim() : '';
+      // Colonne combinée date+lieu : on la scinde. Une colonne DÉDIÉE présente
+      // par ailleurs dans le même fichier garde la priorité — un fichier peut
+      // très bien porter les deux, et c'est alors la colonne précise qui fait foi.
+      const dl        = dateLieuIdx >= 0 ? splitDateLieu(cols[dateLieuIdx]) : null;
+      const dateSeule = dateIdx >= 0 && dateIdx !== dateLieuIdx;
+      const lieuSeul  = lieuIdx >= 0 && lieuIdx !== dateLieuIdx;
 
       let name = '';
       if (prenomIdx >= 0 && nomIdx >= 0) {
@@ -228,8 +316,8 @@ function rawRowsToStudents(raw) {
         name,
         matricule:        str(matriculeIdx),
         gender:           genderIdx    >= 0 ? normalizeGender(str(genderIdx)) : '',
-        date_naissance:   dateIdx      >= 0 ? normalizeDate(cols[dateIdx])    : null,
-        lieu_naissance:   str(lieuIdx),
+        date_naissance:   dateSeule ? normalizeDate(cols[dateIdx]) : (dl ? dl.date : null),
+        lieu_naissance:   lieuSeul  ? str(lieuIdx)                 : (dl ? dl.lieu : ''),
         adresse:          str(adresseIdx),
         parent_phone:     str(phoneIdx),
         contact_urgence:  str(urgenceIdx),
@@ -253,6 +341,14 @@ function rawRowsToStudents(raw) {
         ...(aptitudeIdx >= 0 && normalizeAptitude(str(aptitudeIdx))
           ? { sport_aptitude: normalizeAptitude(str(aptitudeIdx)) }
           : {}),
+        // Registre matricule — même précaution que ci-dessus : la clé n'est
+        // posée que si la colonne EXISTE, pour qu'un réimport d'un fichier plus
+        // pauvre n'efface pas ce que le secrétariat a saisi depuis.
+        ...(dateEntreeIdx  >= 0 ? { date_entree:  normalizeRegistreDate(cols[dateEntreeIdx]) } : {}),
+        ...(motifEntreeIdx >= 0 ? { motif_entree: sansZero(str(motifEntreeIdx)) } : {}),
+        ...(dateSortieIdx  >= 0 ? { date_sortie:  normalizeRegistreDate(cols[dateSortieIdx]) } : {}),
+        ...(motifSortieIdx >= 0 ? { motif_sortie: sansZero(str(motifSortieIdx)) } : {}),
+        ...(profTuteurIdx  >= 0 ? { profession_tuteur: sansZero(str(profTuteurIdx)) } : {}),
       };
     })
     .filter((r) => r.name);
@@ -321,6 +417,60 @@ function normalizeDate(val) {
   // YYYY-MM-DD passthrough
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   return null;
+}
+
+// Date du REGISTRE MATRICULE (entrée / sortie). Rend du TEXTE, et pas une date
+// ISO stricte, parce que les registres portent le plus souvent l'ANNÉE seule :
+//   « 2024 »       -> « 2024 »        année telle qu'écrite au registre
+//   « 2024-2025 »  -> « 2024-2025 »   année scolaire
+//   « 15/09/2024 » -> « 2024-09-15 »  date complète, normalisée en ISO
+// Les trois formes se trient correctement entre elles.
+//
+// L'année seule est reconnue AVANT d'appeler `normalizeDate`, et c'est
+// essentiel : `normalizeDate` voit dans « 2024 » un numéro de série Excel
+// (/^\d{4,5}$/) et rendrait 1905-07-15. Une année d'entrée devenait une date
+// de 1905, sur un champ que personne ne relit élève par élève.
+function normalizeRegistreDate(val) {
+  const s = String(val ?? '').trim();
+  if (!s || s === '0') return '';
+  if (/^(19|20)\d{2}$/.test(s)) return s;
+  const scolaire = s.match(/^((?:19|20)\d{2})\s*[/\-–]\s*((?:19|20)\d{2})$/);
+  if (scolaire) return `${scolaire[1]}-${scolaire[2]}`;
+  return normalizeDate(s) || '';
+}
+
+// Scinde une cellule « 28/03/2013 à Yaoundé » en { date, lieu }.
+//
+// C'est la forme du registre matricule manuscrit, recopié tel quel dans un
+// tableur : une seule colonne « date et lieu de naissance ». Le séparateur
+// accepté couvre ce qu'écrivent les secrétariats (« à », « a », « au », « en »).
+//
+// Trois cas, et aucun ne jette la cellule :
+//   « 28/03/2013 à Yaoundé » -> date ISO + lieu
+//   « 28/03/2013 »           -> date ISO, lieu vide
+//   « Yaoundé »              -> lieu seul (ni date reconnue, ni séparateur)
+// Une date illisible avec un lieu lisible (« 18/1182011 à N'Djaména », vu dans
+// le classeur) rend le lieu et une date nulle : mieux vaut un champ vide qu'une
+// date inventée à partir d'une coquille.
+function splitDateLieu(val) {
+  const s = String(val ?? '').trim();
+  if (!s || s === '0') return { date: null, lieu: '' };
+  const m = s.match(/^(.*?)\s+(?:à|a|au|en)\s+(.+)$/i);
+  const d = normalizeDate(m ? m[1] : s);
+  if (!d && !m) return { date: null, lieu: s };
+  return { date: d, lieu: m ? m[2].trim() : '' };
+}
+
+// Les registres recopiés dans un tableur emploient « 0 » comme marque de case
+// VIDE — constaté sur le classeur de 436 élèves qui a motivé ces colonnes :
+// téléphone 0, quartier 0, motif 0, profession 0. Gardé tel quel, ce « 0 »
+// devenait une profession « 0 » et un motif de sortie « 0 ».
+//
+// La règle ne s'applique QU'aux colonnes du registre ajoutées ici. L'élargir
+// aux autres champs changerait un comportement établi : `normalizeStatut`
+// traduit déjà « 0 » par « nouveau », et c'est voulu.
+function sansZero(s) {
+  return s === '0' ? '' : s;
 }
 
 function triggerDownload(blob, filename) {
@@ -575,15 +725,21 @@ const STUDENT_TEMPLATE = {
       ['matricule', 'prenom', 'nom', 'dateNaissance', 'lieuNaissance',
        'sexe', 'statut', 'statutEtablissement', 'ancienEtablissement',
        'quartier', 'adresse', 'telephone', 'contactUrgence',
-       'nomPere', 'professionPere', 'nomMere', 'professionMere', 'tuteur', 'classe'],
+       'nomPere', 'professionPere', 'nomMere', 'professionMere',
+       'tuteur', 'professionTuteur',
+       'dateEntree', 'motifEntree', 'dateSortie', 'motifSortie', 'classe'],
       ['s260001', 'Jean', 'DUPONT', '2015-03-15', 'Yaoundé',
        'MALE', 'nouveau', 'nouveau', 'EP de Bastos',
        'Bastos', 'Rue 1.234, Yaoundé', '677123456', '699987654',
-       'Pierre DUPONT', 'Ingénieur', 'Marie DUPONT', 'Enseignante', '', 'CP A'],
+       'Pierre DUPONT', 'Ingénieur', 'Marie DUPONT', 'Enseignante',
+       '', '',
+       '2024', 'ED', '', '', 'CP A'],
       ['s260002', 'Brigitte', 'ELOUNDOU', '2014-09-22', 'Douala',
        'FEMALE', 'redoublant', 'ancien', '',
        'Akwa', 'Rue Njo-Njo, Douala', '655000001', '',
-       'Paul ELOUNDOU', 'Commerçant', 'Anne ELOUNDOU', 'Ménagère', '', 'CP A'],
+       'Paul ELOUNDOU', 'Commerçant', 'Anne ELOUNDOU', 'Ménagère',
+       'ELOUNDOU Sylvie', 'Couturière',
+       '2023-2024', 'ET', '', '', 'CP A'],
     ],
   },
   en: {
@@ -593,15 +749,21 @@ const STUDENT_TEMPLATE = {
       ['studentId', 'firstName', 'lastName', 'dateOfBirth', 'placeOfBirth',
        'gender', 'status', 'schoolStatus', 'previousSchool',
        'neighbourhood', 'address', 'phone', 'emergencyContact',
-       'fatherName', 'fatherJob', 'motherName', 'motherJob', 'guardian', 'class'],
+       'fatherName', 'fatherJob', 'motherName', 'motherJob',
+       'guardian', 'guardianJob',
+       'entryDate', 'entryReason', 'exitDate', 'exitReason', 'class'],
       ['s260001', 'John', 'SMITH', '2015-03-15', 'Malabo',
        'MALE', 'new', 'new', 'Malabo Primary School',
        'Ela Nguema', '12 Independence Ave., Malabo', '222123456', '222987654',
-       'Peter SMITH', 'Engineer', 'Mary SMITH', 'Teacher', '', '1st A'],
+       'Peter SMITH', 'Engineer', 'Mary SMITH', 'Teacher',
+       '', '',
+       '2024', 'ED', '', '', '1st A'],
       ['s260002', 'Grace', 'JONES', '2014-09-22', 'Bata',
        'FEMALE', 'repeating', 'old', '',
        'Mondoasi', 'Mondoasi district, Bata', '222000001', '',
-       'Paul JONES', 'Trader', 'Anne JONES', 'Homemaker', '', '1st A'],
+       'Paul JONES', 'Trader', 'Anne JONES', 'Homemaker',
+       'Sylvia JONES', 'Seamstress',
+       '2023-2024', 'ET', '', '', '1st A'],
     ],
   },
   es: {
@@ -611,15 +773,21 @@ const STUDENT_TEMPLATE = {
       ['matricula', 'nombre', 'apellidos', 'fechaNacimiento', 'lugarNacimiento',
        'sexo', 'estado', 'estadoCentro', 'escuelaAnterior',
        'barrio', 'direccion', 'telefono', 'contactoEmergencia',
-       'nombrePadre', 'profesionPadre', 'nombreMadre', 'profesionMadre', 'tutor', 'clase'],
+       'nombrePadre', 'profesionPadre', 'nombreMadre', 'profesionMadre',
+       'tutor', 'profesionTutor',
+       'fechaEntrada', 'motivoEntrada', 'fechaSalida', 'motivoSalida', 'clase'],
       ['s260001', 'Juan', 'MBA NDONG', '2015-03-15', 'Malabo',
        'MASCULINO', 'nuevo', 'nuevo', 'Escuela Ela Nguema',
        'Ela Nguema', 'Calle 12, Malabo', '222123456', '222987654',
-       'Pedro MBA', 'Ingeniero', 'María NDONG', 'Profesora', '', '1º A'],
+       'Pedro MBA', 'Ingeniero', 'María NDONG', 'Profesora',
+       '', '',
+       '2024', 'ED', '', '', '1º A'],
       ['s260002', 'Lucía', 'OYANA OBONO', '2014-09-22', 'Bata',
        'FEMENINO', 'repetidor', 'antiguo', '',
        'Mondoasi', 'Calle 3, Bata', '222000001', '',
-       'Pablo OYANA', 'Comerciante', 'Ana OBONO', 'Ama de casa', '', '1º A'],
+       'Pablo OYANA', 'Comerciante', 'Ana OBONO', 'Ama de casa',
+       'Silvia OBONO', 'Costurera',
+       '2023-2024', 'ET', '', '', '1º A'],
     ],
   },
 };

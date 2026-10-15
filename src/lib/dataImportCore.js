@@ -235,6 +235,15 @@ export function buildImportRecords(bundle, schoolId, existing = {}) {
             nom_mere:        st.nom_mere ?? null,
             profession_mere: st.profession_mere ?? null,
             tuteur:          st.tuteur ?? null,
+            profession_tuteur: st.profession_tuteur ?? null,
+            // Registre matricule — entrée / sortie de l'établissement
+            // (cf. supabase_student_registre_matricule.sql). Les clés
+            // alternatives sont celles qu'emploient les dossiers papier et les
+            // logiciels d'où l'on reprend les données.
+            date_entree:     st.date_entree ?? st.annee_entree ?? null,
+            motif_entree:    st.motif_entree ?? st.motif_admission ?? null,
+            date_sortie:     st.date_sortie ?? st.annee_sortie ?? null,
+            motif_sortie:    st.motif_sortie ?? st.motif_depart ?? null,
             // Ancien établissement (cf. supabase_student_quartier_origine.sql).
             // `ecole_origine` est le nom canonique de la colonne ; les deux
             // autres clés sont acceptées parce que ce sont les mots qu'emploient

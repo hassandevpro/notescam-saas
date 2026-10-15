@@ -25,7 +25,11 @@ import { useT, getLang } from '../lib/i18n';
 import { toast } from '../store/toastStore';
 import { usePlan } from '../lib/plan';
 import { resolveCountryCode } from '../countries';
-import { classSectionKey, SECTIONS } from '../core/engineResolver';
+import { classSectionKey, SECTIONS, resolveClassEngine } from '../core/engineResolver';
+// Création d'une classe depuis son seul NOM, pendant un import : même inférence
+// (niveau, cycle, série, système, barème) que le formulaire Classes.jsx.
+import { parseClassName } from '../core/classNameParser';
+import { useCountry } from '../lib/useCountry';
 import {
   classeAutoMatricule, prochainMatriculePourClasse, attribuerMatriculesImport,
   planRattrapageMatricules,
@@ -71,8 +75,10 @@ const EMPTY_FORM = {
   name: '', matricule: '', gender: '', date_naissance: '', lieu_naissance: '',
   adresse: '', parent_phone: '', contact_urgence: '',
   nom_pere: '', profession_pere: '', nom_mere: '', profession_mere: '',
-  tuteur: '', class_id: '', statut: '', statut_etablissement: '',
+  tuteur: '', profession_tuteur: '', class_id: '', statut: '', statut_etablissement: '',
   quartier: '', ecole_origine: '', sport_aptitude: 'apte',
+  // Registre matricule — cf. supabase_student_registre_matricule.sql.
+  date_entree: '', motif_entree: '', date_sortie: '', motif_sortie: '',
 };
 
 // Score de complétude du dossier élève (matricule, classe, sexe, naissance,
@@ -366,6 +372,47 @@ function StudentForm({ initial, classes, onSave, onCancel, effectif = [], annee 
           <input type="text" className="form-input" placeholder={t('Si différent des parents', 'If different from parents', 'Si distinto de los padres')}
             value={form.tuteur || ''} onChange={set('tuteur')} />
         </div>
+        <div>
+          <label className="form-label">{t('Profession tuteur', "Guardian's profession")}</label>
+          <input type="text" className="form-input"
+            value={form.profession_tuteur || ''} onChange={set('profession_tuteur')} />
+        </div>
+      </div>
+
+      {/* ── Registre matricule ───────────────────────────────────────────────
+          Les quatre colonnes du registre officiel : quand l'élève est entré et
+          comment il a été admis, quand il est sorti et pourquoi. Les motifs
+          sont du TEXTE LIBRE et non des listes déroulantes — le registre d'un
+          collège porte « concours » et « test » là où la légende ne prévoit
+          que ED et ET, et une liste fermée aurait effacé ces valeurs à la
+          première ouverture de la fiche.
+          Les dates acceptent l'ANNÉE SEULE, parce que c'est ce que le
+          secrétariat inscrit au registre. */}
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3 mt-5">{t('Registre matricule', 'Enrolment register')}</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <label className="form-label">{t("Date d'entrée", 'Entry date')}</label>
+          <input type="text" className="form-input" placeholder={t('2024 ou 2024-09-15', '2024 or 2024-09-15')}
+            value={form.date_entree || ''} onChange={set('date_entree')} />
+          <p className="text-[11px] text-gray-400 mt-1">{t("L'année seule suffit.", 'The year alone is enough.')}</p>
+        </div>
+        <div>
+          <label className="form-label">{t("Motif d'entrée", 'Entry reason')}</label>
+          <input type="text" className="form-input" placeholder="ED, ET, concours…"
+            value={form.motif_entree || ''} onChange={set('motif_entree')} />
+          <p className="text-[11px] text-gray-400 mt-1">{t('ED = étude de dossier, ET = dossier + test.', 'ED = file review, ET = file review + test.')}</p>
+        </div>
+        <div>
+          <label className="form-label">{t('Date de sortie', 'Exit date')}</label>
+          <input type="text" className="form-input" placeholder={t('Vide = toujours inscrit', 'Empty = still enrolled')}
+            value={form.date_sortie || ''} onChange={set('date_sortie')} />
+        </div>
+        <div>
+          <label className="form-label">{t('Motif de sortie', 'Exit reason')}</label>
+          <input type="text" className="form-input" placeholder="NM, EX, TF, DM, LM, DC"
+            value={form.motif_sortie || ''} onChange={set('motif_sortie')} />
+          <p className="text-[11px] text-gray-400 mt-1">{t('NM normale · EX exclusion · TF transfert · DM démission · LM longue maladie · DC décès', 'NM normal · EX expulsion · TF transfer · DM withdrawal · LM long illness · DC death')}</p>
+        </div>
       </div>
 
       <div className="flex gap-3 mt-6">
@@ -415,9 +462,15 @@ function printStudentList(students, classes, teachers, school, classFilter, cols
 }
 
 // ── Import panel (inchangé) ───────────────────────────────────────────────────
-function ImportPanel({ classes, onImport, onCancel, effectif = [], annee = '' }) {
+function ImportPanel({ classes, onImport, onCreateClass, onCancel, effectif = [], annee = '' }) {
   const t = useT();
   const [fallbackClassId, setFallbackClassId] = useState('');
+  // Créer les classes que le fichier nomme et que l'école n'a pas encore.
+  // ACTIVÉ PAR DÉFAUT : c'est le cas normal d'une reprise. Une école importe ses
+  // élèves AVANT d'avoir saisi ses classes à la main, et sans création l'import
+  // les déposait tous « sans classe » — donc absents des listes de classe, des
+  // bulletins, des frais et des rangs, qui partent tous de la classe.
+  const [creerClasses, setCreerClasses] = useState(true);
   const [preview, setPreview]   = useState(null);
   const [importing, setImporting] = useState(false);
   const [done, setDone]         = useState(null);
@@ -441,18 +494,45 @@ function ImportPanel({ classes, onImport, onCancel, effectif = [], annee = '' })
   //  • classe absente du fichier (ou introuvable) → classe de repli SI l'admin
   //    en a choisi une, sinon l'élève est importé SANS classe (class_id null).
   // Aucun élève n'est jamais ignoré.
-  const resolveRows = () =>
+  // `creees` : les classes créées à l'instant par `handleImport`. Elles ne sont
+  // PAS encore dans la prop `classes` — zustand ne la rafraîchit qu'au rendu
+  // suivant, et la boucle d'import tourne maintenant. Sans ce paramètre, chaque
+  // élève d'une classe tout juste créée repartait quand même sans classe.
+  const resolveRows = (creees = new Map()) =>
     (preview?.rows || []).map((row) => {
       let class_id = null;
       if (row.class_name) {
         const target = normalizeStr(row.class_name);
-        const m = classes.find((c) => normalizeStr(c.name) === target);
-        if (m) class_id = m.id;
+        class_id = creees.get(target)
+          || classes.find((c) => normalizeStr(c.name) === target)?.id
+          || null;
       }
       if (!class_id && fallbackClassId) class_id = fallbackClassId;
+      // `class_name` ne doit JAMAIS suivre : la table `students` n'a pas cette
+      // colonne, et Postgres rejette l'insertion entière sur une colonne
+      // inconnue (en LAN, `pickColumns` l'avalerait en silence — deux
+      // comportements pour un même import).
       const { class_name, ...rest } = row;
       return { ...rest, class_id: class_id || null };
     });
+
+  // Classes NOMMÉES DANS LE FICHIER que l'école n'a pas encore.
+  const classesFichier = useMemo(
+    () => [...new Set((preview?.rows || []).map((r) => r.class_name).filter(Boolean))],
+    [preview],
+  );
+  const classesManquantes = useMemo(
+    () => classesFichier.filter((nom) => !classes.some((c) => normalizeStr(c.name) === normalizeStr(nom))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [classesFichier, classes],
+  );
+  // Effectif par classe à créer — l'utilisateur voit ce qu'il va créer, et avec
+  // combien d'élèves, avant de lancer quoi que ce soit.
+  const effectifParClasse = useMemo(() => {
+    const n = {};
+    for (const r of preview?.rows || []) if (r.class_name) n[r.class_name] = (n[r.class_name] || 0) + 1;
+    return n;
+  }, [preview]);
 
   // MATRICULE AUTOMATIQUE sur les lignes de maternelle et de primaire qui n'en
   // portent pas. C'est le cas le PLUS fréquent : une école importe sa liste de
@@ -467,14 +547,39 @@ function ImportPanel({ classes, onImport, onCancel, effectif = [], annee = '' })
   );
   const withClass     = resolvedRows.filter((r) => r.class_id);
   const withoutClass  = resolvedRows.length - withClass.length;
-  const needsFallback = withoutClass > 0;
+  // Une ligne dont la classe VA ÊTRE CRÉÉE n'est pas une ligne sans classe : le
+  // sélecteur de repli ne doit donc pas la réclamer. Ne restent à reclasser que
+  // les lignes dont le fichier ne nomme aucune classe.
+  const sansNomDeClasse = (preview?.rows || []).filter((r) => !r.class_name).length;
+  const aReclasser    = creerClasses ? sansNomDeClasse : withoutClass;
+  const needsFallback = aReclasser > 0;
 
   const handleImport = async () => {
     if (!resolvedRows.length) return;
     setImporting(true);
-    for (const row of resolvedRows) await onImport(row);
+    // 1) LES CLASSES D'ABORD. `addClass` ne fait pas que créer la ligne : il
+    //    auto-configure les matières d'après le moteur déduit du NOM (APC pour
+    //    6e-3e, série au second cycle, compétences nationales au primaire,
+    //    domaines en maternelle). L'élève arrive donc dans une classe déjà
+    //    notable, et pas dans une coquille vide à reprendre à la main.
+    const creees = new Map();
+    const nouvelles = [];
+    if (creerClasses) {
+      for (const nom of classesManquantes) {
+        const rec = await onCreateClass(nom);
+        if (rec?.id) { creees.set(normalizeStr(nom), rec.id); nouvelles.push(rec); }
+      }
+    }
+    // 2) PUIS LES ÉLÈVES, résolus contre les classes existantes ET nouvelles.
+    //    Les matricules sont recalculés ici, après création : leur préfixe dépend
+    //    de la section de la classe, inconnue tant que la classe n'existe pas.
+    const { rows } = attribuerMatriculesImport(
+      resolveRows(creees),
+      { students: effectif, classes: [...classes, ...nouvelles], annee },
+    );
+    for (const row of rows) await onImport(row);
     setImporting(false);
-    setDone(resolvedRows.length);
+    setDone({ eleves: rows.length, classes: nouvelles.length });
   };
 
   if (done !== null) {
@@ -484,7 +589,15 @@ function ImportPanel({ classes, onImport, onCancel, effectif = [], annee = '' })
           <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center">
             <svg className="w-5 h-5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
-          <p className="text-emerald-800 font-semibold text-sm">{done} {t('élève', 'student')}{done > 1 ? 's' : ''} {t('importé', 'imported')}{done > 1 ? 's' : ''} {t('avec succès', 'successfully')}</p>
+          <div>
+            <p className="text-emerald-800 font-semibold text-sm">{done.eleves} {t('élève', 'student')}{done.eleves > 1 ? 's' : ''} {t('importé', 'imported')}{done.eleves > 1 ? 's' : ''} {t('avec succès', 'successfully')}</p>
+            {done.classes > 0 && (
+              <p className="text-emerald-700 text-xs mt-0.5">
+                {done.classes} {t('classe', 'class')}{done.classes > 1 ? 's' : ''} {t('créée', 'created')}{done.classes > 1 ? 's' : ''}
+                {' · '}{t('matières configurées automatiquement', 'subjects configured automatically')}
+              </p>
+            )}
+          </div>
         </div>
         <button onClick={onCancel} className="btn-secondary">{t('Fermer', 'Close')}</button>
       </div>
@@ -541,6 +654,40 @@ function ImportPanel({ classes, onImport, onCancel, effectif = [], annee = '' })
           {preview?.error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{preview.error}</div>
           )}
+          {/* ── Classes du fichier absentes de l'école ───────────────────────
+              Affiché AVANT le sélecteur de repli, parce que c'est la réponse à
+              la question « pourquoi mes élèves arrivent-ils sans classe ? ». */}
+          {preview?.rows?.length > 0 && classesManquantes.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" className="mt-0.5" checked={creerClasses}
+                  onChange={(e) => setCreerClasses(e.target.checked)} />
+                <span>
+                  <span className="text-sm font-semibold text-amber-900">
+                    {t('Créer les', 'Create the')} {classesManquantes.length}{' '}
+                    {t('classe(s) absente(s) de l’école', 'class(es) missing from the school')}
+                  </span>
+                  <span className="block text-xs text-amber-700 mt-0.5">
+                    {t('Niveau, cycle, série et bulletin sont déduits du nom ; les matières sont configurées automatiquement.',
+                       'Level, cycle, stream and report card are inferred from the name; subjects are configured automatically.')}
+                  </span>
+                </span>
+              </label>
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {classesManquantes.map((nom) => (
+                  <span key={nom} className="px-2 py-0.5 rounded-md bg-white border border-amber-200 text-xs text-amber-900">
+                    {nom} <span className="text-amber-500">· {effectifParClasse[nom]}</span>
+                  </span>
+                ))}
+              </div>
+              {!creerClasses && (
+                <p className="text-xs text-amber-800 mt-2">
+                  {t('Décoché : ces élèves seront importés sans classe (ou dans la classe de repli ci-dessous).',
+                     'Unchecked: these students will be imported without a class (or into the fallback class below).')}
+                </p>
+              )}
+            </div>
+          )}
           {preview?.rows?.length > 0 && needsFallback && (
             <div>
               <label className="form-label">
@@ -552,7 +699,7 @@ function ImportPanel({ classes, onImport, onCancel, effectif = [], annee = '' })
                 {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <p className="text-xs text-slate-400 mt-1">
-                {withoutClass} {t('élève(s) sans classe dans le fichier. Laissez vide pour les importer sans classe.', 'student(s) without a class in the file. Leave empty to import them without a class.')}
+                {aReclasser} {t('élève(s) sans classe dans le fichier. Laissez vide pour les importer sans classe.', 'student(s) without a class in the file. Leave empty to import them without a class.')}
               </p>
             </div>
           )}
@@ -572,13 +719,20 @@ function ImportPanel({ classes, onImport, onCancel, effectif = [], annee = '' })
                   <tbody className="divide-y divide-slate-100">
                     {resolvedRows.slice(0, 8).map((r, i) => {
                       const cls = classes.find((c) => c.id === r.class_id);
+                      // `attribuerMatriculesImport` et `resolveRows` sont tous
+                      // deux des `.map()` : l'index concorde avec `preview.rows`,
+                      // d'où se lit le nom de classe écrit dans le FICHIER.
+                      const nomFichier = preview.rows[i]?.class_name || '';
+                      const aCreer = creerClasses && !cls
+                        && classesManquantes.some((n) => normalizeStr(n) === normalizeStr(nomFichier));
                       return (
                         <tr key={i} className="hover:bg-slate-50">
                           <td className="px-3 py-2 font-medium text-slate-800">{r.name}</td>
                           <td className="px-3 py-2 text-slate-400 font-mono">{r.matricule || '—'}</td>
                           <td className="px-3 py-2">
                             {cls ? <span className="px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded font-medium">{cls.name}</span>
-                                 : <span className="text-amber-600 font-medium">{t('Non assigné', 'Unassigned')}</span>}
+                             : aCreer ? <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded font-medium">{nomFichier} <span className="font-normal">· {t('à créer', 'to create')}</span></span>
+                             : <span className="text-amber-600 font-medium">{t('Non assigné', 'Unassigned')}</span>}
                           </td>
                           <td className="px-3 py-2 text-slate-500">{r.gender || '—'}</td>
                         </tr>
@@ -710,6 +864,8 @@ export default function Students() {
   const deleteStudent       = useSchoolStore((s) => s.deleteStudent);
   const archiveStudent      = useSchoolStore((s) => s.archiveStudent);
   const bulkAssignToClass   = useSchoolStore((s) => s.bulkAssignToClass);
+  const addClass            = useSchoolStore((s) => s.addClass);
+  const country             = useCountry();
   const role                = useAuthStore((s) => s.role);
   const permissions         = useAuthStore((s) => s.permissions);
   // Devise de l'établissement : la confirmation d'une suppression qui emporte de
@@ -721,6 +877,41 @@ export default function Students() {
   // travail attendu de cette capacité. Aligné sur la politique RLS Supabase
   // (supabase_delegated_write_access.sql). Sinon : lecture seule.
   const canEdit = role === 'admin' || role === 'censeur' || hasCapability(permissions, '/app/students');
+
+  // ── Créer une classe depuis son seul NOM, pendant un import ───────────────
+  //
+  // Reproduit le payload du formulaire Classes.jsx (`buildPayload`) : niveau,
+  // cycle, système, barème et série sont DÉDUITS du nom par `parseClassName`, et
+  // `addClass` enchaîne sur l'auto-configuration des matières selon le moteur
+  // (APC 6e-3e, série au second cycle, compétences au primaire, domaines en
+  // maternelle). Une classe née ici est donc indiscernable d'une classe saisie à
+  // la main — c'est ce qui permet aux bulletins, aux rangs et aux frais de
+  // fonctionner tout de suite après l'import.
+  //
+  // Ce qui n'est PAS déduit : le titulaire et l'effectif maximum. Le fichier ne
+  // les porte pas, et les inventer serait pire que de les laisser vides.
+  const creerClasseDepuisNom = async (nom) => {
+    const propre = String(nom || '').trim();
+    if (!propre) return null;
+    const isGE = resolveCountryCode(school) === 'guinea_eq';
+    const p = parseClassName(propre, { school, country });
+    const payload = {
+      name:         propre,
+      level:        p?.level || '',
+      cycle:        p?.cycle || 'secondaire',
+      system:       isGE ? 'ES' : (p?.system || 'FR'),
+      grade_max:    isGE ? null : Math.max(1, Math.min(200, Number(p?.grade_max) || 20)),
+      teacher_id:   null,
+      max_students: null,
+      serie:        p?.serie || '',
+      // `current_year` volontairement ABSENT : hérité de l'année active (addClass).
+    };
+    // `serie` n'existe en base que pour le Second Cycle MINESEC — même règle que
+    // le formulaire. L'envoyer sur une classe de collège ferait rejeter l'insertion.
+    const engine = resolveClassEngine(school, { level: payload.level, name: propre, serie: payload.serie });
+    if (engine !== 'sc' || !payload.serie) delete payload.serie;
+    return addClass(payload);
+  };
 
   const [classFilter,    setClassFilter]   = useState('');
   const [sectionFilter,  setSectionFilter] = useState('');
@@ -925,7 +1116,10 @@ export default function Students() {
        t('Quartier de résidence', 'Neighbourhood'), t('Adresse', 'Address'),
        t('Nom du père', "Father's name"), t('Profession père', "Father's profession"),
        t('Nom de la mère', "Mother's name"), t('Profession mère', "Mother's profession"),
-       t('Tuteur légal', 'Legal guardian'), t('Aptitude sportive', 'Sport fitness')],
+       t('Tuteur légal', 'Legal guardian'), t('Profession tuteur', "Guardian's profession"),
+       t('Aptitude sportive', 'Sport fitness'),
+       t("Date d'entrée", 'Entry date'), t("Motif d'entrée", 'Entry reason'),
+       t('Date de sortie', 'Exit date'), t('Motif de sortie', 'Exit reason')],
       ...visible.map((s) => [
         s.name, s.matricule || '', s.gender || '',
         s.date_naissance || '', s.lieu_naissance || '',
@@ -937,7 +1131,10 @@ export default function Students() {
         s.quartier || '', s.adresse || '',
         s.nom_pere || '', s.profession_pere || '',
         s.nom_mere || '', s.profession_mere || '',
-        s.tuteur || '', s.sport_aptitude || '',
+        s.tuteur || '', s.profession_tuteur || '',
+        s.sport_aptitude || '',
+        s.date_entree || '', s.motif_entree || '',
+        s.date_sortie || '', s.motif_sortie || '',
       ]),
     ];
     downloadExcel(`eleves_${cls}_${new Date().toISOString().slice(0, 10)}.xlsx`, rows, t('Élèves', 'Students'));
@@ -1263,6 +1460,7 @@ export default function Students() {
                 <ImportPanel
                   classes={classes}
                   onImport={addStudent}
+                  onCreateClass={creerClasseDepuisNom}
                   onCancel={closeAll}
                   effectif={effectifPourMatricule}
                   annee={anneeScolaire}

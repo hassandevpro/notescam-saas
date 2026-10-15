@@ -360,6 +360,26 @@ ensureColumn('students', 'tuteur',          'tuteur TEXT');
 ensureColumn('students', 'quartier',        'quartier TEXT');
 ensureColumn('students', 'ecole_origine',   'ecole_origine TEXT');
 
+// Registre matricule : entrée et sortie de l'établissement — cf.
+// supabase_student_registre_matricule.sql pour le détail du pourquoi.
+//
+// Le modèle savait qu'un élève est « nouveau dans l'établissement » et d'où il
+// vient, mais ni QUAND il est entré, ni COMMENT il a été admis, ni quand et
+// pourquoi il est parti. Ce sont les colonnes du registre matricule officiel,
+// avec leur légende : ED/ET à l'entrée, NM/EX/TF/DM/LM/DC à la sortie.
+//
+// Les deux dates sont du TEXTE et non des dates : les registres portent le plus
+// souvent l'ANNÉE seule (« 2024 »). Une colonne date aurait forcé à inventer un
+// jour et un mois, ou à jeter la valeur.
+//
+// `profession_tuteur` complète `tuteur`, qui était le seul responsable sans
+// profession là où le père et la mère en avaient une.
+ensureColumn('students', 'date_entree',       'date_entree TEXT');
+ensureColumn('students', 'motif_entree',      'motif_entree TEXT');
+ensureColumn('students', 'date_sortie',       'date_sortie TEXT');
+ensureColumn('students', 'motif_sortie',      'motif_sortie TEXT');
+ensureColumn('students', 'profession_tuteur', 'profession_tuteur TEXT');
+
 ensureColumn('school_users', 'permissions', 'permissions TEXT'); // capacités granulaires d'un compte délégué (JSON ; null = accès par rôle)
 // Attributions de gouvernance : fenêtre de validité + statut (Phase 1 rôles).
 ensureColumn('user_governance_roles', 'start_date', 'start_date TEXT');

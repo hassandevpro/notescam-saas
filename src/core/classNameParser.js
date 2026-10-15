@@ -29,6 +29,31 @@ const SERIES_BY_LEN = [...SC_SERIES].sort((a, b) => b.length - a.length);
 // reste reconnaissable — on propose les niveaux des DEUX langues.
 const CAMEROON_CODES = new Set(['cameroon_fr', 'cameroon_en']);
 
+// ABRÉVIATIONS que les écoles ÉCRIVENT, absentes du catalogue officiel.
+//
+// Le catalogue pays dit « 6ème », « 1ère », « Terminale ». Les registres, les
+// listes de classe et les onglets de tableur disent « 6e », « 1re », « Tle ».
+// Sans ces alias, `matchLevel` ne reconnaissait AUCUN de ces noms : la classe
+// naissait sans niveau, donc sans moteur de bulletin (repli « classique ») et
+// sans matières auto-configurées. Mesuré sur un classeur réel de 14 classes :
+// seules les cinq nommées « 2ndeA4 » / « 1èreC » / « 1èreD » étaient reconnues ;
+// « 6e », « 5eg », « 4ef », « 3e », « TleA4 », « TleC », « TleD » ne l'étaient
+// pas — soit 253 élèves sur 436 dans une classe au cycle deviné.
+//
+// Chaque alias POINTE vers un libellé du catalogue : il en hérite le cycle et la
+// langue, et c'est le libellé officiel qui finit dans `classes.level`. Aucune
+// liste de niveaux n'est donc dupliquée ici — en ajouter un au pays suffit.
+//
+// Le rapprochement reste « le plus long d'abord » : pour « 6ème A », le libellé
+// officiel (4 caractères normalisés) gagne sur l'alias « 6e » (2), et le suffixe
+// de section reste « A » dans les deux cas.
+const LEVEL_ALIASES = [
+  ['6e', '6ème'], ['5e', '5ème'], ['4e', '4ème'], ['3e', '3ème'],
+  ['tle', 'Terminale'], ['term', 'Terminale'], ['terminal', 'Terminale'],
+  ['1re', '1ère'], ['1er', '1ère'],
+  ['2de', '2nde'], ['2nd', '2nde'], ['seconde', '2nde'],
+];
+
 // Normalisation identique au reste du moteur (engineResolver) + suppression des
 // espaces pour un rapprochement tolérant (« 1ère TI A » ⊃ « 1ère TI »).
 const norm = (s) =>
@@ -49,7 +74,16 @@ function levelCatalog(country) {
     const other = country.code === 'cameroon_fr' ? cameroonEn : cameroonFr;
     items = items.concat(collect(other));
   }
-  return items.sort((a, b) => squash(b.item).length - squash(a.item).length);
+  // Alias : chacun reprend le cycle et la langue de son libellé officiel, et ne
+  // s'ajoute que si ce libellé existe réellement dans le pays courant.
+  const parLibelle = new Map(items.map((e) => [squash(e.item), e]));
+  for (const [abbr, officiel] of LEVEL_ALIASES) {
+    const cible = parLibelle.get(squash(officiel));
+    if (cible) items.push({ ...cible, alias: abbr });
+  }
+  // Tri sur la forme ÉCRITE (alias ou libellé) : c'est elle qu'on rapproche du
+  // nom saisi, donc c'est sa longueur qui décide du « plus long d'abord ».
+  return items.sort((a, b) => squash(b.alias ?? b.item).length - squash(a.alias ?? a.item).length);
 }
 
 // Rapproche le nom saisi du plus long niveau connu qui en est le préfixe.
@@ -59,8 +93,17 @@ function levelCatalog(country) {
 function matchLevel(name, country) {
   const target = squash(name);
   for (const cand of levelCatalog(country)) {
-    if (target.startsWith(squash(cand.item))) {
-      return { level: cand.item, cycle: cand.cycle, fromEN: cand.code === 'cameroon_en' };
+    // `ecrit` = ce qui a réellement été rapproché du nom (un alias peut être
+    // plus COURT que le libellé officiel). Sa longueur est renvoyée : sans elle,
+    // « TleA4 » rapproché de « Terminale » faisait calculer le suffixe sur 9
+    // caractères normalisés pour un nom qui n'en a que 5 — le suffixe partait
+    // vide, et la série A4 était perdue.
+    const ecrit = squash(cand.alias ?? cand.item);
+    if (target.startsWith(ecrit)) {
+      return {
+        level: cand.item, cycle: cand.cycle,
+        fromEN: cand.code === 'cameroon_en', matchedLen: ecrit.length,
+      };
     }
   }
   return null;
@@ -131,7 +174,7 @@ export function parseClassName(raw, { school, country }) {
   const system = isGE ? 'ES' : matched?.fromEN ? 'EN' : 'FR';
 
   // Partie du nom après le niveau (peut contenir la série puis la section).
-  const rawSuffix = level ? name.slice(matchedPrefixLength(name, level)).trim() : '';
+  const rawSuffix = matched ? name.slice(prefixLength(name, matched.matchedLen)).trim() : '';
 
   // Série (second cycle uniquement) : soit encodée dans le libellé (voies
   // techniques « 1ère TI »), soit lue en TÊTE du suffixe pour les niveaux « nus »
@@ -173,8 +216,7 @@ export function parseClassName(raw, { school, country }) {
 
 // Longueur (dans le nom brut) du préfixe correspondant au libellé de niveau, pour
 // isoler le suffixe de section. Tolérant aux espaces/accents.
-function matchedPrefixLength(name, level) {
-  const targetLen = squash(level).length;
+function prefixLength(name, targetLen) {
   let count = 0;
   for (let i = 0; i < name.length; i++) {
     if (squash(name[i]).length) count += squash(name[i]).length;

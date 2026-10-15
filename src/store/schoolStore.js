@@ -170,7 +170,13 @@ const NULLABLE_STUDENT_FIELDS = [
   'date_naissance', 'gender', 'statut', 'statut_etablissement', 'matricule',
   'parent_phone', 'lieu_naissance',
   'adresse', 'contact_urgence', 'nom_pere', 'profession_pere',
-  'nom_mere', 'profession_mere', 'tuteur', 'quartier', 'ecole_origine',
+  'nom_mere', 'profession_mere', 'tuteur', 'profession_tuteur',
+  'quartier', 'ecole_origine',
+  // Registre matricule (cf. supabase_student_registre_matricule.sql). Sans ces
+  // quatre clés ici, un champ vidé dans la fiche partait en chaîne VIDE au lieu
+  // de NULL : « non renseigné » et « renseigné à rien » cessaient d'être
+  // distinguables, et `count(date_sortie)` comptait des élèves non sortis.
+  'date_entree', 'motif_entree', 'date_sortie', 'motif_sortie',
 ];
 const GENDER_MAP = { m: 'Masculin', masculin: 'Masculin', male: 'Masculin', garcon: 'Masculin', h: 'Masculin', homme: 'Masculin', f: 'Feminin', feminin: 'Feminin', female: 'Feminin', fille: 'Feminin', femme: 'Feminin' };
 

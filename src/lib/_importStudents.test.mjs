@@ -43,10 +43,17 @@ const debut = src.indexOf('function rawRowsToStudents');
 const fin   = src.indexOf('\nfunction ', debut + 10);
 const corps = src.slice(debut, fin > 0 ? fin : undefined);
 const tel   = (x) => x;
+// `splitDateLieu` rend un COUPLE { date, lieu } : son substitut neutre doit en
+// avoir la forme, sinon la ligne importée casse au lieu d'échouer sur une
+// assertion. Les deux champs reçoivent la cellule entière — ce test n'observe
+// que la colonne lue, et c'est `_studentFieldsIO.test.mjs` qui éprouve la
+// scission elle-même, avec les vrais normaliseurs.
+const coupleNeutre = (x) => ({ date: x, lieu: x });
 const rawRowsToStudents = new Function(
-  'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate', 'normalizeStatut', 'normalizeStatutEtab', 'normalizeAptitude',
+  'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate', 'normalizeStatut',
+  'normalizeStatutEtab', 'normalizeAptitude', 'normalizeRegistreDate', 'splitDateLieu', 'sansZero',
   `${corps}; return rawRowsToStudents;`,
-)(() => 'erreur', tel, tel, tel, tel, tel, tel);
+)(() => 'erreur', tel, tel, tel, tel, tel, tel, tel, coupleNeutre, tel);
 
 let echecs = 0;
 const ok = (cond, libelle, obtenu) => {

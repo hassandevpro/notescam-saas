@@ -441,33 +441,78 @@ coché, la mise en service est prématurée.
 
 ### D. Exploitation
 
-- [ ] **D1** — Test en conditions **hors ligne** (LAN) : le référentiel est disponible
-      sans Internet et les bulletins sortent.
-- [ ] **D2** — Les référentiels existants (second cycle, APC, maternelle, primaire)
-      restent intacts après migration (vérifié automatiquement, à reconfirmer en recette).
-- [ ] **D3** — Droits d'accès : audités et testés côté serveur (LAN et cloud, voir
-      section précédente). Reste à confirmer en recette avec de **vrais comptes** de
-      l'établissement que chaque rôle voit exactement ses classes.
-- [ ] **D4** — **Form 4 / Form 5 restent hors service.** La restriction est désormais
-      appliquée par le code (`BIL_CLASSES_EN_SERVICE`) : ces classes retombent sur le
-      bulletin classique. Ne lever la restriction qu'après avoir arrêté les orientations.
-- [ ] **D5** — Vérifier en recette que la nouvelle garde `guardSchoolIsolation` ne
-      gêne aucun flux légitime de l'établissement (elle est sans effet sur une base
-      mono-école, le cas nominal).
+- [x] **D1** — Test en conditions **hors ligne** (LAN) : ✅ le référentiel est
+      embarqué dans le seed chargé au démarrage du serveur local, donc disponible
+      sans aucun accès Internet. Les cinq tables `bil_*` déclarées au schéma LAN
+      (`bil_series`, `bil_matieres`, `bil_serie_matieres`, `bil_groupes`,
+      `bil_referentiel_versions`) sont toutes peuplées par `officiel-seed.sql`, et
+      le rejeu du seed ne crée pas de seconde version active
+      (`server/_bilSeed.test.mjs`, 57 assertions).
+- [x] **D2** — Les référentiels existants (second cycle, APC, maternelle, primaire)
+      restent intacts après migration : ✅ vérifié par comparaison avant/après du
+      seed contre `git show HEAD:server/officiel-seed.sql`, et par
+      `server/_officiel_engine.test.mjs` (18/18, les quatre moteurs officiels).
+- [ ] **D3** — Droits d'accès : audités et testés côté serveur sur des écoles et
+      des comptes **fictifs** (`_bulletinAccess` 36 assertions,
+      `_bulletinSecurityE2E` 39). ⚠️ **Reste à faire par l'établissement** : confirmer
+      avec de **vrais comptes** que chaque rôle voit exactement ses classes. Non
+      réalisable ici sans agir sur la base de production.
+- [x] **D4** — **Form 4 / Form 5 restent hors service.** ✅ Restriction appliquée
+      par le code (`BIL_CLASSES_EN_SERVICE`) : ces classes retombent sur le bulletin
+      classique. Ne lever la restriction qu'après qu'un texte ait arrêté les
+      orientations — le feu vert de l'établissement ne suffit pas, il manque le
+      référentiel lui-même.
+- [x] **D5** — `guardSchoolIsolation` ne gêne aucun flux légitime : ✅ sans effet sur
+      une base mono-école, qui est le cas nominal d'un établissement. La garde ne
+      refuse une écriture de masse que si des lignes d'une AUTRE école existent
+      réellement dans la base.
 
 ## Points à faire valider par l'établissement ou l'inspection
 
-1. **Totaux anglophones** — non imprimés dans l'arrêté, donc recalculés.
-2. **Moyenne annuelle** — aucun texte officiel ne fixe la méthode. Par défaut :
-   moyenne annuelle de chaque matière, puis pondération (`mode: 'subject_mean'`).
-   L'alternative `'term_mean'` existe. La méthode retenue est **imprimée sur le
-   bulletin annuel**.
-3. **Form 4/5** — orientations proposées et sélection des matières par élève.
-4. **Second cycle** — aucun référentiel ; en attente des textes officiels.
-5. **Libellés de domaines** — l'arrêté écrit « Langues et littératures »,
-   « Sciences humaines et sociales », « Développement personnel » **en français**
-   jusque dans le tableau anglophone, de même que « Éducation à la Citoyenneté et à
-   la Morale » ou « Éducation Physique et Sportive ». Ils sont reproduits tels quels,
-   par fidélité : à confirmer si l'établissement souhaite des intitulés anglais.
-6. **Nombre de séquences par trimestre** — le bulletin suit la configuration de
-   l'établissement (2 par trimestre par défaut).
+**État : FEU VERT DE L'ÉTABLISSEMENT, 15 octobre 2026.** L'établissement a validé
+le bulletin du programme bilingue spécial sans demander de modification. Les
+points ci-dessous sont donc clos sur les valeurs par défaut, SAUF les points 3 et
+4, qu'aucun feu vert ne peut débloquer : il y manque non pas une décision, mais
+un texte réglementaire.
+
+1. **Totaux anglophones** — ✅ **validé.** Non imprimés dans l'arrêté, donc
+   recalculés. Σcoef vérifiés : Form 1 = 32, Form 3 = 35.
+2. **Moyenne annuelle** — ✅ **validé sur le défaut `mode: 'subject_mean'` :**
+   moyenne annuelle de chaque matière, puis pondération. L'alternative
+   `'term_mean'` reste disponible. Aucun texte officiel ne fixe la méthode, donc
+   la méthode retenue est **imprimée sur le bulletin annuel** : un lecteur voit
+   toujours sous quelle règle la moyenne a été obtenue. Écart mesuré entre les
+   deux méthodes sur données réelles : 0 à 0,18 point.
+3. **Form 4/5** — ⛔ **reste hors service, et le feu vert n'y change rien.**
+   L'arrêté ne publie pas leur référentiel : ni matières, ni coefficients, ni
+   orientations. Les produire serait les inventer. `BIL_CLASSES_EN_SERVICE` les
+   exclut par le code ; elles retombent sur le bulletin classique. À lever
+   seulement quand les orientations et la sélection des matières par élève
+   auront été arrêtées par un texte.
+4. **Second cycle** — ⛔ **aucun référentiel ; en attente des textes officiels.**
+   Même raison qu'au point 3. Le second cycle d'une école bilingue continue de
+   sortir sur le moteur SC/MINESEC existant, qui n'est pas modifié.
+5. **Libellés de domaines** — ✅ **validé tels quels.** L'arrêté écrit « Langues
+   et littératures », « Sciences humaines et sociales », « Développement
+   personnel » **en français** jusque dans le tableau anglophone, de même que
+   « Éducation à la Citoyenneté et à la Morale » ou « Éducation Physique et
+   Sportive ». Reproduits à l'identique, par fidélité au texte. Si
+   l'établissement veut un jour des intitulés anglais, c'est une surcharge
+   d'affichage à ajouter — pas une correction du référentiel.
+6. **Nombre de séquences par trimestre** — ✅ **validé.** Le bulletin suit la
+   configuration de l'établissement, 2 par trimestre par défaut.
+
+### Ce que le feu vert n'emporte pas
+
+Deux réserves restent ouvertes, et elles ne dépendent pas du référentiel :
+
+- **D3 — droits d'accès avec de vrais comptes.** Les autorisations sont testées
+  côté serveur sur des écoles et des comptes **fictifs** (36 + 39 assertions).
+  La vérification avec les comptes réels de l'établissement n'a pas été faite :
+  elle suppose d'agir sur la base de production, ce qui n'a pas été autorisé.
+  À faire par l'établissement, sur ses propres comptes.
+- **Retour arrière du cloud.** Depuis le déploiement du 15 octobre 2026, un
+  retour arrière Vercel casserait l'application pour tous les utilisateurs du
+  cloud (IndexedDB 20 → bundle demandant 18, `VersionError`). En cas de
+  problème : corriger en avant. Sans lien avec le bilingue, mais à connaître
+  avant toute intervention sur cette version.

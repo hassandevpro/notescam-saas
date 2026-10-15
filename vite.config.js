@@ -136,6 +136,43 @@ export default defineConfig(({ mode }) => {
   server: {
     port: 3000,
     host: true,
+    // ÉCRAN BLANC EN DÉVELOPPEMENT — ce que ceci corrige.
+    //
+    // Le surveillant de fichiers de Vite (chokidar) n'ignore par défaut que
+    // `node_modules` et `.git` : il NE LIT PAS `.gitignore`. Il surveillait donc
+    // `packaging/_stage/`, `packaging/**/Output/`, `dist/`, `out/` et les bases
+    // SQLite de `server/data*/` — tous produits ou verrouillés par d'autres
+    // processus (build d'installeur, serveur LAN).
+    //
+    // Deux conséquences, la seconde fatale :
+    //   · un build de paquet réécrit `packaging/_stage/app/dist/**` et Vite
+    //     rechargeait la page en boucle, en plein travail ;
+    //   · surtout, dès qu'un de ces fichiers est VERROUILLÉ par Windows, le
+    //     surveillant émet un événement `error` que personne n'écoute et le
+    //     processus Vite MEURT :
+    //       Error: EBUSY: resource busy or locked,
+    //         watch 'packaging\_stage\update-notescam.ps1'
+    //     Le serveur disparaît alors sans que le navigateur en soit informé. Les
+    //     pages sont chargées à la demande (`lazy` + `Suspense` dans App.jsx) :
+    //     le module d'une page demandée après la mort du serveur n'arrive jamais,
+    //     la promesse reste en attente, et `Suspense` affiche indéfiniment son
+    //     repli — une page BLANCHE. Constaté sur /app/bulletins, mais aucune page
+    //     n'est en cause : ce sont les plus lourdes qui se font prendre.
+    //
+    // On restreint donc la surveillance au code source. Ces chemins sont des
+    // artefacts de construction et des données : les éditer ne doit jamais
+    // déclencher de rechargement.
+    watch: {
+      ignored: [
+        '**/packaging/**',
+        '**/dist/**',
+        '**/out/**',
+        '**/server/data/**',
+        '**/server/data-demo/**',
+        '**/.vercel/**',
+        '**/.print-tests/**',
+      ],
+    },
   },
   build: {
     rollupOptions: {

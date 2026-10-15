@@ -409,6 +409,8 @@ function computeClassReport(cls, period, ctx) {
     primNotes:       ctx.primNotes,
     primReferentiel: ctx.primReferentiel,
     matObservations: ctx.matObservations,
+    apcMasques:      ctx.apcMasques,
+    primMasques:     ctx.primMasques,
     sys, gOpts,
     scaleMax:      isGE ? geGradeMax(school) : sys === 'FR' ? 20 : 100,
     passThreshold: isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50,
@@ -761,6 +763,10 @@ export default function Reports() {
   const primNotes       = useSchoolStore((s) => s.primNotes);
   const primReferentiel = useSchoolStore((s) => s.primReferentiel);
   const matObservations = useSchoolStore((s) => s.matObservations);
+  // Masques du référentiel décidés par l'école. Sans eux, le rapport listait des
+  // colonnes que le bulletin n'imprime pas (cf. core/refClassScope.js).
+  const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
+  const primMasques     = useSchoolStore((s) => s.refMasques.prim);
   const loadApc  = useSchoolStore((s) => s.loadApc);
   const loadMat  = useSchoolStore((s) => s.loadMat);
   const loadPrim = useSchoolStore((s) => s.loadPrim);
@@ -894,7 +900,9 @@ export default function Reports() {
   const reportCtx = useMemo(() => ({
     school, students, subjects, gradeMap,
     apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
-  }), [school, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations]);
+    apcMasques, primMasques,
+  }), [school, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
+      apcMasques, primMasques]);
 
   const classReport = useMemo(
     () => (selectedClass ? computeClassReport(selectedClass, period, reportCtx) : null),

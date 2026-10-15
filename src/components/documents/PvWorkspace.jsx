@@ -47,6 +47,12 @@ export default function PvWorkspace({ t }) {
   const primReferentiel = useSchoolStore((s) => s.primReferentiel);
   const primNotes       = useSchoolStore((s) => s.primNotes);
   const loadPrim        = useSchoolStore((s) => s.loadPrim);
+  // Masques du référentiel décidés par l'école. Sans eux, le procès-verbal
+  // portait des colonnes absentes des bulletins, et le conseil de classe
+  // délibérait sur des matières qui ne s'impriment pas.
+  const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
+  const primMasques     = useSchoolStore((s) => s.refMasques.prim);
+  const loadRefMasques  = useSchoolStore((s) => s.loadRefMasques);
   const viewYear    = useUiStore((s) => s.viewYear);
 
   const myTeacher = role === 'teacher' ? teachers.find((tt) => tt.id === teacherId) : null;
@@ -94,8 +100,8 @@ export default function PvWorkspace({ t }) {
   // Les référentiels APC / primaire ne sont chargés que si le périmètre en a besoin.
   const needsApc  = useMemo(() => targets.some((c) => resolveClassEngine(school, c) === 'apc'), [targets, school]);
   const needsPrim = useMemo(() => targets.some((c) => resolveClassEngine(school, c) === 'apc_primaire'), [targets, school]);
-  useEffect(() => { if (needsApc) loadApc(); }, [needsApc, loadApc]);
-  useEffect(() => { if (needsPrim) loadPrim(); }, [needsPrim, loadPrim]);
+  useEffect(() => { if (needsApc) { loadApc(); loadRefMasques('apc'); } }, [needsApc, loadApc, loadRefMasques]);
+  useEffect(() => { if (needsPrim) { loadPrim(); loadRefMasques('prim'); } }, [needsPrim, loadPrim, loadRefMasques]);
 
   useEffect(() => { if (school?.id) recentGenerations(school.id).then(setHistory); }, [school?.id]);
 
@@ -117,11 +123,13 @@ export default function PvWorkspace({ t }) {
       primReferentiel, primNotes, primNiveauSlug: primaireNiveauSlug(cls.level, cls.name),
       primBareme: primReferentiel?.bareme,
       primSequences: section === 'primaire' && primaryPeriodMode(school) === 'sequences',
+      apcMasques, primMasques,
       // Les DEUX enseignants principaux (mention seule, cf. src/lib/headTeachers.js).
       teacherName: headTeacherText(cls, teachers),
     });
   }, [school, countryCode, schoolYear, period, students, subjects, gradeMap,
-      apcReferentiel, apcNotes, primReferentiel, primNotes, teachers]);
+      apcReferentiel, apcNotes, primReferentiel, primNotes, teachers,
+      apcMasques, primMasques]);
 
   // Feuille HTML d'une classe (identité surchargée par l'unité pédagogique).
   const sheetForClass = useCallback((cls) => {

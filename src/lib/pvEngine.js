@@ -22,6 +22,9 @@ import { multiAvg, fusedG, getAppreciation } from '../core/bulletinEngine.js';
 import { assemblePeriod, assembleApcAnnual } from './apcBulletinDoc.js';
 import { TRIM_TO_SEQ } from '../core/apcEngine.js';
 import { apcSeqNumsForTrimestre, apcSeqIdOfSeqNum } from '../core/apcPeriods.js';
+// Périmètre réel de la classe (masques de l'école + matières cochées) — même
+// source de vérité que les bulletins, pour que les deux documents concordent.
+import { apcForClass, primForClass } from '../core/refClassScope.js';
 import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
@@ -220,9 +223,12 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
 // Colonnes = compétences du niveau ; unités = UA de la période. La note d'une
 // compétence sur une UA = pourcentage des points obtenus ramené à /10 — même
 // règle que le bulletin primaire officiel.
-function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme }) {
+function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme, competences }) {
   const GRADE_MAX = 10;
-  const comps = competencesForNiveau(referentiel, niveauSlug);
+  // `competences` est fourni par `buildClassPv` : masques de l'école + matières
+  // réellement cochées pour la classe. Repli sur le niveau entier si l'appelant
+  // ne le passe pas (compatibilité des appels existants).
+  const comps = competences || competencesForNiveau(referentiel, niveauSlug);
   const scale = bareme?.length ? bareme : PRIM_COTE_DEFAULT;
   const coefOf = (c) => (c.coefficient == null ? 1 : Number(c.coefficient) || 1);
 
@@ -282,6 +288,11 @@ export function buildClassPv(ctx) {
     apcReferentiel, apcNotes = {}, apcClasseSlug,
     primReferentiel, primNotes = {}, primNiveauSlug, primBareme,
     primSequences = false, decisions = {}, teacherName = '',
+    // Masques du référentiel décidés par l'école. Le PV ne les lisait PAS : une
+    // matière masquée, ou décochée dans la classe, restait une colonne du
+    // procès-verbal alors qu'elle ne figurait pas sur les bulletins. Le conseil
+    // délibérait donc sur des colonnes que le bulletin n'imprimait pas.
+    apcMasques = [], primMasques = [],
   } = ctx;
 
   if (!pvApplicable(engine)) return null;
@@ -292,10 +303,20 @@ export function buildClassPv(ctx) {
   const trim = PV_PERIODS.find((p) => p.key === period)?.trimestre ?? 1;
   const annual = trim === 0;
 
+  // Périmètre RÉEL de la classe : masques de l'école + matières cochées. Même
+  // source de vérité que les bulletins (`core/refClassScope.js`), pour que les
+  // deux documents listent les mêmes matières.
+  const apcRefEcole = engine === 'apc' && apcReferentiel
+    ? { ...apcReferentiel, competences: apcForClass(apcReferentiel, subjects, apcMasques).competences }
+    : apcReferentiel;
+  const primComps = engine === 'apc_primaire'
+    ? primForClass(primReferentiel, primNiveauSlug, subjects, primMasques).competences
+    : null;
+
   const base = engine === 'apc'
-    ? buildApcPv({ sys, students, units, referentiel: apcReferentiel, notes: apcNotes, classeSlug: apcClasseSlug, annual, trimestreId: `t${trim || 1}`, gradeScale })
+    ? buildApcPv({ sys, students, units, referentiel: apcRefEcole, notes: apcNotes, classeSlug: apcClasseSlug, annual, trimestreId: `t${trim || 1}`, gradeScale })
     : engine === 'apc_primaire'
-      ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme })
+      ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme, competences: primComps })
       : buildNotesPv({ cls, sys, students, subjects, gradeMap, units, opts, gradeScale });
 
   const { cols, rows, maxScale, pass } = base;

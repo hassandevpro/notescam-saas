@@ -10,7 +10,7 @@
 // résolution échoue, rendre un bulletin VIDE. Un bulletin qui porte une matière
 // en trop est un défaut ; un bulletin qui en oublie est une faute. Les cas
 // « rien ne doit être filtré » sont donc aussi nombreux ici que les cas positifs.
-import { scopeOf, applyScope } from './refClassScope.js';
+import { scopeOf, applyScope, apcForClass, primForClass, matForClass } from './refClassScope.js';
 
 let echecs = 0;
 const ok = (cond, libelle, obtenu) => {
@@ -141,6 +141,82 @@ titre('Maternelle : mat_domaine_id fait foi');
   ok(scope.ids.has('math'), 'l intitule exact est reconnu', [...scope.ids]);
   ok(!scope.ids.has('motricite'), 'le domaine decoche est hors perimetre', [...scope.ids]);
   ok(applyScope(scope, DOM).length === 2, 'applique : 2 domaines sur 3', applyScope(scope, DOM).map((d) => d.id));
+}
+
+// ── Les trois fonctions par cycle : MASQUES + PERIMETRE ───────────────────
+//
+// Elles existent pour qu'UN SEUL endroit decide. Le bulletin appliquait les
+// masques, le proces-verbal et le rapport de classe n'appliquaient RIEN : trois
+// documents de la meme classe pouvaient lister trois ensembles de matieres
+// differents, et le conseil deliberait sur des colonnes que le bulletin
+// n'imprimait pas.
+titre('apcForClass : masques ET perimetre');
+{
+  const ref = {
+    matieres: MATIERES,
+    competences: [
+      { id: 'c_fr',  matiere_id: 'francais' },
+      { id: 'c_ang', matiere_id: 'anglais' },
+      { id: 'c_inf', matiere_id: 'informatique' },
+      { id: 'c_ecm', matiere_id: 'ecm' },
+    ],
+  };
+  const classe = [sub('Français'), sub('Anglais'), sub('ECM')];   // informatique decochee
+  const r = apcForClass(ref, classe, ['c_ang']);                   // anglais masque par l ecole
+  const ids = r.competences.map((c) => c.id);
+  ok(ids.includes('c_fr') && ids.includes('c_ecm'), 'les competences de la classe survivent', ids);
+  ok(!ids.includes('c_ang'), 'la competence MASQUEE est retiree', ids);
+  ok(!ids.includes('c_inf'), 'la competence de la matiere DECOCHEE est retiree', ids);
+  ok(r.exclus.includes('informatique'), 'la matiere decochee est annoncee', r.exclus);
+  // Le garde-fou s applique aussi ici.
+  const rien = apcForClass(ref, [sub('Allamand')], []);
+  ok(rien.competences.length === 4, 'aucun nom reconnu -> les 4 competences restent', rien.competences.length);
+  ok(apcForClass(null, classe, []).competences.length === 0, 'referentiel null -> liste vide, pas une erreur');
+}
+
+titre('primForClass : masques ET perimetre');
+{
+  const ref = {
+    competences: [
+      { id: '1a', code: '1A', intitule: 'Lire et écrire', ordre: 1 },
+      { id: '2a', code: '2A', intitule: 'Compter', ordre: 2 },
+      { id: '6a', code: '6A', intitule: 'Éducation physique', ordre: 3 },
+    ],
+    niveauCompetences: [
+      { niveau_id: 'cm2', competence_id: '1a' },
+      { niveau_id: 'cm2', competence_id: '2a' },
+      { niveau_id: 'cm2', competence_id: '6a' },
+    ],
+  };
+  const classe = [sub('1A'), sub('2A')];                 // 6A decochee
+  const r = primForClass(ref, 'cm2', classe, ['2a']);    // 2A masquee
+  const ids = r.competences.map((c) => c.id);
+  ok(ids.join(',') === '1a', 'seule la competence cochee ET non masquee survit', ids);
+  ok(r.exclus.includes('6a'), 'la competence decochee est annoncee', r.exclus);
+  ok(primForClass(ref, null, classe, []).competences.length === 0, 'sans niveau -> liste vide');
+  ok(primForClass(null, 'cm2', classe, []).competences.length === 0, 'sans referentiel -> liste vide');
+  // Garde-fou.
+  const rien = primForClass(ref, 'cm2', [sub('Zzz')], []);
+  ok(rien.competences.length === 3, 'aucun nom reconnu -> les 3 competences restent', rien.competences.length);
+}
+
+titre('matForClass : masques ET perimetre');
+{
+  const ref = {
+    domaines: [
+      { id: 'langage',   code: 'D1', intitule: 'Langage et communication', ordre: 1 },
+      { id: 'math',      code: 'D2', intitule: 'Mathématiques', ordre: 2 },
+      { id: 'motricite', code: 'D3', intitule: 'Motricité', ordre: 3 },
+    ],
+  };
+  const classe = [sub('Éveil au langage', { mat_domaine_id: 'langage' }), sub('Mathématiques')];
+  const r = matForClass(ref, classe, ['math']);
+  const ids = r.domaines.map((d) => d.id);
+  ok(ids.join(',') === 'langage', 'seul le domaine coche ET non masque survit', ids);
+  ok(r.exclus.includes('motricite'), 'le domaine decoche est annonce', r.exclus);
+  const rien = matForClass(ref, [sub('Zzz')], []);
+  ok(rien.domaines.length === 3, 'aucun nom reconnu -> les 3 domaines restent', rien.domaines.length);
+  ok(matForClass(null, classe, []).domaines.length === 0, 'referentiel null -> liste vide');
 }
 
 // ── Cycle inconnu : aucun appariement, donc aucun filtre ───────────────────

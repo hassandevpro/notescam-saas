@@ -50,6 +50,8 @@
 import { matiereIdsForSubject } from './apcMatiereMatch.js';
 import { competenceIdForSubject } from './primCompetenceMatch.js';
 import { domaineIdForSubject } from './matDomaineMatch.js';
+import { competencesForNiveau } from './primEngine.js';
+import { domainesForMaternelle } from './matEngine.js';
 
 /**
  * Périmètre d'une classe pour un cycle donné.
@@ -104,4 +106,45 @@ export function scopeOf(kind, classSubjects, items, label) {
 export function applyScope(scope, items, idOf = (x) => x?.id) {
   if (!scope || !scope.ids) return items || [];
   return (items || []).filter((x) => scope.ids.has(idOf(x)));
+}
+
+// ── CE QU'UNE CLASSE TRAITE, PAR CYCLE ─────────────────────────────────────
+//
+// Les trois fonctions ci-dessous appliquent les DEUX filtres, dans cet ordre :
+//   1. le MASQUAGE décidé par l'école (`ref_masques`) ;
+//   2. le PÉRIMÈTRE de la classe (ses matières cochées).
+//
+// Elles existent pour qu'UN SEUL endroit décide. Le bulletin, le procès-verbal
+// et le rapport de classe partaient chacun du référentiel brut, et chacun
+// appliquait — ou pas — sa propre idée du filtrage : le bulletin appliquait les
+// masques, le PV et le rapport n'appliquaient RIEN. Trois documents de la même
+// classe pouvaient donc lister trois ensembles de matières différents, et le
+// conseil de classe délibérait sur des colonnes que le bulletin n'imprimait pas.
+//
+// Chacune rend aussi `exclus`, pour que l'écran puisse ANNONCER ce qui a été
+// écarté : c'est la contrepartie du garde-fou (une seule matière reconnue suffit
+// à déclencher le filtre), et sans cet affichage le filtre serait invisible.
+
+/** APC premier cycle (6e–3e). → { competences, exclus } */
+export function apcForClass(referentiel, classSubjects, masques = []) {
+  const toutes = (referentiel?.competences || []).filter((c) => !(masques || []).includes(c.id));
+  const scope = scopeOf('apc', classSubjects, referentiel?.matieres);
+  return { competences: applyScope(scope, toutes, (c) => c.matiere_id), exclus: scope?.exclus || [] };
+}
+
+/** Primaire APC (SIL–CM2). → { competences, exclus } */
+export function primForClass(referentiel, niveauSlug, classSubjects, masques = []) {
+  if (!referentiel || !niveauSlug) return { competences: [], exclus: [] };
+  const duNiveau = competencesForNiveau(referentiel, niveauSlug);
+  const toutes = duNiveau.filter((c) => !(masques || []).includes(c.id));
+  const scope = scopeOf('prim', classSubjects, duNiveau);
+  return { competences: applyScope(scope, toutes), exclus: scope?.exclus || [] };
+}
+
+/** Maternelle (PS/MS/GS). → { domaines, exclus } */
+export function matForClass(referentiel, classSubjects, masques = []) {
+  const tous = domainesForMaternelle(referentiel);
+  const visibles = tous.filter((d) => !(masques || []).includes(d.id));
+  const scope = scopeOf('mat', classSubjects, tous);
+  return { domaines: applyScope(scope, visibles), exclus: scope?.exclus || [] };
 }

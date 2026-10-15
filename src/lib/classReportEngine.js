@@ -35,6 +35,9 @@ import {
 } from '../core/primEngine.js';
 import { MAT_ACQUIS_CODES, MAT_ACQUIS_LABELS, dominantAcquis } from '../core/matEngine.js';
 import { firstCycleClasseSlug, primaireNiveauSlug } from '../core/engineResolver.js';
+// Périmètre réel de la classe (masques de l'école + matières cochées) — même
+// source de vérité que les bulletins et le procès-verbal.
+import { apcForClass, primForClass } from '../core/refClassScope.js';
 // Les intitulés du référentiel officiel (domaines du préscolaire, compétences
 // nationales du primaire, matières du premier cycle) sont stockés en français
 // pour tout le pays : sur une classe du secteur anglophone, on les rend en
@@ -223,10 +226,18 @@ function apcMatiereAvg({ referentiel, apcNotes, classeSlug, trimestreId, seqIds,
   return { moyenne: matiereAverage(notesByComp, comps), comps };
 }
 
-function apcReport({ cls, students, period, apcNotes, apcReferentiel, gradeScale, scaleMax, passThreshold, sys }) {
+function apcReport({ cls, students, subjects, period, apcNotes, apcReferentiel: apcRefBrut, apcMasques, gradeScale, scaleMax, passThreshold, sys }) {
   const classeSlug = firstCycleClasseSlug(cls?.level, cls?.name);
-  if (!apcReferentiel) return notReady(REPORT_KIND.NUMERIC, 'referentiel', scaleMax, passThreshold);
-  if (!classeSlug)     return notReady(REPORT_KIND.NUMERIC, 'classe', scaleMax, passThreshold);
+  if (!apcRefBrut) return notReady(REPORT_KIND.NUMERIC, 'referentiel', scaleMax, passThreshold);
+  if (!classeSlug) return notReady(REPORT_KIND.NUMERIC, 'classe', scaleMax, passThreshold);
+
+  // Référentiel RESTREINT à ce que la classe traite : masques de l'école, puis
+  // matières cochées. Les colonnes se déduisant des compétences présentes
+  // (ci-dessous), restreindre les compétences suffit à retirer la matière.
+  const apcReferentiel = {
+    ...apcRefBrut,
+    competences: apcForClass(apcRefBrut, subjects, apcMasques).competences,
+  };
 
   // Une période peut couvrir plusieurs trimestres (annuel) : on assemble chaque
   // trimestre concerné, puis la matière prend la moyenne de ses trimestres notés.
@@ -302,7 +313,7 @@ function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas
   return round2((pcts.reduce((a, b) => a + b, 0) / pcts.length) / 100 * PRIM_GRADE_MAX);
 }
 
-function primReport({ cls, students, period, primNotes, primReferentiel, sys }) {
+function primReport({ cls, students, subjects, period, primNotes, primReferentiel, primMasques, sys }) {
   const scaleMax = PRIM_GRADE_MAX;
   const passThreshold = PRIM_GRADE_MAX / 2;
   const niveauSlug = primaireNiveauSlug(cls?.level, cls?.name);
@@ -315,7 +326,11 @@ function primReport({ cls, students, period, primNotes, primReferentiel, sys }) 
   const uas = annual ? [1, 2, 3, 4, 5, 6, 7, 8] : (UA_PAR_TRIMESTRE[period.seqs?.[0] || 1] || [1, 2, 3]);
   const bareme = primReferentiel?.bareme?.length ? primReferentiel.bareme : PRIM_COTE_DEFAULT;
 
-  const comps = competencesForNiveau(primReferentiel, niveauSlug);
+  // Colonnes = compétences que la classe TRAITE : masques de l'école, puis
+  // matières cochées. Le rapport listait tout le niveau, y compris ce que le
+  // bulletin n'imprime pas — deux documents de la même classe ne concordaient
+  // donc pas.
+  const comps = primForClass(primReferentiel, niveauSlug, subjects, primMasques).competences;
   const columns = comps.map((c) => ({
     id: c.id,
     name: c.code ? `${c.code} — ${primCompetenceLabel(c, sys)}` : primCompetenceLabel(c, sys),
@@ -450,12 +465,16 @@ export function buildClassReport({
   engine, cls, students = [], subjects = [], period,
   gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
   sys = 'FR', gOpts = {}, scaleMax = 20, passThreshold = 10, gradeScale,
+  // Masques du référentiel décidés par l'école. Le rapport ne les lisait pas :
+  // une matière masquée, ou décochée dans la classe, restait une colonne alors
+  // qu'elle ne figurait pas sur les bulletins.
+  apcMasques = [], primMasques = [],
 }) {
   const ctx = { cls, students, subjects, period, sys, gOpts, scaleMax, passThreshold };
   switch (engine) {
     case 'maternelle':   return maternelleReport({ ...ctx, matObservations });
-    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel });
-    case 'apc':          return apcReport({ ...ctx, apcNotes, apcReferentiel, gradeScale });
+    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques });
+    case 'apc':          return apcReport({ ...ctx, apcNotes, apcReferentiel, apcMasques, gradeScale });
     default:             return classicReport({ ...ctx, gradeMap });
   }
 }

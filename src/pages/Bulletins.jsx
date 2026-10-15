@@ -42,7 +42,7 @@ import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineM
 // Périmètre RÉEL de la classe dans le référentiel national : une matière
 // décochée dans l'écran Classes ne doit pas s'imprimer sur le bulletin officiel.
 // Le garde-fou (aucun filtre si rien n'est reconnu) est dans le module.
-import { scopeOf, applyScope } from '../core/refClassScope';
+import { apcForClass, primForClass, matForClass } from '../core/refClassScope';
 import { withLibelles } from '../lib/referentielEcole';
 // Les intitulés du référentiel officiel sont stockés en français pour tout le
 // pays : sur une classe du secteur anglophone, on les rend en anglais.
@@ -1868,25 +1868,15 @@ export default function Bulletins() {
   // décocher « Informatique » en 6e laissait la ligne s'imprimer, vide. `scopeOf`
   // rend `null` si rien n'est reconnu, et `applyScope` ne filtre alors pas — un
   // bulletin avec une matière en trop vaut mieux qu'un bulletin amputé.
-  const apcScope = useMemo(
-    () => (isApc ? scopeOf('apc', classSubjects, apcReferentiel?.matieres) : null),
-    [isApc, classSubjects, apcReferentiel],
+  const apcEcole = useMemo(
+    () => (isApc ? apcForClass(apcReferentiel, classSubjects, apcMasques) : { competences: [], exclus: [] }),
+    [isApc, apcReferentiel, classSubjects, apcMasques],
   );
 
   const apcReferentielEcole = useMemo(() => {
     if (!apcReferentiel) return apcReferentiel;
-    // Le périmètre porte sur les MATIÈRES, la liste filtrée sur les COMPÉTENCES :
-    // on lit donc `c.matiere_id`.
-    const dansLaClasse = applyScope(
-      apcScope,
-      (apcReferentiel.competences || []).filter((c) => !apcMasques.includes(c.id)),
-      (c) => c.matiere_id,
-    );
-    return {
-      ...apcReferentiel,
-      competences: withLibelles(dansLaClasse, apcLibelles),
-    };
-  }, [apcReferentiel, apcMasques, apcLibelles, apcScope]);
+    return { ...apcReferentiel, competences: withLibelles(apcEcole.competences, apcLibelles) };
+  }, [apcReferentiel, apcEcole, apcLibelles]);
 
   const apcDataById = useMemo(() => {
     if (!isApc || !apcReferentielEcole || !apcClasseSlug) return {};
@@ -2037,23 +2027,16 @@ export default function Bulletins() {
   //
   // `prim_competence_id` de la ligne `subjects` fait foi quand il est posé,
   // sinon l'appariement par nom ; aucun filtre si rien n'est reconnu.
-  const primScope = useMemo(
-    () => (isPrim && primReferentiel && primNiveauSlug
-      ? scopeOf('prim', classSubjects, competencesForNiveau(primReferentiel, primNiveauSlug))
-      : null),
-    [isPrim, primReferentiel, primNiveauSlug, classSubjects],
+  const primEcole = useMemo(
+    () => (isPrim ? primForClass(primReferentiel, primNiveauSlug, classSubjects, primMasques)
+                  : { competences: [], exclus: [] }),
+    [isPrim, primReferentiel, primNiveauSlug, classSubjects, primMasques],
   );
 
-  const primCompetencesEcole = useMemo(() => {
-    if (!isPrim || !primReferentiel || !primNiveauSlug) return [];
-    return withLibelles(
-      applyScope(
-        primScope,
-        competencesForNiveau(primReferentiel, primNiveauSlug).filter((c) => !primMasques.includes(c.id)),
-      ),
-      primLibelles,
-    );
-  }, [isPrim, primReferentiel, primNiveauSlug, primMasques, primLibelles, primScope]);
+  const primCompetencesEcole = useMemo(
+    () => withLibelles(primEcole.competences, primLibelles),
+    [primEcole, primLibelles],
+  );
 
   const primDataById = useMemo(() => {
     if (!isPrim || !primReferentiel || !primNiveauSlug) return {};
@@ -2220,21 +2203,18 @@ export default function Bulletins() {
   // lesquels s'impriment. Un domaine décoché dans l'écran Classes continuait donc
   // d'apparaître sur le bulletin. `mat_domaine_id` de la ligne `subjects` fait foi
   // quand il est posé (auto-configuration), sinon l'appariement par intitulé.
-  const matScope = useMemo(
-    () => (isMat ? scopeOf('mat', classSubjects, domainesForMaternelle(matReferentiel)) : null),
-    [isMat, classSubjects, matReferentiel],
+  const matEcole = useMemo(
+    () => (isMat ? matForClass(matReferentiel, classSubjects, matMasques) : { domaines: [], exclus: [] }),
+    [isMat, matReferentiel, classSubjects, matMasques],
   );
 
   const matDomaines = useMemo(() => {
-    const base = applyScope(
-      matScope,
-      domainesForMaternelle(matReferentiel).filter((d) => !matMasques.includes(d.id)),
-    );
+    const base = matEcole.domaines;
     return withLibelles(
       withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, base)),
       matLibelles,
     );
-  }, [matReferentiel, subjects, classId, matMasques, matLibelles, matScope]);
+  }, [matEcole, subjects, classId, matLibelles]);
 
   const matDataById = useMemo(() => {
     if (!isMat || !matReferentiel) return {};
@@ -2881,9 +2861,9 @@ export default function Bulletins() {
             qu'une matière manquante se voie ici et non à l'impression, devant
             un parent. Rien ne s'affiche quand rien n'est écarté. */}
         {(() => {
-          const scope = showApcOfficial ? apcScope
-            : showPrimOfficial ? primScope
-            : showMatOfficial ? matScope
+          const scope = showApcOfficial ? apcEcole
+            : showPrimOfficial ? primEcole
+            : showMatOfficial ? matEcole
             : null;
           const n = scope?.exclus?.length || 0;
           if (!n) return null;

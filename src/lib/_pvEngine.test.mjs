@@ -125,6 +125,65 @@ const many = Array.from({ length: 14 }, (_, i) => ({ id: `x${i}`, name: `Matièr
 const pvWide = buildClassPv({ cls, engine: 'classic', sys: 'FR', cycle: 'secondaire', period: 't1', students, subjects: many, gradeMap, opts: { maxScale: 20 } });
 ok(pvSheetHtml(pvWide, { school }).includes('Détail par séquence masqué'), 'dégradation automatique quand il y a trop de matières');
 
+// ── Une matière DÉCOCHÉE, ou MASQUÉE, n'est pas une colonne du PV ───────────
+//
+// Le procès-verbal listait les matières du RÉFÉRENTIEL NATIONAL sans lire ni les
+// masques de l'école, ni les matières cochées pour la classe. Le conseil
+// délibérait donc sur des colonnes que le bulletin n'imprimait pas — et sur des
+// matières que l'école avait retirées.
+{
+  const refApc = {
+    matieres: [
+      { id: 'francais', nom: 'Français', coefficient: 4 },
+      { id: 'anglais', nom: 'Anglais', coefficient: 3 },
+      { id: 'informatique', nom: 'Informatique', coefficient: 1 },
+    ],
+    competences: [
+      { id: 'k_fr',  matiere_id: 'francais',     classe_id: '6e', trimestre_id: 't1', intitule: 'Lire' },
+      { id: 'k_ang', matiere_id: 'anglais',      classe_id: '6e', trimestre_id: 't1', intitule: 'Speak' },
+      { id: 'k_inf', matiere_id: 'informatique', classe_id: '6e', trimestre_id: 't1', intitule: 'Saisir' },
+    ],
+    sequences: [{ id: 'sq1', trimestre_id: 't1', numero: 1 }, { id: 'sq2', trimestre_id: 't1', numero: 2 }],
+    trimestres: [{ id: 't1', numero: 1 }],
+    classeMatieres: [],
+  };
+  const notes = {
+    's1|k_fr|sq1':  { note: 14, note_max: 20 },
+    's1|k_ang|sq1': { note: 12, note_max: 20 },
+    's1|k_inf|sq1': { note: 18, note_max: 20 },
+  };
+  // Clé de note du moteur APC — même forme que `noteNkey` (eleve|competence|sequence).
+  const notesApc = {};
+  for (const [k, v] of Object.entries(notes)) notesApc[k.replace(/\|/g, '_')] = v;
+
+  const apcArgs = {
+    cls: { id: 'c6', name: '6e M1', level: '6ème' }, engine: 'apc', sys: 'FR',
+    cycle: 'secondaire', period: 't1',
+    students: [{ id: 's1', name: 'ABEGA Paul', matricule: 'M1' }],
+    apcReferentiel: refApc, apcNotes: notesApc, apcClasseSlug: '6e',
+  };
+
+  // Témoin : sans aucune matière de classe, le garde-fou ne filtre rien.
+  const temoin = buildClassPv({ ...apcArgs, subjects: [] });
+  ok(temoin !== null, 'PV APC assemblé');
+  ok(temoin.cols.some((c) => c.key === 'informatique'),
+    'temoin : sans matieres de classe, le PV garde tout le referentiel');
+
+  // La classe n'enseigne pas l'informatique (case décochée) → plus de colonne.
+  const subs = [{ id: 'a', name: 'Français' }, { id: 'b', name: 'Anglais' }];
+  const filtre = buildClassPv({ ...apcArgs, subjects: subs });
+  ok(!filtre.cols.some((c) => c.key === 'informatique'),
+    'la matiere DECOCHEE n est plus une colonne du PV');
+  ok(filtre.cols.some((c) => c.key === 'francais') && filtre.cols.some((c) => c.key === 'anglais'),
+    'les matieres cochees restent des colonnes');
+
+  // Et une matière MASQUÉE par l'école disparaît aussi.
+  const masque = buildClassPv({ ...apcArgs, subjects: subs, apcMasques: ['k_ang'] });
+  ok(!masque.cols.some((c) => c.key === 'anglais'),
+    'la matiere MASQUEE par l ecole n est plus une colonne du PV');
+  ok(masque.cols.some((c) => c.key === 'francais'), 'et le reste est intact');
+}
+
 // ── Synthèse d'établissement ─────────────────────────────────────────────────
 const sum = pvSchoolSummarySheetHtml([pv, pvT2], { school, periodLabel: 'Trimestre 1', schoolYear: '2025-2026' });
 ok(sum.includes('SYNTHÈSE DE L’ÉTABLISSEMENT'), 'page de synthèse de l’établissement');

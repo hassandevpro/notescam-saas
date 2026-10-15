@@ -116,6 +116,37 @@ const students = [{ id: 'e1', name: 'Abena' }, { id: 'e2', name: 'Biya' }, { id:
   ok(r1.cotes.mat, 'une cote est dérivée par matière');
   eq(rep.rows.find((r) => r.student.id === 'e3').avg, null, 'élève sans note APC : aucune moyenne');
 
+  // ── Une matière DÉCOCHÉE, ou MASQUÉE, n'est pas une colonne du rapport ────
+  //
+  // Le rapport listait les matières du référentiel sans lire ni les masques de
+  // l'école, ni les matières cochées pour la classe : il ne concordait donc ni
+  // avec le bulletin, ni avec le procès-verbal de la même classe.
+  //
+  // Le témoin est le bloc ci-dessus : avec `subjects: []`, le garde-fou ne
+  // filtre rien et les 2 colonnes restent.
+  {
+    const cochees = [{ id: 'a', name: 'Mathématiques' }];   // Français décoché
+    const filtre = buildClassReport({
+      engine: 'apc', cls, students, subjects: cochees, period: { seqs: [1, 2] },
+      apcNotes, apcReferentiel, scaleMax: 20, passThreshold: 10,
+    });
+    eq(filtre.columns.length, 1, 'la matiere decochee n est plus une colonne du rapport');
+    eq(filtre.columns[0].id, 'mat', 'seule la matiere cochee reste');
+    // La moyenne générale ne porte plus que sur ce qui est imprimé : c'est le
+    // point qui compte, car une moyenne calculée sur une matière absente du
+    // bulletin serait invérifiable par l'école.
+    eq(filtre.rows.find((r) => r.student.id === 'e1').avg, 13,
+      'la moyenne ne porte plus que sur les matieres retenues');
+
+    const masque = buildClassReport({
+      engine: 'apc', cls, students, subjects: [{ id: 'a', name: 'Mathématiques' }, { id: 'b', name: 'Français' }],
+      period: { seqs: [1, 2] }, apcNotes, apcReferentiel, apcMasques: ['k3'],
+      scaleMax: 20, passThreshold: 10,
+    });
+    eq(masque.columns.length, 1, 'la competence MASQUEE retire sa matiere du rapport');
+    eq(masque.columns[0].id, 'mat', 'et laisse l autre intacte');
+  }
+
   const noRef = buildClassReport({ engine: 'apc', cls, students, subjects: [], period: { seqs: [1] }, apcNotes, apcReferentiel: null, scaleMax: 20, passThreshold: 10 });
   ok(!noRef.ready && noRef.reason === 'referentiel', 'sans référentiel chargé : non prêt, raison explicite');
   const badCls = buildClassReport({ engine: 'apc', cls: { id: 'x', level: 'Terminale' }, students, subjects: [], period: { seqs: [1] }, apcNotes, apcReferentiel, scaleMax: 20, passThreshold: 10 });

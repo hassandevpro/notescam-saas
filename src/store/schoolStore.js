@@ -1670,22 +1670,31 @@ export const useSchoolStore = create((set, get) => ({
     const state = get();
     const snapshot = state.subjects.find((s) => s.id === id);
 
-    // Gel C2 : supprimer une matière change la structure/les moyennes des bulletins
-    // déjà verrouillés de cette classe → refusé tant qu'une séquence est verrouillée.
-    if (snapshot && isClassConfigFrozen(state, snapshot.class_id)) {
-      toast.error(tStatic(
-        'Suppression impossible : une séquence de cette classe est verrouillée. Déverrouillez d\'abord.',
-        'Cannot delete: a sequence of this class is locked. Unlock it first.',
-        'No se puede eliminar: una secuencia de esta clase está bloqueada. Desbloquéela primero.',
-      ));
-      return { error: 'frozen', locked: true };
-    }
-
     // Le DELETE cloud efface EN CASCADE toutes les notes de la matière
     // (`grades.subject_id … ON DELETE CASCADE`). On capture ces notes AVANT
     // suppression pour que la corbeille puisse les restaurer (cf. collectSubjectBundle).
     const allGrades = await gradesDB.getAll();
     const bundle = collectSubjectBundle(id, { grades: allGrades });
+
+    // Gel C2 : supprimer une matière NOTÉE change les moyennes des bulletins déjà
+    // verrouillés de cette classe → refusé tant qu'une séquence est verrouillée.
+    //
+    // ⚠️ Le gel ne porte que sur les matières qui PORTENT DES NOTES. Il refusait
+    // auparavant toute suppression dès qu'une séquence de la classe était
+    // verrouillee, y compris celle d'une matière vide — c'est-à-dire exactement
+    // celle qu'on veut retirer parce qu'elle n'a rien à faire sur le bulletin.
+    // L'utilisateur décochait la matière, le refus la laissait en place, et la
+    // case « revenait toute seule » sans que rien n'explique pourquoi.
+    // Une matière sans aucune note ne contribue à aucune moyenne : la retirer ne
+    // peut rescaler aucun bulletin verrouillé, donc le gel n'a pas lieu de jouer.
+    if (snapshot && bundle.subjectGrades.length && isClassConfigFrozen(state, snapshot.class_id)) {
+      toast.error(tStatic(
+        'Suppression impossible : cette matière porte des notes et une séquence de la classe est verrouillée. Déverrouillez d\'abord.',
+        'Cannot delete: this subject carries grades and a sequence of the class is locked. Unlock it first.',
+        'No se puede eliminar: esta materia tiene notas y una secuencia de la clase está bloqueada. Desbloquéela primero.',
+      ));
+      return { error: 'frozen', locked: true };
+    }
 
     if (snapshot) await moveToTrash({ table: 'subjects', payload: snapshot, related: bundle });
 

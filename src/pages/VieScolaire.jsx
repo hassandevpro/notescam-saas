@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
 import { INCIDENT_TYPES, labelOf } from '../core/disciplineTerms';
 import { useVsContext, VsHeader, fmtDate, todayISO } from '../components/vieScolaire/vsCommon';
+import { distinctStudents } from '../core/attendanceEngine';
 
 function StatCard({ label, value, tone = 'gray', to }) {
   const tones = {
@@ -66,8 +67,13 @@ export default function VieScolaire() {
   const inScope = (row) => !row.class_id || classById.has(row.class_id) || studentById.has(row.student_id);
 
   const lateToday   = (snapshot?.lateArrivals || []).filter((r) => r.date === today && inScope(r));
-  const absentToday = attToday.filter((a) => a.status === 'absent');
-  const retardAtt   = attToday.filter((a) => a.status === 'retard');
+  // Compté en ÉLÈVES, pas en lignes : un élève pointé absent en H1 et H2 est
+  // UN absent ; un retard noté à l'appel ET au registre des retards est UN retard.
+  const absentTodayCount = distinctStudents(attToday, (a) => a.status === 'absent');
+  const lateTodayCount   = distinctStudents([
+    ...lateToday,
+    ...attToday.filter((a) => a.status === 'retard'),
+  ]);
 
   const incidents = (snapshot?.incidents || []).filter(inScope);
   const actions   = (snapshot?.actions   || []).filter(inScope);
@@ -120,8 +126,8 @@ export default function VieScolaire() {
             <div>
               <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{t("Aujourd'hui", 'Today')} · {fmtDate(today)}</div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <StatCard label={t('Absents du jour', 'Absent today')} value={absentToday.length} tone="red" to="/app/absences" />
-                <StatCard label={t('Retards du jour', 'Late today')} value={lateToday.length + retardAtt.length} tone="amber" to="/app/retards" />
+                <StatCard label={t('Absents du jour', 'Absent today')} value={absentTodayCount} tone="red" to="/app/absences" />
+                <StatCard label={t('Retards du jour', 'Late today')} value={lateTodayCount} tone="amber" to="/app/retards" />
                 <StatCard label={t('Élèves convoqués', 'Summoned students')} value={convokedCount} tone="blue" to="/app/convocations" />
                 <StatCard label={t('Élèves sanctionnés', 'Sanctioned students')} value={sanctionedCount} tone="violet" to="/app/sanctions" />
               </div>

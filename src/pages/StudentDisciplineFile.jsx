@@ -10,6 +10,8 @@ import { supabase } from '../lib/supabase';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { fetchStudentDisciplineFile } from '../lib/vieScolaireService';
+import { attendanceTotals } from '../core/attendanceEngine';
+import { fetchTimetableSlots } from '../lib/schoolService';
 import {
   INCIDENT_TYPES, INCIDENT_SEVERITY, ACTION_TYPES, EXIT_TYPES, labelOf, colorOf,
 } from '../core/disciplineTerms';
@@ -36,7 +38,7 @@ export default function StudentDisciplineFile() {
   const className = classes.find((c) => c.id === student?.class_id)?.name || '';
 
   const [file, setFile] = useState(null);
-  const [absCount, setAbsCount] = useState({ absent: 0, retard: 0, excused: 0 });
+  const [absCount, setAbsCount] = useState({ absNJ: 0, absJ: 0, lates: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -44,13 +46,22 @@ export default function StudentDisciplineFile() {
     (async () => {
       if (!schoolId || !studentId) return;
       setLoading(true);
-      const [f, att] = await Promise.all([
+      const [f, att, tt] = await Promise.all([
         fetchStudentDisciplineFile(schoolId, studentId),
-        supabase.from('attendance').select('status').eq('school_id', schoolId).eq('student_id', studentId),
+        supabase.from('attendance').select('student_id, class_id, subject_id, date, session, status')
+          .eq('school_id', schoolId).eq('student_id', studentId),
+        fetchTimetableSlots(schoolId),
       ]);
       if (!alive) return;
-      const counts = { absent: 0, retard: 0, excused: 0 };
-      for (const a of att?.data || []) counts[a.status] = (counts[a.status] || 0) + 1;
+      // En HEURES (règles de core/attendanceEngine, comme le bulletin) ; retards
+      // de l'appel et du registre dédoublonnés par jour.
+      const rows = att?.data || [];
+      const tot = attendanceTotals(rows, { timetable: tt || [] })[studentId] || { absNJ: 0, absJ: 0 };
+      const lateDays = new Set([
+        ...rows.filter((a) => a.status === 'retard').map((a) => String(a.date).slice(0, 10)),
+        ...(f?.lateArrivals || []).map((r) => String(r.date).slice(0, 10)),
+      ]);
+      const counts = { absNJ: tot.absNJ, absJ: tot.absJ, lates: lateDays.size };
       setFile(f);
       setAbsCount(counts);
       setLoading(false);
@@ -87,8 +98,8 @@ export default function StudentDisciplineFile() {
         ) : (
           <>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <Stat value={absCount.absent} label={t('Absences', 'Absences')} tone="border-red-400" />
-              <Stat value={absCount.retard + (file?.lateArrivals.length || 0)} label={t('Retards', 'Late')} tone="border-amber-400" />
+              <Stat value={`${absCount.absNJ} h`} label={t(`Absences non justifiées (+ ${absCount.absJ} h justifiées)`, `Unexcused absences (+ ${absCount.absJ} h excused)`)} tone="border-red-400" />
+              <Stat value={absCount.lates} label={t('Retards', 'Late')} tone="border-amber-400" />
               <Stat value={file?.incidents.length || 0} label={t('Incidents', 'Incidents')} tone="border-orange-400" />
               <Stat value={file?.actions.length || 0} label={t('Sanctions', 'Sanctions')} tone="border-violet-400" />
               <Stat value={file?.warnings.length || 0} label={t('Avertissements', 'Warnings')} tone="border-gray-300" />

@@ -9,11 +9,14 @@ import { usePlan } from '../lib/plan';
 import UpgradeBanner from '../components/UpgradeBanner';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import { isSubjectScoped } from '../lib/teacherScope';
+import { attendanceTotals, localISODate } from '../core/attendanceEngine';
+import { fetchTimetableSlots } from '../lib/schoolService';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Date LOCALE : toISOString() rendait la date UTC (veille entre 0 h et 1 h à Douala).
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return localISODate();
 }
 
 function initials(name = '') {
@@ -115,8 +118,12 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
     setSaved(false);
   };
 
+  // Un enseignant de matière ne pointe que SON cours : sans matière choisie,
+  // son appel compterait comme une journée entière d'absence.
+  const needsSubject = subjectScoped && !subjectId;
+
   const handleSave = async () => {
-    if (!classId) return;
+    if (!classId || needsSubject) return;
     setSaving(true);
 
     const ops = [];
@@ -208,7 +215,12 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
               onChange={(e) => setSession(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
             >
-              {SESSIONS.map((s) => <option key={s.value} value={s.value}>{t(s.label, s.en, s.es)}</option>)}
+              {SESSIONS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {/* Avec une matière choisie, « sans période » = ce cours (1 h), pas la journée. */}
+                  {s.value === '' && subjectId ? t('Ce cours (1 h)', 'This lesson (1 h)', 'Esta clase (1 h)') : t(s.label, s.en, s.es)}
+                </option>
+              ))}
             </select>
           </div>
           <div>
@@ -252,7 +264,8 @@ function SaisieTab({ schoolId, yearLabel, classes, students, subjects }) {
               {saved && <span className="text-xs text-emerald-600 font-semibold">✓ {t('Enregistré', 'Saved', 'Guardado')}</span>}
               <button
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || needsSubject}
+                title={needsSubject ? t('Choisissez votre matière avant d’enregistrer l’appel.', 'Choose your subject before saving.', 'Elija su asignatura antes de guardar.') : undefined}
                 className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
               >
                 {saving ? t('Enregistrement…', 'Saving…', 'Guardando…') : t('Enregistrer', 'Save', 'Guardar')}
@@ -317,18 +330,20 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo,   setDateTo]   = useState('');
   const [records,  setRecords]  = useState([]);
+  const [timetable, setTimetable] = useState([]);
   const [loading,  setLoading]  = useState(false);
 
   const load = useCallback(async () => {
     const key = `${schoolId}|${yearLabel}|${filterClass}|${dateFrom}|${dateTo}`;
     if (_statsCache[key]) {
       setRecords(_statsCache[key].records);
+      setTimetable(_statsCache[key].timetable || []);
       return;
     }
     setLoading(true);
     let q = supabase
       .from('attendance')
-      .select('student_id, class_id, date, status')
+      .select('student_id, class_id, subject_id, date, session, status')
       .eq('school_id',  schoolId)
       .eq('year_label', yearLabel);
 
@@ -336,34 +351,32 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
     if (dateFrom)    q = q.gte('date', dateFrom);
     if (dateTo)      q = q.lte('date', dateTo);
 
-    const { data } = await q;
-    _statsCache[key] = { records: data ?? [] };
+    const [{ data }, tt] = await Promise.all([q, fetchTimetableSlots(schoolId, yearLabel)]);
+    _statsCache[key] = { records: data ?? [], timetable: tt ?? [] };
     setRecords(data ?? []);
+    setTimetable(tt ?? []);
     setLoading(false);
   }, [schoolId, yearLabel, filterClass, dateFrom, dateTo]);
 
   useEffect(() => { load(); }, [load]);
 
+  // En HEURES (même règle que le bulletin, core/attendanceEngine) : avant, on
+  // comptait des LIGNES — une journée et une heure pesaient pareil, et les
+  // retards s'additionnaient aux absences dans le « total ».
   const stats = useMemo(() => {
-    const map = {};
-    for (const r of records) {
-      if (!map[r.student_id]) map[r.student_id] = { absent: 0, retard: 0, excused: 0 };
-      map[r.student_id][r.status] = (map[r.student_id][r.status] || 0) + 1;
-    }
-    return Object.entries(map)
-      .map(([studentId, counts]) => {
+    const tot = attendanceTotals(records, { timetable });
+    return Object.entries(tot)
+      .map(([studentId, c]) => {
         const student = students.find((s) => s.id === studentId);
-        const cls     = classes.find((c) => c.id === student?.class_id);
-        return { studentId, student, cls, ...counts, total: counts.absent + counts.retard + counts.excused };
+        const cls     = classes.find((k) => k.id === student?.class_id);
+        return { studentId, student, cls, ...c, hours: c.absJ + c.absNJ };
       })
-      .sort((a, b) => b.total - a.total);
-  }, [records, students, classes]);
+      .sort((a, b) => b.absNJ - a.absNJ || b.hours - a.hours || b.lates - a.lates);
+  }, [records, timetable, students, classes]);
 
-  const totals = useMemo(() => ({
-    absent:  records.filter((r) => r.status === 'absent').length,
-    retard:  records.filter((r) => r.status === 'retard').length,
-    excused: records.filter((r) => r.status === 'excused').length,
-  }), [records]);
+  const totals = useMemo(() => stats.reduce((acc, r) => ({
+    absNJ: acc.absNJ + r.absNJ, absJ: acc.absJ + r.absJ, lates: acc.lates + r.lates,
+  }), { absNJ: 0, absJ: 0, lates: 0 }), [stats]);
 
   return (
     <div className="space-y-4">
@@ -413,16 +426,16 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
       {!loading && records.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-xl p-4 shadow-sm border-l-4 border-red-400">
-            <div className="text-2xl font-bold text-gray-900">{totals.absent}</div>
-            <div className="text-xs font-semibold text-gray-500 mt-1">{t('Absences', 'Absences', 'Ausencias')}</div>
+            <div className="text-2xl font-bold text-gray-900">{totals.absNJ} h</div>
+            <div className="text-xs font-semibold text-gray-500 mt-1">{t('Absences non justifiées', 'Unexcused absences', 'Ausencias injustificadas')}</div>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm border-l-4 border-amber-400">
-            <div className="text-2xl font-bold text-gray-900">{totals.retard}</div>
+            <div className="text-2xl font-bold text-gray-900">{totals.lates}</div>
             <div className="text-xs font-semibold text-gray-500 mt-1">{t('Retards', 'Late', 'Retrasos')}</div>
           </div>
           <div className="bg-white rounded-xl p-4 shadow-sm border-l-4 border-blue-400">
-            <div className="text-2xl font-bold text-gray-900">{totals.excused}</div>
-            <div className="text-xs font-semibold text-gray-500 mt-1">{t('Excusées', 'Excused', 'Justificadas')}</div>
+            <div className="text-2xl font-bold text-gray-900">{totals.absJ} h</div>
+            <div className="text-xs font-semibold text-gray-500 mt-1">{t('Absences justifiées', 'Excused absences', 'Ausencias justificadas')}</div>
           </div>
         </div>
       )}
@@ -450,26 +463,26 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
                 <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   <th className="px-5 py-3 text-left">{t('Élève', 'Student', 'Alumno')}</th>
                   <th className="px-4 py-3 text-left">{t('Classe', 'Class', 'Clase')}</th>
-                  <th className="px-4 py-3 text-center text-red-500">{t('Abs.', 'Abs.', 'Aus.')}</th>
-                  <th className="px-4 py-3 text-center text-amber-500">{t('Retard', 'Late', 'Retraso')}</th>
-                  <th className="px-4 py-3 text-center text-blue-500">{t('Excusé', 'Excused', 'Justif.')}</th>
-                  <th className="px-4 py-3 text-center">{t('Total', 'Total', 'Total')}</th>
+                  <th className="px-4 py-3 text-center text-red-500">{t('Non just. (h)', 'Unexc. (h)', 'Injust. (h)')}</th>
+                  <th className="px-4 py-3 text-center text-blue-500">{t('Just. (h)', 'Exc. (h)', 'Just. (h)')}</th>
+                  <th className="px-4 py-3 text-center">{t('Jours', 'Days', 'Días')}</th>
+                  <th className="px-4 py-3 text-center text-amber-500">{t('Retards', 'Late', 'Retrasos')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {stats.map(({ studentId, student, cls, absent, retard, excused, total }) => (
-                  <tr key={studentId} className={`hover:bg-gray-50/50 transition-colors ${total >= 10 ? 'bg-red-50/40' : ''}`}>
+                {stats.map(({ studentId, student, cls, absNJ, absJ, days, lates }) => (
+                  <tr key={studentId} className={`hover:bg-gray-50/50 transition-colors ${absNJ >= 10 ? 'bg-red-50/40' : ''}`}>
                     <td className="px-5 py-3">
                       <div className="font-medium text-gray-900">{student?.name || '—'}</div>
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{cls?.name || '—'}</td>
-                    <td className="px-4 py-3 text-center font-bold text-red-600">{absent}</td>
-                    <td className="px-4 py-3 text-center font-semibold text-amber-600">{retard}</td>
-                    <td className="px-4 py-3 text-center text-blue-600">{excused}</td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`font-bold ${total >= 10 ? 'text-red-700' : 'text-gray-700'}`}>{total}</span>
-                      {total >= 10 && <span className="ml-1 text-xs text-red-400">⚠</span>}
+                      <span className={`font-bold ${absNJ >= 10 ? 'text-red-700' : 'text-red-600'}`}>{absNJ}</span>
+                      {absNJ >= 10 && <span className="ml-1 text-xs text-red-400" title={t('10 h ou plus non justifiées', '10 h or more unexcused')}>⚠</span>}
                     </td>
+                    <td className="px-4 py-3 text-center text-blue-600">{absJ}</td>
+                    <td className="px-4 py-3 text-center text-gray-600">{days}</td>
+                    <td className="px-4 py-3 text-center font-semibold text-amber-600">{lates}</td>
                   </tr>
                 ))}
               </tbody>

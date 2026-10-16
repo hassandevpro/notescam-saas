@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { localISODate } from '../../core/attendanceEngine';
 import { fetchVieScolaireSnapshot } from '../../lib/vieScolaireService';
 import { fetchExpenses } from '../../lib/expenseService';
 import { fetchUnlockRequests } from '../../lib/unlockService';
@@ -34,7 +35,8 @@ function remoteRequestToRow(ev) {
   };
 }
 
-export function todayISO() { return new Date().toISOString().slice(0, 10); }
+// Date LOCALE (toISOString() = UTC : la veille entre 0 h et 1 h à Douala).
+export function todayISO() { return localISODate(); }
 
 // ── Vie scolaire ────────────────────────────────────────────────────────────
 // Faits du jour + faits de l'année, bornés au périmètre déjà appliqué par le store.

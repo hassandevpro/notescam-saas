@@ -868,6 +868,63 @@ for (const t of SYNCED_TABLES) {
   ensureColumn(t, 'version',    'version INTEGER NOT NULL DEFAULT 1'); // compteur monotone (départage)
   ensureColumn(t, 'device_id',  'device_id TEXT');                    // origine du changement (anti-écho + départage)
 }
+
+// ── RATTRAPAGE : les lignes à `updated_at` NULL ne montaient JAMAIS ─────────
+//
+// LE DÉFAUT. `ensureColumn` AJOUTE la colonne `updated_at`, mais laisse les
+// lignes DÉJÀ PRÉSENTES à NULL. Or le cloud refuse une ligne sans `updated_at`
+// — et il la refuse EN SILENCE : `sync-push` répond 200 avec un compteur
+// `skipped` que le serveur LAN ne regarde pas. Tout ce qu'une école avait saisi
+// AVANT l'arrivée de ces colonnes était donc condamné à ne jamais monter, sans
+// qu'aucun écran ne le signale.
+//
+// Pire, le seul chemin de retour prévu n'y changeait rien : `autoRepair` repère
+// la table divergente et RÉENFILE les lignes locales absentes du cloud, qui sont
+// refusées à nouveau, pour la même raison. La divergence ne se résorbe jamais —
+// c'est exactement ce que décrit `divergenceAlert` : « les mêmes tables divergent
+// depuis N cycles, la réparation automatique n'y parvient pas ».
+//
+// QUEL HORODATAGE, ET POURQUOI PAS MAINTENANT. Poser `now` rendrait ces lignes
+// plus RÉCENTES que n'importe quelle version du cloud : la résolution « le plus
+// récent gagne » ferait alors écraser des données cloud à jour par des lignes
+// locales anciennes. On prend donc `created_at` quand la table l'a (60 des 70
+// tables synchronisées), sinon une sentinelle volontairement ANCIENNE. Effet
+// voulu :
+//   • le cloud détient une version plus récente  -> le cloud gagne (correct) ;
+//   • le cloud ne détient rien                   -> la ligne monte enfin.
+//
+// Idempotent par construction (`WHERE updated_at IS NULL`) : une fois rattrapée,
+// une ligne n'est plus jamais touchée ici.
+const UPDATED_AT_SENTINELLE = '2000-01-01T00:00:00.000Z';
+function backfillUpdatedAt() {
+  const touchees = [];
+  let total = 0;
+  for (const t of SYNCED_TABLES) {
+    let cols;
+    try { cols = db.prepare(`PRAGMA table_info(${quoteIdent(t)})`).all().map((c) => c.name); }
+    catch { continue; }                       // table absente de CE schéma
+    if (!cols.length || !cols.includes('updated_at')) continue;
+    const source = cols.includes('created_at')
+      ? `COALESCE(created_at, '${UPDATED_AT_SENTINELLE}')`
+      : `'${UPDATED_AT_SENTINELLE}'`;
+    try {
+      const r = db.prepare(
+        `UPDATE ${quoteIdent(t)} SET updated_at = ${source} WHERE updated_at IS NULL`,
+      ).run();
+      if (r.changes) { total += r.changes; touchees.push(`${t}=${r.changes}`); }
+    } catch (e) {
+      // Une table qui refuse la mise à jour ne doit pas empêcher les autres
+      // d'être rattrapées : on le dit et on continue.
+      console.warn(`[sync] rattrapage updated_at impossible sur ${t} : ${e.message}`);
+    }
+  }
+  if (total) {
+    console.log(`[sync] rattrapage updated_at : ${total} ligne(s) rendues synchronisables — ${touchees.join(', ')}`);
+  }
+  return { total, tables: touchees };
+}
+backfillUpdatedAt();
+export { backfillUpdatedAt, UPDATED_AT_SENTINELLE };
 // H3-a : réplication du journal d'événements (log shipping par curseur seq).
 // `replicated_from` marque un événement TIRÉ du cloud (anti-écho : jamais re-poussé).
 // Un événement d'origine locale a la colonne NULL → seul lui est poussé. L'ordre de

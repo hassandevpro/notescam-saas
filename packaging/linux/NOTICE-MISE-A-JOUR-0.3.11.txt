@@ -1,0 +1,287 @@
+========================================================================
+NotesCam 0.3.11 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Cette version remplace celle installée aujourd'hui chez vous. Pour savoir
+laquelle c'est, sur le serveur :
+
+    curl -s http://localhost:8080/api/version
+
+Si vous êtes en 0.3.6 ou plus récent, cette mise à jour s'applique
+directement : il n'y a aucune version intermédiaire à passer avant. Elle
+contient TOUT ce qui a été fait depuis la 0.3.6.
+
+Aucune migration à lancer à la main sur le serveur. Les colonnes neuves
+sont posées automatiquement au premier démarrage. Aucune donnée scolaire
+n'est modifiée.
+
+LISEZ LA SECTION « CE QUI CHANGE DANS VOS HABITUDES » AVANT D'IMPRIMER
+VOS PROCHAINS BULLETINS. Une des corrections modifie ce qui s'imprime.
+
+
+CE QU'APPORTE CETTE MISE À JOUR
+--------------------------------
+
+1. LE BULLETIN DU PRIMAIRE NE S'OUVRE PLUS SUR UN ÉCRAN BLANC
+
+   Le bulletin primaire détaillé par unité d'apprentissage ne s'affichait
+   pas du tout : la page restait blanche au clic sur un élève. C'était une
+   erreur de programmation, pas un problème de données — aucune note n'a
+   été perdue, et les bulletins se réimpriment à l'identique.
+
+2. UNE MATIÈRE DÉCOCHÉE NE S'IMPRIME PLUS SUR LE BULLETIN
+
+   C'est le changement à connaître. Jusqu'ici, décocher une matière dans
+   la fiche d'une classe n'avait AUCUN effet sur les bulletins officiels
+   du collège (6e–3e), du primaire et de la maternelle : ces documents
+   listaient le référentiel national sans regarder vos matières. Vous
+   retiriez « Informatique » de votre 6e et la ligne continuait de
+   s'imprimer, vide.
+
+   Désormais, les matières cochées font foi. La correction couvre les
+   trois documents : le BULLETIN, le PROCÈS-VERBAL de délibération et le
+   RAPPORT DE CLASSE — qui, eux, n'appliquaient même pas les matières
+   masquées. Le conseil de classe délibérait donc sur des colonnes que le
+   bulletin n'imprimait pas.
+
+   GARDE-FOU : si aucune de vos matières ne se rapproche du référentiel,
+   rien n'est filtré — le bulletin reste complet. Mieux vaut une matière
+   en trop qu'un bulletin amputé. Et l'écran Bulletins AFFICHE maintenant
+   le nombre de lignes écartées, avec leur nom : vous voyez ce qui ne
+   s'imprimera pas AVANT d'imprimer.
+
+3. DÉCOCHER UNE MATIÈRE FONCTIONNE ENFIN
+
+   « À chaque fois que je décoche une matière qui n'est pas de la salle de
+   classe, ça revient tout seul. » La case se remettait d'elle-même dès
+   qu'une séquence de la classe était verrouillée. Le verrou ne porte plus
+   que sur les matières qui PORTENT DES NOTES : une matière sans note se
+   retire librement. Aucune matière notée ne devient supprimable, donc
+   aucun bulletin verrouillé ne peut être recalculé.
+
+4. L'APPEL QUOTIDIEN ALIMENTE LES HEURES D'ABSENCE DU BULLETIN
+
+   L'appel du surveillant et les heures d'absence du bulletin étaient deux
+   registres sans lien : on pointait chaque jour, puis le conseil retapait
+   les heures à la main.
+
+   Le conseil de classe propose maintenant « Appel : n » à côté des heures
+   d'absence, avec un bouton « Appliquer », et un bouton « Reporter
+   l'appel » pour toute la classe (avec confirmation). RIEN N'EST ÉCRASÉ
+   SANS VOTRE ACTION : la proposition s'affiche, vous décidez.
+
+   Le comptage se fait en heures de cours, d'après l'emploi du temps de la
+   classe (6 h la journée, 3 h la demi-journée à défaut). Une journée n'est
+   jamais comptée deux fois, un retard n'est jamais compté en absence, et
+   une excuse prime sur une absence sur la même plage.
+
+5. SAUVEGARDE AUTOMATIQUE, EXPORT COMPLET ET RESTAURATION
+
+   Nouvel écran : Paramètres → Sauvegarde & restauration (administrateur).
+
+   Il ne tient AUCUNE liste de tables : à chaque export, les tables sont
+   découvertes dans la base réelle — toute table rattachée à l'école en
+   fait partie. Un module ajouté demain y entre d'office.
+
+   Sur votre serveur, une copie de la base est prise toutes les 2 heures
+   et au démarrage. La rotation garde les 14 plus récentes PLUS une par
+   jour sur 14 jours : auparavant seules les 14 dernières étaient
+   conservées, soit environ 28 heures d'historique — une erreur découverte
+   le surlendemain n'était plus rattrapable.
+
+   La restauration demande toujours un aperçu, ne SUPPRIME jamais rien, et
+   refuse la sauvegarde d'un autre établissement. La restauration d'un
+   fichier de base complet s'applique au redémarrage suivant, en
+   conservant l'ancienne base et son journal dans un dossier à part.
+
+   À SAVOIR : les photos d'élèves, logos et tampons ne sont pas dans
+   l'export JSON — ce sont des images, stockées à part. Les copies de base
+   du serveur, elles, contiennent tout.
+
+   SI VOTRE ÉCOLE SYNCHRONISE AVEC LE CLOUD, une opération reste à faire
+   côté éditeur pour activer la sauvegarde automatique du Cloud. Sans
+   elle, le Cloud n'a que des sauvegardes manuelles. Votre serveur local,
+   lui, sauvegarde tout seul dès l'installation.
+
+   L'ancien export de l'écran « Audit & Sauvegardes » A ÉTÉ RETIRÉ. Il
+   s'annonçait « sauvegarde complète » et n'emportait en réalité que 9 des
+   29 ensembles de données : ni les notes du collège, ni celles du
+   primaire, ni les observations de maternelle, ni le personnel. L'onglet
+   renvoie maintenant vers le nouvel écran. Si vous détenez un ancien
+   fichier exporté, il reste lisible par la nouvelle restauration.
+
+6. REGISTRE MATRICULE SUR LA FICHE ÉLÈVE
+
+   Quatre champs du registre officiel, qui n'existaient pas : date et
+   motif d'entrée, date et motif de sortie (ED, ET, NM, EX, TF, DM, LM,
+   DC), plus la profession du tuteur. L'année seule suffit comme date —
+   c'est ce que portent les registres.
+
+7. L'IMPORT D'ÉLÈVES CRÉE LES CLASSES QUI MANQUENT
+
+   L'import rapprochait les noms de classes de celles qui existaient DÉJÀ.
+   Une école qui importait ses élèves avant d'avoir saisi ses classes les
+   voyait tous arriver sans classe — donc absents des listes, des
+   bulletins, des rangs et des frais.
+
+   L'import propose maintenant de créer les classes absentes (case cochée
+   par défaut, avec la liste et l'effectif de chacune avant de lancer), et
+   configure leurs matières automatiquement. Les abréviations courantes
+   sont comprises : « 6e », « 1re », « Tle », « 2de ».
+
+   Deux colonnes étaient aussi mal rangées à l'import : « Profession du
+   père » et « Profession de la mère » (avec l'article) n'étaient
+   reconnues par aucune colonne et repartaient vides — pire, la profession
+   du père était parfois lue comme son NOM.
+
+
+CE QUI CHANGE DANS VOS HABITUDES
+---------------------------------
+Un seul point, mais il touche les documents officiels.
+
+AVANT D'IMPRIMER VOS PROCHAINS BULLETINS, vérifiez les matières cochées
+de chaque classe : Classes → une classe → liste des matières.
+
+Une matière DÉCOCHÉE ne s'imprimera plus. C'est le comportement attendu,
+et c'est ce que vous demandiez — mais si une matière a été décochée par
+erreur il y a des mois, personne ne l'a remarqué jusqu'ici, puisque le
+bulletin l'imprimait quand même.
+
+L'écran Bulletins vous le dit : choisissez une classe et un bulletin
+officiel, et lisez l'encadré gris au-dessus de l'aperçu. Il nomme les
+lignes écartées. S'il est absent, rien n'est écarté.
+
+
+CE QUI N'EST PAS TOUCHÉ
+-----------------------
+  - Aucune donnée scolaire n'est modifiée : élèves, notes, bulletins,
+    classes, frais, encaissements, paie.
+  - La base de données est CONSERVÉE (copie de sûreté automatique avant
+    l'installation).
+  - Le rattachement au Cloud est CONSERVÉ.
+  - Les rôles, les secteurs et les permissions ne bougent pas.
+  - Les moyennes et les cotes ne changent pas : aucune règle de calcul
+    n'a été modifiée. Seules les LIGNES imprimées peuvent changer, pour
+    les matières décochées (point 2).
+
+
+CE QU'IL VOUS FAUT
+------------------
+  - Le fichier :
+        notescam-linux-x64-0.3.11.tar.gz      (53 320 977 octets)
+
+    Empreinte SHA-256, à vérifier AVANT d'installer :
+
+        66cea6b3fd69dd65ceb766b321c1e986547747a627dc503369efd65022346994
+
+    Sur le serveur :
+
+        sha256sum notescam-linux-x64-0.3.11.tar.gz
+
+    Si l'empreinte affichée diffère, n'installez pas : le fichier a été
+    abîmé pendant le transfert. Redemandez-le.
+
+  - Le script deploy-correctif-credentials.sh, déjà reçu au 0.2.1.
+  - Un accès au serveur Linux, avec les droits « sudo ».
+  - Environ 5 minutes. Service indisponible ~1 minute.
+
+
+ÉTAPE 1 — INSTALLATION
+----------------------
+        cd ~
+        ls -l notescam-linux-x64-0.3.11.tar.gz
+        sha256sum notescam-linux-x64-0.3.11.tar.gz
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.3.11.tar.gz
+
+   (Si le port n'est pas 8080 — « grep PORT /etc/notescam/notescam.env » :
+        sudo PORT=LE_PORT ./deploy-correctif-credentials.sh notescam-linux-x64-0.3.11.tar.gz )
+
+Contrôle :
+
+        curl -s http://127.0.0.1:8080/api/version
+
+  doit contenir : "version":"0.3.11"
+
+
+ÉTAPE 2 — RECHARGER LES POSTES
+-------------------------------
+Sur chaque poste : Ctrl + Maj + R (rechargement forcé). Sans cela, le
+navigateur continue d'afficher l'ancienne version — ce n'est pas une
+panne, c'est sa copie locale.
+
+C'est à cette étape, et pas avant, que vous verrez le nouvel écran de
+sauvegarde et le bulletin primaire réparé.
+
+
+ÉTAPE 3 — VÉRIFICATIONS APRÈS INSTALLATION
+-------------------------------------------
+À faire dans l'heure qui suit, dans cet ordre.
+
+  1. Le service tourne et annonce la bonne version :
+
+        systemctl is-active notescam
+        curl -s http://127.0.0.1:8080/api/version
+
+  2. Le rattachement au Cloud est intact :
+
+        curl -s http://127.0.0.1:8080/api/pair/status
+
+     Le « schoolId » doit être le MÊME qu'avant la mise à jour.
+
+  3. Vos effectifs et vos encaissements n'ont pas bougé : ouvrez la liste
+     des élèves et le tableau de bord des frais, et comparez au relevé
+     que vous aviez avant l'installation.
+
+  4. LE BULLETIN DU PRIMAIRE S'OUVRE. Bulletins → une classe de primaire
+     → un élève. La page doit afficher le bulletin, et non rester blanche.
+
+  5. LES MATIÈRES DU BULLETIN. Sur une classe du collège, ouvrez un
+     bulletin officiel et comparez les matières imprimées à celles cochées
+     dans la fiche de la classe. Elles doivent correspondre. Si une
+     matière manque, c'est qu'elle est décochée : recochez-la dans
+     Classes, l'aperçu se met à jour aussitôt.
+
+  6. LA SAUVEGARDE. Paramètres → Sauvegarde & restauration. L'écran doit
+     s'ouvrir et lister vos sauvegardes. Lancez-en une à la main pour
+     vérifier qu'elle aboutit. Sur le serveur :
+
+        ls -l /var/lib/notescam/data/backups/ | tail -5
+
+  7. L'APPEL. Si vous utilisez l'appel quotidien : ouvrez un conseil de
+     classe et vérifiez que la proposition « Appel : n » apparaît à côté
+     des heures d'absence. N'appliquez rien si les chiffres vous semblent
+     faux — prévenez l'éditeur.
+
+Si l'un de ces sept points ne répond pas comme décrit, ne tentez rien
+d'autre : passez au retour arrière ci-dessous et prévenez l'éditeur.
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+La copie de la base est déposée automatiquement avant l'installation dans
+/var/lib/notescam/data/ :
+
+        notescam.db.avant-correctif-<horodatage>
+
+Pour revenir à la version précédente (application seule) :
+
+        sudo systemctl stop notescam
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.3.6.tar.gz
+
+Si, et SEULEMENT si, la base elle-même pose problème, restaurez la copie
+prise juste avant l'installation :
+
+        sudo systemctl stop notescam
+        sudo cp -a /var/lib/notescam/data/notescam.db.avant-correctif-<horodatage> \
+                   /var/lib/notescam/data/notescam.db
+        sudo systemctl start notescam
+
+ATTENTION : restaurer la base ANNULE aussi tout ce qui a été saisi depuis
+l'installation. Ne le faites pas de votre propre initiative — appelez
+l'éditeur d'abord.
+
+Revenir à la version précédente sans toucher à la base est sans risque :
+les colonnes ajoutées par la 0.3.11 sont simplement ignorées par
+l'ancienne version.
+
+Ne supprimez jamais la copie de sûreté.

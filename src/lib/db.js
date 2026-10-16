@@ -20,7 +20,70 @@ const DB_NAME = 'NotesCamDB';
 //             magasin qui remplace la suppression silencieuse par âge.
 const DB_VERSION = 20;
 
+// Magasins dont CE bundle a besoin. Sert uniquement au repli de retour arrière
+// ci-dessous (`openExisting`) : il faut pouvoir dire si une base plus récente
+// porte encore tout ce que cette version sait lire. À tenir à jour avec
+// `onupgradeneeded` — un magasin oublié ici ne casse rien, il rend seulement le
+// contrôle moins strict.
+const REQUIRED_STORES = [
+  'academic_periods', 'apc_bulletins', 'apc_notes', 'apc_ref', 'audit_events',
+  'audit_log', 'bil_ref', 'class_fee_grids', 'classes', 'document_log',
+  'domain_events', 'fee_payments', 'grades', 'mat_obs', 'mat_ref', 'prim_notes',
+  'prim_ref', 'sc_ref', 'school_units', 'signalements', 'staff',
+  'student_class_assignments', 'student_fees', 'students', 'subjects',
+  'syncQuarantine', 'syncQueue', 'teachers', 'trash',
+];
+
 let _db = null;
+
+// ── RETOUR ARRIÈRE : une base plus récente que le bundle ─────────────────────
+//
+// LE DÉFAUT QUE CECI CORRIGE. `indexedDB.open(nom, version)` ÉCHOUE — et ne se
+// contente pas d'avertir — quand la base déjà présente porte une version
+// SUPÉRIEURE à celle demandée. Le navigateur lève `VersionError`.
+//
+// C'est exactement ce que produit un retour arrière du déploiement. Le passage
+// de la 18 à la 20 (magasin `syncQuarantine`, 15/10/2026) a fait monter toutes
+// les bases locales à 20. Revenir à un bundle antérieur, par un rollback Vercel
+// fait dans l'urgence, lui ferait demander la 18 : `initDB` rejetait, et plus
+// AUCUNE page ne s'ouvrait — pour tous les utilisateurs déjà passés, y compris
+// hors ligne. Le geste réflexe en cas d'incident était donc celui qui cassait
+// tout, et il ne se serait vu qu'après coup.
+//
+// Une version supérieure n'ajoute presque jamais que des magasins : un bundle
+// plus ancien y retrouve les siens et fonctionne. On réouvre donc SANS imposer
+// de version — ce qui prend la base telle qu'elle est — et on ne refuse que si
+// un magasin nécessaire manque réellement (cas d'une SUPPRESSION de magasin,
+// comme `bareme_notes` retiré en v18). Le refus porte alors un message qui dit
+// quoi faire, au lieu d'un `VersionError` nu.
+//
+// Aucune écriture, aucune migration, aucune donnée touchée : on se contente
+// d'ouvrir ce qui existe.
+function openExisting() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME);   // sans version : celle en place
+    req.onsuccess = (e) => {
+      const db = e.target.result;
+      const manquants = REQUIRED_STORES.filter((s) => !db.objectStoreNames.contains(s));
+      if (manquants.length) {
+        db.close();
+        reject(new Error(
+          `Base locale en version ${db.version}, incompatible avec cette version de `
+          + `l'application (prévue pour la ${DB_VERSION}) : il y manque ${manquants.join(', ')}. `
+          + 'Revenez à une version plus récente de NotesCam — vos données locales sont intactes.',
+        ));
+        return;
+      }
+      console.warn(
+        `[db] base locale en version ${db.version}, bundle prévu pour la ${DB_VERSION} — `
+        + 'ouverture en l’état (retour arrière de déploiement). Tous les magasins requis sont présents.',
+      );
+      _db = db;
+      resolve(db);
+    };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
 
 // Demande au navigateur de garder le storage de l'app de façon persistante.
 // Sur Chromium-based & Firefox, cela évite l'éviction silencieuse de IndexedDB
@@ -281,7 +344,13 @@ export async function initDB() {
       resolve(_db);
     };
 
-    req.onerror = (e) => reject(e.target.error);
+    // Base plus récente que ce bundle (retour arrière) : on réouvre en l'état
+    // plutôt que d'échouer. Voir `openExisting` ci-dessus.
+    req.onerror = (e) => {
+      const err = e.target.error;
+      if (err?.name === 'VersionError') { openExisting().then(resolve, reject); return; }
+      reject(err);
+    };
   });
 }
 

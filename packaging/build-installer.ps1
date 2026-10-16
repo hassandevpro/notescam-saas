@@ -120,6 +120,25 @@ $global:LASTEXITCODE = 0   # robocopy : 0-7 = succès
 # governanceApply.js -> ../src/domains/finance/events.js. Source unique = src/
 # (aucune duplication de logique). On embarque ces dossiers en préservant le chemin
 # relatif `app/src/...` attendu par les imports du serveur.
+# Outil de DIAGNOSTIC de la synchronisation, sur le poste de l'école.
+#
+# CE QUE SON ABSENCE COÛTAIT. `scripts/diagnostic-sync-lan.mjs` documente
+# lui-même sa commande d'usage, qui pointe vers `app\scripts\` — un dossier que
+# l'installeur ne créait jamais. Le fichier n'existait donc pas sur le poste, et
+# la commande échouait.
+#
+# Ce n'est pas un détail d'outillage : toutes les routes `/api/sync/*` exigent un
+# jeton d'ADMINISTRATEUR, donc un appel direct ne passe pas. Quand la synchro
+# d'une école décroche, ce script est le seul moyen de regarder la base sans
+# session — donc sans dépendre d'une interface qui peut elle-même être en panne.
+# Il lit en SEULE LECTURE, ne contacte pas le cloud et ne modifie rien.
+#
+# On n'embarque QUE ce diagnostic, pas tout `scripts\` : le reste s'appuie sur
+# les dépendances de développement, absentes d'un poste d'école.
+Step "Outil de diagnostic de la synchronisation"
+New-Item -ItemType Directory -Force (Join-Path $Stage 'app\scripts') | Out-Null
+Copy-Item (Join-Path $Root 'scripts\diagnostic-sync-lan.mjs') (Join-Path $Stage 'app\scripts\') -Force
+
 foreach ($sub in @('lib', 'governance', 'domains')) {
   robocopy (Join-Path $Root "src\$sub") (Join-Path $Stage "app\src\$sub") /E /XF *.log | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "robocopy src\$sub a échoué (code $LASTEXITCODE)" }

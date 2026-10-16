@@ -122,6 +122,27 @@ step "Copie des scripts d'installation"
 cp "$HERE/install.sh" "$HERE/uninstall.sh" "$HERE/notescam.service" "$HERE/LISEZ-MOI.txt" "$STAGE/"
 chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"
 
+# --- Outils de DIAGNOSTIC, sur le serveur de l'école ---------------------
+#
+# CE QUE LEUR ABSENCE COÛTAIT. `scripts/diagnostic-sync-lan.mjs` documente
+# lui-même sa commande d'usage :
+#     /opt/notescam/node/bin/node /opt/notescam/app/scripts/diagnostic-sync-lan.mjs
+# Or `scripts/` n'était copié NULLE PART dans le paquet : le fichier n'existait
+# pas sur le serveur, et la commande échouait sur « module introuvable ».
+#
+# Ce n'est pas un détail d'outillage. Toutes les routes `/api/sync/*` exigent un
+# jeton d'ADMINISTRATEUR (`requireLocalAdmin`) : un `curl` depuis le serveur ne
+# passe pas. Quand la synchronisation d'une école décroche, le seul moyen de
+# regarder la base sans session — donc sans dépendre d'une interface qui peut
+# elle-même être en panne — était ce script. Il n'était pas là.
+#
+# On n'embarque QUE les diagnostics, pas tout `scripts/` : le reste s'appuie sur
+# les dépendances de développement, absentes d'un serveur d'école.
+mkdir -p "$STAGE/app/scripts"
+cp "$ROOT/scripts/diagnostic-sync-lan.mjs" "$STAGE/app/scripts/"
+cp "$HERE/diagnostic-hors-ligne.sh" "$HERE/diagnostic-saisie-notes.sh" "$STAGE/"
+chmod +x "$STAGE/diagnostic-hors-ligne.sh" "$STAGE/diagnostic-saisie-notes.sh"
+
 step "Normalisation des fins de ligne (LF)"
 # Un build lance depuis Windows avec core.autocrlf=true recupere les .sh en CRLF.
 # Sous Linux, le shebang devient «bash\r» et le script est INEXECUTABLE :
@@ -136,7 +157,10 @@ while IFS= read -r -d '' f; do
 done < <(find "$STAGE" -maxdepth 2 -name '*.sh' -type f -print0)
 echo "  scripts convertis de CRLF vers LF : $crlf"
 # Garde-fou : le paquet ne doit JAMAIS sortir avec un shebang en CRLF.
-for f in "$STAGE"/install.sh "$STAGE"/uninstall.sh; do
+# Les DIAGNOSTICS y sont inclus : un shebang en CRLF les rend inexécutables
+# exactement comme l'installeur, et on ne le découvrirait qu'au moment où une
+# école en panne essaie de s'en servir.
+for f in "$STAGE"/*.sh; do
   if head -1 "$f" | grep -qU $'\r'; then
     echo "ERREUR : $f a encore un shebang CRLF — construction interrompue." >&2
     exit 1

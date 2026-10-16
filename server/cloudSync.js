@@ -32,6 +32,11 @@ function currentPolicy() {
 
 const TOKEN_PATH = join(DATA_DIR, 'server-token.key');
 const BATCH = 500;
+// Tentatives avant de mettre la tête de file de côté. Assez haut pour qu'une
+// coupure réseau ou un cloud momentanément indisponible ne sacrifie rien (la
+// synchro tourne plusieurs fois par heure), assez bas pour qu'une entrée
+// réellement refusée ne bloque pas l'école pendant des semaines.
+const PUSH_MAX_ATTEMPTS = Number(process.env.NOTESCAM_PUSH_MAX_ATTEMPTS || 8);
 
 // Ordre FK pour appliquer les lignes distantes (parents avant enfants).
 const PULL_ORDER = [
@@ -305,7 +310,50 @@ async function push(edge, dryRun) {
   const planned = changes.map((c) => ({ table: c.table, op: c.op, id: c.row.id }));
   if (dryRun) return { pushed: 0, planned };
 
-  await edge('sync-push', { changes });
+  // ── UNE ENTRÉE QUI ÉCHOUE NE DOIT PAS BLOQUER LA FILE ÉTERNELLEMENT ──────
+  //
+  // Avant : un échec de `sync-push` laissait la file intacte, donc le MÊME lot
+  // repartait au cycle suivant, indéfiniment. Une seule entrée refusée par le
+  // cloud bloquait tout ce qui était derrière — c'est-à-dire tout ce que l'école
+  // avait saisi depuis. Constaté : une tête de file vieille de 71 jours, et des
+  // centaines d'élèves qui ne remontaient pas.
+  //
+  // Désormais on compte les tentatives. Au-delà du seuil, la TÊTE part en
+  // quarantaine et la file redémarre. On ne perd rien : c'est une entrée de
+  // file qu'on met de côté, pas une donnée — la ligne reste en base, et
+  // `autoRepair` sait la réenfiler quand le contrôle d'intégrité la déclare
+  // manquante au cloud.
+  try {
+    await edge('sync-push', { changes });
+  } catch (err) {
+    const ids = entries.map((e) => e.id);
+    const quand = new Date().toISOString();
+    const msg = String(err?.message || err).slice(0, 500);
+    tx(() => {
+      db.prepare(
+        `UPDATE sync_outbox SET attempts = attempts + 1, last_error = ?
+          WHERE id IN (${ids.map(() => '?').join(',')})`,
+      ).run(msg, ...ids);
+      // La TÊTE seule est mise de côté : c'est elle qui barre le passage, et on
+      // ne sait pas lesquelles des 500 autres sont fautives. En écarter une par
+      // cycle isole le coupable sans jamais sacrifier un lot entier.
+      const tete = db.prepare('SELECT * FROM sync_outbox ORDER BY id LIMIT 1').get();
+      if (tete && tete.attempts >= PUSH_MAX_ATTEMPTS) {
+        db.prepare(
+          `INSERT INTO sync_outbox_quarantine
+             (tablename, row_id, op, at, attempts, last_error, quarantined_at)
+           VALUES (?,?,?,?,?,?,?)`,
+        ).run(tete.tablename, tete.row_id, tete.op, tete.at, tete.attempts, tete.last_error, quand);
+        db.prepare('DELETE FROM sync_outbox WHERE id = ?').run(tete.id);
+        console.warn(
+          `[sync] tete de file mise de cote apres ${tete.attempts} tentatives : `
+          + `${tete.tablename}/${tete.row_id} (${tete.op}) — ${msg}. `
+          + 'La file redemarre ; la ligne reste en base et sera reenfilee par la reparation.',
+        );
+      }
+    });
+    throw err;
+  }
   // Succès : purge les entrées traitées (les nouvelles, id > maxId, restent).
   const maxId = entries[entries.length - 1].id;
   db.prepare('DELETE FROM sync_outbox WHERE id <= ?').run(maxId);
@@ -384,6 +432,40 @@ export async function syncOnce({ edge = edgeFetch, dryRun = false } = {}) {
 // ici — le contrôle d'intégrité lourd est réservé à l'appairage / après restauration /
 // à la demande de l'admin (cf. syncVerify.js), pour tenir la charge à des centaines
 // d'établissements et des millions de lignes.
+// ── POURQUOI LE CONTRÔLE D'INTÉGRITÉ EST SORTI DU CHEMIN DE SUCCÈS ─────────
+//
+// Le bloc `verifyIntegrity` / `autoRepair` vivait APRÈS `syncOnce()`, dans le
+// même `try`. Donc dès que `syncOnce()` levait — et une tête de file refusée par
+// le cloud la fait lever à CHAQUE cycle — on sautait directement au `catch`, et
+// la réparation automatique N'ÉTAIT JAMAIS EXÉCUTÉE.
+//
+// C'était un blocage circulaire parfait : la file ne passait pas, donc la
+// réparation ne tournait pas, donc les lignes manquantes n'étaient jamais
+// réenfilées, donc la divergence durait. L'alerte affichée à l'école — « les
+// mêmes tables divergent depuis N cycles, la réparation automatique n'y parvient
+// pas » — était littéralement vraie : la réparation ne s'exécutait pas du tout.
+//
+// Elle tourne désormais DANS TOUS LES CAS, échec de poussée compris. C'est
+// précisément quand la synchro va mal qu'on a besoin d'elle.
+async function verifierEtReparer() {
+  try {
+    const { verifyIntegrity } = await import('./syncVerify.js');
+    let report = await verifyIntegrity({ promote: false });
+    markVerification(report);
+    if (!report.ok) {
+      try {
+        const { autoRepair } = await import('./syncRepair.js');
+        const rep = await autoRepair();
+        if (rep?.report) { report = rep.report; markVerification(report); }
+      } catch (re) { console.warn('[sync] auto-réparation indisponible:', re.message); }
+    }
+    return report;
+  } catch (ve) {
+    console.warn('[sync] rapport d’intégrité indisponible:', ve.message);
+    return null;
+  }
+}
+
 async function runScheduledSync() {
   markSyncStart();
   const t0 = Date.now();
@@ -394,22 +476,8 @@ async function runScheduledSync() {
     // publie le rapport (métriques + empreinte globale + verdict) pour l'UI, sans
     // action de l'admin. Léger (`promote:false`) : lecture O(1) de l'arbre de Merkle
     // maintenu + descente seulement sur divergence → aucun rescan global. Best-effort :
-    // ne transforme jamais une synchro réussie en erreur. Import dynamique (anti-cycle).
-    let report = null;
-    try {
-      const { verifyIntegrity } = await import('./syncVerify.js');
-      report = await verifyIntegrity({ promote: false });
-      markVerification(report);
-      if (!report.ok) {
-        // AUTO-RÉPARATION : ne JAMAIS relancer une synchro complète — répare seulement
-        // les partitions divergentes, puis re-publie le rapport. Best-effort.
-        try {
-          const { autoRepair } = await import('./syncRepair.js');
-          const rep = await autoRepair();
-          if (rep?.report) { report = rep.report; markVerification(report); }
-        } catch (re) { console.warn('[sync] auto-réparation indisponible:', re.message); }
-      }
-    } catch (ve) { console.warn('[sync] rapport d’intégrité indisponible:', ve.message); }
+    // ne transforme jamais une synchro réussie en erreur.
+    const report = await verifierEtReparer();
     // Une seule entrée d'audit ENRICHIE par cycle (état de parité + empreinte + rapport).
     recordSyncAudit({
       kind: 'sync', pushed: r.pushed, pulled: r.pulled, deleted: r.deleted,
@@ -420,7 +488,12 @@ async function runScheduledSync() {
     return r;
   } catch (e) {
     markSyncError(e);
-    recordSyncAudit({ kind: 'error', duration_ms: Date.now() - t0, ok: false, detail: { message: e.message } });
+    // LA RÉPARATION TOURNE AUSSI QUAND LA POUSSÉE A ÉCHOUÉ. C'est le correctif
+    // du blocage circulaire : avant, un échec sautait ce bloc, donc les lignes
+    // manquantes n'étaient jamais réenfilées et la divergence durait pour
+    // toujours. C'est précisément quand la synchro va mal qu'il faut réparer.
+    const report = await verifierEtReparer();
+    recordSyncAudit({ kind: 'error', duration_ms: Date.now() - t0, ok: false, detail: { message: e.message }, report: report || null });
     throw e;
   }
 }

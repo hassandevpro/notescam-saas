@@ -895,6 +895,37 @@ for (const t of SYNCED_TABLES) {
 //
 // Idempotent par construction (`WHERE updated_at IS NULL`) : une fois rattrapée,
 // une ligne n'est plus jamais touchée ici.
+// ── FILE DE POUSSÉE : compter les tentatives, et mettre de côté l'entrée qui
+//    bloque tout ──────────────────────────────────────────────────────────────
+//
+// LE DÉFAUT. `push()` lit la file par lots ordonnés (`ORDER BY id LIMIT 500`) et
+// ne la purge QUE si `sync-push` a répondu. Si l'appel échoue, le MÊME lot est
+// rejoué au cycle suivant, indéfiniment. Une seule entrée que le cloud refuse
+// bloque donc la file ENTIÈRE — et avec elle tout ce qui a été saisi depuis.
+// Constaté sur une base réelle : une entrée en tête depuis 71 jours.
+//
+// Il n'existait aucun moyen de le voir ni d'en sortir : la table n'avait pas de
+// compteur de tentatives, et aucun écran ne montrait la tête de file.
+//
+// `attempts` compte les échecs, `last_error` garde la raison. Au-delà du seuil,
+// l'entrée part dans `sync_outbox_quarantine` : la file redémarre, et RIEN n'est
+// perdu — la LIGNE reste en base, et `autoRepair` sait la réenfiler. On met de
+// côté une ENTRÉE DE FILE, pas une donnée.
+ensureColumn('sync_outbox', 'attempts',   'attempts INTEGER NOT NULL DEFAULT 0');
+ensureColumn('sync_outbox', 'last_error', 'last_error TEXT');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sync_outbox_quarantine (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    tablename  TEXT NOT NULL,
+    row_id     TEXT NOT NULL,
+    op         TEXT NOT NULL,
+    at         TEXT NOT NULL,
+    attempts   INTEGER NOT NULL,
+    last_error TEXT,
+    quarantined_at TEXT NOT NULL
+  );
+`);
+
 const UPDATED_AT_SENTINELLE = '2000-01-01T00:00:00.000Z';
 function backfillUpdatedAt() {
   const touchees = [];

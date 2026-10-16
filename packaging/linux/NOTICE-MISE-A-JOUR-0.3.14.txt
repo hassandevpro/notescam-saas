@@ -1,0 +1,460 @@
+========================================================================
+NotesCam 0.3.14 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Cette version remplace celle installée aujourd'hui chez vous. Pour savoir
+laquelle c'est, sur le serveur :
+
+    curl -s http://localhost:8080/api/version
+
+Si vous êtes en 0.3.6 ou plus récent, cette mise à jour s'applique
+directement : il n'y a AUCUNE version intermédiaire à passer avant. Elle
+contient tout ce qui a été fait depuis — les 0.3.7 à 0.3.13 sont
+comprises.
+
+SI VOUS AVEZ DÉJÀ INSTALLÉ LA 0.3.13, installez celle-ci par-dessus. La
+0.3.13 corrigeait une partie du blocage de synchronisation, mais pas la
+principale : la file de poussée restait barrée. C'est la 0.3.14 qui la
+débloque.
+
+Aucune migration à lancer à la main sur le serveur. Les colonnes neuves
+sont posées automatiquement au premier démarrage.
+
+DEUX CHANGEMENTS MODIFIENT CE QUE VOUS VERREZ À L'ÉCRAN, et il vaut mieux
+les connaître avant de s'en étonner : des matières peuvent disparaître
+d'un bulletin, et le montant dû d'un élève peut BAISSER. Les deux sont
+voulus, et expliqués à la section « CE QUI CHANGE DANS VOS HABITUDES ».
+
+
+LE PLUS IMPORTANT DE CETTE VERSION
+-----------------------------------
+
+LA SYNCHRONISATION REPREND POUR DES DONNÉES QUI NE MONTAIENT JAMAIS.
+
+Si vous avez déjà vu, dans Paramètres → Synchronisation, le message « les
+mêmes tables divergent depuis N cycles, la réparation automatique n'y
+parvient pas » : cette version corrige la cause.
+
+Trois défauts se tenaient les uns les autres. Les deux premiers sont la
+vraie cause, et ils expliquent pourquoi rien ne remontait.
+
+PREMIER DÉFAUT — UNE SEULE LIGNE REFUSÉE BLOQUAIT TOUT LE RESTE.
+
+Les changements à envoyer au cloud attendent dans une file, et ils partent
+dans l'ordre. Le serveur ne vidait cette file QUE si le cloud avait
+répondu. Si l'envoi échouait, le même paquet repartait au cycle suivant,
+indéfiniment — et tout ce qui attendait derrière restait bloqué.
+
+Autrement dit : une seule ligne que le cloud refuse, et plus RIEN ne
+remonte. Ni les élèves saisis ce matin, ni ceux de l'an dernier. Relevé
+sur un serveur réel : une ligne bloquée en tête de file depuis 71 jours.
+
+Rien ne permettait de le voir. La file ne comptait pas les tentatives, et
+aucun écran ne montrait ce qui la barrait.
+
+La 0.3.14 compte les tentatives. Au bout de huit échecs, la ligne qui
+barre le passage est MISE DE CÔTÉ et la file redémarre. Rien n'est perdu :
+c'est une entrée de file qu'on écarte, pas une donnée — l'élève, la note
+ou le versement reste en base, et la réparation automatique sait le
+renvoyer.
+
+SECOND DÉFAUT — LA RÉPARATION AUTOMATIQUE NE S'EXÉCUTAIT JAMAIS.
+
+Le contrôle d'intégrité et la réparation tournaient APRÈS l'envoi, et
+seulement si l'envoi avait réussi. Or l'envoi échouait à chaque cycle, à
+cause du premier défaut. La réparation était donc purement sautée.
+
+C'était un cercle sans issue : la file ne passait pas, donc la réparation
+ne tournait pas, donc les lignes manquantes n'étaient jamais renvoyées,
+donc la divergence durait. Le message que vous voyiez — « la réparation
+automatique n'y parvient pas » — était exact au mot près : elle ne
+s'exécutait pas du tout.
+
+Elle tourne désormais dans tous les cas, échec d'envoi compris. C'est
+précisément quand la synchronisation va mal qu'on en a besoin.
+
+TROISIÈME DÉFAUT — DES LIGNES QUE LE CLOUD REFUSAIT EN SILENCE.
+
+Les tables synchronisées portent une colonne d'horodatage, ajoutée par une
+mise à jour passée. Elle est restée VIDE pour les lignes qui existaient
+déjà, et le cloud refuse une ligne sans horodatage — sans rien dire. Tout
+ce qui avait été saisi avant cette mise à jour ne pouvait donc jamais
+remonter. Mesuré sur une base réelle : 50 lignes sur 6 tables — élèves,
+classes, matières, affectations, enseignants, comptes.
+
+Ces lignes sont horodatées à leur DATE DE CRÉATION — et non à l'heure du
+rattrapage, ce qui est le point délicat : les dater « maintenant » les
+aurait rendues plus récentes que le cloud, et elles auraient ÉCRASÉ des
+données à jour. Avec leur vraie date, la règle reste juste : si le cloud
+détient une version plus récente, le cloud gagne ; s'il ne détient rien,
+la ligne monte enfin.
+
+
+CE QU'IL FAUT ATTENDRE APRÈS L'INSTALLATION, ET COMBIEN DE TEMPS
+-----------------------------------------------------------------
+Ce n'est PAS instantané, et c'est normal.
+
+Le compteur de tentatives démarre à zéro. Il faut HUIT cycles de
+synchronisation — environ 40 MINUTES — avant que la ligne qui bloque soit
+mise de côté. Ensuite la file se vide, la réparation repère ce qui manque
+au cloud, le renvoie, et les élèves remontent au cycle suivant.
+
+Ne concluez donc rien pendant la première heure.
+
+À suivre sur le serveur :
+
+    journalctl -u notescam -f | grep -iE "tete de file|rattrapage"
+
+Deux lignes à guetter :
+
+    [sync] rattrapage updated_at : N ligne(s) rendues synchronisables — …
+    [sync] tete de file mise de cote apres N tentatives : <table>/<id> — <raison>
+
+La seconde vous dira QUELLE ligne bloquait et POURQUOI. C'est
+l'information que personne n'avait jusqu'ici. Transmettez-la-nous : elle
+dit s'il reste autre chose à corriger.
+
+SI AU BOUT D'UNE HEURE RIEN N'A BOUGÉ, lancez le diagnostic (voir
+ci-dessous) et envoyez-nous sa sortie. Il reste une cause possible que
+nous n'avons pas pu traiter faute de données : un échec du TIRAGE
+(cloud → serveur), qui empêche l'envoi d'être joué.
+
+
+OUTILS DE DIAGNOSTIC — DÉSORMAIS LIVRÉS
+----------------------------------------
+Trois outils étaient documentés mais n'étaient copiés sur AUCUN serveur
+d'école. La commande indiquée échouait donc toujours. Ils sont maintenant
+dans le paquet.
+
+Le principal, en LECTURE SEULE (il ne contacte pas le cloud et ne modifie
+rien) :
+
+    /opt/notescam/node/bin/node /opt/notescam/app/scripts/diagnostic-sync-lan.mjs
+
+Il nomme les trois causes possibles sur VOS données : file de poussée
+bloquée, lignes refusées en silence, pull en échec. C'est lui qu'il faut
+lancer — et nous envoyer — si la synchronisation reste muette.
+
+Les deux autres, à la racine du paquet : diagnostic-hors-ligne.sh et
+diagnostic-saisie-notes.sh.
+
+
+CE QU'APPORTE CETTE MISE À JOUR, POINT PAR POINT
+-------------------------------------------------
+
+1. LE SURPLUS DE 50 000 SUR LES FRAIS DE SCOLARITÉ
+
+   Signalé par une école : « il y a 50 000 de plus à payer ».
+
+   Deux endroits permettent de déclarer le MÊME frais — le champ
+   « Frais d'inscription » de la grille de classe, ET une ligne
+   « inscription » du catalogue — et le logiciel additionnait les deux.
+
+   Le calcul constaté : 650 000 (scolarité) + 50 000 (inscription de la
+   grille) + 85 000 (catalogue, inscription de 50 000 comprise) =
+   785 000. Après un versement de 85 000, le reste affichait 700 000 au
+   lieu de 650 000. Rien à l'écran ne disait d'où venaient les 50 000.
+
+   Désormais, la GRILLE fait foi, parce que c'est elle qui construit
+   l'échéancier. Un frais du catalogue que la grille porte déjà n'est plus
+   ajouté une seconde fois — et le panneau de l'élève NOMME le frais
+   écarté, avec son montant. Rien n'est soustrait en silence.
+
+   Aucune donnée n'est modifiée en base. Seul le total dû change, et les
+   versements déjà encaissés restent acquis à l'élève.
+
+2. LE COMPTABLE PEUT ANNULER UN VERSEMENT
+
+   Le bouton « Annuler » était réservé à l'administrateur — mais
+   uniquement à l'écran : la base, elle, autorisait déjà ce geste à la
+   caisse. Un comptable devait donc déranger l'administrateur pour
+   corriger sa propre faute de frappe.
+
+   Ce qui protège l'argent n'a pas changé, et ne dépend pas du rôle :
+   le versement n'est JAMAIS supprimé (une écriture d'annulation est
+   ajoutée, les deux restent visibles), le motif est obligatoire, et le
+   nom de qui annule est enregistré par le système — on ne peut pas signer
+   une annulation du nom d'un collègue.
+
+3. DES BOUTONS QUI NE S'AFFICHAIENT PAS
+
+   Le bouton d'annulation d'un versement et le bouton « Marquer absent »
+   de la saisie des notes n'apparaissaient qu'au SURVOL de la souris. Sur
+   une tablette ou un téléphone — le guichet, précisément — il n'y a pas
+   de survol : ils étaient donc invisibles en permanence. Les deux sont
+   maintenant toujours visibles.
+
+   La ligne d'un versement se replie aussi sur plusieurs lignes quand
+   l'écran est étroit : les derniers boutons sortaient de la zone visible.
+
+4. LE BULLETIN DU PRIMAIRE NE S'OUVRE PLUS SUR UN ÉCRAN BLANC
+
+   Le bulletin primaire détaillé par unité d'apprentissage ne s'affichait
+   pas du tout : la page restait blanche au clic sur un élève. Erreur de
+   programmation, pas de données — aucune note n'a été perdue.
+
+5. UNE MATIÈRE DÉCOCHÉE NE S'IMPRIME PLUS
+
+   Décocher une matière dans la fiche d'une classe n'avait AUCUN effet sur
+   les bulletins officiels du collège, du primaire et de la maternelle :
+   ces documents listaient le référentiel national sans regarder vos
+   matières. Les matières cochées font foi désormais — sur le BULLETIN, le
+   PROCÈS-VERBAL de délibération et le RAPPORT DE CLASSE, qui
+   n'appliquaient même pas les matières masquées.
+
+   Garde-fou : si aucune de vos matières ne se rapproche du référentiel,
+   rien n'est filtré — mieux vaut une matière en trop qu'un bulletin
+   amputé. Et l'écran Bulletins AFFICHE le nombre de lignes écartées, avec
+   leur nom.
+
+6. DÉCOCHER UNE MATIÈRE FONCTIONNE ENFIN
+
+   « À chaque fois que je décoche une matière, ça revient tout seul. » La
+   case se remettait dès qu'une séquence de la classe était verrouillée.
+   Le verrou ne porte plus que sur les matières qui PORTENT DES NOTES.
+
+7. L'APPEL QUOTIDIEN ALIMENTE LES HEURES D'ABSENCE DU BULLETIN
+
+   L'appel du surveillant et les heures d'absence du bulletin étaient deux
+   registres sans lien. Le conseil de classe propose maintenant
+   « Appel : n » avec un bouton « Appliquer », et « Reporter l'appel » pour
+   toute la classe. RIEN N'EST ÉCRASÉ SANS VOTRE ACTION.
+
+   Le comptage se fait en heures de cours d'après l'emploi du temps. Une
+   journée n'est jamais comptée deux fois, un retard n'est jamais compté
+   en absence, une excuse prime sur une absence.
+
+8. SAUVEGARDE AUTOMATIQUE, EXPORT COMPLET ET RESTAURATION
+
+   Nouvel écran : Paramètres → Sauvegarde & restauration (administrateur).
+   Il ne tient aucune liste de tables : les tables sont découvertes dans la
+   base réelle, donc un module ajouté demain y entre d'office.
+
+   Sur votre serveur, une copie de la base est prise toutes les 2 heures
+   et au démarrage. La rotation garde les 14 plus récentes PLUS une par
+   jour sur 14 jours — auparavant seules les 14 dernières étaient gardées,
+   soit ~28 heures : une erreur découverte le surlendemain n'était plus
+   rattrapable.
+
+   La restauration demande un aperçu, ne SUPPRIME jamais rien, et refuse
+   la sauvegarde d'un autre établissement.
+
+   À savoir : les photos d'élèves, logos et tampons ne sont pas dans
+   l'export JSON — ce sont des images, stockées à part. Les copies de base
+   du serveur, elles, contiennent tout.
+
+   L'ancien export de l'écran « Audit & Sauvegardes » A ÉTÉ RETIRÉ : il
+   s'annonçait « complet » et n'emportait que 9 des 29 ensembles de
+   données — ni les notes du collège, ni celles du primaire, ni le
+   personnel. L'onglet renvoie vers le nouvel écran. Un ancien fichier
+   exporté reste lisible par la nouvelle restauration.
+
+   SI VOTRE ÉCOLE SYNCHRONISE AVEC LE CLOUD, une opération reste à faire
+   côté éditeur pour activer la sauvegarde automatique du Cloud. Votre
+   serveur local, lui, sauvegarde seul dès l'installation.
+
+9. REGISTRE MATRICULE SUR LA FICHE ÉLÈVE
+
+   Quatre champs du registre officiel qui n'existaient pas : date et motif
+   d'entrée, date et motif de sortie (ED, ET, NM, EX, TF, DM, LM, DC),
+   plus la profession du tuteur. L'année seule suffit comme date.
+
+10. L'IMPORT D'ÉLÈVES CRÉE LES CLASSES QUI MANQUENT
+
+   L'import ne rapprochait que des classes DÉJÀ existantes : une école qui
+   importait ses élèves avant de saisir ses classes les voyait tous
+   arriver sans classe — donc absents des listes, des bulletins, des rangs
+   et des frais.
+
+   L'import propose maintenant de créer les classes absentes (case cochée
+   par défaut, liste et effectif affichés avant de lancer) et configure
+   leurs matières. Les abréviations courantes sont comprises : « 6e »,
+   « 1re », « Tle », « 2de ».
+
+   Deux colonnes étaient aussi mal rangées : « Profession du père » et
+   « Profession de la mère » (avec l'article) repartaient vides — pire, la
+   profession du père était parfois lue comme son NOM.
+
+
+CE QUI CHANGE DANS VOS HABITUDES
+---------------------------------
+Deux points, et les deux touchent des documents ou de l'argent.
+
+A. LE MONTANT DÛ D'UN ÉLÈVE PEUT BAISSER, et c'est normal.
+
+   Si votre école a saisi l'inscription DANS la grille de classe ET dans
+   le catalogue, elle était comptée deux fois. Le reste à payer de ces
+   élèves va donc DIMINUER du montant de l'inscription dès
+   l'installation.
+
+   Ce n'est ni une perte ni une remise : c'est un montant qui n'aurait
+   jamais dû être réclamé. Le panneau de l'élève nomme le frais écarté,
+   pour que votre comptable puisse le vérifier ligne par ligne.
+
+   PRÉVENEZ VOTRE COMPTABLE AVANT L'INSTALLATION. Un solde qui baisse
+   sans explication, dans un logiciel de caisse, se lit comme une erreur
+   — ou comme pire.
+
+B. AVANT D'IMPRIMER VOS PROCHAINS BULLETINS, vérifiez les matières
+   cochées de chaque classe : Classes → une classe → liste des matières.
+
+   Une matière DÉCOCHÉE ne s'imprimera plus. C'est le comportement
+   attendu — mais si une matière a été décochée par erreur il y a des
+   mois, personne ne l'a remarqué jusqu'ici, puisque le bulletin
+   l'imprimait quand même.
+
+   L'écran Bulletins vous le dit : choisissez une classe et un bulletin
+   officiel, et lisez l'encadré gris au-dessus de l'aperçu. Il nomme les
+   lignes écartées. S'il est absent, rien n'est écarté.
+
+
+CE QUI N'EST PAS TOUCHÉ
+-----------------------
+  - Aucune donnée scolaire n'est modifiée : élèves, notes, bulletins,
+    classes, encaissements, paie. Le rattrapage de synchronisation ne
+    renseigne qu'une colonne technique d'horodatage.
+  - La base de données est CONSERVÉE (copie de sûreté automatique avant
+    l'installation).
+  - Le rattachement au Cloud est CONSERVÉ.
+  - Les rôles, les secteurs et les permissions ne bougent pas.
+  - Aucune règle de calcul des moyennes ou des cotes n'a changé.
+  - Aucun versement n'est modifié ni supprimé.
+
+
+CE QU'IL VOUS FAUT
+------------------
+  - Le fichier :
+        notescam-linux-x64-0.3.14.tar.gz      (53 338 909 octets)
+
+    Empreinte SHA-256, à vérifier AVANT d'installer :
+
+        50d4101a98a76cbeb498e1691e0ee2da579daecf33c33de8d533521ffded8118
+
+    Sur le serveur :
+
+        sha256sum notescam-linux-x64-0.3.14.tar.gz
+
+    Si l'empreinte affichée diffère, n'installez pas : le fichier a été
+    abîmé pendant le transfert. Redemandez-le.
+
+  - Le script deploy-correctif-credentials.sh, déjà reçu au 0.2.1.
+  - Un accès au serveur Linux, avec les droits « sudo ».
+  - Environ 5 minutes. Service indisponible ~1 minute.
+
+
+ÉTAPE 1 — INSTALLATION
+----------------------
+        cd ~
+        ls -l notescam-linux-x64-0.3.14.tar.gz
+        sha256sum notescam-linux-x64-0.3.14.tar.gz
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.3.14.tar.gz
+
+   (Si le port n'est pas 8080 — « grep PORT /etc/notescam/notescam.env » :
+        sudo PORT=LE_PORT ./deploy-correctif-credentials.sh notescam-linux-x64-0.3.14.tar.gz )
+
+Contrôle :
+
+        curl -s http://127.0.0.1:8080/api/version
+
+  doit contenir : "version":"0.3.14"
+
+
+ÉTAPE 2 — RECHARGER LES POSTES
+-------------------------------
+Sur chaque poste : Ctrl + Maj + R (rechargement forcé). Sans cela, le
+navigateur continue d'afficher l'ancienne version — ce n'est pas une
+panne, c'est sa copie locale.
+
+
+ÉTAPE 3 — VÉRIFICATIONS APRÈS INSTALLATION
+-------------------------------------------
+À faire dans l'heure qui suit, dans cet ordre.
+
+  1. Le service tourne et annonce la bonne version :
+
+        systemctl is-active notescam
+        curl -s http://127.0.0.1:8080/api/version
+
+  2. LE RATTRAPAGE DE SYNCHRONISATION a bien eu lieu :
+
+        journalctl -u notescam -n 80 | grep rattrapage
+
+     Notez le nombre annoncé. 0 = votre base n'était pas concernée.
+
+  3. Le rattachement au Cloud est intact :
+
+        curl -s http://127.0.0.1:8080/api/pair/status
+
+     Le « schoolId » doit être le MÊME qu'avant la mise à jour.
+
+  4. LA SYNCHRONISATION REPART — À VÉRIFIER APRÈS UNE HEURE, PAS AVANT.
+     Comptez 40 minutes pour que la ligne qui bloque soit mise de côté
+     (huit cycles), puis quelques cycles pour que tout remonte.
+
+     Dans l'application, ouvrez Paramètres → Synchronisation : le message
+     « la réparation automatique n'y parvient pas », s'il était présent,
+     doit avoir disparu.
+
+     Comparez ensuite un effectif : le nombre d'élèves d'une classe sur le
+     serveur de l'école et sur le cloud doivent coïncider.
+
+     Si au bout d'une heure rien n'a bougé, lancez le diagnostic et
+     envoyez-nous sa sortie — ainsi que les lignes « tete de file mise de
+     cote » du journal :
+
+        /opt/notescam/node/bin/node /opt/notescam/app/scripts/diagnostic-sync-lan.mjs
+
+  5. Vos effectifs n'ont pas bougé : ouvrez la liste des élèves et
+     comparez au relevé que vous aviez avant l'installation.
+
+  6. LES FRAIS. Ouvrez la fiche d'un élève qui a payé. Vérifiez que le
+     « Total dû » et le « Reste à payer » correspondent à ce que l'école
+     réclame réellement. Si une inscription était comptée deux fois, le
+     reste a BAISSÉ — et un encadré gris nomme le frais écarté.
+
+  7. LES MATIÈRES DU BULLETIN. Sur une classe du collège, ouvrez un
+     bulletin officiel et comparez les matières imprimées à celles cochées
+     dans la fiche de la classe. Si une matière manque, recochez-la dans
+     Classes : l'aperçu se met à jour aussitôt.
+
+  8. LE BULLETIN DU PRIMAIRE S'OUVRE : Bulletins → une classe de primaire
+     → un élève. La page doit afficher le bulletin, non rester blanche.
+
+  9. LA SAUVEGARDE. Paramètres → Sauvegarde & restauration. L'écran doit
+     s'ouvrir et lister vos sauvegardes. Sur le serveur :
+
+        ls -l /var/lib/notescam/data/backups/ | tail -5
+
+Si l'un de ces neuf points ne répond pas comme décrit, ne tentez rien
+d'autre : passez au retour arrière ci-dessous et prévenez l'éditeur.
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+La copie de la base est déposée automatiquement avant l'installation dans
+/var/lib/notescam/data/ :
+
+        notescam.db.avant-correctif-<horodatage>
+
+Pour revenir à la version précédente (application seule) :
+
+        sudo systemctl stop notescam
+        sudo ./deploy-correctif-credentials.sh notescam-linux-x64-0.3.6.tar.gz
+
+Si, et SEULEMENT si, la base elle-même pose problème, restaurez la copie
+prise juste avant l'installation :
+
+        sudo systemctl stop notescam
+        sudo cp -a /var/lib/notescam/data/notescam.db.avant-correctif-<horodatage> \
+                   /var/lib/notescam/data/notescam.db
+        sudo systemctl start notescam
+
+ATTENTION : restaurer la base ANNULE aussi tout ce qui a été saisi depuis
+l'installation. Ne le faites pas de votre propre initiative — appelez
+l'éditeur d'abord.
+
+Revenir à la version précédente sans toucher à la base est sans risque :
+les colonnes ajoutées par la 0.3.14 sont ignorées par l'ancienne version,
+et le rattrapage d'horodatage ne gêne en rien une version antérieure.
+
+Ne supprimez jamais la copie de sûreté.

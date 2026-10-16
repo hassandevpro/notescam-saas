@@ -115,7 +115,10 @@ export function itemBalance(studentItem, payments = []) {
   return { amount, paid, balance, status };
 }
 
-const activeItems = (items) => items.filter((si) => si.status !== 'removed');
+// `items || []` : l'appelant peut passer null (chargement en cours, élève sans
+// frais). Sans ce repli, toute la page de frais tombait sur un TypeError au lieu
+// d'afficher un dû nul — trouvé en éprouvant `gridDuplicates`.
+const activeItems = (items) => (items || []).filter((si) => si && si.status !== 'removed');
 
 // Solde PAR CATÉGORIE pour un élève.
 export function balanceByCategory(studentItems = [], payments = []) {
@@ -127,6 +130,82 @@ export function balanceByCategory(studentItems = [], payments = []) {
     m.due += b.amount; m.paid += b.paid; m.balance += b.balance;
   }
   return Object.values(map).sort((a, b) => b.due - a.due);
+}
+
+// ── UN MÊME FRAIS NE DOIT JAMAIS ÊTRE COMPTÉ DEUX FOIS ──────────────────────
+//
+// LE DÉFAUT QUE CECI CORRIGE, relevé chez une école le 16/10/2026 : « il y a
+// 50 000 de plus à payer ».
+//
+// Deux endroits permettent de déclarer le MÊME frais, et le « Dû » additionnait
+// les deux :
+//   • la GRILLE de classe porte `amount_inscription` (et la scolarité, en
+//     comptant / échelonné) ;
+//   • le CATALOGUE porte les catégories `inscription` et `scolarite`.
+//
+// Une école ayant saisi l'inscription aux deux endroits se voyait réclamer le
+// double. Le calcul était : 650 000 (scolarité) + 50 000 (inscription de la
+// grille) + 85 000 (catalogue, inscription comprise) = 785 000. Après un
+// versement de 85 000, le reste affichait 700 000 au lieu de 650 000 — et rien
+// à l'écran ne disait d'où venaient les 50 000.
+//
+// RÈGLE : la GRILLE fait foi, parce que c'est elle qui construit l'échéancier
+// (`resolveSchedule` y pose l'inscription comme une tranche, avec sa date). Un
+// frais du catalogue de même nature est alors écarté du total.
+//
+// POURQUOI SUR LA CATÉGORIE, ET PAS SUR LE MONTANT. Si les deux montants
+// diffèrent (grille 50 000, catalogue 45 000), c'est encore la même inscription
+// saisie deux fois : ne dédoublonner qu'à montant égal laisserait réclamer
+// 95 000 pour une seule inscription. La catégorie est le bon critère.
+//
+// CE QUE ÇA COÛTE, ET POURQUOI C'EST LE BON SENS DE L'ERREUR : une école qui
+// aurait VOLONTAIREMENT deux frais de catégorie `inscription` distincts (une
+// inscription et des frais de dossier, par exemple) verra le second écarté, donc
+// SOUS-facturé. C'est assumé : réclamer de l'argent à tort est pire que d'en
+// oublier, et l'écart est VISIBLE — `ignored` est rendu pour que l'écran le
+// nomme, au lieu de le soustraire en silence.
+//
+// Rien n'est supprimé ni modifié en base : seul le TOTAL DÛ change. Les
+// versements déjà rattachés à ces frais restent acquis à l'élève.
+export const GRID_COVERED = { inscription: 'inscription', scolarite: 'tuition' };
+
+/**
+ * Frais du catalogue d'un élève qui DOUBLENT la grille de sa classe.
+ *
+ * @param studentItems  lignes `student_fee_items` de l'élève
+ * @param gridAmounts   { inscription, tuition } — montants portés par la grille
+ *                      (0 ou absent = la grille ne couvre pas ce frais, donc le
+ *                      catalogue est la seule source et il COMPTE)
+ * @returns {{ ignored: object[], ignoredDue: number }}
+ */
+export function gridDuplicates(studentItems = [], gridAmounts = {}) {
+  // `|| {}` en plus du défaut : une grille ABSENTE arrive en `null` (classe sans
+  // grille), et le défaut d'argument ne joue que sur `undefined`. Sans grille,
+  // rien n'est couvert — donc rien n'est écarté, et le catalogue fait foi.
+  const g = gridAmounts || {};
+  const couvert = {
+    inscription: (Number(g.inscription) || 0) > 0,
+    scolarite:   (Number(g.tuition) || 0) > 0,
+  };
+  const ignored = activeItems(studentItems)
+    .filter((si) => couvert[si?.category] === true);
+  return {
+    ignored,
+    ignoredDue: ignored.reduce((s, si) => s + (Number(si.amount) || 0), 0),
+  };
+}
+
+/**
+ * Dû du catalogue NET de ce que la grille couvre déjà. C'est ce montant, et non
+ * `studentTotals().due`, qui doit entrer dans le « Dû » d'un élève.
+ *
+ * @returns {{ due, paid, balance, mandatoryDue, optionalDue, ignored, ignoredDue }}
+ */
+export function studentTotalsNetOfGrid(studentItems = [], payments = [], gridAmounts = {}) {
+  const { ignored, ignoredDue } = gridDuplicates(studentItems, gridAmounts);
+  const exclus = new Set(ignored.map((si) => si.id));
+  const gardes = (studentItems || []).filter((si) => !exclus.has(si?.id));
+  return { ...studentTotals(gardes, payments), ignored, ignoredDue };
 }
 
 // Totaux d'un élève (obligatoire vs optionnel).

@@ -79,5 +79,77 @@ ok(!itemApplies({ active: true, academic_year: '2024-2025' }, ctx), 'autre anné
 
 ok(FEE_CATEGORIES.includes('inscription') && FEE_CATEGORIES.includes('cantine'), 'catégories exemples présentes');
 
+// ════════════════════════════════════════════════════════════════════════════
+// UN MÊME FRAIS COMPTÉ DEUX FOIS — le défaut « 50 000 de plus à payer »
+// ════════════════════════════════════════════════════════════════════════════
+// Relevé chez une école le 16/10/2026. Deux endroits déclarent le même frais :
+// la GRILLE de classe (`amount_inscription`) et le CATALOGUE (catégorie
+// `inscription`). Le « Dû » additionnait les deux.
+//
+// Le cas réel, chiffres compris :
+//   grille    650 000 comptant, inscription 50 000
+//   catalogue tenues 35 000 + inscription 50 000  = 85 000
+//   attendu   650 000 + 85 000 = 735 000 ; après 85 000 versés -> reste 650 000
+//   constaté  650 000 + 50 000 + 85 000 = 785 000 ; reste 700 000  (+50 000)
+{
+  const { gridDuplicates, studentTotalsNetOfGrid, studentTotals } = await import('./feeCatalogEngine.js');
+
+  const items = [
+    { id: 'i1', category: 'tenue',       name: 'Tenues',      amount: 35000, mandatory: true,  status: 'active' },
+    { id: 'i2', category: 'inscription', name: 'Inscription', amount: 50000, mandatory: true,  status: 'active' },
+  ];
+  const grille = { inscription: 50000, tuition: 650000 };
+
+  // Témoin : l'ancien calcul réclamait bien les 85 000 en entier.
+  ok(studentTotals(items).due === 85000, 'temoin : l ancien du catalogue vaut 85 000');
+
+  const dup = gridDuplicates(items, grille);
+  ok(dup.ignored.length === 1, 'un seul frais est en doublon');
+  ok(dup.ignored[0].id === 'i2', 'et c est bien l inscription');
+  ok(dup.ignoredDue === 50000, 'le doublon vaut 50 000 — exactement le surplus');
+
+  const net = studentTotalsNetOfGrid(items, [], grille);
+  ok(net.due === 35000, 'le du catalogue NET ne retient que les tenues');
+  ok(net.ignoredDue === 50000, 'et annonce les 50 000 ecartes');
+  // Le total de l'élève redevient celui que l'école attend.
+  ok(650000 + 50000 + net.due === 735000, 'scolarite + inscription + catalogue net = 735 000');
+
+  // LA GRILLE NE COUVRE PAS L'INSCRIPTION -> le catalogue est la seule source,
+  // il doit COMPTER. Sans ce cas, le correctif ferait disparaitre l'inscription
+  // des ecoles qui ne la gerent QUE par le catalogue.
+  const sansGrille = studentTotalsNetOfGrid(items, [], { inscription: 0, tuition: 650000 });
+  ok(sansGrille.due === 85000, 'grille sans inscription -> le catalogue compte en entier');
+  ok(sansGrille.ignoredDue === 0, 'et rien n est ecarte');
+
+  // Montants DIFFERENTS : c'est encore la meme inscription saisie deux fois.
+  // Ne dedoublonner qu a montant egal laisserait reclamer 95 000 pour une seule.
+  const inegal = studentTotalsNetOfGrid(
+    [{ id: 'i3', category: 'inscription', amount: 45000, status: 'active' }], [],
+    { inscription: 50000, tuition: 650000 },
+  );
+  ok(inegal.due === 0, 'montants differents : le doublon est quand meme ecarte');
+
+  // Scolarité déclarée aux deux endroits : même règle.
+  const scol = studentTotalsNetOfGrid(
+    [{ id: 'i4', category: 'scolarite', amount: 650000, status: 'active' }], [],
+    { inscription: 0, tuition: 650000 },
+  );
+  ok(scol.due === 0, 'scolarite en doublon de la grille : ecartee');
+  ok(scol.ignoredDue === 650000, 'et annoncee');
+
+  // Un frais RETIRÉ ne compte ni comme dû ni comme doublon.
+  const retire = gridDuplicates(
+    [{ id: 'i5', category: 'inscription', amount: 50000, status: 'removed' }], grille,
+  );
+  ok(retire.ignored.length === 0, 'un frais retire n est pas un doublon');
+
+  // Robustesse : rien ne doit lever.
+  ok(gridDuplicates(null, grille).ignoredDue === 0, 'items null -> aucun doublon');
+  ok(gridDuplicates(items, null).ignoredDue === 0, 'grille absente -> aucun doublon (le catalogue fait foi)');
+  ok(gridDuplicates(items, {}).ignoredDue === 0, 'grille vide -> aucun doublon');
+  ok(studentTotalsNetOfGrid(items).due === 85000, 'sans grille passee -> du inchange');
+}
+
 console.log(failed ? '\n❌ Fee catalog KO' : '\n✅ Fee catalog OK');
 process.exit(failed ? 1 : 0);
+

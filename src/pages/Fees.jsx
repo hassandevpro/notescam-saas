@@ -16,7 +16,7 @@ import FeeDashboard from '../components/fees/FeeDashboard';
 import CashControlTab from '../components/fees/CashControlTab';
 import { studentFeeSituation, inscriptionApplies } from '../lib/feeEngine';
 import { fetchStudentFeeItems, fetchCatalog, upsertStudentFeeItem, deleteStudentFeeItem } from '../lib/feeCatalogService';
-import { studentTotals, optionalItemsFor, snapshotItem, paidForItem } from '../lib/feeCatalogEngine';
+import { studentTotals, studentTotalsNetOfGrid, optionalItemsFor, snapshotItem, paidForItem } from '../lib/feeCatalogEngine';
 import { classSectionKey } from '../core/engineResolver';
 import { uuid } from '../lib/uuid';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
@@ -105,7 +105,17 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
   // Frais du CATALOGUE de l'élève (obligatoires + optionnels) : leur montant entre
   // dans le « Dû » (les versements liés à ces frais alimentent déjà `frais_payes`,
   // sinon le Payé dépasserait le Dû). Fournis par la page (source unique).
-  const catalogDue = studentTotals(studentItems).due;
+  // NET de ce que la grille couvre déjà : une école qui a saisi l'inscription
+  // DANS la grille ET dans le catalogue se la voyait réclamer deux fois (défaut
+  // du 16/10/2026, « 50 000 de plus à payer »). La grille fait foi, parce que
+  // c'est elle qui construit l'échéancier. `catalogIgnored` est affiché plus bas
+  // — un montant écarté en silence est un montant que personne ne peut vérifier.
+  const catalogNet = studentTotalsNetOfGrid(studentItems, [], {
+    inscription: applyInscription ? (grid?.amount_inscription || 0) : 0,
+    tuition: grid?.amount_echelonne || grid?.amount_comptant || 0,
+  });
+  const catalogDue = catalogNet.due;
+  const catalogIgnored = catalogNet.ignored;
   // Frais optionnels du catalogue : coché = déjà attribué à l'élève.
   const attachedByCatalogId = new Map(studentItems.map((i) => [i.fee_catalog_id, i]));
 
@@ -275,6 +285,25 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
                   🧾 {t('Frais additionnels (catalogue)', 'Additional fees (catalog)', 'Tasas adicionales (catálogo)')}
                 </span>
                 <span className="font-bold text-indigo-800">+ {money(catalogDue)}</span>
+              </div>
+            )}
+
+            {/* Frais du catalogue ÉCARTÉS parce que la grille les porte déjà.
+                Affiché, jamais soustrait en silence : un montant retiré sans
+                explication est un montant que le comptable ne peut pas vérifier,
+                et c'est précisément ce qui avait rendu les 50 000 en trop
+                invisibles pendant des mois. */}
+            {catalogIgnored.length > 0 && (
+              <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <span className="font-semibold">
+                  {t('Déjà compté dans la grille de la classe', 'Already counted in the class fee grid', 'Ya contado en la tabla de la clase')}
+                </span>
+                {' — '}
+                {catalogIgnored.map((it) => `${it.name || it.category} (${money(it.amount)})`).join(', ')}
+                {'. '}
+                {t('Ce frais du catalogue n’est pas ajouté une seconde fois.',
+                   'This catalog fee is not added a second time.',
+                   'Esta tasa del catálogo no se añade por segunda vez.')}
               </div>
             )}
 
@@ -553,7 +582,12 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
                       const isReversal = !!p.reversal_of;   // ligne d'annulation (montant négatif)
                       const isVoided   = reversedIds.has(p.id); // versement annulé par une autre ligne
                       return (
-                      <div key={p.id} className={`flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/50 group ${isReversal ? 'bg-rose-50/40' : ''}`}>
+                      // `flex-wrap` : la ligne porte une date, un montant, une
+                      // note et QUATRE boutons, tous en `shrink-0`. Sur un écran
+                      // étroit (tablette du guichet, portable), elle débordait et
+                      // les derniers boutons — dont l'annulation — sortaient de la
+                      // zone visible, sans possibilité de les atteindre.
+                      <div key={p.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 hover:bg-gray-50/50 group ${isReversal ? 'bg-rose-50/40' : ''}`}>
                         <div className={`w-2 h-2 rounded-full shrink-0 ${isReversal ? 'bg-rose-400' : isVoided ? 'bg-gray-300' : 'bg-emerald-400'}`} />
                         <span className="text-xs text-gray-500 shrink-0 w-24">
                           {new Date(p.date).toLocaleDateString(localeForLang())}
@@ -561,7 +595,7 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
                         <span className={`font-mono font-semibold text-sm shrink-0 ${isReversal ? 'text-rose-700' : isVoided ? 'text-gray-400 line-through' : 'text-emerald-700'}`}>
                           {isReversal ? '−' : '+'} {money(Math.abs(p.amount))}
                         </span>
-                        <span className="flex-1 min-w-0 truncate text-xs">
+                        <span className="min-w-0 truncate text-xs basis-full sm:basis-auto sm:flex-1">
                           {isVoided && (
                             <span className="mr-1.5 text-[10px] font-bold uppercase text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
                               {t('annulé', 'voided', 'anulado')}
@@ -605,7 +639,16 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
                             onClick={() => handleVoidPayment(p)}
                             disabled={voiding === p.id}
                             title={t('Annuler ce versement (contre-passation tracée)', 'Void this payment (traced reversing entry)', 'Anular este pago (asiento de anulación trazado)')}
-                            className="shrink-0 opacity-0 group-hover:opacity-100 text-xs font-semibold text-rose-500 hover:text-rose-700 px-2 py-0.5 rounded hover:bg-rose-50 transition-all disabled:opacity-50"
+                            // TOUJOURS VISIBLE. Ce bouton était en
+                            // `opacity-0 group-hover:opacity-100` : il n'apparaissait
+                            // qu'au SURVOL de la ligne. Sur une tablette ou un
+                            // téléphone — le guichet, précisément — il n'y a pas de
+                            // survol : le bouton était donc invisible en permanence,
+                            // et annuler un versement devenait impossible. Le rendre
+                            // visible ne crée aucun risque de clic accidentel :
+                            // `handleVoidPayment` exige un motif saisi à la main, et
+                            // le versement n'est jamais supprimé (contre-passation).
+                            className="shrink-0 text-xs font-semibold text-rose-500 hover:text-rose-700 px-2 py-0.5 rounded border border-rose-200 hover:bg-rose-50 transition-colors disabled:opacity-50"
                           >
                             {voiding === p.id ? '…' : t('Annuler', 'Void', 'Anular')}
                           </button>
@@ -722,18 +765,6 @@ export default function Fees() {
   // Rafraîchit à l'ouverture d'un panneau élève (catalogue récemment configuré).
   useEffect(() => { if (openRow) { loadFeeItems(); loadCatalog(); } }, [openRow, loadFeeItems, loadCatalog]);
 
-  // Dû catalogue par élève (items actifs).
-  const catalogDueByStudent = useMemo(() => {
-    const byStudent = {};
-    for (const it of feeItems) {
-      if (!it || it.status === 'removed') continue;
-      (byStudent[it.student_id] || (byStudent[it.student_id] = [])).push(it);
-    }
-    const map = {};
-    for (const [sid, list] of Object.entries(byStudent)) map[sid] = studentTotals(list).due;
-    return map;
-  }, [feeItems]);
-
   // Attribution / retrait d'un frais optionnel depuis le panneau « gérer ».
   const attachOptional = useCallback(async (studentId, opt) => {
     const saved = await upsertStudentFeeItem({ id: uuid(), ...snapshotItem(opt, { studentId, schoolId, academicYear: activeYear }) });
@@ -754,6 +785,32 @@ export default function Fees() {
     });
     return map;
   }, [classFeeGrids, activeYear]);
+
+  // Dû catalogue par élève (items actifs), NET de ce que la grille de sa classe
+  // couvre déjà. Une école ayant saisi l'inscription DANS la grille ET dans le
+  // catalogue se la voyait réclamer deux fois — 50 000 réclamés en trop (défaut
+  // du 16/10/2026). La grille fait foi : c'est elle qui bâtit l'échéancier.
+  //
+  // DÉFINI APRÈS `gridMap`, et pas avant : un `useMemo` exécute son calcul
+  // pendant le rendu, donc une référence à `gridMap` déclaré plus bas lèverait
+  // « Cannot access before initialization » et viderait toute la page.
+  const catalogDueByStudent = useMemo(() => {
+    const byStudent = {};
+    for (const it of feeItems) {
+      if (!it || it.status === 'removed') continue;
+      (byStudent[it.student_id] || (byStudent[it.student_id] = [])).push(it);
+    }
+    const map = {};
+    for (const [sid, list] of Object.entries(byStudent)) {
+      const stu = students.find((s) => s.id === sid);
+      const grid = gridMap[stu?.class_id];
+      map[sid] = studentTotalsNetOfGrid(list, [], {
+        inscription: inscriptionApplies(stu) ? (grid?.amount_inscription || 0) : 0,
+        tuition: grid?.amount_echelonne || grid?.amount_comptant || 0,
+      }).due;
+    }
+    return map;
+  }, [feeItems, students, gridMap]);
 
   // Montant dû effectif d'un élève : tarif figé (après 1er versement) sinon, à
   // défaut, l'échelonné de la grille de classe (estimation tant que le mode

@@ -109,7 +109,10 @@ function StudentRowSingle({ index, student, subject, scores, sys, onSave }) {
           <button
             onClick={() => { if (!score) onSave(student.id, subject.id, 'ABS'); }}
             title={t('Marquer absent', 'Mark absent')}
-            className="opacity-0 group-hover:opacity-100 shrink-0 text-[10px] font-bold text-gray-400 hover:text-amber-600 hover:bg-amber-50 px-1.5 py-0.5 rounded border border-transparent hover:border-amber-200 transition-all"
+            // TOUJOURS VISIBLE : ce bouton n'apparaissait qu'au SURVOL de la
+            // ligne, donc jamais sur une tablette ou un téléphone — là où la
+            // saisie se fait souvent. « Marquer absent » était inatteignable.
+            className="shrink-0 text-[10px] font-bold text-gray-400 hover:text-amber-600 hover:bg-amber-50 px-1.5 py-0.5 rounded border border-gray-200 hover:border-amber-200 transition-colors"
           >
             ABS
           </button>

@@ -61,6 +61,24 @@ ok(canCollectFees(ctx({ school: AUTRE, role: 'censeur' })) === true,
   'AUTRE école : le censeur encaisse toujours (règle historique)');
 ok(canCollectFees(ctx({ school: AUTRE, role: 'surveillant' })) === false,
   'AUTRE école : le surveillant n’encaissait pas, et n’encaisse toujours pas');
+
+// ── CE DROIT COMMANDE AUSSI L'ANNULATION D'UN VERSEMENT ────────────────────
+//
+// L'écran des frais gardait le bouton « Annuler » derrière `role === 'admin'`,
+// alors que la BASE autorise déjà la contre-passation à la caisse (policy RLS
+// « fee_payments: encaissement caisse », adossée à `is_school_cashier` = rôle
+// admin/censeur OU permission `/app/fees`). Un comptable devait donc déranger
+// l'administrateur pour corriger sa propre faute de frappe.
+//
+// Le bouton suit désormais `canCollectFees`. Les deux assertions ci-dessous
+// fixent la correspondance avec la policy : c'est elle qui tranche réellement,
+// et un écart entre les deux redonnerait un bouton qui échoue au clic.
+ok(canCollectFees(ctx({ school: AUTRE, role: 'censeur' })) === true,
+  'le COMPTABLE (rôle censeur) peut annuler un versement — comme la policy RLS');
+ok(canCollectFees(ctx({ school: AUTRE, role: 'admin' })) === true,
+  'l’administrateur le peut toujours');
+ok(canCollectFees(ctx({ school: AUTRE, role: 'teacher' })) === false,
+  'un enseignant ne peut ni encaisser ni annuler');
 ok(allowsStaffSector(ctx({ school: AUTRE, role: 'censeur' }), 'college', ['primaire']) === true,
   'AUTRE école : aucun cloisonnement du personnel');
 ok(canManageStaffSector(ctx({ school: AUTRE, role: 'surveillant' }), 'college', []) === true,

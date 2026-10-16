@@ -631,10 +631,32 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
                         >
                           A5
                         </button>
-                        {/* Annulation : ADMIN uniquement, jamais sur une ligne déjà
-                            annulée ni sur une écriture d'annulation. Il n'existe
-                            plus aucun chemin de suppression d'un versement. */}
-                        {isAdmin && !isReversal && !isVoided && (
+                        {/* Annulation : QUI ENCAISSE PEUT CORRIGER — jamais sur une
+                            ligne déjà annulée ni sur une écriture d'annulation. Il
+                            n'existe plus aucun chemin de suppression d'un versement.
+
+                            C'était « ADMIN uniquement », et c'était un verrou
+                            d'écran SEUL : la base, elle, autorise déjà la
+                            contre-passation à la caisse (policy RLS
+                            « fee_payments: encaissement caisse », qui s'appuie sur
+                            `is_school_cashier` = rôle admin/censeur OU permission
+                            `/app/fees`). Un comptable devait donc déranger
+                            l'administrateur pour corriger sa propre faute de frappe,
+                            alors que rien, côté données, ne l'en empêchait.
+
+                            Le droit suit maintenant celui d'encaisser (`canCollect`),
+                            qui recouvre exactement la même population que la policy
+                            — et reste plus restreint dans une école durcie, où seul
+                            un responsable financier encaisse.
+
+                            CE QUI PROTÈGE L'ARGENT N'A PAS CHANGÉ, et ne dépend pas
+                            du rôle : le versement n'est jamais supprimé (ligne
+                            négative reliée à l'originale), le motif est obligatoire,
+                            `recorded_by` est estampillé depuis le JETON — donc on ne
+                            peut pas signer une annulation du nom d'un collègue — et
+                            la base refuse tout UPDATE et tout DELETE sur un
+                            versement. L'annulation est traçable, pas discrète. */}
+                        {canCollect && !isReversal && !isVoided && (
                           <button
                             onClick={() => handleVoidPayment(p)}
                             disabled={voiding === p.id}

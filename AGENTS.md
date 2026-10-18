@@ -21,10 +21,17 @@ npm run build             # build cloud -> dist/
 npm run build:lan         # build édition LAN
 npm run server             # démarre le serveur Fastify/SQLite (LAN)
 npm run lan                 # build:lan + server
-npm run validate            # valide la cohérence sync (rapide)
-npm run validate:full        # validation sync complète
-npm run validate:migrations   # valide les migrations SQL
+npm test                     # TOUS les tests colocalisés (176) — à lancer avant tout commit
+npm test -- --filter <mot>    # ne lance que les tests dont le chemin contient <mot>
+npm test -- --serie           # séquentiel, sortie lisible pour diagnostiquer
+npm run validate              # valide la cohérence sync (rapide)
+npm run validate:full          # validation sync complète
+npm run validate:migrations     # valide les migrations SQL
 ```
+
+État de référence au 2026-10-18 : **174 ok / 2 ko** (les 2 échecs sont connus et
+documentés — `PROJECT_STATUS.md` B2). Un échec en dehors de ces deux-là est une
+régression introduite par le travail en cours.
 
 ## Architecture (`src/`)
 
@@ -51,7 +58,33 @@ npm run validate:migrations   # valide les migrations SQL
 - Tests colocalisés en `_nomDuFichier.test.mjs` à côté du fichier testé (pas de dossier `__tests__` séparé).
 - Docs d'architecture détaillées dans `docs/` (ex. `ARCHITECTURE_KERNEL.md`, `CLOUD_MIGRATION_ARCHITECTURE.md`, `UX_ARCHITECTURE.md`) — les consulter avant de toucher au kernel, à la sync, ou à la gouvernance.
 
+## Suivi du projet — à lire en début de session
+
+- **`PROJECT_STATUS.md`** — état réel des modules, travaux en cours, blocages, risques et
+  **prochaine action exacte**. À actualiser en fin de session (statut, tests exécutés,
+  prochaine action). Vérifier que ce qu'il affirme correspond encore au code.
+- **`docs/JOURNAL_DECISIONS.md`** — décisions techniques et leur raison. Ne pas défaire une
+  décision sans lire son entrée : plusieurs protègent la synchronisation hors-ligne.
+- **`docs/REGISTRE_INCIDENTS.md`** — pannes rencontrées en école et garde-fous associés.
+- **`docs/SUIVI_CONTRAT_SYNCHRO.md`** — écarts du contrat de synchronisation laissés hors
+  périmètre par décision explicite ; `server/_sync_contract.test.mjs` échoue pour tout
+  écart non inscrit. Registre plus ancien, toujours en vigueur.
+
 ## Précautions
 
 - Le repo contient des dizaines de fichiers `supabase_*.sql` représentant l'historique réel des migrations appliquées en production : ne pas les supprimer ni les réordonner.
 - Ne pas exécuter de SQL destructif (`DROP`, `TRUNCATE`, resets) contre la base sans confirmation explicite de l'utilisateur.
+
+## Règles impératives (données par le responsable du produit, 2026-10-18)
+
+- **Ne rien déployer en production sans autorisation explicite**, à demander pour ce
+  déploiement-là : une autorisation passée ne vaut pas pour la fois suivante.
+- **Ne réinitialiser aucune file de synchronisation.**
+- **Ne supprimer ni modifier aucune donnée financière pour faire passer un test.**
+- Ne pas remplacer un mécanisme existant par une nouvelle technologie sans justification
+  et autorisation. Vérifier d'abord ce qui existe : Playwright, les garde-fous de synchro
+  et 37 documents d'architecture sont déjà en place.
+- **Ne jamais déclarer un travail terminé sans preuve vérifiable** : sortie de commande,
+  requête, ou test. Rapporter les échecs tels quels.
+- Si une information manque, inspecter le code et les documents avant de poser la question.
+- Ne pas installer plusieurs outils redondants sans démontrer leur utilité.

@@ -1,7 +1,7 @@
 {
   "name": "notescam-saas",
   "private": true,
-  "version": "0.3.14",
+  "version": "0.3.15",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,12 @@
     "server": "node server/index.js",
     "lan": "npm run build:lan && node server/index.js",
     "lan:dev": "node server/index.js",
+    "test": "node scripts/run-tests.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "test:sync-batch": "node --experimental-loader ./src/lib/_syncBatch.hooks.mjs src/lib/_syncBatch.test.mjs",
+    "test:teacher-import": "node --experimental-loader ./src/lib/_teacherImport.hooks.mjs src/lib/_teacherImport.test.mjs",
+    "test:my-profile": "node server/_my_profile.test.mjs",
     "perf:engines": "node --experimental-loader ./scripts/lib/esm-resolve.mjs scripts/perf-engines.mjs",
     "perf:selectors": "node --experimental-loader ./scripts/lib/esm-resolve.mjs scripts/perf-selectors.mjs",
     "perf:network": "node scripts/perf-network.mjs",
@@ -56,6 +61,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@remotion/cli": "^4.0.471",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.20",

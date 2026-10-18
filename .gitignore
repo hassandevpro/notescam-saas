@@ -116,3 +116,11 @@ supabase/.temp/
 
 # Artefacts des tests d'impression (scripts/test-print.mjs)
 .print-tests/
+
+# Artefacts des tests de parcours (Playwright) : traces, captures et rapport HTML
+# régénérés à chaque exécution. La base SQLite jetable des E2E vit, elle, dans le
+# répertoire temporaire du système (voir playwright.config.mjs), jamais ici.
+test-results/
+playwright-report/
+blob-report/
+.playwright/

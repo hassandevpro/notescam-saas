@@ -1,0 +1,58 @@
+# CI NotesCam — garde-fous qui tournaient jusqu'ici seulement « si on y pensait ».
+#
+# Ordre volontaire, du moins cher au plus cher : les validations statiques (sans
+# base, quelques secondes) avant les 176 tests, puis le build. Un echec arrete la
+# suite — inutile de construire si les migrations sont dangereuses.
+#
+# `npm test` applique le cliquet des echecs connus (`ECHECS_CONNUS` dans
+# scripts/run-tests.mjs) : un defaut deja documente dans PROJECT_STATUS.md ne
+# bloque pas, tout echec nouveau bloque.
+#
+# Aucun secret n'est utilise : rien ici ne touche Supabase ni Vercel, et aucun
+# job ne deploie. Le deploiement reste declenche par Vercel sur `main`.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node 24 (version de developpement du projet)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Installer les dependances
+        run: npm ci
+
+      - name: Coherence de la synchronisation
+        run: npm run validate
+
+      - name: Surete et idempotence des migrations
+        run: npm run validate:migrations
+
+      - name: Tests colocalises (176)
+        run: npm test
+
+      - name: Build edition cloud
+        run: npm run build
+
+      - name: Build edition LAN
+        run: npm run build:lan

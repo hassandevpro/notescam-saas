@@ -2854,37 +2854,6 @@ export default function Bulletins() {
         {/* Sélecteur de format — masqué pour Guinea Ecuatorial (un seul format
             officiel). Pour les classes MINESEC, on AJOUTE l'option officielle
             (APC ou 2nd cycle) sans retirer Classique/Moderne/APC. */}
-        {/* ── Ce que les matières DÉCOCHÉES retirent du bulletin ──────────
-            Les bulletins officiels listaient le référentiel national sans
-            regarder les matières de la classe : décocher n'avait aucun effet.
-            Elles font foi désormais — et l'écran DIT ce qui a été écarté, pour
-            qu'une matière manquante se voie ici et non à l'impression, devant
-            un parent. Rien ne s'affiche quand rien n'est écarté. */}
-        {(() => {
-          const scope = showApcOfficial ? apcEcole
-            : showPrimOfficial ? primEcole
-            : showMatOfficial ? matEcole
-            : null;
-          const n = scope?.exclus?.length || 0;
-          if (!n) return null;
-          const quoi = showApcOfficial
-            ? t('matière(s) du référentiel', 'referential subject(s)')
-            : showMatOfficial
-              ? t('domaine(s) du référentiel', 'referential domain(s)')
-              : t('compétence(s) du référentiel', 'referential competenc(ies)');
-          return (
-            <div className="mb-4 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 no-print">
-              <strong>{n}</strong> {quoi}{' '}
-              {t('ne sont pas cochées pour cette classe et ne sont donc pas imprimées',
-                 'are not selected for this class and are therefore not printed')}
-              {' — '}
-              <span className="font-mono text-slate-500">{scope.exclus.join(', ')}</span>
-              {'. '}
-              {t('Pour en réintégrer une, cochez-la dans Classes.',
-                 'To bring one back, tick it in Classes.')}
-            </div>
-          );
-        })()}
 
         {/* ── PRIMAIRE APC : disposition et orientation ──────────────────
             Deux reglages, et seulement pour le bulletin officiel du primaire.

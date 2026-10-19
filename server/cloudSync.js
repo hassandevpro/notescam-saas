@@ -61,8 +61,17 @@ const PULL_ORDER = [
   // doit figurer ICI pour être appliqué — une table absente de PULL_ORDER est
   // silencieusement ignorée à la descente.
   'cash_sessions',
+  // Journal de caisse : dépend de school_units (déjà appliquée plus haut) et
+  // d'aucune autre table synchronisée. Absente d'ici, elle serait ignorée en
+  // silence à la descente — exactement le défaut corrigé pour cash_sessions.
+  'cash_movements',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
-  'signalement_comments', 'signalement_history',
+  // `signalements` est le PARENT de ses commentaires et de son historique : sans elle
+  // ici, les deux enfants descendaient vers une ligne inexistante (FK en echec a
+  // chaque cycle) et le module ne traversait dans aucun sens. Elle figurait pourtant
+  // deja dans SYNCED_TABLES cote LAN : la poussee partait, et le Cloud l'ecartait en
+  // silence (sync-push: `if (!ALLOWED.has(ch.table)) continue`).
+  'signalements', 'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
   'attendance', 'student_absences', 'student_class_assignments',
   // Vie scolaire (discipline) — uniformité LAN↔Cloud des données élèves.
@@ -102,7 +111,13 @@ export function remoteWins(local, remote) {
 
 // Upsert direct (anti-écho : n'alimente PAS sync_outbox). Exporté pour l'auto-réparation
 // (server/syncRepair.js) : applique une ligne distante autoritaire + maintient le Merkle.
-export function rawUpsert(table, row) {
+// `quiet` : l'appelant prend en charge le message. Le pull met la ligne en file de
+// rejeu (rien n'est perdu) et journalise un RÉSUMÉ par table ; la réparation, elle,
+// n'a pas de file et doit signaler la ligne immédiatement. Sans cela, une mise en
+// attente parfaitement normale (parent pas encore descendu) s'écrivait « ignoré » à
+// chaque ligne et à chaque cycle, et se lisait à l'école comme une perte de données.
+let lastUpsertError = null;
+export function rawUpsert(table, row, { quiet = false } = {}) {
   const cols = tableColumns(table);
   const rec = {};
   for (const [k, v] of Object.entries(row)) if (cols.has(k)) rec[k] = normalizeValue(v);
@@ -125,7 +140,11 @@ export function rawUpsert(table, row) {
   const tracked = isTracked(table);
   const before = tracked ? snapshotRows(table, [rec.id]) : null;
   try { db.prepare(sql).run(...keys.map((c) => rec[c])); }
-  catch (e) { console.warn(`[sync] upsert ${table} ignoré: ${e.message}`); return false; }
+  catch (e) {
+    lastUpsertError = e.message;
+    if (!quiet) console.warn(`[sync] upsert ${table} ignoré: ${e.message}`);
+    return false;
+  }
   if (tracked) maintainMerkle(table, before, snapshotRows(table, [rec.id]));
   return true;
 }
@@ -151,6 +170,73 @@ async function edgeFetch(path, body) {
     throw err;
   }
   return j;
+}
+
+// --- Références utilisateur à la DESCENTE (Cloud → LAN) ---------------
+//
+// `users` n'est JAMAIS répliqué : les identifiants transitent par le canal chiffré
+// de credentials (cf. authBridge.js). Mais `school_users.user_id` porte une FK vers
+// `users(id)`, et le Cloud y met SON identifiant de compte. Deux cas font alors
+// échouer la ligne d'appartenance à CHAQUE cycle, indéfiniment :
+//
+//   1. le compte local existe sous un id LOCAL (école migrée vers le Cloud : la
+//      montée remappe local → cloud via activateCloud.remapUserRefs, mais RIEN ne
+//      faisait l'inverse à la descente) ;
+//   2. le membre a été créé au Cloud et son mot de passe n'a jamais été défini : pas
+//      de ligne `credential_outbox`, donc aucun compte local à référencer.
+//
+// Cas 1 → on remappe vers l'id local. Sans effet sur l'audit d'intégrité : la feuille
+// de Merkle ne dépend que de `table:id:version` (syncMerkle.leaf), jamais du contenu.
+// Cas 2 → on matérialise un compte EN ATTENTE, avec une empreinte de mot de passe
+// INUTILISABLE : `verifyPassword` refuse toute valeur sans « : », donc la connexion
+// est impossible tant que la vraie credential n'est pas arrivée. C'est le
+// comportement voulu — ce membre n'a pas encore de mot de passe — mais son rôle
+// descend, la table converge, et `applyCredential` complétera la ligne le moment venu.
+const PENDING_HASH = 'en-attente-de-credential';   // sans « : » → jamais vérifiable
+
+function resolveUserRef(cloudUserId, fullName) {
+  const id = String(cloudUserId);
+  if (db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) return id;
+  const local = db.prepare('SELECT id FROM users WHERE cloud_user_id = ?').get(id);
+  if (local) return local.id;                       // cas 1 : compte local déjà connu
+  try {                                             // cas 2 : compte en attente
+    db.prepare(`INSERT INTO users (id, email, password_hash, full_name, cloud_user_id)
+                VALUES (?,?,?,?,?) ON CONFLICT(id) DO NOTHING`)
+      .run(id, `${id}@en-attente.local`, PENDING_HASH, fullName || null, id);
+    console.warn(`[sync] compte ${id} créé EN ATTENTE (aucun mot de passe défini au Cloud) — connexion impossible jusqu'à réception de sa credential`);
+    return id;
+  } catch (e) { console.warn(`[sync] compte en attente impossible pour ${id}: ${e.message}`); return id; }
+}
+
+// Sens MONTANT, symétrique du précédent : côté Cloud `school_users.user_id` référence
+// `auth.users`, qui ne connaît QUE les identifiants cloud. Une ligne dont le `user_id`
+// est un id local — membre créé en local après l'appairage, ou ligne remappée à la
+// descente ci-dessus — doit repartir avec l'id cloud correspondant.
+//
+// `activateCloud.remapUserRefs` faisait déjà cette traduction, mais UNIQUEMENT pour la
+// grande montée initiale : la synchro continue, elle, poussait la ligne telle quelle.
+// Limité aux colonnes qui portent une FK vers un compte : `school_users.user_id` et
+// les `auth_user_id` de `teachers`/`staff` (toutes trois référencent `users(id)` en
+// LAN, `auth.users` au Cloud). Aujourd'hui les `auth_user_id` sont NULL partout chez
+// l'école observée — la FK ne se déclenche donc pas — mais le jour où un enseignant
+// est rattaché à un compte au Cloud, sa ligne cesserait de descendre, exactement comme
+// l'ont fait les appartenances.
+const USER_REF_COLS = { school_users: 'user_id', teachers: 'auth_user_id', staff: 'auth_user_id' };
+
+export function adaptLocalRow(table, row) {
+  const col = USER_REF_COLS[table];
+  if (!col || !row?.[col]) return row;
+  const cloudId = db.prepare('SELECT cloud_user_id FROM users WHERE id = ?').get(row[col])?.cloud_user_id;
+  return cloudId && cloudId !== row[col] ? { ...row, [col]: cloudId } : row;
+}
+
+// Ajuste une ligne distante avant application. Renvoie la ligne à écrire.
+// Exporté : la réparation (syncRepair.reconcile) applique les mêmes lignes distantes.
+export function adaptRemoteRow(table, row) {
+  const col = USER_REF_COLS[table];
+  if (!col || !row?.[col]) return row;
+  const ref = resolveUserRef(row[col], row.full_name ?? row.name);
+  return ref === String(row[col]) ? row : { ...row, [col]: ref };
 }
 
 // --- File de rejeu du pull (anti-perte silencieuse) ------------------
@@ -179,13 +265,18 @@ function retryPendingPull() {
     let rows;
     try { rows = db.prepare('SELECT row_id, row_json FROM sync_pull_retry WHERE tablename = ?').all(table); }
     catch { return; }                       // table pas encore créée (vieux schéma) → no-op
+    let still = 0, cause = null;
     for (const r of rows) {
       let row; try { row = JSON.parse(r.row_json); } catch { dropPullRetry(table, r.row_id); continue; }
       const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(r.row_id);
       if (local && !remoteWins(local, row)) { dropPullRetry(table, r.row_id); continue; } // supersédé localement
-      if (rawUpsert(table, row)) dropPullRetry(table, r.row_id);
-      else { try { db.prepare('UPDATE sync_pull_retry SET attempts = attempts + 1, last_at = ? WHERE tablename = ? AND row_id = ?').run(new Date().toISOString(), table, r.row_id); } catch { /* best-effort */ } }
+      if (rawUpsert(table, adaptRemoteRow(table, row), { quiet: true })) dropPullRetry(table, r.row_id);
+      else { still++; cause = cause || lastUpsertError; try { db.prepare('UPDATE sync_pull_retry SET attempts = attempts + 1, last_at = ? WHERE tablename = ? AND row_id = ?').run(new Date().toISOString(), table, r.row_id); } catch { /* best-effort */ } }
     }
+    // Idem : un résumé, pas une ligne par enregistrement à chaque cycle. C'est ce
+    // rejeu qui répétait les quatre mêmes « FOREIGN KEY constraint failed » toutes
+    // les minutes dans le journal, alors que rien n'empirait.
+    if (still) console.warn(`[sync] ${table} : ${still} ligne(s) toujours en attente (${cause})`);
   }
 }
 
@@ -243,6 +334,7 @@ async function pull(edge, dryRun) {
       const batch = table === 'budgets'
         ? [...(rows[table] || [])].sort((a, b) => tierRank(a) - tierRank(b))
         : (rows[table] || []);
+      let deferred = 0, cause = null;
       for (const row of batch) {
         if (!row?.id) continue;
         const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(row.id);
@@ -250,8 +342,17 @@ async function pull(edge, dryRun) {
         plan.apply.push({ table, id: row.id });
         // Échec d'upsert (FK/dérive) → NE PAS perdre : mise en file de rejeu (le
         // curseur avance quand même, mais la ligne sera ré-appliquée aux cycles suivants).
-        if (!dryRun && !rawUpsert(table, row)) recordPullRetry(table, row);
+        if (!dryRun && !rawUpsert(table, adaptRemoteRow(table, row), { quiet: true })) {
+          recordPullRetry(table, row);
+          deferred++; cause = cause || lastUpsertError;
+        }
       }
+      // UN message par table et par cycle, qui dit ce qui se passe RÉELLEMENT : la
+      // ligne est en attente, pas perdue. Cas courant et attendu : `school_users`
+      // descend avant que le compte `users` correspondant n'ait été provisionné par
+      // le canal de credentials (cf. authBridge.syncCloudCredentials) → FK en échec
+      // tant que la clé publique de l'école n'est pas enregistrée côté Cloud.
+      if (deferred) console.warn(`[sync] ${table} : ${deferred} ligne(s) en attente de rejeu (${cause}) — réappliquées au prochain cycle`);
     }
     for (const t of j?.tombstones || []) {
       if (!SYNCED_TABLES.has(t.tablename)) continue;
@@ -303,7 +404,7 @@ async function push(edge, dryRun) {
     seen.add(k);
     if (e.op === 'delete') { changes.push({ table: e.tablename, op: 'delete', row: { id: e.row_id } }); continue; }
     const row = db.prepare(`SELECT * FROM "${e.tablename}" WHERE id = ?`).get(e.row_id);
-    if (row) changes.push({ table: e.tablename, op: 'upsert', row });
+    if (row) changes.push({ table: e.tablename, op: 'upsert', row: adaptLocalRow(e.tablename, row) });
     else changes.push({ table: e.tablename, op: 'delete', row: { id: e.row_id } });
   }
   changes.reverse();
@@ -323,8 +424,9 @@ async function push(edge, dryRun) {
   // file qu'on met de côté, pas une donnée — la ligne reste en base, et
   // `autoRepair` sait la réenfiler quand le contrôle d'intégrité la déclare
   // manquante au cloud.
+  let res;
   try {
-    await edge('sync-push', { changes });
+    res = await edge('sync-push', { changes });
   } catch (err) {
     const ids = entries.map((e) => e.id);
     const quand = new Date().toISOString();
@@ -354,10 +456,55 @@ async function push(edge, dryRun) {
     });
     throw err;
   }
-  // Succès : purge les entrées traitées (les nouvelles, id > maxId, restent).
+  // ── LE CLOUD A RÉPONDU 200, MAIS A-T-IL TOUT ACCEPTÉ ? ──────────────────
+  //
+  // `sync-push` renvoie 200 même lorsqu'il REFUSE des lignes (FK vers une classe
+  // absente, CHECK, périmètre…). On purgeait pourtant l'outbox en bloc : la ligne
+  // refusée disparaissait de la file pour toujours, sans message, sans trace.
+  // Seul `autoRepair` pouvait encore la rattraper — et il suffisait d'un HTTP 400
+  // sur les tombstones pour qu'il ne tourne plus du tout.
+  //
+  // C'est ce couple qui a fait rester des centaines d'élèves à l'école : refusés
+  // en silence à la poussée, puis jamais réenfilés faute de réparation.
+  //
+  // Les entrées nommées par le Cloud sont donc CONSERVÉES (tentative comptée,
+  // motif gardé) au lieu d'être purgées. Les persistantes finissent en quarantaine
+  // AVEC leur raison — visible, et non plus perdue.
+  // Compatible avec un Cloud non redéployé : sans `rejected`, on purge comme avant.
+  const refuses = Array.isArray(res?.rejected) ? res.rejected : [];
+  const cles = new Set(refuses.map((r) => `${r.table}|${r.id}`));
   const maxId = entries[entries.length - 1].id;
-  db.prepare('DELETE FROM sync_outbox WHERE id <= ?').run(maxId);
-  return { pushed: changes.length, planned };
+  tx(() => {
+    if (cles.size) {
+      const quand = new Date().toISOString();
+      const motif = new Map(refuses.map((r) => [`${r.table}|${r.id}`, String(r.reason || 'refus_cloud').slice(0, 500)]));
+      for (const e of entries) {
+        const k = `${e.tablename}|${e.row_id}`;
+        if (!cles.has(k)) continue;
+        const tentatives = (e.attempts || 0) + 1;
+        if (tentatives >= PUSH_MAX_ATTEMPTS) {
+          db.prepare(`INSERT INTO sync_outbox_quarantine
+                        (tablename, row_id, op, at, attempts, last_error, quarantined_at)
+                      VALUES (?,?,?,?,?,?,?)`)
+            .run(e.tablename, e.row_id, e.op, e.at, tentatives, motif.get(k), quand);
+          db.prepare('DELETE FROM sync_outbox WHERE id = ?').run(e.id);
+          cles.delete(k);                       // purgeable : l'entrée n'existe plus
+        } else {
+          db.prepare('UPDATE sync_outbox SET attempts = ?, last_error = ? WHERE id = ?')
+            .run(tentatives, motif.get(k), e.id);
+        }
+      }
+      const parMotif = new Map();
+      for (const r of refuses) parMotif.set(r.reason, (parMotif.get(r.reason) || 0) + 1);
+      console.warn(`[sync] ${refuses.length} ligne(s) REFUSÉE(S) par le Cloud, conservées en file : `
+        + [...parMotif].map(([m, n]) => `${n}× ${m}`).join(' · '));
+    }
+    // Purge les entrées réellement traitées (les nouvelles, id > maxId, restent).
+    const gardees = entries.filter((e) => cles.has(`${e.tablename}|${e.row_id}`)).map((e) => e.id);
+    db.prepare(`DELETE FROM sync_outbox WHERE id <= ?${gardees.length ? ` AND id NOT IN (${gardees.map(() => '?').join(',')})` : ''}`)
+      .run(maxId, ...gardees);
+  });
+  return { pushed: changes.length, planned, rejected: refuses.length };
 }
 
 // Journal lisible (console + DATA_DIR/sync-dryrun.log). N'écrit aucune donnée
@@ -466,6 +613,16 @@ async function verifierEtReparer() {
   }
 }
 
+// Import paresseux, comme verifyIntegrity/autoRepair : `fileSync` importe lui-même
+// `cloudSync` (pour `serverToken`), et un import statique fermerait le cycle au
+// chargement du module.
+async function repliquerFichiersSiPossible() {
+  try {
+    const { repliquerFichiers } = await import('./fileSync.js');
+    return await repliquerFichiers();
+  } catch (e) { console.warn('[fichiers] réplication indisponible:', e.message); return null; }
+}
+
 async function runScheduledSync() {
   markSyncStart();
   const t0 = Date.now();
@@ -478,6 +635,11 @@ async function runScheduledSync() {
     // maintenu + descente seulement sur divergence → aucun rescan global. Best-effort :
     // ne transforme jamais une synchro réussie en erreur.
     const report = await verifierEtReparer();
+    // RÉPLICATION DES FICHIERS (photos, logos, cachets). Après les données : un
+    // fichier n'a d'intérêt que si la ligne qui le référence est arrivée. Borné à
+    // quelques fichiers par cycle et strictement best-effort — une panne de
+    // téléversement ne doit jamais faire échouer la synchro des données.
+    await repliquerFichiersSiPossible();
     // Une seule entrée d'audit ENRICHIE par cycle (état de parité + empreinte + rapport).
     recordSyncAudit({
       kind: 'sync', pushed: r.pushed, pulled: r.pulled, deleted: r.deleted,

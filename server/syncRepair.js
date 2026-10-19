@@ -16,7 +16,7 @@
 
 import { db, tx } from './db.js';
 import { EDGE_BASE } from './cloudEnv.js';
-import { serverToken, remoteWins, rawUpsert, syncOnce } from './cloudSync.js';
+import { serverToken, remoteWins, rawUpsert, syncOnce, adaptRemoteRow } from './cloudSync.js';
 import { recordSyncAudit } from './syncAudit.js';
 import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
 
@@ -32,7 +32,16 @@ async function defaultRepairEdge({ table, by, keys }) {
     body: JSON.stringify({ table, by, keys }),
   });
   const j = await res.json().catch(() => null);
-  if (!res.ok || !j) throw new Error(`sync-repair ${table}/${by}: HTTP ${res.status}`);
+  if (!res.ok || !j) {
+    // Le CORPS porte le motif réel (`bad_table`, `bad_by`, ou le message Postgres :
+    // table `sync_tombstones` absente du projet cloud, id non-UUID dans le lot…).
+    // Sans lui, l'école ne voyait qu'un « HTTP 400 » muet, impossible à diagnostiquer
+    // à distance — exactement le défaut déjà corrigé dans cloudSync.edgeFetch.
+    const err = new Error(`sync-repair ${table}/${by}: ${j?.error || `HTTP ${res.status}`}`);
+    err.status = res.status;
+    err.body = j;
+    throw err;
+  }
   return j;
 }
 
@@ -61,7 +70,7 @@ function reconcile(table, cloudRows, localRows, tombs = new Map()) {
   const applied = [], pushed = [], deleted = [];
   for (const [id, crow] of cloudById) {
     const lrow = localById.get(id);
-    if (!lrow || remoteWins(lrow, crow)) { if (rawUpsert(table, crow)) applied.push(id); }
+    if (!lrow || remoteWins(lrow, crow)) { if (rawUpsert(table, adaptRemoteRow(table, crow))) applied.push(id); }
     else { enqueue(table, id); pushed.push(id); }        // local plus récent → à pousser
   }
   for (const [id, lrow] of localById) {
@@ -76,11 +85,37 @@ function reconcile(table, cloudRows, localRows, tombs = new Map()) {
 }
 
 // Tombstones Cloud pour un lot d'ids (correctif M1). Map(id → deleted_at).
+//
+// NON BLOQUANT. Les tombstones sont un RAFFINEMENT : ils disent qu'une ligne
+// présente seulement en LAN a été supprimée au Cloud, et évitent de la ressusciter.
+// Sans eux, le repli est la branche sûre — la ligne est poussée au Cloud, donc
+// conservée. Une erreur ici (table `sync_tombstones` absente du projet cloud,
+// lot d'ids refusé par PostgREST…) ne doit donc PAS faire échouer la réparation.
+//
+// C'est le blocage observé en production : un seul HTTP 400 sur
+// `fee_payments/tombstones` remontait jusqu'à autoRepair, qui abandonnait avant
+// d'avoir réparé la moindre table — à chaque cycle, indéfiniment. Le journal
+// n'affichait que « auto-réparation indisponible », ce qui était vrai au sens le
+// plus large : aucune table n'était réparée, pas même celles sans le moindre souci.
+//
+// Le lot part en paramètre d'URL côté Cloud (`row_id=in.(…)`) : au-delà de quelques
+// centaines d'ids la requête dépasse la longueur admise et revient en HTTP 400, pour
+// TOUTES les lignes du lot. On découpe donc ici. (Le filtrage des ids non-UUID, lui,
+// est fait côté Cloud : c'est là que le type `uuid` de `row_id` est connu.)
+const TOMB_CHUNK = 200;
+
 async function fetchTombstones(repairEdge, table, ids) {
-  if (!ids.length) return new Map();
-  const { tombstones } = await repairEdge({ table, by: 'tombstones', keys: ids });
   const m = new Map();
-  for (const t of tombstones || []) m.set(String(t.row_id), t.deleted_at);
+  for (let i = 0; i < ids.length; i += TOMB_CHUNK) {
+    const lot = ids.slice(i, i + TOMB_CHUNK);
+    let tombstones;
+    try { ({ tombstones } = await repairEdge({ table, by: 'tombstones', keys: lot })); }
+    catch (e) {
+      console.warn(`[sync] tombstones ${table} indisponibles (${e.message}) — réparation poursuivie, les lignes locales seront poussées`);
+      return m;                            // ce qui a été obtenu reste exploitable
+    }
+    for (const t of tombstones || []) m.set(String(t.row_id), t.deleted_at);
+  }
   return m;
 }
 const localOnlyIds = (cloudRows, localRows) => {
@@ -126,23 +161,33 @@ export async function autoRepair(deps = {}) {
   const maxRounds = deps.maxRounds ?? 3;
 
   let report = await verify();
-  const out = { rounds: 0, repaired: [], ok: report.ok, report };
+  const out = { rounds: 0, repaired: [], failed: [], ok: report.ok, report };
   if (report.ok) return out;
 
   for (let round = 0; round < maxRounds && !report.ok; round++) {
     out.rounds++;
     for (const table of report.mismatches) {
-      const div = (report.divergences || []).find((d) => d.table === table);
-      if (div && !div.tableOnly && div.classes?.length) {
-        for (const c of div.classes) {
-          const r = c.students?.length
-            ? await repairScope(repairEdge, table, 'student', c.students)
-            : await repairScope(repairEdge, table, 'class', c.class_id);
-          out.repaired.push({ table, class: c.class_id, applied: r.applied.length, pushed: r.pushed.length, deleted: r.deleted.length });
+      // ISOLATION PAR TABLE : une table que le Cloud refuse (schéma non migré,
+      // colonne absente, lot rejeté…) ne doit pas empêcher la réparation des autres.
+      // Sans ce try, la PREMIÈRE table en erreur faisait remonter l'exception jusqu'à
+      // l'appelant et aucune des suivantes n'était traitée — un défaut localisé sur
+      // `fee_payments` paralysait la réparation de l'école entière.
+      try {
+        const div = (report.divergences || []).find((d) => d.table === table);
+        if (div && !div.tableOnly && div.classes?.length) {
+          for (const c of div.classes) {
+            const r = c.students?.length
+              ? await repairScope(repairEdge, table, 'student', c.students)
+              : await repairScope(repairEdge, table, 'class', c.class_id);
+            out.repaired.push({ table, class: c.class_id, applied: r.applied.length, pushed: r.pushed.length, deleted: r.deleted.length });
+          }
+        } else {
+          const r = await repairWholeTable(repairEdge, table);
+          out.repaired.push({ table, whole: true, applied: r.applied.length, pushed: r.pushed.length, deleted: (r.deleted || []).length, skipped: r.skipped });
         }
-      } else {
-        const r = await repairWholeTable(repairEdge, table);
-        out.repaired.push({ table, whole: true, applied: r.applied.length, pushed: r.pushed.length, deleted: (r.deleted || []).length, skipped: r.skipped });
+      } catch (e) {
+        console.warn(`[sync] réparation ${table} impossible: ${e.message}`);
+        out.failed.push({ table, error: e.message });
       }
     }
     // Pousse les lignes locales gagnantes/absentes au Cloud + tire le distant → converge.
@@ -152,6 +197,6 @@ export async function autoRepair(deps = {}) {
 
   out.ok = report.ok;
   out.report = report;
-  recordSyncAudit({ kind: 'auto-repair', ok: report.ok, detail: { rounds: out.rounds, partitions: out.repaired.length, mismatches: report.mismatches, repaired: out.repaired } });
+  recordSyncAudit({ kind: 'auto-repair', ok: report.ok, detail: { rounds: out.rounds, partitions: out.repaired.length, mismatches: report.mismatches, repaired: out.repaired, failed: out.failed } });
   return out;
 }

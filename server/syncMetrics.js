@@ -34,6 +34,36 @@ function pendingPullRetry() {
   try { return db.prepare('SELECT COUNT(*) c FROM sync_pull_retry').get()?.c || 0; }
   catch { return 0; }
 }
+// ENTRÉES MISES DE CÔTÉ (sync_outbox_quarantine) : une ligne que le Cloud a refusée
+// à répétition. Invisible jusqu'ici — or c'est EXACTEMENT ce qu'il faut regarder
+// quand l'école dit « mes élèves ne remontent pas ». On renvoie le décompte par
+// table et le dernier motif, pas les données : de quoi diagnostiquer à distance
+// sans jamais exposer le contenu d'une fiche.
+function quarantaine() {
+  try {
+    const total = db.prepare('SELECT COUNT(*) c FROM sync_outbox_quarantine').get()?.c || 0;
+    if (!total) return { total: 0, parTable: [] };
+    const parTable = db.prepare(
+      `SELECT tablename, COUNT(*) AS n, MAX(quarantined_at) AS dernier,
+              (SELECT last_error FROM sync_outbox_quarantine q2
+                WHERE q2.tablename = q.tablename ORDER BY q2.id DESC LIMIT 1) AS motif
+         FROM sync_outbox_quarantine q GROUP BY tablename ORDER BY n DESC`).all();
+    return { total, parTable };
+  } catch { return { total: 0, parTable: [] }; }
+}
+// Détail du backlog de poussée par table + motif du dernier refus connu. Un
+// compteur global ne disait pas QUELLE table coince, ce qui obligeait à se
+// connecter au PC de l'école pour le savoir.
+function backlogParTable() {
+  try {
+    return db.prepare(
+      `SELECT tablename, COUNT(*) AS n, MAX(attempts) AS tentatives_max,
+              (SELECT last_error FROM sync_outbox o2
+                WHERE o2.tablename = o.tablename AND o2.last_error IS NOT NULL
+                ORDER BY o2.id DESC LIMIT 1) AS dernier_motif
+         FROM sync_outbox o GROUP BY tablename ORDER BY n DESC LIMIT 20`).all();
+  } catch { return []; }
+}
 function ageMs(iso) { return iso ? Math.max(0, Date.now() - new Date(iso).getTime()) : null; }
 
 // Détecte une synchro BLOQUÉE (ne progresse plus alors qu'elle devrait). Renvoie
@@ -67,6 +97,13 @@ export function syncMetrics() {
     pendingTables,
     pendingEventLog: pendingEventLogN,
     pendingPullRetry: pendingPullRetryN,
+    // Ce que le Cloud a refusé, et ce qui attend encore : le premier endroit à
+    // regarder quand des données saisies à l'école n'arrivent pas.
+    quarantine: quarantaine(),
+    backlogParTable: backlogParTable(),
+    // Réplication des fichiers (photos, logos, cachets) : dernier cycle connu.
+    // `null` tant qu'aucun cycle n'a tourné.
+    fileSync: h.lastFileSync || null,
     avgReplicationMs: avgReplicationMs(20),
     lastSuccessAt: h.lastSuccessAt,
     lastSuccessAgeMs: ageMs(h.lastSuccessAt),

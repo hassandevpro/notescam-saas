@@ -499,11 +499,67 @@ CREATE TABLE IF NOT EXISTS budget_expenses (
   cancel_reason     TEXT,                            -- annulation tracée : motif (obligatoire côté UI)
   cancelled_by      TEXT,                            -- auteur de l'annulation
   cancelled_at      TEXT,                            -- date de l'annulation
+  -- ── Traçabilité d'une dépense REPRISE d'un document (cahier de caisse) ──
+  -- Dit de quel document et de quelle ligne elle vient : c'est ce qui permet de
+  -- la rapprocher de la pièce et de relancer une reprise sans la doubler.
+  -- NULL = saisie dans NotesCam. Miroir Cloud : supabase_cash_book.sql.
+  source_file       TEXT,
+  source_row        INTEGER,
+  import_batch      TEXT,
+  source_balance    INTEGER,                           -- solde inscrit en face, APRÈS validation numérique
+  -- `source_balance_raw` : volontairement ABSENTE tant que
+  -- supabase_cash_book_raw_balance.sql n'est pas appliquée au Cloud. Voir db.js,
+  -- au même titre : une colonne que le Cloud ignore fait refuser la poussée.
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_budget_expenses_budget  ON budget_expenses(budget_id);
 CREATE INDEX IF NOT EXISTS idx_budget_expenses_chapter ON budget_expenses(budget_chapter_id);
+
+-- --- Journal de caisse : ce qui ENTRE, et ce qui est REPORTÉ ----------------
+-- Les cahiers de caisse des écoles portent quatre natures d'écritures : SORTIES,
+-- ENTREES, REPORT de solde, TOTAL mensuel. NotesCam ne savait stocker que les
+-- sorties (budget_expenses) : un solde de caisse était donc incalculable, faute
+-- de connaître les entrées. Cette table ferme ce trou, et rien de plus.
+--
+-- Ce n'est PAS une seconde comptabilité : les dépenses ne sont pas recopiées
+-- ici. Le solde se calcule en lisant les deux tables (src/lib/cashBookEngine.js),
+-- donc une dépense saisie une fois est comptée une fois.
+--
+-- Un REPORT n'est pas une recette : il POSITIONNE le solde d'ouverture de la
+-- période, il ne l'augmente pas. Le moteur l'exclut de la somme des entrées.
+--
+-- `school_unit_id` = la caisse tenue (collège / primaire / maternelle) ;
+-- NULL = caisse du complexe. Deux caisses ne se mélangent jamais.
+-- Miroir Cloud : supabase_cash_book.sql.
+CREATE TABLE IF NOT EXISTS cash_movements (
+  id              TEXT PRIMARY KEY,
+  school_id       TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  school_unit_id  TEXT REFERENCES school_units(id) ON DELETE SET NULL,
+  academic_year   TEXT,
+  date            TEXT NOT NULL,
+  kind            TEXT NOT NULL CHECK (kind IN (
+                    'report', 'approvisionnement', 'recette_diverse',
+                    'transfert_entrant', 'transfert_sortant', 'retrait')),
+  amount          INTEGER NOT NULL DEFAULT 0 CHECK (amount >= 0),
+  label           TEXT,
+  reference       TEXT,     -- n° d'ordre tel qu'inscrit sur la pièce
+  source_balance  INTEGER,  -- solde inscrit en face, APRÈS validation numérique
+  -- La balance brute du document (« 254 08 ») attend sa migration Cloud :
+  -- `source_balance_raw` reste donc ABSENTE ici aussi, pour que les deux schémas
+  -- coïncident. Voir le commentaire de db.js — une colonne inconnue du Cloud
+  -- fait refuser la ligne à la poussée.
+  notes           TEXT,
+  source_file     TEXT,     -- document d'origine (NULL = saisie dans NotesCam)
+  source_row      INTEGER,  -- ligne exacte dans la feuille
+  import_batch    TEXT,
+  created_by      TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_cash_movements_school ON cash_movements(school_id, date);
+CREATE INDEX IF NOT EXISTS idx_cash_movements_unit   ON cash_movements(school_id, school_unit_id, date);
+CREATE INDEX IF NOT EXISTS idx_cash_movements_source ON cash_movements(school_id, source_file, source_row);
 
 -- --- Déblocage de lignes épuisées (demandes + décisions) -----
 CREATE TABLE IF NOT EXISTS budget_unlock_requests (
@@ -1484,6 +1540,54 @@ CREATE TABLE IF NOT EXISTS prim_notes (
 );
 CREATE INDEX IF NOT EXISTS idx_prim_notes_school  ON prim_notes(school_id);
 CREATE INDEX IF NOT EXISTS idx_prim_notes_student ON prim_notes(eleve_id);
+
+-- ── LE RÉFÉRENTIEL DE L'ÉCOLE : MASQUES + LIBELLÉS ──────────────────────────
+-- Miroir LAN de supabase_mat_domaines_par_ecole.sql, supabase_apc_competences_par_ecole.sql,
+-- supabase_prim_competences_par_ecole.sql et supabase_referentiel_libelles.sql.
+--
+-- Les trois tables de référentiel ci-dessus sont NATIONALES (seed officiel) et
+-- les tables de notes portent une FK vers elles : une école ne peut donc ni les
+-- éditer ni ranger les siennes ailleurs. Le Cloud lui a donné deux moyens, et le
+-- LAN ne les avait jamais reçus — l'écran « Modifier les compétences » échouait
+-- donc TOUJOURS hors-ligne (« Enregistrement refusé par le serveur ») :
+--
+--   • AJOUTER chez soi : colonne `school_id` (ajoutée par ensureColumn dans db.js,
+--     les trois tables préexistent sur les bases installées) ;
+--   • MASQUER / RENOMMER sans toucher au national : les quatre tables ci-dessous.
+--
+-- Pas de colonnes de sync (updated_at/version/device_id) : ces tables ne sont pas
+-- dans SYNCED_TABLES — le référentiel d'une école reste chez elle, et une clé
+-- composite sans `id` n'entre pas dans l'outbox LWW (cf. recordOutbox).
+CREATE TABLE IF NOT EXISTS apc_competences_masques (
+  school_id     TEXT NOT NULL REFERENCES schools(id)         ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES apc_competences(id) ON DELETE CASCADE,
+  masque_le     TEXT,
+  PRIMARY KEY (school_id, competence_id)
+);
+CREATE TABLE IF NOT EXISTS prim_competences_masques (
+  school_id     TEXT NOT NULL REFERENCES schools(id)          ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES prim_competences(id) ON DELETE CASCADE,
+  masque_le     TEXT,
+  PRIMARY KEY (school_id, competence_id)
+);
+CREATE TABLE IF NOT EXISTS mat_domaines_masques (
+  school_id  TEXT NOT NULL REFERENCES schools(id)      ON DELETE CASCADE,
+  domaine_id TEXT NOT NULL REFERENCES mat_domaines(id) ON DELETE CASCADE,
+  masque_le  TEXT,
+  PRIMARY KEY (school_id, domaine_id)
+);
+
+-- Libellé de remplacement d'une ligne NATIONALE, pour UNE école. L'id officiel
+-- ne bouge pas : les notes déjà saisies restent attachées, et le bulletin
+-- ministériel garde son identité. `kind` = 'mat' | 'apc' | 'prim'.
+CREATE TABLE IF NOT EXISTS referentiel_libelles (
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  kind      TEXT NOT NULL CHECK (kind IN ('mat', 'apc', 'prim')),
+  item_id   TEXT NOT NULL,
+  intitule  TEXT NOT NULL,
+  maj_le    TEXT,
+  PRIMARY KEY (school_id, kind, item_id)
+);
 
 -- ============================================================
 -- Socle P0 — Event Store (outbox), Audit Log, domaine Signalement

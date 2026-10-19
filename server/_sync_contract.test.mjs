@@ -57,6 +57,12 @@ const L = {
   pull_TABLES:   listeEntre(lire('supabase/functions/sync-pull/index.ts'), 'const TABLES = ['),
   verify_TABLES: listeEntre(lire('supabase/functions/sync-verify/index.ts'), 'const TABLES = ['),
   repair_TABLES: listeEntre(lire('supabase/functions/sync-repair/index.ts'), 'const TABLES = new Set(['),
+  // SEPTIÈME liste, ajoutée le 18/10/2026. L'audit a DEUX côtés : la fonction
+  // Edge ci-dessus, et `VERIFY_TABLES` côté LAN, qui décide ce que le serveur de
+  // l'école compare localement. Elle manquait ici, et c'est par ce trou que
+  // `cash_movements` a été oubliée : les six autres listes étaient à jour, le
+  // test passait, et la table n'était pourtant comparée d'aucun côté.
+  lan_VERIFY_TABLES: listeEntre(lire('server/syncVerify.js'), 'export const VERIFY_TABLES = ['),
 };
 for (const [nom, set] of Object.entries(L)) {
   ok(set && set.size > 10, `1. liste « ${nom} » lue (${set ? set.size : 'introuvable'} tables)`, set?.size);
@@ -79,9 +85,6 @@ const EXCLUSIONS = new Map([
   // sans elle : `student_fees` porte un INSTANTANÉ des tranches (feeEngine.js),
   // et cette table-là se réplique. Reste un écart de CONFIGURATION, traité à part.
   ['class_fee_grids',  'gabarit de tarif ; la dette réelle vit dans student_fees (instantané), qui se réplique'],
-  // Parent des signalements. Ses ENFANTS (commentaires, historique) se répliquent
-  // déjà et portent une FK vers lui : voir le contrôle dédié plus bas.
-  ['signalements',     'écart connu — voir le contrôle « enfant sans parent » ci-dessous'],
 ]);
 
 // ── ÉCARTS CONNUS, NON ENCORE TRANCHÉS ─────────────────────────────────────
@@ -100,9 +103,19 @@ const GAPS_CONNUS = new Map([
   ['hr_payroll_catalog|repair_TABLES', 'idem'],
   ['hr_payroll_items|verify_TABLES',   'idem'],
   ['hr_payroll_items|repair_TABLES',   'idem'],
-  ['signalements|enfant_sans_parent',  'les commentaires et l’historique se répliquent, pas le signalement '
-                                     + 'qui les porte ; la FK Cloud refuse alors l’insertion et la ligne est '
-                                     + 'perdue (outbox purgée). Trouvé le 18/09/2026, hors périmètre B6.1.'],
+  // Même écart, côté LAN : révélé le 18/10/2026 par l'ajout de la septième liste.
+  // Ce n'est pas un défaut nouveau — c'est le même, resté invisible faute d'être
+  // contrôlé. Inscrit tel quel : ajouter la paie à l'audit est la décision déjà
+  // différée ci-dessus, et la prendre au passage ici serait la prendre à la place
+  // de l'équipe.
+  ['hr_payroll|lan_VERIFY_TABLES',         'paie : ni auditée ni réparable côté LAN non plus — 18/10/2026'],
+  ['hr_payroll_catalog|lan_VERIFY_TABLES', 'idem'],
+  ['hr_payroll_items|lan_VERIFY_TABLES',   'idem'],
+  // `signalements|enfant_sans_parent` : écart RÉSOLU le 16/10/2026. La table est
+  // désormais dans les cinq listes (+ supabase_sync_signalements.sql pour ses
+  // déclencheurs Cloud). La dérogation est retirée VOLONTAIREMENT : tant qu'elle
+  // restait inscrite, le contrôle n° 6 passait quoi qu'il arrive et une régression
+  // serait repassée inaperçue. Il mord à nouveau.
 ]);
 const inscrit = (cle) => GAPS_CONNUS.has(cle);
 
@@ -119,7 +132,7 @@ for (const cible of ['PULL_ORDER', 'push_ALLOWED', 'pull_TABLES']) {
 
 // L'audit et la réparation sont le SEUL chemin de rattrapage d'une ligne déjà
 // perdue : une table qu'ils ignorent ne pourra jamais être reconstituée.
-for (const cible of ['verify_TABLES', 'repair_TABLES']) {
+for (const cible of ['verify_TABLES', 'repair_TABLES', 'lan_VERIFY_TABLES']) {
   const m = manquantes(cible).filter((t) => !inscrit(`${t}|${cible}`));
   ok(m.length === 0,
     `3. toute table synchronisée est couverte par « ${cible} », hors écarts inscrits`

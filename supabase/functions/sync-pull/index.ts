@@ -32,7 +32,7 @@ const TABLES = [
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
   'hr_payroll_catalog', 'hr_payroll', 'hr_payroll_items',
-  'signalement_comments', 'signalement_history',
+  'signalements', 'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items',
@@ -40,6 +40,9 @@ const TABLES = [
   // et arrêtés de caisse. Déclarées synchronisables côté LAN depuis leur
   // création, mais absentes ici : elles ne quittaient jamais l'école.
   'fee_schedule_items', 'cash_sessions',
+  // Journal de caisse (entrées, reports, retraits). Porte `id` + `updated_at`,
+  // donc le keyset (updated_at, id) s'applique sans traitement particulier.
+  'cash_movements',
   'attendance', 'student_absences', 'student_class_assignments',
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
   'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',

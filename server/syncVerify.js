@@ -34,10 +34,14 @@ export const VERIFY_TABLES = [
   'budget_periods', 'budget_line_periods', 'budget_line_sectors', 'budget_line_reallocations',
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
-  'signalement_comments', 'signalement_history',
+  'signalements', 'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items', 'cash_sessions',
+  // Journal de caisse : même raison que les échéances ci-dessous. Non comparée,
+  // une divergence sur les ENTRÉES de caisse ne serait jamais détectée — et le
+  // solde affiché par l'école différerait de celui du Cloud sans alerte.
+  'cash_movements',
   // Échéances des frais périodiques. Absentes d'ici, elles n'étaient jamais
   // comparées : autoRepair ne répare que ce que ce contrôle déclare divergent,
   // donc les échéances perdues avant la 0.2.7 ne seraient jamais rattrapées.

@@ -19,7 +19,7 @@ const ALLOWED = new Set([
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
   'hr_payroll_catalog', 'hr_payroll', 'hr_payroll_items',
-  'signalement_comments', 'signalement_history',
+  'signalements', 'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items',
@@ -27,6 +27,10 @@ const ALLOWED = new Set([
   // et arrêtés de caisse. Déclarées synchronisables côté LAN depuis leur
   // création, mais absentes ici : elles ne quittaient jamais l'école.
   'fee_schedule_items', 'cash_sessions',
+  // Journal de caisse (entrées, reports, retraits) : sans elle, une dotation
+  // saisie en LAN serait écartée ici en silence et le Cloud afficherait les
+  // sorties sans les entrées — donc un solde de caisse faux.
+  'cash_movements',
   'attendance', 'student_absences', 'student_class_assignments',
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
   'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',
@@ -65,6 +69,23 @@ Deno.serve(async (req) => {
 
   const { changes } = await req.json().catch(() => ({ changes: [] }));
   let applied = 0, skipped = 0;
+  // CE QUE LE CLOUD A REFUSÉ, ET POURQUOI.
+  //
+  // Jusqu'ici cette fonction renvoyait 200 avec un simple compteur `skipped`. Le
+  // serveur LAN le lisait comme un succès et PURGEAIT son outbox : une ligne
+  // refusée — FK vers une classe absente, CHECK, périmètre — disparaissait de la
+  // file pour toujours, sans trace nulle part. C'est le mécanisme par lequel des
+  // centaines d'élèves saisis à l'école ne sont jamais arrivés ici.
+  //
+  // On nomme désormais chaque refus. Le LAN garde ces entrées au lieu de les
+  // purger (cf. cloudSync.push) et finit par les mettre en quarantaine AVEC leur
+  // motif, au lieu de les perdre en silence.
+  const rejected: { table: string; id: string; reason: string }[] = [];
+  const MAX_REJECTED = 200;                       // borne la taille de la réponse
+  const refuse = (table: string, id: string, reason: string) => {
+    skipped++;
+    if (rejected.length < MAX_REJECTED) rejected.push({ table, id: String(id), reason });
+  };
 
   for (const ch of changes || []) {
     if (!ALLOWED.has(ch.table)) continue;
@@ -75,7 +96,12 @@ Deno.serve(async (req) => {
     if (ch.op === 'delete') {
       // On ne supprime que dans le périmètre de l'école, et on trace un tombstone.
       const { data: ex } = await admin.from(ch.table).select(scopeCol).eq('id', id).maybeSingle();
-      if (!ex || (ex as any)[scopeCol] !== schoolId) { skipped++; continue; }
+      if (!ex || (ex as any)[scopeCol] !== schoolId) {
+        // Déjà absente au Cloud = suppression sans objet : ce n'est pas un refus.
+        if (!ex) { skipped++; continue; }
+        refuse(ch.table, id, 'hors_perimetre_ecole');
+        continue;
+      }
       await admin.from(ch.table).delete().eq('id', id);
       await admin.from('sync_tombstones').upsert(
         { school_id: schoolId, tablename: ch.table, row_id: id, deleted_at: new Date().toISOString() },
@@ -86,21 +112,24 @@ Deno.serve(async (req) => {
 
     // upsert : périmètre + LWW déterministe (le cloud ne cède que si le
     // changement local gagne selon (updated_at, version, device_id)).
-    if (!belongs(ch.table, ch.row, schoolId)) { skipped++; continue; }
+    if (!belongs(ch.table, ch.row, schoolId)) { refuse(ch.table, id, 'hors_perimetre_ecole'); continue; }
     const { data: existing } = await admin.from(ch.table)
       .select(`updated_at, version, device_id, ${scopeCol}`).eq('id', id).maybeSingle();
     // DÉFENSE EN PROFONDEUR (L1) : ne JAMAIS écraser une ligne qui appartient à une AUTRE
     // école (collision d'id inter-écoles). Le périmètre de la ligne existante doit être
     // celui du jeton, sinon on refuse (jamais de fuite/écrasement inter-tenant).
-    if (existing && (existing as any)[scopeCol] !== schoolId) { skipped++; continue; }
+    if (existing && (existing as any)[scopeCol] !== schoolId) { refuse(ch.table, id, 'id_appartient_a_une_autre_ecole'); continue; }
+    // LWW : le Cloud est plus récent. Ce n'est PAS un refus — la ligne locale est
+    // légitimement dépassée, et la purger de la file est le bon comportement.
     if (existing && !wins(ch.row, existing)) { skipped++; continue; }
     const { error } = await admin.from(ch.table).upsert(ch.row, { onConflict: 'id' });
     // On LOGUE l'erreur (au lieu de l'avaler en silence) : une écriture cloud
     // rejetée n'était pas diagnosticable auparavant. La ligne est tout de même
-    // ignorée (ne bloque pas le lot), mais l'erreur est désormais visible.
-    if (error) { console.log('[sync-push] upsert error', ch.table, id, error.message); skipped++; continue; }
+    // ignorée (ne bloque pas le lot), mais l'erreur est désormais visible —
+    // et renvoyée au LAN, qui ne la purgera plus de son outbox.
+    if (error) { console.log('[sync-push] upsert error', ch.table, id, error.message); refuse(ch.table, id, error.message.slice(0, 200)); continue; }
     applied++;
   }
 
-  return json(200, { applied, skipped });
+  return json(200, { applied, skipped, rejected });
 });

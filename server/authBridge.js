@@ -167,6 +167,21 @@ function applyCredential({ cloudUserId, email, fullName, plain }, hashFn) {
       db.prepare('UPDATE users SET cloud_user_id = ? WHERE id = ? AND cloud_user_id IS NULL')
         .run(cloudUserId, local.id);
     }
+    // COMPTE EN ATTENTE (créé par la descente de `school_users`, cf.
+    // cloudSync.resolveUserRef) : il porte une adresse de remplacement
+    // `<id>@en-attente.local`, pas celle du membre. Sans cette reprise, le mot de
+    // passe arrivait bien mais la personne ne pouvait toujours pas se connecter —
+    // elle aurait dû saisir l'adresse fictive. On ne touche à l'e-mail que s'il est
+    // encore celui du marqueur, et jamais s'il est déjà pris par un autre compte
+    // (`email` est UNIQUE : l'UPDATE échouerait et ferait perdre le mot de passe).
+    if (mail) {
+      const courant = db.prepare('SELECT email FROM users WHERE id = ?').get(local.id)?.email || '';
+      const occupe = db.prepare('SELECT 1 FROM users WHERE email = ? AND id <> ?').get(mail, local.id);
+      if (/@en-attente\.local$/i.test(courant) && !occupe) {
+        db.prepare('UPDATE users SET email = ? WHERE id = ?').run(mail, local.id);
+      }
+    }
+    if (fullName) db.prepare('UPDATE users SET full_name = ? WHERE id = ? AND full_name IS NULL').run(fullName, local.id);
     return 'updated';
   }
 

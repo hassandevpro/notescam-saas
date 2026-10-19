@@ -168,5 +168,53 @@ cloud.delCloud('grades', 'g3', '2020-01-01T00:00:00.000Z'); // suppression Cloud
   ok(db.prepare("SELECT 1 FROM grades WHERE id='g3'").get() && cloud.store.grades.has('g3'), 'C5 (M1) : modif locale postérieure CONSERVÉE + repoussée (pas supprimée)', null);
 }
 
+// ── C6 : le Cloud REFUSE les tombstones (HTTP 400) → la réparation CONTINUE ────
+//    Régression de l'incident terrain : « sync-repair fee_payments/tombstones :
+//    HTTP 400 » remontait jusqu'à autoRepair, qui abandonnait AVANT d'avoir réparé
+//    la moindre table. Les tombstones sont un raffinement : sans eux, la ligne
+//    locale est poussée (branche sûre), et le reste de la réparation doit aboutir.
+db.prepare("DELETE FROM grades WHERE id='g2'").run();
+// Une ligne présente SEULEMENT en LAN : c'est elle qui déclenche l'appel aux
+// tombstones (sans ligne locale orpheline, la réparation ne les demande même pas).
+db.prepare("INSERT INTO grades (id, school_id, class_id, student_id, subject_id, sequence, value, version, updated_at) VALUES ('gT','sch1','cA','e1','m1',7,'11',1,?)").run(nowIso());
+M.backfillTable('grades');
+{
+  const depsNoTomb = {
+    ...deps,
+    repairEdge: async (req) => {
+      if (req.by === 'tombstones') throw Object.assign(new Error('sync-repair grades/tombstones: HTTP 400'), { status: 400 });
+      return cloud.repairEdge(req);
+    },
+  };
+  const r = await autoRepair(depsNoTomb);
+  ok(r.ok === true, 'C6 : réparation aboutie MALGRÉ le refus des tombstones', { ok: r.ok, mm: r.report.mismatches });
+  ok(!!db.prepare("SELECT 1 FROM grades WHERE id='g2'").get(), 'C6 : la note manquante a bien été restaurée', null);
+  ok(cloud.store.grades.has('gT'), 'C6 : sans tombstone, la ligne locale est POUSSÉE (branche sûre, aucune perte)', null);
+}
+
+// ── C7 : une table en échec n'emporte plus les autres ─────────────────────────
+//    Même incident : un défaut localisé sur UNE table (schéma cloud non migré,
+//    lot refusé…) paralysait la réparation de toutes les autres.
+db.prepare("DELETE FROM grades WHERE id='g2'").run();
+M.backfillTable('grades');
+{
+  const depsKo = {
+    ...deps,
+    verify: async () => {
+      const rep = await deps.verify();
+      // On force 'subjects' en tête des tables à réparer : son fetch échouera.
+      if (!rep.ok && !rep.mismatches.includes('subjects')) rep.mismatches = ['subjects', ...rep.mismatches];
+      return rep;
+    },
+    repairEdge: async (req) => {
+      if (req.table === 'subjects') throw Object.assign(new Error('sync-repair subjects/all: bad_table'), { status: 400 });
+      return cloud.repairEdge(req);
+    },
+  };
+  const r = await autoRepair(depsKo);
+  ok(!!db.prepare("SELECT 1 FROM grades WHERE id='g2'").get(), 'C7 : grades réparée bien que subjects soit en erreur', null);
+  ok(r.failed.some((f) => f.table === 'subjects'), 'C7 : la table en échec est RAPPORTÉE (pas avalée)', r.failed);
+}
+
 console.log(`\n=== ${pass} ok, ${fail} ko ===`);
 process.exit(fail ? 1 : 0);

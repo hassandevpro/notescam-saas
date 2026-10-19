@@ -27,7 +27,7 @@ const TABLES = [
   'budget_periods', 'budget_line_periods', 'budget_line_sectors', 'budget_line_reallocations',
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance', 'hr_career_events',
-  'signalement_comments', 'signalement_history',
+  'signalements', 'signalement_comments', 'signalement_history',
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items',
@@ -35,6 +35,10 @@ const TABLES = [
   // et arrêtés de caisse. Déclarées synchronisables côté LAN depuis leur
   // création, mais absentes ici : elles ne quittaient jamais l'école.
   'fee_schedule_items', 'cash_sessions',
+  // Journal de caisse. Absente d'ici, elle monterait et descendrait sans jamais
+  // être COMPARÉE : une divergence sur les entrées de caisse resterait
+  // invisible, et autoRepair ne répare que ce que ce contrôle déclare divergent.
+  'cash_movements',
   'attendance', 'student_absences', 'student_class_assignments',
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
   'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',

@@ -23,14 +23,19 @@ const TABLES = new Set([
   'budget_reallocations', 'budget_revisions', 'budget_periods', 'budget_line_periods',
   'budget_line_sectors', 'budget_line_reallocations', 'governance_roles', 'user_governance_roles',
   'governance_role_history', 'hr_contracts', 'hr_leaves', 'hr_evaluations', 'hr_attendance',
-  'hr_career_events', 'signalement_comments', 'signalement_history', 'notifications',
+  'hr_career_events', 'signalements', 'signalement_comments', 'signalement_history', 'notifications',
   'notification_outbox', 'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
-  'fee_catalog', 'student_fee_items', 'fee_schedule_items', 'cash_sessions', 'attendance', 'student_absences', 'student_class_assignments',
+  'fee_catalog', 'student_fee_items', 'fee_schedule_items', 'cash_sessions',
+  // Journal de caisse : réparable, sinon une divergence détectée par sync-verify
+  // resterait sans remède et il faudrait reconstruire le LAN pour la corriger.
+  'cash_movements',
+  'attendance', 'student_absences', 'student_class_assignments',
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions', 'student_warnings',
   'student_detentions', 'parent_meetings', 'exit_permissions', 'school_messages',
   'teacher_notifications', 'sequence_dates', 'timetable_slots',
 ]);
 const BY_COL: Record<string, string> = { student: 'student_id', class: 'class_id', ids: 'id' };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_KEYS = 5000; // borne dure (une partition reste petite)
 const MAX_ALL = 20000; // borne dure de `by:'all'` (petite table de config / table sans dimension)
 
@@ -54,7 +59,14 @@ Deno.serve(async (req) => {
   // `by:'tombstones'` — suppressions Cloud pour des ids donnés (correctif M1 : le LAN
   // doit RESPECTER une suppression distante au lieu de ressusciter la ligne).
   if (by === 'tombstones') {
-    const k0 = Array.isArray(keys) ? keys.slice(0, MAX_KEYS).map(String) : [];
+    // `sync_tombstones.row_id` est de type `uuid`, alors qu'un id est TEXT côté LAN
+    // (SQLite). Un SEUL id non-UUID dans le lot — donnée de démonstration, import
+    // ancien — faisait rejeter la requête ENTIÈRE par PostgREST (« invalid input
+    // syntax for type uuid ») : HTTP 400 pour toutes les autres lignes, et plus
+    // aucune suppression Cloud respectée. Un tel id ne peut de toute façon pas
+    // avoir de tombstone ici : on l'écarte au lieu de faire échouer le lot.
+    const k0 = (Array.isArray(keys) ? keys.slice(0, MAX_KEYS).map(String) : [])
+      .filter((id) => UUID_RE.test(id));
     if (!k0.length) return json(200, { tombstones: [] });
     const { data, error } = await admin.from('sync_tombstones')
       .select('row_id, deleted_at').eq('school_id', schoolId).eq('tablename', table).in('row_id', k0);

@@ -20,6 +20,12 @@ mkdirSync(DATA_DIR, { recursive: true });
 
 export const DB_PATH = join(DATA_DIR, 'notescam.db');
 
+// Racine des fichiers servis sous /files/ (photos d'élèves, logos, cachets…).
+// Définie ICI, et non plus dans index.js seul : la réplication des fichiers vers
+// le Cloud (server/fileSync.js) doit viser EXACTEMENT le même dossier que celui
+// que le serveur expose. Deux expressions séparées finiraient par diverger.
+export const FILES_DIR = resolve(process.env.NOTESCAM_FILES_DIR || join(DATA_DIR, 'files'));
+
 // --- Restauration programmée ------------------------------------------
 // Remplacer la base pendant que le serveur tourne est impossible proprement :
 // des dizaines de modules tiennent `db` ouvert. La restauration est donc
@@ -271,6 +277,162 @@ ensureColumn('prim_notes', 'ua', 'ua INTEGER');
 // Pendant de apc_notes.note_max : sans cette colonne, un Oral noté /10 serait
 // relu sur le barème officiel du critère au prochain démarrage — donc faux.
 ensureColumn('prim_notes', 'points_max', 'points_max NUMERIC');
+
+// ── LA CLÉ D'UNICITÉ DE prim_notes A CHANGÉ, ET LES BASES INSTALLÉES NON ─────
+//
+// LE DÉFAUT QUE CECI CORRIGE, lu dans l'export « saisies non transmises » d'une
+// école (28/09/2026) : huit écritures bloquées en file, 25 tentatives pour la
+// plus ancienne, toutes avec le même message —
+//     « ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint ».
+//
+// Le client écrit une note primaire en upsert sur (eleve, competence, critere,
+// UA) — c'est la clé depuis que l'UA (1-8) a remplacé le trimestre comme unité
+// de saisie. Mais `CREATE TABLE IF NOT EXISTS` ne touche pas une table déjà
+// créée : toute base installée AVANT ce changement porte encore
+// `UNIQUE (eleve_id, competence_id, critere_id, trimestre_id)`. SQLite ne
+// trouve donc aucune contrainte correspondant à la clause, et REFUSE l'écriture.
+//
+// Ce n'est pas un cas limite : AUCUNE note primaire ne pouvait plus s'écrire sur
+// ces bases. L'enseignant ne voyait rien — sa saisie vit d'abord dans le
+// navigateur — et elle repartait en file à chaque cycle, indéfiniment. Les huit
+// entrées de l'export sont toutes des barèmes (note NULL, points_max 10/17/11),
+// parce que c'est le geste qui écrit une ligne par élève d'un coup.
+//
+// Un simple index unique de plus ne suffirait pas : l'ANCIENNE contrainte
+// interdirait alors deux UA d'un même trimestre sur le même critère. Il faut la
+// retirer, et SQLite ne sait le faire qu'en reconstruisant la table — même
+// procédé que `mat_observations` ci-dessous.
+(() => {
+  const colonnes = db.prepare('PRAGMA table_info("prim_notes")').all();
+  if (!colonnes.length) return;                       // table absente (base neuve, schema.sql la pose déjà juste)
+  const noms = new Set(colonnes.map((c) => c.name));
+  if (!noms.has('ua')) return;                        // schéma trop ancien : `ensureColumn` ci-dessus l'a posée
+
+  // La clé attendue est-elle DÉJÀ portée par un index unique ? La détection
+  // porte sur le schéma réel, pas sur un drapeau de version : l'opération est
+  // idempotente et ne coûte rien à une base à jour.
+  const VOULUE = ['eleve_id', 'competence_id', 'critere_id', 'ua'].join(',');
+  const indexUniques = db.prepare('PRAGMA index_list("prim_notes")').all().filter((i) => i.unique);
+  const dejaBonne = indexUniques.some((i) => db.prepare(`PRAGMA index_info(${quoteIdent(i.name)})`).all()
+    .map((c) => c.name).join(',') === VOULUE);
+  if (dejaBonne) return;
+
+  // Colonnes conservées : celles du schéma courant, PLUS `trimestre_id` si la
+  // base la porte encore. On ne jette aucune donnée au passage — la colonne
+  // devient simplement nullable et inutilisée, comme sur les bases neuves.
+  const garde = ['id', 'school_id', 'eleve_id', 'competence_id', 'critere_id', 'ua', 'note',
+    'points_max', 'enseignant_id', 'date_saisie', 'updated_at', 'version', 'device_id']
+    .filter((c) => noms.has(c));
+  const avecTrimestre = noms.has('trimestre_id');
+  const cols = avecTrimestre ? [...garde, 'trimestre_id'] : garde;
+  const liste = cols.map(quoteIdent).join(', ');
+
+  // Doublons sur la NOUVELLE clé : deux lignes qui coexistaient sous l'ancienne
+  // (deux UA du même trimestre ne pouvaient pas, mais une reprise de données le
+  // peut) empêcheraient la copie. On garde la plus récente et on DIT combien ont
+  // été écartées — un silence ici ferait disparaître du travail sans trace.
+  // « La plus récente » se juge sur les colonnes que la base porte VRAIMENT :
+  // `updated_at` n'arrive que plus bas (boucle SYNCED_TABLES), et une base
+  // ancienne n'a parfois que `date_saisie`. Un ORDER BY écrit en dur sur une
+  // colonne absente ferait échouer tout le démarrage du serveur.
+  const recence = ['updated_at', 'date_saisie'].filter((c) => noms.has(c))
+    .map((c) => `COALESCE(p2.${c}, '')`);
+  const ordre = [...recence, 'p2.id'].map((e) => `${e} DESC`).join(', ');
+  const plusRecente = `
+    SELECT p2.id FROM prim_notes p2
+     WHERE p2.eleve_id = p.eleve_id AND p2.competence_id = p.competence_id
+       AND p2.critere_id = p.critere_id AND p2.ua = p.ua
+     ORDER BY ${ordre} LIMIT 1`;
+  const doublons = db.prepare(
+    `SELECT count(*) AS c FROM prim_notes p WHERE p.ua IS NOT NULL AND p.id <> (${plusRecente})`,
+  ).get().c;
+
+  const fk = db.prepare('PRAGMA foreign_keys').get();
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE prim_notes_nouveau (
+        id            TEXT PRIMARY KEY,
+        school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+        eleve_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        competence_id TEXT NOT NULL REFERENCES prim_competences(id),
+        critere_id    TEXT NOT NULL REFERENCES prim_criteres(id),
+        ua            INTEGER CHECK (ua IS NULL OR ua BETWEEN 1 AND 8),
+        note          NUMERIC,
+        points_max    NUMERIC CHECK (points_max IS NULL OR (points_max > 0 AND points_max <= 200)),
+        enseignant_id TEXT,
+        date_saisie   TEXT,
+        updated_at    TEXT,
+        version       INTEGER NOT NULL DEFAULT 1,
+        device_id     TEXT${avecTrimestre ? ',\n        trimestre_id  TEXT' : ''},
+        CONSTRAINT prim_notes_uniq UNIQUE (eleve_id, competence_id, critere_id, ua)
+      );
+      INSERT INTO prim_notes_nouveau (${liste})
+        SELECT ${liste} FROM prim_notes p
+         WHERE p.ua IS NULL OR p.id = (${plusRecente});
+      DROP TABLE prim_notes;
+      ALTER TABLE prim_notes_nouveau RENAME TO prim_notes;
+      CREATE INDEX IF NOT EXISTS idx_prim_notes_school  ON prim_notes(school_id);
+      CREATE INDEX IF NOT EXISTS idx_prim_notes_student ON prim_notes(eleve_id);
+      COMMIT;
+    `);
+    console.log('[db] prim_notes reconstruite : la clé de saisie est l’unité d’apprentissage (UA), '
+      + 'les notes et barèmes du primaire s’enregistrent à nouveau.');
+    if (doublons) console.warn(`[db] prim_notes : ${doublons} ligne(s) en double sur (élève, compétence, critère, UA) — la plus récente a été gardée.`);
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* rien à annuler */ }
+    // Surtout ne pas masquer : tant que la reconstruction échoue, l'école saisit
+    // dans le vide et sa file de synchro grossit sans que rien ne le dise.
+    console.error('[db] reconstruction de prim_notes ÉCHOUÉE —', e.message);
+  } finally {
+    if (fk && fk.foreign_keys) db.exec('PRAGMA foreign_keys = ON');
+  }
+})();
+
+// ── LA NOTIFICATION « L'ENSEIGNANT A SAISI SES NOTES » NE POUVAIT PAS S'ÉCRIRE ──
+//
+// MÊME DÉFAUT QUE prim_notes CI-DESSUS, trouvé en vérifiant toutes les clés
+// d'upsert du client contre une base d'école. Le client déduplique par
+// (école, enseignant, classe, séquence) — une seule ligne par saisie, remise en
+// « non lue » à chaque mise à jour. Le Cloud porte la contrainte depuis
+// supabase_sprint27.sql ; le LAN ne l'a jamais reçue, et sa table n'a d'unique
+// que `id`. SQLite refusait donc l'écriture (« ON CONFLICT clause does not match
+// any PRIMARY KEY or UNIQUE constraint ») et la notification repartait en file à
+// CHAQUE enregistrement de notes — de quoi gonfler la file indéfiniment pour une
+// information secondaire, qui bloque alors ce qui compte derrière elle.
+//
+// Pas de reconstruction ici : aucune contrainte contradictoire à retirer, un
+// index unique suffit. Mais il faut d'abord retirer les doublons déjà en base,
+// sinon sa création échoue — même première étape que le SQL du Cloud, qui garde
+// la ligne la plus récente de chaque groupe.
+(() => {
+  const cols = db.prepare('PRAGMA table_info("teacher_notifications")').all().map((c) => c.name);
+  if (!cols.length) return;
+  const VOULUE = 'school_id,teacher_id,class_id,sequence';
+  const dejaLa = db.prepare('PRAGMA index_list("teacher_notifications")').all().filter((i) => i.unique)
+    .some((i) => db.prepare(`PRAGMA index_info(${quoteIdent(i.name)})`).all()
+      .map((c) => c.name).join(',') === VOULUE);
+  if (dejaLa) return;
+  try {
+    const avant = db.prepare('SELECT count(*) c FROM teacher_notifications').get().c;
+    db.exec(`
+      DELETE FROM teacher_notifications WHERE id NOT IN (
+        SELECT id FROM teacher_notifications t WHERE t.id = (
+          SELECT t2.id FROM teacher_notifications t2
+           WHERE t2.school_id IS t.school_id AND t2.teacher_id IS t.teacher_id
+             AND t2.class_id IS t.class_id AND t2.sequence IS t.sequence
+           ORDER BY COALESCE(t2.created_at, '') DESC, t2.id DESC LIMIT 1));
+      CREATE UNIQUE INDEX IF NOT EXISTS teacher_notifications_unique_grade_entry
+        ON teacher_notifications(school_id, teacher_id, class_id, sequence);
+    `);
+    const apres = db.prepare('SELECT count(*) c FROM teacher_notifications').get().c;
+    console.log('[db] teacher_notifications : clé de déduplication posée, les avis de saisie repartent'
+      + (avant > apres ? ` (${avant - apres} doublon(s) retiré(s), le plus récent gardé)` : ''));
+  } catch (e) {
+    console.error('[db] clé de teacher_notifications NON posée —', e.message);
+  }
+})();
 
 // ── Une observation de maternelle peut précéder sa cote ──────────────────────
 //
@@ -700,6 +862,67 @@ ensureColumn('students', 'group_student_id', 'group_student_id TEXT'); // identi
 // serait perdu au rechargement — d'où l'ajout AUSSI sur les bases déjà
 // installées, et pas seulement dans schema.sql.
 ensureColumn('apc_notes',        'note_max',      'note_max NUMERIC');
+
+// ── LE RÉFÉRENTIEL APPARTIENT AUSSI À L'ÉCOLE ───────────────────────────────
+// Miroir LAN des trois migrations `supabase_*_par_ecole.sql`. Les tables sont
+// NATIONALES (seed officiel) et les notes portent une FK vers elles : sans cette
+// colonne, une compétence ajoutée par l'école n'a nulle part où dire qu'elle est
+// la sienne. `pickColumns` écartait donc `school_id` en silence — la ligne
+// naissait « nationale », l'écran ne la reconnaissait plus comme maison, et le
+// renommage suivant partait sur la table des libellés… elle-même absente.
+// Résultat vécu : l'édition du référentiel échouait TOUJOURS en LAN.
+// NULL = national (lu par tous, écrit par personne — cf. guardReferentielNational).
+ensureColumn('apc_competences',  'school_id',     'school_id TEXT');
+ensureColumn('prim_competences', 'school_id',     'school_id TEXT');
+ensureColumn('mat_domaines',     'school_id',     'school_id TEXT');
+// Index créés ICI (après l'ALTER) et non dans schema.sql, qui s'exécute AVANT :
+// sur une base déjà installée l'index porterait sur une colonne inexistante et
+// ferait échouer TOUT le démarrage du serveur.
+try {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_apc_competences_school  ON apc_competences(school_id);
+    CREATE INDEX IF NOT EXISTS idx_prim_competences_school ON prim_competences(school_id);
+    CREATE INDEX IF NOT EXISTS idx_mat_domaines_school     ON mat_domaines(school_id);
+  `);
+} catch (e) {
+  console.warn(`[db] index school_id du référentiel non créés : ${e.message}`);
+}
+
+// ── RENDRE À L'ÉCOLE LES LIGNES QU'ELLE AVAIT DÉJÀ CRÉÉES ───────────────────
+//
+// CE QUE CECI RÉPARE, constaté en rejouant le geste sur la version installée :
+// avant cette mise à jour, « Ajouter une compétence » RÉUSSISSAIT en apparence
+// (le serveur répondait sans erreur) mais `pickColumns` écartait `school_id`,
+// colonne alors absente. La ligne naissait donc NATIONALE. L'école la voyait
+// marquée « officiel », ne pouvait plus la renommer ni la retirer — et depuis
+// cette version, `guardReferentielNational` la lui refuserait pour de bon.
+//
+// Ces lignes se reconnaissent SANS AMBIGUÏTÉ : l'écran les nomme
+// `ec_<12 premiers caractères de l'id d'école>_<libellé>` (idMaison, cf.
+// src/lib/referentielEcole.js), et aucune ligne du référentiel national ne
+// porte ce préfixe. On les rend à leur école, et à elle seule : le rattachement
+// n'a lieu que si le préfixe correspond à une école RÉELLEMENT présente ici.
+//
+// `apc_competences` n'est pas concernée : l'écran y pose un uuid, indistinguable
+// d'une ligne nationale. Mieux vaut n'y rien toucher que de risquer de donner à
+// une école une compétence du ministère.
+try {
+  const ecoles = db.prepare('SELECT id FROM schools').all();
+  let rendues = 0;
+  for (const { id } of ecoles) {
+    const prefixe = `ec_${String(id).replace(/-/g, '').slice(0, 12)}_`;
+    for (const t of ['prim_competences', 'mat_domaines']) {
+      const r = db.prepare(
+        `UPDATE ${quoteIdent(t)} SET school_id = ? WHERE school_id IS NULL AND id LIKE ? ESCAPE '/'`,
+      ).run(id, prefixe.replace(/_/g, '/_') + '%');
+      rendues += r.changes || 0;
+    }
+  }
+  if (rendues) console.log(`[db] ${rendues} compétence(s)/domaine(s) ajouté(s) par l'école lui sont rendu(s) : `
+    + 'créés avant la mise à jour, ils étaient restés marqués « officiels ».');
+} catch (e) {
+  console.warn(`[db] rattachement des lignes maison non effectué : ${e.message}`);
+}
 // Rattachement (nullable, sans FK dure — cohérent avec le reste du schéma LAN).
 ensureColumn('grades',           'assignment_id', 'assignment_id TEXT');
 ensureColumn('student_absences', 'assignment_id', 'assignment_id TEXT');
@@ -805,6 +1028,10 @@ export const SYNCED_TABLES = new Set([
   // Arrêté de caisse : le rapprochement espèces↔écritures doit se répliquer,
   // sinon un contrôle fait en LAN resterait invisible depuis le Cloud.
   'cash_sessions',
+  // Journal de caisse (entrées, reports, retraits). Sans cette ligne, une
+  // dotation saisie à l'école ne monterait jamais : le Cloud afficherait les
+  // sorties sans les entrées, donc un solde de caisse FAUX — et sans alerte.
+  'cash_movements',
   // Gouvernance du complexe — catalogue de rôles + attribution + historique.
   'governance_roles', 'user_governance_roles', 'governance_role_history',
   'attendance', 'student_absences', 'student_class_assignments',
@@ -966,6 +1193,14 @@ ensureColumn('domain_events', 'replicated_from', 'replicated_from TEXT');
 // re-vérifie ce drapeau avant d'appliquer une décision distante (governanceApply).
 ensureColumn('school_users', 'remote_access_allowed', 'remote_access_allowed INTEGER NOT NULL DEFAULT 0');
 
+// Profil du compte connecté (écran « Mon profil ») — miroir LAN de
+// supabase_user_profile.sql. Sans ces colonnes, les RPC update_my_profile /
+// set_my_photo / touch_my_last_login n'auraient nulle part où écrire : en
+// hors-ligne, enregistrer son nom, son téléphone ou sa photo ne tenait pas.
+ensureColumn('school_users', 'phone',         'phone TEXT');
+ensureColumn('school_users', 'photo_url',     'photo_url TEXT');
+ensureColumn('school_users', 'last_login_at', 'last_login_at TEXT');
+
 // Module Dépenses — annulation TRACÉE (statut terminal `cancelled`). Conservée en
 // base ; jamais supprimée. Motif obligatoire côté UI + auteur + date.
 ensureColumn('budget_expenses', 'cancel_reason', 'cancel_reason TEXT');
@@ -1031,6 +1266,32 @@ ensureColumn('budget_expenses', 'budget_period_id', 'budget_period_id TEXT REFER
 ensureColumn('budget_expenses', 'school_unit_id',   'school_unit_id TEXT REFERENCES school_units(id) ON DELETE SET NULL');     // secteur imputé (NULL = Complexe/Global)
 db.exec(readFileSync(join(__dirname, 'budget-lines.sql'), 'utf8'));
 
+// --- Journal de caisse : traçabilité d'origine des dépenses reprises --------
+// Une dépense issue d'un cahier de caisse doit dire de quel document et de
+// quelle ligne elle vient : c'est ce qui permet de la rapprocher de la pièce et
+// de relancer une reprise sans la doubler. Miroir Cloud : supabase_cash_book.sql.
+ensureColumn('budget_expenses', 'source_file',    'source_file TEXT');      // document d'origine (NULL = saisie dans NotesCam)
+ensureColumn('budget_expenses', 'source_row',     'source_row INTEGER');    // ligne exacte dans la feuille
+ensureColumn('budget_expenses', 'import_batch',   'import_batch TEXT');     // lot d'import
+ensureColumn('budget_expenses', 'source_balance', 'source_balance INTEGER'); // solde inscrit en face, APRÈS validation
+// Balance du document TELLE QU'ÉCRITE, même illisible (« 254 08 »). Séparée de la
+// valeur numérique : une balance textuelle était auparavant écartée en silence,
+// et l'incohérence du document disparaissait avec elle.
+//
+// RETENUE VOLONTAIREMENT CÔTÉ LAN, le 18/10/2026.
+// `supabase_cash_book_raw_balance.sql` n'est pas appliquée au Cloud. Or la
+// poussée envoie la ligne ENTIÈRE (`SELECT *`) et `sync-push` l'applique telle
+// quelle : une colonne absente du schéma Cloud fait refuser la ligne — donc
+// toute dépense ou tout mouvement modifié à l'école cesserait de remonter.
+// C'est exactement le mécanisme qui bloque déjà `students` et `subjects` quand
+// leurs migrations ne suivent pas.
+//
+// À RÉTABLIR EN MÊME TEMPS QUE LA MIGRATION CLOUD, jamais avant :
+//   ensureColumn('budget_expenses', 'source_balance_raw', 'source_balance_raw TEXT');
+//   ensureColumn('cash_movements',  'source_balance_raw', 'source_balance_raw TEXT');
+// L'import, lui, écrit depuis le poste d'édition DIRECTEMENT au Cloud : la
+// colonne lui est utile là-bas, pas ici. Rien n'est donc perdu en attendant.
+
 // Identifiant STABLE de cette installation (origine des changements locaux).
 let _deviceId = null;
 export function deviceId() {
@@ -1069,6 +1330,7 @@ export const ALLOWED_TABLES = new Set([
   'notifications', 'notification_outbox',
   'assets', 'asset_breakdowns', 'asset_repairs', 'asset_expenses',
   'fee_catalog', 'student_fee_items', 'fee_schedule_items', 'cash_sessions',
+  'cash_movements',
   'attendance', 'student_absences',
   // Trace des versements emportés par la suppression d'un élève. EN LECTURE
   // SEULE : query.js refuse tout insert/update/delete dessus (guardTraceReadOnly).
@@ -1087,6 +1349,12 @@ export const ALLOWED_TABLES = new Set([
   'mat_referentiel_versions', 'mat_niveaux', 'mat_domaines', 'mat_observations',
   'prim_referentiel_versions', 'prim_cycles', 'prim_niveaux', 'prim_competences',
   'prim_niveau_competences', 'prim_criteres', 'prim_cote_bareme', 'prim_bareme_criteres', 'prim_notes',
+  // Le référentiel de L'ÉCOLE : ce qu'elle masque chez elle, et les libellés
+  // qu'elle substitue aux formulations nationales. Absentes de cette liste,
+  // l'écran « Modifier les compétences » se heurtait à « Table non autorisée »
+  // et l'école ne pouvait ni masquer ni renommer quoi que ce soit en LAN.
+  'apc_competences_masques', 'prim_competences_masques', 'mat_domaines_masques',
+  'referentiel_libelles',
   // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
   'domain_events', 'audit_events', 'signalements',
   // Vie scolaire (surveillant/discipline) — absentes depuis la création du

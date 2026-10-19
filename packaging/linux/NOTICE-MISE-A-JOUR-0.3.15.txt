@@ -1,0 +1,250 @@
+========================================================================
+NotesCam 0.3.15 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.15.tar.gz
+Taille   : 53 409 237 octets
+SHA-256  : e3b6e5b61b42b31a11987c94549db8ca348f2242bb6580ecfd13822943577328
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.15.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire. Aucune migration à lancer à la main :
+les tables et colonnes neuves sont posées au premier démarrage.
+
+
+CE QUE CETTE VERSION APPORTE
+-----------------------------
+
+1. LE JOURNAL DE CAISSE — un module nouveau.
+
+   Jusqu'ici NotesCam savait enregistrer les DÉPENSES, mais pas les
+   ENTRÉES de caisse : ni les approvisionnements, ni les reports de solde
+   d'un mois sur l'autre. Un solde de caisse était donc incalculable, et
+   l'écran des dépenses ne pouvait montrer que la moitié du mouvement.
+
+   Un menu « Caisse » apparaît. Il affiche, par caisse et par mois, le
+   solde d'ouverture, les entrées, les sorties, le solde de clôture, et
+   met en évidence tout écart avec le solde inscrit sur le cahier.
+
+   Les caisses du collège et du complexe restent SÉPARÉES. Leurs soldes
+   ne sont jamais additionnés ni mélangés.
+
+   La reprise des cahiers de juin, juillet et août 2026 est déjà dans le
+   cloud : 11 mouvements d'entrée et 60 dépenses. Elle DESCENDRA vers
+   votre serveur au premier cycle de synchronisation après l'installation.
+   Chaque ligne porte le nom du document et le numéro de ligne dont elle
+   vient, pour être rapprochée de la pièce.
+
+2. DES DONNÉES QUI NE REMONTAIENT PLUS VONT REPARTIR.
+
+   Cette version est livrée AVEC une correction posée le même jour du
+   côté cloud. Les deux vont ensemble.
+
+   Le défaut : votre serveur envoyait au cloud des fiches d'élèves
+   comportant des informations que le cloud ne connaissait pas encore
+   (quartier de résidence, ancien établissement, registre matricule,
+   famille de matière). Le cloud refusait la fiche ENTIÈRE pour cette
+   seule raison. Depuis la mi-octobre, aucune création ni modification
+   d'élève ou de matière ne pouvait donc arriver.
+
+   Le cloud accepte désormais ces informations. Vos fiches vont remonter.
+   VOS DONNÉES N'ONT JAMAIS ÉTÉ PERDUES : elles sont restées dans la base
+   de votre serveur, intactes. Seul le passage vers le cloud était bloqué.
+
+   NE RESAISISSEZ AUCUN ÉLÈVE À LA MAIN. Un élève resaisi deviendrait un
+   doublon le jour où la remontée repart.
+
+3. CE QUE LE CLOUD REFUSE N'EST PLUS PERDU EN SILENCE.
+
+   Le cloud pouvait répondre « tout va bien » tout en écartant des
+   lignes. Le serveur vidait alors sa file d'attente, et la ligne refusée
+   disparaissait sans trace. C'est ce mécanisme qui a laissé des
+   centaines d'élèves à l'école.
+
+   Désormais une ligne refusée RESTE dans la file, avec le motif du
+   refus. Après huit tentatives infructueuses elle passe « de côté », en
+   quarantaine, toujours avec son motif — visible, et récupérable.
+
+4. LA RÉPARATION AUTOMATIQUE NE S'ARRÊTE PLUS AU PREMIER OBSTACLE.
+
+   Un seul refus sur une table bloquait la réparation de TOUTES les
+   autres, à chaque cycle, indéfiniment. Chaque table est maintenant
+   traitée pour elle-même : une table en difficulté n'empêche plus les
+   autres d'être réparées.
+
+5. LES SIGNALEMENTS TRAVERSENT ENFIN DANS LES DEUX SENS.
+
+   La fiche de signalement elle-même n'était pas répliquée, seulement ses
+   commentaires et son historique — qui arrivaient donc en se rattachant
+   à une fiche inexistante, et échouaient à chaque cycle.
+
+6. LES PHOTOS D'ÉLÈVES MONTENT VERS LE CLOUD.
+
+   Les lignes étaient répliquées, les FICHIERS jamais : au cloud, 79
+   photos étaient référencées et aucune n'était présente. La réplication
+   est bornée à quelques fichiers par cycle pour ne pas saturer votre
+   connexion, et elle ne supprime JAMAIS rien au cloud.
+
+7. DIAGNOSTIC À DISTANCE. L'écran de synchronisation indique maintenant,
+   table par table, ce qui attend et POURQUOI. Cela nous évite d'avoir à
+   nous connecter à votre serveur pour comprendre un blocage.
+
+
+INSTALLATION — UNE SEULE COMMANDE
+----------------------------------
+
+À lancer en root, depuis le dossier contenant l'archive ET le script :
+
+    sudo ./deploy-0.3.15.sh notescam-linux-x64-0.3.15.tar.gz
+
+Le script fait, dans cet ordre :
+
+    1. il relève la version, le school_id et les effectifs AVANT ;
+    2. il ARRÊTE le service — une copie prise serveur actif peut être
+       déchirée, et on ne s'en aperçoit qu'en voulant s'en servir ;
+    3. il fait une copie de sûreté de la base, consolidée, puis il la
+       VÉRIFIE (contrôle d'intégrité + comptages identiques) ;
+    4. SI LA SAUVEGARDE N'EST PAS VÉRIFIÉE, IL S'ARRÊTE LÀ et remet le
+       service en marche. L'application n'a alors pas été touchée ;
+    5. il installe, redémarre, et recompte tout.
+
+Il rend un verdict. Si une seule ligne est en FAIL : n'essayez rien
+d'autre, envoyez-nous la sortie complète. Elle nomme précisément ce qui
+manque.
+
+La copie de sûreté est déposée dans :
+
+    /var/lib/notescam/data/notescam.db.avant-0.3.15-<horodatage>
+
+Ne la supprimez pas.
+
+
+LE PREMIER CYCLE DE SYNCHRONISATION SERA LONG. C'EST NORMAL.
+-------------------------------------------------------------
+
+Parce que cette version ajoute des colonnes à des tables synchronisées,
+le serveur remet son curseur de descente à zéro et relit TOUT le cloud —
+une seule fois. C'est ce qui permet aux informations neuves d'arriver, et
+c'est par ce cycle que la caisse descendra.
+
+Sur une connexion fine, comptez plusieurs cycles. Rien n'est perdu, rien
+n'est dupliqué : à chaque ligne, la version la plus récente gagne, qu'elle
+vienne du cloud ou de l'école.
+
+N'INTERROMPEZ PAS le service pendant ce rattrapage.
+
+
+À VÉRIFIER — APRÈS UNE HEURE, PAS AVANT
+----------------------------------------
+
+  1. Le service répond :
+
+        curl -s http://localhost:8080/api/version        -> 0.3.15
+
+  2. Le rattachement au cloud est intact :
+
+        curl -s http://127.0.0.1:8080/api/pair/status
+
+     Le « schoolId » doit être le MÊME qu'avant l'installation. Le script
+     le vérifie déjà, mais revoyez-le.
+
+  3. LE MENU CAISSE s'ouvre et montre des mouvements. Ouvrez-le et placez-
+     vous sur AOÛT 2026, le dernier mois de la reprise. Les soldes de
+     clôture attendus sont :
+
+         caisse du collège   .....  268 850
+         caisse du complexe  .....  230 680
+
+     Si ces deux nombres s'affichent, la descente a fonctionné et les deux
+     caisses ne sont pas mélangées.
+
+     Les mois précédents, pour comparaison avec vos cahiers :
+
+         complexe, juin 2026 ....  282 980
+         complexe, juillet 2026 ..   58 480
+         collège,  juillet 2026 ..  268 850
+
+  4. VOS EFFECTIFS N'ONT PAS BOUGÉ. Ouvrez la liste des élèves et
+     comparez au relevé pris avant l'installation.
+
+  5. LES ÉLÈVES REMONTENT. Comparez l'effectif d'une classe à l'école et
+     dans le cloud. L'écart doit se résorber sur les cycles suivants.
+     Ne vous attendez pas à ce qu'il disparaisse en dix minutes.
+
+  6. Rien n'est en quarantaine sans raison : écran
+     Paramètres -> Synchronisation. S'il y a des entrées en quarantaine
+     avec un motif que vous ne comprenez pas, envoyez-nous la capture.
+
+Si l'un de ces six points ne répond pas comme décrit, passez au retour
+arrière et prévenez-nous.
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+
+Pour revenir à la version précédente (application seule, base conservée) :
+
+    sudo systemctl stop notescam
+    tar xzf notescam-linux-x64-0.3.14.tar.gz
+    cd notescam-linux-x64 && sudo ./install.sh
+
+C'est sans risque : les tables et colonnes ajoutées par la 0.3.15 sont
+simplement ignorées par la version précédente, et aucune donnée n'est
+perdue. Seule la caisse cesse d'être visible et de circuler.
+
+Si, et SEULEMENT si, la base elle-même pose problème :
+
+    sudo systemctl stop notescam
+    sudo cp -a /var/lib/notescam/data/notescam.db.avant-0.3.15-<horodatage> \
+               /var/lib/notescam/data/notescam.db
+    sudo rm -f /var/lib/notescam/data/notescam.db-wal \
+               /var/lib/notescam/data/notescam.db-shm
+    sudo systemctl start notescam
+
+ATTENTION : restaurer la base ANNULE tout ce qui a été saisi depuis la
+sauvegarde. Ne le faites pas de votre propre initiative — appelez-nous
+d'abord.
+
+
+CE QU'IL NE FAUT PAS FAIRE
+---------------------------
+
+    - ne réinstallez pas NotesCam depuis zéro ;
+    - ne supprimez pas /var/lib/notescam/data ;
+    - ne relancez pas l'appairage avec le cloud ;
+    - ne resaisissez pas les élèves manquants à la main ;
+    - ne supprimez pas la copie de sûreté ;
+    - n'interrompez pas le service pendant le premier rattrapage.
+
+
+CE QUI N'EST PAS ENCORE FAIT, ET QUE VOUS DEVEZ SAVOIR
+-------------------------------------------------------
+
+L'arrêt de remontée des élèves constaté le 15 SEPTEMBRE est ANTÉRIEUR au
+défaut corrigé ici, qui date du 15 octobre. Autrement dit : cette version
+lève un blocage réel et récent, mais elle n'explique pas à elle seule
+l'écart de septembre. Le diagnostic que nous vous avons demandé
+(DIAGNOSTIC-ELEVES-MANQUANTS.txt) reste donc utile — relancez-le après
+l'installation et envoyez-nous sa sortie. Nous verrons alors ce qui reste.
+
+Sept lignes de la reprise de caisse (lignes 77 à 83 de DEPENSES 2027.xlsx)
+font face, sur le cahier, à un solde illisible : « 254 08 ». Il n'a PAS
+été converti en nombre — nous ne devinons pas un montant. Ces sept lignes
+sont donc enregistrées SANS solde de référence, et le solde calculé par
+NotesCam fait foi pour elles.
+
+La valeur brute du cahier n'est pas encore stockée en base : la colonne
+qui doit l'accueillir attend sa propre mise à jour, volontairement séparée
+de celle-ci. En attendant, la trace est dans le rapport d'import et dans
+le cahier lui-même. Nous reviendrons vers l'administration pour trancher
+le montant réel.

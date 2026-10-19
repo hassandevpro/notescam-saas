@@ -1,0 +1,174 @@
+========================================================================
+NotesCam — Demande de diagnostic : élèves et notes absents du cloud
+========================================================================
+
+Bonjour,
+
+Nous avons constaté un écart entre ce que contient votre serveur et ce
+qui est arrivé dans le cloud. Ce message vous demande de lancer six
+commandes de LECTURE sur le serveur et de nous renvoyer le résultat.
+
+Aucune de ces commandes ne modifie quoi que ce soit. Elles ne suppriment
+rien, n'installent rien et ne redémarrent pas le service. Vous pouvez les
+lancer pendant les heures de classe.
+
+
+CE QUE NOUS VOYONS, ET CE QUE ÇA SIGNIFIE
+------------------------------------------
+
+Dans le cloud, pour votre établissement :
+
+    Élèves ................ 430, le plus récent enregistré le 15/09
+    Classes ............... 24, toutes créées en août, aucune depuis
+    Notes ................. aucune
+    Versements ............ 390
+
+Vous nous indiquez plus de 700 élèves à l'école. L'écart est donc d'un
+peu moins de 300 élèves, de toutes les classes créées depuis la rentrée,
+et de la totalité des notes.
+
+LA SYNCHRONISATION N'EST POURTANT PAS EN PANNE. Les frais de scolarité
+ont été mis à jour dans le cloud aujourd'hui même, et les classes hier
+soir. Ce qui passe, ce sont les MODIFICATIONS de fiches déjà connues du
+cloud. Ce qui ne passe pas, ce sont les CRÉATIONS.
+
+VOS DONNÉES NE SONT PAS PERDUES. Tout ce qui a été saisi à l'école est
+dans la base du serveur, intact. Le problème est au passage vers le
+cloud, pas dans votre base. Les bulletins, les listes et les versements
+restent corrects à l'école.
+
+
+POURQUOI NOUS AVONS BESOIN DE VOUS
+-----------------------------------
+
+Nous savons COMMENT les lignes se perdent : le cloud les refusait sans
+le dire, et le serveur les retirait alors de sa file d'attente en croyant
+qu'elles étaient passées. C'est corrigé dans la prochaine version.
+
+Ce que nous ne savons pas encore, c'est POURQUOI le cloud les refuse.
+Nous ne pouvons pas le lire à distance : la réponse est dans la base de
+votre serveur. D'où ces commandes.
+
+Nous préférons ne pas livrer de correctif avant de le savoir. Un correctif
+posé à l'aveugle rendrait les refus visibles sans les faire accepter, et
+vous auriez attendu pour rien.
+
+
+CE QU'IL NE FAUT PAS FAIRE
+---------------------------
+
+En attendant notre réponse, n'effectuez AUCUNE des opérations suivantes :
+
+    - ne réinstallez pas NotesCam ;
+    - ne supprimez pas le dossier de données ;
+    - ne relancez pas l'appairage avec le cloud ;
+    - ne resaisissez pas les élèves manquants à la main.
+
+La dernière est importante : resaisir un élève déjà présent en créerait
+un DOUBLON le jour où la synchronisation repartira. Les élèves manquants
+remonteront d'eux-mêmes une fois la cause corrigée.
+
+
+LES COMMANDES À LANCER
+-----------------------
+
+Ouvrez un terminal sur le serveur de l'école.
+
+ÉTAPE 1 — Vérifier que l'outil de lecture est présent.
+
+    sqlite3 --version
+
+Si la commande répond par un numéro de version, passez à l'étape 2. Si
+elle répond « command not found », installez-le d'abord :
+
+    sudo apt install -y sqlite3
+
+ÉTAPE 2 — Lancer le relevé.
+
+Il y a six commandes. Lancez-les UNE PAR UNE : copiez la ligne, collez-la
+dans le terminal, appuyez sur Entrée, puis passez à la suivante. Le mot de
+passe du serveur sera demandé à la première.
+
+Chaque commande tient sur UNE SEULE LIGNE. Si votre logiciel de messagerie
+la coupe en deux à l'affichage, recollez-la en une seule ligne avant de
+l'exécuter.
+
+Si l'une d'elles échoue, ce n'est pas grave : passez à la suivante et
+signalez-nous laquelle a échoué.
+
+1. Combien de lignes y a-t-il en local :
+
+sudo sqlite3 -header -column /var/lib/notescam/data/notescam.db "SELECT (SELECT COUNT(*) FROM students) AS eleves, (SELECT COUNT(*) FROM classes) AS classes, (SELECT COUNT(*) FROM grades) AS notes"
+
+2. Ce qui attend encore de partir vers le cloud :
+
+sudo sqlite3 -header -column /var/lib/notescam/data/notescam.db "SELECT tablename, COUNT(*) AS en_attente, MAX(attempts) AS tentatives FROM sync_outbox GROUP BY tablename ORDER BY en_attente DESC"
+
+3. Ce qui a été mis de côté, et pourquoi :
+
+sudo sqlite3 -header -column /var/lib/notescam/data/notescam.db "SELECT tablename, COUNT(*) AS mis_de_cote, MAX(last_error) AS motif FROM sync_outbox_quarantine GROUP BY tablename"
+
+4. Les classes incomplètes — C'EST LA PLUS IMPORTANTE :
+
+sudo sqlite3 -header -column /var/lib/notescam/data/notescam.db "SELECT id, name, system, level FROM classes WHERE system IS NULL OR system NOT IN ('FR','EN','ES') OR level IS NULL OR name IS NULL"
+
+5. Les élèves rattachés à une classe qui n'existe pas :
+
+sudo sqlite3 -header -column /var/lib/notescam/data/notescam.db "SELECT COUNT(*) AS eleves_sans_classe_valide FROM students s WHERE s.class_id IS NULL OR NOT EXISTS (SELECT 1 FROM classes c WHERE c.id = s.class_id)"
+
+6. La répartition des élèves par classe :
+
+sudo sqlite3 -header -column /var/lib/notescam/data/notescam.db "SELECT c.name AS classe, COUNT(s.id) AS eleves FROM classes c LEFT JOIN students s ON s.class_id = c.id GROUP BY c.name ORDER BY eleves DESC"
+
+Si la commande 4 affiche une ou plusieurs lignes, nous tenons très
+probablement la cause : ces classes sont refusées par le cloud, et tous
+les élèves qui y sont inscrits sont refusés avec elles. Si elle n'affiche
+rien, la cause est ailleurs et les autres relevés nous le diront.
+
+ÉTAPE 3 — Nous renvoyer le résultat.
+
+Sélectionnez tout ce que le terminal a affiché, copiez-le et renvoyez-le
+nous par le même canal que ce message.
+
+Le relevé ne contient AUCUN nom d'élève, aucune note et aucun montant :
+seulement des décomptes, des noms de classes et des messages d'erreur
+techniques. Vous pouvez le transmettre sans précaution particulière.
+
+
+SI UNE COMMANDE REFUSE DE S'EXÉCUTER
+-------------------------------------
+
+« no such table: sync_outbox_quarantine » (commande 3)
+    Votre serveur n'est pas encore en 0.3.14. Ce n'est pas grave :
+    passez à la commande 4, et précisez-le nous. Le numéro de version
+    s'obtient par :
+
+        curl -s http://localhost:8080/api/version
+
+« unable to open database file »
+    Le chemin de la base est différent chez vous. Retrouvez-le par :
+
+        sudo find /var/lib/notescam /opt/notescam -name 'notescam.db' 2>/dev/null
+
+    puis relancez les six commandes en remplaçant le chemin
+    /var/lib/notescam/data/notescam.db par celui qui s'affiche.
+
+« database is locked »
+    Le service écrit au même moment. Attendez une minute et relancez :
+    la commande ne fait que lire, elle ne risque pas d'abîmer la base.
+
+
+CE QUI SE PASSERA ENSUITE
+--------------------------
+
+Dès réception du relevé, nous identifions la cause exacte du refus et
+vous envoyons une version corrigée accompagnée de sa notice habituelle.
+
+Les élèves, les classes et les notes qui n'étaient jamais montés
+repartiront alors tout seuls, sans ressaisie. Comptez plusieurs cycles de
+synchronisation — donc une à deux heures — avant que le cloud affiche le
+compte complet. Ce n'est pas instantané, et un écart le premier
+quart d'heure n'est pas un échec.
+
+Merci de votre aide, et n'hésitez pas à nous dire si une étape n'est pas
+claire.

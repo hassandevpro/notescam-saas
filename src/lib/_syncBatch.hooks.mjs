@@ -51,7 +51,14 @@ const STUBS = {
         globalThis.__syncQuarantine = globalThis.__syncQuarantine.filter((x) => !ids.includes(x.id));
       },
     };
-    export const studentsDB = { get: async () => null, put: async () => {} };`,
+    export const studentsDB = { get: async () => null, put: async () => {} };
+    // Ajoute au double parce que sync.js l'importe depuis le rattrapage 23505
+    // sur student_fees : sans cette doublure, les tests de synchro ne
+    // chargeaient plus du tout le module (« does not provide an export named
+    // feesDB »). Best-effort IDB cote sync : des no-op suffisent.
+    // ATTENTION : ce commentaire vit DANS un template literal — aucun accent
+    // grave ici, il fermerait la chaine (SyntaxError « Unexpected identifier »).
+    export const feesDB = { put: async () => {}, delete: async () => {} };`,
   '../store/uiStore': `
     export const useUiStore = { getState: () => ({ decrementPending() {}, setPendingCount() {}, setIdle() {} }) };`,
 };

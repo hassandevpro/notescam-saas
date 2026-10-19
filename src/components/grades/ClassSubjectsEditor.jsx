@@ -14,6 +14,7 @@ import { useSchoolStore } from '../../store/schoolStore';
 import { useT } from '../../lib/i18n';
 import { toast } from '../../store/toastStore';
 import { canManageClassSubjects, canEditSubjectRow } from '../../lib/teacherScope';
+import { classSubjectsOf } from '../../core/subjectOrder';
 
 // Barème par défaut selon le système de la classe (comme l'auto-config).
 const defaultMax = (cls) => ((cls?.system || 'FR') === 'EN' ? 100 : 20);
@@ -35,9 +36,7 @@ export default function ClassSubjectsEditor({
   const isMaternelle = (cls?.cycle || '') === 'maternelle';
 
   const rows = useMemo(
-    () => subjects
-      .filter((s) => s.class_id === cls?.id)
-      .sort((a, b) => (a.position ?? 99) - (b.position ?? 99) || String(a.name).localeCompare(String(b.name))),
+    () => classSubjectsOf(subjects, cls?.id),
     [subjects, cls?.id],
   );
 

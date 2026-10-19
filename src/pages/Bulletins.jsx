@@ -43,6 +43,8 @@ import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineM
 // décochée dans l'écran Classes ne doit pas s'imprimer sur le bulletin officiel.
 // Le garde-fou (aucun filtre si rien n'est reconnu) est dans le module.
 import { apcForClass, primForClass, matForClass } from '../core/refClassScope';
+// Ordre d'affichage des matieres : une seule regle pour tout le produit.
+import { classSubjectsOf } from '../core/subjectOrder';
 import { withLibelles } from '../lib/referentielEcole';
 // Les intitulés du référentiel officiel sont stockés en français pour tout le
 // pays : sur une classe du secteur anglophone, on les rend en anglais.
@@ -93,16 +95,10 @@ function initials(name = '') {
   return name.split(' ').slice(0, 2).map((w) => w[0] || '').join('').toUpperCase();
 }
 
-// Ordre d'affichage des matières sur le bulletin : `position` (croissante) en
-// priorité ; les matières sans position gardent le tri historique (coef puis
-// nom) et sont placées après les matières ordonnées. Rétrocompatible.
-function bySubjectOrder(a, b) {
-  const ha = a.position != null, hb = b.position != null;
-  if (ha && hb) return a.position - b.position;
-  if (ha) return -1;
-  if (hb) return 1;
-  return b.coef - a.coef || a.name.localeCompare(b.name);
-}
+// L'ordre d'affichage des matières (`position`, puis coef/nom) vit désormais
+// dans `core/subjectOrder` : il était défini ici ET redéfini différemment dans
+// la saisie des notes, l'écran Classes et les rapports — quatre ordres pour la
+// même table. Voir l'en-tête de ce module.
 
 // ── Modal : réorganiser les matières d'une classe (glisser-déposer) ─────────────
 function SubjectOrderModal({ subjects, onClose }) {
@@ -1806,7 +1802,7 @@ export default function Bulletins() {
     : (periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0] || PERIODS[0]);
 
   const classSubjects = useMemo(() =>
-    subjects.filter((s) => s.class_id === classId).sort(bySubjectOrder),
+    classSubjectsOf(subjects, classId),
     [subjects, classId]
   );
 

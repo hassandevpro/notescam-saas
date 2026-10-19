@@ -24,6 +24,19 @@
 // Une matière non résolue reste HORS périmètre et l'écran la NOMME : une faute de
 // frappe (« Allamand ») doit se corriger dans Matières, pas s'apprendre ici.
 
+// Le libellé ANGLAIS officiel de chaque matière, par id. C'est une table
+// statique du produit, pas une donnée de classe : on la consulte TOUJOURS, quel
+// que soit le système linguistique de la classe.
+//
+// Pourquoi : `label` n'est fourni que par l'écran de SAISIE (qui connaît le
+// système de la classe). Le bulletin, le procès-verbal et le rapport de classe
+// appellent `apcForClass` sans label, donc avec le seul nom français. Une
+// section anglophone dont la matière s'appelle « Computer Science » se résolvait
+// à la saisie et PAS au bulletin : la matière était saisissable et ne
+// s'imprimait pas — exactement l'écart que l'on ferme. En lisant la table ici,
+// les quatre écrans résolvent les mêmes noms sans qu'aucun ait à passer de label.
+import { APC_MATIERE_EN } from './referentielI18n.js';
+
 const norm = (s) => String(s ?? '')
   .toLowerCase()
   .normalize('NFD')
@@ -112,9 +125,14 @@ export function matiereIdsForSubject(name, matieres, label = (m) => m?.nom) {
   if (!n || !matieres?.length) return out;
   const available = new Set(matieres.map((m) => m.id));
 
-  // 1) Nom exact du référentiel : libellé affiché, nom officiel, ou id/sigle.
+  // 1) Nom exact du référentiel : libellé affiché, nom officiel, libellé anglais
+  //    officiel, ou id/sigle.
   for (const m of matieres) {
-    if (norm(label(m)) === n || norm(m.nomOfficiel ?? m.nom) === n || norm(m.id) === n) {
+    const enOfficiel = APC_MATIERE_EN[String(m.id ?? '').trim().toLowerCase()];
+    if (norm(label(m)) === n
+      || norm(m.nomOfficiel ?? m.nom) === n
+      || (enOfficiel && norm(enOfficiel) === n)
+      || norm(m.id) === n) {
       out.add(m.id);
     }
   }

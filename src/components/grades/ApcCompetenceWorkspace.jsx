@@ -26,6 +26,11 @@ import { isSubjectScoped, myClassIds } from '../../lib/teacherScope';
 import {
   matiereIdsForTeacher, unresolvedSubjectsForTeacher,
 } from '../../core/apcMatiereMatch';
+// Le PÉRIMÈTRE de la classe — ses matières cochées dans « Modifier la classe ».
+// Le bulletin l'applique déjà (apcForClass) : la saisie doit lister EXACTEMENT
+// les mêmes matières, sinon on saisit des notes qui ne s'impriment jamais.
+import { apcMatieresForClass, unmatchedClassSubjects } from '../../core/refClassScope';
+import { classSubjectsOf } from '../../core/subjectOrder';
 import ReferentielEditor from './ReferentielEditor';
 import { withLibelles } from '../../lib/referentielEcole';
 import MobileEntryList from './MobileEntryList';
@@ -213,9 +218,14 @@ export default function ApcCompetenceWorkspace() {
   // avec leur coefficient officiel POUR cette classe (Français = 6 en 6e/5e, 4 en 4e/3e).
   const sys = selectedClass?.system || 'FR';
 
+  // Matières de LA classe telles que « Modifier la classe » les a cochées. Non
+  // filtrées par enseignant : le périmètre d'une classe ne dépend pas de qui
+  // regarde — c'est exactement la liste que le bulletin utilise.
+  const classSubjects = useMemo(() => classSubjectsOf(subjects, classId), [subjects, classId]);
+
   // Matières du référentiel réellement disponibles pour (classe, trimestre),
   // avant tout filtrage par enseignant.
-  const matieresDisponibles = useMemo(() => {
+  const matieresDuReferentiel = useMemo(() => {
     if (!referentiel || !classeSlug || !trimestreId) return [];
     return referentiel.matieres
       .map((m) => ({
@@ -232,6 +242,32 @@ export default function ApcCompetenceWorkspace() {
         return oa - ob;
       });
   }, [referentiel, classeSlug, trimestreId, sys]);
+
+  // ── LE PÉRIMÈTRE DE LA CLASSE S'APPLIQUE ICI AUSSI ──────────────────────────
+  // Même appel, même garde-fou et mêmes alias de noms que le bulletin : une
+  // classe dont aucune matière ne se rapproche du référentiel garde la liste
+  // complète (`apcMatieresForClass` rend alors l'entrée inchangée) plutôt qu'un
+  // écran vide. Mais dès qu'une seule matière est reconnue, la saisie et le
+  // bulletin montrent le même ensemble.
+  const matieresDisponibles = useMemo(
+    () => apcMatieresForClass(matieresDuReferentiel, classSubjects).matieres,
+    [matieresDuReferentiel, classSubjects],
+  );
+  // Combien le périmètre de la classe a-t-il écarté ? 0 quand le garde-fou a
+  // joué (rien de reconnu ⇒ liste inchangée), et c'est voulu : il n'y a alors
+  // rien à annoncer.
+  const matieresEcartees = matieresDuReferentiel.length - matieresDisponibles.length;
+
+  // Et l'inverse : des matières COCHÉES dans la classe qui ne correspondent à
+  // aucune matière du référentiel. Elles ne se saisissent pas ici et ne
+  // s'impriment pas sur le bulletin officiel — c'est le référentiel national qui
+  // le veut. On les NOMME : sans cela l'école voit une matière cochée qui
+  // n'apparaît nulle part. (L'avis existait déjà, mais pour le seul enseignant
+  // de matière : l'administration, elle, ne le voyait jamais.)
+  const matieresHorsReferentiel = useMemo(
+    () => unmatchedClassSubjects('apc', classSubjects, referentiel?.matieres).map((s) => s.name),
+    [classSubjects, referentiel],
+  );
 
   // Mode 1 : ne garder que les matières couvertes par MES matières affectées.
   // Le rapprochement est délégué à apcMatiereMatch (noms officiels, sigles,
@@ -503,6 +539,29 @@ export default function ApcCompetenceWorkspace() {
           </select>
         </label>
       </div>
+
+      {/* La liste ci-dessus est celle de la CLASSE, pas celle du référentiel
+          national. Sans cette ligne, le filtre serait invisible : l'enseignante
+          chercherait une matière officielle absente du sélecteur sans pouvoir
+          deviner qu'elle n'est pas cochée dans la classe. Le bulletin applique
+          le même périmètre — c'est tout l'objet du correctif. */}
+      {matieresEcartees > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          {t(
+            `${matieresEcartees} matière(s) du référentiel ne sont pas cochées pour cette classe : elles ne se saisissent pas ici et ne s'impriment pas sur le bulletin. Pour les ajouter, passez par Classes → Modifier la classe → Matières.`,
+            `${matieresEcartees} framework subject(s) are not ticked for this class: they cannot be entered here and do not print on the report card. To add them, go to Classes → Edit class → Subjects.`,
+          )}
+        </div>
+      )}
+
+      {matieresHorsReferentiel.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {t(
+            `Matière(s) de cette classe absente(s) du référentiel officiel : ${matieresHorsReferentiel.join(', ')}. Elles ne se saisissent pas ici et ne figurent pas sur le bulletin officiel. Corrigez le nom dans Classes → Modifier la classe → Matières pour qu'il corresponde au référentiel.`,
+            `Subject(s) of this class missing from the official framework: ${matieresHorsReferentiel.join(', ')}. They cannot be entered here and do not appear on the official report card. Fix the name in Classes → Edit class → Subjects so it matches the framework.`,
+          )}
+        </div>
+      )}
 
       {/* Bandeau trimestre / héritage */}
       <div className="text-xs text-gray-500">

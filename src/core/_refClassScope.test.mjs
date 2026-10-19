@@ -10,7 +10,10 @@
 // résolution échoue, rendre un bulletin VIDE. Un bulletin qui porte une matière
 // en trop est un défaut ; un bulletin qui en oublie est une faute. Les cas
 // « rien ne doit être filtré » sont donc aussi nombreux ici que les cas positifs.
-import { scopeOf, applyScope, apcForClass, primForClass, matForClass } from './refClassScope.js';
+import {
+  scopeOf, applyScope, apcForClass, primForClass, matForClass, apcMatieresForClass,
+  unmatchedClassSubjects,
+} from './refClassScope.js';
 
 let echecs = 0;
 const ok = (cond, libelle, obtenu) => {
@@ -223,6 +226,145 @@ titre('matForClass : masques ET perimetre');
 titre('Cycle inconnu');
 ok(scopeOf('sc', [{ id: 's1', name: 'Français' }], [{ id: 'francais' }]) === null,
   'un cycle non gere -> aucun filtre (le second cycle part deja des matieres de la classe)');
+
+// ── LA SAISIE APC DOIT LISTER EXACTEMENT CE QUE LE BULLETIN IMPRIME ────────
+//
+// L'ecran de saisie APC est organise par MATIERE du referentiel, pas par ligne
+// `subjects` : il proposait donc toutes les matieres nationales de la classe,
+// alors que le bulletin n'imprimait que celles couvertes par les matieres
+// cochees. Une enseignante pouvait saisir un trimestre entier d'Informatique
+// que le bulletin ne portait pas — et rien ne le disait.
+titre('apcMatieresForClass : la saisie suit le perimetre de la classe');
+{
+  const classe = [sub('Français'), sub('MATh'), sub('Histoire-Géo')];
+  const r = apcMatieresForClass(MATIERES, classe);
+  const ids = r.matieres.map((m) => m.id).sort();
+  ok(ids.join(',') === 'francais,geographie,histoire,mathematiques',
+    'seules les matieres couvertes sont proposees a la saisie', ids);
+  ok(!ids.includes('informatique'),
+    'Informatique, non cochee dans la classe, ne se saisit plus — comme au bulletin');
+  ok(r.exclus.includes('informatique'), 'et elle est annoncee comme ecartee', r.exclus);
+
+  // LE POINT QUI COMPTE : le MEME ensemble des deux cotes. On compare les
+  // matieres proposees a la saisie aux matieres dont le bulletin garde au moins
+  // une competence.
+  const ref = {
+    matieres: MATIERES,
+    competences: MATIERES.map((m) => ({ id: 'c_' + m.id, matiere_id: m.id })),
+  };
+  const auBulletin = [...new Set(apcForClass(ref, classe, []).competences.map((c) => c.matiere_id))].sort();
+  ok(auBulletin.join(',') === ids.join(','),
+    'saisie et bulletin : le MEME ensemble de matieres', { saisie: ids, bulletin: auBulletin });
+}
+
+// Le garde-fou vaut ici aussi — et il vaut DOUBLE : un ecran de saisie vide
+// n'explique rien a l'enseignante, qui conclut que le logiciel est casse.
+titre('apcMatieresForClass : le garde-fou');
+{
+  ok(apcMatieresForClass(MATIERES, [sub('Allamand')]).matieres.length === MATIERES.length,
+    'aucun nom reconnu -> toutes les matieres restent saisissables');
+  ok(apcMatieresForClass(MATIERES, []).matieres.length === MATIERES.length,
+    'classe sans matiere configuree -> liste complete, jamais un ecran vide');
+  ok(apcMatieresForClass(MATIERES, null).matieres.length === MATIERES.length,
+    'matieres de classe non chargees -> liste complete');
+  ok(apcMatieresForClass([], [sub('Français')]).matieres.length === 0,
+    'referentiel vide -> rien a proposer, et pas une erreur');
+  ok(apcMatieresForClass(null, [sub('Français')]).matieres.length === 0,
+    'referentiel null -> tableau vide, pas une erreur');
+}
+
+// Le libelle localise : une classe anglophone nomme ses matieres en anglais.
+titre('apcMatieresForClass : nom localise');
+{
+  const enMat = [
+    { id: 'francais', nom: 'Français', nomEN: 'French' },
+    { id: 'informatique', nom: 'Informatique', nomEN: 'Computer Science' },
+  ];
+  const r = apcMatieresForClass(enMat, [sub('French')], (m) => m.nomEN);
+  ok(r.matieres.map((m) => m.id).join(',') === 'francais',
+    'le libelle anglais est reconnu quand on le fournit', r.matieres.map((m) => m.id));
+}
+
+
+// ── L'AUTRE SENS : UNE MATIERE COCHEE QUI N'EXISTE PAS AU REFERENTIEL ──────
+//
+// Dernier ecart possible entre « ce que j'ai coche » et « ce que je vois ». Une
+// matiere maison, ou une faute de frappe, n'a pas de place sur un bulletin
+// OFFICIEL : elle ne se saisit pas et ne s'imprime pas. C'est le referentiel
+// national qui le veut — mais il faut le DIRE, sinon l'ecole croit que le
+// logiciel a perdu sa matiere.
+titre('unmatchedClassSubjects : nommer ce qui ne se rattache a rien');
+{
+  const classe = [sub('Français'), sub('Allamand'), sub('Club lecture')];
+  const r = unmatchedClassSubjects('apc', classe, MATIERES).map((s) => s.name);
+  ok(r.join('|') === 'Allamand|Club lecture',
+    'la faute de frappe et la matiere maison sont nommees', r);
+  ok(!r.includes('Français'), 'une matiere reconnue n est pas accusee', r);
+}
+{
+  const COMPS = [
+    { id: '1a', code: '1A', intitule: 'Ecouter et parler' },
+    { id: '2a', code: '2A', intitule: 'Lire' },
+  ];
+  const classe = [sub('Lire', { prim_competence_id: '2a' }), sub('Natation')];
+  const r = unmatchedClassSubjects('prim', classe, COMPS).map((s) => s.name);
+  ok(r.join('|') === 'Natation', 'primaire : seule la matiere sans competence est nommee', r);
+}
+{
+  const DOM = [
+    { id: 'langage', code: 'D1', intitule: 'Langage et communication' },
+    { id: 'math',    code: 'D2', intitule: 'Mathématiques' },
+  ];
+  const classe = [sub('Eveil', { mat_domaine_id: 'langage' }), sub('Sieste')];
+  const r = unmatchedClassSubjects('mat', classe, DOM).map((s) => s.name);
+  ok(r.join('|') === 'Sieste', 'maternelle : seul le domaine maison est nomme', r);
+}
+{
+  // Referentiel pas encore charge : on n'accuse PERSONNE. Un avis « votre
+  // matiere n'existe pas » affiche pendant le chargement serait un mensonge.
+  ok(unmatchedClassSubjects('apc', [sub('Français')], []).length === 0,
+    'referentiel vide -> aucun avis (il n est pas encore charge)');
+  ok(unmatchedClassSubjects('apc', [sub('Français')], null).length === 0,
+    'referentiel null -> aucun avis');
+  ok(unmatchedClassSubjects('apc', null, MATIERES).length === 0,
+    'classe sans matiere -> aucun avis');
+  ok(unmatchedClassSubjects('apc', [null, { id: 'x' }], MATIERES).length === 0,
+    'ligne abimee ou sans nom -> ignoree, pas une erreur');
+  ok(unmatchedClassSubjects('sc', [sub('Zzz')], MATIERES).length === 0,
+    'cycle non gere -> aucun avis (le second cycle part deja des matieres de la classe)');
+}
+
+
+// ── UNE SECTION ANGLOPHONE : MEME ENSEMBLE A LA SAISIE ET AU BULLETIN ──────
+//
+// L'ecran de saisie passe un `label` (il connait le systeme de la classe) ; le
+// bulletin, le proces-verbal et le rapport de classe appellent apcForClass SANS
+// label. « Computer Science » se resolvait donc a la saisie et pas au bulletin :
+// la matiere etait saisissable et ne s'imprimait pas. Le libelle anglais
+// officiel est desormais lu dans la table du produit, par l'appariement
+// lui-meme : plus personne n'a besoin de passer un label.
+titre('Section anglophone : resolution identique AVEC et SANS label');
+{
+  const EN_CLASSE = [sub('Computer Science'), sub('Mathematics'), sub('Biology')];
+  const sansLabel = apcMatieresForClass(MATIERES, EN_CLASSE);
+  const avecLabel = apcMatieresForClass(MATIERES, EN_CLASSE, (m) => m.nom);
+  const a = sansLabel.matieres.map((m) => m.id).sort().join(',');
+  const b = avecLabel.matieres.map((m) => m.id).sort().join(',');
+  ok(a === b, 'le meme ensemble, que l appelant fournisse un label ou non', { a, b });
+  ok(a.includes('informatique'),
+    '« Computer Science » resout vers informatique (libelle anglais officiel)', a);
+  ok(a.includes('mathematiques'), '« Mathematics » resout vers mathematiques', a);
+
+  // Et le meme ensemble que le bulletin, qui n'a jamais de label.
+  const ref = {
+    matieres: MATIERES,
+    competences: MATIERES.map((m) => ({ id: 'c_' + m.id, matiere_id: m.id })),
+  };
+  const auBulletin = [...new Set(apcForClass(ref, EN_CLASSE, []).competences.map((c) => c.matiere_id))].sort().join(',');
+  ok(auBulletin === a, 'saisie et bulletin : le MEME ensemble, section anglophone',
+    { saisie: a, bulletin: auBulletin });
+}
+
 
 console.log(echecs === 0 ? '\nTOUS LES TESTS PASSENT' : `\nECHEC : ${echecs}`);
 process.exitCode = echecs === 0 ? 0 : 1;

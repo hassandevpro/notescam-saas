@@ -12,6 +12,7 @@ import GradeImportPanel from './GradeImportPanel';
 import GradeBundleIO from './GradeBundleIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import { isFundamentalTitulaire } from '../../lib/teacherScope';
+import { bySubjectOrder } from '../../core/subjectOrder';
 
 // Ordre pédagogique des classes pour le rail (maternelle → Terminale, FR + EN).
 // Heuristique sur le nom : tout nom non reconnu retombe après, trié par libellé.
@@ -102,7 +103,7 @@ export default function SubjectTeacherWorkspace() {
     const parentIds = new Set(inClass.filter((s) => s.parent_id).map((s) => s.parent_id));
     return inClass
       .filter((s) => (mine || s.teacher_id === teacherId) && !parentIds.has(s.id))
-      .sort((a, b) => (a.position ?? 99) - (b.position ?? 99) || a.name.localeCompare(b.name));
+      .sort(bySubjectOrder);
   }, [subjects, classes, classId, teacherId]);
   const currentSubject = mySubjects.find((s) => s.id === subjectId) || mySubjects[0] || null;
 

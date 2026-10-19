@@ -23,6 +23,7 @@ import { parentPortalUrl, whatsappLinkFor } from '../lib/parentLinks';
 // confondre avec le « lien parent » ci-dessus, qui est le portail PUBLIC par
 // jeton (sans compte) et continue d'exister en parallèle.
 import ParentAccountsModal from '../components/transcripts/ParentAccountsModal';
+import { classSubjectsOf } from '../core/subjectOrder';
 
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
 
@@ -310,7 +311,7 @@ export default function StudentProfile() {
 
   const student = students.find((s) => s.id === id);
   const cls     = student ? classes.find((c) => c.id === student.class_id) : null;
-  const subs    = cls ? subjects.filter((s) => s.class_id === cls.id).sort((a, b) => b.coef - a.coef) : [];
+  const subs    = cls ? classSubjectsOf(subjects, cls.id) : [];
   const sys     = cls?.system || 'FR';
   const maxScale = sys === 'FR' ? 20 : 100;
   const pass     = sys === 'FR' ? 10 : 50;

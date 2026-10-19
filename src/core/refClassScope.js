@@ -125,6 +125,54 @@ export function applyScope(scope, items, idOf = (x) => x?.id) {
 // écarté : c'est la contrepartie du garde-fou (une seule matière reconnue suffit
 // à déclencher le filtre), et sans cet affichage le filtre serait invisible.
 
+/**
+ * Matières de la classe qui ne se rattachent à RIEN dans le référentiel.
+ *
+ * C'est le DERNIER écart possible entre « ce que j'ai coché dans la classe » et
+ * « ce que je vois à la saisie et sur le bulletin ». Une matière maison, ou une
+ * faute de frappe (« Allamand »), n'existe pas dans le référentiel officiel :
+ * elle ne peut donc ni se saisir dans l'écran du cycle, ni s'imprimer sur le
+ * bulletin officiel. C'est une contrainte du référentiel national, pas un
+ * défaut — mais tant qu'on ne la NOMME pas, l'école voit une matière cochée qui
+ * n'apparaît nulle part et conclut que le logiciel l'a perdue.
+ *
+ * Rend les LIGNES, pas les noms : l'appelant choisit ce qu'il affiche.
+ */
+export function unmatchedClassSubjects(kind, classSubjects, items, label) {
+  const liste = (items || []).filter((x) => x && x.id != null);
+  if (!liste.length) return [];
+  return (classSubjects || []).filter((s) => {
+    if (!s || !s.name) return false;
+    if (kind === 'apc')  return (matiereIdsForSubject(s.name, liste, label)?.size ?? 0) === 0;
+    if (kind === 'prim') return !competenceIdForSubject(s, liste);
+    if (kind === 'mat')  return !domaineIdForSubject(s, liste, label);
+    return false;
+  });
+}
+
+
+/**
+ * Matières APC du référentiel que la classe traite RÉELLEMENT.
+ *
+ * L'écran de SAISIE APC est organisé par matière du référentiel, pas par ligne
+ * `subjects` : il proposait donc toutes les matières nationales de la classe,
+ * alors que le bulletin, lui, n'imprimait que celles couvertes par les matières
+ * cochées (`apcForClass`). Une enseignante pouvait saisir un trimestre entier
+ * d'Informatique que le bulletin ne portait pas — en silence.
+ *
+ * Même garde-fou que `scopeOf` : rien de reconnu ⇒ liste INCHANGÉE.
+ *
+ * @param matieres      matières disponibles pour (classe, trimestre)
+ * @param classSubjects lignes `subjects` de LA classe, enseignant non filtré
+ * @param label         (m) => libellé affiché, pour reconnaître un nom localisé
+ * @returns { matieres, exclus }
+ */
+export function apcMatieresForClass(matieres, classSubjects, label) {
+  const liste = (matieres || []).filter((m) => m && m.id != null);
+  const scope = scopeOf('apc', classSubjects, liste, label);
+  return { matieres: applyScope(scope, liste), exclus: scope?.exclus || [] };
+}
+
 /** APC premier cycle (6e–3e). → { competences, exclus } */
 export function apcForClass(referentiel, classSubjects, masques = []) {
   const toutes = (referentiel?.competences || []).filter((c) => !(masques || []).includes(c.id));

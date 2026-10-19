@@ -18,22 +18,15 @@
 
 import { buildClassTranscripts } from './transcriptEngine';
 import { gradingOpts } from './useCountry';
-
-// Ordre des matières — identique à la page (position puis coef/nom).
-function bySubjectOrder(a, b) {
-  const ha = a.position != null, hb = b.position != null;
-  if (ha && hb) return a.position - b.position;
-  if (ha) return -1;
-  if (hb) return 1;
-  return (b.coef || 0) - (a.coef || 0) || a.name.localeCompare(b.name);
-}
+// Ordre des matières : la règle unique du produit (voir core/subjectOrder).
+import { classSubjectsOf } from '../core/subjectOrder';
 
 // Contexte de calcul d'une classe (matières, élèves, options de notation).
 export function classContext(cls, ctx) {
   const { subjects, students, school } = ctx;
   const sys = cls.system || 'FR';
   const cycle = cls.cycle || 'secondaire';
-  const classSubjects = subjects.filter((s) => s.class_id === cls.id).sort(bySubjectOrder);
+  const classSubjects = classSubjectsOf(subjects, cls.id);
   const classStudents = students.filter((s) => s.class_id === cls.id)
     .sort((a, b) => a.name.localeCompare(b.name));
   const opts = { ...gradingOpts(school, cycle), gradeScale: school?.grade_scale };

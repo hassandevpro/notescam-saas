@@ -35,6 +35,11 @@ import {
   trimestreOfUA, PRIM_COTE_DEFAULT,
 } from '../../core/primEngine';
 import { baremeEnVigueur, notesHorsBareme } from '../../core/primColumnBareme';
+// Le PÉRIMÈTRE de la classe — ses matières cochées dans « Modifier la classe ».
+// Le bulletin l'applique déjà (primForClass) : la saisie doit lister EXACTEMENT
+// les mêmes compétences, sinon on saisit des notes qui ne s'impriment jamais.
+import { primForClass, unmatchedClassSubjects } from '../../core/refClassScope';
+import { classSubjectsOf } from '../../core/subjectOrder';
 import ReferentielEditor from './ReferentielEditor';
 import { withLibelles } from '../../lib/referentielEcole';
 import MobileEntryList from './MobileEntryList';
@@ -170,15 +175,55 @@ export default function PrimCompetenceWorkspace() {
 
   const sys = selectedClass?.system || 'FR';
 
+  // ── CE QUE L'ÉCOLE A RETIRÉ OU RENOMMÉ VAUT AUSSI ICI ─────────────────────
+  // « Modifier les compétences » retirait et renommait dans SON propre volet,
+  // et l'écran de saisie continuait d'afficher la liste nationale brute : la
+  // compétence retirée restait une colonne à remplir, et le libellé de l'école
+  // n'apparaissait nulle part. `masques` et `libelles` étaient pourtant déjà
+  // lus (lignes 123-124), déjà passés à l'éditeur, et déjà dans les
+  // dépendances de ce useMemo — seul leur emploi manquait.
+  // L'APC (ApcCompetenceWorkspace) et la maternelle (MatObservationWorkspace)
+  // le faisaient déjà ; le primaire était le seul des trois à ne pas le faire.
+  //
+  // ── ET LE PÉRIMÈTRE DE LA CLASSE VAUT AUSSI ICI ───────────────────────────
+  // `primForClass` est l'appel que fait le bulletin : il enchaîne les deux
+  // filtres dans le même ordre (masques de l'école, puis matières cochées de la
+  // classe) et porte le même garde-fou — une classe dont aucune matière ne se
+  // rapproche du référentiel garde la liste complète plutôt qu'un écran vide.
+  // Sans lui, la saisie offrait des compétences que le bulletin n'imprimait pas.
+  const classSubjects = useMemo(() => classSubjectsOf(subjects, classId), [subjects, classId]);
+
   const competences = useMemo(() => {
     if (!referentiel || !niveauSlug) return [];
-    const all = competencesForNiveau(referentiel, niveauSlug)
-      .map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) }));
+    const all = withLibelles(
+      primForClass(referentiel, niveauSlug, classSubjects, masques).competences
+        .map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) })),
+      libelles,
+    );
     if (!isSubjectTeacher) return all;
     // Mode 1 : ne garder que les compétences couvertes par mes matières.
     const mine = competenceIdsForTeacher(subjects, teacherId, classId, referentiel?.competences || []);
     return all.filter((c) => mine.has(c.id));
-  }, [referentiel, niveauSlug, isSubjectTeacher, subjects, classId, teacherId, sys, masques, libelles]);
+  }, [referentiel, niveauSlug, classSubjects, isSubjectTeacher, subjects, classId, teacherId, sys, masques, libelles]);
+
+  // Compétences du niveau écartées par le périmètre de la classe : 0 quand le
+  // garde-fou a joué. On l'annonce, sinon le filtre serait invisible.
+  const competencesEcartees = useMemo(() => {
+    if (!referentiel || !niveauSlug) return 0;
+    const duNiveau = competencesForNiveau(referentiel, niveauSlug)
+      .filter((c) => !(masques || []).includes(c.id)).length;
+    const retenues = primForClass(referentiel, niveauSlug, classSubjects, masques).competences.length;
+    return Math.max(0, duNiveau - retenues);
+  }, [referentiel, niveauSlug, classSubjects, masques]);
+
+  // Matières cochées dans la classe qui ne correspondent à aucune compétence du
+  // niveau : ni saisissables ici, ni imprimables sur le bulletin officiel.
+  const matieresHorsReferentiel = useMemo(
+    () => (referentiel && niveauSlug
+      ? unmatchedClassSubjects('prim', classSubjects, competencesForNiveau(referentiel, niveauSlug)).map((s) => s.name)
+      : []),
+    [referentiel, niveauSlug, classSubjects],
+  );
 
   useEffect(() => { loadRefMasques('prim'); }, [loadRefMasques]);
   const [refOpen, setRefOpen] = useState(false);
@@ -448,6 +493,27 @@ export default function PrimCompetenceWorkspace() {
           </select>
         </label>
       </div>
+
+      {/* Le sélecteur ci-dessus liste les compétences de LA CLASSE, pas tout le
+          niveau : sans cette ligne, le filtre serait invisible et l'enseignante
+          chercherait une compétence absente sans pouvoir deviner pourquoi. */}
+      {competencesEcartees > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          {t(
+            `${competencesEcartees} compétence(s) du niveau ne sont pas couvertes par les matières cochées pour cette classe : elles ne se saisissent pas ici et ne s'impriment pas sur le bulletin. Pour les ajouter, passez par Classes → Modifier la classe → Matières.`,
+            `${competencesEcartees} competency/ies for this level are not covered by the subjects ticked for this class: they cannot be entered here and do not print on the report card. To add them, go to Classes → Edit class → Subjects.`,
+          )}
+        </div>
+      )}
+
+      {matieresHorsReferentiel.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {t(
+            `Matière(s) de cette classe sans compétence correspondante au référentiel : ${matieresHorsReferentiel.join(', ')}. Elles ne se saisissent pas ici et ne figurent pas sur le bulletin officiel. Corrigez le nom dans Classes → Modifier la classe → Matières.`,
+            `Subject(s) of this class with no matching framework competency: ${matieresHorsReferentiel.join(', ')}. They cannot be entered here and do not appear on the official report card. Fix the name in Classes → Edit class → Subjects.`,
+          )}
+        </div>
+      )}
 
       <div className="text-xs text-gray-500">
         {t('Barème officiel par critère (points) — variable selon la compétence · le total et la cote se calculent sur les critères déjà saisis.',

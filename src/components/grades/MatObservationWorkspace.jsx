@@ -20,6 +20,11 @@ import {
   domaineLabelOverrides, withDomaineOverrides,
 } from '../../core/matDomaineMatch';
 import { isSubjectScoped } from '../../lib/teacherScope';
+// Le PÉRIMÈTRE de la classe — ses domaines cochés dans « Modifier la classe ».
+// Le bulletin l'applique déjà (matForClass) : la saisie doit lister EXACTEMENT
+// les mêmes domaines, sinon on observe des domaines qui ne s'impriment jamais.
+import { matForClass, unmatchedClassSubjects } from '../../core/refClassScope';
+import { classSubjectsOf } from '../../core/subjectOrder';
 import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
@@ -190,17 +195,45 @@ export default function MatObservationWorkspace() {
   // Les trois sigles tels que la classe les lit (FR : A/ECA/NA, EN : A/IP/NA).
   const codesAffiches = MAT_ACQUIS_CODES.map((c) => matAcquisCode(c, sys)).join(' / ');
   const estTitulaire = isClassTitulaire(selectedClass, teacherId);
+  // ── LE PÉRIMÈTRE DE LA CLASSE S'APPLIQUE ICI AUSSI ──────────────────────────
+  // `matForClass` est l'appel que fait le bulletin : masques de l'école, puis
+  // domaines couverts par les lignes `subjects` de la classe, avec le même
+  // garde-fou (rien de reconnu ⇒ liste complète). Sans lui, un domaine retiré de
+  // la classe restait observable ici et disparaissait du bulletin.
+  const classSubjects = useMemo(() => classSubjectsOf(subjects, classId), [subjects, classId]);
+  const domainesDeLaClasse = useMemo(
+    () => (classId ? matForClass(referentiel, classSubjects, masques).domaines : domainesAll),
+    [referentiel, classSubjects, masques, classId, domainesAll],
+  );
+  const domainesEcartes = domainesAll.length - domainesDeLaClasse.length;
+
+  // Domaines cochés dans la classe qui ne correspondent à aucun domaine du
+  // référentiel : ni observables ici, ni imprimables sur le bulletin officiel.
+  const domainesHorsReferentiel = useMemo(
+    () => unmatchedClassSubjects('mat', classSubjects, domainesForMaternelle(referentiel)).map((s) => s.name),
+    [classSubjects, referentiel],
+  );
+
   const domaines = useMemo(() => {
     // Libellé officiel localisé, PUIS la surcharge de l'école si elle en a une.
     // Les 8 domaines sont nationaux (et `mat_observations.domaine_id` porte une FK
     // vers eux) : une école ne les renomme pas en base, elle les réétiquette chez
     // elle par la ligne `subjects` qui porte leur `mat_domaine_id`.
-    const base = domainesAll.map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) }));
+    const base = domainesDeLaClasse.map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) }));
     const all = withLibelles(withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, domainesAll)), libelles);
     if (!subjectScoped || estTitulaire) return all;
     const mine = domaineIdsForTeacher(subjects, teacherId, classId, domainesAll);
     return all.filter((d) => mine.has(d.id));
-  }, [domainesAll, sys, subjectScoped, estTitulaire, subjects, teacherId, classId, libelles]);
+  }, [domainesDeLaClasse, domainesAll, sys, subjectScoped, estTitulaire, subjects, teacherId, classId, libelles]);
+
+  // « Modifier les domaines » est un outil d'ÉCOLE (renommer, masquer, rétablir
+  // un domaine national), pas de classe : il garde les 8 domaines, y compris
+  // ceux que CETTE classe n'a pas cochés. Sinon, depuis une classe au périmètre
+  // restreint, un domaine écarté deviendrait impossible à renommer.
+  const domainesPourEditeur = useMemo(() => {
+    const base = domainesAll.map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) }));
+    return withLibelles(withDomaineOverrides(base, domaineLabelOverrides(subjects, classId, domainesAll)), libelles);
+  }, [domainesAll, sys, subjects, classId, libelles]);
 
 
   // Mes matières de cette classe qui ne se rattachent à aucun domaine : on les
@@ -357,6 +390,28 @@ export default function MatObservationWorkspace() {
           </button>
         )}
       </div>
+      {/* La grille ci-dessous porte les domaines de LA CLASSE, pas les 8 du
+          référentiel : sans cette ligne, le filtre serait invisible et
+          l'institutrice chercherait un domaine absent sans pouvoir deviner
+          pourquoi. Le bulletin applique le même périmètre. */}
+      {domainesEcartes > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          {t(
+            `${domainesEcartes} domaine(s) ne sont pas cochés pour cette classe : ils ne s'observent pas ici et ne s'impriment pas sur le bulletin. Pour les ajouter, passez par Classes → Modifier la classe → Matières.`,
+            `${domainesEcartes} domain(s) are not ticked for this class: they cannot be assessed here and do not print on the report card. To add them, go to Classes → Edit class → Subjects.`,
+          )}
+        </div>
+      )}
+
+      {domainesHorsReferentiel.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {t(
+            `Matière(s) de cette classe sans domaine correspondant au référentiel : ${domainesHorsReferentiel.join(', ')}. Elles ne s'observent pas ici et ne figurent pas sur le bulletin officiel. Corrigez le nom dans Classes → Modifier la classe → Matières.`,
+            `Subject(s) of this class with no matching framework domain: ${domainesHorsReferentiel.join(', ')}. They cannot be assessed here and do not appear on the official report card. Fix the name in Classes → Edit class → Subjects.`,
+          )}
+        </div>
+      )}
+
       {/* La MEME liste que la grille — localisee et surchargee. L'editeur recevait
           la liste BRUTE (le francais de la base) : une Nursery lisait ses domaines
           en anglais dans le tableau et en francais ici. Plus les masques, absents
@@ -364,7 +419,7 @@ export default function MatObservationWorkspace() {
       {domainesOpen && (
         <ReferentielEditor
           titre={t('Domaines de la maternelle', 'Nursery domains')}
-          lignes={domaines.concat(
+          lignes={domainesPourEditeur.concat(
             domainesForMaternelle(referentiel)
               .filter((d) => masques.includes(d.id))
               .map((d) => ({ ...d, intitule: matDomaineLabel(d, sys) })),

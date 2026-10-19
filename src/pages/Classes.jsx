@@ -17,6 +17,7 @@ import { inferCategory } from '../lib/timetableEngine';
 import { resolveClassEngine } from '../core/engineResolver';
 import { parseClassName } from '../core/classNameParser';
 import { headTeacherText } from '../lib/headTeachers';
+import { classSubjectsOf } from '../core/subjectOrder';
 
 const SYSTEMS = ['FR', 'EN'];
 
@@ -433,9 +434,9 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const isEN     = cls.system === 'EN';
   const catalog  = catalog_local;
 
-  const classSubjects = subjects
-    .filter((s) => s.class_id === cls.id)
-    .sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name));
+  // Même ordre que le bulletin et que la saisie : c'est ici que l'école choisit
+  // ses matières, elle doit les voir rangées comme elles sortiront.
+  const classSubjects = classSubjectsOf(subjects, cls.id);
   const studentCount  = students.filter((s) => s.class_id === cls.id).length;
   const teacherCount  = new Set(classSubjects.filter((s) => s.teacher_id).map((s) => s.teacher_id)).size;
   // Aucun lien enseignant du tout : ni titulaire, ni matière affectée à quiconque.

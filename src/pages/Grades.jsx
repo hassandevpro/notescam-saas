@@ -20,6 +20,7 @@ import PrimCompetenceWorkspace from '../components/grades/PrimCompetenceWorkspac
 import { resolveClassEngine, defaultRoutingClass, SECTIONS, classSectionKey } from '../core/engineResolver';
 import { hasCapability } from '../config/capabilities';
 import { toast } from '../store/toastStore';
+import { classSubjectsOf, withoutCompositeParents } from '../core/subjectOrder';
 
 const TERMS_EN = [
   { value: 1, label: 'Term 1' },
@@ -651,7 +652,10 @@ function PrincipalGrades() {
     : SEQUENCES;
 
   const classSubjects = useMemo(() => {
-    let list = subjects.filter((s) => s.class_id === classId);
+    // MÊME ordre que le bulletin (position, puis coef/nom) : la grille de saisie
+    // triait par coefficient et ignorait `position`, si bien que « Réorganiser
+    // les matières » ne déplaçait les colonnes que sur le bulletin.
+    let list = classSubjectsOf(subjects, classId);
     // Mode 1 : on ne montre que les matières affectées à cet enseignant — SAUF la
     // titulaire du fondamental, qui enseigne toute sa classe (voir teacherScope).
     const cls = classes.find((c) => c.id === classId) || null;
@@ -660,9 +664,7 @@ function PrincipalGrades() {
     }
     // Matières composites : on saisit les sous-composantes (feuilles), jamais la
     // matière parente (sa note est calculée). On retire donc les parents.
-    const parentIds = new Set(list.filter((s) => s.parent_id).map((s) => s.parent_id));
-    list = list.filter((s) => !parentIds.has(s.id));
-    return list.sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name));
+    return withoutCompositeParents(list);
   }, [subjects, classes, classId, isSubjectTeacher, teacherId]);
 
   const classStudents = useMemo(() =>

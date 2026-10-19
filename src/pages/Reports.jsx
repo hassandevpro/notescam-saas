@@ -15,6 +15,7 @@ import { resolveClassEngine, SECTIONS } from '../core/engineResolver';
 import { apcBulletinPeriods, apcPeriodLabel } from '../core/apcPeriods';
 import { buildClassReport, REPORT_KIND } from '../lib/classReportEngine';
 import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
+import { bySubjectOrder, classSubjectsOf } from '../core/subjectOrder';
 
 const PERIODS_EN = [
   { value: 'term_1', label: 'Term 1', seqs: [1], group: 'terms' },
@@ -396,7 +397,7 @@ function computeClassReport(cls, period, ctx) {
   const engine = resolveClassEngine(school, cls);
 
   const classSubjects = subjects.filter((s) => s.class_id === cls.id)
-    .sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name));
+    .sort(bySubjectOrder);
   const classStudents = students.filter((s) => s.class_id === cls.id)
     .sort((a, b) => a.name.localeCompare(b.name));
   if (!classStudents.length) return null;
@@ -886,7 +887,7 @@ export default function Reports() {
   useEffect(() => { if (engines.prim) loadPrim(); }, [engines.prim, loadPrim]);
 
   const classSubjects = useMemo(() =>
-    subjects.filter((s) => s.class_id === classId).sort((a, b) => b.coef - a.coef || a.name.localeCompare(b.name)),
+    classSubjectsOf(subjects, classId),
     [subjects, classId]
   );
   const classStudents = useMemo(() =>

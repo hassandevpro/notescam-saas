@@ -58,8 +58,10 @@ export const FEE_PAGES = ['/app/fees', '/app/frais-catalogue'];
 // DÉPENSES : la laisser ouverte aux rôles pédagogiques (l'entrée de menu est
 // aujourd'hui visible du censeur) reviendrait à montrer l'argent par une porte
 // dérobée.
+// `/app/caisse` (journal de caisse) montre les soldes et les mouvements de
+// fonds : c'est de l'argent, donc la même porte que les autres pages du module.
 export const BUDGET_PAGES = ['/app/budgets', '/app/budget-global', '/app/depenses',
-  '/app/approbations'];
+  '/app/caisse', '/app/approbations'];
 
 // Pages de PERSONNEL. §13 : chaque responsable voit le personnel de son secteur ;
 // un enseignant n'obtient jamais la gestion du personnel par héritage.

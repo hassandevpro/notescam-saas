@@ -40,6 +40,7 @@ export const CAP_GROUPS = [
     { to: '/app/budgets', label: ['Budgets', 'Budgets', 'Presupuestos'] },
     { to: '/app/budget-global', label: ['Budget global & prévisions', 'Global budget', 'Global'] },
     { to: '/app/depenses', label: ['Dépenses', 'Expenses', 'Gastos'] },
+    { to: '/app/caisse', label: ['Journal de caisse', 'Cash book', 'Libro de caja'] },
   ] },
   { module: ['Personnel & RH', 'Staff & HR', 'Personal y RRHH'], caps: [
     { to: '/app/teachers', label: ['Enseignants', 'Teachers', 'Profesores'] },

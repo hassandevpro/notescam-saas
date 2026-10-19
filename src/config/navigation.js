@@ -128,6 +128,11 @@ export const NAV_GROUPS = [
         roles: ['admin'], budgetAccess: true },
       { to: '/app/depenses', icon: 'fees', label: ['Dépenses', 'Expenses', 'Gastos'],
         roles: ['admin'], budgetAccess: true },
+      // Journal de caisse : entrées, reports et soldes par caisse. Répond à
+      // « combien reste-t-il dans le tiroir ? », que l'exécution budgétaire ne
+      // pose pas — elle raisonne par ligne de budget, pas par caisse.
+      { to: '/app/caisse', icon: 'fees', label: ['Journal de caisse', 'Cash book', 'Libro de caja'],
+        roles: ['admin'], budgetAccess: true },
       // Gouvernance financière distante (H3-b) : décisions à approuver depuis le Cloud.
       { to: '/app/approbations', icon: 'conseil', label: ['Décisions à approuver', 'Decisions to approve', 'Decisiones por aprobar'],
         roles: ['admin', 'censeur'] },

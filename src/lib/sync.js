@@ -16,10 +16,10 @@
 // n'est appelé que sur demande explicite. Voir le bloc « DURABILITÉ » plus bas :
 // la suppression par âge qui existait ici a fait perdre des notes à l'école.
 
-import { syncQueueDB, syncQuarantineDB, studentsDB, initDB } from './db';
+import { syncQueueDB, syncQuarantineDB, studentsDB, feesDB, initDB } from './db';
 import { uuid } from './uuid';
 import { supabase } from './supabase';
-import { gradeEntryToRows, upsertAbsenceEntry, absenceEntryToRow } from './schoolService';
+import { gradeEntryToRows, upsertAbsenceEntry, absenceEntryToRow, upsertFee } from './schoolService';
 import { useUiStore } from '../store/uiStore';
 
 // Nombre d'opérations en attente (lecture IDB, sans dépendance React)
@@ -131,6 +131,27 @@ async function replayItem(item) {
           const row = await studentsDB.get(p.id);
           if (row) await studentsDB.put({ ...row, parent_token: token });
         } catch { /* IDB best-effort */ }
+      }
+    }
+
+    // Self-heal : la fiche de frais existe déjà au Cloud sous un AUTRE id.
+    // `student_fees` porte UNIQUE(student_id, academic_year) : un poste qui
+    // fabrique un uuid neuf (cache vidé, autre navigateur, année active
+    // changée) voyait son upsert refusé en 23505 À CHAQUE CYCLE, jusqu'à la
+    // quarantaine — le montant dû saisi par la caisse n'arrivait jamais.
+    // `upsertFee` écrit dans la ligne existante sans toucher au cache de
+    // paiement ; ici on réaligne l'id en IDB pour que la saisie suivante ne
+    // rebloque pas la file. Signalé par THE GENIUS le 2026-10-19.
+    if (error && table === 'student_fees' &&
+        (error.code === '23505' || /student_fees_student_id_academic_year/i.test(error.message || '')) &&
+        p.student_id && p.academic_year) {
+      const saved = await upsertFee(p);
+      if (saved) {
+        error = null;
+        try {
+          if (saved.id !== p.id) await feesDB.delete(p.id);
+          await feesDB.put(saved);
+        } catch { /* IDB best-effort : l'écriture serveur est déjà faite */ }
       }
     }
     if (error) throw error;

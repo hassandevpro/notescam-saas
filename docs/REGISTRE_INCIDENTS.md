@@ -124,3 +124,54 @@ colonne : la recherche d'en-tête tentait une correspondance exacte puis approxi
 actions n'étaient pas cliquables.
 
 **Garde-fou** : tests de frais dans `src/lib/`; à préciser.
+
+---
+
+## I9 — « student_fees · upsert : duplicate key » — le dû saisi au guichet n'arrivait jamais (THE GENIUS)
+
+**Date** : 2026-10-19 · **Statut** : corrigé dans le code, **non déployé** · **Source** :
+message de l'école, bandeau de synchronisation du navigateur
+
+**Symptôme**, tel que l'école le lit à l'écran (`src/components/Layout.jsx:171`) :
+
+```
+student_fees · upsert
+duplicate key value violates unique constraint "student_fees_student_id_academic_year_key"
+```
+
+**Cause établie, pas supposée.** `student_fees` porte `UNIQUE(student_id, academic_year)`
+des deux côtés — vérifié dans `pg_constraint` de la base de production
+(`student_fees_student_id_academic_year_key UNIQUE (student_id, academic_year)`), et dans
+`server/schema.sql` pour le LAN. Or **tout le chemin d'écriture upsertait sur `id`**
+(`schoolService.upsertFee`, `sync.js`, `dataImport.js`, `sync-push`). Et `saveFee`
+(`src/store/schoolStore.js`) fabrique un `uuid()` neuf dès que la fiche n'est pas dans le
+cache local : autre poste, autre navigateur, cache vidé, lecture restreinte par secteur
+(`fee_scope_allows_student`, policy `FOR ALL` sur la table), ou année active changée sans
+rechargement. L'INSERT heurtait alors la ligne que le Cloud détient déjà **sous un autre
+id** : refus `23505`, élément **bloqué dans la file du navigateur**, rejoué à chaque
+cycle, puis mis en quarantaine après 25 refus. Le montant dû saisi par la caisse
+n'arrivait jamais, et personne ne pouvait le débloquer depuis l'application.
+
+**Ce qui n'a PAS été constaté** (lectures seules sur la base de production, école
+`6b68407b-3d2e-426b-81ff-c4e68e66120a`) : aucun versement orphelin. Les 891 versements
+de THE GENIUS ont tous leur fiche de frais, et les 693 fiches de l'année `2026-2027`
+sont cohérentes (133 980 000 F dus, 84 274 000 F encaissés). **Le blocage était dans la
+file du poste, pas dans les données du Cloud** — aucune donnée financière à réparer.
+
+**Correctif** : l'identité d'une fiche de frais est `(élève, année)`, jamais son `id`.
+`upsertFee` écrit désormais **dans** la ligne existante quand le Cloud la détient sous un
+autre id, et l'appelant réaligne son cache local (`adopterIdFraisDistant`). `sync.js`
+fait le même rattrapage pour les éléments **déjà bloqués** : la file se résorbe d'elle-même
+au prochain cycle, sans intervention sur le poste. Voir décision **D10**.
+
+**Garde-fou** : `src/lib/_feeUpsertConflit.test.mjs` — 21 contrôles, dont celui qui
+compte vraiment : le cache de paiement du Cloud (50 000 F encaissés) n'est **pas** écrasé
+par le 0 d'une fiche qui n'a jamais vu cette ligne.
+
+**Reste ouvert, même famille, non corrigé** : le chemin LAN↔Cloud a le défaut symétrique.
+`sync-push` (`supabase/functions/sync-push/index.ts:125`) et le pull LAN
+(`rawUpsert`, `server/cloudSync.js:120`) travaillent aussi `ON CONFLICT(id)` : une fiche
+de frais dont l'id diverge entre les deux bases ne peut ni monter ni descendre, et reste
+en file de rejeu. Inerte aujourd'hui pour THE GENIUS (la synchro Cloud du LAN exige un
+jeton scellé **et** le mode hybride), à traiter **avant** d'activer la synchro hybride
+dans une école.

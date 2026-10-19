@@ -125,3 +125,42 @@ chaque exécution sans jamais mentir sur la couverture réelle.
 assumée, inscrite en R7 : il ne doit pas diminuer autrement qu'en écrivant les tests.
 
 **Retour arrière.** Aucun : activer un parcours signifie l'écrire.
+
+---
+
+## D10 — Une fiche de frais s'identifie par `(élève, année)`, jamais par son `id`
+
+**Date** : 2026-10-19 · **Contexte** : incident **I9** (THE GENIUS)
+
+`student_fees` porte `UNIQUE(student_id, academic_year)` au Cloud comme en LAN. Le `id`
+d'une fiche n'est donc qu'une étiquette locale : deux postes qui saisissent les frais du
+même élève pour la même année fabriquent deux `uuid()` différents pour **une seule ligne
+possible**. Upserter sur `id` fait de cette situation banale un refus définitif (`23505`)
+qui bloque la file de synchronisation du poste.
+
+**Décision.** Sur un refus de doublon, l'écriture résout l'id réel de la ligne
+`(élève, année)` et écrit **dedans**. L'appelant adopte ensuite l'id du Cloud
+(`adopterIdFraisDistant`) : sans cela, le poste refabrique son id à la saisie suivante et
+la file se rebloque.
+
+**Ce que ce chemin ne touche pas, et pourquoi.** Le cache de paiement (`frais_payes`,
+`date_dernier_paiement`) n'est **jamais** écrit par ce rattrapage. Par construction, la
+fiche qui arrive là n'a jamais vu la ligne du Cloud : son `frais_payes` vaut souvent 0 et
+écraserait des encaissements réels. La source de vérité reste `fee_payments`, et
+`reconcileFeesPaid` — **monotone**, elle ne fait que relever une sous-évaluation — remet
+le cache à niveau une fois les versements remontés.
+
+**Ce qui n'a pas été retenu** : upserter directement sur `onConflict:
+'student_id,academic_year'`. PostgREST écrit alors `id = excluded.id`, donc **réécrit la
+clé primaire** à chaque enregistrement. Les ids des fiches de frais se mettraient à
+changer sous les autres postes, sous les tombstones de synchro (`sync_tombstones.row_id`)
+et sous le LWW, pour ne rien gagner — le rattrapage ci-dessus suffit et laisse les ids
+stables.
+
+**Portée.** Chemin navigateur → Cloud uniquement (`schoolService.upsertFee`,
+`schoolStore`, `src/lib/sync.js`). Le chemin LAN↔Cloud garde le même défaut
+(`sync-push`, `rawUpsert`), inerte tant que la synchro hybride n'est pas activée : voir
+I9, dernier paragraphe.
+
+**Garde-fou** : `src/lib/_feeUpsertConflit.test.mjs` (21 contrôles).
+

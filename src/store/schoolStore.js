@@ -1613,7 +1613,10 @@ export const useSchoolStore = create((set, get) => ({
         return { fees: [...byId.values()] };
       });
       for (const f of fees) {
-        if (backendOnline()) upsertFee(f).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f }); });
+        if (backendOnline()) upsertFee(f).then((saved) => {
+          if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
+          else get().adopterIdFraisDistant(f, saved);
+        });
         else queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
       }
     }
@@ -2031,7 +2034,10 @@ export const useSchoolStore = create((set, get) => ({
       });
       for (const f of feeRecords) {
         if (backendOnline()) {
-          upsertFee(f).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f }); });
+          upsertFee(f).then((saved) => {
+            if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
+            else get().adopterIdFraisDistant(f, saved);
+          });
         } else {
           queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
         }
@@ -2351,7 +2357,10 @@ export const useSchoolStore = create((set, get) => ({
       });
     }
     if (backendOnline()) {
-      upsertFee(record).then((saved) => { if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: record }); });
+      upsertFee(record).then((saved) => {
+        if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: record });
+        else get().adopterIdFraisDistant(record, saved);
+      });
     } else {
       queueOffline({ table: 'student_fees', operation: 'upsert', payload: record });
     }
@@ -2633,9 +2642,32 @@ export const useSchoolStore = create((set, get) => ({
     set({ fees: nextFees });
     await feesDB.putMany(drifted);
     for (const rec of drifted) {
-      if (backendOnline()) upsertFee(rec).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec }); });
+      if (backendOnline()) upsertFee(rec).then((saved) => {
+        if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec });
+        else get().adopterIdFraisDistant(rec, saved);
+      });
       else queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec });
     }
+  },
+
+  // RÉALIGNEMENT D'ID APRÈS UN REFUS SUR (élève, année).
+  //
+  // Le Cloud détenait déjà la fiche de frais sous un AUTRE id ; `upsertFee`
+  // (src/lib/schoolService.js) a écrit dans CETTE ligne et renvoie la ligne du
+  // Cloud. Le poste doit alors abandonner l'id qu'il avait fabriqué, sinon il
+  // le refabrique à chaque saisie et la file se rebloque au cycle suivant.
+  //
+  // Rien n'est détruit côté serveur : on remplace une fiche locale qui n'a
+  // jamais existé ailleurs par celle qui fait foi. Aucun montant n'est écrit
+  // ici — `frais_payes` vient de la ligne du Cloud.
+  adopterIdFraisDistant: async (local, saved) => {
+    if (!saved?.id || !local?.id || saved.id === local.id) return;
+    const row = coerceFeeRow(saved);
+    try { await feesDB.delete(local.id); } catch { /* best-effort : l'écriture serveur est déjà faite */ }
+    await feesDB.put(row);
+    set((s) => ({
+      fees: [...s.fees.filter((f) => f.id !== local.id && f.id !== row.id), row],
+    }));
   },
 
   // --- Class fee grids (grilles tarifaires) ---

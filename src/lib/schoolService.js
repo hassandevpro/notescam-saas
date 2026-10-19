@@ -428,12 +428,66 @@ export async function fetchFees(schoolId, year) {
   }, 'fetchFees');
 }
 
+// L'IDENTITÉ D'UNE FICHE DE FRAIS N'EST PAS SON `id`, C'EST (élève, année).
+//
+// LE DÉFAUT QUE CE BLOC FERME — signalé par THE GENIUS le 2026-10-19 :
+//     student_fees · upsert
+//     duplicate key value violates unique constraint
+//       "student_fees_student_id_academic_year_key"
+//
+// `student_fees` porte UNIQUE(student_id, academic_year) des DEUX côtés
+// (`supabase_sprint15.sql:40`, `server/schema.sql:249`), mais tout le chemin
+// d'écriture upsertait sur `id`. Or `saveFee` fabrique un `uuid()` neuf dès que
+// la fiche n'est pas dans le cache local — autre poste, autre navigateur, cache
+// vidé, lecture restreinte par secteur, année active changée sans rechargement.
+// L'INSERT heurtait alors la ligne que le Cloud détient déjà sous un AUTRE id :
+// refus 23505, élément bloqué dans la file du navigateur, rejoué indéfiniment
+// puis mis en quarantaine. Le montant dû saisi par la caisse n'arrivait jamais.
+//
+// On écrit donc DANS la ligne existante au lieu d'essayer d'en créer une
+// seconde — ce que la contrainte interdit de toute façon.
+//
+// CE QUE CE CHEMIN NE TOUCHE PAS : le cache de paiement (`frais_payes`,
+// `date_dernier_paiement`). Par construction, la fiche locale qui arrive ici
+// n'a JAMAIS vu la ligne du Cloud ; écrire son `frais_payes` écraserait les
+// encaissements déjà enregistrés par un 0 issu de l'ignorance. La source de
+// vérité reste `fee_payments`, et `reconcileFeesPaid` (monotone) relève le
+// cache à partir des versements une fois ceux-ci remontés.
+const estDoublonFrais = (error) =>
+  error?.code === '23505' ||
+  /student_fees_student_id_academic_year/i.test(error?.message || '');
+
 export async function upsertFee(feeData) {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('student_fees')
     .upsert(feeData, { onConflict: 'id' })
     .select()
     .single();
+
+  if (error && estDoublonFrais(error) && feeData?.student_id && feeData?.academic_year) {
+    let q = supabase
+      .from('student_fees')
+      .select('id, frais_payes, date_dernier_paiement')
+      .eq('student_id', feeData.student_id)
+      .eq('academic_year', feeData.academic_year);
+    if (feeData.school_id) q = q.eq('school_id', feeData.school_id);
+    const { data: existante } = await q.maybeSingle();
+    if (existante?.id) {
+      ({ data, error } = await supabase
+        .from('student_fees')
+        .upsert({
+          ...feeData,
+          id: existante.id,
+          frais_payes: existante.frais_payes,
+          date_dernier_paiement: existante.date_dernier_paiement,
+        }, { onConflict: 'id' })
+        .select()
+        .single());
+      // L'appelant doit réaligner son cache local sur l'id du Cloud : la ligne
+      // renvoyée porte `id = existante.id`, pas celui qu'il avait fabriqué.
+    }
+  }
+
   if (error) { console.error('upsertFee', error); return null; }
   return data;
 }

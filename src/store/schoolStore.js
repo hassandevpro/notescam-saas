@@ -901,6 +901,35 @@ export const useSchoolStore = create((set, get) => ({
 
   // `extra` porte ce qui est propre au moteur : pour l'APC, la competence vit dans
   // (classe, trimestre, matiere) — sans ce contexte elle ne s'afficherait nulle part.
+  // ── LE CACHE DU RÉFÉRENTIEL EST AVEUGLE AUX LIGNES MAISON ────────────────
+  //
+  // `refreshReferentiel` ne retélécharge QUE si l'empreinte a changé, et
+  // l'empreinte est l'id de la version ACTIVE du référentiel national. Créer
+  // une matière maison ne la change pas : le cache IDB ne la contient donc
+  // jamais.
+  //
+  // Deux dégâts, tous deux constatés en production le 2026-10-20 :
+  //   • au rechargement de la page, le BULLETIN lit le cache — la matière
+  //     maison n'y est pas, donc elle ne s'imprime pas. C'est le défaut
+  //     rapporté : « je ne les vois pas sur le bulletin » ;
+  //   • le rattrapage, lui, les croit toujours manquantes et les RECRÉE. Seize
+  //     matières ont été fabriquées pour quatre noms chez BRIGHT CONTINENT,
+  //     quatre de plus à chaque rechargement de la page.
+  //
+  // D'où ce rechargement FORCÉ, qui court-circuite l'empreinte et réécrit le
+  // cache. L'empreinte est conservée : seules NOS lignes ont bougé, la version
+  // nationale est la même.
+  rechargerApcReferentiel: async () => {
+    if (!backendOnline()) return { error: 'offline' };
+    const data = await fetchReferentiel();
+    if (!data) return { error: 'fetch' };
+    const ancien = await apcRefDB.get().catch(() => null);
+    const blob = { ...data, id: 'referentiel', __fp: ancien?.__fp ?? null };
+    await apcRefDB.put(blob).catch(() => {});
+    publishReferentiels(set, get, { apcRefRaw: blob });
+    return { data: blob };
+  },
+
   // ── « JE CRÉE UNE MATIÈRE ET ELLE N'APPARAÎT NULLE PART » ─────────────────
   //
   // Sur une école réglée en moteur OFFICIEL, les écrans de saisie et les
@@ -998,6 +1027,10 @@ export const useSchoolStore = create((set, get) => ({
       const r = await get().materialiserMatiereOfficielle(cls, sub.name);
       if (!r.error) created++;
     }
+    // Le cache IDB ignore ce qu'on vient d'écrire : sans ce rechargement, le
+    // bulletin ne verrait rien au rechargement de la page, et le prochain
+    // passage ici recréerait tout en double.
+    if (created) await get().rechargerApcReferentiel();
     return { created };
   },
 

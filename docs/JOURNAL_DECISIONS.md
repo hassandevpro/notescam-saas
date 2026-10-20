@@ -612,3 +612,54 @@ regarder qu'un laisserait le garde-fou aveugle sur l'autre bulletin.
 
 **Retour arrière.** `resolveRefRow` réduit à `matchRefRow` rend le comportement d'avant.
 Aucun schéma, aucune donnée, aucune migration.
+
+---
+
+## D16 — Une matière maison garde son classement sur le bulletin bilingue
+
+**Date** : 2026-10-20 · **Statut** : actif · **Revient sur** une partie de D12
+**Où** : `src/core/subjectGroup.js` (`domaineForSubject`), `src/pages/Bulletins.jsx`
+(`bilEnrichedSubjects`, `bilHorsReferentiel`)
+**Test** : `src/core/_subjectGroup.test.mjs` (97 contrôles)
+
+**Demande du responsable.** « On doit pouvoir être libre de créer une matière même si ça
+ne fait pas partie du référentiel, et ça doit s'afficher sur le bulletin dans sa vraie
+catégorie de classement, pas aller automatiquement sur Autres matières. »
+
+**Ce que D12 avait décidé, et pourquoi on y revient.** D12 refusait que `category` touche
+aux bulletins officiels : leurs groupes viennent de l'arrêté. L'argument **tient pour le
+second cycle**, dont les GROUPE 1 / GROUPE 2 sont une répartition réglementaire **sans
+contenu thématique** — y ranger « Zumba » parce qu'elle est classée « EPS » n'aurait aucun
+sens, et le levier y reste le menu « Groupe » (D13).
+
+Il **ne tient pas** pour le programme bilingue : ses domaines sont **thématiques** —
+« Langues et littératures », « Sciences humaines », « Sciences et technologies », « Arts
+et cultures nationales », « Développement personnel ». Ils recouvrent exactement les cinq
+familles du classement, et y ranger une matière maison a un sens précis. Le responsable a
+maintenu sa demande après que j'aie exposé la réserve : c'est sa décision, et elle est
+juste pour ce bulletin-là.
+
+**Décision.** Sur le bulletin bilingue, une matière que le référentiel ne réclame pas est
+rangée dans le domaine correspondant à son **classement**. On ne reprend du domaine que le
+**nom** et l'**ordre** : le coefficient et la charge restent ceux que l'école a saisis,
+puisqu'il n'existe aucun chiffre officiel pour une matière absente de l'arrêté.
+
+Le classement `autre`, choisi explicitement, laisse la matière sous AUTRES MATIÈRES —
+c'est un choix, pas un défaut. Une matière sans classement que le nom ne renseigne pas y
+reste aussi, et l'avis à l'écran invite alors à lui donner un classement.
+
+**Deux pièges, tous deux trouvés par le test et non à la relecture.**
+- `/science/` tout court matche **« Sciences humaines »**, qui précède « Sciences et
+  technologies » dans le référentiel : les mathématiques finissaient chez les historiens.
+  Les motifs vont donc du plus spécifique au plus général.
+- Le groupe `ARTS_SPORTS` **confond les arts et le sport**. Dans le sous-système
+  anglophone, qui n'a **pas** de domaine « Arts », une matière artistique se rabattait sur
+  « Développement personnel », le domaine du sport et du travail manuel. Chaque famille
+  porte donc un ordre de **repli** explicite, et le sport est départagé des arts par le
+  classement choisi quand il existe, par le nom sinon.
+
+**Portée.** Bulletin bilingue uniquement. Le classique / APC obéissait déjà au classement
+(D12). Le second cycle garde ses GROUPE 1 / 2 et son menu dédié (D13).
+
+**Retour arrière.** Retirer l'appel à `domaineForSubject` dans `bilEnrichedSubjects` rend
+le comportement d'avant. Aucun schéma, aucune donnée, aucune migration.

@@ -635,6 +635,41 @@ désormais (53 427 173 octets, `49e278a7ee8a54b7…`).
 **RIEN N'A ÉTÉ ENVOYÉ À AUCUNE ÉCOLE.** L'envoi reste un acte humain, à autoriser pour
 cet envoi-là.
 
+## 4 terdecies. « Une matière maison doit garder son classement » (2026-10-20)
+
+Demande du responsable, après la mise en ligne de D12/D14 : « on doit pouvoir être libre
+de créer une matière même si ça ne fait pas partie du référentiel, et ça doit s'afficher
+sur le bulletin dans sa vraie catégorie de classement, pas aller automatiquement sur
+Autres matières. » Décision **D16**.
+
+**Diagnostic mené dans le navigateur de l'école**, session ouverte sur THE GENIUS,
+année 2026-2027, compte FONGANG. L'écran Notes charge normalement ; les sections offertes
+sont Maternelle / Primaire / **Premier cycle**, et les classes de premier cycle sont
+**5eme, 6eme, FORM1, FORM2** — les quatre classes **bilingues**. C'est donc bien le
+bulletin du programme bilingue qui est en cause, ce qui confirme D14.
+
+**Écarté par la mesure, pas par intuition** (lectures seules en production) : les 31
+colonnes de `subjects` sont toutes présentes (`category`, `sc_groupe_ordre`,
+`bil_domaine`…) ; le site répond 200 ; les droits colonne `authenticated` sur `subjects`
+et `grades` sont complets ; **0** matière ou note orpheline ; la policy RESTRICTIVE
+`secteur: cloisonnement` est active mais **ne verrouille aucun compte** (8 comptes
+cloisonnés, au pire 4/28 classes accessibles). Aucune de ces trois hypothèses n'était la
+bonne — et l'écriture des notes fonctionne, le responsable l'a confirmé.
+
+**Correctif.** Sur le bulletin bilingue, une matière hors référentiel rejoint le domaine
+de son classement. Les domaines y sont **thématiques** et recouvrent exactement les cinq
+familles : Langues et littératures / Sciences humaines / Sciences et technologies / Arts
+et cultures nationales / Développement personnel. Seuls le nom et l'ordre du domaine sont
+repris — coefficient et charge restent ceux de l'école, aucun chiffre officiel n'existant
+pour une matière absente de l'arrêté.
+
+**Preuve** : `_subjectGroup.test.mjs` **97 contrôles**, dont les deux pièges que le test a
+trouvés et pas la relecture — `/science/` qui attrapait « Sciences humaines » et envoyait
+les mathématiques chez les historiens, et le groupe ARTS_SPORTS qui, faute de domaine
+« Arts » en sous-système anglophone, rabattait les matières artistiques sur le domaine du
+sport.
+
+
 ## 5. Travaux en cours — 69 fichiers non commités
 
 38 fichiers modifiés (+1303 / −510) et 31 non suivis. Regroupement proposé pour des

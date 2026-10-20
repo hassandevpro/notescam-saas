@@ -121,6 +121,101 @@ export function subjectGroupKey(subject) {
   return subjectGroupFromName(subject?.name);
 }
 
+// ── UNE MATIÈRE MAISON GARDE SON CLASSEMENT, MÊME SUR UN BULLETIN OFFICIEL ──
+//
+// Demande du responsable : « on doit pouvoir être libre de créer une matière
+// même si ça ne fait pas partie du référentiel, et ça doit s'afficher sur le
+// bulletin dans sa vraie catégorie de classement, pas aller automatiquement sur
+// Autres matières. »
+//
+// Le bulletin du PROGRAMME BILINGUE range par DOMAINE D'APPRENTISSAGE, et ces
+// domaines sont THÉMATIQUES — « Langues et littératures », « Sciences
+// humaines », « Sciences et technologies », « Arts et cultures nationales »,
+// « Développement personnel ». Ils recouvrent donc exactement les cinq familles
+// du classement de l'école, et y ranger une matière maison a un sens précis.
+//
+// C'est un revirement assumé par rapport à D12, qui refusait que `category`
+// touche aux bulletins officiels. La raison de D12 tenait pour le SECOND CYCLE,
+// dont les GROUPE 1 / GROUPE 2 sont une répartition réglementaire sans contenu
+// thématique : y ranger « Zumba » parce qu'elle est classée « EPS » n'aurait
+// aucun sens, et le levier y reste le menu « Groupe » (décision D13). Elle ne
+// tient PAS pour les domaines bilingues, qui sont des familles de matières.
+//
+// Ce qui est repris du domaine : le NOM et l'ORDRE, rien d'autre. Le
+// coefficient et la charge horaire restent ceux que l'école a saisis — la
+// matière n'est pas dans l'arrêté, il n'y a aucun chiffre officiel à lui
+// appliquer.
+
+// Du groupe vers le domaine, par motifs sur le LIBELLÉ : les ids de domaines
+// diffèrent entre sous-système francophone (`fr_d1`…) et anglophone (`en_d1`…),
+// et un référentiel importé par une école peut en porter d'autres. Le libellé,
+// lui, décrit la famille.
+// ORDRE SIGNIFICATIF dans chaque liste : le premier motif qui trouve un domaine
+// gagne. Les motifs vont donc du plus SPÉCIFIQUE au plus général — « sciences »
+// tout court matcherait « Sciences humaines », qui précède « Sciences et
+// technologies » dans le référentiel, et enverrait les mathématiques chez les
+// historiens. C'est le piège de ces tables.
+//
+// Les cinq familles de domaines, chacune reconnue par son libellé.
+const M_LANGUES  = [/langue|littérature|literature/i];
+const M_SCIENCES = [/sciences? et techno/i, /technolog/i, /^\s*sciences?\s*$/i];
+const M_HUMAINES = [/sciences humaines|social/i];
+const M_ARTS     = [/arts|culture/i];
+const M_SPORT    = [/développement personnel|personal development/i];
+
+// Reconnaît le sport et le travail manuel par le NOM. Sert à départager les
+// deux débouchés du groupe ARTS_SPORTS, qui confond les deux.
+const SPORTIF_NOM = /eps|sport|physique et sportive|physical education|manuel|manual|gym|athlet/i;
+
+/**
+ * Ordre de PRÉFÉRENCE des domaines pour une matière. On prend le premier que le
+ * référentiel de la classe propose réellement — d'où des replis, et non un
+ * domaine unique : tous les sous-systèmes n'ont pas les mêmes domaines.
+ * L'anglophone, par exemple, n'a PAS de domaine « Arts » ; une matière
+ * artistique doit alors aller aux sciences humaines et surtout pas au
+ * « Développement personnel », qui est le domaine du sport.
+ */
+function motifsPour(subject) {
+  switch (subject?.category) {
+    case 'langues':      return M_LANGUES;
+    case 'sciences':
+    case 'informatique': return M_SCIENCES;
+    case 'eps':          return [...M_SPORT, ...M_ARTS];
+    case 'autre':        return [];
+    default: break;      // `litteraire`, ou aucun classement : le nom tranche
+  }
+  switch (subjectGroupKey(subject)) {
+    case 'LANGUES':           return M_LANGUES;
+    case 'SCIENCES_EXACTES':  return M_SCIENCES;
+    case 'SCIENCES_HUMAINES': return [...M_HUMAINES, ...M_ARTS];
+    case 'ARTS_SPORTS':
+      return SPORTIF_NOM.test(subject?.name || '')
+        ? [...M_SPORT, ...M_ARTS, ...M_HUMAINES]
+        : [...M_ARTS, ...M_HUMAINES, ...M_SPORT];
+    default:                  return [];
+  }
+}
+
+/**
+ * Domaine d'apprentissage où ranger une matière que le référentiel ne réclame
+ * pas, d'après son classement. `null` si aucun domaine ne correspond — la
+ * matière reste alors sous AUTRES MATIÈRES, comme avant.
+ *
+ * @param subject ligne `subjects` ({ name, category })
+ * @param rows    lignes du référentiel de la classe, portant `domaine_nom` et
+ *                `domaine_ordre`
+ */
+export function domaineForSubject(subject, rows, nomOf = (r) => r?.domaine_nom) {
+  const liste = (rows || []).filter((r) => r && nomOf(r));
+  if (!liste.length) return null;
+  const motifs = motifsPour(subject);
+  for (const motif of motifs) {
+    const hit = liste.find((r) => motif.test(nomOf(r)));
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** Matières d'une classe réparties dans les cinq groupes, ordre d'impression. */
 export function groupSubjects(subjects) {
   const out = {};

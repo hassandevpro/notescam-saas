@@ -45,7 +45,7 @@ import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineM
 import { apcForClass, primForClass, matForClass } from '../core/refClassScope';
 // Ordre d'affichage des matieres : une seule regle pour tout le produit.
 import { classSubjectsOf } from '../core/subjectOrder';
-import { APC_GROUPS, groupSubjects } from '../core/subjectGroup';
+import { APC_GROUPS, groupSubjects, domaineForSubject } from '../core/subjectGroup';
 // Second cycle et bilingue : rapprochement tolérant du nom local avec la ligne
 // de référentiel qui porte le GROUPE officiel, le coefficient et la charge.
 import { resolveRefRow, unmatchedAgainstRef } from '../core/refNameMatch';
@@ -2324,7 +2324,18 @@ export default function Bulletins() {
     return classSubjects.map((s) => {
       if (s.bil_domaine_ordre != null) return s;
       const r = resolveRefRow(s.name, rows, (x) => x.nom);
-      if (!r) return s;
+      if (!r) {
+        // MATIÈRE MAISON. Le référentiel ne la réclame pas — l'école l'a créée
+        // elle-même, ce qui est son droit. Elle ne doit pas pour autant tomber
+        // dans AUTRES MATIÈRES : les domaines du bulletin bilingue sont
+        // THÉMATIQUES, donc son classement dit où elle va. On ne reprend que le
+        // NOM et l'ORDRE du domaine ; le coefficient et la charge restent ceux
+        // que l'école a saisis, puisqu'il n'existe aucun chiffre officiel pour
+        // une matière absente de l'arrêté.
+        const d = domaineForSubject(s, rows);
+        if (!d) return s;
+        return { ...s, bil_domaine: d.domaine_nom, bil_domaine_ordre: d.domaine_ordre };
+      }
       return {
         ...s,
         bil_domaine: r.domaine_nom,
@@ -2343,7 +2354,11 @@ export default function Bulletins() {
     const key = bilRefKeyForClass(selectedClass);
     if (!key) return [];
     const rows = matieresForBilClasse(bilReferentiel, key);
+    // Une matière maison que son CLASSEMENT suffit à ranger n'est plus en
+    // défaut : seules restent celles qu'aucun domaine ne réclame, et pour
+    // lesquelles l'école n'a pas choisi de classement.
     return unmatchedAgainstRef(classSubjects.filter((s) => s.bil_domaine_ordre == null), rows, (x) => x.nom)
+      .filter((s) => !domaineForSubject(s, rows))
       .map((s) => s.name);
   }, [isBil, bilReferentiel, selectedClass, classSubjects]);
 
@@ -2967,8 +2982,8 @@ export default function Bulletins() {
         {showBilOfficial && classId && bilHorsReferentiel.length > 0 && (
           <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 no-print text-xs text-amber-800">
             {t(
-              `Matière(s) absente(s) du référentiel bilingue : ${bilHorsReferentiel.join(', ')}. Elles s'impriment sous AUTRES MATIÈRES, hors domaine d'apprentissage et sans coefficient officiel. Corrigez le nom dans Classes → Modifier la classe → Matières.`,
-              `Subject(s) missing from the bilingual framework: ${bilHorsReferentiel.join(', ')}. They print under OTHER SUBJECTS, outside any learning domain and with no official coefficient. Fix the name in Classes → Edit class → Subjects.`,
+              `Matière(s) sans domaine : ${bilHorsReferentiel.join(', ')}. Elles s'impriment sous AUTRES MATIÈRES. Donnez-leur un classement dans Classes → Modifier la classe → Matières (colonne « Classement ») et elles rejoindront le domaine correspondant.`,
+              `Subject(s) with no domain: ${bilHorsReferentiel.join(', ')}. They print under OTHER SUBJECTS. Give them a category in Classes → Edit class → Subjects and they will join the matching learning domain.`,
             )}
           </div>
         )}
@@ -2982,20 +2997,6 @@ export default function Bulletins() {
           </div>
         )}
 
-        {showScOfficial && classId && (
-          <ScBulletinExcelIO
-            classId={classId}
-            classStudents={classStudents}
-            subjects={scEnrichedSubjects}
-            seqs={period.seqs}
-            periodLabel={period.label}
-            className={selectedClass?.name || ''}
-            serieLabel={scSerieLabel}
-            sys={sys}
-            scDataById={scDataById}
-            canImport={role !== 'teacher'}
-          />
-        )}
 
         {/* Guinea Ecuatorial — elección entre dos modelos oficiales de boletín */}
         {schoolCountryCode === 'guinea_eq' && cycle !== 'maternelle' && (

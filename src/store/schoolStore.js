@@ -21,6 +21,9 @@ import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
 import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
 import { buildSubjectsForPrimClass } from '../lib/primAutoConfig';
 import { buildSubjectsForClassicClass } from '../core/classicSubjects';
+// Classe bilingue : le programme de l'autre sous-systeme, pose sur la meme
+// classe (cf. completerClasseBilingue, et la demande de THE GENIUS du 19/10).
+import { missingBilingualSubjects, missingFromSiblingClass } from '../core/bilingualSubjects';
 import { resolveClassEngine } from '../core/engineResolver';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { isAdvancedDelegation } from '../config/capabilities';
@@ -1434,6 +1437,50 @@ export const useSchoolStore = create((set, get) => ({
     // Ne pas dupliquer si la classe a déjà des matières.
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
     if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
+  // CLASSE BILINGUE — ajoute le programme de l'AUTRE sous-système.
+  //
+  // Demande de THE GENIUS (2026-10-19) : ses quatre classes « … BIL » portaient
+  // les onze matières francophones et rien d'anglophone, si bien que les
+  // compétences et les unités d'apprentissage anglophones ne pouvaient pas
+  // s'afficher — le périmètre du référentiel d'une classe se déduit de ses
+  // lignes `subjects` (`core/refClassScope.js`).
+  //
+  // Ce geste N'EFFACE RIEN et ne modifie rien : `missingBilingualSubjects`
+  // écarte tout libellé déjà porté par la classe, donc aucune note existante
+  // n'est menacée, et rejouer le geste ne double aucune matière. Contrairement
+  // aux `autoConfigX`, il s'applique à une classe DÉJÀ configurée : c'est tout
+  // son intérêt.
+  //
+  // `sibling` : la classe JUMELLE de l'autre sous-système, désignée par l'école
+  // (CE1 BIL ← Class 3, confirmé par l'administrateur le 19/10). Quand elle est
+  // donnée, on copie SES matières telles qu'elles sont — coefficients, barèmes,
+  // et jusqu'aux matières hors référentiel. Sans jumelle, on retombe sur le
+  // tronc type du niveau.
+  // `keep` : libellés retenus par l'école (tous si omis).
+  completerClasseBilingue: async (cls, { keep = null, sibling = null } = {}) => {
+    if (!cls?.id) return { created: 0 };
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    const subs = sibling?.id
+      ? missingFromSiblingClass({
+          cls, classSubjects: existing, sibling,
+          siblingSubjects: get().subjects.filter((s) => s.class_id === sibling.id),
+          makeId: uuid, keep,
+        })
+      : missingBilingualSubjects({ cls, existing, makeId: uuid, keep });
+    if (!subs.length) return { created: 0 };
 
     await subjectsDB.putMany(subs);
     set((s) => ({ subjects: [...s.subjects, ...subs] }));

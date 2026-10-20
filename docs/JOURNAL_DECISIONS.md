@@ -164,3 +164,79 @@ I9, dernier paragraphe.
 
 **Garde-fou** : `src/lib/_feeUpsertConflit.test.mjs` (21 contrôles).
 
+---
+
+## D12 — Le classement choisi par l'école décide du groupe au bulletin
+
+**Date** : 2026-10-19 · **Statut** : actif · **Suite de** D11
+**Où** : `src/core/subjectGroup.js` (nouveau), `src/pages/Bulletins.jsx`
+**Tests** : `src/core/_subjectGroup.test.mjs` (76 contrôles),
+`src/core/_refNameMatch.test.mjs` (46 contrôles)
+
+**Signalement.** « Je crée une matière Espagnol, je choisis Langue, et dans le bulletin
+c'est dans la catégorie Autres matières. »
+
+**Cause.** Deux taxonomies vivaient côte à côte. L'école pose un classement à la création
+(`subjects.category` : sciences, informatique, langues, litteraire, eps, autre) ;
+l'emploi du temps l'honorait depuis toujours (`categoryForSubject`). Le bulletin, lui, ne
+l'a **jamais lu** : il rangeait les matières dans ses cinq groupes par une heuristique sur
+le **nom** (`getSubjectGroup`). Le menu « Classement » n'avait donc aucun effet sur le
+document qui sort de l'établissement.
+
+**Décision.** Le classement **choisi** décide ; le nom n'est plus qu'un **repli**, pour les
+matières dont l'école n'a rien dit (`category` vide = l'option « auto » du menu). Ainsi
+« LMC », « EFPS », une langue nationale ou « Español » se rangent où l'école l'a dit, quel
+que soit leur nom — le seul moyen fiable, puisqu'aucune liste de mots-clés ne couvrira les
+noms réels de 44 établissements.
+
+`litteraire` est le seul cas **ambigu** : il réunit, côté emploi du temps,
+l'histoire-géo-philo **et** les arts (ses mots-clés portent « art », « musique »,
+« dessin »), que le bulletin sépare en deux groupes. Pour celui-là seulement, le nom
+tranche entre les deux, avec les sciences humaines par défaut.
+
+**Ce que l'audit a trouvé en passant.** En faisant traverser l'heuristique par **tous** les
+noms du référentiel MINESEC : **20 des 56 tombaient en AUTRES**. Les sigles officiels
+(`PCT`, `ECM`, `EAC`, `ESF`) — reconnus écrits en entier, pas abrégés, alors que toute
+école les abrège. Toutes les langues au-delà des cinq listées (grec, italien, chinois,
+portugais). Et **deux fautes d'écriture** : `manuelle?` voulait dire « manuel ou
+manuelle » mais exige deux `l`, donc « Travail manuel » n'a **jamais** été reconnu ;
+`morale` ne pouvait pas reconnaître l'anglais « Moral Education ». Corrigés. Les 56 noms
+officiels sont désormais classés, et une vraie matière maison (« Zumba », « Club échecs »)
+tombe toujours en AUTRES — où l'école peut maintenant la reclasser elle-même.
+
+**Pourquoi le repli n'a PAS été fusionné avec `inferCategory`.** Tentant : une seule table
+de mots-clés. Mais les deux n'ont pas la même couverture — le bulletin reconnaît
+« droit », « juridique », « social », « humain », « plastique », « fine arts », absents de
+la table de l'emploi du temps. Les unifier aurait fait tomber ces matières en AUTRES sur
+des bulletins qui les classaient bien. Le repli est donc conservé mot pour mot, et
+seulement **complété**.
+
+**Portée — étendue au second cycle et au bilingue sur demande du responsable
+(« tout toucher »), mais PAS de la même façon.** Les cinq groupes ci-dessus sont une
+commodité d'affichage : le classement de l'école peut donc en décider. Les GROUPE 1 /
+GROUPE 2 du second cycle et les domaines d'apprentissage du bilingue, eux, sont fixés par
+l'**arrêté**, série par série : laisser `category` les réécrire fabriquerait un bulletin
+officiel non conforme. Le classement de l'école n'y touche donc pas, et c'est **décidé**.
+
+Le vrai défaut de ces deux bulletins était ailleurs, et il est corrigé : ils allaient
+chercher au référentiel le groupe, le coefficient et la charge horaire par **égalité
+exacte du nom**. « Maths », « S.V.T », « Philo », « Hist-Géo » ne tombaient sur aucune
+ligne : la matière perdait son groupe réglementaire, son coefficient officiel et sa
+charge, atterrissait sous AUTRES MATIÈRES, et rien ne le signalait.
+`src/core/refNameMatch.js` (nouveau) rapproche désormais par nom exact, puis sans
+ponctuation, puis par préfixe, puis mot à mot — **toujours sous contrainte de
+non-ambiguïté**, et sans aucun « au plus proche » : sur un document officiel, une matière
+visiblement rangée à part est un défaut qui se voit et se corrige, une matière glissée
+dans le mauvais groupe réglementaire est une faute qui ne se voit pas. L'écran **nomme**
+celles qui restent dehors.
+
+Deux libellés de repli étaient en outre **figés en français** (`scEngine`, `bilEngine`) :
+une classe Form 1–5 lisait « AUTRES MATIÈRES » au milieu d'un bulletin anglais. Ils
+suivent maintenant la langue du sous-système.
+
+**Conséquence assumée.** Une école qui avait posé un classement voit son bulletin changer
+— c'est le but : il obéit enfin. Une école qui n'en a jamais posé ne voit changer que les
+matières que l'heuristique classait mal (les 20 ci-dessus).
+
+**Retour arrière.** `subjectGroupKey` réduit à `subjectGroupFromName(subject?.name)` rend
+le comportement d'avant. Aucun schéma, aucune donnée, aucune migration.

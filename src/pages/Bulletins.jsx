@@ -45,6 +45,10 @@ import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineM
 import { apcForClass, primForClass, matForClass } from '../core/refClassScope';
 // Ordre d'affichage des matieres : une seule regle pour tout le produit.
 import { classSubjectsOf } from '../core/subjectOrder';
+import { APC_GROUPS, groupSubjects } from '../core/subjectGroup';
+// Second cycle et bilingue : rapprochement tolérant du nom local avec la ligne
+// de référentiel qui porte le GROUPE officiel, le coefficient et la charge.
+import { resolveRefRow, unmatchedAgainstRef } from '../core/refNameMatch';
 import { withLibelles } from '../lib/referentielEcole';
 // Les intitulés du référentiel officiel sont stockés en français pour tout le
 // pays : sur une classe du secteur anglophone, on les rend en anglais.
@@ -61,7 +65,7 @@ import { assembleScBulletin, scDisciplineConseil, matieresForSerieClasse } from 
 import { assembleBilBulletin, assembleBilAnnual, matieresForBilClasse } from '../core/bilEngine';
 import { bilRefKeyForClass } from '../lib/bilAutoConfig';
 import { perSubjectRanksAndStats, classProfile } from '../lib/scBulletinPdf';
-import { teacherByMatiere as teacherByMatiereMap, teacherIndexById, normName } from '../lib/teacherNames';
+import { teacherByMatiere as teacherByMatiereMap, teacherIndexById } from '../lib/teacherNames';
 import { resolveCountryCode, bulletinOfficials } from '../countries';
 import { gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
 import { bulletinFontFamily } from '../lib/schoolTheme';
@@ -253,23 +257,12 @@ function apcLevel(grade, maxScale) {
   return             { label: 'Bien acquis',   col: '#7c3aed', short: 'BA' };
 }
 
-// ── APC Subject Groups ────────────────────────────────────────────────────────
-const APC_GROUPS = [
-  { key: 'SCIENCES_EXACTES',  label: 'SCIENCES EXACTES / EXACT SCIENCES'  },
-  { key: 'LANGUES',           label: 'LANGUES / LANGUAGES'                 },
-  { key: 'SCIENCES_HUMAINES', label: 'SCIENCES HUMAINES / SOCIAL SCIENCES' },
-  { key: 'ARTS_SPORTS',       label: 'ARTS ET SPORTS / ARTS & SPORTS'      },
-  { key: 'AUTRES',            label: 'AUTRES MATIÈRES / OTHER SUBJECTS'    },
-];
-
-function getSubjectGroup(name) {
-  const n = (name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  if (/math|physique|chimie|svt|bio|informatique|numerique|technologie|s\.p\.c|s\.v\.t|physics|chemistry|biology|computer|science/.test(n)) return 'SCIENCES_EXACTES';
-  if (/franc|anglais|espagnol|allemand|arabe|latin|langue|litterature|lecture|expression|communication|english|french|spanish|german|arabic|national language/.test(n)) return 'LANGUES';
-  if (/histoire|geo|economie|philo|morale|civique|social|humain|epsp|epm|droit|juridique|history|geography|economics|civic|philosophy/.test(n)) return 'SCIENCES_HUMAINES';
-  if (/art|musique|eps|sport|dessin|plastique|manuelle?|physical education|fine arts|music/.test(n)) return 'ARTS_SPORTS';
-  return 'AUTRES';
-}
+// ── Groupes de matières du bulletin ───────────────────────────────────────────
+// APC_GROUPS et le classement d'une matière vivent dans `core/subjectGroup` :
+// ils étaient définis ici, et l'heuristique locale ne lisait PAS le classement
+// que l'école pose à la création (`subjects.category`). Le menu « Classement »
+// n'avait donc aucun effet sur le bulletin : une matière « Espagnol » rangée en
+// Langue s'imprimait sous AUTRES MATIÈRES. Voir l'en-tête du module.
 
 // Maternelle & primaire relèvent du FONDAMENTAL : tutelle MINEDUB (Éducation de
 // Base) et non MINESEC, et l'établissement est dirigé par un directeur/directrice
@@ -669,12 +662,9 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
     return total ? `${r}/${total}` : '—';
   }
 
-  const grouped = {};
-  APC_GROUPS.forEach((g) => { grouped[g.key] = []; });
-  subjects.forEach((sub) => {
-    const gk = getSubjectGroup(sub.name);
-    (grouped[gk] || grouped['AUTRES']).push(sub);
-  });
+  // Classement CHOISI par l'école d'abord, déduction par le nom ensuite : une
+  // matière rangée en Langue s'imprime sous LANGUES, quel que soit son nom.
+  const grouped = groupSubjects(subjects);
 
   function groupStats(subs) {
     let pts = 0, coefSum = 0;
@@ -2246,12 +2236,13 @@ export default function Bulletins() {
     if (!scReferentiel || !serieId || !classeId) return classSubjects;
     const rows = matieresForSerieClasse(scReferentiel, { serieId, classeId });
     if (!rows.length) return classSubjects;
-    const byName = new Map(rows.map((r) => [normName(r.nom), r]));
-    // Enrichit MATIÈRE PAR MATIÈRE (celles déjà groupées sont laissées telles quelles) :
-    // groupe (1/2) + charge + coef résolus depuis le référentiel selon la SÉRIE.
+    // Rapprochement TOLÉRANT (voir core/refNameMatch) : l'égalité exacte du nom
+    // laissait « Maths », « S.V.T » ou « Hist-Géo » sans groupe officiel, sans
+    // coefficient officiel et sans charge horaire — sous AUTRES MATIÈRES, sur un
+    // bulletin OFFICIEL, et sans que rien ne le signale.
     return classSubjects.map((s) => {
       if (s.sc_groupe_ordre != null) return s;
-      const r = byName.get(normName(s.name));
+      const r = resolveRefRow(s.name, rows, (x) => x.nom);
       if (!r) return s;
       return {
         ...s,
@@ -2262,6 +2253,19 @@ export default function Bulletins() {
       };
     });
   }, [isSc, classSubjects, scReferentiel, selectedClass]);
+
+  // Matières que le référentiel de la série ne réclame pas : elles s'impriment
+  // sous AUTRES MATIÈRES, sans coefficient ni charge officiels. On les NOMME,
+  // sinon l'école le découvre sur la feuille imprimée.
+  const scHorsReferentiel = useMemo(() => {
+    if (!isSc || !scReferentiel) return [];
+    const serieId  = (selectedClass?.serie || '').toLowerCase();
+    const classeId = secondCycleClasseSlug(selectedClass?.level, selectedClass?.name);
+    if (!serieId || !classeId) return [];
+    const rows = matieresForSerieClasse(scReferentiel, { serieId, classeId });
+    return unmatchedAgainstRef(classSubjects.filter((s) => s.sc_groupe_ordre == null), rows, (x) => x.nom)
+      .map((s) => s.name);
+  }, [isSc, scReferentiel, selectedClass, classSubjects]);
 
   const scProfPrincipal = apcProfPrincipal;     // même résolution (prof. de la classe)
   const scSerieLabel    = selectedClass?.serie ? `Série ${String(selectedClass.serie).toUpperCase()}` : '';
@@ -2315,12 +2319,11 @@ export default function Bulletins() {
     if (!bilReferentiel || !key) return classSubjects;
     const rows = matieresForBilClasse(bilReferentiel, key);
     if (!rows.length) return classSubjects;
-    const byName = new Map(rows.map((r) => [normName(r.nom), r]));
-    // Enrichit matière par matière depuis le référentiel : domaine + coefficient
-    // + charge. Un coefficient saisi à la main par l'école n'est pas écrasé.
+    // Même rapprochement tolérant que le second cycle : un nom abrégé ne doit
+    // pas coûter son domaine d'apprentissage à la matière.
     return classSubjects.map((s) => {
       if (s.bil_domaine_ordre != null) return s;
-      const r = byName.get(normName(s.name));
+      const r = resolveRefRow(s.name, rows, (x) => x.nom);
       if (!r) return s;
       return {
         ...s,
@@ -2332,6 +2335,17 @@ export default function Bulletins() {
       };
     });
   }, [isBil, classSubjects, bilReferentiel, selectedClass]);
+
+  // Matières que le référentiel bilingue ne réclame pas : même avis que le
+  // second cycle. Elles s'impriment sous AUTRES MATIÈRES, hors domaine.
+  const bilHorsReferentiel = useMemo(() => {
+    if (!isBil || !bilReferentiel) return [];
+    const key = bilRefKeyForClass(selectedClass);
+    if (!key) return [];
+    const rows = matieresForBilClasse(bilReferentiel, key);
+    return unmatchedAgainstRef(classSubjects.filter((s) => s.bil_domaine_ordre == null), rows, (x) => x.nom)
+      .map((s) => s.name);
+  }, [isBil, bilReferentiel, selectedClass, classSubjects]);
 
   // Période annuelle : pilote la maquette ET l'agrégation.
   const bilIsAnnuel = period.seqs.length >= 4;
@@ -2943,6 +2957,44 @@ export default function Bulletins() {
               </span>
             )}
           </div>
+        )}
+
+        {/* SECOND CYCLE — le classeur de la classe, dans les deux sens : le
+            récapitulatif imprimable à plat, et une feuille par séquence que
+            l'école remplit dans Excel puis réimporte. Posé SOUS le sélecteur de
+            format : il ne vaut que pour le bulletin officiel du second cycle,
+            dont il suit exactement l'ordre des matières et des groupes. */}
+        {showBilOfficial && classId && bilHorsReferentiel.length > 0 && (
+          <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 no-print text-xs text-amber-800">
+            {t(
+              `Matière(s) absente(s) du référentiel bilingue : ${bilHorsReferentiel.join(', ')}. Elles s'impriment sous AUTRES MATIÈRES, hors domaine d'apprentissage et sans coefficient officiel. Corrigez le nom dans Classes → Modifier la classe → Matières.`,
+              `Subject(s) missing from the bilingual framework: ${bilHorsReferentiel.join(', ')}. They print under OTHER SUBJECTS, outside any learning domain and with no official coefficient. Fix the name in Classes → Edit class → Subjects.`,
+            )}
+          </div>
+        )}
+
+        {showScOfficial && classId && scHorsReferentiel.length > 0 && (
+          <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 no-print text-xs text-amber-800">
+            {t(
+              `Matière(s) absente(s) du référentiel de la série : ${scHorsReferentiel.join(', ')}. Elles s'impriment sous AUTRES MATIÈRES, sans groupe ni coefficient officiels. Corrigez le nom dans Classes → Modifier la classe → Matières pour qu'il corresponde au référentiel.`,
+              `Subject(s) missing from this stream's framework: ${scHorsReferentiel.join(', ')}. They print under OTHER SUBJECTS, with no official group or coefficient. Fix the name in Classes → Edit class → Subjects so it matches the framework.`,
+            )}
+          </div>
+        )}
+
+        {showScOfficial && classId && (
+          <ScBulletinExcelIO
+            classId={classId}
+            classStudents={classStudents}
+            subjects={scEnrichedSubjects}
+            seqs={period.seqs}
+            periodLabel={period.label}
+            className={selectedClass?.name || ''}
+            serieLabel={scSerieLabel}
+            sys={sys}
+            scDataById={scDataById}
+            canImport={role !== 'teacher'}
+          />
         )}
 
         {/* Guinea Ecuatorial — elección entre dos modelos oficiales de boletín */}

@@ -41,9 +41,17 @@ const DUP = {
   message: 'duplicate key value violates unique constraint "student_fees_student_id_academic_year_key"',
 };
 
+// LE MÊME REFUS, DIT PAR L'AUTRE ÉDITION. En LAN la base est SQLite et parle
+// par `localClient` : pas de code, et une autre phrase. Ne reconnaître que le
+// libellé Postgres rendait le rattrapage INERTE sur les postes d'école — là où
+// le guichet travaille hors ligne, donc là où il sert le plus.
+const DUP_LAN = {
+  message: 'UNIQUE constraint failed: student_fees.student_id, student_fees.academic_year',
+};
+
 // Doublure PostgREST : une table en mémoire qui applique les DEUX clés —
 // PRIMARY KEY (id) et UNIQUE (student_id, academic_year).
-function doublure(lignes, { autreRefus = null } = {}) {
+function doublure(lignes, { autreRefus = null, dialecte = DUP } = {}) {
   const table = lignes.map((r) => ({ ...r }));
   const appels = [];
   const fin = (res) => ({ select: () => ({ single: () => Promise.resolve(res) }) });
@@ -59,7 +67,7 @@ function doublure(lignes, { autreRefus = null } = {}) {
           if (parId) { Object.assign(parId, payload); return fin({ data: { ...parId }, error: null }); }
           const conflit = table.find((r) =>
             r.student_id === payload.student_id && r.academic_year === payload.academic_year);
-          if (conflit) return fin({ data: null, error: DUP });
+          if (conflit) return fin({ data: null, error: dialecte });
           table.push({ ...payload });
           return fin({ data: { ...payload }, error: null });
         },
@@ -189,6 +197,32 @@ const chargerUpsertFee = async () => (await import('./schoolService.js')).upsert
   ok(saved === null, 'une ligne hors périmètre école n’est pas adoptée', saved);
   ok(d.table.length === 1 && d.table[0].frais_annuels === 150000,
     'et elle n’est pas modifiée', d.table[0]);
+}
+
+// ── 8. LE MÊME CAS, SUR UN POSTE D'ÉCOLE (LAN / SQLite) ───────────────────
+{
+  const d = doublure([auCloud], { dialecte: DUP_LAN });
+  globalThis.__supabaseDouble = d;
+  const upsertFee = await chargerUpsertFee();
+  const saved = await upsertFee({ ...locale });
+
+  ok(saved !== null, 'le refus SQLite du LAN est reconnu, pas seulement celui de Postgres', saved);
+  ok(saved?.id === 'cloud-aaaa', 'la fiche existante est retrouvée malgré l’autre libellé', saved?.id);
+  ok(d.table.length === 1, 'toujours une seule ligne pour (élève, année)', d.table.length);
+  ok(d.table[0].frais_payes === 50000, 'les encaissements du poste ne sont pas écrasés', d.table[0].frais_payes);
+}
+
+// ── 9. Le prédicat lui-même, les deux dialectes et rien d'autre ───────────
+{
+  const { estDoublonFrais } = await import('./schoolService.js');
+  ok(estDoublonFrais(DUP) === true, 'Postgres : 23505 reconnu', true);
+  ok(estDoublonFrais({ message: DUP.message }) === true, 'Postgres : le nom de la contrainte suffit', true);
+  ok(estDoublonFrais(DUP_LAN) === true, 'SQLite : « UNIQUE constraint failed » reconnu', true);
+  ok(estDoublonFrais({ message: 'UNIQUE constraint failed: students.parent_token' }) === false,
+    'un autre doublon SQLite n’est PAS pris pour celui des frais', false);
+  ok(estDoublonFrais({ code: '42501', message: 'row-level security' }) === false,
+    'un refus RLS reste un refus', false);
+  ok(estDoublonFrais(null) === false, 'aucune erreur : aucun doublon', false);
 }
 
 console.log(`\n${pass} ok, ${fail} ko`);

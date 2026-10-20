@@ -19,7 +19,7 @@
 import { syncQueueDB, syncQuarantineDB, studentsDB, feesDB, initDB } from './db';
 import { uuid } from './uuid';
 import { supabase } from './supabase';
-import { gradeEntryToRows, upsertAbsenceEntry, absenceEntryToRow, upsertFee } from './schoolService';
+import { gradeEntryToRows, upsertAbsenceEntry, absenceEntryToRow, upsertFee, estDoublonFrais } from './schoolService';
 import { useUiStore } from '../store/uiStore';
 
 // Nombre d'opérations en attente (lecture IDB, sans dépendance React)
@@ -142,8 +142,7 @@ async function replayItem(item) {
     // `upsertFee` écrit dans la ligne existante sans toucher au cache de
     // paiement ; ici on réaligne l'id en IDB pour que la saisie suivante ne
     // rebloque pas la file. Signalé par THE GENIUS le 2026-10-19.
-    if (error && table === 'student_fees' &&
-        (error.code === '23505' || /student_fees_student_id_academic_year/i.test(error.message || '')) &&
+    if (error && table === 'student_fees' && estDoublonFrais(error) &&
         p.student_id && p.academic_year) {
       const saved = await upsertFee(p);
       if (saved) {

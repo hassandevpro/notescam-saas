@@ -164,6 +164,16 @@ autre id, et l'appelant réaligne son cache local (`adopterIdFraisDistant`). `sy
 fait le même rattrapage pour les éléments **déjà bloqués** : la file se résorbe d'elle-même
 au prochain cycle, sans intervention sur le poste. Voir décision **D10**.
 
+**Deuxième défaut, trouvé en préparant le paquet Windows et corrigé** : la détection du
+doublon ne reconnaissait que le libellé **Postgres** (`23505`,
+`student_fees_student_id_academic_year_key`). En LAN la base est SQLite et parle par
+`localClient` : pas de code, et une autre phrase — `UNIQUE constraint failed:
+student_fees.student_id, student_fees.academic_year`. Le rattrapage était donc **inerte
+sur les postes d'école**, là où le guichet travaille hors ligne et où il sert le plus.
+`estDoublonFrais` (exporté, partagé par `upsertFee` et `src/lib/sync.js`) reconnaît
+désormais les deux formulations, et refuse toujours les doublons d'une AUTRE table
+(`students.parent_token`).
+
 **Garde-fou** : `src/lib/_feeUpsertConflit.test.mjs` — 21 contrôles, dont celui qui
 compte vraiment : le cache de paiement du Cloud (50 000 F encaissés) n'est **pas** écrasé
 par le 0 d'une fiche qui n'a jamais vu cette ligne.

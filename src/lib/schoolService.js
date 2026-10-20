@@ -453,9 +453,20 @@ export async function fetchFees(schoolId, year) {
 // encaissements déjà enregistrés par un 0 issu de l'ignorance. La source de
 // vérité reste `fee_payments`, et `reconcileFeesPaid` (monotone) relève le
 // cache à partir des versements une fois ceux-ci remontés.
-const estDoublonFrais = (error) =>
-  error?.code === '23505' ||
-  /student_fees_student_id_academic_year/i.test(error?.message || '');
+// LES DEUX ÉDITIONS NE DISENT PAS LA MÊME CHOSE, et c'est le piège.
+//   · Cloud (Postgres) : code 23505, « duplicate key value violates unique
+//     constraint "student_fees_student_id_academic_year_key" » ;
+//   · LAN (SQLite, via localClient) : aucun code, et « UNIQUE constraint
+//     failed: student_fees.student_id, student_fees.academic_year ».
+// Ne reconnaître que le libellé Postgres rendait le rattrapage INERTE sur les
+// postes d'école — là où il sert le plus, puisque le guichet y travaille hors
+// ligne. On reconnaît donc les deux formulations.
+export const estDoublonFrais = (error) => {
+  const m = String(error?.message || '');
+  if (error?.code === '23505') return true;
+  if (/student_fees_student_id_academic_year/i.test(m)) return true;
+  return /unique/i.test(m) && /student_fees/i.test(m) && /academic_year/i.test(m);
+};
 
 export async function upsertFee(feeData) {
   let { data, error } = await supabase

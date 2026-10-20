@@ -451,10 +451,42 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
   );
 }
 
+// GROUPE OFFICIEL D'UNE MATIÈRE DE SECOND CYCLE (GROUPE 1 / GROUPE 2).
+//
+// Composant de MODULE, et non défini dans ClassDetailView : une fonction créée à
+// chaque rendu est un type de composant neuf à chaque rendu, donc React démonte
+// et remonte le <select> — qui se refermerait sous le doigt de l'utilisateur.
+//
+// « auto » (valeur vide → `null`) rend la décision au référentiel de la série.
+// Un ordre posé à la main n'est JAMAIS réécrit par lui : l'enrichissement du
+// bulletin ne touche que les matières dont `sc_groupe_ordre` est vide.
+function GroupeSc({ sub, onChange, t }) {
+  return (
+    <select
+      className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
+      value={sub.sc_groupe_ordre ?? ''}
+      aria-label={t('Groupe officiel', 'Official group')}
+      title={t('Groupe officiel de l’arrêté. « auto » laisse le référentiel de la série décider.',
+               'Official group from the ministerial order. "auto" lets the stream framework decide.')}
+      onChange={(e) => onChange(sub.id, {
+        sc_groupe_ordre: e.target.value === '' ? null : Number(e.target.value),
+      })}
+    >
+      <option value="">{t('auto', 'auto')}</option>
+      <option value="1">{t('Groupe 1', 'Group 1')}</option>
+      <option value="2">{t('Groupe 2', 'Group 2')}</option>
+    </select>
+  );
+}
+
 // ── Vue détail / édition d'une classe ────────────────────────────────────────
 function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLanguage }) {
   const t = useT();
   const country = useCountry();
+  // L'école décide du moteur de bulletin de la classe (`school.bulletin_engine`,
+  // que `classes.bulletin_engine` peut surcharger) : il faut donc la lire ici
+  // pour savoir si cette classe relève du second cycle.
+  const school = useAuthStore((s) => s.school);
   const CYCLES = country.cycles.map((c) => ({ value: c.code, label: c.label }));
   const isEN_local = cls.system === 'EN';
   const catalog_local = subjectCatalogForCountry(country.code, isEN_local);
@@ -571,6 +603,20 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
+
+  // ── GROUPE OFFICIEL DU SECOND CYCLE ────────────────────────────────────────
+  // Sur un bulletin de second cycle, chaque matière appartient au GROUPE 1 ou au
+  // GROUPE 2 de l'arrêté, par série. Le référentiel le résout tout seul quand le
+  // nom de la matière lui correspond ; quand il n'y arrive pas, la matière
+  // s'imprimait sous AUTRES MATIÈRES sans que l'école ait le moindre levier —
+  // la colonne `subjects.sc_groupe_ordre` existait (Cloud : supabase_sc_minesec.sql,
+  // LAN : server/db.js) mais aucun écran ne la réglait. C'est ce levier.
+  //
+  // Réservé au second cycle : ailleurs, les groupes ne veulent rien dire.
+  const isSecondCycle = resolveClassEngine(school, cls) === 'sc';
+  const COLS = isSecondCycle
+    ? 'grid-cols-[24px_1fr_72px_72px_148px_120px_180px]'
+    : 'grid-cols-[24px_1fr_72px_72px_148px_180px]';
 
   // Subject catalog toggle (live — no form save needed)
   const subjectNameSet = new Set(classSubjects.map((s) => s.name.toLowerCase()));
@@ -775,12 +821,13 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
             )}
             <div className="border border-gray-200 rounded-xl overflow-hidden">
               {/* En-tête tableau */}
-              <div className="grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              <div className={`grid ${COLS} gap-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wider`}>
                 <div />
                 <div>{t('Matière', 'Subject')}</div>
                 <div className="text-center">Coef</div>
                 <div className="text-center">/ Max</div>
                 <div>{t('Classement', 'Category')}</div>
+                {isSecondCycle && <div>{t('Groupe', 'Group')}</div>}
                 <div>{t('Enseignant', 'Teacher')}</div>
               </div>
 
@@ -796,7 +843,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 return (
                   <div
                     key={name}
-                    className={`grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 items-center px-4 py-2.5 ${
+                    className={`grid ${COLS} gap-3 items-center px-4 py-2.5 ${
                       i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                     } ${checked ? '' : 'opacity-50 hover:opacity-80'} transition-opacity`}
                   >
@@ -850,6 +897,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                             <option key={c.id} value={c.id}>{t(...c.label)}</option>
                           ))}
                         </select>
+                        {isSecondCycle && <GroupeSc sub={existing} onChange={updateSubject} t={t} />}
                         <select
                           className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
                           value={existing.teacher_id || ''}
@@ -864,6 +912,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                         <div className="text-center text-xs text-gray-200">—</div>
                         <div className="text-center text-xs text-gray-200">—</div>
                         <div className="text-xs text-gray-200">—</div>
+                        {isSecondCycle && <div className="text-xs text-gray-200">—</div>}
                         <div className="text-xs text-gray-200">—</div>
                       </>
                     )}
@@ -877,7 +926,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 .map((sub, i) => (
                   <div
                     key={sub.id}
-                    className={`grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 items-center px-4 py-2.5 ${
+                    className={`grid ${COLS} gap-3 items-center px-4 py-2.5 ${
                       (catalog.length + i) % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                     }`}
                   >
@@ -928,6 +977,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                         <option key={c.id} value={c.id}>{t(...c.label)}</option>
                       ))}
                     </select>
+                    {isSecondCycle && <GroupeSc sub={sub} onChange={updateSubject} t={t} />}
                     <select
                       className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
                       value={sub.teacher_id || ''}
@@ -940,7 +990,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 ))}
 
               {/* Ligne ajout matière personnalisée */}
-              <div className="grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 items-center px-4 py-3 bg-brand-50/60 border-t border-brand-100">
+              <div className={`grid ${COLS} gap-3 items-center px-4 py-3 bg-brand-50/60 border-t border-brand-100`}>
                 <div className="text-brand-400 text-lg font-bold text-center leading-none">+</div>
                 <input
                   type="text"
@@ -999,6 +1049,12 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     <option key={c.id} value={c.id}>{t(...c.label)}</option>
                   ))}
                 </select>
+                {/* Le GROUPE ne se choisit pas à la création : le référentiel de
+                    la série l'essaie d'abord sur le nom, et l'école ne tranche
+                    que s'il n'y arrive pas — sur la ligne, juste au-dessus. */}
+                {isSecondCycle && (
+                  <div className="text-center text-xs text-gray-300">{t('auto', 'auto')}</div>
+                )}
                 <button
                   type="button"
                   disabled={!customSubject.name.trim()}

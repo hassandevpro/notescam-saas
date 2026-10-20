@@ -128,6 +128,124 @@ assumée, inscrite en R7 : il ne doit pas diminuer autrement qu'en écrivant les
 
 ---
 
+## D7 — Une compétence maison porte une pastille dérivée de son libellé, pas `NULL`
+
+**Date** : 2026-10-18 · **Statut** : actif
+**Où** : `src/lib/referentielEcole.js` (`codeMaison`), `src/store/schoolStore.js`
+(`addRefLigne`)
+
+**Décision.** Quand une école ajoute une compétence à elle dans « Compétences du
+primaire », son `code` est **calculé à partir du libellé** (initiales en majuscules,
+suffixe numérique en cas de doublon) au lieu d'être envoyé à `NULL`.
+
+**Raison.** `prim_competences.code` est `NOT NULL` dans les **deux** schémas —
+`server/schema.sql:1427` en LAN, `supabase_apc_primaire.sql:72` au Cloud, vérifié sur la
+base de production (`information_schema`). `addRefLigne` envoyait `code: null` : l'ajout
+échouait donc **toujours**, en LAN (`NOT NULL constraint failed`) comme au Cloud
+(`23502`), et l'écran ne rendait qu'un « ajout refusé » sans cause lisible. Les deux
+autres gestes de l'écran (masquer, renommer) n'étaient pas touchés, ce qui a longtemps
+fait croire à un problème de permissions.
+
+Rendre la colonne nullable aurait demandé une migration Cloud sur une table **nationale**
+partagée par toutes les écoles, pour un champ qui n'est qu'un libellé d'affichage : la
+pastille de `ReferentielEditor` et le `« <code> — <intitulé> »` de `primEngine`. Rien ne
+lit ni ne décode ce code, et aucune contrainte d'unicité ne pèse dessus. Le calculer côté
+client corrige les deux éditions sans toucher au schéma.
+
+**Conséquence.** Une pastille maison ne commence **jamais** par un chiffre : les codes du
+ministère (`1A`…`6B`) en commencent tous par un, donc aucune ligne d'école ne peut se
+faire passer pour une ligne officielle. Un libellé dont les initiales donneraient un
+chiffre est préfixé d'un `E`. `mat_domaines.code` étant nullable, la maternelle n'était
+pas concernée ; elle reçoit la même pastille par cohérence d'affichage.
+
+**Retour arrière.** Remettre `code: null` **exige** d'abord de rendre la colonne nullable
+dans les deux schémas — sinon le défaut revient tel quel.
+
+---
+
+## D8 — Tous les échanges de fichiers passent par Excel ; le CSV est refusé
+
+**Date** : 2026-10-19 · **Statut** : actif
+**Où** : `src/lib/exportCsv.js` (`EXCEL_ACCEPT`, `isExcelFile`, `readWorkbookAoa`),
+et tous les écrans d'import / export : élèves, enseignants, personnel, notes,
+compétences, frais, caisse, rapports, bulletins du second cycle.
+
+**Décision.** Les exports produisent **un classeur `.xlsx`**, et les imports
+n'acceptent plus que `.xlsx` / `.xls` (`.xlsm` toléré à la lecture). Les branches de
+lecture CSV sont retirées des trois lecteurs d'`exportCsv.js`, et un fichier qui n'est
+pas un classeur est refusé avec un message qui dit quoi faire (« Enregistrer sous →
+Classeur Excel »), au lieu d'être lu de travers.
+
+**Raison.** Demande du responsable du produit (« rendre tous les import et export en
+Excel »), et le CSV posait un vrai problème de terrain : il n'a pas de forme unique.
+Son séparateur dépend des réglages régionaux du Windows qui l'écrit (virgule ou
+point-virgule), son encodage se devine, et surtout une note décimale française
+(« 12,5 ») se coupe en deux colonnes sur un poste et pas sur l'autre. Le classeur porte
+ses types, ses colonnes et ses feuilles : **ce qui est exporté se réimporte à
+l'identique**, d'un poste à l'autre et d'une école à l'autre. `xlsx` était déjà une
+dépendance du projet et déjà le format de la moitié des écrans — la décision supprime
+un format, elle n'en ajoute aucun.
+
+**Conséquence.**
+- Un `.csv` qui circulait déjà dans une école est **refusé** à l'import. C'est le choix
+  explicite du responsable, pris en connaissance de cette conséquence : la parade est de
+  l'ouvrir dans Excel ou LibreOffice et de l'enregistrer en `.xlsx`, ce que le message de
+  refus indique.
+- `downloadCSV` et `triggerDownload` n'existent plus : tout passe par `downloadExcel` /
+  `downloadExcelSheets`.
+- `EXCEL_ACCEPT` est la **source unique** des extensions proposées. Un écran qui
+  élargirait son `accept` de son côté ferait croire qu'un format passe, pour que le
+  lecteur le refuse juste après.
+- `teacherImport.parseCsvText` est conservé, inutilisé : il documente le piège de la
+  colonne « matières » (pleine de `;` et de `,`) et reste éprouvé par
+  `_teacherImport.test.mjs`. Il resservira tel quel si un vecteur texte revient.
+
+**Retour arrière.** Rouvrir le CSV = remettre une branche texte dans `readWorkbookAoa`
+(ou en amont de `isExcelFile`) et élargir `EXCEL_ACCEPT`. Les deux se font au même
+endroit, par construction.
+
+---
+
+## D9 — Le récapitulatif du classeur des bulletins ne se réimporte jamais
+
+**Date** : 2026-10-19 · **Statut** : actif
+**Où** : `src/lib/scBulletinSheet.js` (`sequenceFromSheetName`, `planScSheetImport`),
+`src/components/bulletins/ScBulletinExcelIO.jsx`, `src/lib/_scBulletinSheet.test.mjs`
+
+**Décision.** L'écran Bulletins du second cycle exporte un classeur à plusieurs
+feuilles : un **récapitulatif** de la classe (matières rangées par groupe comme sur le
+bulletin officiel, moyennes de groupe, moyenne générale, rang, décision) puis **une
+feuille par séquence** de la période. À l'import, seules les feuilles **dont le nom
+porte un numéro de séquence** sont relues ; le récapitulatif est ignoré et annoncé
+comme tel.
+
+**Raison.** Les colonnes du récapitulatif contiennent des **moyennes de période**, pas
+des notes. Les reverser en base fabriquerait des notes que personne n'a saisies — et
+qui écraseraient les vraies. Le numéro de séquence dans le nom de la feuille est ce qui
+distingue une grille de saisie d'un tableau de synthèse, sans que l'utilisateur ait
+quoi que ce soit à déclarer.
+
+**Conséquence.**
+- Les feuilles de séquence portent **exactement** l'en-tête que l'écran Notes exporte
+  (« Élève, Matière /max, … ») et sont relues par le **même** découpage
+  (`rawRowsToGrades` d'`exportCsv.js`). Il n'existe donc pas deux formats de grille dans
+  l'application, et le classeur d'un écran se réimporte dans l'autre.
+  `_scBulletinSheet.test.mjs` tient cet aller-retour : il extrait le vrai découpage
+  d'`exportCsv.js` et vérifie qu'un export relu ne produit **aucune** écriture.
+- Une cellule vide n'efface rien (un classeur rempli matière par matière en est plein),
+  une note hors barème est rejetée et non tronquée, un élève ou une matière inconnu est
+  listé et jamais rattaché au plus proche, et les notes qui **remplaceraient** une
+  valeur différente déjà en base sont comptées à part dans l'aperçu. Rien n'est écrit
+  avant validation ; une séquence verrouillée refuse l'écriture et c'est annoncé.
+- Le bouton « Importer Excel » n'est pas offert à un compte enseignant
+  (`role !== 'teacher'`), comme les autres écritures de cette page.
+
+**Retour arrière.** Supprimer `<ScBulletinExcelIO />` de `Bulletins.jsx` retire les deux
+boutons sans rien toucher d'autre : la logique est dans un module à part, et l'écran
+d'impression est inchangé.
+
+---
+
 ## D10 — Une fiche de frais s'identifie par `(élève, année)`, jamais par son `id`
 
 **Date** : 2026-10-19 · **Contexte** : incident **I9** (THE GENIUS)
@@ -163,6 +281,157 @@ stables.
 I9, dernier paragraphe.
 
 **Garde-fou** : `src/lib/_feeUpsertConflit.test.mjs` (21 contrôles).
+
+---
+
+## D11 — Les matières d'une classe ont UNE seule source et UN seul ordre
+
+**Date** : 2026-10-19 · **Statut** : actif
+**Où** : `src/core/subjectOrder.js` (nouveau), `src/core/refClassScope.js`
+(`apcMatieresForClass`, `unmatchedClassSubjects`), `src/core/apcMatiereMatch.js`,
+les trois postes de saisie officiels (`ApcCompetenceWorkspace`,
+`PrimCompetenceWorkspace`, `MatObservationWorkspace`), et les huit écrans qui
+listaient `subjects` (`Bulletins`, `Grades`, `Classes`, `Reports`,
+`StudentProfile`, `ClassSubjectsEditor`, `SubjectTeacherWorkspace`,
+`transcriptReadiness`).
+**Tests** : `src/core/_subjectOrder.test.mjs` (19 contrôles),
+`src/core/_refClassScope.test.mjs` (complété : 14 contrôles de plus).
+
+**Demande du responsable.** « Le choix de matière dans la modification de la classe, les
+matières qui s'affichent sur le bulletin et à l'entrée des notes : ça doit être
+identique » — *pour tous les systèmes* (classique, APC ministériel, primaire,
+maternelle, second cycle, bilingue spécial).
+
+**Décision.** « Les matières de cette classe » est une question à **une seule réponse**.
+Elle se calcule à **un seul endroit** et personne ne la recalcule :
+
+1. **L'ENSEMBLE** — `refClassScope` décide, pour les trois cycles à référentiel
+   national. Le bulletin l'appelait déjà ; les trois postes de saisie, non. Ils
+   l'appellent maintenant, avec le **même garde-fou** : si aucune matière de la classe
+   ne se rapproche du référentiel, on ne filtre **rien** (liste complète, jamais un
+   écran vide). Classique / second cycle / bilingue partent déjà des lignes `subjects`
+   et avaient donc déjà le bon ensemble.
+2. **L'ORDRE** — `subjectOrder.bySubjectOrder` : `position` quand elle est posée, sinon
+   coef décroissant puis nom. C'est la règle du **bulletin**, parce que c'est le
+   document qui sort de l'école.
+
+**Raison.** Deux écarts réels, aucun visible :
+
+- **L'ensemble.** La saisie APC / primaire / maternelle est organisée par ligne du
+  *référentiel*, pas par ligne `subjects` : elle proposait **tout** le référentiel de la
+  classe, alors que le bulletin n'imprimait que ce que couvraient les matières cochées.
+  Une enseignante pouvait saisir un trimestre entier d'Informatique que le bulletin ne
+  portait pas. Le bandeau qui annonçait les lignes écartées avait été retiré du bulletin
+  (`45af74b`) : le filtre était donc devenu **entièrement muet**.
+- **L'ordre.** Cinq tris différents pour la même table. Seul le bulletin honorait
+  `position`, la colonne qu'écrit « Réorganiser les matières ». L'administration rangeait
+  les colonnes du bulletin, et la grille de saisie gardait l'ordre des coefficients :
+  **la colonne que l'on croyait remplir n'était pas celle que l'on remplissait.**
+
+**Conséquence.**
+- Les trois postes de saisie **annoncent** ce que le périmètre a écarté, et nomment les
+  matières cochées qui ne correspondent à **rien** au référentiel (matière maison, faute
+  de frappe). Sans cet affichage le filtre serait invisible — c'est ce qui a fait perdre
+  la première version du périmètre.
+- L'appariement APC lit désormais le **libellé anglais officiel**
+  (`APC_MATIERE_EN`) : seul l'écran de saisie passait un libellé localisé, si bien que
+  « Computer Science » se résolvait à la saisie et **pas** au bulletin (qui appelle
+  `apcForClass` sans libellé). Le procès-verbal et le rapport de classe en profitent.
+- « Modifier les domaines » (maternelle) garde les **8** domaines, y compris ceux que la
+  classe n'a pas cochés : c'est un outil d'école, pas de classe — sinon un domaine
+  écarté deviendrait impossible à renommer.
+- Les matières **composites** gardent leur règle : on saisit les feuilles (la note du
+  parent est calculée), le bulletin affiche le parent ou le détail selon
+  `school.bulletin_subject_mode`. Ce n'est pas un écart, c'est une hiérarchie.
+- Un **enseignant de matière** continue de ne voir que ses propres matières à la saisie.
+  Ce filtre-là dépend de qui regarde ; le périmètre de la classe, non. Les deux se
+  cumulent, dans cet ordre.
+
+**Retour arrière.** `bySubjectOrder` rendant `0` restaure l'ordre naturel, et retirer les
+trois appels à `refClassScope` dans les postes de saisie remet l'ancien comportement :
+aucun schéma, aucune donnée, aucune migration n'est touché.
+
+---
+
+## D15 — Une classe bilingue est une classe qui porte les deux programmes, rien de plus
+
+**Date** : 2026-10-19 · **Contexte** : demande de THE GENIUS (4 salles bilingues)
+**Où** : `src/core/bilingualSubjects.js` (nouveau), `schoolStore.completerClasseBilingue`,
+`src/pages/Classes.jsx` (création + écran de la classe)
+**Tests** : `src/core/_bilingualSubjects.test.mjs` — 45 contrôles
+
+**Demande.** « Nous avons 4 salles de classes bilingues, il faudrait que les unités
+d'apprentissage des matières ANGLOPHONES se retrouvent sur les classes bilingues […]
+fusionne les classes anglophones avec les classes francophones de tous les systèmes,
+classique comme APC, et laisse le choix d'ajouter ou de retirer une matière. » Puis, sur
+le bulletin : « c'est le même bulletin, juste bilingue, certaines matières en FR et
+d'autres en EN. »
+
+**Décision.** Le bilinguisme d'une classe n'est **pas** un drapeau en base : c'est sa
+liste de matières. Aucune colonne, aucune migration, aucune valeur de plus dans
+`classes.system` — donc aucun moteur ni aucun écran ne change de comportement sans
+qu'on l'ait décidé. `isBilingualClass` relit l'état depuis les matières portées, ce qui
+suffit à rouvrir l'écran comme l'école l'a laissé.
+
+**Pourquoi cela fait apparaître les unités d'apprentissage.** Le périmètre du référentiel
+national d'une classe se déduit de ses lignes `subjects` (`core/refClassScope.js`,
+décision **D11**). Poser les matières anglophones sur la classe fait donc entrer leurs
+compétences, et avec elles leurs UA, par un chemin qui existe déjà.
+
+**Pourquoi le bulletin n'a pas eu à changer — vérifié, pas supposé.** `calcFR` /
+`calcEN` normalisent **déjà** chaque note par le barème de SA matière avant de la
+remettre à l'échelle de sortie de la classe (`bulletinEngine.js:81`). Une classe qui
+porte Français /20 et English /100 a donc une moyenne juste : deux notes à 75 % donnent
+15/20, et un 100/100 vaut 20/20, pas davantage. Les quatre contrôles du bloc 9 du test
+verrouillent ce comportement — s'il tombe, les bulletins bilingues deviendraient faux en
+silence. L'écran de saisie, lui, lit déjà `subject.max` partout (`Grades.jsx:125`).
+
+**Barèmes** (consigne du responsable) : « pour le système classique /100, pour l'APC
+ministériel les barèmes du ministère ». Chaque matière garde donc le barème de son
+monde — /20 francophone, /100 anglophone — et en APC le calcul continue de lire les
+`points_max` du référentiel.
+
+**LA SOURCE EST LA CLASSE JUMELLE DE L'ÉCOLE, PAS UN TRONC TYPE.** Précisé par
+l'école le même jour, bulletins en main : « CE1 BIL = fusion des matières de Class 3 +
+CE1 ». On copie donc les matières **telles que l'école les a posées** sur sa classe
+jumelle — ses coefficients, ses barèmes, et jusqu'aux matières qui ne figurent à aucun
+référentiel (`Travaux Pratiques`, `Chinois`, relevées en production). Le tronc type ne
+sert plus que de repli, quand l'école n'a pas de classe jumelle.
+
+**Les correspondances de niveau ne sont pas inventées : le dépôt les porte déjà.**
+`primaireNiveauSlug` rend le MÊME slug pour « Class 3 » et « CE1 » (1→SIL, 2→CP, 3→CE1,
+4→CE2, 5→CM1, 6→CM2), `maternelleNiveauSlug` aligne Nursery 1/2/3 sur PS/MS/GS, et
+`secondCycleClasseSlug` aligne Lower/Upper Sixth sur 1ère/Terminale — parce que les
+référentiels nationaux en dépendent. `niveauPartage` les lit, et n'ajoute que la seule
+équivalence qui manquait : le **premier cycle**, où FR et EN gardent volontairement des
+slugs distincts (6e↔Form 1, 5e↔Form 2, 4e↔Form 3, 3e↔Form 4, et Form 5↔Seconde, fin du
+O-Level). Les 14 paires sont vérifiées une à une par le test.
+
+**Proposé, jamais imposé.** La classe du niveau équivalent est présélectionnée
+(`defaultSiblingClass`) et signalée comme telle, mais toutes les classes de l'autre
+sous-système du même cycle et de la même année restent proposées : une école peut
+apparier autrement (effectifs, classe unique, section spéciale), et lui cacher les
+autres la bloquerait. Sans jumelle au bon niveau, **rien** n'est présélectionné — mieux
+vaut faire choisir que poser les matières d'un autre niveau sur une classe d'enfants.
+
+**Rien n'est retiré d'office.** La fusion propose l'union des deux troncs ; les
+recouvrements sont **nommés** (`Mathematics` ↔ `Mathématiques`, `Physical Education` ↔
+`EPS`…) et l'école décoche ce qu'elle n'enseigne pas. Une matière **hors référentiel**
+(Chinois, Musique, matière maison) s'ajoute librement, avec le choix de son côté donc de
+son barème.
+
+**Sur une classe qui existe déjà** — le cas des quatre classes de THE GENIUS, qui ont
+leurs élèves — `completerClasseBilingue` n'ajoute **que ce qui manque** : tout libellé
+déjà porté est écarté, donc aucune note existante n'est menacée et rejouer le geste ne
+double rien.
+
+**Ce qui n'a pas été fait, et pourquoi.** Aucune maquette de bulletin bilingue : l'école
+imprime le même document, avec ses matières dans les deux langues. Le format officiel
+`bil_officiel` (arrêté 239-23, premier cycle) reste réservé au programme bilingue
+spécial, qui est un autre sujet.
+
+**Retour arrière.** Décocher les matières ajoutées, ou les supprimer dans l'écran de la
+classe. Le module est additif : rien ne dépend de lui si personne ne coche la case.
 
 ---
 
@@ -240,3 +509,106 @@ matières que l'heuristique classait mal (les 20 ci-dessus).
 
 **Retour arrière.** `subjectGroupKey` réduit à `subjectGroupFromName(subject?.name)` rend
 le comportement d'avant. Aucun schéma, aucune donnée, aucune migration.
+
+---
+
+## D13 — L'école peut forcer le GROUPE 1 / GROUPE 2 d'une matière de second cycle
+
+**Date** : 2026-10-20 · **Statut** : actif · **Suite de** D12
+**Où** : `src/pages/Classes.jsx` (`GroupeSc`, colonne « Groupe » réservée au second cycle)
+**Colonne** : `subjects.sc_groupe_ordre` — déjà présente **des deux côtés**
+(`supabase_sc_minesec.sql:109`, `server/db.js:195`). **Aucune migration.**
+
+**Décision.** Sur une classe de **second cycle uniquement**, chaque ligne de matière porte
+un menu `auto / Groupe 1 / Groupe 2`. « auto » (la valeur vide, écrite `null`) rend la
+décision au référentiel de la série ; un ordre posé à la main n'est **jamais** réécrit par
+lui, parce que l'enrichissement du bulletin ne touche que les matières dont
+`sc_groupe_ordre` est vide.
+
+**Raison.** D12 a rendu le rapprochement par nom tolérant (`refNameMatch`), mais ce
+rapprochement **refuse de deviner** : en cas d'ambiguïté, ou pour un nom qu'aucune règle
+n'atteint (« Ed Civique », un intitulé propre à l'établissement), la matière reste hors
+groupe et s'imprime sous AUTRES MATIÈRES. Jusqu'ici l'école n'avait **aucun levier** :
+la colonne existait dans les deux schémas, et aucun écran ne la réglait. C'était le
+dernier maillon manquant — l'écran **nomme** ces matières, il faut aussi pouvoir les
+**placer**.
+
+**Pourquoi ce levier-là, et pas `category`.** Les GROUPE 1 / GROUPE 2 sont fixés par
+l'arrêté, série par série : le classement pédagogique de l'école (sciences, langues…) n'a
+pas à les réécrire, et D12 a explicitement refusé de le faire. Ce que l'école connaît, en
+revanche, c'est l'arrêté de SA série : on lui donne donc le choix **du groupe officiel
+lui-même**, nommé comme sur le bulletin, et pas une correspondance devinée.
+
+**Réservé au second cycle.** Ailleurs, « Groupe 1 / Groupe 2 » ne veut rien dire : la
+colonne du tableau n'apparaît pas, et le gabarit de grille (`COLS`) suit. Ce gabarit était
+recopié **quatre fois** dans le fichier ; il est désormais défini une seule fois.
+
+**`GroupeSc` est un composant de MODULE**, pas une fonction définie dans
+`ClassDetailView` : une fonction créée à chaque rendu est un type de composant neuf à
+chaque rendu, donc React démonte et remonte le `<select>` — qui se refermerait sous le
+doigt de l'utilisateur.
+
+**Preuve par exécution**, sur une base SQLite **neuve** et par le vrai schéma du serveur :
+`sc_groupe_ordre` et `category` présentes sans aucune migration manuelle, écriture relue
+(`{"name":"Maths","sc_groupe_ordre":1}`), et retour à « auto » rendant bien `null`.
+`server/_sync_contract.test.mjs` et `server/_upsert_keys.test.mjs` au vert : l'écriture
+traverse la synchronisation et ne peut pas boucler en file hors-ligne.
+
+**Retour arrière.** Retirer la colonne « Groupe » de `Classes.jsx` (et `isSecondCycle` de
+`COLS`) suffit : la donnée déjà posée reste lue par le bulletin, et le référentiel reprend
+la main sur toute matière dont `sc_groupe_ordre` est remis à vide.
+
+---
+
+## D14 — Une langue posée par l'école remplit le créneau « Langue vivante » du référentiel
+
+**Date** : 2026-10-20 · **Statut** : actif · **Suite de** D12 et D13
+**Où** : `src/core/refNameMatch.js` (`estLangueVivante`, `matchLangueVivanteSlot`,
+`resolveRefRow`), appelé par les deux enrichissements de `src/pages/Bulletins.jsx`
+**Test** : `src/core/_refNameMatch.test.mjs` (111 contrôles)
+
+**Signalement.** « J'ai choisi Langue comme classement pour allemand et espagnol mais je
+les vois toujours à Autres » — sur une classe de **6e–3e**.
+
+**Ce que j'avais cru, et qui était faux.** J'ai d'abord conclu au second cycle. Le
+responsable a corrigé : c'est le **premier cycle**. La bonne lecture est que le
+**programme bilingue spécial** couvre lui aussi 6e–3e, et que son bulletin
+(`bilEngine`) possède un bac « AUTRES MATIÈRES ». C'est le seul chemin qui produit ce
+symptôme sur une 6e–3e : le bulletin APC officiel n'a pas de bac « AUTRES », et sur le
+bulletin classique « Allemand » et « Espagnol » tombaient **déjà** dans LANGUES par le
+nom, même avant D12.
+
+**La cause.** Ni l'arrêté du second cycle ni l'arrêté 239-23 (bilingue) ne nomment la
+langue : ils ouvrent un **créneau**, écrit « Langue vivante II » dans le référentiel du
+second cycle et « Langue Vivante II (LVII) » dans celui du bilingue, que l'établissement
+remplit avec l'allemand, l'espagnol, l'italien… La matière de l'école s'appelle donc
+« Espagnol » et la ligne du référentiel « Langue Vivante II (LVII) » : **aucune règle de
+nom ne pourra jamais les rapprocher** — ni l'égalité exacte, ni le préfixe, ni le mot à
+mot de D12. Ce n'est pas un nom à reconnaître, c'est un créneau à **remplir**.
+
+Et le classement pédagogique n'y change rien, par la décision D12 elle-même : les groupes
+et les domaines de ces deux bulletins viennent de l'arrêté.
+
+**Décision.** Une matière dont le nom est une langue vivante que l'établissement peut
+poser (liste **explicite et courte** : allemand, espagnol, italien, portugais, chinois,
+arabe, russe, japonais, et leurs formes anglaises) prend le créneau « Langue vivante » de
+sa série, et hérite donc de son groupe/domaine, de son coefficient et de sa charge.
+
+Latin, Grec, Anglais, Français, Littérature et les langues nationales **ne sont pas** dans
+cette liste : ils portent leur propre ligne au référentiel et se rapprochent déjà par le
+nom. Le nom passe toujours **avant** le créneau.
+
+**Pourquoi c'est sûr, même quand il y a deux créneaux.** Relevé dans
+`supabase_sc_referentiel_data.sql` : les **15** lignes « Langue vivante » du second cycle
+se résument à **un seul** triplet — groupe `g1`, coefficient 3, charge 3. Savoir si
+l'espagnol occupe le créneau II ou le III ne change donc ni le groupe, ni le coefficient,
+ni la charge : les trois seules choses que l'enrichissement recopie. Rien à deviner.
+
+**Le garde-fou le revérifie à l'exécution** : si les créneaux d'une série divergeaient
+(référentiel modifié plus tard), la règle se **désactive** et la décision revient à
+l'école, par le menu « Groupe » de D13. L'empreinte compare `groupe_ordre` **et**
+`domaine_ordre` : le second cycle range par groupe, le bilingue par domaine — n'en
+regarder qu'un laisserait le garde-fou aveugle sur l'autre bulletin.
+
+**Retour arrière.** `resolveRefRow` réduit à `matchRefRow` rend le comportement d'avant.
+Aucun schéma, aucune donnée, aucune migration.

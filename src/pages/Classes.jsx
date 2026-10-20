@@ -496,6 +496,10 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const updateSubject = useSchoolStore((s) => s.updateSubject);
   const deleteSubject = useSchoolStore((s) => s.deleteSubject);
   const completerClasseBilingue = useSchoolStore((s) => s.completerClasseBilingue);
+  // Sur une classe a moteur officiel, une matiere n'existe vraiment que si elle
+  // entre AUSSI au referentiel : sans cela elle n apparait ni a la saisie ni au
+  // bulletin, qui lisent le referentiel et non `subjects`.
+  const materialiserMatiereOfficielle = useSchoolStore((s) => s.materialiserMatiereOfficielle);
 
   const isEN     = cls.system === 'EN';
 
@@ -1002,6 +1006,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     if (e.key !== 'Enter') return;
                     e.preventDefault();
                     if (!customSubject.name.trim()) return;
+                    materialiserMatiereOfficielle(cls, customSubject.name.trim());
                     addSubject({
                       name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1,
                       max: baremeDeLaMatiere(customSubject.name, customSubject.cote),
@@ -1060,6 +1065,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                   disabled={!customSubject.name.trim()}
                   onClick={() => {
                     if (!customSubject.name.trim()) return;
+                    materialiserMatiereOfficielle(cls, customSubject.name.trim());
                     addSubject({
                       name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1,
                       max: baremeDeLaMatiere(customSubject.name, customSubject.cote),

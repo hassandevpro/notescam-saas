@@ -663,3 +663,66 @@ reste aussi, et l'avis à l'écran invite alors à lui donner un classement.
 
 **Retour arrière.** Retirer l'appel à `domaineForSubject` dans `bilEnrichedSubjects` rend
 le comportement d'avant. Aucun schéma, aucune donnée, aucune migration.
+
+---
+
+## D17 — Toute matière cochée apparaît, et l'école possède ses matières de premier cycle
+
+**Date** : 2026-10-20 · **Statut** : actif · **Suite de** D16
+**Migration** : `supabase_apc_matieres_maison.sql` — **appliquée en production le 2026-10-20**
+**Où** : `src/lib/referentielEcole.js` (`addMatiereMaisonApc`), `src/store/schoolStore.js`
+(`materialiserMatiereOfficielle`, `materialiserMatieresManquantes`), `src/pages/Classes.jsx`,
+`src/components/grades/ApcCompetenceWorkspace.jsx`, `server/db.js`, `server/query.js`
+**Test** : `src/lib/_referentielEcole.test.mjs` (52 contrôles, dont 23 neufs)
+
+**Signalement.** « Quand je crée une matière ça ne s'affiche pas pour mettre la note et
+sur le bulletin. » Puis la règle, donnée telle quelle : **« laisse toutes les matières
+apparaître tant qu'elles sont créées et cochées »**.
+
+**Cause.** Une école en moteur **officiel** lit son RÉFÉRENTIEL, pas ses lignes
+`subjects`. Créer une matière dans « Modifier la classe » n'avait donc aucun effet. Le
+primaire et la maternelle avaient une échappatoire — `prim_competences.school_id` et
+`mat_domaines.school_id` existent, donc une école y ajoute ses lignes. Le **premier
+cycle** était le seul sans issue : `apc_competences.matiere_id` est une clé étrangère vers
+`apc_matieres`, qui n'avait pas de `school_id`. Une école pouvait ajouter une compétence
+DANS une matière nationale, jamais une MATIÈRE.
+
+**Décision.** `apc_matieres` et `apc_classe_matieres` reçoivent un `school_id` nullable —
+le motif déjà en service sur `apc_competences`. `NULL` = national inchangé, renseigné =
+maison. Créer une matière pose alors **trois** lignes : la matière, son rattachement à la
+classe, et **une compétence par trimestre**. Cette troisième est celle qu'on oublie :
+l'écran ne propose que les matières ayant au moins une compétence pour le trimestre
+affiché — sans elles, la matière serait créée et resterait **invisible**, soit le défaut
+d'origine en pire.
+
+**Le rattrapage.** Matérialiser la seule matière qu'on vient d'ajouter ne suffisait pas :
+une école a déjà les siennes (BRIGHT CONTINENT porte « Étude de texte », « Expression
+Orale », « TM », « Langue Turc » de longue date). Il aurait fallu les supprimer et les
+recréer, en perdant les notes saisies dessus. `materialiserMatieresManquantes` pose donc
+tout ce qui manque à l'ouverture de l'écran, en une fois. Idempotente, tentée une seule
+fois par classe, jamais sans le droit d'écrire — une écriture refusée repartirait en
+boucle dans la file hors-ligne. Même motif que l'auto-configuration de la maternelle.
+
+**L'avis à l'écran change de sens.** Il reprochait un nom (« corrigez-le pour qu'il
+corresponde au référentiel »). Il annonce maintenant que les matières s'ajouteront seules,
+et ne liste que ce que le rattrapage n'a PAS pu poser — hors ligne, ou compte sans droit.
+Il disparaît de lui-même dès que ça marche.
+
+**DEUX GARDE-FOUS, dont un que cette fonctionnalité a ouvert.**
+- *Cloud* : la policy `apc ref read` était `USING (true)`. Les policies permissives se
+  cumulant en OU, la laisser aurait rendu les matières maison de chaque école **visibles
+  par les 43 autres**. Elle est REMPLACÉE, pas doublée. Vérifié aussi, avant d'appliquer,
+  que RLS était **déjà active** : un `ENABLE ROW LEVEL SECURITY` sur une table qui n'en
+  avait pas aurait enfermé le référentiel national et cassé la lecture pour tout le monde.
+- *LAN* : `guardReferentielNational` ne couvrait que compétences et domaines. En ouvrant
+  l'écriture sur `apc_matieres`, l'édition LAN n'aurait eu **aucun** garde : une école
+  pouvait réécrire une matière nationale, que le seed aurait restaurée au redémarrage
+  suivant — le travail perdu deux fois. Les deux tables y sont ajoutées.
+
+**Portée.** Premier cycle APC. Le primaire et la maternelle savent déjà porter leurs
+lignes, mais par « Modifier les compétences / les domaines » : la même porte depuis
+« Matières » reste à brancher pour eux.
+
+**Retour arrière.** Retirer les deux appels dans `Classes.jsx` et
+`ApcCompetenceWorkspace`, puis les colonnes (le SQL de retour est en pied de la migration).
+Les matières maison disparaîtraient avec elles — à ne faire que si l'on renonce.

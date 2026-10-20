@@ -670,6 +670,40 @@ les mathématiques chez les historiens, et le groupe ARTS_SPORTS qui, faute de d
 sport.
 
 
+## 4 terdecies bis. « Quand je crée une matière, rien n'apparaît » (2026-10-20)
+
+Signalé pour BRIGHT CONTINENT. Décision **D17**, migration
+`supabase_apc_matieres_maison.sql` **appliquée en production** sur autorisation explicite.
+
+**Diagnostic sur les données réelles.** L'école est en `bulletin_engine = 'officiel'` :
+ses 6e–3e lisent le référentiel APC, son primaire les 11 compétences nationales, sa
+maternelle les 8 domaines. Dans les trois cas l'écran se construit **à partir du
+référentiel**, pas des lignes `subjects` — une matière créée dans « Modifier la classe »
+n'existait donc nulle part. Mesuré : « Étude de texte », « Expression Orale »,
+« Expression écrite », « Correction orthographique », « Langue Turc », « TM »,
+« Philosophie », « Sciences Physiques » n'étaient réclamées par aucun référentiel.
+
+**Écarté par la mesure** (lectures seules en production) : les 31 colonnes de `subjects`
+sont présentes, le site répond 200, les droits colonne sont complets, **0** matière ou
+note orpheline, et la policy RESTRICTIVE `secteur: cloisonnement` ne verrouille aucun
+compte (8 cloisonnés, au pire 4/28 classes). Le filtre de périmètre du primaire ne retient
+pas moins de **10 ou 11 compétences sur 11** selon les classes — il n'était pas en cause.
+
+**Correctif** : l'école peut désormais **posséder** ses matières de premier cycle, et tout
+ce qui est coché se matérialise — y compris les matières **déjà créées**, rattrapées en
+une fois à l'ouverture de l'écran, sans toucher aux notes existantes.
+
+**Deux garde-fous**, dont un ouvert par la fonctionnalité elle-même : la policy Cloud
+`USING (true)` **remplacée** (sinon chaque école voyait les matières maison des 43 autres),
+et `guardReferentielNational` étendu côté LAN aux deux nouvelles tables (sinon une école
+LAN pouvait réécrire une matière nationale, que le seed aurait restaurée au redémarrage).
+
+**Preuve** : `_referentielEcole.test.mjs` **52 contrôles** (23 neufs : les trois lignes
+posées, le `school_id` partout, les refus de la base, « paramètres manquants → aucune
+écriture à moitié »). Parité LAN prouvée sur une base SQLite neuve. Migration vérifiée
+après coup : **43/43 matières toujours nationales, 72/72 rattachements inchangés**.
+
+
 ## 5. Travaux en cours — 69 fichiers non commités
 
 38 fichiers modifiés (+1303 / −510) et 31 non suivis. Regroupement proposé pour des

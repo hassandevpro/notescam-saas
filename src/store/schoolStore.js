@@ -13,7 +13,7 @@ import { fetchReferentiel, refreshApcReferentiel, fetchApcNotes, upsertApcNote, 
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
-import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, fetchLibelles, setLibelle } from '../lib/referentielEcole';
+import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildBilSubjectsForClass } from '../lib/bilAutoConfig';
@@ -24,7 +24,9 @@ import { buildSubjectsForClassicClass } from '../core/classicSubjects';
 // Classe bilingue : le programme de l'autre sous-systeme, pose sur la meme
 // classe (cf. completerClasseBilingue, et la demande de THE GENIUS du 19/10).
 import { missingBilingualSubjects, missingFromSiblingClass } from '../core/bilingualSubjects';
-import { resolveClassEngine } from '../core/engineResolver';
+import { resolveClassEngine, firstCycleClasseSlug } from '../core/engineResolver';
+import { matiereIdsForSubject } from '../core/apcMatiereMatch';
+import { APC_TRIMESTRE_IDS } from '../core/apcPeriods';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { isAdvancedDelegation } from '../config/capabilities';
 import { fetchPeriods } from '../lib/academicPeriodsService';
@@ -899,6 +901,106 @@ export const useSchoolStore = create((set, get) => ({
 
   // `extra` porte ce qui est propre au moteur : pour l'APC, la competence vit dans
   // (classe, trimestre, matiere) — sans ce contexte elle ne s'afficherait nulle part.
+  // ── « JE CRÉE UNE MATIÈRE ET ELLE N'APPARAÎT NULLE PART » ─────────────────
+  //
+  // Sur une école réglée en moteur OFFICIEL, les écrans de saisie et les
+  // bulletins lisent le RÉFÉRENTIEL, pas les lignes `subjects`. Créer une
+  // matière dans « Modifier la classe » n'avait donc aucun effet : ni saisie,
+  // ni bulletin. C'est le défaut signalé.
+  //
+  // Cette action est la PORTE : quand l'école ajoute une matière à une classe de
+  // premier cycle, on pose aussi la ligne de référentiel maison correspondante,
+  // pour que la matière existe pour de bon. L'école continue de créer ses
+  // matières là où c'est naturel ; le produit se charge du reste.
+  //
+  // Silencieuse par construction : elle ne remonte aucune erreur à l'écran. La
+  // ligne `subjects` est déjà écrite et vaut pour l'emploi du temps, les
+  // enseignants et les documents non officiels — échouer ici ne doit pas défaire
+  // un geste qui a par ailleurs réussi. L'écran de saisie NOMME de toute façon
+  // les matières qu'aucun référentiel ne réclame.
+  materialiserMatiereOfficielle: async (cls, nom) => {
+    const { schoolId, apcReferentiel } = get();
+    const school = useAuthStore.getState().school;
+    if (!schoolId || !cls || !nom) return { error: 'parametres' };
+    // Premier cycle APC uniquement : le primaire et la maternelle savent déjà
+    // porter une ligne maison, par « Modifier les compétences / les domaines ».
+    if (resolveClassEngine(school, cls) !== 'apc') return { error: 'hors_apc' };
+    if (!apcReferentiel) return { error: 'referentiel' };
+
+    const classeId = firstCycleClasseSlug(cls.level, cls.name);
+    if (!classeId) return { error: 'classe' };
+
+    // Déjà au référentiel (nationale ou maison) ? On ne double pas.
+    const norm = (x) => String(x || '').toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').replace(/s+/g, ' ').trim();
+    if ((apcReferentiel.matieres || []).some((m) => norm(m.nom) === norm(nom))) {
+      return { error: 'existe' };
+    }
+
+    const trimestres = APC_TRIMESTRE_IDS.filter((tid) =>
+      (apcReferentiel.sequences || []).some((s) => s.trimestre_id === tid)) ;
+    const r = await addMatiereMaisonApc({
+      schoolId, nom, classeId,
+      trimestres: trimestres.length ? trimestres : APC_TRIMESTRE_IDS,
+      versionId: (apcReferentiel.versions || [])[0]?.id ?? null,
+      makeId: uuid,
+    });
+    if (r.error) return r;
+
+    // Le référentiel en mémoire suit, sans retélécharger : l'écran de saisie
+    // doit proposer la matière tout de suite.
+    set((s) => ({
+      apcReferentiel: s.apcReferentiel && {
+        ...s.apcReferentiel,
+        matieres: [...(s.apcReferentiel.matieres || []), r.matiere],
+        classeMatieres: [...(s.apcReferentiel.classeMatieres || []), r.classeMatiere],
+        competences: [...(s.apcReferentiel.competences || []), ...r.competences],
+      },
+    }));
+    return { data: r.matiere };
+  },
+
+  // ── RATTRAPER LES MATIÈRES DÉJÀ CRÉÉES ───────────────────────────────────
+  //
+  // `materialiserMatiereOfficielle` ne traite que la matière qu'on vient
+  // d'ajouter. Or une école a déjà les siennes : BRIGHT CONTINENT porte
+  // « Étude de texte », « Expression Orale », « TM », « Langue Turc » créées de
+  // longue date. Sans rattrapage il faudrait les supprimer et les recréer une à
+  // une — ce qui perdrait les notes déjà saisies dessus.
+  //
+  // Règle demandée par le responsable : « laisse toutes les matières apparaître
+  // tant qu'elles sont créées et cochées ». Cette action matérialise donc TOUT
+  // ce qui manque, en une fois, à l'ouverture de l'écran de saisie.
+  //
+  // IDEMPOTENTE : une matière déjà au référentiel (nationale ou maison) est
+  // ignorée. La rejouer ne crée aucun doublon.
+  materialiserMatieresManquantes: async (cls) => {
+    const { subjects, apcReferentiel, schoolId } = get();
+    const school = useAuthStore.getState().school;
+    if (!cls || !schoolId || !apcReferentiel) return { created: 0 };
+    if (resolveClassEngine(school, cls) !== 'apc') return { created: 0 };
+    if (!backendOnline()) return { created: 0, skipped: 'offline' };
+
+    const norm = (x) => String(x || '').toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').replace(/s+/g, ' ').trim();
+    // Les noms que le référentiel porte DÉJÀ — nationaux comme maison.
+    const connus = new Set((apcReferentiel.matieres || []).map((m) => norm(m.nom)));
+    // Ce que la classe a coché et que le référentiel ignore. On passe par
+    // `matiereIdsForSubject` pour ne pas recréer « SVT » quand SVTEEHB existe :
+    // les alias de noms font foi, exactement comme à l'affichage.
+    const manquantes = (subjects || [])
+      .filter((s) => s && s.class_id === cls.id && s.name)
+      .filter((s) => !connus.has(norm(s.name)))
+      .filter((s) => matiereIdsForSubject(s.name, apcReferentiel.matieres || []).size === 0);
+
+    let created = 0;
+    for (const sub of manquantes) {
+      const r = await get().materialiserMatiereOfficielle(cls, sub.name);
+      if (!r.error) created++;
+    }
+    return { created };
+  },
+
   addRefLigne: async (kind, intitule, extra = {}) => {
     const { schoolId } = get();
     const nom = String(intitule || '').trim();

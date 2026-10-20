@@ -73,6 +73,73 @@ export async function upsertLigne(kind, record) {
   return true;
 }
 
+// ── UNE MATIÈRE MAISON EN PREMIER CYCLE APC ────────────────────────────────
+//
+// Le premier cycle était le seul cycle où une école ne pouvait RIEN ajouter de
+// son cru. `prim_competences` et `mat_domaines` portent un `school_id` depuis
+// longtemps : on y ajoute une compétence ou un domaine, et il se saisit et
+// s'imprime comme les nationaux. En APC, `apc_competences` en porte un aussi —
+// mais son `matiere_id` est une clé étrangère vers `apc_matieres`, qui n'en
+// avait pas. Une école pouvait donc ajouter une compétence DANS une matière
+// nationale, jamais une MATIÈRE. « Langue Turc », « Étude de texte » ou
+// « Informatique Pratique » n'avaient aucun endroit où exister.
+//
+// `supabase_apc_matieres_maison.sql` a ouvert la colonne. Cette fonction pose
+// les TROIS lignes qu'il faut pour qu'une matière existe vraiment :
+//
+//   1. la MATIÈRE elle-même (`apc_matieres`, school_id renseigné) ;
+//   2. son RATTACHEMENT à la classe (`apc_classe_matieres`), sans quoi elle
+//      n'apparaît dans aucune classe ;
+//   3. une COMPÉTENCE par trimestre (`apc_competences`) — c'est le point qu'on
+//      oublie : l'écran de saisie ne propose que les matières ayant au moins une
+//      compétence pour le trimestre affiché (`nbComp > 0`). Sans elles, la
+//      matière serait créée et resterait invisible, ce qui est exactement le
+//      défaut qu'on répare.
+//
+// Tout est posé avec le `school_id` de l'école : la RLS (`WITH CHECK school_id
+// IS NOT NULL`) interdit de fabriquer une ligne nationale, donc le référentiel
+// des autres établissements est hors d'atteinte.
+
+/**
+ * Crée une matière propre à l'école, rattachée à une classe du référentiel.
+ *
+ * @param schoolId   école propriétaire
+ * @param nom        libellé de la matière, tel que l'école l'a saisi
+ * @param classeId   slug de classe du référentiel APC (`6e`, `5e`…)
+ * @param trimestres ids de trimestres à couvrir (`['t1','t2','t3']`)
+ * @param versionId  version active du référentiel, pour que la compétence soit
+ *                   chargée par `fetchReferentiel` (qui filtre dessus)
+ * @param makeId     générateur d'uuid
+ * @param coef       coefficient de la matière dans cette classe
+ * @returns { matiere, classeMatiere, competences } ou { error }
+ */
+export async function addMatiereMaisonApc({
+  schoolId, nom, classeId, trimestres = [], versionId = null, makeId, coef = 1, ordre = 90,
+}) {
+  const libelle = String(nom || '').trim();
+  if (!schoolId || !libelle || !classeId) return { error: 'parametres' };
+  if (!trimestres.length) return { error: 'trimestres' };
+
+  const matiere = { id: makeId(), nom: libelle, coefficient: coef, optionnelle: false, ordre, school_id: schoolId };
+  const m = await supabase.from('apc_matieres').upsert(matiere, { onConflict: 'id' });
+  if (m.error) { console.error('addMatiereMaisonApc matiere', m.error); return { error: 'matiere' }; }
+
+  const classeMatiere = { classe_id: classeId, matiere_id: matiere.id, coefficient: coef, ordre, optionnelle: false, school_id: schoolId };
+  const cm = await supabase.from('apc_classe_matieres').upsert(classeMatiere);
+  if (cm.error) { console.error('addMatiereMaisonApc rattachement', cm.error); return { error: 'rattachement' }; }
+
+  // Une compétence par trimestre : sans elle la matière ne s'afficherait pas.
+  const competences = trimestres.map((tid, i) => ({
+    id: makeId(), school_id: schoolId, matiere_id: matiere.id, classe_id: classeId,
+    trimestre_id: tid, cycle_id: 'premier_cycle', intitule: libelle,
+    coefficient: 1, actif: true, ordre: 1 + i, referentiel_version_id: versionId,
+  }));
+  const c = await supabase.from('apc_competences').upsert(competences, { onConflict: 'id' });
+  if (c.error) { console.error('addMatiereMaisonApc competences', c.error); return { error: 'competences' }; }
+
+  return { matiere, classeMatiere, competences };
+}
+
 // Supprime une ligne maison. Échoue si des notes y sont rattachées — la clé
 // étrangère protège le travail déjà saisi, et c'est voulu : on masque alors.
 export async function deleteLigne(kind, id) {

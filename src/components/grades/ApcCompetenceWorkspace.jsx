@@ -9,7 +9,7 @@
 //
 // Monté à la place de l'écran classique quand school.bulletin_engine='apc_minesec'.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSchoolStore } from '../../store/schoolStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
@@ -22,7 +22,8 @@ import { firstCycleClasseSlug, resolveClassEngine } from '../../core/engineResol
 // sur le catalogue francophone : ses noms de matières sont alors rendus en
 // anglais, comme sur son bulletin.
 import { apcMatiereLabel } from '../../core/referentielI18n';
-import { isSubjectScoped, myClassIds } from '../../lib/teacherScope';
+import { isSubjectScoped, myClassIds, canManageClassSubjects } from '../../lib/teacherScope';
+import { hasCapability } from '../../config/capabilities';
 import {
   matiereIdsForTeacher, unresolvedSubjectsForTeacher,
 } from '../../core/apcMatiereMatch';
@@ -108,6 +109,8 @@ function BaremeCell({ value, disabled, onCommit }) {
 export default function ApcCompetenceWorkspace() {
   const t = useT();
   const school   = useAuthStore((s) => s.school);
+  // Qui a le droit d'écrire le référentiel de l'école — miroir exact de la RLS.
+  const permissions = useAuthStore((s) => s.permissions);
   const schoolId = school?.id;
   const role      = useAuthStore((s) => s.role);
   const teacherId = useAuthStore((s) => s.teacherId);
@@ -258,16 +261,35 @@ export default function ApcCompetenceWorkspace() {
   // rien à annoncer.
   const matieresEcartees = matieresDuReferentiel.length - matieresDisponibles.length;
 
-  // Et l'inverse : des matières COCHÉES dans la classe qui ne correspondent à
-  // aucune matière du référentiel. Elles ne se saisissent pas ici et ne
-  // s'impriment pas sur le bulletin officiel — c'est le référentiel national qui
-  // le veut. On les NOMME : sans cela l'école voit une matière cochée qui
-  // n'apparaît nulle part. (L'avis existait déjà, mais pour le seul enseignant
-  // de matière : l'administration, elle, ne le voyait jamais.)
+  // ── TOUTE MATIÈRE COCHÉE DOIT APPARAÎTRE ──────────────────────────────────
+  //
+  // Règle donnée par le responsable : « laisse toutes les matières apparaître
+  // tant qu'elles sont créées et cochées ». Une matière que le référentiel
+  // ignore n'est donc plus une fatalité à annoncer : on la MATÉRIALISE, c'est-
+  // à-dire qu'on lui crée sa ligne de référentiel maison.
+  //
+  // Ce qui reste listé ci-dessous, c'est ce que le rattrapage n'a PAS pu poser —
+  // hors ligne, ou compte sans le droit d'écrire le référentiel. L'avis
+  // disparaît donc tout seul dès que ça marche, au lieu de reprocher un nom.
   const matieresHorsReferentiel = useMemo(
     () => unmatchedClassSubjects('apc', classSubjects, referentiel?.matieres).map((s) => s.name),
     [classSubjects, referentiel],
   );
+
+  // Rattrapage, à l'ouverture de la classe. Même motif que la maternelle
+  // (`configureClassSubjects`) : idempotent, tenté une seule fois par classe, et
+  // JAMAIS si le compte n'a pas le droit d'écrire — une écriture refusée par la
+  // RLS repartirait en boucle dans la file hors-ligne.
+  const materialiserManquantes = useSchoolStore((s) => s.materialiserMatieresManquantes);
+  const rattrapees = useRef(new Set());
+  useEffect(() => {
+    if (!selectedClass || !referentiel || !matieresHorsReferentiel.length) return;
+    const isDelegate = hasCapability(permissions, '/app/classes');
+    if (!canManageClassSubjects({ role, school, cls: selectedClass, teacherId, isDelegate })) return;
+    if (rattrapees.current.has(selectedClass.id)) return;
+    rattrapees.current.add(selectedClass.id);
+    materialiserManquantes(selectedClass);
+  }, [selectedClass, referentiel, matieresHorsReferentiel.length, role, school, teacherId, permissions, materialiserManquantes]);
 
   // Mode 1 : ne garder que les matières couvertes par MES matières affectées.
   // Le rapprochement est délégué à apcMatiereMatch (noms officiels, sigles,
@@ -557,8 +579,8 @@ export default function ApcCompetenceWorkspace() {
       {matieresHorsReferentiel.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           {t(
-            `Matière(s) de cette classe absente(s) du référentiel officiel : ${matieresHorsReferentiel.join(', ')}. Elles ne se saisissent pas ici et ne figurent pas sur le bulletin officiel. Corrigez le nom dans Classes → Modifier la classe → Matières pour qu'il corresponde au référentiel.`,
-            `Subject(s) of this class missing from the official framework: ${matieresHorsReferentiel.join(', ')}. They cannot be entered here and do not appear on the official report card. Fix the name in Classes → Edit class → Subjects so it matches the framework.`,
+            `Matière(s) en attente d'être ajoutée(s) à votre référentiel : ${matieresHorsReferentiel.join(', ')}. Elles s'ajouteront toutes seules dès qu'un compte autorisé ouvrira cet écran en étant connecté à Internet.`,
+            `Subject(s) waiting to be added to your framework: ${matieresHorsReferentiel.join(', ')}. They will be added automatically as soon as an authorised account opens this screen while online.`,
           )}
         </div>
       )}

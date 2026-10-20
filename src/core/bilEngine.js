@@ -214,7 +214,11 @@ export function assembleBilBulletin(ctx) {
   for (const r of rows) {
     const key = `${r.domaine_ordre}|${r.domaine_nom}`;
     if (!byDom.has(key)) {
-      byDom.set(key, { nom: r.domaine_nom || 'AUTRES MATIÈRES', ordre: r.domaine_ordre, rows: [], coefSum: 0, pointsSum: 0, chargeSum: 0 });
+      // Libellé de repli dans la LANGUE du sous-système : il était figé en
+      // français, et une classe Form 1–5 (sous-système anglophone) lisait donc
+      // « AUTRES MATIÈRES » au milieu d'un bulletin anglais.
+      const replis = sys === 'EN' ? 'OTHER SUBJECTS' : 'AUTRES MATIÈRES';
+      byDom.set(key, { nom: r.domaine_nom || replis, ordre: r.domaine_ordre, rows: [], coefSum: 0, pointsSum: 0, chargeSum: 0 });
     }
     const d = byDom.get(key);
     d.rows.push(r);

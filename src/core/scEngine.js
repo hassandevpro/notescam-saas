@@ -135,8 +135,14 @@ export function assembleScBulletin(ctx) {
     .sort((a, b) => a.ordre - b.ordre)
     .map((g) => ({
       ...g,
-      // Repli propre si la matière n'a pas de groupe (ordre 99) — jamais « Groupe 99 ».
-      nom: (g.ordre === 99 && (!g.nom || /99/.test(g.nom))) ? 'AUTRES MATIÈRES' : g.nom,
+      // Repli propre si la matière n'a pas de groupe (ordre 99) — jamais
+      // « Groupe 99 ». Le libellé suit la LANGUE du bulletin : il était figé en
+      // français, et sortait donc en français au milieu d'une feuille
+      // anglophone (même défaut que les en-têtes de groupe, déjà corrigé côté
+      // APC — voir le commentaire d'APC_GROUPS dans Bulletins.jsx).
+      nom: (g.ordre === 99 && (!g.nom || /99/.test(g.nom)))
+        ? (sys === 'EN' ? 'OTHER SUBJECTS' : 'AUTRES MATIÈRES')
+        : g.nom,
       mxSum: r2(g.mxSum),
       moyenne: g.coefSum ? r2(g.mxSum / g.coefSum) : null,
     }));

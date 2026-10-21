@@ -151,7 +151,7 @@ export function buildSubjectsForBilingualClass({ cls, makeId, keep = null, coefs
   return bilingualSubjectChoices(cls)
     .filter((c) => !voulu || voulu.has(norm(c.name)))
     .map((c, i) => ({
-      id: makeId(),
+      id: makeId(c.name),
       school_id: cls.school_id,
       class_id: cls.id,
       name: c.name,
@@ -312,7 +312,7 @@ export function missingFromSiblingClass({ cls, classSubjects = [], sibling = nul
   return mergeFromSiblingClass({ cls, classSubjects, sibling, siblingSubjects })
     .filter((c) => !c.deja && (!voulu || voulu.has(norm(c.name))))
     .map((c, i) => ({
-      id: makeId(),
+      id: makeId(c.name),
       school_id: cls.school_id,
       class_id: cls.id,
       name: c.name,

@@ -405,7 +405,7 @@ export function subjectsFromBilReferentiel(rows, { schoolId, classId, gradeMax =
   return (rows || [])
     .filter((r) => includeOptional || r.obligatoire !== false)
     .map((r, i) => ({
-      id: makeId(),
+      id: makeId(r.nom),
       school_id: schoolId,
       class_id: classId,
       name: r.nom,

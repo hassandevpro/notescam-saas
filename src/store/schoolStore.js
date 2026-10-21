@@ -13,7 +13,7 @@ import { fetchReferentiel, refreshApcReferentiel, fetchApcNotes, upsertApcNote, 
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
-import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc } from '../lib/referentielEcole';
+import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildBilSubjectsForClass } from '../lib/bilAutoConfig';
@@ -318,6 +318,36 @@ function changesClassCalc(existing, data) {
   }
   return false;
 }
+
+// ── L'IDENTIFIANT D'UNE MATIÈRE DE CLASSE VIENT DE CE QU'ELLE EST ──────────
+//
+// RELEVÉ EN PRODUCTION le 2026-10-21, en auditant les 44 écoles : 32 matières
+// de classe en double, dont 8 chez THE GENIUS (27 notes dessus) et 8 chez
+// BRIGHT CONTINENT. Les copies portaient des identifiants sans rapport entre
+// eux — certains manifestement produits par le serveur LAN, d'autres par le
+// Cloud.
+//
+// LE MÉCANISME. L'auto-configuration d'une classe se protégeait du doublon
+// ainsi : « si la classe a déjà des matières dans `get().subjects`, ne rien
+// faire ». Or `get().subjects` est le cache de CE poste. Un poste qui ne les a
+// pas encore descendues — un serveur LAN après remise à zéro du curseur, un
+// navigateur vidé, un second appareil — voit une classe vide, reconfigure, et
+// tire de NOUVEAUX identifiants au hasard. La base accueille donc une seconde
+// série complète. C'est le même défaut que pour les matières maison du premier
+// cycle, à une table près.
+//
+// LA PARADE. L'identifiant ne vient plus du hasard mais de (classe, nom
+// normalisé). Deux postes qui configurent la même classe écrivent LES MÊMES
+// lignes : l'upsert les met à jour, il n'en ajoute pas une seconde série. Cela
+// vaut hors ligne comme en ligne, et sans rien demander au cache.
+//
+// Le nom est normalisé (casse, accents, espaces) pour que « SVT » et « svt  »
+// ne fassent pas deux lignes. Changer le nom d'une matière change son
+// identifiant : c'est voulu, l'écran passe alors par `updateSubject`, qui
+// modifie la ligne existante et ne crée rien.
+const _normMatiere = (nom) => String(nom || '').toLowerCase().normalize('NFD')
+  .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+const idMatiereClasse = (classId, nom) => uuidMaison('subject', classId, _normMatiere(nom));
 
 export const useSchoolStore = create((set, get) => ({
   schoolId:   null,
@@ -1463,7 +1493,7 @@ export const useSchoolStore = create((set, get) => ({
     if (resolveClassEngine(school, cls) !== 'apc') return { created: 0 };
     let ref = get().apcReferentiel;
     if (!ref) { await get().loadApc(); ref = get().apcReferentiel; }
-    const subs = buildSubjectsForApcClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildSubjectsForApcClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     // Ne pas dupliquer si la classe a déjà des matières.
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
@@ -1488,7 +1518,7 @@ export const useSchoolStore = create((set, get) => ({
     if (resolveClassEngine(school, cls) !== 'maternelle') return { created: 0 };
     let ref = get().matReferentiel;
     if (!ref) { await get().loadMat(); ref = get().matReferentiel; }
-    const subs = buildSubjectsForMatClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildSubjectsForMatClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
     if (existing.length) return { created: 0, skipped: 'already_configured' };
@@ -1512,7 +1542,7 @@ export const useSchoolStore = create((set, get) => ({
     if (resolveClassEngine(school, cls) !== 'apc_primaire') return { created: 0 };
     let ref = get().primReferentiel;
     if (!ref) { await get().loadPrim(); ref = get().primReferentiel; }
-    const subs = buildSubjectsForPrimClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildSubjectsForPrimClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
     if (existing.length) return { created: 0, skipped: 'already_configured' };
@@ -1537,7 +1567,7 @@ export const useSchoolStore = create((set, get) => ({
     // Résolu PAR CLASSE : marche pour 'minesec' comme pour le mode unifié 'officiel'.
     if (resolveClassEngine(school, cls) !== 'sc' || !cls?.serie) return { created: 0 };
     const ref = get().scReferentiel || await get().loadSc();
-    const subs = buildSubjectsForClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildSubjectsForClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     // Ne pas dupliquer si la classe a déjà des matières.
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
@@ -1564,7 +1594,7 @@ export const useSchoolStore = create((set, get) => ({
     const school = useAuthStore.getState().school;
     if (resolveClassEngine(school, cls) !== 'bilingue') return { created: 0 };
     const ref = get().bilReferentiel || await get().loadBil();
-    const subs = buildBilSubjectsForClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildBilSubjectsForClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
     if (existing.length) return { created: 0, skipped: 'already_configured' };
@@ -1588,7 +1618,7 @@ export const useSchoolStore = create((set, get) => ({
   autoConfigClassic: async (cls) => {
     const school = useAuthStore.getState().school;
     if (resolveClassEngine(school, cls) !== 'classic') return { created: 0 };
-    const subs = buildSubjectsForClassicClass({ school, cls, makeId: uuid });
+    const subs = buildSubjectsForClassicClass({ school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     // Ne pas dupliquer si la classe a déjà des matières.
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
@@ -1633,9 +1663,9 @@ export const useSchoolStore = create((set, get) => ({
       ? missingFromSiblingClass({
           cls, classSubjects: existing, sibling,
           siblingSubjects: get().subjects.filter((s) => s.class_id === sibling.id),
-          makeId: uuid, keep,
+          makeId: (nom) => idMatiereClasse(cls.id, nom), keep,
         })
-      : missingBilingualSubjects({ cls, existing, makeId: uuid, keep });
+      : missingBilingualSubjects({ cls, existing, makeId: (nom) => idMatiereClasse(cls.id, nom), keep });
     if (!subs.length) return { created: 0 };
 
     await subjectsDB.putMany(subs);

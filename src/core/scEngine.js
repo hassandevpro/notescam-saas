@@ -233,7 +233,7 @@ export function vieScolaireAutoConduite(actionsRows, classId, studentId, seqs) {
 // (id généré par l'appelant via uuid pour rester pur ici.)
 export function subjectsFromReferentiel(rows, { schoolId, classId, gradeMax = 20, makeId }) {
   return (rows || []).map((r, i) => ({
-    id: makeId(),
+    id: makeId(r.nom),
     school_id: schoolId,
     class_id: classId,
     name: r.nom,

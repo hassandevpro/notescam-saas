@@ -40,6 +40,41 @@ export function idMaison(schoolId, libelle) {
   return `ec_${ecole}_${slug || 'item'}`;
 }
 
+// ── UN UUID STABLE, DÉRIVÉ DE CE QU'IL DÉSIGNE ──────────────────────────────
+//
+// `apc_competences.id` est de type `uuid` : on ne peut pas y mettre le slug de
+// `idMaison`. Mais un `uuid()` tiré au hasard rend la création NON idempotente,
+// et c'est ce qui a fabriqué jusqu'à neuf copies d'une même compétence maison
+// chez BRIGHT CONTINENT (cf. addMatiereMaisonApc).
+//
+// On dérive donc l'identifiant de ses composantes : (école, matière, classe,
+// trimestre) donne TOUJOURS le même uuid, sur n'importe quel poste, en ligne ou
+// hors ligne. Rejouer la création devient une mise à jour.
+//
+// Hachage non cryptographique volontairement (FNV-1a, quatre passes de graines
+// différentes) : aucune dépendance, synchrone, et le besoin n'est pas la
+// résistance à l'attaque mais la STABILITÉ. Le domaine est minuscule — les
+// quelques matières d'une école — donc une collision est hors de portée
+// pratique, et la forme respecte la grammaire d'un uuid (version 5, variante
+// RFC 4122) pour que Postgres l'accepte.
+export function uuidMaison(...parts) {
+  const s = parts.map((p) => String(p ?? '')).join('|');
+  const bloc = (graine) => {
+    let h = graine >>> 0;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  };
+  const a = bloc(0x811c9dc5), b = bloc(0x7f4a7c15), c = bloc(0x165667b1), d = bloc(0x27d4eb2f);
+  // Version 5 et variante « 10xx » posées en dur, aux emplacements que la
+  // RFC leur réserve : le reste vient du hachage.
+  const v = `5${b.slice(1, 4)}`;
+  const n = `${((parseInt(c[0], 16) & 0x3) | 0x8).toString(16)}${c.slice(1, 4)}`;
+  return `${a}-${b.slice(4, 8)}-${v}-${n}-${c.slice(4, 8)}${d}`;
+}
+
 // Les ids masqués par l'école. null = la lecture a échoué (on ne masque alors
 // RIEN : mieux vaut afficher un référentiel complet qu'en cacher par accident).
 export async function fetchMasques(kind, schoolId) {
@@ -114,30 +149,76 @@ export async function upsertLigne(kind, record) {
  * @returns { matiere, classeMatiere, competences } ou { error }
  */
 export async function addMatiereMaisonApc({
-  schoolId, nom, classeId, trimestres = [], versionId = null, makeId, coef = 1, ordre = 90,
+  schoolId, nom, classeId, trimestres = [], versionId = null, coef = 1, ordre = 90,
+  // `makeId` n'est plus utilisé : il reste accepté pour ne pas casser un appelant
+  // qui le passerait encore. Voir ci-dessous POURQUOI il a disparu.
+  makeId = null,   // eslint-disable-line no-unused-vars
 }) {
   const libelle = String(nom || '').trim();
   if (!schoolId || !libelle || !classeId) return { error: 'parametres' };
   if (!trimestres.length) return { error: 'trimestres' };
 
-  const matiere = { id: makeId(), nom: libelle, coefficient: coef, optionnelle: false, ordre, school_id: schoolId };
-  const m = await supabase.from('apc_matieres').upsert(matiere, { onConflict: 'id' });
-  if (m.error) { console.error('addMatiereMaisonApc matiere', m.error); return { error: 'matiere' }; }
+  // ── POURQUOI CETTE FONCTION NE TIRE PLUS D'IDENTIFIANT AU HASARD ─────────
+  //
+  // RELEVÉ EN PRODUCTION le 2026-10-21, BRIGHT CONTINENT :
+  //     apc_matieres maison .... 19 lignes pour 10 noms
+  //     « Langue Turc » ........ 3 fois        « Etude de texte » ... 3 fois
+  //     « Expression Orale » ... 3 fois        « Expresion ecrite » . 3 fois
+  //     apc_competences maison . jusqu'à 9 copies par nom (3 matières × 3 trim.)
+  //
+  // L'appelant passait `makeId: uuid` — un identifiant NEUF à chaque appel. Le
+  // garde-fou contre le doublon était ailleurs : une comparaison de noms contre
+  // le référentiel EN CACHE (IndexedDB, propre à chaque navigateur). Tout poste
+  // dont le cache ignorait la ligne maison la recréait donc, avec un nouvel
+  // identifiant, et la base l'acceptait : rien ne s'y opposait. Trois postes,
+  // trois copies — et c'est exactement ce qu'on compte.
+  //
+  // Deux changements, et le doublon devient IMPOSSIBLE sans dépendre d'aucun
+  // cache :
+  //   1. on cherche la matière PAR SON NOM sur le serveur, pas dans le cache.
+  //      Trouvée, on la RÉUTILISE — donc les notes déjà saisies dessus restent
+  //      attachées, et le poste en retard se raccroche au lieu de doubler ;
+  //   2. sinon on la crée avec un identifiant DÉTERMINISTE, dérivé de (école,
+  //      nom), exactement comme le primaire et la maternelle le font déjà
+  //      (`idMaison`). Deux postes qui créent le même nom écrivent la même
+  //      ligne : l'upsert la met à jour, il n'en ajoute pas une seconde.
+  //
+  // Le dernier rempart serait un index UNIQUE en base sur (school_id, nom
+  // normalisé) : il refuserait le doublon même à un client fautif. Il ne peut
+  // être posé qu'après le nettoyage des copies déjà présentes.
+  const normNom = (x) => String(x || '').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+
+  const dejaLa = await supabase.from('apc_matieres')
+    .select('id, nom').eq('school_id', schoolId);
+  if (dejaLa.error) { console.error('addMatiereMaisonApc lecture', dejaLa.error); return { error: 'lecture' }; }
+  const trouvee = (dejaLa.data || []).find((m) => normNom(m.nom) === normNom(libelle));
+
+  const matiere = trouvee
+    ? { ...trouvee, nom: trouvee.nom }
+    : { id: idMaison(schoolId, libelle), nom: libelle, coefficient: coef, optionnelle: false, ordre, school_id: schoolId };
+  if (!trouvee) {
+    const m = await supabase.from('apc_matieres').upsert(matiere, { onConflict: 'id' });
+    if (m.error) { console.error('addMatiereMaisonApc matiere', m.error); return { error: 'matiere' }; }
+  }
 
   const classeMatiere = { classe_id: classeId, matiere_id: matiere.id, coefficient: coef, ordre, optionnelle: false, school_id: schoolId };
   const cm = await supabase.from('apc_classe_matieres').upsert(classeMatiere);
   if (cm.error) { console.error('addMatiereMaisonApc rattachement', cm.error); return { error: 'rattachement' }; }
 
   // Une compétence par trimestre : sans elle la matière ne s'afficherait pas.
+  // Identifiant déterministe lui aussi, sur (école, matière, classe, trimestre) :
+  // rejouer ce geste met à jour les trois mêmes lignes au lieu d'en créer neuf.
   const competences = trimestres.map((tid, i) => ({
-    id: makeId(), school_id: schoolId, matiere_id: matiere.id, classe_id: classeId,
+    id: uuidMaison(schoolId, matiere.id, classeId, tid),
+    school_id: schoolId, matiere_id: matiere.id, classe_id: classeId,
     trimestre_id: tid, cycle_id: 'premier_cycle', intitule: libelle,
     coefficient: 1, actif: true, ordre: 1 + i, referentiel_version_id: versionId,
   }));
   const c = await supabase.from('apc_competences').upsert(competences, { onConflict: 'id' });
   if (c.error) { console.error('addMatiereMaisonApc competences', c.error); return { error: 'competences' }; }
 
-  return { matiere, classeMatiere, competences };
+  return { matiere, classeMatiere, competences, reutilisee: !!trouvee };
 }
 
 // Supprime une ligne maison. Échoue si des notes y sont rattachées — la clé

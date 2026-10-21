@@ -961,7 +961,7 @@ export const useSchoolStore = create((set, get) => ({
 
     // Déjà au référentiel (nationale ou maison) ? On ne double pas.
     const norm = (x) => String(x || '').toLowerCase().normalize('NFD')
-      .replace(/[̀-ͯ]/g, '').replace(/s+/g, ' ').trim();
+      .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
     if ((apcReferentiel.matieres || []).some((m) => norm(m.nom) === norm(nom))) {
       return { error: 'existe' };
     }
@@ -972,7 +972,8 @@ export const useSchoolStore = create((set, get) => ({
       schoolId, nom, classeId,
       trimestres: trimestres.length ? trimestres : APC_TRIMESTRE_IDS,
       versionId: (apcReferentiel.versions || [])[0]?.id ?? null,
-      makeId: uuid,
+      // Plus de `makeId` : l'identifiant est désormais DÉTERMINISTE, dérivé de
+      // (école, nom). C'est le `uuid` tiré ici qui fabriquait les doublons.
     });
     if (r.error) return r;
 
@@ -1011,7 +1012,7 @@ export const useSchoolStore = create((set, get) => ({
     if (!backendOnline()) return { created: 0, skipped: 'offline' };
 
     const norm = (x) => String(x || '').toLowerCase().normalize('NFD')
-      .replace(/[̀-ͯ]/g, '').replace(/s+/g, ' ').trim();
+      .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
     // Les noms que le référentiel porte DÉJÀ — nationaux comme maison.
     const connus = new Set((apcReferentiel.matieres || []).map((m) => norm(m.nom)));
     // Ce que la classe a coché et que le référentiel ignore. On passe par
@@ -1021,9 +1022,29 @@ export const useSchoolStore = create((set, get) => ({
       .filter((s) => s && s.class_id === cls.id && s.name)
       .filter((s) => !connus.has(norm(s.name)))
       .filter((s) => matiereIdsForSubject(s.name, apcReferentiel.matieres || []).size === 0);
+    if (!manquantes.length) return { created: 0 };
+
+    // ── ON NE CRÉE RIEN SUR LA FOI DU CACHE ──────────────────────────────────
+    //
+    // Ce qui précède a été décidé contre `apcReferentiel`, c'est-à-dire contre
+    // le cache IndexedDB de CE navigateur. Un poste dont le cache ignore les
+    // lignes maison les croit toutes manquantes : c'est ainsi que trois postes
+    // ont fabriqué trois copies de « Langue Turc » chez BRIGHT CONTINENT.
+    //
+    // Avant d'écrire quoi que ce soit, on redemande donc le référentiel au
+    // serveur et on RECALCULE. Le coût est d'un appel, et seulement quand
+    // quelque chose paraît manquer. `addMatiereMaisonApc` porte en plus sa
+    // propre garde (recherche par nom côté serveur, identifiant déterministe) :
+    // ces deux protections sont indépendantes, et c'est voulu.
+    await get().rechargerApcReferentiel();
+    const frais = get().apcReferentiel;
+    const connusFrais = new Set((frais?.matieres || []).map((m) => norm(m.nom)));
+    const aCreer = manquantes
+      .filter((s) => !connusFrais.has(norm(s.name)))
+      .filter((s) => matiereIdsForSubject(s.name, frais?.matieres || []).size === 0);
 
     let created = 0;
-    for (const sub of manquantes) {
+    for (const sub of aCreer) {
       const r = await get().materialiserMatiereOfficielle(cls, sub.name);
       if (!r.error) created++;
     }

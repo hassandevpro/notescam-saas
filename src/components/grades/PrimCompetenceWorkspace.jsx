@@ -38,7 +38,7 @@ import { baremeEnVigueur, notesHorsBareme } from '../../core/primColumnBareme';
 // Le PÉRIMÈTRE de la classe — ses matières cochées dans « Modifier la classe ».
 // Le bulletin l'applique déjà (primForClass) : la saisie doit lister EXACTEMENT
 // les mêmes compétences, sinon on saisit des notes qui ne s'impriment jamais.
-import { primForClass, unmatchedClassSubjects } from '../../core/refClassScope';
+import { primForClass, unmatchedClassSubjects, scopeOf } from '../../core/refClassScope';
 import { classSubjectsOf } from '../../core/subjectOrder';
 import ReferentielEditor from './ReferentielEditor';
 import { withLibelles } from '../../lib/referentielEcole';
@@ -224,6 +224,66 @@ export default function PrimCompetenceWorkspace() {
       : []),
     [referentiel, niveauSlug, classSubjects],
   );
+
+  // Combien de notes chaque compétence porte-t-elle, dans TOUTE l'école ?
+  // `primNotes` les contient déjà (chargées par `loadPrim`) : aucun appel de
+  // plus. Sert à prévenir, au moment du clic, de ce qu'un masque emporte, et à
+  // chiffrer ce qu'un masque déjà posé retient. Déclaré AVANT les deux memos
+  // qui le lisent : un `const` lu plus haut dans le même corps de fonction
+  // lèverait une ReferenceError au premier rendu.
+  const notesParCompetence = useMemo(() => {
+    const par = {};
+    for (const n of Object.values(primNotes || {})) {
+      if (!n?.competence_id) continue;
+      par[n.competence_id] = (par[n.competence_id] || 0) + 1;
+    }
+    return par;
+  }, [primNotes]);
+
+  // ── UNE COMPÉTENCE MASQUÉE QUE LA CLASSE ENSEIGNE POURTANT ────────────────
+  //
+  // RELEVÉ EN PRODUCTION le 2026-10-21, école BRIGHT CONTINENT. L'école avait
+  // masqué 1A (« Communiquer en français ») le 2026-10-08 depuis « Modifier les
+  // compétences », tout en gardant « French Language » cochée dans ses six
+  // classes primaires, une enseignante affectée à cette matière, et 18 notes
+  // saisies sur 1A — dont la dernière le 2026-10-18, l'écran de saisie ne
+  // tenant alors pas compte des masques.
+  //
+  // Depuis qu'il les applique, la SEULE compétence de cette enseignante
+  // disparaît : sélecteur vide, et sous la grille le message « Aucune
+  // compétence nationale chargée. Exécutez la migration du référentiel. » —
+  // qui était FAUX, et qui envoyait chercher la panne à l'opposé de sa cause.
+  //
+  // On ne devine pas l'intention de l'école : le masque reste appliqué, ici
+  // comme sur le bulletin (même appel `primForClass`). Mais il ne doit plus
+  // être INVISIBLE. On nomme donc ce qu'il retire alors qu'une matière de la
+  // classe le couvre : la correction est un clic, elle ne doit pas être une
+  // devinette.
+  const masqueesCouvertes = useMemo(() => {
+    if (!referentiel || !niveauSlug || !(masques || []).length) return [];
+    const duNiveau = competencesForNiveau(referentiel, niveauSlug);
+    const scope = scopeOf('prim', classSubjects, duNiveau);
+    if (!scope) return [];
+    return duNiveau
+      .filter((c) => masques.includes(c.id) && scope.ids.has(c.id))
+      .map((c) => {
+        const n = notesParCompetence[c.id] || 0;
+        return `${c.code} — ${primCompetenceLabel(c, sys)}${n > 0 ? ` (${n})` : ''}`;
+      });
+  }, [referentiel, niveauSlug, masques, classSubjects, sys, notesParCompetence]);
+
+  // Les miennes, pour l'enseignante de matière : c'est la phrase qui lui dit
+  // pourquoi son écran est vide, au lieu de la lui laisser deviner.
+  const mesMasquees = useMemo(() => {
+    if (!isSubjectTeacher || !referentiel || !(masques || []).length) return [];
+    const mine = competenceIdsForTeacher(subjects, teacherId, classId, referentiel.competences || []);
+    return (referentiel.competences || [])
+      .filter((c) => mine.has(c.id) && masques.includes(c.id))
+      .map((c) => {
+        const n = notesParCompetence[c.id] || 0;
+        return `${c.code} — ${primCompetenceLabel(c, sys)}${n > 0 ? ` (${n} ${t('note(s) saisie(s)', 'mark(s) entered')})` : ''}`;
+      });
+  }, [isSubjectTeacher, referentiel, masques, subjects, teacherId, classId, sys, notesParCompetence, t]);
 
   useEffect(() => { loadRefMasques('prim'); }, [loadRefMasques]);
   const [refOpen, setRefOpen] = useState(false);
@@ -466,6 +526,7 @@ export default function PrimCompetenceWorkspace() {
           onSupprimer={(l) => removeRef('prim', l.id)}
           onDemasquer={(l) => restoreRef('prim', l.id)}
           onResetLibelle={(l) => resetLibelle('prim', l.id)}
+          nbNotes={(l) => notesParCompetence[l.id] || 0}
           onClose={() => setRefOpen(false)}
         />
       )}
@@ -515,6 +576,18 @@ export default function PrimCompetenceWorkspace() {
         </div>
       )}
 
+      {/* Un masque posé sur une compétence que la classe enseigne pourtant : on
+          le NOMME. Invisible, il fait disparaître la saisie ET la colonne du
+          bulletin sans que personne puisse relier la cause à l'effet. */}
+      {masqueesCouvertes.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {t(
+            `Masquée(s) par l'école alors qu'une matière de cette classe les couvre : ${masqueesCouvertes.join(' · ')}. Elles ne se saisissent pas ici et ne s'impriment pas sur le bulletin — les notes déjà saisies, elles, sont conservées. Pour les réafficher : bouton « Modifier les compétences » ci-dessus.`,
+            `Hidden by the school although a subject of this class covers them: ${masqueesCouvertes.join(' · ')}. They cannot be entered here and do not print on the report card — marks already entered are kept. To show them again: “Edit competencies” button above.`,
+          )}
+        </div>
+      )}
+
       <div className="text-xs text-gray-500">
         {t('Barème officiel par critère (points) — variable selon la compétence · le total et la cote se calculent sur les critères déjà saisis.',
            'Official per-criterion scale (points) — varies by competency · total and grade are computed from criteria already entered.')}
@@ -560,8 +633,22 @@ export default function PrimCompetenceWorkspace() {
         </div>
       ) : competences.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
-          {t('Aucune compétence nationale chargée. Exécutez la migration du référentiel.',
-             'No national competency loaded. Run the framework migration.')}
+          {/* NE PAS ENVOYER CHERCHER LA PANNE AILLEURS. « Exécutez la migration
+              du référentiel » ne vaut que si le référentiel est VRAIMENT vide.
+              Servi à une enseignante dont la compétence était simplement
+              masquée par son école, ce message a fait perdre la journée. */}
+          {(referentiel?.competences || []).length === 0
+            ? t('Aucune compétence nationale chargée. Exécutez la migration du référentiel.',
+                'No national competency loaded. Run the framework migration.')
+            : mesMasquees.length > 0
+            ? t(
+              `Votre ou vos compétences sont masquées par l'école : ${mesMasquees.join(' · ')}. Rien à saisir tant qu'elles le restent. Pour les réafficher, bouton « Modifier les compétences » en haut de cet écran, puis « Rétablir » sur la ligne barrée. Vos notes déjà saisies sont conservées et réapparaîtront.`,
+              `Your competency/ies are hidden by the school: ${mesMasquees.join(' · ')}. Nothing to enter while they stay hidden. To show them again, use “Edit competencies” at the top of this screen, then “Restore” on the struck-through row. Marks you already entered are kept and will reappear.`,
+            )
+            : t(
+              'Aucune compétence à saisir pour cette classe : aucune matière cochée dans « Modifier la classe » ne correspond à une compétence du niveau, ou toutes sont masquées par l\'école.',
+              'No competency to enter for this class: no subject ticked in “Edit class” matches a competency for this level, or all are hidden by the school.',
+            )}
         </div>
       ) : classStudents.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">

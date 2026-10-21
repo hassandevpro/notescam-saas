@@ -104,6 +104,91 @@ titre('addMatiereMaisonApc : parametres manquants -> AUCUNE ecriture');
 }
 
 
+// ── LE DOUBLON NE DOIT PLUS ÊTRE POSSIBLE ──────────────────────────────────
+//
+// RELEVÉ EN PRODUCTION le 2026-10-21, BRIGHT CONTINENT : 19 lignes maison pour
+// 10 noms. « Langue Turc » en trois exemplaires, et SIX notes saisies sur deux
+// exemplaires différents — les mêmes six élèves, les mêmes six valeurs, à une
+// heure d'intervalle, parce que l'écran montrait l'autre copie après
+// rechargement.
+//
+// La cause : un identifiant tiré AU HASARD à chaque appel, et un garde-fou qui
+// ne consultait que le cache du navigateur. Chaque poste au cache en retard
+// recréait la matière. Les deux contrôles ci-dessous sont la réparation.
+titre('le doublon est impossible : identifiant deterministe');
+{
+  globalThis.__ecrits = []; globalThis.__refus = {}; globalThis.__existant = {};
+  const a = await addMatiereMaisonApc({
+    schoolId: 'ecole-1', nom: 'Langue Turc', classeId: '6e', trimestres: ['t1', 't2', 't3'],
+  });
+  globalThis.__ecrits = [];
+  const b = await addMatiereMaisonApc({
+    schoolId: 'ecole-1', nom: 'Langue Turc', classeId: '6e', trimestres: ['t1', 't2', 't3'],
+  });
+  ok(a.matiere.id === b.matiere.id,
+    'deux appels, le MEME identifiant de matiere — donc un upsert, pas une 2e ligne',
+    [a.matiere.id, b.matiere.id]);
+  ok(a.competences.map((c) => c.id).join(',') === b.competences.map((c) => c.id).join(','),
+    'et les MEMES identifiants de competences');
+  // Un poste différent, même sans cache : mêmes entrées, même résultat.
+  const c = await addMatiereMaisonApc({
+    schoolId: 'ecole-1', nom: 'langue  turc', classeId: '6e', trimestres: ['t1', 't2', 't3'],
+  });
+  ok(c.matiere.id === a.matiere.id,
+    'la casse et les espaces en trop ne fabriquent pas une matiere de plus', c.matiere.id);
+  // Une autre école, ou un autre nom, reste bien distinct.
+  const d = await addMatiereMaisonApc({
+    schoolId: 'ecole-2', nom: 'Langue Turc', classeId: '6e', trimestres: ['t1'],
+  });
+  ok(d.matiere.id !== a.matiere.id, 'une autre ecole a sa propre ligne', d.matiere.id);
+}
+
+titre('une matiere deja en base est REUTILISEE, jamais doublee');
+{
+  // Le cas réel : la ligne existe déjà avec un identifiant tiré au hasard (celles
+  // que la production porte aujourd'hui). On doit s'y RACCROCHER — sinon les
+  // notes déjà saisies dessus seraient orphelines.
+  globalThis.__ecrits = []; globalThis.__refus = {};
+  globalThis.__existant = {
+    apc_matieres: [{ id: '1955b0c8-0040-4e07-aa0e-7e222d357eeb', nom: 'Langue Turc', school_id: 'ecole-1' }],
+  };
+  const r = await addMatiereMaisonApc({
+    schoolId: 'ecole-1', nom: 'Langue Turc', classeId: '3e', trimestres: ['t1', 't2', 't3'],
+  });
+  ok(!r.error, 'la creation aboutit', r.error);
+  ok(r.reutilisee === true, 'la ligne existante est reconnue comme telle');
+  ok(r.matiere.id === '1955b0c8-0040-4e07-aa0e-7e222d357eeb',
+    'on garde SON identifiant : les notes deja saisies restent rattachees', r.matiere.id);
+  const tables = globalThis.__ecrits.map((e) => e.table);
+  ok(!tables.includes('apc_matieres'),
+    'et on ne reecrit PAS apc_matieres : aucune ligne de plus', tables);
+  ok(globalThis.__ecrits[0].rows[0].matiere_id === '1955b0c8-0040-4e07-aa0e-7e222d357eeb',
+    'le rattachement pointe vers la ligne existante');
+  ok(r.competences.every((c) => c.matiere_id === '1955b0c8-0040-4e07-aa0e-7e222d357eeb'),
+    'les competences aussi');
+  // Même chose avec une écriture différente du nom.
+  globalThis.__ecrits = [];
+  const r2 = await addMatiereMaisonApc({
+    schoolId: 'ecole-1', nom: 'LANGUE TURC', classeId: '3e', trimestres: ['t1'],
+  });
+  ok(r2.reutilisee === true && r2.matiere.id === '1955b0c8-0040-4e07-aa0e-7e222d357eeb',
+    'la casse differente se raccroche aussi a la ligne existante', r2.matiere.id);
+}
+
+titre('une lecture impossible ne doit RIEN ecrire');
+{
+  // Si on ne peut pas savoir ce que la base contient, créer serait jouer à
+  // pile ou face avec un doublon. On s'abstient.
+  globalThis.__ecrits = []; globalThis.__refus = {}; globalThis.__existant = {};
+  globalThis.__refusLecture = { apc_matieres: true };
+  const r = await addMatiereMaisonApc({
+    schoolId: 'ecole-1', nom: 'Langue Turc', classeId: '6e', trimestres: ['t1'],
+  });
+  globalThis.__refusLecture = {};
+  ok(r.error === 'lecture', 'la lecture refusee est signalee', r.error);
+  ok(globalThis.__ecrits.length === 0, 'et aucune ecriture n a eu lieu', globalThis.__ecrits.length);
+}
+
 console.log(fail ? `
 ❌ ${fail} échec(s) sur ${pass + fail}` : `
 ✅ Matière maison APC : tout passe (${pass})`);

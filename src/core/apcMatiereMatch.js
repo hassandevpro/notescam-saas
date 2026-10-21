@@ -55,6 +55,11 @@ const ALIASES = [
   { p: 'histoire geo', t: ['histoire', 'geographie', 'history', 'geography'] },
   { p: 'hist geo', t: ['histoire', 'geographie', 'history', 'geography'] },
   { p: 'history and geography', t: ['history', 'geography', 'histoire', 'geographie'] },
+  // Relevé en production le 2026-10-21 : « History/Geography » (5 occurrences,
+  // 2 écoles). La barre oblique devient une espace à la normalisation, donc le
+  // motif à écrire est « history geography » — sans « and ».
+  { p: 'history geography', t: ['history', 'geography', 'histoire', 'geographie'] },
+  { p: 'geography history', t: ['history', 'geography', 'histoire', 'geographie'] },
 
   // Éducation à la Citoyenneté et à la Morale.
   { p: 'education a la citoyennete', t: ['ecm', 'citizenship'] },
@@ -65,6 +70,10 @@ const ALIASES = [
   { p: 'civique', t: ['ecm', 'citizenship'] },
   { p: 'ecm', t: ['ecm', 'citizenship'] },
   { p: 'evc', t: ['ecm', 'citizenship'] },
+  // « Civics » : relevé 3 fois, 2 écoles. Le catalogue anglophone l'appelle
+  // « Citizenship Education ».
+  { p: 'civics', t: ['citizenship', 'ecm'] },
+  { p: 'civic', t: ['citizenship', 'ecm'] },
 
   // Sciences de la Vie, de la Terre, Éducation à l'Environnement, Hygiène et Biologie.
   { p: 'sciences de la vie', t: ['svteehb', 'biology'] },
@@ -72,7 +81,25 @@ const ALIASES = [
   { p: 'svt', t: ['svteehb', 'biology'] },
 
   // Physique, Chimie, Technologie.
+  //
+  // RELEVÉ EN PRODUCTION le 2026-10-21 : « Physique-Chimie » est le nom le plus
+  // fréquemment INVISIBLE à la saisie du premier cycle — 10 occurrences, 2
+  // écoles. Le référentiel francophone ne connaît pas Physique et Chimie
+  // séparément : il a UNE matière, PCT. Le nom de l'école en désigne donc bien
+  // une seule, et la saisie doit l'ouvrir.
+  //
+  // Ces motifs viennent APRÈS « physique chimie technologie » (plus spécifique
+  // d'abord) et AVANT rien qui les contienne. On n'ajoute PAS d'alias pour
+  // « physique » seul : « Éducation Physique » le capterait et l'EPS
+  // atterrirait en PCT — l'ordre du tableau protège aujourd'hui ce cas parce
+  // que « education physique » est plus bas, et un mot seul ici casserait cette
+  // protection.
   { p: 'physique chimie technologie', t: ['pct', 'physics', 'chemistry'] },
+  { p: 'physique chimie', t: ['pct', 'physics', 'chemistry'] },
+  { p: 'chimie physique', t: ['pct', 'physics', 'chemistry'] },
+  { p: 'sciences physiques', t: ['pct', 'physics', 'chemistry'] },
+  { p: 'physics chemistry', t: ['physics', 'chemistry', 'pct'] },
+  { p: 'chemistry physics', t: ['chemistry', 'physics', 'pct'] },
   { p: 'pct', t: ['pct', 'physics', 'chemistry'] },
 
   // Français / anglais : le catalogue anglophone dit « French » et « English ».

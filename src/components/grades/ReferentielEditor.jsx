@@ -40,6 +40,14 @@ export default function ReferentielEditor({
   onDemasquer,              // (ligne) => Promise
   onSupprimer,              // (ligne) => Promise<{ liee?: boolean }>
   onResetLibelle,           // (ligne) => Promise — rendre son libellé officiel
+  // Combien de notes PORTE cette ligne ? Masquer une ligne nationale est
+  // réversible, mais pas anodin : elle disparaît de la saisie ET du bulletin,
+  // notes comprises. Sans ce compte, le geste paraît sans conséquence.
+  // Relevé en production : une école a masqué « Communiquer en français »,
+  // dix jours plus tard son enseignante de français n'avait plus rien à
+  // saisir, et 18 notes déjà posées ne s'imprimaient plus. Personne ne
+  // pouvait relier l'un à l'autre.
+  nbNotes = () => 0,        // (ligne) => number
   onClose,
 }) {
   const t = useT();
@@ -97,7 +105,12 @@ export default function ReferentielEditor({
     await run(async () => {
       for (const [id, texte] of modifiees) {
         const ligne = lignes.find((x) => x.id === id);
-        const propre = texte.trim().replace(/s+/g, ' ');
+        // `\s` — la classe « espace ». Écrite `/s+/` elle visait la LETTRE s :
+        // « Communicate in English » était enregistré « Communicate in Engli h »,
+        // et c'est bien ce qu'on a trouvé dans la base de production le
+        // 2026-10-21. Le `\` avait été perdu en chemin (cf. le même défaut sur
+        // `/^\s*(\d+)/` dans primCompactRows).
+        const propre = texte.trim().replace(/\s+/g, ' ');
         if (!ligne || !propre) continue;
         const r = await onRename?.(ligne, propre);
         if (r?.error) echecs.push(r.error); else reussis.push(id);
@@ -115,7 +128,7 @@ export default function ReferentielEditor({
   };
 
   const handleAdd = async () => {
-    const v = nouveau.trim().replace(/s+/g, ' ');
+    const v = nouveau.trim().replace(/\s+/g, ' ');
     if (!v) return;
     const r = await run(() => onAdd?.(v));
     if (r?.error) { toast.error(direEchec(r.error)); return; }
@@ -203,8 +216,8 @@ export default function ReferentielEditor({
           {cible && (
             <p className="text-xs text-red-600">
               {estNational(cible)
-                ? t(`Cliquez sur ✓ pour masquer ${cible.intitule} dans votre école. La ligne officielle reste intacte pour les autres établissements, et vous pouvez la rétablir.`,
-                    `Click ✓ to hide ${cible.intitule} in your school. The official row stays intact for other schools, and you can restore it.`)
+                ? t(`Cliquez sur ✓ pour masquer ${cible.intitule} dans votre école. Elle sortira de la saisie ET du bulletin${nbNotes(cible) > 0 ? ` — ${nbNotes(cible)} note(s) déjà saisie(s) cesseront de s'imprimer, sans être supprimées` : ''}. La ligne officielle reste intacte pour les autres établissements, et vous pouvez la rétablir ici même.`,
+                    `Click ✓ to hide ${cible.intitule} in your school. It will leave both the entry screen AND the report card${nbNotes(cible) > 0 ? ` — ${nbNotes(cible)} mark(s) already entered will stop printing, without being deleted` : ''}. The official row stays intact for other schools, and you can restore it right here.`)
                 : t('Cliquez sur ✓ pour supprimer. Impossible si des notes y sont déjà rattachées — masquez-la plutôt.',
                     'Click ✓ to delete. Not possible if marks are already attached — hide it instead.')}
             </p>

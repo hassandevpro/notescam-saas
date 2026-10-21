@@ -95,5 +95,51 @@ ok(!isClassTitulaire(null, 'p1'), 'classe absente');
 ok(!isClassTitulaire({ id: 'c1', teacher_id: null }, null),
   'ni fiche ni titulaire : jamais vrai par coïncidence de null');
 
+// ── LES 13 NOMS RELEVÉS EN PRODUCTION LE 2026-10-21 ─────────────────────────
+//
+// Mesurés en appelant ce résolveur sur les matières réelles des 44 écoles : 33
+// matières maternelle sur 128 (25,8 %) ne se rattachaient à rien, donc
+// n'apparaissaient ni à la saisie ni au bulletin. Ce sont les noms ci-dessous.
+// Chacun est ici pour qu'il ne redevienne jamais invisible en silence.
+for (const [name, want] of [
+  // Une école bilingue nomme ses matières en anglais ; le référentiel est
+  // stocké en français.
+  ['English', 'langage_communication'],
+  ['French', 'langage_communication'],
+  ['Mathematics', 'prenumeration_logique'],
+  ['Science', 'decouverte_monde'],
+  ['Physical Education', 'psychomotricite'],
+  ['Social Studies', 'vie_sociale_affective'],
+  ['Citizenship', 'vie_sociale_affective'],
+  // La maternelle n'a pas de domaine TIC : l'informatique est observée dans la
+  // découverte du monde. Choix assumé, documenté dans matDomaineMatch.js.
+  ['Computer Studies', 'decouverte_monde'],
+  // Ni de domaine histoire-géographie : découvrir l'espace et le temps.
+  ['Histoire-Géographie', 'decouverte_monde'],
+  ['geo', 'decouverte_monde'],
+  // Et « Français »/« Anglais » manquaient aussi : D1 connaissait « langage »
+  // et « oral », mais pas le nom des deux langues.
+  ['Français', 'langage_communication'],
+  ['Anglais', 'langage_communication'],
+  ['ECM', 'vie_sociale_affective'],
+]) eq(of(name), want, `production : « ${name} »`);
+
+// ── CE QUE LES AJOUTS NE DOIVENT PAS CASSER ────────────────────────────────
+// « physical » est désormais un mot-clé de D4. Il ne doit pas détourner les
+// noms où « education » porte le sens, ni les domaines voisins.
+eq(of('Éducation physique'), 'psychomotricite', 'régression : l’éducation physique reste en D4');
+eq(of('Activités physiques'), 'psychomotricite', 'régression : les activités physiques restent en D4');
+// « social » est un mot-clé de D6 : « vie sociale » doit toujours y aller.
+eq(of('Vie sociale et affective'), 'vie_sociale_affective', 'régression : l’intitulé exact de D6');
+// « science » (singulier) rejoint D5 sans emporter les sciences du langage.
+eq(of('Langage oral'), 'langage_communication', 'régression : le langage oral reste en D1');
+// Les mots anglais des arts ne doivent pas capter la musique d'un autre domaine.
+eq(of('Music'), 'activites_artistiques', '« Music » en D7');
+eq(of('Drawing'), 'activites_artistiques', '« Drawing » en D7');
+// Une matière qui n'existe nulle part RESTE non rattachée : on la nomme à
+// l'école, on ne lui invente pas un domaine.
+eq(of('Catéchèse'), null, 'une matière hors référentiel reste non rattachée');
+eq(of('Zzzz'), null, 'un nom inconnu reste non rattaché');
+
 console.log(failed ? '\n❌ échecs' : '\n✅ tout passe');
 process.exitCode = failed ? 1 : 0;

@@ -77,5 +77,50 @@ const orphelines = unresolvedSubjectsForTeacher(subjects, 'p1', 'c1', COMP);
 eq(orphelines.length, 1, 'une matière non rattachée est signalée');
 eq(orphelines[0].name, 'Chorale liturgique', 'et on sait laquelle, pour la nommer à l’écran');
 
+// ── LES NOMS RELEVÉS EN PRODUCTION LE 2026-10-21 ───────────────────────────
+//
+// Mesure faite en appelant ce résolveur sur les matières réelles des 44 écoles :
+// 66 matières du primaire sur 621 (10,6 %) ne se rattachaient à rien, donc
+// n'apparaissaient ni à la saisie ni sur le bulletin. Noms d'écoles anglophones
+// pour l'essentiel, le référentiel étant stocké en français.
+for (const [name, want] of [
+  ['Social Studies', '3b'],
+  ['Citizenship', '3b'],
+  ['Civic Education', '3b'],
+  ['Moral Education', '3a'],
+  ['National Language', '1c'],
+  ['Chemistry', '2b'],
+  ['Physics & Chemistry', '2b'],
+  ['Natural Science', '2b'],
+  ['Biology', '2b'],
+  ['geo', '3b'],
+]) eq(of(name), want, `production : « ${name} »`);
+
+// ── CE QUE LES AJOUTS NE DOIVENT PAS CASSER ────────────────────────────────
+// « technology » rejoint 2B (sciences et technologies), mais les TIC restent en
+// 5A : « information technology » est posée en EXPRESSION pour passer devant le
+// mot simple, car 2B est examinée avant 5A.
+eq(of('Information Technology'), '5a', 'régression : les TIC restent en 5A');
+eq(of('ICT'), '5a', 'régression : ICT reste en 5A');
+eq(of('Computer Studies'), '5a', '« Computer Studies » en 5A');
+// « moral » rejoint 3A sans emporter l'éducation civique, qui reste en 3B.
+eq(of('Éducation civique'), '3b', 'régression : l’éducation civique reste en 3B');
+// « physics » rejoint 2B sans emporter l'éducation physique, qui reste en 6A.
+eq(of('Éducation physique'), '6a', 'régression : l’éducation physique reste en 6A');
+eq(of('Physical Education'), '6a', 'régression : Physical Education reste en 6A');
+// Le français et l'anglais ne se confondent pas.
+eq(of('French Language'), '1a', 'régression : French → 1A');
+eq(of('English Language'), '1b', 'régression : English → 1B');
+
+// ── CE QUI DOIT RESTER HORS RÉFÉRENTIEL ────────────────────────────────────
+// Le référentiel primaire ne connaît qu'une compétence de français (1A) et une
+// d'anglais (1B) : aucune d'espagnol, d'allemand, d'arabe ni de chinois. Les
+// rattacher à 1A serait un faux. Elles doivent donc rester non rattachées — et
+// c'est l'écran qui les nomme, ou la création d'une ligne maison qui les
+// accueille, jamais une approximation ici.
+for (const name of ['Chinois', 'Espagnol', 'Allemand', 'Arabe', 'Travaux Pratiques', 'Agro-pastoral']) {
+  eq(of(name), null, `hors référentiel : « ${name} » reste non rattachée`);
+}
+
 console.log(failed ? '\n❌ échecs' : '\n✅ tout passe');
 process.exitCode = failed ? 1 : 0;

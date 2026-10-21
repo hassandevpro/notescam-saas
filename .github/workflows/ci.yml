@@ -48,8 +48,46 @@ jobs:
       - name: Surete et idempotence des migrations
         run: npm run validate:migrations
 
+      # POURQUOI CETTE ETAPE EXISTE
+      # `server/_license_machine.test.mjs` signe de vraies licences pour verifier
+      # le verrou machine, l'expiration et le refus d'une cle alteree. Il lui faut
+      # donc la cle privee de l'editeur — `packaging/license/private-key.pem`,
+      # gitignoree (.gitignore:55), donc ABSENTE de tout checkout neuf. Et
+      # `npm test` sort en code 1 des un echec non declare : la CI ne pouvait pas
+      # passer, quel que soit le code pousse. Mesure le 2026-10-21 sur un worktree
+      # neuf : 170 ok / 1 ko, l'unique echec etant « Cle privee introuvable » ;
+      # la cle fournie, ce test passe 13/13.
+      #
+      # On fabrique donc une paire JETABLE, valable le temps du job. Le test
+      # verifie une LOGIQUE, pas une cle particuliere : signer avec une paire
+      # d'emprunt l'exerce aussi bien, et aucun secret n'entre dans le depot.
+      #
+      # La condition compte : keygen refuse d'ecraser une cle existante sans
+      # --force, et c'est une protection qu'on ne contourne pas. Si quelqu'un
+      # rejoue ce workflow sur une machine qui porte la vraie cle, l'etape ne
+      # fait rien plutot que d'invalider les licences deja emises.
+      - name: Cle de licence jetable (la vraie est gitignoree, donc absente ici)
+        run: |
+          if [ -f packaging/license/private-key.pem ]; then
+            echo "Une cle privee est deja presente : on n'y touche pas."
+          else
+            node packaging/license/keygen.mjs
+          fi
+
       - name: Tests colocalises (176)
         run: npm test
+
+      # keygen a REECRIT `server/license-pubkey.txt`, qui est versionnee et
+      # LIVREE dans l'application : c'est elle qui valide les licences chez les
+      # ecoles. On la remet donc telle qu'elle est dans le depot AVANT les
+      # builds. Sans cela, les paquets construits ici porteraient la clef
+      # publique d'emprunt — inoffensif tant que ce job ne deploie pas, mais le
+      # jour ou quelqu'un y branche un deploiement, toutes les licences
+      # existantes seraient refusees. On ferme le piege maintenant.
+      - name: Rendre sa cle publique au depot (les builds doivent livrer la vraie)
+        run: |
+          git checkout -- server/license-pubkey.txt
+          git diff --exit-code -- server/license-pubkey.txt
 
       - name: Build edition cloud
         run: npm run build

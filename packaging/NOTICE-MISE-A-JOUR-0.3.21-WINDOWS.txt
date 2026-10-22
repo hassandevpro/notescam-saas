@@ -3,8 +3,8 @@ NotesCam 0.3.21 (Windows) - Notice pour le responsable informatique
 ========================================================================
 
 Installeur : NotesCam-Setup-0.3.21.exe
-Taille     : 30 791 368 octets
-SHA-256    : e87c8672a7648a5d11a44db1331f2dcbbcae66d93c997b71f40777521f671f76
+Taille     : 30 793 439 octets
+SHA-256    : 60429d0dac7c0bb2462bc9d8463e21c4add77677ec19e165b0e29ff531c40b21
 
 VERIFIEZ L'EMPREINTE AVANT D'INSTALLER. Ouvrez PowerShell dans le
 dossier qui contient le fichier et tapez :
@@ -179,6 +179,23 @@ l'ecole conclut que la mise a jour n'a rien change.
 
 Aucune table existante n'est modifiee, et aucune donnee n'est
 convertie.
+
+UN LONG RATTRAPAGE DE SYNCHRONISATION EST NORMAL, ET VOULU.
+`cash_movements` est synchronisee avec le Cloud. Une table qui vient de
+naitre est VIDE, et la descente des donnees avance avec un curseur qui
+ne revient jamais en arriere : sans precaution, la table serait restee
+vide pour toujours alors que les ecritures sont au Cloud. Le serveur
+detecte donc la table neuve et remet le curseur a zero. Le prochain
+cycle relit tout.
+
+Ce que vous allez constater : un bandeau de synchronisation actif plus
+longtemps que d'habitude, parfois plusieurs heures sur un gros
+etablissement. Rien n'est perdu pendant ce temps : les saisies de la
+journee partent dans la file et montent au Cloud normalement, le
+rattrapage descend et n'ecrase aucune saisie.
+
+PREVENEZ L'ECOLE AVANT, pas apres : une synchronisation qui travaille
+plusieurs heures sans explication se lit comme une panne.
 
 
 INSTALLATION - TROIS GESTES, DANS CET ORDRE

@@ -75,9 +75,25 @@ db.exec('PRAGMA wal_autocheckpoint = 400'); // borne la taille du WAL (checkpoin
 db.exec('PRAGMA foreign_keys = ON');
 db.exec('PRAGMA busy_timeout = 5000');  // attend si un autre process écrit
 
+// Tables présentes AVANT l'application du schéma. Voir
+// `resetPullCursorIfSchemaGrew` tout en bas : une TABLE synchronisée qui
+// apparaît sur une base déjà synchronisée est le même piège qu'une colonne
+// neuve, en pire — la table naît VIDE et le curseur, déjà passé, ne ramènera
+// jamais son contenu.
+const TABLES_AVANT = new Set(db.prepare(
+  "SELECT name FROM sqlite_master WHERE type = 'table'").all().map((r) => r.name));
+
 // Applique le schéma (idempotent : tout est IF NOT EXISTS)
 const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf8');
 db.exec(schema);
+
+// Tables RÉELLEMENT créées pendant ce démarrage. Sur une base NEUVE, tout vient
+// d'être créé et il n'y a rien à rattraper (aucun curseur n'existe encore) : on
+// rend donc une liste vide plutôt qu'un inventaire trompeur.
+const TABLES_CREEES = TABLES_AVANT.size
+  ? db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()
+      .map((r) => r.name).filter((n) => !TABLES_AVANT.has(n))
+  : [];
 
 // --- Migrations légères -----------------------------------------------
 // `CREATE TABLE IF NOT EXISTS` ne touche pas une table déjà créée : pour
@@ -1063,7 +1079,7 @@ export const SYNCED_TABLES = new Set([
   'signalements',
 ]);
 
-// ── Une colonne neuve sur une table synchronisée invalide le curseur de pull ──
+// ── Une colonne OU UNE TABLE neuve sur une table synchronisée invalide le curseur ──
 //
 // LE DÉFAUT QUE CECI CORRIGE, constaté à THE GENIUS le 27/08/2026.
 // `sync-pull` est un keyset sur (updated_at, id) STRICTEMENT supérieur au
@@ -1085,18 +1101,37 @@ export const SYNCED_TABLES = new Set([
 // de version, et la résolution LWW rend l’opération sans effet de bord : une
 // ligne locale plus récente que la ligne distante gagne toujours.
 //
+// ── LA MÊME CHOSE VAUT POUR UNE TABLE ENTIÈRE, ET C'EST PIRE ────────────────
+//
+// MESURÉ LE 2026-10-22, avant de livrer la 0.3.21 à THE GENIUS. Cette version
+// crée cinq tables que la 0.3.19 n'avait pas, dont `cash_movements`, qui EST
+// synchronisée. Le Cloud de THE GENIUS portait alors **11 écritures de caisse
+// datées du 2026-10-18** — quatre jours avant le paquet. Le curseur `pull_at`
+// de leur serveur est donc largement passé devant.
+//
+// Résultat si l'on ne traite que les colonnes : la table est créée VIDE, le
+// curseur ne redescend jamais, et l'école ouvre un journal de caisse
+// définitivement vide alors que ses écritures sont au Cloud. Une colonne neuve
+// perd UN champ ; une table neuve perd TOUT son contenu.
+//
+// On traite donc les deux cas par la même règle, et pour la même raison. Le cas
+// de la base NEUVE est écarté en amont (`TABLES_CREEES` est vide) : il n'y a
+// alors ni curseur ni rattrapage à faire.
+//
 // On ne touche PAS `tomb_at` : les tombstones portent des suppressions, pas des
 // colonnes, et les rejouer ressusciterait un travail déjà fait.
 function resetPullCursorIfSchemaGrew() {
-  const concernees = COLONNES_AJOUTEES.filter((c) => SYNCED_TABLES.has(c.table));
-  if (!concernees.length) return;
+  const colonnes = COLONNES_AJOUTEES.filter((c) => SYNCED_TABLES.has(c.table));
+  const tables   = TABLES_CREEES.filter((t) => SYNCED_TABLES.has(t));
+  if (!colonnes.length && !tables.length) return;
   try {
     db.prepare('DELETE FROM sync_cursor WHERE name = ?').run('pull_at');
     // On borne la liste : sur une base ancienne, 50 colonnes arrivent d'un coup et
     // une ligne de journal illisible ne se lit pas — donc ne sert a rien.
-    const noms = concernees.map((c) => `${c.table}.${c.column}`);
+    const noms = [...tables.map((t) => `${t} (table entière)`),
+                  ...colonnes.map((c) => `${c.table}.${c.column}`)];
     const quoi = noms.slice(0, 6).join(", ") + (noms.length > 6 ? ` (+${noms.length - 6})` : "");
-    console.warn(`[db] colonne(s) ajoutée(s) sur table(s) synchronisée(s) : ${quoi}`);
+    console.warn(`[db] table(s)/colonne(s) ajoutée(s) sur table(s) synchronisée(s) : ${quoi}`);
     console.warn('[db] curseur de pull remis à zéro : le prochain pull relira tout pour les remplir.');
   } catch (e) {
     // `sync_cursor` absente (base neuve, jamais synchronisée) : rien à invalider.

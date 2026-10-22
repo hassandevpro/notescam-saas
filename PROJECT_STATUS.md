@@ -7,18 +7,38 @@
 > Dernière mise à jour : **2026-10-22** (passe « matières dédoublonnées, carnet du
 > primaire » — § 4 quaterdecies) · branche `caisse-journal-et-sync-0.3.15` **poussée sur
 > `main`** le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
-> `package.json` = **0.3.21** · paquet Windows **0.3.21 construit, non envoyé** ·
-> paquet Linux (THE GENIUS) **0.3.19**, pas encore reconstruit
+> `package.json` = **0.3.21** · paquets **Windows ET Linux construits, non envoyés** ·
+> déploiement Vercel à jour (`0dd169b`)
 >
-> **0.3.21 porte le correctif I12** (la note d'une matière s'écrivait dans la matière
-> suivante) : c'est le défaut que le responsable signalait depuis le matin, et il est le
-> seul motif de cette version. Vérifié DANS le paquet livré, pas dans le dépôt — les deux
-> clés de ligne composées y sont (`${Z}:${o.id}` pour le Tableau, `${_}:${n.id}` pour la
-> Saisie rapide), et `app/package.json` embarqué annonce 0.3.21.
+> **0.3.21 porte les correctifs I12 et I13.** I12 : la note d'une matière s'écrivait dans
+> la matière suivante — le défaut que le responsable signalait depuis le matin. I13 : une
+> table synchronisée neuve naissait vide et ne se remplissait jamais, trouvé en préparant
+> le paquet Linux, **avant** l'envoi (les 11 écritures de caisse de THE GENIUS auraient
+> été invisibles pour toujours).
+>
+> **Les deux paquets ont été VÉRIFIÉS dans leur contenu, pas dans le dépôt :**
+>
+> | | Windows | Linux |
+> |---|---|---|
+> | Fichier | `packaging/Output/NotesCam-Setup-0.3.21.exe` | `packaging/linux/Output/notescam-linux-x64-0.3.21.tar.gz` |
+> | Taille | 30 793 439 o | 53 512 195 o |
+> | SHA-256 | `60429d0d…531c40b21` | `94aca9db…236cedc18` |
+> | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.21-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.21.txt` |
+> | Script | — (installeur) | `packaging/linux/deploy-0.3.21.sh` |
+>
+> Contrôlé dans chaque paquet : `app/package.json` annonce 0.3.21 · les **deux** clés de
+> ligne composées sont dans le bundle (une par écran de saisie — une seule aurait laissé
+> un écran cassé) · `db.js` porte la règle « table entière » · les cinq tables sont dans
+> `schema.sql`.
 >
 > ⚠ **La 0.3.20 est ABANDONNÉE, ne pas la distribuer** : construite puis remplacée le même
-> jour, avant tout envoi. Sa notice porte un bandeau qui le dit. Le déploiement Vercel, lui,
-> est à jour (`0dd169b`).
+> jour, avant tout envoi. Sa notice porte un bandeau qui le dit. L'exe 0.3.21 a lui aussi
+> été reconstruit après I13 — seule l'empreinte ci-dessus est valable.
+>
+> ⚠ **La CI est rouge sur `main` depuis le 2026-10-20** (15 exécutions, toutes en échec),
+> à l'étape `npm test`, alors que la suite passe **193 ok / 0 ko** en local. Ce n'est pas
+> causé par le travail du jour — l'échec précède les commits de matières. Le journal du job
+> demande une authentification GitHub, donc non lu : **à diagnostiquer, non diagnostiqué.**
 
 ---
 

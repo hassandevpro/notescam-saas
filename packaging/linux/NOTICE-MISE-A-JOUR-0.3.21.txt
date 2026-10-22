@@ -1,0 +1,272 @@
+========================================================================
+NotesCam 0.3.21 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.21.tar.gz
+Taille   : 53 512 195 octets
+SHA-256  : 94aca9db5fee6b48e49e37fd56598ca40e54c6fe5848da1db98f06d236cedc18
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.21.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire. Elle contient TOUT ce que contenait
+la 0.3.19 (même liste de matières partout, matière hors référentiel,
+carnet détaillé du primaire), et donc aussi les 0.3.18 à 0.3.15.
+
+LA 0.3.20 N'EXISTE PAS POUR LINUX. Elle a été construite pour Windows
+puis abandonnée le même jour, avant tout envoi : il lui manquait le
+correctif no 1 ci-dessous. Ne la cherchez pas.
+
+
+>>> LISEZ CECI AVANT D'INSTALLER <<<
+------------------------------------
+
+CETTE VERSION CRÉE CINQ TABLES DANS LA BASE. C'est la différence avec
+la 0.3.19, qui ajoutait trois colonnes :
+
+    cash_movements              le journal de caisse
+    referentiel_libelles        les libellés de matières de l'école
+    apc_competences_masques     compétences masquées par la classe
+    prim_competences_masques    idem, primaire
+    mat_domaines_masques        idem, maternelle
+
+`cash_movements` est SYNCHRONISÉE avec le Cloud, et c'est le point à
+comprendre avant d'installer.
+
+CE QUI A ÉTÉ CORRIGÉ POUR VOUS, JUSTE AVANT CETTE LIVRAISON. La
+descente des données du Cloud avance avec un curseur : une ligne déjà
+dépassée n'est plus jamais renvoyée. Le serveur savait remettre ce
+curseur à zéro quand une COLONNE apparaissait sur une table
+synchronisée — il ne le faisait PAS quand c'était une TABLE ENTIÈRE.
+
+Mesuré le 22/10/2026 avant d'envoyer ce paquet : votre Cloud porte
+ONZE écritures de caisse, datées du 18/10/2026. Votre curseur est donc
+passé devant depuis plusieurs jours. Sans cette correction, vous
+auriez installé la mise à jour, ouvert le journal de caisse, et trouvé
+une page VIDE — définitivement, puisque rien ne redescendait plus.
+
+Avec cette version, le serveur voit la table neuve, remet le curseur à
+zéro, et le prochain cycle ramène vos écritures.
+
+CE QUE VOUS ALLEZ CONSTATER, et qui est NORMAL :
+
+  · un long rattrapage de synchronisation, comme en 0.3.16 et 0.3.19 ;
+  · un bandeau de synchronisation actif plus longtemps que d'habitude ;
+  · sur un gros établissement, cela peut durer plusieurs heures.
+
+CE QUI N'ARRIVE PAS pendant ce temps : rien n'est perdu. Les saisies de
+la journée partent dans la file et montent au Cloud normalement. Le
+rattrapage descend, il ne remonte pas : il n'écrase aucune saisie.
+
+Le journal du service le dit, et c'est la trace à garder :
+
+    journalctl -u notescam -n 40 | grep -iE "table entière|curseur de pull"
+
+Vous devez y lire, en clair :
+
+    [db] table(s)/colonne(s) ajoutée(s) sur table(s) synchronisée(s) :
+         cash_movements (table entière), ...
+    [db] curseur de pull remis à zéro : le prochain pull relira tout
+
+Si ces deux lignes sont ABSENTES alors que la version est bien 0.3.21,
+appelez l'éditeur AVANT de conclure quoi que ce soit sur la caisse.
+
+PRÉVENEZ L'ÉCOLE AVANT, pas après. Une synchronisation qui travaille
+plusieurs heures sans explication se lit comme une panne.
+
+
+CE QUE CETTE VERSION APPORTE EN PLUS DE LA 0.3.19
+--------------------------------------------------
+
+1. LA NOTE D'UNE MATIÈRE NE S'ÉCRIT PLUS DANS LA MATIÈRE SUIVANTE.
+
+   C'EST LE CORRECTIF POUR LEQUEL CETTE VERSION EXISTE, et le plus
+   grave de toute la série.
+
+   LE SYMPTÔME, signalé par le responsable : « un enseignant avec
+   plusieurs matières, quand il entre les notes d'une matière les
+   autres matières héritent automatiquement ». Et constaté à l'écran :
+   la matière affichée était « Informatique fondamentale et TIC », la
+   case de l'élève affichait 20, et la statistique du même panneau
+   annonçait « Moy. : 12/20 ».
+
+   CE QUE CELA COÛTAIT. Au premier clic n'importe où sur l'écran, la
+   note de la matière PRÉCÉDENTE était ENREGISTRÉE dans la matière
+   affichée. Un enseignant qui enchaînait ses matières pouvait remplir
+   toute une classe avec la même note sans rien remarquer : l'écran
+   avait l'air normal, et la sauvegarde est automatique.
+
+   LA CAUSE. En changeant de matière, le logiciel réutilisait les mêmes
+   cases de saisie à l'écran au lieu d'en reconstruire des neuves. La
+   valeur affichée restait celle de la matière précédente, alors que la
+   note réellement enregistrée, elle, était la bonne. L'écran mentait,
+   puis son mensonge s'écrivait.
+
+   CE QUI CHANGE. Changer de matière reconstruit les cases, qui portent
+   donc la note de la BONNE matière. Les deux écrans de saisie — « Saisie
+   rapide » et « Tableau » — sont corrigés : ils avaient le même défaut.
+   L'écran des compétences APC n'était pas touché.
+
+   LE CONTRÔLE, en dix secondes : saisissez une note dans une matière,
+   puis changez de matière SANS rien taper. La case doit être vide, ou
+   porter la note déjà enregistrée pour cette matière — jamais celle que
+   vous venez de taper. Faites-le dans les deux écrans.
+
+   CE QUE L'INSTALLATION NE RÉPARE PAS : les notes DÉJÀ écrites par
+   erreur. Le logiciel ne peut pas deviner lesquelles sont fausses.
+   Faites contrôler par l'école les matières des enseignants qui en
+   portent plusieurs, et corriger à la main celles qui portent la note
+   d'une autre matière. C'est le seul point de cette mise à jour qui
+   demande un travail humain.
+
+2. UNE MATIÈRE N'EXISTE PLUS QU'UNE FOIS PAR CLASSE.
+
+   LE SYMPTÔME : la même matière apparaissait deux fois — parfois
+   quatre, parfois seize — à la saisie des notes et sur le bulletin.
+
+   LA CAUSE. L'identifiant d'une matière de classe était tiré au hasard
+   à sa création. Un poste dont le cache avait été vidé ne reconnaissait
+   pas les matières déjà en place et en recréait une série complète ;
+   chaque rechargement de page pouvait en ajouter.
+
+   CE QUI CHANGE. L'identifiant est calculé à partir de la CLASSE et du
+   NOM. Le même nom dans la même classe donne le même identifiant sur
+   tous les postes : un deuxième exemplaire ne peut plus naître.
+
+   LES DOUBLONS DÉJÀ CRÉÉS dans les matières de classe ont été retirés
+   côté Cloud le 22/10/2026, après vérification note par note. Ils
+   redescendent par la synchronisation.
+
+3. UNE MATIÈRE LOCALE NE COUVRE PLUS LA MÊME MATIÈRE EN DEUX LANGUES.
+
+   Dans une classe bilingue, le programme porte la même matière dans
+   les deux langues — Français et French, Anglais et English. Une
+   matière de l'école nommée « Français » était rattachée aux DEUX à la
+   fois : la note saisie une fois s'écrivait aux deux endroits, et la
+   matière sortait deux fois sur le bulletin.
+
+   Une matière de l'école ne couvre plus qu'UN seul côté. Celles qui
+   regroupent légitimement deux entrées — « Histoire-Géographie » —
+   continuent de le faire : seules les paires de TRADUCTION sont
+   séparées.
+
+4. L'ORDRE DES MATIÈRES EST LE MÊME PARTOUT.
+
+   Deux matières de même rang pouvaient échanger leur place entre la
+   saisie, le bulletin et le rapport de classe. L'ordre est maintenant
+   tranché de la même façon sur tous les écrans et tous les postes.
+
+5. L'EN-TÊTE ANGLAIS OFFICIEL EST CORRECT.
+
+   Relevé sur un rapport de résultats IMPRIMÉ de votre établissement,
+   le bloc anglais disait :
+
+       Regional Delegation Ouest
+       Divisional Delegation Mifi
+
+   Il s'imprime désormais :
+
+       Regional Delegation for the West
+       Divisional Delegation for Mifi
+
+   Les dix régions ont leur nom anglais officiel. Le DÉPARTEMENT garde
+   son nom — Mifi, Wouri, Mfoundi sont des noms propres. Le bloc
+   français est inchangé.
+
+6. LE LOGO SUIT LE SECTEUR DE LA CLASSE.
+
+   Votre établissement a plusieurs secteurs. Le rapport de classe
+   imprimait le logo, le cachet et le nom de l'ÉTABLISSEMENT PRINCIPAL
+   quelle que soit la classe, alors que les bulletins prenaient déjà
+   ceux du secteur. Les deux documents sont désormais d'accord : une
+   5eme sort sous le COLLÈGE, une SIL sous l'ÉCOLE.
+
+   Le NOM imprimé suit le secteur lui aussi. Si l'école préfère garder
+   le nom du complexe sur tous les documents et ne changer que le logo,
+   dites-le : c'est un réglage, pas un développement.
+
+7. UN IMPORT DE NOTES N'EFFACE PLUS CE QU'IL NE PORTE PAS.
+
+   Une cellule vide dans le fichier importé était écrite comme une note
+   vide, et effaçait la note déjà en place. Les cellules vides sont
+   maintenant ignorées : l'import complète, il ne remplace pas.
+
+
+INSTALLATION
+-------------
+
+En root, depuis le dossier qui contient l'archive :
+
+    sudo ./deploy-0.3.21.sh notescam-linux-x64-0.3.21.tar.gz
+
+Le script, et pas `install.sh` seul : il ARRÊTE le service avant la
+copie, SAUVEGARDE la base par VACUUM INTO et VÉRIFIE la sauvegarde. Une
+sauvegarde non vérifiée n'est pas une sauvegarde. Il s'arrête de
+lui-même, sans toucher à l'application, si la sauvegarde n'est pas
+vérifiable.
+
+Il ne supprime aucune base, ne réinitialise aucune file, ne refait aucun
+appairage, n'écrit aucune donnée métier et ne force aucune
+synchronisation. Un code de sortie différent de zéro est le signal
+d'appeler l'éditeur, PAS de tenter une réparation.
+
+
+À VÉRIFIER APRÈS L'INSTALLATION
+--------------------------------
+
+  1. curl -s http://localhost:8080/api/version  →  0.3.21
+
+  2. LE CONTRÔLE DU CORRECTIF no 1, celui qui compte. Avec un compte
+     enseignant portant plusieurs matières : saisir une note, changer
+     de matière sans rien taper, et vérifier que la case ne porte pas
+     la note qu'on vient de taper. Dans « Saisie rapide » ET dans
+     « Tableau ».
+
+  3. Le rattrapage de synchronisation est bien parti :
+
+         journalctl -u notescam -n 40 | grep -i "curseur de pull"
+
+  4. Une fois le rattrapage terminé, le journal de caisse porte vos
+     écritures (onze au 22/10/2026). S'il reste vide après un cycle
+     complet, appelez l'éditeur : ne saisissez pas les écritures une
+     deuxième fois, elles sont au Cloud.
+
+  5. Les notes déjà saisies sont toutes là et les moyennes sont
+     inchangées : cette version change ce qui s'AFFICHE et ce qui
+     s'ENREGISTRE à la saisie, elle ne change aucun calcul.
+
+  6. Vos effectifs n'ont pas bougé : ouvrez la liste des élèves et
+     comparez au relevé pris avant l'installation (le script l'affiche).
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+
+Réinstallez l'archive 0.3.19 de la même façon.
+
+CE QUE LE RETOUR ARRIÈRE FAIT, exactement :
+
+  · les cinq tables RESTENT dans la base. C'est sans danger : la 0.3.19
+    les ignore. Aucune donnée n'est perdue, et réinstaller la 0.3.21
+    ensuite les retrouve telles quelles ;
+  · le journal de caisse n'est plus accessible, ses écritures restent
+    en base et au Cloud ;
+  · LE DÉFAUT no 1 REVIENT. C'est la raison de ne revenir en arrière
+    que si cette version casse quelque chose de plus grave que « une
+    note peut s'écrire dans la mauvaise matière ».
+  · AUCUNE NOTE N'EST PERDUE, dans aucun des deux sens.
+
+Si un écran continue de refuser alors que le script dit que tout est en
+place : envoyez la sortie COMPLÈTE du script à l'éditeur. N'essayez pas
+de réparer la base à la main.
+
+------------------------------------------------------------------------

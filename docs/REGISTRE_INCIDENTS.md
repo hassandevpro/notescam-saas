@@ -508,3 +508,67 @@ exacte, sauvegarde en base et contrôle après coup dans la même transaction.
 propagerait donc **pas** à un serveur d'école en réseau local. BRIGHT CONTINENT travaille
 dans le navigateur, la correction la concerne entièrement ; pour une école LAN, il
 faudrait d'abord poser ces déclencheurs.
+
+---
+
+## I13 — Une table synchronisée qui naît vide et ne se remplit jamais
+
+**Date** : 2026-10-22 · **Statut** : **corrigé dans le code (NON LIVRÉ)** ·
+**Source** : trouvé en préparant le paquet Linux de THE GENIUS, **avant** l'envoi
+
+### Ce qui allait être livré
+
+La 0.3.21 crée **cinq tables** que la 0.3.19 — la version installée chez THE GENIUS —
+n'avait pas : `cash_movements`, `referentiel_libelles` et les trois `*_masques`. L'une
+d'elles, `cash_movements` (le journal de caisse), est **synchronisée avec le Cloud**.
+
+`sync-pull` est un keyset strictement supérieur au curseur `pull_at` : **une ligne déjà
+dépassée n'est plus jamais renvoyée.** Le serveur savait remettre ce curseur à zéro quand
+une **colonne** apparaissait sur une table synchronisée — c'est la parade posée après
+l'incident `sector` du 27/08/2026. Il ne le faisait **pas** quand c'était une **table
+entière**.
+
+**Mesuré avant d'envoyer quoi que ce soit** : le Cloud de THE GENIUS porte **11 écritures
+de caisse, toutes datées du 2026-10-18** — quatre jours avant le paquet. Leur curseur est
+donc largement passé devant.
+
+Conséquence si le paquet partait tel quel : l'école installe, ouvre son journal de caisse,
+et le trouve **vide — définitivement**, puisque plus rien ne redescend. Les écritures sont
+au Cloud, intactes, et invisibles. Et le réflexe naturel de l'école serait de **tout
+ressaisir**, ce qui aurait créé onze doublons à la remontée.
+
+**Une colonne neuve perd un champ ; une table neuve perd tout son contenu.** C'est la
+même cause, un cran plus haut, et elle avait été manquée.
+
+### La correction
+
+`server/db.js` relève désormais les tables **réellement créées** pendant le démarrage
+(photo de `sqlite_master` avant et après `schema.sql`) et applique la même règle qu'aux
+colonnes : si l'une d'elles est synchronisée, le curseur de descente est remis à zéro.
+
+Le cas de la base **neuve** est écarté en amont — tout y est créé d'un coup, il n'y a
+aucun curseur à invalider. Mesuré au passage, et ce n'était pas ce que je croyais : une
+installation neuve annonçait **déjà** une remise à zéro, parce que `schema.sql` ne porte
+pas toutes les colonnes (79 sont posées par les migrations légères). C'est inoffensif — il
+n'y a rien à invalider — mais le test le dit explicitement plutôt que de figer une
+croyance fausse.
+
+**Preuve** : `server/_pull_cursor_table_neuve.test.mjs`, **9 contrôles**. Il fabrique la
+situation exacte d'une école — base complète, curseur posé à une date avancée, table
+retirée — démarre le serveur dessus et vérifie que le curseur tombe. Il vérifie aussi que
+le journal **nomme** la table responsable (`cash_movements (table entière)`) : sans cela,
+un dépanneur ne peut pas expliquer à l'école pourquoi la synchronisation a travaillé des
+heures. Et il verrouille la non-régression qui compte : un démarrage **sans** table ni
+colonne neuve laisse le curseur **intact**, sinon chaque redémarrage du serveur relirait
+toute la base.
+
+### Ce que cet incident apprend
+
+Le défaut n'a pas été trouvé par un test ni par un audit, mais en se demandant **ce que la
+mise à jour allait trouver sur le serveur de l'école** — et non ce qu'elle contient. La
+question « cette table existe-t-elle déjà là-bas ? » n'a pas de réponse dans le dépôt.
+
+**À refaire à chaque paquet** : comparer le schéma livré à celui de la version réellement
+installée dans l'école (`git show <commit du paquet précédent>:server/schema.sql`), et pour
+chaque table ou colonne neuve **sur une table synchronisée**, vérifier ce que le Cloud
+porte déjà. Ici, une requête de comptage a suffi à transformer une hypothèse en fait.

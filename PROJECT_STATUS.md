@@ -48,7 +48,11 @@
 > correction, 31/0 après** ; suite complète sans `dist/` = **193 ok / 0 ko** ; clone vierge
 > avec `npm ci` = **192 ok / 1 ko** sur le code non corrigé, ce qui écarte Linux, les
 > dépendances, les fichiers gitignorés et la version de Node.
-> La prochaine exécution sur `main` est la seule preuve qui compte : **à constater.**
+> **CONSTATÉ** : exécution **17** sur `981a0f0` = **success**, le 2026-10-22 de 17:13 à
+> 17:14 UTC. Première verte après **neuf échecs consécutifs** (exécutions 8 à 16). Les
+> étapes `Build edition cloud` et `Build edition LAN` ont tourné **pour la première
+> fois** : le pipeline s'arrêtait avant elles depuis le 2026-10-20, donc rien ne
+> vérifiait en CI que les deux éditions se construisent.
 
 ---
 

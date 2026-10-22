@@ -5,8 +5,9 @@
 > fichier : si une information ne peut pas être prouvée, elle est marquée « à vérifier ».
 >
 > Dernière mise à jour : **2026-10-22** (passe « matières dédoublonnées, carnet du
-> primaire » — § 4 quaterdecies) · `HEAD` = `1d90cc8` ·
-> `package.json` = **0.3.17**, dernier commit de release = 0.3.14
+> primaire » — § 4 quaterdecies) · branche `caisse-journal-et-sync-0.3.15` fusionnée
+> avec `origin/main` le 2026-10-22 ·
+> `package.json` = **0.3.20**, dernier commit de release = 0.3.14
 
 ---
 

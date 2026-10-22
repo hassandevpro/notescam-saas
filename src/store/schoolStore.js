@@ -943,8 +943,9 @@ export const useSchoolStore = create((set, get) => ({
   //   • au rechargement de la page, le BULLETIN lit le cache — la matière
   //     maison n'y est pas, donc elle ne s'imprime pas. C'est le défaut
   //     rapporté : « je ne les vois pas sur le bulletin » ;
-  //   • le rattrapage, lui, les croit toujours manquantes et les RECRÉE. Huit
-  //     doublons ont été fabriqués ainsi pour BRIGHT CONTINENT.
+  //   • le rattrapage, lui, les croit toujours manquantes et les RECRÉE. Seize
+  //     matières ont été fabriquées pour quatre noms chez BRIGHT CONTINENT,
+  //     quatre de plus à chaque rechargement de la page.
   //
   // D'où ce rechargement FORCÉ, qui court-circuite l'empreinte et réécrit le
   // cache. L'empreinte est conservée : seules NOS lignes ont bougé, la version

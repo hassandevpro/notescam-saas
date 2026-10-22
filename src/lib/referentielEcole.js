@@ -221,9 +221,9 @@ export async function addMatiereMaisonApc({
   //      (`idMaison`). Deux postes qui créent le même nom écrivent la même
   //      ligne : l'upsert la met à jour, il n'en ajoute pas une seconde.
   //
-  // Le dernier rempart reste la base : un index UNIQUE sur (school_id, nom
-  // normalisé) refuse le doublon même si un client fautif passait outre. Voir
-  // supabase_apc_matieres_unicite.sql.
+  // Le dernier rempart serait un index UNIQUE en base sur (school_id, nom
+  // normalisé) : il refuserait le doublon même à un client fautif. Il ne peut
+  // être posé qu'après le nettoyage des copies déjà présentes.
   const normNom = (x) => String(x || '').toLowerCase().normalize('NFD')
     .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
 

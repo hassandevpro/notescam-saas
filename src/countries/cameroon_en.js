@@ -88,15 +88,20 @@ export const cameroonEn = {
   // Bilingual (EN primary + FR secondary) — Cameroon specificity.
   officials: {
     primary: {
+      // `lang` décide du nom à imprimer pour la région : le bloc anglais dit
+      // « West » là où le bloc français dit « Ouest ». Sans lui, les deux blocs
+      // lisaient la même valeur française (voir cameroonRegions.js).
+      lang:        'en',
       republic:    'REPUBLIC OF CAMEROON',
       motto:       'Peace – Work – Fatherland',
       ministry:    'Ministry of Secondary Education (MINESEC)',
-      delegations: ['Regional Delegation {region}', 'Divisional Delegation {division}'],
+      delegations: ['Regional Delegation for the {region}', 'Divisional Delegation for {division}'],
       ministryBasic:    'Ministry of Basic Education (MINEDUB)',
-      delegationsBasic: ['Regional Delegation of Basic Education {region}', 'Divisional Delegation of Basic Education {division}'],
+      delegationsBasic: ['Regional Delegation of Basic Education for the {region}', 'Divisional Delegation of Basic Education for {division}'],
       estLabel:    'School No.:',
     },
     secondary: {
+      lang:        'fr',
       republic:    'RÉPUBLIQUE DU CAMEROUN',
       motto:       'Paix – Travail – Patrie',
       ministry:    'Ministère des Enseignements Secondaires (MINESEC)',

@@ -8,6 +8,8 @@
 
 import { cameroonFr } from './cameroon_fr.js';
 import { cameroonEn } from './cameroon_en.js';
+// Nom anglais des régions camerounaises, pour le bloc anglais de l'en-tête.
+import { regionEn } from './cameroonRegions.js';
 import { guineaEq }   from './guinea_eq.js';
 import { ivoryCoast } from './ivory_coast.js';
 import { gabon }      from './gabon.js';
@@ -85,19 +87,27 @@ export function bulletinOfficials(school, opts = {}) {
   if (!off) return null;
   const basic = !!opts.basic;
 
-  const fill = (s) => String(s ?? '')
-    .replace(/\{region\}/g,   school?.region   || '—')
+  // La région s'imprime dans la LANGUE DU BLOC : « Ouest » côté français,
+  // « West » côté anglais. Les deux blocs lisaient la même valeur stockée, donc
+  // l'en-tête anglais annonçait « Regional Delegation Ouest ». Le département,
+  // lui, est un nom propre et ne se traduit pas (voir cameroonRegions.js).
+  const fill = (s, lang) => String(s ?? '')
+    .replace(/\{region\}/g,   (lang === 'en' ? regionEn(school?.region) : school?.region) || '—')
     .replace(/\{division\}/g, school?.division || '—');
 
   const buildBlock = (b) => {
     if (!b) return null;
     const delegations = basic && b.delegationsBasic ? b.delegationsBasic : b.delegations;
     const ministry    = basic && b.ministryBasic    ? b.ministryBasic    : b.ministry;
-    const lines = (delegations || []).map(fill);
+    const lines = (delegations || []).map((d) => fill(d, b.lang));
     const establishment = school?.establishment_no
       ? `${b.estLabel || 'N° :'} ${school.establishment_no}`
       : null;
     return {
+      // La LANGUE du bloc voyage avec lui : les documents qui veulent un
+      // français à gauche et un anglais à droite n'ont pas à redeviner l'ordre
+      // (`blocks` est réordonné selon la langue de la CLASSE).
+      lang:     b.lang || null,
       republic: b.republic,
       motto:    b.motto,
       ministry,

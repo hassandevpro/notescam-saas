@@ -8,7 +8,13 @@ import { matAcquisLabel, matAcquisCode } from '../core/referentielI18n';
 import { downloadExcel } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
-import { resolveCountryCode } from '../countries';
+import { resolveCountryCode, bulletinOfficials } from '../countries';
+// Le logo, le cachet et la signature suivent le SECTEUR de la classe :
+// maternelle, primaire et collège d'un même complexe ont chacun les leurs.
+// MÊME module que les bulletins (`classIdentity`), qui le faisaient déjà — les
+// rapports de classe étaient les seuls documents à imprimer le logo du complexe
+// quelle que soit la classe.
+import { classIdentity } from '../lib/schoolIdentity';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import { resolveClassEngine, SECTIONS } from '../core/engineResolver';
@@ -106,6 +112,7 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
     </tr>`;
   }).join('');
 
+  const officiels = officielsHtml(school);
   const logoTag = school?.logo_url
     ? `<img src="${school.logo_url}" alt="Logo" class="rc-logo" />`
     : '';
@@ -114,7 +121,7 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
   <table class="rc-head"><tbody><tr>
     <td class="rc-side">${isGE
       ? `<strong>REPÚBLICA DE GUINEA ECUATORIAL</strong><br/>Unidad – Paz – Justicia<br/>———————<br/>Ministerio de Educación<br/>y Enseñanza Universitaria<br/>${school?.region || '—'}`
-      : `<strong>RÉPUBLIQUE DU CAMEROUN</strong><br/>Paix – Travail – Patrie<br/>———————<br/>Ministère des Enseignements Secondaires (MINESEC)<br/>Délégation Régionale ${school?.region || '—'}<br/>Délégation Départementale ${school?.division || '—'}`}</td>
+      : officiels.gauche}</td>
     <td class="rc-center">
       ${logoTag}
       <strong class="rc-school">${(school?.name || Lp('Établissement', 'Centro educativo')).toUpperCase()}</strong>
@@ -123,7 +130,7 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
     </td>
     <td class="rc-side">${isGE
       ? `<strong>MINISTERIO DE EDUCACIÓN</strong><br/>Y Enseñanza Universitaria<br/>———————<br/>Dirección Provincial<br/>${school?.region || '—'}`
-      : `<strong>REPUBLIC OF CAMEROON</strong><br/>Peace – Work – Fatherland<br/>———————<br/>Ministry of Secondary Education (MINESEC)<br/>Regional Delegation ${school?.region || '—'}<br/>Divisional Delegation ${school?.division || '—'}`}</td>
+      : officiels.droite}</td>
   </tr></tbody></table>
 
   <div class="title-bar">${Lp('RAPPORT DE RÉSULTATS', 'INFORME DE RESULTADOS')} — ${(selectedClass?.name || '').toUpperCase()} — ${period.label.toUpperCase()}</div>
@@ -237,17 +244,18 @@ function acquisitionBodyHtml({ school, selectedClass, period, report, classStude
   // bas de page et que le bulletin, via la table officielle bilingue.
   const acquisLabel = (a) => matAcquisLabel(a.code, a.libelle, sys);
 
+  const officiels = officielsHtml(school, { basic: true });
   const logoTag = school?.logo_url ? `<img src="${school.logo_url}" alt="Logo" class="rc-logo" />` : '';
 
   return `<div class="page">
   <table class="rc-head"><tbody><tr>
-    <td class="rc-side"><strong>RÉPUBLIQUE DU CAMEROUN</strong><br/>Paix – Travail – Patrie<br/>———————<br/>Ministère de l'Éducation de Base (MINEDUB)<br/>Délégation Régionale ${school?.region || '—'}<br/>Délégation Départementale ${school?.division || '—'}</td>
+    <td class="rc-side">${officiels.gauche}</td>
     <td class="rc-center">
       ${logoTag}
       <strong class="rc-school">${(school?.name || 'Établissement').toUpperCase()}</strong>
       <span class="rc-meta">Année scolaire : <strong>${school?.current_year || '—'}</strong></span>
     </td>
-    <td class="rc-side"><strong>REPUBLIC OF CAMEROON</strong><br/>Peace – Work – Fatherland<br/>———————<br/>Ministry of Basic Education (MINEDUB)<br/>Regional Delegation ${school?.region || '—'}<br/>Divisional Delegation ${school?.division || '—'}</td>
+    <td class="rc-side">${officiels.droite}</td>
   </tr></tbody></table>
 
   <div class="title-bar">${L("RAPPORT D'ACQUISITION", 'ACQUISITION REPORT')} — ${(selectedClass?.name || '').toUpperCase()} — ${period.label.toUpperCase()}</div>
@@ -454,7 +462,7 @@ function printReportsBatch({ title, classesToPrint, period, cols, ctx }) {
       // la saute plutôt que d'imprimer une page de tirets.
       if (!rep || rep.notReady) return null;
       maxSubjects = Math.max(maxSubjects, rep.classSubjects?.length || 0);
-      return bodyHtmlFor({ school: ctx.school, selectedClass: cls, period, cols, ...rep });
+      return bodyHtmlFor({ school: classIdentity(ctx.school, cls, ctx.schoolUnits), selectedClass: cls, period, cols, ...rep });
     })
     .filter(Boolean);
   if (!bodies.length) return 0;
@@ -504,6 +512,35 @@ function computeClassDiscipline(cls, period, { students, vsData }) {
 
   if (!classStudents.length) return null;
   return { classStudents, rows, totals, unclassifiedCount };
+}
+
+// ── L'EN-TÊTE OFFICIEL VIENT DU PAYS, PLUS D'UNE COPIE PAR DOCUMENT ────────
+//
+// Les trois rapports recopiaient chacun les deux blocs officiels en dur. Résultat
+// relevé sur un rapport imprimé de THE GENIUS : « Regional Delegation Ouest »,
+// « Divisional Delegation Mifi » — région non traduite et préposition manquante,
+// alors que la table du pays, elle, savait déjà construire ces lignes. Trois
+// copies, donc trois endroits à corriger, et deux qu'on oublie.
+//
+// `blocLateralHtml` rend UN bloc tel que `bulletinOfficials` le construit ;
+// `officielsHtml` rend la paire, français à gauche et anglais à droite — l'ordre
+// imprimé de ces documents, indépendant de la langue de la classe.
+function blocLateralHtml(b) {
+  if (!b) return '';
+  const l = [`<strong>${b.republic}</strong>`, b.motto, '———————', b.ministry, ...(b.lines || [])];
+  if (b.establishment) l.push(b.establishment);
+  return l.filter(Boolean).join('<br/>');
+}
+
+function officielsHtml(school, { basic = false } = {}) {
+  const o = bulletinOfficials(school, { basic });
+  const blocks = o?.blocks || [];
+  if (!blocks.length) return { gauche: '', droite: '' };
+  const fr = blocks.find((b) => b.lang === 'fr');
+  const en = blocks.find((b) => b.lang === 'en');
+  // Pays mono-langue (Guinée Équatoriale, Gabon…) : un seul bloc, à gauche.
+  if (!fr && !en) return { gauche: blocLateralHtml(blocks[0]), droite: '' };
+  return { gauche: blocLateralHtml(fr || blocks[0]), droite: blocLateralHtml(en || blocks[1]) };
 }
 
 function disciplineReportBodyHtml({ school, selectedClass, period, isGE, rows, totals, unclassifiedCount }) {
@@ -586,7 +623,7 @@ function printDisciplineBatch({ title, classesToPrint, period, vsData, students,
     .map((cls) => {
       const rep = computeClassDiscipline(cls, period, { students, vsData });
       if (!rep) return null;
-      return disciplineReportBodyHtml({ school, selectedClass: cls, period, isGE, ...rep });
+      return disciplineReportBodyHtml({ school: classIdentity(school, cls, schoolUnits), selectedClass: cls, period, isGE, ...rep });
     })
     .filter(Boolean);
   if (!bodies.length) return 0;
@@ -756,6 +793,9 @@ export default function Reports() {
   const subjects = useSchoolStore((s) => s.subjects);
   const students = useSchoolStore((s) => s.students);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
+  // Secteurs du complexe (maternelle / primaire / collège) : chacun a son logo,
+  // son cachet et sa signature. Le document imprime ceux de SON secteur.
+  const schoolUnits = useSchoolStore((s) => s.schoolUnits);
 
   // Moteurs officiels : leurs évaluations ne passent jamais par `gradeMap`.
   // Sans ces données, un rapport MINEDUB/APC n'aurait que des tirets.
@@ -899,10 +939,10 @@ export default function Reports() {
   // Un seul calcul : `computeClassReport` choisit la source (gradeMap, notes APC,
   // notes primaire, observations maternelle) et normalise la forme.
   const reportCtx = useMemo(() => ({
-    school, students, subjects, gradeMap,
+    school, schoolUnits, students, subjects, gradeMap,
     apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
     apcMasques, primMasques,
-  }), [school, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
+  }), [school, schoolUnits, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
       apcMasques, primMasques]);
 
   const classReport = useMemo(
@@ -1185,7 +1225,7 @@ export default function Reports() {
                 ⚙
               </button>
               <button
-                onClick={() => printReport({ school, selectedClass, period, cols, ...classReport })}
+                onClick={() => printReport({ school: classIdentity(school, selectedClass, schoolUnits), selectedClass, period, cols, ...classReport })}
                 className="btn-primary text-xs"
                 style={{ width: 'auto', paddingInline: '1.25rem' }}
               >
@@ -1200,7 +1240,7 @@ export default function Reports() {
                 Excel {t('discipline', 'discipline')}
               </button>
               <button
-                onClick={() => printDisciplineReport({ school, selectedClass, period, isGE, ...disciplineReport })}
+                onClick={() => printDisciplineReport({ school: classIdentity(school, selectedClass, schoolUnits), selectedClass, period, isGE, ...disciplineReport })}
                 className="btn-primary text-xs"
                 style={{ width: 'auto', paddingInline: '1.25rem' }}
               >

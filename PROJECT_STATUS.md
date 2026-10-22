@@ -35,6 +35,12 @@
 > jour, avant tout envoi. Sa notice porte un bandeau qui le dit. L'exe 0.3.21 a lui aussi
 > été reconstruit après I13 — seule l'empreinte ci-dessus est valable.
 >
+> ✅ **Doublons du référentiel de BRIGHT CONTINENT : corrigés en production** le
+> 2026-10-22, sur autorisation explicite. 5 groupes → 0 ; 9 matières, 27 compétences et 6
+> notes jumelles retirées ; les notes des matières gardées (6/3/1) sont intactes.
+> Sauvegarde conservée dans `zz_sauv_apc_doublons_20261022_*` — **à ne pas supprimer avant
+> validation par l'école**. Voir incident **I11 ter**.
+>
 > ⚠ **La CI est rouge sur `main` depuis le 2026-10-20** (15 exécutions, toutes en échec),
 > à l'étape `npm test`, alors que la suite passe **193 ok / 0 ko** en local. Ce n'est pas
 > causé par le travail du jour — l'échec précède les commits de matières. Le journal du job

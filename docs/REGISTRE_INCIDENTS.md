@@ -497,11 +497,25 @@ cause est l'identifiant tiré au hasard par `addMatiereMaisonApc`, **déjà corr
 `4e5011e` (identifiant déterministe — les seules lignes récentes s'appellent
 `ec_a8b8fb007184_…`). Seul l'héritage reste.
 
-Le ménage est **écrit et prouvé, pas appliqué** :
-`docs/corrections/2026-10-22-apc-matieres-referentiel-doublons.sql` — 9 matières, 27
-compétences, 6 notes, avec garde-fou d'état, preuve que chaque note supprimée a sa jumelle
-exacte, sauvegarde en base et contrôle après coup dans la même transaction.
-**En attente d'autorisation explicite.**
+Le ménage a été **APPLIQUÉ le 2026-10-22**, sur autorisation explicite du responsable, par
+`docs/corrections/2026-10-22-apc-matieres-referentiel-doublons.sql` — garde-fou d'état,
+preuve que chaque note supprimée avait sa jumelle exacte, sauvegarde en base et contrôle
+après coup dans la même transaction.
+
+**Constaté après coup, en lecture seule** :
+
+| Contrôle | Avant | Après |
+|---|---|---|
+| Groupes de matières maison en double | 5 | **0** |
+| Matières maison de BRIGHT CONTINENT | 20 | **11** |
+| Notes de `Langue Turc` (gardée) | 6 | **6** |
+| Notes de `Etude de texte` (gardée) | 3 | **3** |
+| Notes de `Expresion ecrite` (gardée) | 1 | **1** |
+
+Aucune note des matières gardées n'a bougé ; les 6 jumelles supprimées sont dans
+`zz_sauv_apc_doublons_20261022_notes` avec les 9 matières et 27 compétences. **Ces quatre
+tables de sauvegarde ne doivent être supprimées qu'après validation par l'école** — le
+retour arrière les relit telles quelles.
 
 ⚠ **Limite relevée** : il n'existe **aucun déclencheur de pierre tombale** sur
 `apc_matieres`, `apc_competences` ni `apc_notes`. Une suppression dans le Cloud ne se

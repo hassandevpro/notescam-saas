@@ -5,9 +5,10 @@
 > fichier : si une information ne peut pas être prouvée, elle est marquée « à vérifier ».
 >
 > Dernière mise à jour : **2026-10-22** (passe « matières dédoublonnées, carnet du
-> primaire » — § 4 quaterdecies) · branche `caisse-journal-et-sync-0.3.15` fusionnée
-> avec `origin/main` le 2026-10-22 ·
-> `package.json` = **0.3.20**, dernier commit de release = 0.3.14
+> primaire » — § 4 quaterdecies) · branche `caisse-journal-et-sync-0.3.15` **poussée sur
+> `main`** le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
+> `package.json` = **0.3.20** · paquet Windows **0.3.20 construit, non envoyé** ·
+> paquet Linux (THE GENIUS) **0.3.19**, pas encore reconstruit
 
 ---
 
@@ -750,10 +751,26 @@ telle quelle : le carnet est prêt, il attend ses notes.
 
 ### Ce qui a été corrigé dans le CODE
 
-**Commité localement, PAS ENCORE POUSSÉ** — `f4dce88` (le lot), `8872c23` (la fusion
-avec `origin/main`). Le `git push` a été refusé par le garde-fou de la session ; il reste
-à lancer à la main. Tant qu'il ne l'est pas, **rien de ce code n'est en ligne** : les 44
-écoles tournent sur `origin/main` = `f5c27c7`.
+**EN LIGNE depuis le 2026-10-22** — `f4dce88` (le lot), `8872c23` (la fusion avec
+`origin/main`), puis `b8b9438` (doublon de langue) et `270432e` (en-tête anglais, logo
+par secteur). Le responsable a lancé le `push` lui-même (`f5c27c7..270432e`) ; le
+déploiement Vercel de `270432e` est **READY**. Les 44 écoles du Cloud l'ont, après un
+rechargement forcé de la page (Ctrl+Shift+R) — le service worker sert l'ancienne
+interface jusque-là.
+
+**Côté LAN, le paquet Windows 0.3.20 est construit, et RIEN N'EST ENVOYÉ.**
+`packaging/Output/NotesCam-Setup-0.3.20.exe`, 30 791 053 octets, SHA-256
+`760f39368a31ec14ec17fb0922c7843b73f892f5567e9e399bd44ff0be515eb9`. Vérifié sur le
+paquet lui-même, pas sur le dépôt : `app/package.json` embarqué annonce bien 0.3.20, et
+le bundle livré porte les deux correctifs du jour (`Regional Delegation for the` ×2, et
+la table des paires de traduction `[["francais","french"],…]`). Notice :
+`packaging/NOTICE-MISE-A-JOUR-0.3.20-WINDOWS.txt` (ASCII, CRLF).
+
+Cette version **pose cinq tables neuves** côté LAN — `cash_movements`,
+`referentiel_libelles`, `apc_competences_masques`, `prim_competences_masques`,
+`mat_domaines_masques` — créées au DÉMARRAGE du serveur : le redémarrage du service
+après installation n'est donc pas optionnel, et la notice le dit à sa place d'étape 2.
+Le paquet **Linux** de THE GENIUS n'est pas construit pour 0.3.20.
 
 **3. Le carnet ne se tait plus un trimestre sur deux.** Décision **D19**. Les cinq blocs
 n'étaient câblés que sur la disposition **compacte**, que « Auto » ne choisit que pour une

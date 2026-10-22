@@ -1,0 +1,228 @@
+========================================================================
+NotesCam 0.3.20 (Windows) - Notice pour le responsable informatique
+========================================================================
+
+Installeur : NotesCam-Setup-0.3.20.exe
+Taille     : 30 791 053 octets
+SHA-256    : 760f39368a31ec14ec17fb0922c7843b73f892f5567e9e399bd44ff0be515eb9
+
+VERIFIEZ L'EMPREINTE AVANT D'INSTALLER. Ouvrez PowerShell dans le
+dossier qui contient le fichier et tapez :
+
+    Get-FileHash .\NotesCam-Setup-0.3.20.exe -Algorithm SHA256
+
+Si l'empreinte affichee ne correspond PAS a la ligne ci-dessus,
+N'INSTALLEZ PAS : le fichier a ete altere ou tronque pendant le
+transfert. Redemandez-le.
+
+Pour savoir quelle version tourne actuellement sur le poste, ouvrez
+dans le navigateur :  http://localhost:8080/api/version
+
+Cette notice decrit ce qui change DEPUIS LA 0.3.18, derniere version
+pour laquelle une notice Windows a ete ecrite. Elle contient donc
+aussi ce que la 0.3.19 apportait.
+
+
+CE QUE CETTE VERSION APPORTE
+-----------------------------
+
+1. UNE MATIERE N'EXISTE PLUS QU'UNE FOIS PAR CLASSE.
+
+   LE SYMPTOME, signale par deux ecoles : la meme matiere apparaissait
+   deux fois - parfois quatre, parfois seize - a la saisie des notes
+   et sur le bulletin. "Langue Turc", "Expression Orale", et d'autres.
+   Un exemplaire portait les notes, l'autre restait vide, et personne
+   ne pouvait savoir lequel etait le bon.
+
+   LA CAUSE. L'identifiant d'une matiere de classe etait tire au
+   hasard a sa creation. Un poste dont le cache avait ete vide ne
+   reconnaissait donc pas les matieres deja en place et en recreait
+   une serie complete. Chaque rechargement de page pouvait en ajouter.
+
+   CE QUI CHANGE. L'identifiant est desormais calcule a partir de la
+   CLASSE et du NOM de la matiere. Le meme nom dans la meme classe
+   donne le meme identifiant sur tous les postes : un deuxieme
+   exemplaire ne peut plus naitre.
+
+   LES DOUBLONS DEJA CREES ONT ETE RETIRES le 22/10/2026, apres
+   verification note par note qu'aucune note n'etait perdue. La
+   suppression a ete propagee a votre serveur : elle arrive au cycle
+   de synchronisation suivant. VOUS N'AVEZ RIEN A FAIRE.
+
+   Pour voir ce que porte VOTRE base, double-cliquez
+   diagnostic-doublons.cmd dans C:\Program Files\NotesCam.
+
+2. UN ENSEIGNANT QUI A PLUSIEURS MATIERES NE LES REMPLIT PLUS TOUTES
+   D'UN COUP.
+
+   LE SYMPTOME, tel qu'il a ete signale : "un enseignant avec
+   plusieurs matieres, quand il entre les notes d'une matiere, les
+   autres matieres heritent automatiquement".
+
+   LA CAUSE. Dans une classe BILINGUE, le programme porte la meme
+   matiere dans les deux langues - Francais et French, Anglais et
+   English, Mathematiques et Mathematics. Une matiere de l'ecole
+   nommee "Francais" etait rattachee aux DEUX a la fois : la note
+   saisie une fois s'ecrivait donc aux deux endroits.
+
+   CE QUI CHANGE. Une matiere de l'ecole ne couvre plus qu'UN seul
+   cote. Francais va au francais, French va a l'anglais. Les matieres
+   qui regroupent legitimement deux entrees - "Histoire-Geographie"
+   pour Histoire et Geographie - continuent de le faire : seules les
+   paires de TRADUCTION sont separees.
+
+   LES NOTES DEJA RECOPIEES ont ete retirees le 22/10/2026, apres
+   avoir verifie que chacune avait bien une jumelle identique ailleurs.
+   Aucune note saisie a la main n'a ete touchee.
+
+3. L'ORDRE DES MATIERES EST LE MEME PARTOUT.
+
+   Deux matieres de meme rang pouvaient s'echanger leur place entre la
+   saisie, le bulletin et le rapport de classe. L'ordre est maintenant
+   tranche de la meme facon sur tous les ecrans et sur tous les postes.
+
+4. L'EN-TETE ANGLAIS OFFICIEL EST CORRECT.
+
+   Releve sur un rapport de resultats imprime : le bloc anglais disait
+
+       Regional Delegation Ouest
+       Divisional Delegation Mifi
+
+   Le nom de la region n'etait pas traduit, et la preposition
+   manquait. Il s'imprime desormais
+
+       Regional Delegation for the West
+       Divisional Delegation for Mifi
+
+   Les dix regions ont leur nom anglais officiel. Le DEPARTEMENT garde
+   son nom : Mifi, Wouri, Mfoundi sont des noms propres. Le bloc
+   francais est inchange.
+
+5. LE LOGO SUIT LE SECTEUR DE LA CLASSE.
+
+   Dans un complexe qui a plusieurs secteurs (maternelle, primaire,
+   college), le rapport de classe imprimait le logo, le cachet et le
+   nom de l'ETABLISSEMENT PRINCIPAL quelle que soit la classe. Les
+   bulletins, eux, prenaient deja ceux du secteur. Les deux documents
+   sont desormais d'accord : une classe de 5eme sort sous le COLLEGE,
+   une SIL sous l'ECOLE.
+
+   Le NOM imprime suit le secteur lui aussi. Si votre etablissement
+   prefere garder le nom du complexe sur tous les documents et ne
+   changer que le logo, dites-le : c'est un reglage.
+
+6. UN IMPORT DE NOTES N'EFFACE PLUS CE QU'IL NE PORTE PAS.
+
+   Une cellule vide dans le fichier importe etait ecrite comme une
+   note vide, et effacait la note deja en place. Les cellules vides
+   sont maintenant ignorees : l'import complete, il ne remplace pas.
+
+7. UNE MATIERE HORS REFERENTIEL EST PERMISE (deja en 0.3.19).
+
+   Une ecole reglee sur un moteur officiel peut creer une matiere
+   absente du referentiel national - "Langue Turc", "Informatique",
+   une matiere maison - et cette matiere garde son classement, se
+   saisit et arrive sur le bulletin.
+
+8. LE CARNET DETAILLE DU PRIMAIRE (deja en 0.3.19).
+
+   Reglages -> "Bulletin du primaire" : le carnet detaille par
+   domaines de competence, ou le bulletin compact. C'est l'ecole qui
+   choisit.
+
+
+CETTE VERSION POSE CINQ TABLES NEUVES DANS LA BASE DU POSTE
+------------------------------------------------------------
+
+    cash_movements              journal de caisse
+    referentiel_libelles        libelles de matieres propres a l'ecole
+    apc_competences_masques     competences masquees par la classe
+    prim_competences_masques    idem, primaire
+    mat_domaines_masques        idem, maternelle
+
+Elles sont creees AU DEMARRAGE DU SERVEUR. C'est pourquoi le
+redemarrage de l'etape 2 ci-dessous n'est pas optionnel : sans lui,
+les ecrans concernes refusent d'enregistrer exactement comme avant,
+et l'ecole conclut que la mise a jour n'a rien change.
+
+Aucune table existante n'est modifiee, et aucune donnee n'est
+convertie.
+
+
+INSTALLATION - TROIS GESTES, DANS CET ORDRE
+--------------------------------------------
+
+1. INSTALLER. Clic droit sur NotesCam-Setup-0.3.20.exe ->
+   "Executer en tant qu'administrateur". Laissez-vous guider.
+   La base de l'ecole (C:\ProgramData\NotesCam\data) n'est jamais
+   touchee par l'installeur.
+
+2. REDEMARRER LE SERVICE. C'EST LE GESTE QU'ON OUBLIE, et sans lui
+   l'ecole conclut que la mise a jour n'a rien change : installer
+   remplace les FICHIERS, mais le serveur continue de tourner avec
+   l'ancien code, et c'est lui qui pose les tables neuves.
+
+   Menu Demarrer -> NotesCam -> "REDEMARRER APRES MAJ", ou bien,
+   dans C:\Program Files\NotesCam :
+
+       clic droit sur REDEMARRER-APRES-MAJ.cmd
+       -> "Executer en tant qu'administrateur"
+
+   Il arrete le service, SAUVEGARDE la base et verifie la sauvegarde,
+   redemarre, puis controle. Si la sauvegarde n'est pas verifiee, il
+   remet le service en marche et s'arrete sans rien avoir modifie.
+
+   (Le service tourne sous le compte SYSTEME : sans elevation, il ne
+   peut pas etre arrete, et le script vous le dira.)
+
+3. CONTROLER. Toujours dans C:\Program Files\NotesCam, double-cliquez
+   verifier-correctifs.cmd. Il lit la BASE et le serveur en marche, et
+   dit si ce poste a vraiment recu la mise a jour.
+
+
+A VERIFIER DEPUIS UN POSTE DE L'ECOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Shift+R : le navigateur garde
+l'ancienne interface en cache, et c'est de loin la cause la plus
+frequente d'un "rien n'a change".
+
+  1. http://localhost:8080/api/version  doit repondre 0.3.20
+
+  2. Saisie des notes, dans une classe qui montrait des doublons :
+     chaque matiere n'apparait plus qu'une fois. Rechargez la page
+     deux ou trois fois : le nombre de matieres ne bouge pas.
+
+  3. Avec un compte enseignant qui a plusieurs matieres : saisissez
+     UNE note dans UNE matiere, enregistrez, puis ouvrez les autres
+     matieres du meme enseignant. Elles doivent etre restees vides.
+
+  4. Imprimez un rapport de resultats d'une classe anglophone ou
+     bilingue : le bloc de droite doit dire "Regional Delegation for
+     the <votre region en anglais>".
+
+  5. Si vous avez plusieurs secteurs : imprimez un rapport d'une
+     classe du primaire et un du college. Les logos doivent differer.
+
+  6. Vos effectifs n'ont pas bouge : ouvrez la liste des eleves et
+     comparez au releve pris avant l'installation.
+
+
+EN CAS DE PROBLEME - RETOUR ARRIERE
+------------------------------------
+
+Reinstallez NotesCam-Setup-0.3.18.exe par-dessus, puis relancez
+REDEMARRER-APRES-MAJ.cmd. Les cinq tables neuves RESTENT dans la base
+- l'ancien code ne les lit pas, elles ne le genent pas - et aucune
+donnee n'est perdue. Revenir en arriere ramene en revanche les
+doublons de matieres et la recopie de notes entre langues.
+
+Si un ecran continue de refuser alors que verifier-correctifs.cmd dit
+que tout est en place : faites une photo de l'ecran ET de la sortie du
+script, et envoyez-les a l'editeur. N'essayez pas de reparer la base.
+
+------------------------------------------------------------------------
+Ce fichier est en ASCII et en CRLF, comme les autres documents livres
+aux postes Windows : le Bloc-notes d'un Windows ancien affiche un
+fichier en fins de ligne Unix comme une seule ligne illisible.
+------------------------------------------------------------------------

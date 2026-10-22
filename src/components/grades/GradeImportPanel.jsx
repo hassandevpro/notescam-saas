@@ -31,7 +31,19 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
         const subject = subjectMap.get(subName.toLowerCase());
         if (!subject) continue;
         const validated = validateGrade(val, subject.max);
-        if (validated !== null) gradeEntries[subject.id] = validated;
+        // Hors barème (`null`) : rejetée. CELLULE VIDE (`''`) : on ne touche à
+        // rien — et c'est le défaut que cette ligne ferme.
+        //
+        // `validateGrade('')` rend `''`, pas `null` : le test « !== null »
+        // laissait donc passer les cellules vides, et `saveGrade` les fusionnait
+        // dans la ligne de l'élève. Un classeur exporté porte une colonne par
+        // matière ; un enseignant qui ne remplit QUE la sienne réimportait donc
+        // des vides sur toutes les autres, EFFAÇANT les notes de ses collègues
+        // sans qu'aucun écran ne le signale. `scBulletinSheet` s'en gardait déjà
+        // (« Cellule vide : on ne touche à rien ») — ce panneau-ci ne le faisait
+        // pas, pour le même classeur et le même geste.
+        if (validated === null || validated === '') continue;
+        gradeEntries[subject.id] = validated;
       }
       return { student, studentName: row.studentName, gradeEntries };
     });

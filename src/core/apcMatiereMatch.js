@@ -142,6 +142,88 @@ const ALIASES = [
   { p: 'cultures nationales', t: ['cultures_nat', 'national_languages'] },
 ];
 
+// ── DEUX IDENTIFIANTS POUR LA MÊME MATIÈRE, UN PAR LANGUE ──────────────────
+//
+// SIGNALEMENT DU 2026-10-22, et c'est le défaut que ces groupes ferment :
+// « un enseignant avec plusieurs matières, quand il entre les notes d'une
+// matière les autres héritent automatiquement », et « des matières qui se
+// dupliquent à la saisie des notes et sur le bulletin ».
+//
+// RELEVÉ EN PRODUCTION. FORM1 de THE GENIUS porte « Français intensif » ET
+// « French Language », tenues par le MÊME enseignant. Les deux noms passent par
+// la table d'alias ci-dessus, dont les cibles sont `['francais','french']` et
+// `['french','francais']` — les mêmes, dans l'autre ordre. Et la boucle ajoutait
+// TOUTES les cibles disponibles. Dans une classe BILINGUE, le catalogue porte
+// les deux identifiants : chacune des deux matières locales revendiquait donc
+// les deux matières du référentiel.
+//
+// Conséquences, exactement celles signalées :
+//   · à la saisie, l'écran organisé par matière du référentiel ouvrait une
+//     colonne « Français » ET une colonne « French », toutes deux rattachées aux
+//     deux matières locales — une note saisie d'un côté apparaissait de l'autre ;
+//   · au bulletin, la même matière sortait deux fois.
+// Les 41 notes de « French Language » de FORM1 sont ainsi des copies de
+// « Français intensif », à 80 ms près, pour les 41 élèves.
+//
+// LA CORRECTION. Les cibles d'un alias sont ORDONNÉES — la langue de la matière
+// d'abord, sa traduction ensuite. On ne garde donc qu'UN identifiant par groupe
+// de traduction : le premier disponible dans cet ordre. Une matière locale ne
+// peut plus couvrir à la fois « Français » et « French », qui sont le même
+// enseignement nommé deux fois.
+//
+// CE QUE CELA NE CASSE PAS, et c'était le risque : « Histoire-Géo » est UNE
+// ligne locale qui couvre VRAIMENT DEUX matières du référentiel. Ses cibles
+// `['histoire','geographie','history','geography']` relèvent de DEUX groupes
+// distincts — on garde donc un identifiant de chacun : « histoire » et
+// « geographie » en francophone, « history » et « geography » en anglophone. La
+// multiplicité légitime survit ; seule la multiplicité par traduction tombe.
+//
+// LIMITE ASSUMÉE : `pct` (une matière francophone) correspond à `physics` +
+// `chemistry` (deux matières anglophones). Ce n'est pas une traduction terme à
+// terme, donc ce n'est PAS un groupe ici : un catalogue qui porterait les trois
+// à la fois les listerait toutes les trois. Aucune classe de production n'est
+// dans ce cas (une école a PCT, ou Physics et Chemistry, jamais les deux), et
+// grouper les trois ferait perdre Chemistry aux classes anglophones — ce qui
+// serait plus grave que la limite.
+const GROUPES_TRADUCTION = [
+  ['francais', 'french'],
+  ['anglais', 'english'],
+  ['mathematiques', 'mathematics'],
+  ['histoire', 'history'],
+  ['geographie', 'geography'],
+  ['ecm', 'citizenship'],
+  ['svteehb', 'biology'],
+  ['eps', 'physical_education'],
+  ['informatique', 'computer_science'],
+  ['travail_manuel', 'manual_labour'],
+  ['esf', 'food_science'],
+  ['langues_nat', 'national_languages'],
+];
+// id → clé de groupe. Premier groupe déclaré gagnant : `national_languages` est
+// la traduction de `langues_nat`, et `cultures_nat` (qui la partage dans la
+// table d'alias) reste une matière à part entière, sans groupe.
+const GROUPE_DE = new Map();
+for (const groupe of GROUPES_TRADUCTION) {
+  for (const id of groupe) if (!GROUPE_DE.has(id)) GROUPE_DE.set(id, groupe[0]);
+}
+
+/**
+ * Garde au plus UN identifiant par groupe de traduction, dans l'ordre reçu.
+ * Un identifiant hors groupe passe toujours.
+ */
+function sansDoublonDeLangue(ids) {
+  const out = new Set();
+  const groupesVus = new Set();
+  for (const id of ids) {
+    const g = GROUPE_DE.get(id);
+    if (!g) { out.add(id); continue; }
+    if (groupesVus.has(g)) continue;
+    groupesVus.add(g);
+    out.add(id);
+  }
+  return out;
+}
+
 // Matières du référentiel couvertes par une matière locale.
 //   name     : nom de la ligne `subjects`
 //   matieres : matières DISPONIBLES pour la classe ([{ id, nom, nomOfficiel? }])
@@ -163,15 +245,17 @@ export function matiereIdsForSubject(name, matieres, label = (m) => m?.nom) {
       out.add(m.id);
     }
   }
-  if (out.size) return out;
+  if (out.size) return sansDoublonDeLangue(out);
 
   // 2) Alias, du plus spécifique au plus général — premier motif gagnant.
+  //    Les cibles sont ordonnées (langue de la matière d'abord) : on ne garde
+  //    donc qu'un identifiant par groupe de traduction.
   const toks = n.split(' ').filter(Boolean);
   for (const { p, t } of ALIASES) {
     const hit = p.includes(' ') ? n.includes(p) : toks.includes(p);
     if (!hit) continue;
-    for (const id of t) if (available.has(id)) out.add(id);
-    if (out.size) return out;
+    const trouves = t.filter((id) => available.has(id));
+    if (trouves.length) return sansDoublonDeLangue(trouves);
   }
   return out;
 }

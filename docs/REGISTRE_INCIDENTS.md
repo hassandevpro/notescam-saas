@@ -282,3 +282,102 @@ qui n'est pas la même d'un écran à l'autre — deux matières pouvaient donc 
 le bulletin et la grille de saisie. C'est exactement ce que la décision **D11** avait
 fermé, revenu par la porte des ex æquo. Le départage continue désormais sur le
 coefficient, le nom, puis l'identifiant (`src/core/subjectOrder.js`).
+
+---
+
+## I11 — « Quand il entre les notes d'une matière, les autres héritent automatiquement »
+
+**Date** : 2026-10-22 · **Statut** : **cause corrigée dans le code (NON LIVRÉ)**, données
+corrigées en production · **Source** : signalement du responsable, confirmé en base
+
+**Symptôme**, en deux formulations du même défaut : « un enseignant avec plusieurs
+matières, quand il entre les notes d'une matière les autres matières héritent
+automatiquement », et « des matières qui se dupliquent en mettant les notes et le
+bulletin ».
+
+**Ce n'était PAS un doublon de lignes.** L'audit du matin avait ramené les matières en
+double à **0**, et elles ne sont pas revenues (revérifié). Le défaut est d'une autre
+nature : **deux matières de noms DIFFÉRENTS que le produit prenait pour la même**.
+
+**Cause, établie et mesurée.** `apcMatiereMatch.matiereIdsForSubject` rapproche une
+matière locale des matières du référentiel par le texte du nom, via une table d'alias
+dont les cibles sont ordonnées — la langue de la matière d'abord, sa traduction ensuite.
+La boucle ajoutait **toutes** les cibles disponibles. Or une classe **bilingue** porte
+les deux identifiants au catalogue : `francais` ET `french`.
+
+FORM1 de THE GENIUS porte « Français intensif » (coef 5) et « French Language » (coef 4),
+tenues par le **même** enseignant. Les deux rendaient donc `{ francais, french }` — les
+mêmes deux matières. L'écran de saisie, organisé par matière du référentiel, ouvrait une
+colonne pour chacune, toutes deux rattachées aux deux matières locales : une note saisie
+d'un côté se retrouvait de l'autre, et le bulletin imprimait la matière deux fois.
+
+**La preuve, en base, avant toute écriture** : les 41 notes de « French Language » étaient
+élève par élève **identiques** à celles de « Français intensif » (41 avec jumelle exacte,
+**0** sans), écrites à **80 ms** d'écart, pour les 41 élèves. Et ce n'était pas un hasard
+de notation : sur les 44 écoles, parmi tous les couples de matières d'un même enseignant
+dans une même classe, **ce couple est le SEUL** à 100 % de recouvrement — les autres
+plafonnent à 7-9 notes identiques sur 100+, par coïncidence.
+
+**Correctif.** Les identifiants qui désignent la même matière dans les deux langues sont
+déclarés en **groupes de traduction** (`francais`/`french`, `anglais`/`english`,
+`mathematiques`/`mathematics`, `ecm`/`citizenship`, `svteehb`/`biology`,
+`eps`/`physical_education`, `informatique`/`computer_science`, …). Un alias ne rend plus
+qu'**un** identifiant par groupe : le premier disponible dans son ordre.
+
+**Ce que le correctif ne casse pas**, et c'était le risque : « Histoire-Géo » est UNE
+ligne locale qui couvre VRAIMENT DEUX matières. Ses cibles relèvent de deux groupes
+distincts, donc elle en garde deux — vérifié en francophone, en anglophone et en
+bilingue. Le repli par traduction tient aussi : une école francophone qui écrit « French
+Language » continue de saisir sur `francais`.
+
+**Limite assumée et écrite dans le code** : `pct` (une matière francophone) correspond à
+`physics` + `chemistry` (deux anglophones). Ce n'est pas une traduction terme à terme,
+donc pas un groupe : un catalogue portant les trois les listerait toutes. Aucune classe de
+production n'est dans ce cas, et les grouper ferait perdre Chemistry aux classes
+anglophones — plus grave que la limite.
+
+**Données corrigées** (autorisation explicite) : les 41 notes copiées de « French
+Language » supprimées, « Français intensif » intacte avec ses 41, la **ligne matière**
+conservée (si l'école l'enseigne vraiment, elle a sa place — elle repart sans note). 41
+`sync_tombstones` écrits à 11:32 : le serveur LAN de l'école suivra. Retour arrière
+vérifié **avant** suppression — les 41 paires (identifiant, élève) confirmées en base et
+41 lignes reconstituables. Ce que cela corrige : la moyenne de FORM1, où la note comptait
+deux fois, sur 9 points de coefficient au lieu de 5.
+
+**⚠️ CE QUI RESTE OUVERT, et c'est l'essentiel.** Le correctif de code **n'est ni en
+ligne ni livré en école**. Le `git push` a été refusé par le garde-fou de la session, et
+aucun canal de mise à jour automatique n'existe pour les écoles (voir
+`vecteurs-de-livraison-par-ecole`). Tant que le code n'est pas déployé, **le nettoyage se
+refera à la prochaine saisie** : l'école reverra la matière en double. Nettoyer sans
+livrer ne tient pas.
+
+**Défaut voisin, trouvé et corrigé au passage.** `GradeImportPanel` écrivait les cellules
+VIDES : `validateGrade('')` rend `''` et non `null`, et le test ne filtrait que `null`.
+Une valeur comme « - » dans un classeur passait donc en écriture et **effaçait** la note
+existante. `scBulletinSheet` s'en gardait déjà explicitement (« Cellule vide : on ne
+touche à rien ») ; ce panneau-ci ne le faisait pas, pour le même classeur et le même
+geste. Les deux importeurs appliquent maintenant la même règle.
+
+### I11 bis — Le cas VOISIN que les groupes de traduction ne couvrent pas
+
+Une matière **fusionnée** qui coexiste avec ses **parties** produit le même symptôme, par
+un autre chemin : « Histoire-Géographie » rend `{ histoire, geographie }` — c'est VOULU,
+une ligne locale peut couvrir deux matières — mais si la classe porte AUSSI « Histoire »
+et « Géographie » séparément, les trois se recouvrent.
+
+**Relevé en production le 2026-10-22** :
+
+| École | Classe | Matières qui se recouvrent |
+|---|---|---|
+| BRIGHT CONTINENT | 6ème | `Histoire-Géographie` (0 note) + `Histoire` (4) + `Géographie` (4) |
+| THE GENIUS | CE1, CE1 BIL, CE2, CE2 BIL | `Histoire-Géographie` + `Histoire` + `Géographie` |
+| goudja | Form 1 A | `History/Geography` (36) + `History` (0) + `Geography` (0) ; `Chemistry/Physics` (36) + `Chemistry` (0) + `Physics` (0) |
+
+**Pourquoi ce n'est pas corrigé dans le code.** Ce n'est pas une ambiguïté de langue mais
+un **choix pédagogique** : l'école enseigne-t-elle une Histoire-Géo unique, ou deux
+matières distinctes ? Les deux sont légitimes, et le produit ne peut pas trancher. Dans
+chaque cas relevé, l'une des deux formes porte **zéro note** — le ménage est donc sans
+risque, mais il appartient à l'école.
+
+**À lui demander** : garder la forme fusionnée, ou les deux séparées — et retirer l'autre
+dans « Modifier la classe → Matières ».

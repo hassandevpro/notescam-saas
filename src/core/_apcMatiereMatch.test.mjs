@@ -111,7 +111,50 @@ const ENSC = [...EN,
 ];
 eq(ids('Chemistry/Physics', ENSC), 'chemistry+physics', '« Chemistry/Physics » → les deux');
 eq(ids('Physics & Chemistry', ENSC), 'chemistry+physics', 'l’esperluette aussi');
-eq(ids('Civics', ENSC), 'citizenship+ecm', '« Civics » → Citizenship Education');
+// « Civics » rend DÉSORMAIS le seul `citizenship`, et non plus
+// « citizenship+ecm ». Ce test attendait les deux : il encodait le défaut
+// signalé le 2026-10-22 (« les autres matières héritent automatiquement »).
+// `ecm` et `citizenship` sont LA MÊME matière, nommée dans les deux langues ;
+// ce catalogue d'essai porte les deux, comme une classe bilingue de production.
+// En rendre deux faisait qu'une matière locale en revendiquait deux, donc deux
+// colonnes à la saisie et deux lignes au bulletin.
+eq(ids('Civics', ENSC), 'citizenship', '« Civics » → Citizenship Education, et elle SEULE');
+
+// ── UN SEUL IDENTIFIANT PAR GROUPE DE TRADUCTION ───────────────────────────
+//
+// RELEVÉ EN PRODUCTION le 2026-10-22, FORM1 de THE GENIUS : « Français
+// intensif » et « French Language », tenues par le MÊME enseignant, rendaient
+// toutes deux { francais, french }. Les 41 notes saisies sur l'une se
+// retrouvaient sur l'autre, à 80 ms près, pour les 41 élèves — et la matière
+// sortait deux fois sur le bulletin.
+{
+  const BIL = [
+    { id: 'francais', nom: 'Français' }, { id: 'french', nom: 'French' },
+    { id: 'anglais', nom: 'Anglais' },   { id: 'english', nom: 'English' },
+    { id: 'histoire', nom: 'Histoire' }, { id: 'geographie', nom: 'Géographie' },
+    { id: 'history', nom: 'History' },   { id: 'geography', nom: 'Geography' },
+    { id: 'mathematiques', nom: 'Mathématiques' }, { id: 'mathematics', nom: 'Mathematics' },
+  ];
+  // LE CAS SIGNALÉ : deux matières locales, deux matières du référentiel
+  // DISTINCTES. C'est la propriété qui compte — plus aucun recouvrement.
+  const fi = ids('Français intensif', BIL);
+  const fl = ids('French Language', BIL);
+  eq(fi, 'francais', 'classe bilingue : « Français intensif » → une seule matière');
+  eq(fl, 'french', 'classe bilingue : « French Language » → une seule matière');
+  eq(String(fi !== fl), 'true', 'et surtout : les deux ne se recouvrent plus');
+
+  // Les traductions restent le REPLI quand une seule langue est au catalogue :
+  // une école francophone qui écrit « French Language » doit continuer à saisir.
+  eq(ids('French Language'), 'francais', 'classe francophone : le repli par traduction tient');
+  eq(ids('Français intensif', EN), 'french', 'classe anglophone : idem dans l’autre sens');
+
+  // CE QUE LA CORRECTION NE DOIT PAS CASSER : une matière locale qui couvre
+  // VRAIMENT deux matières du référentiel en garde deux — elles relèvent de
+  // deux groupes de traduction distincts, pas du même.
+  eq(ids('Histoire-Géo', BIL), 'geographie+histoire',
+    'bilingue : « Histoire-Géo » couvre toujours DEUX matières');
+  eq(ids('Mathématiques', BIL), 'mathematiques', 'bilingue : les maths ne sortent qu’une fois');
+}
 
 // ── CE QUE LES AJOUTS NE DOIVENT PAS CASSER ────────────────────────────────
 // Le piège de l'ordre : « physique chimie » est posée dans le bloc PCT, donc

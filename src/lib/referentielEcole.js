@@ -259,6 +259,71 @@ export async function addMatiereMaisonApc({
   return { matiere, classeMatiere, competences, reutilisee: !!trouvee };
 }
 
+/**
+ * RATTACHER UNE MATIÈRE EXISTANTE À UN NIVEAU DE PLUS.
+ *
+ * ── LE DÉFAUT QUE CECI FERME ────────────────────────────────────────────────
+ *
+ * Signalement du 2026-10-22 : « les matières créées sont différentes des
+ * matières disponibles dans la liste déroulante pour ajouter les notes ».
+ *
+ * Une matière du référentiel n'est proposée à la saisie que si elle est
+ * RATTACHÉE au niveau de la classe (`apc_classe_matieres`, par `classe_id`).
+ * Or rien ne créait ce rattachement quand la matière existait déjà ailleurs :
+ *
+ *   · une matière MAISON naît attachée au SEUL niveau où on l'a créée —
+ *     « Etude de texte » créée en 3ème reste attachée à `3e`. La cocher en
+ *     5ème ne l'attachait pas, et rien ne le disait ;
+ *   · une matière NATIONALE n'est au catalogue que des niveaux prévus par
+ *     l'arrêté — Espagnol, Allemand, Arabe et Chinois n'existent qu'en 4e/3e,
+ *     PCT et SVTEEHB qu'à partir de la 4e. Une 5ème qui enseigne l'espagnol
+ *     cochait donc une matière qu'elle ne pouvait pas noter.
+ *
+ * MESURÉ EN PRODUCTION le 2026-10-22 : 12 classes de 6 écoles, une quarantaine
+ * de matières cochées et non saisissables. BRIGHT CONTINENT 5ème en portait 6,
+ * THE GENIUS 5eme et 6eme une chacune (Chinois).
+ *
+ * ── POURQUOI UNE FONCTION À PART, ET PAS `addMatiereMaisonApc` ──────────────
+ *
+ * `addMatiereMaisonApc` cherche la matière par son nom PARMI CELLES DE L'ÉCOLE.
+ * Une matière NATIONALE n'y est pas : l'appeler pour « Espagnol » créerait une
+ * copie maison du même nom à côté de la nationale — exactement le doublon que
+ * l'on passe la journée à retirer. Ici on ne crée AUCUNE matière : on pose le
+ * rattachement sur l'identifiant existant, et les compétences qui vont avec.
+ *
+ * Les compétences sont indispensables : une matière rattachée sans compétence
+ * apparaît dans la liste et n'offre rien à saisir — une déception de plus.
+ * Elles portent `school_id` : l'école déclare ce qu'elle évalue à ce niveau,
+ * le référentiel national n'est pas touché.
+ *
+ * Identifiants DÉTERMINISTES, sur (école, matière, classe, trimestre) : rejouer
+ * ce geste met à jour les mêmes lignes au lieu d'en ajouter.
+ */
+export async function rattacherMatiereAuNiveau({
+  schoolId, matiereId, libelle, classeId, trimestres = [], versionId = null, coef = 1, ordre = 90,
+}) {
+  if (!schoolId || !matiereId || !classeId) return { error: 'parametres' };
+  if (!trimestres.length) return { error: 'trimestres' };
+
+  const classeMatiere = {
+    classe_id: classeId, matiere_id: matiereId,
+    coefficient: coef, ordre, optionnelle: false, school_id: schoolId,
+  };
+  const cm = await supabase.from('apc_classe_matieres').upsert(classeMatiere);
+  if (cm.error) { console.error('rattacherMatiereAuNiveau rattachement', cm.error); return { error: 'rattachement' }; }
+
+  const competences = trimestres.map((tid, i) => ({
+    id: uuidMaison(schoolId, matiereId, classeId, tid),
+    school_id: schoolId, matiere_id: matiereId, classe_id: classeId,
+    trimestre_id: tid, cycle_id: 'premier_cycle', intitule: String(libelle || '').trim() || matiereId,
+    coefficient: 1, actif: true, ordre: 1 + i, referentiel_version_id: versionId,
+  }));
+  const c = await supabase.from('apc_competences').upsert(competences, { onConflict: 'id' });
+  if (c.error) { console.error('rattacherMatiereAuNiveau competences', c.error); return { error: 'competences' }; }
+
+  return { classeMatiere, competences };
+}
+
 // Supprime une ligne maison. Échoue si des notes y sont rattachées — la clé
 // étrangère protège le travail déjà saisi, et c'est voulu : on masque alors.
 export async function deleteLigne(kind, id) {

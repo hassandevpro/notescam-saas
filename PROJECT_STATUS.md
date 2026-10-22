@@ -35,6 +35,17 @@
 > jour, avant tout envoi. Sa notice porte un bandeau qui le dit. L'exe 0.3.21 a lui aussi
 > été reconstruit après I13 — seule l'empreinte ci-dessus est valable.
 >
+> ⚠ **Une matière cochée dans la classe n’était pas toujours saisissable** (incident **I16**) :
+> une matière n’est proposée à la saisie que si elle est RATTACHÉE au niveau de la classe, et
+> rien ne posait ce rattachement quand la matière existait déjà à un autre niveau. Mesuré :
+> **12 classes, 6 écoles**, une quarantaine de matières cochées et non notables (BRIGHT
+> CONTINENT 5ème : 6 ; THE GENIUS 5eme et 6eme : Chinois). Corrigé — le rattrapage rattache
+> au lieu de ne savoir que créer, et ne recrée JAMAIS un nom existant.
+>
+> ⚠ **À trancher avec le responsable** : ce rattrapage s’exécute AUTOMATIQUEMENT à l’ouverture
+> de l’écran de saisie, pour un compte habilité — donc une écriture en base déclenchée par une
+> simple visite. Un bouton explicite est peut-être préférable.
+>
 > ⚠ **Les doublons restaient AFFICHÉS après leur suppression** (incident **I15**) :
 > l'empreinte du référentiel APC était l'id de la version nationale, donc insensible aux
 > lignes maison de l'école, et le cache n'était pas keyé par école. Corrigé — empreinte

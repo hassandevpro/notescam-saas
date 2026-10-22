@@ -730,3 +730,94 @@ fonctionnalité qu'il décrit change — et rien ne le signale.
 **À faire** : quand une fonctionnalité rend une table **inscriptible par l'école**,
 chercher les commentaires qui la décrivent comme nationale ou figée. Ici, un `grep` sur
 « lecture seule » aurait trouvé le défaut avant l'école.
+
+---
+
+## I16 — « Les matières créées sont différentes de celles où l'on peut noter »
+
+**Date** : 2026-10-22 · **Statut** : **corrigé dans le code (NON LIVRÉ)** ·
+**Source** : signalement du responsable, après deux captures qui m'avaient d'abord
+induit en erreur
+
+### Ce que j'avais écarté à tort
+
+Sur la capture de la 5ème de BRIGHT CONTINENT, `SVTEEHB`, `Etude de texte`,
+`Expression Écrite/Orale` et `Informatique Pratique` étaient **cochées dans la classe** et
+**absentes du menu de saisie**. J'ai vérifié le catalogue national, constaté que la 5e
+porte « Sciences » et non SVTEEHB, et conclu : *« rien d'anormal »*.
+
+C'était le défaut. Du point de vue de l'école, « Cochez pour activer » est une promesse :
+une matière cochée doit être notable. La réponse « le catalogue national ne la prévoit pas
+à ce niveau » n'en est pas une.
+
+### Les deux manques, et le second n'était pas traité
+
+Une matière n'est proposée à la saisie que si elle est **rattachée au niveau** de la
+classe (`apc_classe_matieres.classe_id`). Le rattrapage existant ne savait traiter qu'un
+seul manque :
+
+| Manque | Traité avant ? |
+|---|---|
+| Le nom ne correspond à **aucune** matière → la créer | oui |
+| La matière **existe** mais pas à **ce niveau** → la rattacher | **non** |
+
+Et le second est le plus fréquent, pour deux raisons distinctes :
+
+- une matière **maison** naît attachée au **seul** niveau où on l'a créée. `Etude de
+  texte`, créée en 3ème, n'existe qu'en `3e` ; la cocher en 5ème ne l'attachait pas, et
+  rien ne le disait ;
+- une matière **nationale** n'est au catalogue que des niveaux prévus par l'arrêté.
+  Espagnol, Allemand, Arabe et Chinois n'existent qu'en 4e/3e ; PCT et SVTEEHB qu'à partir
+  de la 4e. Une 5ème qui enseigne l'espagnol cochait une matière qu'elle ne pouvait pas
+  noter.
+
+### Mesuré en production le 2026-10-22 — 12 classes, 6 écoles
+
+| École | Classe | Cochées et non saisissables |
+|---|---|---|
+| COLLÈGE LA RETRAITE | 3e | 10 (noms anglophones : Biology, Chemistry, English Language…) |
+| BRIGHT CONTINENT | 5ème | 6 — Espagnol, Etude de texte, Expression Écrite, Expression Orale, Informatique Pratique, SVTEEHB |
+| BRIGHT CONTINENT | 6ème | 4 |
+| BRIGHT CONTINENT | 4ème Esp, 3EME ESP | 3 et 2 |
+| MAARIF | 5ème, 6ème | 3 chacune — Allemand, Arabe, Espagnol |
+| MAARIF | 5e, 6e, 6eme G | PCT, Chinois |
+| **THE GENIUS** | 5eme, 6eme | **Chinois**, une chacune |
+
+### La correction
+
+Le rattrapage distingue désormais les deux manques. **On ne recrée jamais un nom qui
+existe** : recréer « Espagnol » à côté de l'Espagnol national fabriquerait le doublon
+retiré le matin même (**I11 ter**), et recréer une matière maison détacherait les notes
+déjà saisies dessus. Le rattachement porte sur l'**identifiant existant** ; seules les
+compétences du niveau sont créées, au nom de l'école — sans elles la matière
+s'afficherait sans rien à saisir.
+
+La décision est sortie du magasin : `src/core/apcRattrapage.js`, sans réseau ni cache.
+Le service `rattacherMatiereAuNiveau` (`src/lib/referentielEcole.js`) pose le rattachement
+et les compétences ; il est distinct de `addMatiereMaisonApc`, qui ne cherche que parmi
+les matières de l'école et créerait donc une copie d'une matière nationale.
+
+**Preuve** : `src/core/_apcRattrapage.test.mjs`, **22 contrôles** écrits sur les cas de
+production ci-dessus — les 14 matières de la 5ème de BRIGHT CONTINENT, le Chinois de THE
+GENIUS, et le piège « SVT » qui ne doit pas devenir une matière maison à côté de SVTEEHB.
+
+Le fixture du test a dû être corrigé en cours de route : j'y avais oublié que
+`Expression Écrite` et `Informatique Pratique` **existent** comme matières maison
+rattachées à la 4e. Le test disait vrai, mon modèle mental était faux.
+
+### Ce qu'il faut savoir avant de livrer
+
+Ce rattrapage s'exécute **automatiquement** à l'ouverture de l'écran de saisie, pour un
+compte habilité à modifier les matières (`canManageClassSubjects`). Ouvrir la 5ème de
+BRIGHT CONTINENT après déploiement attachera donc ses 6 matières et créera leurs
+compétences, **sans rien demander**. C'est conforme à la règle posée par le responsable
+(« laisse toutes les matières apparaître tant qu'elles sont créées et cochées »), mais
+c'est une écriture en base déclenchée par une simple visite : **à confirmer avec lui si un
+bouton explicite est préférable.**
+
+### Ce que cet incident apprend
+
+C'est la **deuxième fois** aujourd'hui que j'explique un symptôme au lieu de le corriger.
+J'avais sous les yeux « coché mais absent du menu » et j'ai produit une justification
+technique correcte — le catalogue national — au lieu de voir une promesse non tenue. Une
+explication qui laisse l'utilisateur sans solution n'est pas un diagnostic.

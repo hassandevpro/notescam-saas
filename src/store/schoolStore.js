@@ -13,7 +13,7 @@ import { fetchReferentiel, refreshApcReferentiel, apcFingerprint, fetchApcNotes,
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
-import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
+import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildBilSubjectsForClass } from '../lib/bilAutoConfig';
@@ -25,7 +25,7 @@ import { buildSubjectsForClassicClass } from '../core/classicSubjects';
 // classe (cf. completerClasseBilingue, et la demande de THE GENIUS du 19/10).
 import { missingBilingualSubjects, missingFromSiblingClass } from '../core/bilingualSubjects';
 import { resolveClassEngine, firstCycleClasseSlug } from '../core/engineResolver';
-import { matiereIdsForSubject } from '../core/apcMatiereMatch';
+import { manquesPourClasse } from '../core/apcRattrapage';
 import { APC_TRIMESTRE_IDS } from '../core/apcPeriods';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { isAdvancedDelegation } from '../config/capabilities';
@@ -1028,6 +1028,54 @@ export const useSchoolStore = create((set, get) => ({
     return { data: r.matiere };
   },
 
+  // ── OUVRIR UNE MATIÈRE EXISTANTE À UN NIVEAU DE PLUS ─────────────────────
+  //
+  // Le pendant de `materialiserMatiereOfficielle`, pour le cas où la matière
+  // EXISTE DÉJÀ et où seul son rattachement au niveau manque. On ne recrée donc
+  // rien : ni la matière nationale (ce serait un doublon), ni la matière maison
+  // (ce qui détacherait les notes déjà saisies de l'ancienne).
+  //
+  // Les compétences, elles, sont bien créées — au nom de l'ÉCOLE, pour CE
+  // niveau. Sans elles la matière s'afficherait sans rien à saisir. C'est
+  // l'école qui déclare ce qu'elle évalue en 5ème ; le référentiel national
+  // n'est pas modifié.
+  rattacherMatiereOfficielle: async (cls, matiereId, libelle) => {
+    const { schoolId, apcReferentiel } = get();
+    const school = useAuthStore.getState().school;
+    if (!schoolId || !cls || !matiereId) return { error: 'parametres' };
+    if (resolveClassEngine(school, cls) !== 'apc') return { error: 'hors_apc' };
+    if (!apcReferentiel) return { error: 'referentiel' };
+
+    const classeId = firstCycleClasseSlug(cls.level, cls.name);
+    if (!classeId) return { error: 'classe' };
+
+    // Déjà rattachée ? On ne réécrit pas pour rien.
+    if ((apcReferentiel.classeMatieres || [])
+      .some((r) => r.classe_id === classeId && r.matiere_id === matiereId)) {
+      return { error: 'existe' };
+    }
+
+    const trimestres = APC_TRIMESTRE_IDS.filter((tid) =>
+      (apcReferentiel.sequences || []).some((s) => s.trimestre_id === tid));
+    const r = await rattacherMatiereAuNiveau({
+      schoolId, matiereId, libelle, classeId,
+      trimestres: trimestres.length ? trimestres : APC_TRIMESTRE_IDS,
+      versionId: (apcReferentiel.versions || [])[0]?.id ?? null,
+    });
+    if (r.error) return r;
+
+    // Le référentiel en mémoire suit, sans retélécharger : l'écran de saisie
+    // doit proposer la matière tout de suite.
+    set((s) => ({
+      apcReferentiel: s.apcReferentiel && {
+        ...s.apcReferentiel,
+        classeMatieres: [...(s.apcReferentiel.classeMatieres || []), r.classeMatiere],
+        competences: [...(s.apcReferentiel.competences || []), ...r.competences],
+      },
+    }));
+    return r;
+  },
+
   // ── RATTRAPER LES MATIÈRES DÉJÀ CRÉÉES ───────────────────────────────────
   //
   // `materialiserMatiereOfficielle` ne traite que la matière qu'on vient
@@ -1042,25 +1090,61 @@ export const useSchoolStore = create((set, get) => ({
   //
   // IDEMPOTENTE : une matière déjà au référentiel (nationale ou maison) est
   // ignorée. La rejouer ne crée aucun doublon.
+  // ── « LES MATIÈRES COCHÉES NE SONT PAS CELLES QU'ON PEUT NOTER » ─────────
+  //
+  // Signalement du 2026-10-22, et c'est le défaut de fond : une matière cochée
+  // dans la classe n'apparaissait pas à la saisie. DEUX manques différents le
+  // produisaient, et ce rattrapage n'en traitait qu'un :
+  //
+  //   ABSENTE    le nom ne correspond à AUCUNE matière du référentiel
+  //              (« Langue Turc ») → il faut la CRÉER. C'était déjà fait.
+  //
+  //   DÉTACHÉE   la matière EXISTE, mais n'est pas rattachée au NIVEAU de la
+  //              classe → il faut la RATTACHER. Ce n'était pas fait, et c'est
+  //              le cas le plus fréquent :
+  //                · une matière maison naît attachée au seul niveau où on l'a
+  //                  créée — « Etude de texte » créée en 3ème reste en `3e`,
+  //                  la cocher en 5ème ne l'attachait pas ;
+  //                · une matière nationale n'est au catalogue que des niveaux
+  //                  prévus par l'arrêté — Espagnol, Allemand, Arabe, Chinois
+  //                  n'existent qu'en 4e/3e, PCT et SVTEEHB qu'à partir de la
+  //                  4e. Une 5ème qui enseigne l'espagnol ne pouvait pas le
+  //                  noter.
+  //
+  // MESURÉ EN PRODUCTION le 2026-10-22 : 12 classes de 6 écoles, une
+  // quarantaine de matières cochées et non saisissables. BRIGHT CONTINENT 5ème
+  // en portait 6, THE GENIUS 5eme et 6eme une chacune (Chinois).
+  //
+  // On ne crée JAMAIS une matière dont le nom existe déjà : ce serait fabriquer
+  // le doublon qu'on passe la journée à retirer. Une matière nationale est
+  // rattachée PAR SON IDENTIFIANT, et seules les compétences du niveau sont
+  // créées, au nom de l'école.
   materialiserMatieresManquantes: async (cls) => {
     const { subjects, apcReferentiel, schoolId } = get();
     const school = useAuthStore.getState().school;
-    if (!cls || !schoolId || !apcReferentiel) return { created: 0 };
-    if (resolveClassEngine(school, cls) !== 'apc') return { created: 0 };
-    if (!backendOnline()) return { created: 0, skipped: 'offline' };
+    const rien = { created: 0, attached: 0 };
+    if (!cls || !schoolId || !apcReferentiel) return rien;
+    if (resolveClassEngine(school, cls) !== 'apc') return rien;
+    if (!backendOnline()) return { ...rien, skipped: 'offline' };
 
-    const norm = (x) => String(x || '').toLowerCase().normalize('NFD')
-      .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
-    // Les noms que le référentiel porte DÉJÀ — nationaux comme maison.
-    const connus = new Set((apcReferentiel.matieres || []).map((m) => norm(m.nom)));
-    // Ce que la classe a coché et que le référentiel ignore. On passe par
-    // `matiereIdsForSubject` pour ne pas recréer « SVT » quand SVTEEHB existe :
-    // les alias de noms font foi, exactement comme à l'affichage.
-    const manquantes = (subjects || [])
-      .filter((s) => s && s.class_id === cls.id && s.name)
-      .filter((s) => !connus.has(norm(s.name)))
-      .filter((s) => matiereIdsForSubject(s.name, apcReferentiel.matieres || []).size === 0);
-    if (!manquantes.length) return { created: 0 };
+    const classeId = firstCycleClasseSlug(cls.level, cls.name);
+    if (!classeId) return rien;
+    const deLaClasse = (subjects || []).filter((s) => s && s.class_id === cls.id && s.name);
+    if (!deLaClasse.length) return rien;
+
+    // Ce que la classe peut RÉELLEMENT saisir : les matières rattachées à SON
+    // niveau. C'est cette liste, et pas l'existence du nom, qui décide. Le
+    // calcul vit dans `core/apcRattrapage` — sans réseau ni cache, donc
+    // vérifiable (`src/core/_apcRattrapage.test.mjs`).
+    const aFaire = (ref) => manquesPourClasse({
+      subjects: deLaClasse,
+      matieres: ref?.matieres || [],
+      classeMatieres: ref?.classeMatieres || [],
+      classeId,
+    });
+
+    const pressenti = aFaire(apcReferentiel);
+    if (!pressenti.creer.length && !pressenti.rattacher.size) return rien;
 
     // ── ON NE CRÉE RIEN SUR LA FOI DU CACHE ──────────────────────────────────
     //
@@ -1075,22 +1159,23 @@ export const useSchoolStore = create((set, get) => ({
     // propre garde (recherche par nom côté serveur, identifiant déterministe) :
     // ces deux protections sont indépendantes, et c'est voulu.
     await get().rechargerApcReferentiel();
-    const frais = get().apcReferentiel;
-    const connusFrais = new Set((frais?.matieres || []).map((m) => norm(m.nom)));
-    const aCreer = manquantes
-      .filter((s) => !connusFrais.has(norm(s.name)))
-      .filter((s) => matiereIdsForSubject(s.name, frais?.matieres || []).size === 0);
+    const { creer, rattacher } = aFaire(get().apcReferentiel);
 
     let created = 0;
-    for (const sub of aCreer) {
+    for (const sub of creer) {
       const r = await get().materialiserMatiereOfficielle(cls, sub.name);
       if (!r.error) created++;
+    }
+    let attached = 0;
+    for (const [id, nom] of rattacher) {
+      const r = await get().rattacherMatiereOfficielle(cls, id, nom);
+      if (!r.error) attached++;
     }
     // Le cache IDB ignore ce qu'on vient d'écrire : sans ce rechargement, le
     // bulletin ne verrait rien au rechargement de la page, et le prochain
     // passage ici recréerait tout en double.
-    if (created) await get().rechargerApcReferentiel();
-    return { created };
+    if (created || attached) await get().rechargerApcReferentiel();
+    return { created, attached };
   },
 
   addRefLigne: async (kind, intitule, extra = {}) => {

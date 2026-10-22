@@ -625,6 +625,26 @@ if (DIST_BLOCKED) {
   });
 } else {
   app.get('/', () => ({ status: 'ok', note: 'dist/ absent — lance `npm run build:lan` pour servir la SPA' }));
+  // ── LES FICHIERS NE DÉPENDENT PAS DE LA SPA ───────────────────────────────
+  //
+  // CE QUE CET OUBLI COÛTAIT, et c'est la CI qui l'a dit. Le crochet `onRequest`
+  // ci-dessus a été écrit pour qu'on ne puisse PAS oublier la protection « dans
+  // l'une des trois » branches. Mais c'est l'ENREGISTREMENT de `/files/` qui
+  // avait été oublié ici, dans la seule branche sans `dist/` : la protection
+  // s'appliquait, puis plus rien ne servait le fichier. Tout `/files/...`
+  // répondait 404.
+  //
+  // La CI de `main` échouait pour cette raison depuis le 2026-10-20, et elle
+  // seule : `npm test` s'exécute AVANT `npm run build`, donc `dist/` n'existe
+  // pas encore quand `server/_file_access.test.mjs` démarre un vrai serveur.
+  // Reproduit en local en retirant `dist/` : 25 réussis, 6 échoués, exactement
+  // les chiffres de la CI. Ce n'était ni Linux, ni une clé manquante, ni
+  // l'environnement — c'était cette branche.
+  //
+  // Ce n'est pas qu'un défaut de test : un serveur d'école dont la SPA n'est pas
+  // compilée (mauvaise édition livrée, build interrompu) refusait aussi les
+  // photos d'élèves aux appels d'API, alors que l'API elle-même répondait.
+  app.register(fastifyStatic, { root: FILES_DIR, prefix: '/files/', decorateReply: false });
 }
 
 // ====================== BOOT ==========================================

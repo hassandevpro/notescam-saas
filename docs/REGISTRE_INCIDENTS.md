@@ -586,3 +586,71 @@ question « cette table existe-t-elle déjà là-bas ? » n'a pas de réponse da
 installée dans l'école (`git show <commit du paquet précédent>:server/schema.sql`), et pour
 chaque table ou colonne neuve **sur une table synchronisée**, vérifier ce que le Cloud
 porte déjà. Ici, une requête de comptage a suffi à transformer une hypothèse en fait.
+
+---
+
+## I14 — Sans `dist/`, le serveur ne servait plus aucun fichier (CI rouge 3 jours)
+
+**Date** : 2026-10-22 · **Statut** : **corrigé dans le code (NON LIVRÉ)** ·
+**Source** : la CI de `main`, en échec à **chaque** exécution depuis le 2026-10-20
+
+### Ce que j'ai cru, et ce que c'était
+
+La CI échouait à l'étape `npm test` en ~28 secondes. J'en ai déduit une **défaillance de
+masse** propre à l'environnement — une dépendance absente, un fichier gitignoré, une
+version de Node — et j'ai cherché de ce côté sans rien trouver : le verrou de dépendances
+est cohérent, `npm ci` passe, aucun test ne lit un fichier ignoré par git.
+
+**J'avais tort sur toute la ligne.** Le journal du job, fourni par le responsable, montre
+**un seul test en échec** : `server/_file_access.test.mjs`, **25 réussis / 6 échoués**,
+les six en **404**.
+
+### La cause
+
+`server/index.js` enregistre `fastifyStatic` sur `/files/` dans **deux** des **trois**
+branches de démarrage :
+
+| Branche | `/files/` servi ? |
+|---|---|
+| `DIST_BLOCKED` (mauvaise édition livrée) | oui |
+| `existsSync(DIST_DIR)` (cas normal) | oui |
+| **`else` — `dist/` absent** | **NON** |
+
+Le commentaire juste au-dessus explique qu'un crochet `onRequest` global a été préféré à
+trois `preHandler`, précisément pour qu'on ne puisse pas oublier la protection « dans
+l'une des trois ». La **protection** était bien globale ; c'est l'**enregistrement** qui
+manquait. Résultat : le contrôle d'accès s'appliquait, autorisait la requête… et plus rien
+ne servait le fichier. 404.
+
+Et la CI exécute `npm test` **avant** `npm run build` — volontairement, « du moins cher au
+plus cher ». Donc `dist/` n'existe pas encore quand ce test démarre un vrai serveur. En
+local il existe toujours, parce qu'on vient de construire. **Le test passait partout sauf
+là où personne ne regardait.**
+
+### La preuve, dans les deux sens
+
+Reproduit en local en renommant `dist/` : **25 réussis, 6 échoués** — les chiffres exacts
+de la CI. Correction appliquée, même conditions : **31 réussis, 0 échoué**. Puis la suite
+**complète** relancée sans `dist/`, c'est-à-dire dans l'état exact de la CI.
+
+### Ce n'était pas qu'un défaut de test
+
+Un serveur d'école dont la SPA n'est pas compilée — mauvaise édition livrée, build
+interrompu, `npm run build:lan` oublié — refusait aussi **les photos d'élèves** à tout
+appel, alors que l'API répondait normalement. Le défaut était réel ; seule la CI le
+rencontrait assez souvent pour le dire.
+
+### Ce que cet incident apprend
+
+Pour la **troisième** fois dans la même journée, le diagnostic est venu d'un **chiffre
+affiché**, pas d'un raisonnement : « champ 20 / moyenne 12 » pour I12, « 11 écritures de
+caisse au 18/10 » pour I13, « 25 réussis / 6 échoués » ici. Et deux fois sur trois, mon
+hypothèse de départ était fausse et coûtait du temps.
+
+**À faire d'abord** : réclamer la SORTIE BRUTE — journal, capture, requête de comptage —
+avant de théoriser. Un échec « en 28 secondes » ne prouve rien sur sa nature ; j'en ai
+déduit une défaillance de masse là où il y avait un test unique.
+
+⚠ **Non traité, et à surveiller** : `.github/workflows/ci.yml` annonce « Tests colocalisés
+(176) » alors qu'il y en a **193**. Le nombre n'a aucun effet sur l'exécution, mais une
+étiquette fausse finit par être crue.

@@ -41,10 +41,14 @@
 > Sauvegarde conservée dans `zz_sauv_apc_doublons_20261022_*` — **à ne pas supprimer avant
 > validation par l'école**. Voir incident **I11 ter**.
 >
-> ⚠ **La CI est rouge sur `main` depuis le 2026-10-20** (15 exécutions, toutes en échec),
-> à l'étape `npm test`, alors que la suite passe **193 ok / 0 ko** en local. Ce n'est pas
-> causé par le travail du jour — l'échec précède les commits de matières. Le journal du job
-> demande une authentification GitHub, donc non lu : **à diagnostiquer, non diagnostiqué.**
+> ✅ **CI : cause trouvée et corrigée** (incident **I14**). Rouge depuis le 2026-10-20 sur
+> `npm test`, pour **un seul test** — `server/_file_access.test.mjs`, 6 assertions en 404.
+> `server/index.js` n'enregistrait pas `/files/` dans la branche « `dist/` absent », et la
+> CI lance les tests AVANT le build. Vérifié dans les deux sens : sans `dist/`, **25/6 avant
+> correction, 31/0 après** ; suite complète sans `dist/` = **193 ok / 0 ko** ; clone vierge
+> avec `npm ci` = **192 ok / 1 ko** sur le code non corrigé, ce qui écarte Linux, les
+> dépendances, les fichiers gitignorés et la version de Node.
+> La prochaine exécution sur `main` est la seule preuve qui compte : **à constater.**
 
 ---
 

@@ -1,3 +1,13 @@
+!!! VERSION ABANDONNEE - NE PAS DISTRIBUER !!!
+
+La 0.3.20 a ete remplacee par la 0.3.21 le meme jour, avant d'etre
+envoyee a une ecole. Il lui manque le correctif le plus important de
+la serie : la note d'une matiere s'ecrivait dans la matiere suivante.
+Utilisez NOTICE-MISE-A-JOUR-0.3.21-WINDOWS.txt. Ce fichier ne reste
+ici que pour memoire.
+
+========================================================================
+
 ========================================================================
 NotesCam 0.3.20 (Windows) - Notice pour le responsable informatique
 ========================================================================

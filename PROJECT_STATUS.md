@@ -7,13 +7,18 @@
 > Dernière mise à jour : **2026-10-22** (passe « matières dédoublonnées, carnet du
 > primaire » — § 4 quaterdecies) · branche `caisse-journal-et-sync-0.3.15` **poussée sur
 > `main`** le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
-> `package.json` = **0.3.20** · paquet Windows **0.3.20 construit, non envoyé** ·
+> `package.json` = **0.3.21** · paquet Windows **0.3.21 construit, non envoyé** ·
 > paquet Linux (THE GENIUS) **0.3.19**, pas encore reconstruit
 >
-> ⚠ **Le paquet 0.3.20 et le déploiement en ligne sont DÉJÀ PÉRIMÉS** : le correctif
-> **I12** (la note d'une matière s'écrivait dans la matière suivante — le défaut que le
-> responsable signalait depuis le matin) est commité **après** eux. Il faut reconstruire
-> l'installeur et repousser `main` avant de livrer quoi que ce soit.
+> **0.3.21 porte le correctif I12** (la note d'une matière s'écrivait dans la matière
+> suivante) : c'est le défaut que le responsable signalait depuis le matin, et il est le
+> seul motif de cette version. Vérifié DANS le paquet livré, pas dans le dépôt — les deux
+> clés de ligne composées y sont (`${Z}:${o.id}` pour le Tableau, `${_}:${n.id}` pour la
+> Saisie rapide), et `app/package.json` embarqué annonce 0.3.21.
+>
+> ⚠ **La 0.3.20 est ABANDONNÉE, ne pas la distribuer** : construite puis remplacée le même
+> jour, avant tout envoi. Sa notice porte un bandeau qui le dit. Le déploiement Vercel, lui,
+> est à jour (`0dd169b`).
 
 ---
 

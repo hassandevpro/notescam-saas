@@ -13,6 +13,7 @@
 // Les cas ci-dessous sont RELEVÉS EN PRODUCTION, pas inventés.
 //
 //   node src/core/_apcRattrapage.test.mjs
+import { readFileSync } from 'node:fs';
 import { manquesPourClasse } from './apcRattrapage.js';
 
 let pass = 0, fail = 0;
@@ -146,6 +147,29 @@ titre('Cas limites : on ne décide rien sans de quoi décider');
   ok(sansRef.creer.length === 1 && sansRef.rattacher.size === 0,
     'référentiel vide : rien à rattacher, la matière est à créer');
 }
+
+// ── LE CALCUL DOIT ÊTRE CELUI QUI DÉCLENCHE ───────────────────────────────
+//
+// CE QUE CE CONTRÔLE EMPÊCHE DE REVENIR, et c'est arrivé le 2026-10-22 : la
+// correction du rattachement était en place dans le magasin et ne partait
+// JAMAIS. L'écran déclenchait le rattrapage sur `matieresHorsReferentiel`, qui
+// ne compte que les noms ne correspondant À RIEN — donc zéro pour « Espagnol »
+// ou « Etude de texte ». Du dehors : « rien ne change ».
+//
+// La règle que l'on fige : le déclencheur pose la MÊME question que le
+// rattrapage, avec la MÊME fonction.
+titre('L’écran déclenche sur le vrai manque, pas sur un sous-ensemble');
+{
+  const src = readFileSync(new URL('../components/grades/ApcCompetenceWorkspace.jsx', import.meta.url), 'utf8');
+  ok(/manquesPourClasse/.test(src), 'l’écran utilise manquesPourClasse');
+  ok(/const aRattraper = manques\.creer\.length \+ manques\.rattacher\.size;/.test(src),
+    'il compte les DEUX manques : à créer ET à rattacher');
+  ok(/if \(!selectedClass \|\| !referentiel \|\| !aRattraper\) return;/.test(src),
+    'et c’est ce total qui garde le rattrapage');
+  ok(!/!matieresHorsReferentiel\.length\) return;/.test(src),
+    'le garde-fou ne repose plus sur les seuls noms inconnus (c’était le défaut)');
+}
+
 
 console.log(`\n${fail ? '❌' : '✅'} Rattrapage des matières de classe : ${pass} contrôle(s) ok, ${fail} ko`);
 process.exitCode = fail ? 1 : 0;

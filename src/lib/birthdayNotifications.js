@@ -22,14 +22,28 @@ export * from './birthdayEngine.js';
 export async function notifierAnniversaires({ schoolId, eleves, classes = [], teachers = [], t, jour = jourLocal() }) {
   if (!schoolId || !Array.isArray(eleves) || !eleves.length) return 0;
 
+  // ── L'ÉCOLE ACTIVE, ET ELLE SEULE ────────────────────────────────────────
+  //
+  // Le magasin peut porter les élèves d'une école et l'identifiant d'une autre,
+  // le temps qu'un changement d'école se propage. Sans ce filtre, le lot écrit
+  // des notifications d'élèves de l'école A estampillées école B — relevé en
+  // production le 2026-10-22 pour une élève de THE GENIUS inscrite sous BRIGHT
+  // CONTINENT, qui a ensuite bloqué la file de ce poste.
+  //
+  // Un élève sans `school_id` est accepté : certaines listes locales ne le
+  // portent pas, et les exclure ferait disparaître des anniversaires sans rien
+  // dire. Le filtre vise le MÉLANGE, pas l'absence.
+  const aNous = eleves.filter((e) => e && (e.school_id == null || e.school_id === schoolId));
+  if (!aNous.length) return 0;
+
   // DEUX moments, et c'est voulu : un préavis pour PRÉPARER (une carte, une
   // annonce), puis la notification du jour pour SOUHAITER. Le jour même, il est
   // trop tard pour organiser quoi que ce soit ; sept jours à l'avance, personne
   // ne pense à souhaiter.
   const dateFete = ajouterJours(jour, PREAVIS_JOURS);
   const lots = [
-    { genre: 'jour', jourCle: jour, dateFete: jour, eleves: anniversairesDuJour(eleves, jour) },
-    { genre: 'preavis', jourCle: jour, dateFete, eleves: anniversairesDansNJours(eleves, jour, PREAVIS_JOURS) },
+    { genre: 'jour', jourCle: jour, dateFete: jour, eleves: anniversairesDuJour(aNous, jour) },
+    { genre: 'preavis', jourCle: jour, dateFete, eleves: anniversairesDansNJours(aNous, jour, PREAVIS_JOURS) },
   ];
   if (!lots.some((l) => l.eleves.length)) return 0;
 
@@ -50,7 +64,7 @@ export async function notifierAnniversaires({ schoolId, eleves, classes = [], te
         // La clé porte le GENRE : sans lui, préavis et notification du jour
         // partageraient le même identifiant un jour sur sept et l'un écraserait
         // l'autre — l'école perdrait le rappel, ou le souhait.
-        id: await idAnniversaire(e.id, lot.jourCle, lot.genre),
+        id: await idAnniversaire(schoolId, e.id, lot.jourCle, lot.genre),
         school_id: schoolId,
         recipient_id: null, recipient_role: null,   // visible de toute l'école
         type: 'birthday', title, body,

@@ -60,13 +60,22 @@ ok(ageAtteint('2012-09-16', '2026-09-16') === 14, '10. l’âge atteint est just
 ok(ageAtteint('', '2026-09-16') === null, '11. sans date de naissance, pas d’âge inventé');
 
 // ── Identifiant déterministe : le rempart anti-doublon ──────────────────────
-const id1 = await idAnniversaire('a', '2026-09-16');
-const id2 = await idAnniversaire('a', '2026-09-16');
+// La clé est (ÉCOLE, élève, jour, genre). L'école y est entrée le 2026-10-22,
+// après avoir trouvé en production une notification d'une élève de THE GENIUS
+// estampillée BRIGHT CONTINENT : la clé ne portant pas l'école, l'upsert de la
+// bonne école tombait sur la ligne de l'autre, et la règle RLS `USING` le
+// refusait indéfiniment — « 2 opérations en échec, refusées de façon répétée ».
+const ECOLE = 'ecole-1';
+const id1 = await idAnniversaire(ECOLE, 'a', '2026-09-16');
+const id2 = await idAnniversaire(ECOLE, 'a', '2026-09-16');
 ok(id1 === id2, '12. deux postes le même jour calculent le MÊME identifiant', [id1, id2]);
 ok(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id1),
   '13. et c’est un uuid valide (la colonne est de type uuid côté Cloud)', id1);
-ok(await idAnniversaire('b', '2026-09-16') !== id1, '14. deux élèves → deux identifiants');
-ok(await idAnniversaire('a', '2027-09-16') !== id1, '15. l’an prochain → un identifiant neuf, donc une notification neuve');
+ok(await idAnniversaire(ECOLE, 'b', '2026-09-16') !== id1, '14. deux élèves → deux identifiants');
+ok(await idAnniversaire(ECOLE, 'a', '2027-09-16') !== id1, '15. l’an prochain → un identifiant neuf, donc une notification neuve');
+// LE CONTRÔLE QUI FERME LE DÉFAUT : deux écoles ne se disputent plus une clé.
+ok(await idAnniversaire('ecole-2', 'a', '2026-09-16') !== id1,
+  '15 bis. DEUX ÉCOLES, même élève, même jour → deux identifiants (sinon la file se bloque)');
 
 // ── Message ─────────────────────────────────────────────────────────────────
 const m = messageAnniversaire(eleves[0], { className: '3e A', titulaire: 'ATANGANA Paul', jour: '2026-09-16', t });
@@ -105,11 +114,11 @@ ok(!preavis.includes('g'), '26. un élève ARCHIVÉ n’est pas annoncé non plu
 // ── Les deux notifications ne se marchent pas dessus ────────────────────────
 // Même élève, même jour d'émission : si les clés se confondaient, l'une
 // écraserait l'autre et l'école perdrait soit le rappel, soit le souhait.
-const idJour = await idAnniversaire('a', '2026-09-16', 'jour');
-const idPreavis = await idAnniversaire('a', '2026-09-16', 'preavis');
+const idJour = await idAnniversaire(ECOLE, 'a', '2026-09-16', 'jour');
+const idPreavis = await idAnniversaire(ECOLE, 'a', '2026-09-16', 'preavis');
 ok(idJour !== idPreavis,
   '27. préavis et notification du jour ont des identifiants DIFFÉRENTS', [idJour, idPreavis]);
-ok(await idAnniversaire('a', '2026-09-16', 'preavis') === idPreavis,
+ok(await idAnniversaire(ECOLE, 'a', '2026-09-16', 'preavis') === idPreavis,
   '28. et le préavis reste idempotent d’un poste à l’autre');
 
 // ── Le texte du préavis ne ment pas sur la date ─────────────────────────────

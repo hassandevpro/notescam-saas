@@ -95,8 +95,29 @@ export function ageAtteint(dateNaissance, jour = jourLocal()) {
 // lisible du genre « bday-<id>-<jour> » y serait refusé.
 // `genre` sépare le préavis de la notification du jour : sans lui, les deux
 // partageraient la même clé un jour sur sept et l'une écraserait l'autre.
-export async function idAnniversaire(eleveId, jour, genre = 'jour') {
-  const octets = new TextEncoder().encode(`birthday:${genre}:${eleveId}:${jour}`);
+// ── POURQUOI L'ÉCOLE ENTRE DANS LA CLÉ ──────────────────────────────────────
+//
+// RELEVÉ EN PRODUCTION le 2026-10-22, une ligne :
+//   « 🎂 Anniversaire — OWONA ONDOUA GEORGETTE GABRIELLA »
+//   school_id = BRIGHT CONTINENT   ·   l'élève appartient à THE GENIUS
+//
+// La clé ne portait que (élève, jour, genre). Une ligne écrite sous la MAUVAISE
+// école gardait donc le même identifiant que celle de la bonne, et l'upsert
+// suivant tombait sur un ON CONFLICT DO UPDATE — dont la règle RLS `USING`
+// s'applique à la ligne EXISTANTE. Un compte qui n'est pas membre de l'école
+// inscrite sur cette ligne était refusé, indéfiniment : « 2 opérations en échec
+// · refusées de façon répétée par le serveur ».
+//
+// L'école dans la clé rend ce blocage impossible : deux écoles ne se disputent
+// plus un identifiant. Les lignes déjà posées deviennent orphelines — sans
+// conséquence, une notification d'anniversaire n'est pas une donnée scolaire —
+// et la file bloquée se vide d'elle-même, puisque l'écriture change d'identifiant.
+//
+// La CAUSE du mauvais estampillage est traitée à part, dans
+// `birthdayNotifications` : le lot n'accepte plus que les élèves de l'école
+// active. Les deux corrections sont indépendantes, et c'est voulu.
+export async function idAnniversaire(schoolId, eleveId, jour, genre = 'jour') {
+  const octets = new TextEncoder().encode(`birthday:${schoolId}:${genre}:${eleveId}:${jour}`);
   const h = new Uint8Array(await crypto.subtle.digest('SHA-256', octets));
   // Version 5 et variante RFC 4122 : l'uuid est déterministe mais reste conforme.
   h[6] = (h[6] & 0x0f) | 0x50;

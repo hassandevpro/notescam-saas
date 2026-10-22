@@ -31,6 +31,7 @@ import {
 // Le bulletin l'applique déjà (apcForClass) : la saisie doit lister EXACTEMENT
 // les mêmes matières, sinon on saisit des notes qui ne s'impriment jamais.
 import { apcMatieresForClass, unmatchedClassSubjects } from '../../core/refClassScope';
+import { manquesPourClasse } from '../../core/apcRattrapage';
 import { classSubjectsOf } from '../../core/subjectOrder';
 import ReferentielEditor from './ReferentielEditor';
 import { withLibelles } from '../../lib/referentielEcole';
@@ -276,6 +277,27 @@ export default function ApcCompetenceWorkspace() {
     [classSubjects, referentiel],
   );
 
+  // ── CE QUI MANQUE VRAIMENT À CETTE CLASSE ────────────────────────────────
+  //
+  // `matieresHorsReferentiel` ne compte que les noms qui ne correspondent À
+  // RIEN. Il ignore donc le manque le plus fréquent — la matière qui EXISTE
+  // mais n'est pas rattachée à CE NIVEAU (« Espagnol » absent du catalogue de
+  // 5e, « Etude de texte » créée en 3ème) — et c'est lui qui déclenchait le
+  // rattrapage.
+  //
+  // CONSÉQUENCE MESURÉE le 2026-10-22 : le rattachement venait d'être corrigé
+  // dans le magasin, et il ne partait JAMAIS pour ce cas, faute d'appelant. Du
+  // dehors, « rien ne change ». Le déclencheur doit donc poser la même question
+  // que le rattrapage lui-même, et c'est maintenant la même fonction qui y
+  // répond des deux côtés.
+  const manques = useMemo(() => manquesPourClasse({
+    subjects: classSubjects,
+    matieres: referentiel?.matieres || [],
+    classeMatieres: referentiel?.classeMatieres || [],
+    classeId: classeSlug,
+  }), [classSubjects, referentiel, classeSlug]);
+  const aRattraper = manques.creer.length + manques.rattacher.size;
+
   // Rattrapage, à l'ouverture de la classe. Même motif que la maternelle
   // (`configureClassSubjects`) : idempotent, tenté une seule fois par classe, et
   // JAMAIS si le compte n'a pas le droit d'écrire — une écriture refusée par la
@@ -283,13 +305,13 @@ export default function ApcCompetenceWorkspace() {
   const materialiserManquantes = useSchoolStore((s) => s.materialiserMatieresManquantes);
   const rattrapees = useRef(new Set());
   useEffect(() => {
-    if (!selectedClass || !referentiel || !matieresHorsReferentiel.length) return;
+    if (!selectedClass || !referentiel || !aRattraper) return;
     const isDelegate = hasCapability(permissions, '/app/classes');
     if (!canManageClassSubjects({ role, school, cls: selectedClass, teacherId, isDelegate })) return;
     if (rattrapees.current.has(selectedClass.id)) return;
     rattrapees.current.add(selectedClass.id);
     materialiserManquantes(selectedClass);
-  }, [selectedClass, referentiel, matieresHorsReferentiel.length, role, school, teacherId, permissions, materialiserManquantes]);
+  }, [selectedClass, referentiel, aRattraper, role, school, teacherId, permissions, materialiserManquantes]);
 
   // Mode 1 : ne garder que les matières couvertes par MES matières affectées.
   // Le rapprochement est délégué à apcMatiereMatch (noms officiels, sigles,

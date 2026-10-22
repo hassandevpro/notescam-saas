@@ -886,7 +886,7 @@ function PrincipalGrades() {
               </div>
               {classId && classStudents.length > 0 && classSubjects.length > 0 && !isMaternelle && (
                 <div className="flex flex-wrap gap-2 no-print">
-                  <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer CSV', 'Import CSV')}</button>
+                  <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer Excel', 'Import Excel')}</button>
                   <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
                 </div>
               )}
@@ -957,7 +957,7 @@ function PrincipalGrades() {
               </div>
               {classId && classStudents.length > 0 && classSubjects.length > 0 && !isMaternelle && (
                 <div className="flex flex-wrap gap-2 no-print">
-                  <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer CSV', 'Import CSV')}</button>
+                  <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer Excel', 'Import Excel')}</button>
                   <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
                 </div>
               )}

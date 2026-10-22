@@ -124,5 +124,29 @@ titre('le comparateur est utilisable seul (Reports, SubjectTeacherWorkspace)');
     'une position bat n importe quel coefficient');
 }
 
+// ── DEUX MATIÈRES AU MÊME RANG ─────────────────────────────────────────────
+// Relevé en production le 2026-10-22 : 8 rangs partagés par deux matières
+// differentes dans la 5eme de THE GENIUS, 8 dans la 3e de LA REUSSITE. A rangs
+// egaux, le comparateur rendait 0 ; `sort` etant stable, l'ordre retombait sur
+// celui de la liste RECUE, qui n'est pas le meme d'un ecran a l'autre. Les deux
+// matieres pouvaient donc s'echanger entre le bulletin et la grille de saisie.
+titre('deux matieres au MEME rang : ordre identique partout');
+{
+  const chinois = { id: 'z-chinois', class_id: 'c1', name: 'Chinois', coef: 1, position: 1 };
+  const etude   = { id: 'a-etude',   class_id: 'c1', name: 'Etude de texte', coef: 2, position: 1 };
+  // La MEME paire, dans les deux ordres d'arrivee possibles.
+  const vu1 = String(noms(classSubjectsOf([chinois, etude], 'c1')));
+  const vu2 = String(noms(classSubjectsOf([etude, chinois], 'c1')));
+  ok(vu1 === vu2, 'l ordre d arrivee ne change plus le resultat', [vu1, vu2]);
+  // Et le departage reste celui du produit : coefficient d'abord.
+  ok(vu1.startsWith('Etude'), 'a rang egal, le coefficient departage', vu1);
+  // Coefficient egal : le nom, puis l identifiant. Jamais 0, jamais le hasard.
+  const m1 = { id: 'id-2', class_id: 'c1', name: 'Meme nom', coef: 3, position: 4 };
+  const m2 = { id: 'id-1', class_id: 'c1', name: 'Meme nom', coef: 3, position: 4 };
+  ok(bySubjectOrder(m1, m2) > 0 && bySubjectOrder(m2, m1) < 0,
+    'tout egal : l identifiant tranche, et dans les deux sens');
+  ok(bySubjectOrder(m1, m1) === 0, 'une matiere comparee a elle-meme vaut 0');
+}
+
 console.log(echecs ? `\n${echecs} ECHEC(S)` : '\nTOUT OK');
 process.exit(echecs ? 1 : 0);

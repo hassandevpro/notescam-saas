@@ -27,12 +27,16 @@
 // `generalAverage` donne 15,08. Les deux sont justes ; ce ne sont pas le même
 // calcul. Ne pas « aligner » l'une sur l'autre ici.
 
+import { Fragment } from 'react';
 import {
   mkCell, mkTH, fix2, L, B,
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
 import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
 import { PRIM_GRADE_MAX } from '../../core/primEngine';
+// Les six regroupements officiels du carnet MINEDUB. Le calcul est dans le
+// moteur : ce gabarit n'additionne rien lui-même (règle de tous les bulletins).
+import { groupesDe } from '../../core/primCompactRows';
 import { primCoteLabel } from '../../core/referentielI18n';
 
 const COTE_COLORS = { 'A+': '#059669', A: '#10b981', ECA: '#f59e0b', IP: '#f59e0b', NA: '#ef4444' };
@@ -67,12 +71,33 @@ export default function BulletinPrimCompact({
   nonEvalueesCodes = [],       // ['1C','3B','4A']
   moyenneGenerale, coteGenerale, appreciationGenerale,
   rank, decision,
+  // ── CE QUE LE CARNET DE L'ÉCOLE PORTE EN PLUS (modèle THE GENIUS, SIL) ────
+  // Toutes FACULTATIVES : un bulletin qui ne les reçoit pas s'imprime comme
+  // avant, sans case vide ni ligne fantôme.
+  mentions,                    // { avertissement, tableauHonneur, encouragement } — 'oui' | 'non'
+  statsClasse,                 // { premier, dernier, generale } — moyennes de la classe
+  repartition = [],            // [{ label: '[10-11.99]', n: 3 }] — élèves par intervalle
+  signatureParent = false,     // ajoute la case « Signature du parent »
+  groupes: avecGroupes = false, // affiche les six regroupements officiels
   additionalSubjects = [],     // matières hors référentiel (tableau secondaire)
   coteBareme = [],             // bandes de cotes, pour la légende
   titulaire,
   pt = 9,
   pageNo, total,
 }) {
+  // Les six regroupements, calcules par le moteur. `finDeGroupe(i)` rend le
+  // groupe quand la ligne i est la DERNIERE de sa famille — c'est la que se
+  // pose la ligne « n) INTITULE · Total · Moyenne » du carnet.
+  const groupes = avecGroupes ? groupesDe(rows, sys) : [];
+  const groupeDe = new Map();
+  for (const g of groupes) for (const code of g.codes) groupeDe.set(code, g);
+  const finDeGroupe = (i) => {
+    if (!avecGroupes) return null;
+    const g = groupeDe.get(rows[i]?.code);
+    if (!g) return null;
+    return groupeDe.get(rows[i + 1]?.code) === g ? null : g;
+  };
+
   const classLabel = cls?.name || '';
   const titre = L(sys, `BULLETIN DE NOTES — ${classLabel}`,
     `REPORT OF MARKS – ${classLabel}`, `BOLETÍN DE NOTAS — ${classLabel}`);
@@ -133,8 +158,9 @@ export default function BulletinPrimCompact({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.code} style={{ breakInside: 'avoid' }}>
+          {rows.map((r, i) => (
+            <Fragment key={r.code}>
+            <tr style={{ breakInside: 'avoid' }}>
               <td style={{ ...num, fontWeight: 'bold' }}>{r.code}</td>
               <td style={cell}>{r.intitule}</td>
               {critereColumns.map((c) => (
@@ -149,6 +175,27 @@ export default function BulletinPrimCompact({
                 {r.cote || <span style={{ color: '#9ca3af' }}>—</span>}
               </td>
             </tr>
+            {/* ── LIGNE DE REGROUPEMENT ────────────────────────────────────
+                Le carnet officiel ne liste pas les compétences à plat : il les
+                range sous SIX intitulés numérotés, chacun suivi d'un total et
+                d'une moyenne. Cette ligne se pose après la DERNIÈRE compétence
+                de sa famille, d'où la comparaison avec la ligne suivante. */}
+            {finDeGroupe(i) && (
+              <tr style={{ background: '#f3f4f6', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                <td style={{ ...cell, fontStyle: 'italic', fontSize: '0.88em' }} colSpan={2 + critereColumns.length}>
+                  {finDeGroupe(i).numero != null ? `${finDeGroupe(i).numero}) ` : ''}{finDeGroupe(i).intitule}
+                </td>
+                <td style={{ ...num, fontWeight: 'bold' }}>
+                  {finDeGroupe(i).achieved == null ? '—'
+                    : `${L(sys, 'Total', 'Total', 'Total')}: ${fix2(finDeGroupe(i).achieved)}`}
+                </td>
+                <td style={{ ...num, fontWeight: 'bold' }}>
+                  {finDeGroupe(i).moyenne == null ? '—'
+                    : `${L(sys, 'Moy', 'Avg', 'Prom')}: ${fix2(finDeGroupe(i).moyenne)}`}
+                </td>
+              </tr>
+            )}
+            </Fragment>
           ))}
           <tr style={{ background: TH_BG, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
             <td style={{ ...th, textAlign: 'left' }} colSpan={2 + critereColumns.length}>
@@ -266,12 +313,70 @@ export default function BulletinPrimCompact({
               <td style={cell} colSpan={2}>{decision || ''}</td>
             </tr>
           )}
+          {/* ── TRAVAIL ACADÉMIQUE ────────────────────────────────────────
+              Les trois distinctions du carnet, sur une ligne. */}
+          {mentions && (
+            <tr>
+              <td style={th}>{L(sys, 'Travail académique', 'Academic record', 'Trabajo académico')}</td>
+              <td style={th}>{L(sys, 'Avertissement', 'Warning', 'Advertencia')}</td>
+              <td style={num}>{mentions.avertissement || '—'}</td>
+              <td style={th} colSpan={2}>{L(sys, 'Tableau d’honneur', 'Honour roll', 'Cuadro de honor')}</td>
+              <td style={num}>{mentions.tableauHonneur || '—'}</td>
+              <td style={th}>{L(sys, 'Encouragement', 'Commendation', 'Felicitación')}</td>
+              <td style={num}>{mentions.encouragement || '—'}</td>
+            </tr>
+          )}
+
+          {/* ── STATS DE PERFORMANCE ──────────────────────────────────────
+              Situer l'élève dans sa classe : la meilleure moyenne, la plus
+              faible, et celle de la classe. */}
+          {statsClasse && (
+            <tr>
+              <td style={th}>{L(sys, 'Stats de performance', 'Performance stats', 'Estadísticas')}</td>
+              <td style={th}>{L(sys, 'Moy. premier', 'Top average', 'Prom. primero')}</td>
+              <td style={num}>{statsClasse.premier == null ? '—' : fix2(statsClasse.premier)}</td>
+              <td style={th} colSpan={2}>{L(sys, 'Moy. dernier', 'Lowest average', 'Prom. último')}</td>
+              <td style={num}>{statsClasse.dernier == null ? '—' : fix2(statsClasse.dernier)}</td>
+              <td style={th}>{L(sys, 'Moy. générale', 'Class average', 'Prom. general')}</td>
+              <td style={num}>{statsClasse.generale == null ? '—' : fix2(statsClasse.generale)}</td>
+            </tr>
+          )}
+
           <tr>
             <td style={th}>{L(sys, 'Observations du titulaire', 'Class teacher’s remarks', 'Observaciones')}</td>
-            <td style={{ ...cell, height: 26, borderTop: B }} colSpan={7} />
+            <td style={{ ...cell, height: 26, borderTop: B }} colSpan={signatureParent ? 4 : 7} />
+            {signatureParent && (
+              <>
+                <td style={th} colSpan={1}>{L(sys, 'Signature du parent', 'Parent’s signature', 'Firma del padre')}</td>
+                <td style={{ ...cell, height: 26, borderTop: B }} colSpan={2} />
+              </>
+            )}
           </tr>
         </tbody>
       </table>
+
+      {/* ── AUTRES STATISTIQUES ───────────────────────────────────────────
+          Combien d'élèves par tranche de moyenne. Le carnet la porte en pied :
+          un parent y lit où se situe son enfant dans la classe. */}
+      {repartition.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
+          <tbody>
+            <tr>
+              <td style={{ ...th, textAlign: 'left' }} colSpan={repartition.length + 1}>
+                {L(sys, 'Autres statistiques', 'Other statistics', 'Otras estadísticas')}
+              </td>
+            </tr>
+            <tr>
+              <td style={th}>{L(sys, 'Intervalle de moyenne', 'Average range', 'Intervalo')}</td>
+              {repartition.map((r) => <td key={r.label} style={th}>{r.label}</td>)}
+            </tr>
+            <tr>
+              <td style={th}>{L(sys, 'Nombre d’élèves', 'Number of pupils', 'N.º de alumnos')}</td>
+              {repartition.map((r) => <td key={r.label} style={num}>{r.n}</td>)}
+            </tr>
+          </tbody>
+        </table>
+      )}
 
       <OfficialSignatures
         school={school} sys={sys} profPrincipal={titulaire}

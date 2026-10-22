@@ -127,12 +127,15 @@ await Promise.all(Array.from({ length: PARALLELE }, async () => {
 //
 // Chaque entree porte sa reference dans PROJECT_STATUS.md. Ne rien ajouter ici
 // sans y ouvrir le blocage correspondant.
-const ECHECS_CONNUS = {
-  'src/lib/_importStudents.test.mjs':
-    'B2 — le refactor non commite de src/lib/exportCsv.js casse l extraction par decoupage de texte',
-  'src/lib/_studentFieldsIO.test.mjs':
-    'B2 — idem : passe sur HEAD, echoue sur la copie de travail',
-};
+//
+// VIDE depuis le 2026-10-19 : B2 est clos. Les deux tests inscrits ici
+// (_importStudents, _studentFieldsIO) extraient les fonctions internes
+// d exportCsv.js en decoupant son texte d une declaration `function` a la
+// suivante ; une `export function` glissee entre les deux faisait embarquer le
+// mot-cle `export` dans `new Function`. La borne de fin reconnait desormais
+// toute declaration de premier niveau, et le `return` colle au corps est pose
+// sur sa propre ligne (il tombait dans un commentaire final). Les deux passent.
+const ECHECS_CONNUS = {};
 
 const ko       = resultats.filter((r) => r.code !== 0);
 const inattendus = ko.filter((r) => !(r.fichier in ECHECS_CONNUS));

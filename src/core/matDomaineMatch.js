@@ -33,24 +33,62 @@ const tokensOf = (s) => norm(s).split(' ').filter(Boolean);
 // Mots-clés par domaine. Les clés sont les ids officiels MINEDUB (stables).
 // Une entrée contenant une ESPACE est cherchée comme expression et testée AVANT
 // les mots simples.
+// ── MESURE QUI A DICTÉ CES LISTES ──────────────────────────────────────────
+//
+// Relevé sur la production le 2026-10-21, en appelant ce résolveur sur les 2 338
+// matières de classe réelles : la MATERNELLE était le pire des trois cycles —
+// 33 matières sur 128 (25,8 %) ne se rattachaient à aucun domaine, donc
+// n'apparaissaient ni à la saisie ni au bulletin.
+//
+// Deux causes, et aucune n'était une faute de l'école :
+//   • AUCUN mot-clé anglais. Une école bilingue nomme ses matières « English »,
+//     « Mathematics », « Social Studies » — invisibles toutes les trois ;
+//   • « Français » et « Anglais » eux-mêmes manquaient. D1 connaissait
+//     « langage » et « oral » mais pas le nom des deux langues.
+//
+// La maternelle n'a que HUIT domaines, et ce ne sont pas des disciplines : deux
+// noms de matières très différents tombent légitimement sur le même domaine.
+// Deux rattachements sont des CHOIX, pas des évidences, et ils sont assumés
+// ici :
+//   • l'informatique (« Computer Studies ») va à la DÉCOUVERTE DU MONDE : le
+//     référentiel maternelle n'a pas de domaine TIC, et c'est là que
+//     l'exploration des objets techniques est observée ;
+//   • l'histoire-géographie y va aussi, pour la même raison — découvrir
+//     l'espace et le temps.
+// Mieux vaut un domaine discutable mais ANNONCÉ qu'une matière cochée qui
+// n'apparaît nulle part : l'école voit où va sa matière et peut la déplacer.
 const KEYWORDS = {
   langage_communication: ['langage oral', 'expression orale', 'langue orale',
-    'langage', 'communication', 'oral', 'parole', 'vocabulaire', 'comptines'],
+    'langage', 'communication', 'oral', 'parole', 'vocabulaire', 'comptines',
+    'francais', 'french', 'anglais', 'english', 'langue', 'langues', 'language',
+    'speaking', 'expression'],
   prelecture_preecriture: ['graphisme ecriture', 'pre lecture', 'pre ecriture',
-    'prelecture', 'preecriture', 'graphisme', 'ecriture', 'lecture', 'trace'],
-  prenumeration_logique: ['pre numeration', 'raisonnement logique',
+    'pre reading', 'pre writing', 'prelecture', 'preecriture', 'graphisme',
+    'ecriture', 'lecture', 'trace', 'reading', 'writing', 'handwriting'],
+  prenumeration_logique: ['pre numeration', 'raisonnement logique', 'pre numeracy',
     'prenumeration', 'numeration', 'mathematiques', 'mathematique', 'maths', 'math',
+    'mathematics', 'numeracy', 'counting', 'numbers',
     'logique', 'raisonnement', 'calcul', 'nombres', 'denombrement'],
   psychomotricite: ['motricite fine', 'education physique', 'activites physiques',
-    'psychomotricite', 'motricite', 'eps', 'sport', 'jeux moteurs'],
-  decouverte_monde: ['decouverte du monde', 'decouverte', 'monde', 'sciences',
-    'environnement', 'nature', 'eveil scientifique'],
+    'physical education', 'motor skills',
+    'psychomotricite', 'motricite', 'eps', 'sport', 'sports', 'jeux moteurs',
+    'physical', 'gymnastique'],
+  decouverte_monde: ['decouverte du monde', 'eveil scientifique', 'computer studies',
+    'histoire geographie', 'computer science', 'information technology',
+    'decouverte', 'monde', 'sciences', 'science', 'world', 'discovery',
+    'environnement', 'environment', 'nature',
+    'informatique', 'computer', 'ict', 'tic', 'numerique',
+    'histoire', 'geographie', 'history', 'geography', 'geo'],
   vie_sociale_affective: ['vie sociale', 'vie affective', 'vivre ensemble',
-    'socialisation', 'affective', 'citoyennete', 'valeurs'],
+    'social studies', 'education civique', 'living together',
+    'socialisation', 'affective', 'citoyennete', 'citizenship', 'valeurs',
+    'social', 'civique', 'civics', 'civic', 'ecm', 'morale', 'moral'],
   activites_artistiques: ['eveil artistique', 'activites artistiques', 'arts plastiques',
-    'artistique', 'arts', 'art', 'musique', 'dessin', 'chant', 'danse', 'coloriage'],
+    'artistique', 'arts', 'art', 'musique', 'music', 'dessin', 'drawing',
+    'chant', 'singing', 'danse', 'dancing', 'coloriage', 'painting', 'crafts'],
   autonomie_personnelle: ['autonomie personnelle', 'hygiene corporelle',
-    'autonomie', 'hygiene', 'proprete', 'soins'],
+    'personal autonomy', 'self care',
+    'autonomie', 'autonomy', 'hygiene', 'proprete', 'soins', 'cleanliness'],
 };
 
 // Ordre de résolution déterministe (D1 → D8), indépendant du référentiel chargé.

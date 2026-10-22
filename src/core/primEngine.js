@@ -334,7 +334,7 @@ export const buildPrimRanks = (students, avgById, excl = {}) => {
 // APC (matérialisation UI + affectation enseignant). Barème /10 par défaut.
 export function subjectsFromPrimReferentiel(competences, { schoolId, classId, gradeMax = PRIM_GRADE_MAX, makeId }) {
   return (competences || []).map((c, i) => ({
-    id: makeId(),
+    id: makeId(`${c.code} — ${c.intitule}`),
     school_id: schoolId,
     class_id: classId,
     name: `${c.code} — ${c.intitule}`,

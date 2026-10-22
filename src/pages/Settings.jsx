@@ -460,6 +460,9 @@ export default function Settings() {
         // drapeau officiel « historique » (minesec/minedub…) est remonté sur 'officiel'.
         bulletin_engine: isOfficialEngine(school.bulletin_engine) ? 'officiel' : 'classic',
         bulletin_subject_mode: school.bulletin_subject_mode === 'detailed' ? 'detailed' : 'synthetic',
+        // Carnet détaillé du primaire. Défaut = 'standard' : une école qui n'a
+        // rien demandé garde son bulletin tel quel.
+        prim_bulletin_mode: school.prim_bulletin_mode === 'carnet' ? 'carnet' : 'standard',
         // En-tête officiel bilingue (2 blocs pays) ou mono-langue. Défaut = bilingue
         // (comportement historique) pour les pays qui le proposent (Cameroun).
         bulletin_bilingual: !(school.bulletin_bilingual === false || school.bulletin_bilingual === 0 || school.bulletin_bilingual === '0'),
@@ -1025,6 +1028,54 @@ export default function Settings() {
                       key={opt.value}
                       disabled={!isAdmin}
                       onClick={() => setForm((f) => ({ ...f, bulletin_subject_mode: opt.value }))}
+                      className={`text-left rounded-xl border p-4 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                        active ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? 'border-brand-600' : 'border-gray-300'}`}>
+                          {active && <span className="w-2 h-2 rounded-full bg-brand-600" />}
+                        </span>
+                        <span className="font-semibold text-gray-900 text-sm">{opt.title}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1.5 ml-6">{opt.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </Section>
+
+            {/* ── CARNET DÉTAILLÉ DU PRIMAIRE ────────────────────────────────
+                Demandé par une école (THE GENIUS) dont le carnet aux parents
+                porte les six regroupements officiels et trois blocs de pied.
+                C'est un RÉGLAGE, pas un nom d'école en dur : la prochaine qui
+                veut la même chose la coche, et un renommage ne casse rien. */}
+            <Section
+              title={t('Bulletin du primaire', 'Primary report card', 'Boletín de primaria')}
+              desc={t('Disposition du bulletin pour les classes du primaire (SIL → CM2).',
+                      'Layout of the report card for primary classes.',
+                      'Disposición del boletín de primaria.')}
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { value: 'standard',
+                    title: t('Standard', 'Standard', 'Estándar'),
+                    desc:  t('Les compétences, le total, la cote et le rang. C’est la disposition actuelle.',
+                             'Competences, total, grade and rank. The current layout.',
+                             'Competencias, total, nota y puesto.') },
+                  { value: 'carnet',
+                    title: t('Carnet détaillé', 'Detailed booklet', 'Cuadernillo detallado'),
+                    desc:  t('Ajoute les 6 regroupements officiels (Total · Moyenne), le travail académique, les statistiques de performance, la répartition par tranche et la signature du parent.',
+                             'Adds the 6 official groupings (Total · Average), academic record, performance statistics, range distribution and the parent’s signature.',
+                             'Añade los 6 agrupamientos oficiales, el trabajo académico, las estadísticas y la firma del padre.') },
+                ].map((opt) => {
+                  const active = (form.prim_bulletin_mode || 'standard') === opt.value;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.value}
+                      disabled={!isAdmin}
+                      onClick={() => setForm((f) => ({ ...f, prim_bulletin_mode: opt.value }))}
                       className={`text-left rounded-xl border p-4 transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                         active ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white hover:border-brand-300'
                       }`}

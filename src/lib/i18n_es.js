@@ -18,9 +18,9 @@ export const FR_TO_ES = {
   'Ajouter': 'Añadir',
   'Importer': 'Importar',
   'Exporter': 'Exportar',
-  'Exporter CSV': 'Exportar CSV',
   'Exporter Excel': 'Exportar Excel',
-  'Importer CSV': 'Importar CSV',
+  'Exporter Excel': 'Exportar Excel',
+  'Importer Excel': 'Importar Excel',
   'Choisir': 'Elegir',
   'Choisir…': 'Elegir…',
   'Choisir une classe…': 'Elegir una clase…',
@@ -380,7 +380,7 @@ export const FR_TO_ES = {
   'Trav.': 'Trab.',
   'tuteur': 'tutor',
   'Tuteur légal': 'Tutor(a) legal',
-  'Importer CSV': 'Importar CSV',
+  'Importer Excel': 'Importar Excel',
   'Import en cours…': 'Importando…',
   'Imprimer le PV': 'Imprimir el acta',
   'Lien parent': 'Enlace padre/madre',
@@ -684,13 +684,13 @@ export const FR_TO_ES = {
   'Importer des élèves': 'Importar alumnos',
   'Importer des Élèves': 'Importar alumnos',
   "Importez plusieurs élèves à partir d": 'Importe varios alumnos desde',
-  "Importez le fichier. Les élèves sont créés automatiquement.":
+  "Importez le classeur. Les élèves sont créés automatiquement.":
     'Importe el fichero. Los alumnos se crean automáticamente.',
   'Importez votre fichier': 'Importe su fichero',
-  'Importer via CSV': 'Importar vía CSV',
+  'Importer via Excel': 'Importar vía Excel',
   'Importation…': 'Importando…',
   'importé': 'importado',
-  'Glissez votre fichier CSV ici': 'Arrastre su fichero CSV aquí',
+  'Glissez votre classeur Excel ici': 'Arrastre su libro de Excel aquí',
   'Glissez votre fichier ici': 'Arrastre su fichero aquí',
   'Choisir un fichier CSV': 'Elegir un fichero CSV',
   'Choisir PDF ou image': 'Elegir PDF o imagen',
@@ -706,9 +706,9 @@ export const FR_TO_ES = {
   'Sélectionner un fichier CSV exporté depuis cette page.':
     'Seleccione un fichero CSV exportado desde esta página.',
   'Format : Élève, Matière /max, …, Moyenne': 'Formato: Alumno, Asignatura /máx, …, Media',
-  'Formats supportés : CSV, Excel (.xlsx)': 'Formatos soportados: CSV, Excel (.xlsx)',
+  'Format accepté : Excel (.xlsx, .xls)': 'Formato aceptado: Excel (.xlsx, .xls)',
   'En-têtes attendus': 'Encabezados esperados',
-  'Téléchargez le modèle CSV': 'Descargue la plantilla CSV',
+  'Téléchargez le modèle Excel': 'Descargue la plantilla de Excel',
   'CSV ou Excel — colonnes : nom_complet, email, telephone, specialite':
     'CSV o Excel — columnas: nombre_completo, correo, telefono, especialidad',
   "Remplissez les colonnes : nom (obligatoire), classe (obligatoire), date_naissance, genre, matricule, parent_phone…":
@@ -770,8 +770,9 @@ export const FR_TO_ES = {
     'Seleccione la clase, la fecha, la sesión (Mañana / Tarde / Día completo) y opcionalmente la asignatura.',
   'Sélectionnez la classe.': 'Seleccione la clase.',
   'Sélectionnez la matière et l': 'Seleccione la asignatura y',
-  'Sélectionnez un fichier CSV exporté depuis cette page.':
-    'Seleccione un fichero CSV exportado desde esta página.',
+  'Sélectionnez le classeur Excel exporté depuis cette page.':
+    'Seleccione el libro de Excel exportado desde esta página.',
+  'Importer des notes (Excel)': 'Importar notas (Excel)',
   'Sélectionnez une classe pour afficher le procès-verbal.':
     'Seleccione una clase para mostrar el acta.',
   'Sélectionnez une classe pour commencer la saisie.':
@@ -782,7 +783,7 @@ export const FR_TO_ES = {
   "En haut de la page, choisissez la classe, la matière et la séquence (ou le terme).":
     'Arriba en la página, elija la clase, la asignatura y la evaluación (o el trimestre).',
   "Cliquez sur « Enregistrer la saisie ».": 'Pulse « Guardar la captura ».',
-  "Cliquez sur « Importer CSV » et téléchargez le modèle.": 'Pulse « Importar CSV » y descargue la plantilla.',
+  "Cliquez sur « Importer Excel » et téléchargez le modèle.": 'Pulse « Importar Excel » y descargue la plantilla.',
   "Cliquez sur « Modifier les frais ».": 'Pulse « Editar tasas ».',
   "Cliquez sur la cellule d": 'Pulse la celda de',
   'Notes par matière': 'Notas por asignatura',
@@ -1291,7 +1292,7 @@ export const FR_TO_ES = {
   'Sauvegarder': 'Guardar',
   'Sauvegarde…': 'Guardando…',
   'Téléversement…': 'Subiendo…',
-  'Téléchargez le modèle CSV': 'Descargue la plantilla CSV',
+  'Téléchargez le modèle Excel': 'Descargue la plantilla de Excel',
   'Rendez-vous sur notescam.app/login, saisissez votre email et mot de passe.':
     'Vaya a notescam.app/login, introduzca su correo y contraseña.',
   'Vous pouvez ignorer l': 'Puede ignorar',
@@ -1440,8 +1441,8 @@ export const FR_TO_ES = {
   'Erreur lors de l\'ajout des matières.': 'Error al añadir las asignaturas.',
   'Il saisit son nom, email, mot de passe et le code de l\'établissement.':
     'Él introduce su nombre, correo, contraseña y el código del centro.',
-  'Importez plusieurs élèves à partir d\'un fichier CSV':
-    'Importe varios alumnos desde un fichero CSV',
+  'Importez plusieurs élèves à partir d\'un classeur Excel':
+    'Importe varios alumnos desde un libro de Excel',
   'L\'administrateur communique le code établissement (8 caractères, visible dans Paramètres).':
     'El administrador comunica el código del centro (8 caracteres, visible en Ajustes).',
   'L\'enseignant accède à notescam.app/teacher-signup.':

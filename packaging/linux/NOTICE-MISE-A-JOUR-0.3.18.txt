@@ -1,0 +1,186 @@
+========================================================================
+NotesCam 0.3.18 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.18.tar.gz
+Taille   : 53 015 377 octets
+SHA-256  : b21d80e8899b4b47bd242413336bc8cc97768563fc7149dc0cfc6b033e136be7
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.18.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire. Elle contient TOUT ce que contenaient
+la 0.3.17 (échanges de fichiers en Excel, classeur des bulletins du
+second cycle), la 0.3.16 (compétences modifiables, profil, barème du
+primaire) et la 0.3.15 (journal de caisse, correctifs de synchronisation).
+
+ELLE NE TOUCHE NI À LA BASE NI AU SERVEUR. Aucune table, aucune colonne,
+aucune fonction nouvelle. Conséquence directe : il n'y a PAS de long
+rattrapage de synchronisation à attendre après l'installation.
+
+
+CE QUE CETTE VERSION APPORTE EN PLUS DE LA 0.3.17
+--------------------------------------------------
+
+1. LES FRAIS NE RESTENT PLUS BLOQUÉS EN FILE D'ATTENTE.
+
+   LE SYMPTÔME, tel qu'on le voit à l'écran : un bandeau rouge
+   « N échecs sync » en haut de la page, et en le dépliant :
+
+       student_fees · upsert
+       UNIQUE constraint failed: student_fees.student_id,
+       student_fees.academic_year
+
+   CE QUE CELA COÛTAIT. Le montant saisi au guichet restait dans le
+   navigateur du poste et n'arrivait jamais au dossier de l'élève.
+   L'écriture repartait à chaque cycle, indéfiniment, puis était mise de
+   côté. Rien, dans l'application, ne permettait de la débloquer.
+
+   LA CAUSE. Une fiche de frais s'identifie par (ÉLÈVE, ANNÉE), pas par
+   son identifiant interne. Deux postes qui saisissent les frais du même
+   élève pour la même année fabriquaient deux identifiants pour une
+   seule fiche possible, et la base refusait le second — à juste titre.
+
+   CE QUI CHANGE. L'application écrit désormais DANS la fiche qui
+   existe. VOUS N'AVEZ RIEN À FAIRE : les écritures déjà bloquées
+   repartent d'elles-mêmes au cycle suivant, sans que personne touche au
+   navigateur de la secrétaire. Le bandeau disparaît seul.
+
+   CE QUI EST PROTÉGÉ, ET C'EST VOULU : un montant déjà encaissé n'est
+   JAMAIS écrasé par ce rattrapage. La liste des versements fait foi ; le
+   total payé est recalculé à partir d'elle et ne peut que remonter,
+   jamais baisser.
+
+2. UNE CLASSE BILINGUE PORTE LES DEUX PROGRAMMES.
+
+   Une classe bilingue suit le programme francophone ET le programme
+   anglophone. Jusqu'ici elle ne pouvait porter que les matières d'un
+   seul des deux : les matières de l'autre programme — et donc leurs
+   unités d'apprentissage — n'apparaissaient ni à la saisie des notes,
+   ni sur le bulletin.
+
+   À LA CRÉATION D'UNE CLASSE : une case « Classe bilingue — poser les
+   deux programmes ».
+
+   SUR UNE CLASSE QUI EXISTE DÉJÀ (avec ses élèves et ses notes) :
+   écran Classes, ouvrez la classe, section Matières.
+
+     · cochez « Classe bilingue » ;
+     · choisissez la classe jumelle dans « Fusionner avec » ;
+     · cliquez « Ajouter les N matières de <classe> ».
+
+   LA CLASSE DU NIVEAU ÉQUIVALENT EST PROPOSÉE D'ABORD, d'après les
+   correspondances officielles :
+
+       Class 1 ↔ SIL        Nursery 1 ↔ Petite Section
+       Class 2 ↔ CP         Nursery 2 ↔ Moyenne Section
+       Class 3 ↔ CE1        Nursery 3 ↔ Grande Section
+       Class 4 ↔ CE2        Form 1 ↔ 6e     Form 4 ↔ 3e
+       Class 5 ↔ CM1        Form 2 ↔ 5e     Form 5 ↔ 2nde
+       Class 6 ↔ CM2        Form 3 ↔ 4e     Lower/Upper Sixth ↔ 1re/Tle
+
+   Si votre établissement apparie autrement, les autres classes du même
+   cycle restent proposées : le choix est le vôtre, l'application ne
+   décide pas à votre place.
+
+   CHAQUE MATIÈRE GARDE SON BARÈME — /20 du côté francophone, /100 du
+   côté anglophone — et une pastille FR ou EN le rappelle dans la liste.
+
+   LE BULLETIN EST LE MÊME DOCUMENT, avec des matières dans les deux
+   langues. Les moyennes restent justes : chaque note est ramenée à son
+   propre barème avant d'être moyennée, donc une note sur 100 ne pèse pas
+   plus qu'une note sur 20. Un élève à 15/20 partout du côté français et
+   à 75/100 partout du côté anglais sort à 15/20.
+
+   VOUS GARDEZ LA MAIN : décochez une matière pour la retirer, et ajoutez
+   une matière qui ne figure à AUCUN référentiel (travaux pratiques,
+   chinois, matière maison) en bas du tableau, en choisissant son côté
+   donc son barème.
+
+   CE QUI NE PEUT PAS ARRIVER, et c'est vérifié par des tests : le geste
+   n'ajoute que ce qui MANQUE. Il ne touche pas aux matières déjà en
+   place, donc aucune note déjà saisie n'est menacée, et le refaire deux
+   fois ne crée aucun doublon.
+
+
+INSTALLATION
+------------
+
+Le script de déploiement fait tout dans l'ordre, et s'arrête de lui-même
+si quelque chose ne va pas. Placez l'archive ET le script dans le même
+dossier, sur le serveur, puis :
+
+    chmod +x deploy-0.3.18.sh
+    sudo ./deploy-0.3.18.sh notescam-linux-x64-0.3.18.tar.gz
+
+Ce qu'il fait, dans cet ordre :
+
+  1. relève l'état AVANT (version, school_id, jeton d'école) ;
+  2. ARRÊTE le service — une copie de base prise à chaud peut être
+     déchirée ;
+  3. SAUVEGARDE la base par VACUUM INTO, puis VÉRIFIE la sauvegarde
+     (integrity_check + comptages identiques). Si la sauvegarde n'est pas
+     vérifiée, IL S'ARRÊTE LÀ et remet le service en marche sans avoir
+     touché à l'application. Une sauvegarde non vérifiée n'est pas une
+     sauvegarde ;
+  4. installe, puis contrôle que le paquet porte VRAIMENT les deux
+     nouveautés et que rien des versions précédentes n'a été perdu ;
+  5. redémarre, et vérifie que la version annoncée est bien 0.3.18 et
+     qu'aucun comptage (élèves, notes, versements, dépenses) n'a diminué.
+
+Il ne supprime aucune base, ne réinitialise aucune file de
+synchronisation, ne refait aucun appairage et n'écrit aucune donnée.
+
+UN CODE DE SORTIE DIFFÉRENT DE 0 EST LE SIGNAL D'APPELER L'ÉDITEUR, pas
+de tenter une réparation. La sauvegarde vérifiée est nommée dans la
+sortie du script.
+
+
+À VÉRIFIER DEPUIS UN POSTE DE L'ÉCOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Maj+R : le navigateur garde
+l'ancienne interface en cache, et c'est de loin la cause la plus
+fréquente d'un « bouton qui n'apparaît pas ».
+
+  1. curl -s http://localhost:8080/api/version   doit répondre 0.3.18
+
+  2. Classes → ouvrez une classe → section Matières : la case
+     « Classe bilingue » est là. Cochez-la : « Fusionner avec » propose
+     la classe du niveau équivalent.
+
+  3. Cliquez « Ajouter les N matières de <classe> », puis recliquez : le
+     bouton annonce que les deux programmes sont déjà là. C'est la preuve
+     que le geste ne double rien.
+
+  4. Si un bandeau rouge « échecs sync » portait « student_fees · upsert »,
+     il doit disparaître seul au cycle suivant. Vous pouvez aussi cliquer
+     « Réessayer maintenant » dans le bandeau.
+
+  5. Vos effectifs n'ont pas bougé : ouvrez la liste des élèves et
+     comparez au relevé pris avant l'installation (le script l'affiche).
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+
+Réinstallez l'archive 0.3.17 de la même façon. C'est sans risque : cette
+version n'a ajouté ni table ni colonne. Revenir en arrière retire la case
+« Classe bilingue » et remet le blocage des frais ; les matières
+anglophones déjà ajoutées à une classe RESTENT — ce sont des matières
+ordinaires.
+
+Si un écran continue de refuser alors que le script dit que tout est en
+place : envoyez la sortie COMPLÈTE du script à l'éditeur. N'essayez pas
+de réparer la base.
+
+------------------------------------------------------------------------

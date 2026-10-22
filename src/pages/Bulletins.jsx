@@ -21,6 +21,7 @@ import BulletinTheme from '../components/bulletins/BulletinTheme';
 import BulletinApcOfficial from '../components/bulletins/BulletinApcOfficial';
 import BulletinApcAnnual from '../components/bulletins/BulletinApcAnnual';
 import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
+import ScBulletinExcelIO from '../components/bulletins/ScBulletinExcelIO';
 import BulletinBilOfficial, { BulletinBilAnnual } from '../components/bulletins/BulletinBilOfficial';
 import BulletinPrimAnnualUA from '../components/bulletins/BulletinPrimAnnualUA';
 import BulletinPrimCompact from '../components/bulletins/BulletinPrimCompact';
@@ -45,7 +46,7 @@ import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineM
 import { apcForClass, primForClass, matForClass } from '../core/refClassScope';
 // Ordre d'affichage des matieres : une seule regle pour tout le produit.
 import { classSubjectsOf } from '../core/subjectOrder';
-import { APC_GROUPS, groupSubjects } from '../core/subjectGroup';
+import { APC_GROUPS, groupSubjects, domaineForSubject } from '../core/subjectGroup';
 // Second cycle et bilingue : rapprochement tolérant du nom local avec la ligne
 // de référentiel qui porte le GROUPE officiel, le coefficient et la charge.
 import { resolveRefRow, unmatchedAgainstRef } from '../core/refNameMatch';
@@ -2060,6 +2061,42 @@ export default function Bulletins() {
     return Object.fromEntries(buildPrimRanks(classStudents, avgById).map((r) => [r.id, r.rang]));
   }, [isPrim, primDataById, classStudents]);
 
+  // ── RÉPARTITION DES ÉLÈVES PAR TRANCHE DE MOYENNE ────────────────────────
+  // Le carnet que l'école remet aux parents (modèle THE GENIUS, SIL) porte en
+  // pied « Intervalle de moyenne / Nombre d'élèves ». Un parent y lit où se
+  // situe son enfant sans avoir à connaître les notes des autres.
+  // Les bornes reproduisent celles du carnet imprimé.
+  // Carnet détaillé du primaire : réglage de l'école, jamais son nom.
+  const primCarnet = school?.prim_bulletin_mode === 'carnet';
+
+  // Les trois distinctions du carnet, telles que l'école les a saisies au
+  // conseil de classe. Une seule lecture pour les DEUX dispositions du carnet
+  // (compacte et détaillée) : dupliquer l'expression aurait laissé les deux
+  // bulletins diverger au premier changement.
+  const primMentionsFor = (student) => {
+    if (!primCarnet) return undefined;
+    const a = getAbsCond(gradeMap, classId, student.id, period.seqs);
+    const oui = L(sys, 'oui', 'yes', 'sí');
+    const non = L(sys, 'non', 'no', 'no');
+    return {
+      avertissement: a.averTravail > 0 ? `${a.averTravail}` : non,
+      tableauHonneur: a.th ? oui : non,
+      encouragement: a.encouragement ? oui : non,
+    };
+  };
+
+  const primRepartition = useMemo(() => {
+    if (!isPrim) return [];
+    const avgs = Object.values(primDataById).map((d) => d?.moyenneGenerale).filter((v) => v != null);
+    if (!avgs.length) return [];
+    const bornes = [[0, 4], [4, 6], [6, 8], [8, 10], [10, 12], [12, 14], [14, 16], [16, 18], [18, 20.01]];
+    return bornes.map(([lo, hi]) => ({
+      // « [10-11.99] » : la borne haute affichée est exclusive, comme au carnet.
+      label: `[${lo}-${hi >= 20 ? 20 : (hi - 0.01).toFixed(2)}]`,
+      n: avgs.filter((a) => a >= lo && a < hi).length,
+    }));
+  }, [isPrim, primDataById]);
+
   const primClassStats = useMemo(() => {
     if (!isPrim) return null;
     const avgs = Object.values(primDataById).map((d) => d?.moyenneGenerale).filter((v) => v != null);
@@ -2119,7 +2156,9 @@ export default function Bulletins() {
         ? Math.round((notedUAs.reduce((a, u) => a + u.possible, 0) / notedUAs.length) * 100) / 100
         : criteres.reduce((a, cr) => a + (cr.points_max || 0), 0);
       const totalCote = totalAchieved != null ? primCote(totalAchieved, totalPossible, primBareme) : null;
-      return { code: c.code, intitule: c._override ? c.intitule : primCompetenceLabel(c, sys), criteres, uas, totalAchieved, totalPossible, totalCote: totalCote?.cote || null };
+      // `domaine` voyage avec la ligne : c'est lui qui range la compétence sous
+      // l'un des six intitulés officiels du carnet (voir `groupesDe`).
+      return { code: c.code, intitule: c._override ? c.intitule : primCompetenceLabel(c, sys), domaine: c.domaine ?? null, criteres, uas, totalAchieved, totalPossible, totalCote: totalCote?.cote || null };
     });
   };
 
@@ -2324,7 +2363,18 @@ export default function Bulletins() {
     return classSubjects.map((s) => {
       if (s.bil_domaine_ordre != null) return s;
       const r = resolveRefRow(s.name, rows, (x) => x.nom);
-      if (!r) return s;
+      if (!r) {
+        // MATIÈRE MAISON. Le référentiel ne la réclame pas — l'école l'a créée
+        // elle-même, ce qui est son droit. Elle ne doit pas pour autant tomber
+        // dans AUTRES MATIÈRES : les domaines du bulletin bilingue sont
+        // THÉMATIQUES, donc son classement dit où elle va. On ne reprend que le
+        // NOM et l'ORDRE du domaine ; le coefficient et la charge restent ceux
+        // que l'école a saisis, puisqu'il n'existe aucun chiffre officiel pour
+        // une matière absente de l'arrêté.
+        const d = domaineForSubject(s, rows);
+        if (!d) return s;
+        return { ...s, bil_domaine: d.domaine_nom, bil_domaine_ordre: d.domaine_ordre };
+      }
       return {
         ...s,
         bil_domaine: r.domaine_nom,
@@ -2343,7 +2393,11 @@ export default function Bulletins() {
     const key = bilRefKeyForClass(selectedClass);
     if (!key) return [];
     const rows = matieresForBilClasse(bilReferentiel, key);
+    // Une matière maison que son CLASSEMENT suffit à ranger n'est plus en
+    // défaut : seules restent celles qu'aucun domaine ne réclame, et pour
+    // lesquelles l'école n'a pas choisi de classement.
     return unmatchedAgainstRef(classSubjects.filter((s) => s.bil_domaine_ordre == null), rows, (x) => x.nom)
+      .filter((s) => !domaineForSubject(s, rows))
       .map((s) => s.name);
   }, [isBil, bilReferentiel, selectedClass, classSubjects]);
 
@@ -2737,6 +2791,22 @@ export default function Bulletins() {
             appreciationGenerale={d.appreciationGenerale}
             rank={primRanks[student.id]}
             coteBareme={primBareme}
+            // ── LES CINQ BLOCS DU CARNET SONT UN CHOIX D'ÉCOLE ─────────────
+            // `prim_bulletin_mode = 'carnet'` les allume. À NULL — le cas de
+            // toutes les écoles tant qu'elles n'ont rien demandé — le bulletin
+            // s'imprime exactement comme avant. Pas de nom d'école en dur : la
+            // prochaine qui veut ce carnet le coche, sans toucher au code.
+            //
+            // Les trois distinctions sont DÉJÀ saisies par l'école (conseil de
+            // classe : `th`, `encouragement`, `aver_travail`) : on les affiche,
+            // on ne les recalcule pas à partir de la moyenne.
+            mentions={primMentionsFor(student)}
+            statsClasse={primCarnet && primClassStats ? {
+              premier: primClassStats.max, dernier: primClassStats.min, generale: primClassStats.avg,
+            } : undefined}
+            repartition={primCarnet ? primRepartition : []}
+            signatureParent={primCarnet}
+            groupes={primCarnet}
             pt={primOrientation === 'landscape' ? 9 : 8.5}
           />
         </WatermarkWrap>
@@ -2753,6 +2823,12 @@ export default function Bulletins() {
           moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
           rang={primRanks[student.id]} classStats={primClassStats}
           appreciation={d.appreciationGenerale}
+          // Le carnet de l'école vaut aussi pour la disposition détaillée : sur
+          // un trimestre (UA1-3), « Auto » choisit celle-ci, et le réglage ne
+          // devait pas se taire pour autant. Mêmes props, même source.
+          mentions={primMentionsFor(student)}
+          repartition={primCarnet ? primRepartition : []}
+          groupes={primCarnet}
         />
       </WatermarkWrap>
     );
@@ -2967,8 +3043,8 @@ export default function Bulletins() {
         {showBilOfficial && classId && bilHorsReferentiel.length > 0 && (
           <div className="mb-4 p-3 rounded-xl border border-amber-200 bg-amber-50 no-print text-xs text-amber-800">
             {t(
-              `Matière(s) absente(s) du référentiel bilingue : ${bilHorsReferentiel.join(', ')}. Elles s'impriment sous AUTRES MATIÈRES, hors domaine d'apprentissage et sans coefficient officiel. Corrigez le nom dans Classes → Modifier la classe → Matières.`,
-              `Subject(s) missing from the bilingual framework: ${bilHorsReferentiel.join(', ')}. They print under OTHER SUBJECTS, outside any learning domain and with no official coefficient. Fix the name in Classes → Edit class → Subjects.`,
+              `Matière(s) sans domaine : ${bilHorsReferentiel.join(', ')}. Elles s'impriment sous AUTRES MATIÈRES. Donnez-leur un classement dans Classes → Modifier la classe → Matières (colonne « Classement ») et elles rejoindront le domaine correspondant.`,
+              `Subject(s) with no domain: ${bilHorsReferentiel.join(', ')}. They print under OTHER SUBJECTS. Give them a category in Classes → Edit class → Subjects and they will join the matching learning domain.`,
             )}
           </div>
         )}

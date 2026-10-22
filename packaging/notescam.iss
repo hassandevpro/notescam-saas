@@ -57,6 +57,18 @@ Source: "{#StageDir}\uninstall-service.ps1"; DestDir: "{app}"; Flags: ignorevers
 Source: "{#StageDir}\update-notescam.ps1";  DestDir: "{app}"; Flags: ignoreversion
 ; Secours hors ligne : réinitialiser un mot de passe oublié (aucun e-mail en LAN).
 Source: "{#StageDir}\reinitialiser-mot-de-passe.cmd"; DestDir: "{app}"; Flags: ignoreversion
+; Contrôle de la mise à jour : dit si CE poste a vraiment reçu les correctifs,
+; en lisant la base. Lecture seule, sans élévation.
+Source: "{#StageDir}\verifier-correctifs.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageDir}\verifier-correctifs.mjs"; DestDir: "{app}"; Flags: ignoreversion
+; Élèves en double : lit la base et nomme la cause. Lecture seule.
+Source: "{#StageDir}\diagnostic-doublons.cmd"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageDir}\diagnostic-doublons.mjs"; DestDir: "{app}"; Flags: ignoreversion
+; Applique une mise à jour déjà installée : arrêt, sauvegarde VÉRIFIÉE,
+; redémarrage, contrôle. Sans ce geste, le serveur continue sur l'ancien code
+; et les tables neuves ne sont jamais posées.
+Source: "{#StageDir}\REDEMARRER-APRES-MAJ.cmd";      DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageDir}\sauvegarder-et-redemarrer.mjs"; DestDir: "{app}"; Flags: ignoreversion
 ; Pose la base embarquée au 1er démarrage — JAMAIS par-dessus une base existante.
 Source: "{#StageDir}\seed-data.ps1";        DestDir: "{app}"; Flags: ignoreversion
 #ifdef SeedLabel
@@ -68,6 +80,9 @@ Source: "{#StageDir}\seed\*"; DestDir: "{app}\seed"; Flags: recursesubdirs creat
 ; Raccourci = ouvrir l'app dans le navigateur (c'est une web-app servie en local)
 Name: "{group}\NotesCam (LAN)"; Filename: "http://localhost:8080"
 Name: "{group}\Réinitialiser un mot de passe"; Filename: "{app}\reinitialiser-mot-de-passe.cmd"; IconFilename: "{sys}\shell32.dll"; IconIndex: 48
+Name: "{group}\Vérifier la mise à jour"; Filename: "{app}\verifier-correctifs.cmd"; IconFilename: "{sys}\shell32.dll"; IconIndex: 23
+Name: "{group}\Appliquer la mise à jour (redémarrer)"; Filename: "{app}\REDEMARRER-APRES-MAJ.cmd"; IconFilename: "{sys}\shell32.dll"; IconIndex: 238
+Name: "{group}\Élèves en double — diagnostic"; Filename: "{app}\diagnostic-doublons.cmd"; IconFilename: "{sys}\shell32.dll"; IconIndex: 22
 Name: "{group}\Désinstaller NotesCam"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\NotesCam (LAN)"; Filename: "http://localhost:8080"; Tasks: desktopicon
 

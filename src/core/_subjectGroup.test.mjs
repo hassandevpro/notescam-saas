@@ -11,6 +11,7 @@
 // le nom ne perd rien de ce qu'il classait deja.
 import {
   APC_GROUPS, APC_GROUP_KEYS, subjectGroupKey, subjectGroupFromName, groupSubjects,
+  domaineForSubject,
 } from './subjectGroup.js';
 // Les noms OFFICIELS du referentiel MINESEC, pour l audit : aucun ne doit
 // tomber dans le fourre-tout « AUTRES MATIERES ».
@@ -173,6 +174,87 @@ titre('groupSubjects : les cinq groupes, dans l ordre d impression');
   ok(APC_GROUPS.every((x) => x.key && x.label.includes('/')),
     'chaque groupe garde son libelle bilingue « FR / EN »');
 }
+
+titre('MATIERE MAISON : elle garde son classement sur le bulletin BILINGUE');
+{
+  // Demande du responsable : « on doit pouvoir etre libre de creer une matiere
+  // meme si ca ne fait pas partie du referentiel, et ca doit s afficher sur le
+  // bulletin dans sa vraie categorie de classement, pas aller automatiquement
+  // sur Autres matieres. »
+  //
+  // Les domaines du programme bilingue sont THEMATIQUES : ils recouvrent
+  // exactement les cinq familles du classement. Les VRAIS libelles, releves
+  // dans supabase_bilingue_special_data.sql.
+  const FR = [
+    { domaine_nom: 'Langues et littératures', domaine_ordre: 1 },
+    { domaine_nom: 'Sciences humaines', domaine_ordre: 2 },
+    { domaine_nom: 'Sciences et technologies', domaine_ordre: 3 },
+    { domaine_nom: 'Arts et cultures nationales', domaine_ordre: 4 },
+    { domaine_nom: 'Développement personnel', domaine_ordre: 5 },
+  ];
+  const dom = (s) => domaineForSubject(s, FR)?.domaine_nom ?? null;
+
+  const cas = [
+    [{ name: 'Club espagnol', category: 'langues' }, 'Langues et littératures'],
+    [{ name: 'LMC', category: 'langues' }, 'Langues et littératures'],
+    [{ name: 'Atelier robotique', category: 'sciences' }, 'Sciences et technologies'],
+    [{ name: 'Initiation au code', category: 'informatique' }, 'Sciences et technologies'],
+    [{ name: 'Zumba', category: 'eps' }, 'Développement personnel'],
+    [{ name: 'Arts du spectacle', category: 'litteraire' }, 'Arts et cultures nationales'],
+    [{ name: 'Debat citoyen', category: 'litteraire' }, 'Sciences humaines'],
+  ];
+  for (const [sub, attendu] of cas)
+    ok(dom(sub) === attendu, `« ${sub.name} » (${sub.category}) -> ${attendu}`, dom(sub));
+
+  // LE PIEGE DE CETTE TABLE : « sciences » tout court matche « Sciences
+  // humaines », qui PRECEDE « Sciences et technologies » dans le referentiel.
+  // Les mathematiques finissaient chez les historiens.
+  ok(dom({ name: 'Mathematiques' }) === 'Sciences et technologies',
+    'les sciences ne tombent PAS dans « Sciences humaines »', dom({ name: 'Mathematiques' }));
+
+  // Le CLASSEMENT choisi fait foi pour le sport, avant le nom : une ecole qui
+  // range « Zumba » en EPS attend le developpement personnel, pas les arts.
+  ok(dom({ name: 'Zumba', category: 'eps' }) === 'Développement personnel',
+    'le classement EPS prime sur un nom que rien ne signale comme sportif');
+
+  // Sans classement, le nom decide — et une matiere maison que le nom ne dit
+  // pas reste dans AUTRES MATIERES, comme avant.
+  ok(dom({ name: 'Espagnol' }) === 'Langues et littératures', 'sans classement, le nom decide');
+  ok(dom({ name: 'EPS' }) === 'Développement personnel', 'EPS par le nom');
+  ok(dom({ name: 'Zumba' }) === null, 'matiere maison sans classement -> AUTRES MATIERES');
+  ok(dom({ name: 'Club echecs', category: 'autre' }) === null,
+    '« autre » explicite -> AUTRES MATIERES, c est le choix de l ecole');
+}
+
+titre('Sous-systeme ANGLOPHONE : les memes familles, d autres libelles');
+{
+  const EN = [
+    { domaine_nom: 'Langues et littératures', domaine_ordre: 6 },
+    { domaine_nom: 'Sciences humaines et sociales', domaine_ordre: 7 },
+    { domaine_nom: 'Sciences et technologies', domaine_ordre: 8 },
+    { domaine_nom: 'Développement personnel', domaine_ordre: 9 },
+    { domaine_nom: 'Matières obligatoires', domaine_ordre: 10 },
+  ];
+  const dom = (s) => domaineForSubject(s, EN)?.domaine_nom ?? null;
+  ok(dom({ name: 'Spanish Club', category: 'langues' }) === 'Langues et littératures', 'langues (EN)');
+  ok(dom({ name: 'Robotics', category: 'sciences' }) === 'Sciences et technologies', 'sciences (EN)');
+  ok(dom({ name: 'Zumba', category: 'eps' }) === 'Développement personnel', 'eps (EN)');
+  // Ce sous-systeme n a PAS de domaine « Arts » : une matiere artistique ne
+  // doit pas se rabattre n importe ou.
+  ok(dom({ name: 'Arts du spectacle', category: 'litteraire' }) === 'Sciences humaines et sociales',
+    'sans domaine Arts, le litteraire va aux sciences humaines', dom({ name: 'Arts du spectacle', category: 'litteraire' }));
+}
+
+titre('domaineForSubject : entrees abimees');
+{
+  ok(domaineForSubject({ name: 'X', category: 'langues' }, []) === null, 'aucun domaine -> null');
+  ok(domaineForSubject({ name: 'X', category: 'langues' }, null) === null, 'rows null -> null, pas une erreur');
+  ok(domaineForSubject(null, [{ domaine_nom: 'Langues et littératures' }]) === null,
+    'matiere null -> null, pas une erreur');
+  ok(domaineForSubject({ name: 'X' }, [{ domaine_nom: null }, { domaine_ordre: 2 }]) === null,
+    'domaines sans libelle -> ignores');
+}
+
 
 console.log(echecs ? `\n${echecs} ECHEC(S)` : '\nTOUT OK');
 process.exit(echecs ? 1 : 0);

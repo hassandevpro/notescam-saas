@@ -1,0 +1,195 @@
+========================================================================
+NotesCam 0.3.16 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.16.tar.gz
+Taille   : 53 416 669 octets
+SHA-256  : 5b53d83bd2ab2bc0fbdf27a214198cd147f950f51a87086d25688b44953669fc
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.16.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire. Aucune migration à lancer à la main :
+les tables et colonnes neuves sont posées au premier démarrage.
+
+Cette version contient TOUT ce que contenait la 0.3.15 (journal de
+caisse, correctifs de synchronisation, signalements, photos). Si la
+0.3.15 n'a pas encore été installée chez vous, installez directement
+celle-ci : elle la remplace.
+
+
+CE QUE CETTE VERSION APPORTE EN PLUS DE LA 0.3.15
+--------------------------------------------------
+
+Trois écrans refusaient d'enregistrer. Les trois fonctionnent.
+
+1. « MODIFIER LES COMPÉTENCES » — l'école reprend la main.
+
+   Les compétences du primaire (1A Communiquer en français, 2A Utiliser
+   les notions de base en mathématiques…) et celles du premier cycle
+   appartiennent au référentiel NATIONAL : une seule liste, partagée par
+   toutes les écoles de la plateforme. Votre école ne pouvait donc rien
+   y changer — et l'écran répondait « Enregistrement refusé par le
+   serveur », sans dire pourquoi.
+
+   Les trois gestes de l'écran marchent désormais, et chacun reste CHEZ
+   VOUS :
+
+     · RENOMMER une ligne officielle — vous voyez votre formulation,
+       partout dans l'application. Son identité ministérielle, vos notes
+       déjà saisies et le bulletin officiel restent intacts : c'est
+       l'affichage qui change, pas la compétence.
+
+     · RETIRER une ligne officielle — elle disparaît de vos écrans sans
+       être supprimée nulle part. Vous pouvez la rétablir quand vous
+       voulez.
+
+     · AJOUTER les vôtres — une compétence propre à votre établissement,
+       que vous seuls voyez et modifiez.
+
+   Le référentiel du ministère lui-même reste INÉCRIVABLE, y compris
+   depuis votre serveur. C'est volontaire : vos bulletins officiels s'y
+   rattachent, et le seed le réécrirait au redémarrage suivant.
+
+2. AJOUTER UNE COMPÉTENCE DU PRIMAIRE — le geste qui n'a JAMAIS marché.
+
+   Celui-là échouait depuis toujours, en LAN comme dans le cloud, pour
+   une raison technique : la ligne créée n'avait pas de code court (la
+   petite pastille « 1A », « 2B » affichée à gauche de l'intitulé), et
+   ce code est obligatoire en base. L'écran disait seulement « refusé ».
+
+   Le code est maintenant calculé à partir du libellé que vous tapez :
+   « Lecture à haute voix » donne « LAH ». Il ne commence jamais par un
+   chiffre, pour qu'on ne puisse pas confondre une compétence de votre
+   école avec une compétence du ministère.
+
+3. « MON PROFIL » — nom, téléphone, photo, mot de passe.
+
+   L'écran répondait « RPC inconnue : update_my_profile » : la fonction
+   existait dans le cloud et pas sur votre serveur. Rien ne tenait.
+
+   Vous pouvez maintenant corriger votre nom, votre téléphone et votre
+   photo. Le nom corrigé se propage à l'écran de connexion et à votre
+   fiche personnel. Chacun ne modifie QUE son propre compte : l'identité
+   vient de la session ouverte, jamais du formulaire.
+
+4. LE BARÈME DU PRIMAIRE — posé sur une colonne encore vide.
+
+   Régler l'Oral sur /10 AVANT d'avoir saisi la moindre note restait en
+   « échecs de synchronisation » et ne s'appliquait pas. La clé
+   d'unicité des notes du primaire (élève, compétence, critère, unité
+   d'apprentissage) est maintenant posée : le barème s'enregistre, et la
+   première note se range dans la même ligne au lieu d'en créer une
+   seconde.
+
+
+CE QUI N'A PAS CHANGÉ
+----------------------
+
+  · Aucune donnée n'est supprimée ni réécrite par cette mise à jour.
+  · Le rattachement au cloud, s'il existe, est conservé tel quel : la
+    mise à jour ne réappaire rien et ne redemande aucun jeton.
+  · Si votre serveur travaille HORS LIGNE, il continue exactement de
+    même. La synchronisation cloud ne s'active que si l'école a été
+    migrée (jeton scellé) ET qu'un administrateur l'active dans les
+    Paramètres. Sans cela, rien ne sort de votre établissement.
+
+
+INSTALLATION — UNE SEULE COMMANDE
+----------------------------------
+
+À lancer en root, depuis le dossier contenant l'archive ET le script :
+
+    sudo ./deploy-0.3.16.sh notescam-linux-x64-0.3.16.tar.gz
+
+Le script fait, dans cet ordre :
+
+    1. il relève la version, le school_id et les effectifs AVANT ;
+    2. il ARRÊTE le service — une copie prise serveur actif peut être
+       déchirée, et on ne s'en aperçoit qu'en voulant s'en servir ;
+    3. il fait une copie de sûreté de la base, consolidée, puis il la
+       VÉRIFIE (contrôle d'intégrité + comptages identiques) ;
+    4. SI LA SAUVEGARDE N'EST PAS VÉRIFIÉE, IL S'ARRÊTE LÀ et remet le
+       service en marche. L'application n'a alors pas été touchée ;
+    5. il installe, redémarre, et recompte tout.
+
+Il rend un verdict. Si une seule ligne est en FAIL : n'essayez rien
+d'autre, envoyez-nous la sortie complète. Elle nomme précisément ce qui
+manque.
+
+La copie de sûreté est déposée dans :
+
+    /var/lib/notescam/data/notescam.db.avant-0.3.16-<horodatage>
+
+Ne la supprimez pas.
+
+
+À VÉRIFIER APRÈS L'INSTALLATION
+--------------------------------
+
+  1. Le service répond :
+
+        curl -s http://localhost:8080/api/version        -> 0.3.16
+
+  2. Le rattachement au cloud est intact (si l'école est appairée) :
+
+        curl -s http://127.0.0.1:8080/api/pair/status
+
+     Le « schoolId » doit être le MÊME qu'avant l'installation. Le
+     script le vérifie déjà, mais revoyez-le.
+
+  3. LES TROIS ÉCRANS, depuis un poste de l'école :
+
+       · Saisie primaire -> « Modifier les compétences ». Renommez une
+         ligne, enregistrez, rechargez la page : le nouvel intitulé est
+         toujours là. Ajoutez-en une : elle apparaît avec sa pastille.
+
+       · Mon profil. Changez votre téléphone, enregistrez, déconnectez-
+         vous et reconnectez-vous : il est conservé.
+
+       · Saisie primaire -> réglez le barème d'une colonne vide sur /10,
+         puis saisissez une note. Une seule ligne doit apparaître, et
+         l'écran des échecs de synchronisation doit rester vide.
+
+  4. VOS EFFECTIFS N'ONT PAS BOUGÉ. Ouvrez la liste des élèves et
+     comparez au relevé pris avant l'installation.
+
+SI UN REFUS PERSISTE À L'ÉCRAN alors que le script dit PASS partout :
+rechargez la page avec Ctrl+Shift+R. Le navigateur garde l'ancienne
+interface en cache, et c'est de loin la cause la plus fréquente.
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+
+Pour revenir à la version précédente (application seule, base conservée) :
+
+    sudo systemctl stop notescam
+    tar xzf notescam-linux-x64-0.3.15.tar.gz
+    cd notescam-linux-x64 && sudo ./install.sh
+
+C'est sans risque : les tables et colonnes ajoutées par la 0.3.16 sont
+simplement ignorées par la version précédente, et aucune donnée n'est
+perdue. Les trois écrans redeviennent simplement non modifiables.
+
+Si, et SEULEMENT si, la base elle-même pose problème :
+
+    sudo systemctl stop notescam
+    sudo cp -a /var/lib/notescam/data/notescam.db.avant-0.3.16-<horodatage> \
+               /var/lib/notescam/data/notescam.db
+    sudo rm -f /var/lib/notescam/data/notescam.db-wal \
+               /var/lib/notescam/data/notescam.db-shm
+    sudo systemctl start notescam
+
+ATTENTION : restaurer la base ANNULE tout ce qui a été saisi depuis la
+sauvegarde. Ne le faites pas de votre propre initiative — appelez-nous
+d'abord.

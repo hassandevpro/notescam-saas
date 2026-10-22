@@ -49,21 +49,41 @@ const KEYWORDS = {
     'conjugaison', 'vocabulaire', 'dictee', 'recitation', 'orthographique',
     'frances'],
   '1b': ['english language', 'anglais', 'english', 'ingles'],
+  // ── NOMS ANGLAIS : RELEVÉ EN PRODUCTION le 2026-10-21 ────────────────────
+  // 66 matières de classe sur 621 n'apparaissaient pas à la saisie du primaire
+  // (10,6 %), presque toutes dans des écoles anglophones ou bilingues qui
+  // nomment leurs matières en anglais alors que le référentiel est stocké en
+  // français. Les ajouts ci-dessous viennent de cette mesure, nom par nom —
+  // aucun n'est supposé.
   '1c': ['langue nationale', 'langues nationales', 'culture nationale', 'cultures nationales',
+    'national language', 'national languages', 'national culture', 'national cultures',
     'langue maternelle'],
   '2a': ['mathematiques', 'mathematique', 'mathematics', 'maths', 'math', 'calcul',
     'arithmetique', 'geometrie', 'numeration', 'matematicas'],
+  // « Physics & Chemistry » et « Chemistry » sont des expressions AVANT d'être
+  // des mots : la barre oblique et l'esperluette deviennent des espaces.
   '2b': ['sciences et technologie', 'sciences et technologies', 'science et technologie',
+    'physics chemistry', 'chemistry physics', 'natural science', 'natural sciences',
+    'science and technology',
     'sciences', 'science', 'svteehb', 'svt', 'set', 'technologie', 'technologies',
     'ciencias naturales',
-    'biologie', 'chimie', 'eehb', 'physique'],
-  '3a': ['valeurs sociales', 'education sociale', 'vivre ensemble', 'morale'],
+    'biologie', 'chimie', 'eehb', 'physique',
+    'chemistry', 'physics', 'biology', 'technology'],
+  // « Moral Education » est une EXPRESSION de 3A : testée avant les mots
+  // simples, elle passe donc devant « education civique » de 3B.
+  '3a': ['valeurs sociales', 'education sociale', 'vivre ensemble', 'moral education',
+    'morale', 'moral'],
   '3b': ['histoire geographie', 'education civique', 'vie et citoyennete',
     'educacion para la ciudadania', 'ciencias sociales',
-    'citoyennete', 'civique', 'civics', 'ecm', 'evc', 'histoire', 'geographie',
-    'history', 'geography'],
+    'social studies', 'civic education', 'citizenship education',
+    'citoyennete', 'civique', 'civics', 'civic', 'citizenship', 'ecm', 'evc',
+    'histoire', 'geographie', 'history', 'geography', 'geo'],
   '4a': ['esprit d initiative', 'entrepreneuriat', 'autonomie', 'initiative', 'creativite'],
-  '5a': ['technologies de l information', 'informatique', 'computer science',
+  // « information technology » est posée ICI, en expression, pour qu'elle ne
+  // tombe pas sur « technology » de 2B : les expressions passent avant les mots
+  // simples, et 2B est examinée avant 5A.
+  '5a': ['technologies de l information', 'information technology',
+    'informatique', 'computer science', 'computer studies',
     'tic', 'ict', 'numerique', 'computer'],
   '6a': ['education physique', 'activites physiques', 'physical education',
     'educacion fisica',

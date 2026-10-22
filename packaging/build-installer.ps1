@@ -197,6 +197,22 @@ Copy-Item (Join-Path $Here 'update-notescam.ps1')   $Stage -Force
 # l'aider à distance. L'outil lui-même (server/reset-password-cli.mjs) est déjà
 # embarqué avec le reste de server\ à l'étape 3.
 Copy-Item (Join-Path $Here 'reinitialiser-mot-de-passe.cmd') $Stage -Force
+# Controle de la mise a jour, a double-cliquer sur le poste. Il repond a la seule
+# question qui bloque un depannage a distance : « ce PC a-t-il vraiment recu la
+# correction ? » — en lisant la BASE, pas le numero de version affiche quelque
+# part. Lecture seule, sans elevation, avec le Node deja embarque ici.
+Copy-Item (Join-Path $Here 'verifier-correctifs.cmd') $Stage -Force
+Copy-Item (Join-Path $Here 'verifier-correctifs.mjs') $Stage -Force
+# Pourquoi un eleve apparait plusieurs fois : lit la base et nomme la cause.
+Copy-Item (Join-Path $Here 'diagnostic-doublons.cmd') $Stage -Force
+Copy-Item (Join-Path $Here 'diagnostic-doublons.mjs') $Stage -Force
+# LE GESTE QUI MANQUAIT. Installer remplace les fichiers ; le serveur, lui,
+# continue de tourner avec l'ancien code. Comme les tables neuves sont posees AU
+# DEMARRAGE, l'ecole installe, ne redemarre pas, et conclut que la mise a jour
+# n'a rien change — c'est exactement ce qui est arrive le 18/10/2026. Ce couple
+# de fichiers fait l'arret, la sauvegarde VERIFIEE, le redemarrage, le controle.
+Copy-Item (Join-Path $Here 'REDEMARRER-APRES-MAJ.cmd')       $Stage -Force
+Copy-Item (Join-Path $Here 'sauvegarder-et-redemarrer.mjs')  $Stage -Force
 # Pose la base d'établissement embarquée au premier démarrage. Toujours embarqué,
 # même sans -SeedData : sans dossier seed\ il ne fait rien, et l'installeur
 # vierge reste strictement identique dans son comportement.

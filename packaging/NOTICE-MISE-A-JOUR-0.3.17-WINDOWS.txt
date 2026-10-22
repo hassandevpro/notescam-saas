@@ -1,0 +1,137 @@
+========================================================================
+NotesCam 0.3.17 (Windows) - Notice pour le responsable informatique
+========================================================================
+
+Installeur : NotesCam-Setup-0.3.17.exe
+Taille     : 30 760 925 octets
+SHA-256    : 181e4ce0f777b20ec9454285acdf4bdea7f3b134d79b6245716ede9e70c57b76
+
+VERIFIEZ L'EMPREINTE AVANT D'INSTALLER. Ouvrez PowerShell dans le
+dossier qui contient le fichier et tapez :
+
+    Get-FileHash .\NotesCam-Setup-0.3.17.exe -Algorithm SHA256
+
+Si l'empreinte affichee ne correspond PAS a la ligne ci-dessus,
+N'INSTALLEZ PAS : le fichier a ete altere ou tronque pendant le
+transfert. Redemandez-le.
+
+Pour savoir quelle version tourne actuellement sur le poste, ouvrez
+dans le navigateur :  http://localhost:8080/api/version
+
+
+CE QUE CETTE VERSION APPORTE
+-----------------------------
+
+1. LES BULLETINS DU SECOND CYCLE S'EXPORTENT ET SE REIMPORTENT.
+
+   Ecran Bulletins, une classe de 2nde / 1ere / Terminale, format
+   "2nd cycle officiel" : deux boutons apparaissent.
+
+     . EXPORTER EXCEL - toute la classe dans un seul classeur : une
+       feuille "Recapitulatif" (une ligne par eleve, les matieres
+       rangees PAR GROUPE comme sur le bulletin imprime, moyenne de
+       chaque groupe, moyenne generale, rang, decision), puis UNE
+       FEUILLE PAR SEQUENCE de la periode affichee.
+
+     . IMPORTER EXCEL - relit les feuilles de sequence apres que vous
+       les avez remplies dans Excel. Un classeur peut ainsi circuler
+       entre les enseignants, puis etre verse d'un coup.
+
+   Ce qui est refuse, et c'est voulu : la feuille "Recapitulatif"
+   n'est jamais reimportee (elle contient des moyennes, pas des notes),
+   une case vide n'efface rien, une note hors bareme est rejetee et non
+   ramenee a 20, un eleve ou une matiere inconnu est liste et jamais
+   rattache "au plus proche". Un apercu annonce d'abord combien de
+   notes seront enregistrees et combien REMPLACERAIENT une note
+   existante differente : rien n'est ecrit avant votre validation.
+
+   Le bouton "Importer Excel" n'apparait pas sur un compte enseignant.
+
+2. TOUS LES IMPORTS ET EXPORTS SONT EN EXCEL.
+
+   Eleves, enseignants, personnel, notes, competences, frais, caisse,
+   rapports : tout ce que l'application produit est un classeur .xlsx,
+   et tout ce qu'elle lit doit en etre un.
+
+   /!\ CE QUI CHANGE : un fichier .CSV n'est PLUS accepte a l'import.
+   S'il en circule un dans l'ecole, ouvrez-le dans Excel et faites
+   "Enregistrer sous" -> "Classeur Excel (.xlsx)". Le message
+   affiche par l'application dit exactement cela.
+
+CETTE VERSION NE TOUCHE NI A LA BASE NI AU SERVEUR : aucune table,
+aucune colonne, aucune fonction nouvelle. Les bulletins imprimes sont
+inchanges. Elle contient tout ce que contenaient la 0.3.16 et la 0.3.15.
+
+
+INSTALLATION - TROIS GESTES, DANS CET ORDRE
+--------------------------------------------
+
+1. INSTALLER. Clic droit sur NotesCam-Setup-0.3.17.exe ->
+   "Executer en tant qu'administrateur". Laissez-vous guider.
+   La base de l'ecole (C:\ProgramData\NotesCam\data) n'est jamais
+   touchee par l'installeur.
+
+2. REDEMARRER LE SERVICE. C'EST LE GESTE QU'ON OUBLIE, et sans lui
+   l'ecole conclut que la mise a jour n'a rien change : installer
+   remplace les FICHIERS, mais le serveur continue de tourner avec
+   l'ancien code, et c'est lui qui annonce la version.
+
+   Menu Demarrer -> NotesCam -> "REDEMARRER APRES MAJ", ou bien,
+   dans C:\Program Files\NotesCam :
+
+       clic droit sur REDEMARRER-APRES-MAJ.cmd
+       -> "Executer en tant qu'administrateur"
+
+   Il arrete le service, SAUVEGARDE la base et verifie la sauvegarde,
+   redemarre, puis controle. Si la sauvegarde n'est pas verifiee, il
+   remet le service en marche et s'arrete sans rien avoir modifie.
+
+   (Le service tourne sous le compte SYSTEME : sans elevation, il ne
+   peut pas etre arrete, et le script vous le dira.)
+
+3. CONTROLER. Toujours dans C:\Program Files\NotesCam, double-cliquez
+   verifier-correctifs.cmd. Il lit la BASE et le serveur en marche, et
+   dit si ce poste a vraiment recu la mise a jour.
+
+
+A VERIFIER DEPUIS UN POSTE DE L'ECOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Shift+R : le navigateur garde
+l'ancienne interface en cache, et c'est de loin la cause la plus
+frequente d'un "bouton qui n'apparait pas".
+
+  1. http://localhost:8080/api/version  doit repondre 0.3.17
+
+  2. Bulletins -> une classe de 2nde/1ere/Tle -> format "2nd cycle
+     officiel" : les deux boutons sont la.
+
+  3. Cliquez "Exporter Excel" : le classeur contient une feuille
+     "Recapitulatif" et une feuille par sequence.
+
+  4. Reimportez CE MEME classeur sans l'avoir modifie : l'apercu doit
+     annoncer 0 note a enregistrer. C'est la preuve que l'aller-retour
+     est fidele - ce qui sort est exactement ce qui rentre.
+
+  5. Vos effectifs n'ont pas bouge : ouvrez la liste des eleves et
+     comparez au releve pris avant l'installation.
+
+
+EN CAS DE PROBLEME - RETOUR ARRIERE
+------------------------------------
+
+Reinstallez simplement NotesCam-Setup-0.3.16.exe par-dessus, puis
+relancez REDEMARRER-APRES-MAJ.cmd. C'est sans risque : cette version
+n'a ajoute ni table ni colonne, donc revenir en arriere ne fait que
+retirer les deux boutons du second cycle et rouvrir le CSV a l'import.
+Aucune donnee n'est perdue.
+
+Si un ecran continue de refuser alors que verifier-correctifs.cmd dit
+que tout est en place : faites une photo de l'ecran ET de la sortie du
+script, et envoyez-les a l'editeur. N'essayez pas de reparer la base.
+
+------------------------------------------------------------------------
+Ce fichier est en ASCII et en CRLF, comme les autres documents livres
+aux postes Windows : le Bloc-notes d'un Windows ancien affiche un
+fichier en fins de ligne Unix comme une seule ligne illisible.
+------------------------------------------------------------------------

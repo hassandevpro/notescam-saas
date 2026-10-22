@@ -50,7 +50,7 @@ export function dominantAcquis(observations) {
 export const MAT_SUBJECT_MAX = 20;
 export function subjectsFromMatReferentiel(domaines, { schoolId, classId, makeId }) {
   return (domaines || []).map((d, i) => ({
-    id: makeId(),
+    id: makeId(d.intitule),
     school_id: schoolId,
     class_id: classId,
     name: d.intitule,

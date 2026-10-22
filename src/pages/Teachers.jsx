@@ -4,7 +4,11 @@ import { useAuthStore } from '../store/authStore';
 import { hasCapability } from '../config/capabilities';
 import { supabase } from '../lib/supabase';
 import { createClient } from '@supabase/supabase-js';
-import { exportTeachers, downloadTeacherTemplate, parseTeachersSpreadsheet } from '../lib/exportCsv';
+import {
+  exportTeachers, downloadTeacherTemplate, parseTeachersSpreadsheet, resolveTeacherSubjects,
+  findExistingTeacher, teacherFieldsOf, TEACHER_IMPORT_COLUMNS, columnHint,
+} from '../lib/teacherImport';
+import { EXCEL_ACCEPT } from '../lib/exportCsv';
 import { officialHeaderHtml, officialSignatureHtml } from '../lib/officialDocHeader';
 import { isBasicSchool } from '../lib/tutelle';
 import Layout from '../components/Layout';
@@ -389,19 +393,51 @@ function TeacherSubjectsPanel({ teacher, teacherSubjects, classes }) {
 }
 
 // ── Panneau import enseignants ────────────────────────────────────────────────
+// Import Excel de la fiche COMPLÈTE (identité, contact, secteur, statut…)
+// et des MATIÈRES enseignées. Les matières ne vivent pas sur la fiche : elles
+// sont rattachées via `subjects.teacher_id`, une ligne par couple (matière,
+// classe). Tout l'enjeu de cet écran est donc de montrer AVANT l'import ce que
+// le fichier va réellement affecter — et ce qu'il ne trouve pas. Une matière mal
+// orthographiée doit sauter aux yeux ici, pas au moment des bulletins.
 
-function TeacherImportPanel({ onImport, onCancel }) {
+function TeacherImportPanel({ subjects, classes, teachers, onImport, onCancel }) {
   const t = useT();
   const fileRef = useRef();
   const [dragging,   setDragging]   = useState(false);
   const [preview,    setPreview]    = useState(null);
   const [importing,  setImporting]  = useState(false);
+  const [progress,   setProgress]   = useState(0);
   const [done,       setDone]       = useState(null);
+
+  // Résolution des matières calculée dès la lecture du fichier : l'aperçu
+  // affiche le nombre d'affectations par enseignant et la liste des libellés
+  // introuvables, avant toute écriture.
+  const resolved = useMemo(() => {
+    if (!preview?.rows?.length) return null;
+    const perRow = preview.rows.map((row) => ({
+      row,
+      existing: findExistingTeacher(row, teachers),
+      ...resolveTeacherSubjects(row.subjectEntries || [], { subjects, classes }),
+    }));
+    const unmatched = [];
+    const seen = new Set();
+    perRow.forEach((r) => r.unmatched.forEach((u) => {
+      const label = u.classNames?.length ? `${u.name} (${u.classNames.join(', ')})` : u.name;
+      if (seen.has(label)) return;
+      seen.add(label);
+      unmatched.push(label);
+    }));
+    return {
+      perRow,
+      unmatched,
+      totalSubjects: perRow.reduce((n, r) => n + r.subjectIds.length, 0),
+      toUpdate: perRow.filter((r) => r.existing).length,
+    };
+  }, [preview, subjects, classes, teachers]);
 
   const processFile = async (file) => {
     if (!file) return;
-    const result = await parseTeachersSpreadsheet(file);
-    setPreview(result);
+    setPreview(await parseTeachersSpreadsheet(file));
   };
 
   const handleDrop = (e) => {
@@ -410,37 +446,70 @@ function TeacherImportPanel({ onImport, onCancel }) {
   };
 
   const handleImport = async () => {
-    if (!preview?.rows?.length) return;
-    setImporting(true);
-    for (const row of preview.rows) await onImport(row);
+    if (!resolved?.perRow?.length) return;
+    setImporting(true); setProgress(0);
+    let created = 0, updated = 0, assigned = 0;
+    for (const entry of resolved.perRow) {
+      const res = await onImport(entry);
+      if (res?.updated) updated++; else created++;
+      assigned += res?.assigned || 0;
+      setProgress((n) => n + 1);
+    }
     setImporting(false);
-    setDone(preview.rows.length);
+    setDone({ created, updated, assigned, unmatched: resolved.unmatched });
   };
 
-  if (done !== null) {
+  if (done) {
     return (
-      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center">
-            <svg className="w-5 h-5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+      <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 mb-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 shrink-0 rounded-full bg-emerald-100 flex items-center justify-center">
+              <svg className="w-5 h-5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div>
+              <p className="text-emerald-800 font-semibold text-sm">
+                {done.created > 0 && `${done.created} ${done.created > 1 ? t('enseignants créés', 'teachers created') : t('enseignant créé', 'teacher created')}`}
+                {done.created > 0 && done.updated > 0 && ' · '}
+                {done.updated > 0 && `${done.updated} ${done.updated > 1 ? t('fiches mises à jour', 'records updated') : t('fiche mise à jour', 'record updated')}`}
+              </p>
+              <p className="text-xs text-emerald-700 mt-1">
+                {done.assigned} {done.assigned !== 1 ? t('affectations de matières enregistrées', 'subject assignments saved') : t('affectation de matière enregistrée', 'subject assignment saved')}
+              </p>
+            </div>
           </div>
-          <p className="text-emerald-800 font-semibold text-sm">
-            {done} {done > 1 ? t('enseignants importés avec succès', 'teachers imported successfully') : t('enseignant importé avec succès', 'teacher imported successfully')}
-          </p>
+          <button onClick={onCancel} className="btn-secondary shrink-0">{t('Fermer', 'Close')}</button>
         </div>
-        <button onClick={onCancel} className="btn-secondary">{t('Fermer', 'Close')}</button>
+        {done.unmatched.length > 0 && (
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <p className="text-xs font-semibold text-amber-800">
+              {t('Matières non trouvées dans l’école — rien n’a été affecté pour celles-ci :',
+                 'Subjects not found in the school — nothing was assigned for these:')}
+            </p>
+            <p className="text-xs text-amber-700 mt-1.5">{done.unmatched.join(' · ')}</p>
+            <p className="text-[11px] text-amber-600 mt-2">
+              {t('Créez-les dans l’écran « Matières », puis relancez l’import : les fiches existantes seront complétées, pas dupliquées.',
+                 'Create them in the “Subjects” screen, then run the import again: existing records are completed, not duplicated.')}
+            </p>
+          </div>
+        )}
       </div>
     );
   }
 
+  const cols = TEACHER_IMPORT_COLUMNS;
+
   return (
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-6">
-      <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-4">
         <div>
           <h3 className="text-base font-bold text-slate-800">{t('Importer des enseignants', 'Import teachers')}</h3>
-          <p className="text-xs text-slate-500 mt-0.5">{t('CSV ou Excel — colonnes : nom_complet, email, telephone, specialite', 'CSV or Excel — columns: nom_complet, email, telephone, specialite')}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {t('Classeur Excel — fiche complète et matières enseignées. Le modèle liste les matières réelles de votre école.',
+               'Excel workbook — full record and subjects taught. The template lists your school’s actual subjects.')}
+          </p>
         </div>
         <button onClick={onCancel} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -449,7 +518,7 @@ function TeacherImportPanel({ onImport, onCancel }) {
         </button>
       </div>
 
-      <div className="p-6 grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-6">
+      <div className="p-6 grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-6">
         <div className="space-y-5">
           {/* Zone glisser-déposer */}
           <div
@@ -472,7 +541,14 @@ function TeacherImportPanel({ onImport, onCancel }) {
                 </svg>
                 <p className="text-sm font-semibold text-emerald-700">
                   {preview.rows.length} {preview.rows.length > 1 ? t('enseignants détectés', 'teachers detected') : t('enseignant détecté', 'teacher detected')}
+                  {resolved?.totalSubjects > 0 && ` · ${resolved.totalSubjects} ${t('affectations de matières', 'subject assignments')}`}
                 </p>
+                {preview.mergedCount > 0 && (
+                  <p className="text-[11px] text-emerald-600">
+                    {preview.mergedCount} {t('ligne(s) du même enseignant regroupée(s) — une seule fiche, toutes ses matières',
+                                              'row(s) of the same teacher merged — one record, all their subjects')}
+                  </p>
+                )}
                 <p className="text-xs text-slate-400">{t('Cliquer pour changer de fichier', 'Click to change file')}</p>
               </div>
             ) : (
@@ -483,19 +559,19 @@ function TeacherImportPanel({ onImport, onCancel }) {
                   <line x1="12" y1="3" x2="12" y2="15" strokeLinecap="round"/>
                 </svg>
                 <p className="text-sm font-medium text-slate-600">{t('Glissez votre fichier ici', 'Drag your file here')}</p>
-                <p className="text-xs text-slate-400">CSV, Excel (.xlsx, .xls)</p>
+                <p className="text-xs text-slate-400">Excel (.xlsx, .xls)</p>
               </div>
             )}
           </div>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.ods" className="hidden"
+          <input ref={fileRef} type="file" accept={EXCEL_ACCEPT} className="hidden"
             onChange={(e) => processFile(e.target.files[0])} />
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button type="button" onClick={() => fileRef.current?.click()} className="btn-secondary text-xs">
               {t('Sélectionner un fichier', 'Select a file')}
             </button>
-            <button type="button" onClick={downloadTeacherTemplate} className="btn-secondary text-xs">
-              {t('Télécharger le modèle', 'Download template')}
+            <button type="button" onClick={() => downloadTeacherTemplate({ subjects, classes, teachers })} className="btn-secondary text-xs">
+              {t('Télécharger le modèle Excel', 'Download Excel template')}
             </button>
           </div>
 
@@ -504,34 +580,69 @@ function TeacherImportPanel({ onImport, onCancel }) {
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{preview.error}</div>
           )}
 
+          {/* Matières introuvables : annoncées AVANT l'import */}
+          {resolved?.unmatched?.length > 0 && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+              <p className="text-xs font-semibold text-amber-800">
+                {resolved.unmatched.length} {t('matière(s) du fichier n’existent pas dans l’école', 'subject(s) in the file do not exist in the school')}
+              </p>
+              <p className="text-xs text-amber-700 mt-1">{resolved.unmatched.join(' · ')}</p>
+              <p className="text-[11px] text-amber-600 mt-1.5">
+                {t('L’import n’invente ni matière ni classe : ces libellés seront ignorés. Les enseignants, eux, seront bien importés.',
+                   'The import never invents a subject or a class: these labels will be skipped. The teachers themselves are still imported.')}
+              </p>
+            </div>
+          )}
+
           {/* Aperçu */}
-          {preview?.rows?.length > 0 && (
+          {resolved?.perRow?.length > 0 && (
             <div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">{t('Aperçu', 'Preview')}</p>
-              <div className="rounded-xl border border-slate-200 overflow-hidden">
-                <table className="w-full text-xs">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{t('Aperçu', 'Preview')}</p>
+                {resolved.toUpdate > 0 && (
+                  <p className="text-[11px] text-slate-500">
+                    {resolved.toUpdate} {t('fiche(s) déjà en base seront complétées (pas dupliquées)', 'existing record(s) will be completed (not duplicated)')}
+                  </p>
+                )}
+              </div>
+              <div className="rounded-xl border border-slate-200 overflow-x-auto">
+                <table className="w-full text-xs min-w-[720px]">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
                       <th className="text-left px-3 py-2">{t('Nom complet', 'Full name')}</th>
-                      <th className="text-left px-3 py-2">Email</th>
+                      <th className="text-left px-3 py-2">{t('Matricule', 'Staff ID')}</th>
                       <th className="text-left px-3 py-2">{t('Téléphone', 'Phone')}</th>
                       <th className="text-left px-3 py-2">{t('Spécialité', 'Specialty')}</th>
+                      <th className="text-left px-3 py-2">{t('Secteur', 'Sector')}</th>
+                      <th className="text-left px-3 py-2">{t('Matières affectées', 'Subjects assigned')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {preview.rows.slice(0, 6).map((r, i) => (
+                    {resolved.perRow.slice(0, 8).map((r, i) => (
                       <tr key={i} className="hover:bg-slate-50">
-                        <td className="px-3 py-2 font-medium text-slate-800">{r.name}</td>
-                        <td className="px-3 py-2 text-slate-500">{r.email || '—'}</td>
-                        <td className="px-3 py-2 text-slate-500">{r.phone || '—'}</td>
-                        <td className="px-3 py-2 text-slate-500">{r.specialty || '—'}</td>
+                        <td className="px-3 py-2 font-medium text-slate-800">
+                          {r.row.name}
+                          {r.existing && <span className="ml-1.5 text-[10px] font-semibold text-amber-600 uppercase">{t('maj', 'upd')}</span>}
+                        </td>
+                        <td className="px-3 py-2 text-slate-500">{r.row.matricule || '—'}</td>
+                        <td className="px-3 py-2 text-slate-500">{r.row.phone || '—'}</td>
+                        <td className="px-3 py-2 text-slate-500">{r.row.specialty || '—'}</td>
+                        <td className="px-3 py-2 text-slate-500">{r.row.sector ? sectorLabel(r.row.sector, t) : '—'}</td>
+                        <td className="px-3 py-2">
+                          {r.subjectIds.length ? (
+                            <span className="text-emerald-700 font-semibold">{r.subjectIds.length}</span>
+                          ) : <span className="text-slate-300">—</span>}
+                          {r.unmatched.length > 0 && (
+                            <span className="ml-1.5 text-amber-600">({r.unmatched.length} {t('ignorée(s)', 'skipped')})</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {preview.rows.length > 6 && (
+                {resolved.perRow.length > 8 && (
                   <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-xs text-slate-400 text-center">
-                    …{t('et', 'and')} {preview.rows.length - 6} {t('autres', 'more')}
+                    …{t('et', 'and')} {resolved.perRow.length - 8} {t('autres', 'more')}
                   </div>
                 )}
               </div>
@@ -540,34 +651,42 @@ function TeacherImportPanel({ onImport, onCancel }) {
                 <button type="button" onClick={handleImport} disabled={importing}
                   className="btn-primary" style={{ width: 'auto', paddingInline: '1.75rem' }}>
                   {importing
-                    ? t('Import en cours…', 'Importing…')
-                    : `${t('Importer', 'Import')} ${preview.rows.length} ${preview.rows.length > 1 ? t('enseignants', 'teachers') : t('enseignant', 'teacher')}`}
+                    ? `${t('Import en cours…', 'Importing…')} ${progress}/${resolved.perRow.length}`
+                    : `${t('Importer', 'Import')} ${resolved.perRow.length} ${resolved.perRow.length > 1 ? t('enseignants', 'teachers') : t('enseignant', 'teacher')}`}
                 </button>
-                <button type="button" onClick={onCancel} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
+                <button type="button" onClick={onCancel} className="btn-secondary" disabled={importing}>{t('Annuler', 'Cancel')}</button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Instructions */}
+        {/* Colonnes attendues */}
         <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 text-sm self-start">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">{t('En-têtes attendus', 'Expected headers')}</p>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">{t('Colonnes reconnues', 'Recognised columns')}</p>
           <div className="space-y-1.5">
-            {[
-              { col: 'nom_complet', req: true,  desc: t('Nom et prénom', 'First and last name') },
-              { col: 'email',       req: false, desc: t('Adresse email', 'Email address') },
-              { col: 'telephone',   req: false, desc: t('Numéro de tél.', 'Phone number') },
-              { col: 'specialite',  req: false, desc: t('Discipline', 'Subject area') },
-            ].map(({ col, req, desc }) => (
-              <div key={col} className="flex items-start gap-2">
-                <code className={`text-xs px-1.5 py-0.5 rounded font-mono ${
-                  req ? 'bg-brand-100 text-brand-700' : 'bg-slate-200 text-slate-600'
-                }`}>{col}</code>
-                <span className="text-xs text-slate-500">{desc}{req ? ' *' : ''}</span>
+            {cols.map((col) => (
+              <div key={col.key} className="flex items-start gap-2">
+                <code className={`text-[11px] px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                  col.required ? 'bg-brand-100 text-brand-700' : 'bg-slate-200 text-slate-600'
+                }`}>{col.aliases[0]}</code>
+                <span className="text-[11px] text-slate-500 leading-snug">
+                  {columnHint(col)}{col.required ? ' *' : ''}
+                </span>
               </div>
             ))}
           </div>
-          <p className="text-xs text-slate-400 mt-3">* {t('Colonne obligatoire', 'Required column')}</p>
+          <p className="text-[11px] text-slate-400 mt-3">* {t('Colonne obligatoire — les autres sont optionnelles.', 'Required column — all others are optional.')}</p>
+          <div className="mt-3 pt-3 border-t border-slate-200">
+            <p className="text-[11px] font-semibold text-slate-600 mb-1">{t('Colonne « matieres »', '“subjects” column')}</p>
+            <p className="text-[11px] text-slate-500 leading-snug">
+              {t('Séparez par « ; ». Précisez la classe entre parenthèses : « Maths (6e A) ; Maths (6e B) ». Sans parenthèses, la matière est affectée dans TOUTES les classes où elle existe.',
+                 'Separate with “;”. Put the class in brackets: “Maths (Form 1A); Maths (Form 1B)”. Without brackets, the subject is assigned in EVERY class where it exists.')}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1.5">
+              {t('L’ordre des colonnes est libre : les en-têtes sont reconnus par leur nom.',
+                 'Column order does not matter: headers are matched by name.')}
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -705,6 +824,9 @@ export function TeachersPanel() {
   const subjects      = useSchoolStore((s) => s.subjects);
   const classes       = useSchoolStore((s) => s.classes);
   const addTeacher    = useSchoolStore((s) => s.addTeacher);
+  // L'affectation d'une matière à un enseignant vit sur la ligne `subjects`
+  // (une par couple matière × classe) — d'où ce setter ici, pour l'import.
+  const updateSubject = useSchoolStore((s) => s.updateSubject);
   const updateTeacher = useSchoolStore((s) => s.updateTeacher);
   const deleteTeacher = useSchoolStore((s) => s.deleteTeacher);
   const school        = useAuthStore((s) => s.school);
@@ -845,8 +967,37 @@ export function TeachersPanel() {
     setConfirmDelete(null);
   };
 
-  const handleImportTeacher = async (row) => {
-    await addTeacher(row);
+  // Import d'une ligne du fichier : la fiche PUIS les matières.
+  //
+  // Deux points qui ne vont pas de soi :
+  //  · Un réimport ne doit pas doubler les fiches (le fichier corrigé, la liste
+  //    de l'an dernier complétée). On rapproche par matricule, à défaut par nom,
+  //    et on COMPLÈTE la fiche existante — en n'écrivant que les champs
+  //    réellement renseignés dans le fichier, pour ne jamais effacer ce que
+  //    l'école a déjà saisi à la main.
+  //  · Les matières sont portées par `subjects.teacher_id`, pas par la fiche :
+  //    les affecter = mettre à jour une ligne `subjects` par couple
+  //    (matière, classe). Les libellés introuvables ont déjà été annoncés dans
+  //    l'aperçu ; ici on ne touche qu'à ce qui existe.
+  const handleImportTeacher = async ({ row, existing, subjectIds }) => {
+    const fields = teacherFieldsOf(row);
+    let teacherId;
+    if (existing) {
+      await updateTeacher(existing.id, fields);
+      teacherId = existing.id;
+    } else {
+      const created = await addTeacher(fields);
+      teacherId = created?.id;
+    }
+
+    let assigned = 0;
+    if (teacherId) {
+      for (const subjectId of subjectIds) {
+        await updateSubject(subjectId, { teacher_id: teacherId });
+        assigned++;
+      }
+    }
+    return { updated: !!existing, assigned };
   };
 
   if (!f.hasTeachers) {
@@ -873,7 +1024,7 @@ export function TeachersPanel() {
             </button>
             {teachers.length > 0 && (
               <>
-                <button onClick={() => exportTeachers(teachers)} className="btn-secondary">
+                <button onClick={() => exportTeachers(teachers, { subjects, classes })} className="btn-secondary">
                   {t('Exporter', 'Export')}
                 </button>
                 <div className="relative">
@@ -956,6 +1107,9 @@ export function TeachersPanel() {
         {/* Panneau import */}
         {showImport && (
           <TeacherImportPanel
+            subjects={subjects}
+            classes={classes}
+            teachers={teachers}
             onImport={handleImportTeacher}
             onCancel={() => setShowImport(false)}
           />

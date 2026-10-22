@@ -301,8 +301,8 @@ export default function SubjectTeacherWorkspace() {
               )}
 
               {/* Échange de notes entre postes : l'enseignant exporte TOUTES ses
-                  notes en un fichier pour l'administration. Le panneau CSV
-                  ci-dessous, lui, ne concerne que la grille affichée. */}
+                  notes en un fichier pour l'administration. Le panneau d'import
+                  Excel ci-dessous, lui, ne concerne que la grille affichée. */}
               <GradeBundleIO />
 
               {showImport && (

@@ -86,5 +86,46 @@ const orph = unresolvedSubjectsForTeacher(subjects, 'p1', 'c1', FR);
 eq(orph.length, 1, 'une matière non rattachée est signalée');
 eq(orph[0].name, 'ff', 'et on sait laquelle, pour la nommer à l’écran');
 
+// ── LES NOMS RELEVÉS EN PRODUCTION LE 2026-10-21 ───────────────────────────
+//
+// Mesure faite en appelant ce résolveur sur les matières réelles des 44 écoles :
+// 23 matières du premier cycle sur 564 n'apparaissaient pas à la saisie.
+// « Physique-Chimie » était le nom le plus fréquent — 10 occurrences, 2 écoles.
+//
+// Le référentiel francophone ne connaît pas Physique et Chimie séparément : il a
+// UNE matière, PCT (Physique, Chimie, Technologie). Le nom de l'école en désigne
+// donc bien une seule.
+eq(ids('Physique-Chimie'), 'pct', '« Physique-Chimie » → PCT');
+eq(ids('Physique Chimie'), 'pct', 'sans trait d’union');
+eq(ids('Sciences Physiques'), 'pct', '« Sciences Physiques » → PCT');
+
+// La barre oblique devient une espace à la normalisation : c'est « history
+// geography », sans « and », qu'il fallait écrire.
+eq(ids('History/Geography', EN), 'geography+history', '« History/Geography » → les deux');
+eq(ids('Histoire/Géographie'), 'geographie+histoire', 'la barre oblique côté francophone aussi');
+
+// Catalogue anglophone portant Chemistry et Physics séparément, comme en base.
+const ENSC = [...EN,
+  { id: 'chemistry', nom: 'Chemistry' }, { id: 'physics', nom: 'Physics' },
+  { id: 'biology', nom: 'Biology' }, { id: 'ecm', nom: 'ECM' },
+];
+eq(ids('Chemistry/Physics', ENSC), 'chemistry+physics', '« Chemistry/Physics » → les deux');
+eq(ids('Physics & Chemistry', ENSC), 'chemistry+physics', 'l’esperluette aussi');
+eq(ids('Civics', ENSC), 'citizenship+ecm', '« Civics » → Citizenship Education');
+
+// ── CE QUE LES AJOUTS NE DOIVENT PAS CASSER ────────────────────────────────
+// Le piège de l'ordre : « physique chimie » est posée dans le bloc PCT, donc
+// AVANT « education physique ». Un alias pour « physique » SEUL y aurait
+// envoyé l'EPS en PCT — d'où son absence, et ce contrôle qui la garde.
+eq(ids('Éducation Physique'), 'eps', 'régression : l’éducation physique reste EPS');
+eq(ids('Éducation Physique et Sportive'), 'eps', 'régression : EPS en entier');
+eq(ids('Physical Education', EN), 'physical_education', 'régression : Physical Education');
+eq(ids('EPS'), 'eps', 'régression : le sigle EPS');
+// « civic » ne doit pas emporter l'éducation civique vers autre chose qu'ECM.
+eq(ids('Éducation Civique'), 'ecm', 'régression : l’éducation civique reste ECM');
+// Une faute de frappe RESTE non résolue : elle se corrige dans Matières.
+eq(ids('Allamand'), '', 'une faute de frappe reste non résolue');
+eq(ids('ff'), '', 'un nom d’essai reste non résolu');
+
 console.log(failed ? '\n❌ échecs' : '\n✅ tout passe');
 process.exitCode = failed ? 1 : 0;

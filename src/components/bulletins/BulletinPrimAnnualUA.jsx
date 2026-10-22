@@ -19,6 +19,9 @@ import {
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
 import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
+// Les six regroupements officiels du carnet MINEDUB. MÊME fonction que le
+// gabarit compact : un seul calcul pour un même carnet, deux dispositions.
+import { groupesDe } from '../../core/primCompactRows';
 // L'échelle vient du moteur : un « /10 » écrit en dur dans le libellé se serait
 // mis à mentir dès que l'échelle change.
 import { PRIM_GRADE_MAX } from '../../core/primEngine';
@@ -145,6 +148,20 @@ function CompetenceUATable({ sys, row }) {
 export default function BulletinPrimAnnualUA({
   school, sys = 'FR', title, student, classLabel, effectif, profPrincipal = '',
   competenceRows = [], moyenneGenerale = null, coteGenerale = null, rang, classStats, appreciation = '',
+  // ── CE QUE LE CARNET DE L'ÉCOLE PORTE EN PLUS ────────────────────────────
+  // Mêmes blocs que la disposition compacte, mêmes props, même défaut : une
+  // école qui n'a pas coché « carnet » reçoit exactement le bulletin d'avant.
+  //
+  // POURQUOI ICI AUSSI. `prim_bulletin_mode = 'carnet'` n'allumait les blocs
+  // que sur la disposition COMPACTE. Or « Auto » ne la choisit que pour une
+  // période d'UNE unité d'apprentissage : dès qu'on imprimait un trimestre
+  // (UA1-3), la disposition détaillée reprenait la main et le carnet perdait
+  // ses regroupements, son travail académique et sa répartition — sans qu'aucun
+  // message ne l'explique. Le réglage de l'école doit valoir pour les DEUX
+  // dispositions, sinon il ne vaut rien.
+  mentions,                     // { avertissement, tableauHonneur, encouragement }
+  repartition = [],             // [{ label: '[10-11.99]', n: 3 }]
+  groupes: avecGroupes = false, // les six regroupements officiels
 }) {
   const cell = mkCell(10);
   const th   = { ...mkTH(11), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
@@ -175,12 +192,74 @@ export default function BulletinPrimAnnualUA({
     return { ...row, criteresCote };
   });
 
+  // ── LES SIX REGROUPEMENTS ────────────────────────────────────────────────
+  // Le total d'un groupe se lit sur les MÊMES nombres que la disposition
+  // compacte : `totalAchieved` / `totalPossible` par compétence, calculés une
+  // seule fois dans `primAnnualRowsFor`. Rien n'est additionné ici.
+  const groupes = avecGroupes
+    ? groupesDe(competenceRows.map((r) => ({
+      code: r.code, domaine: r.domaine ?? null,
+      achieved: r.totalAchieved ?? null,
+      // Une compétence non évaluée n'apporte pas son barème au total — même
+      // règle que `buildCompactRows` : « — /40 » laisserait croire qu'elle a
+      // été interrogée et ratée.
+      possible: r.totalAchieved == null ? null : (r.totalPossible ?? null),
+    })), sys)
+    : [];
+  const groupeDe = new Map();
+  for (const g of groupes) for (const code of g.codes) groupeDe.set(code, g);
+  // Le bandeau se pose avant la PREMIÈRE compétence de la famille, le total
+  // après la DERNIÈRE : d'où les deux comparaisons avec les lignes voisines.
+  const debutDeGroupe = (i) => {
+    const g = groupeDe.get(competenceRows[i]?.code);
+    if (!g) return null;
+    return groupeDe.get(competenceRows[i - 1]?.code) === g ? null : g;
+  };
+  const finDeGroupe = (i) => {
+    const g = groupeDe.get(competenceRows[i]?.code);
+    if (!g) return null;
+    return groupeDe.get(competenceRows[i + 1]?.code) === g ? null : g;
+  };
+
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys}>
       <OfficialHeader school={school} sys={sys} title={title} accent={PRIM_ACCENT} basic />
       <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={PRIM_ACCENT} tint={PRIM_TH_BG} />
 
-      {rowsWithCriteresCote.map((row) => <CompetenceUATable key={row.code} sys={sys} row={row} />)}
+      {rowsWithCriteresCote.map((row, i) => (
+        <Fragment key={row.code}>
+          {/* Bandeau « n) INTITULÉ OFFICIEL » — ouvre la famille. */}
+          {debutDeGroupe(i) && (
+            <div style={{
+              ...th, textAlign: 'left', padding: '2px 4px', marginBottom: 2, fontSize: 8,
+            }}>
+              {debutDeGroupe(i).numero != null ? `${debutDeGroupe(i).numero}) ` : ''}
+              {debutDeGroupe(i).intitule.toUpperCase()}
+            </div>
+          )}
+          <CompetenceUATable sys={sys} row={row} />
+          {/* Total et moyenne de la famille — ferme le groupe, comme au carnet. */}
+          {finDeGroupe(i) && (
+            <div style={{
+              ...cell, background: '#f3f4f6', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
+              display: 'flex', justifyContent: 'space-between', padding: '2px 4px', marginBottom: 8, fontSize: 8,
+            }}>
+              <span style={{ fontStyle: 'italic' }}>
+                {finDeGroupe(i).numero != null ? `${finDeGroupe(i).numero}) ` : ''}{finDeGroupe(i).intitule}
+              </span>
+              <span style={{ fontWeight: 'bold' }}>
+                {finDeGroupe(i).achieved == null
+                  ? '—'
+                  : `${L(sys, 'Total', 'Total', 'Total')}: ${fix2(finDeGroupe(i).achieved)}`}
+                {'   '}
+                {finDeGroupe(i).moyenne == null
+                  ? ''
+                  : `${L(sys, 'Moy', 'Avg', 'Prom')}: ${fix2(finDeGroupe(i).moyenne)}`}
+              </span>
+            </div>
+          )}
+        </Fragment>
+      ))}
 
       {/* Synthèse — identique à la vue trimestrielle */}
       <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 5 }}>
@@ -212,11 +291,54 @@ export default function BulletinPrimAnnualUA({
         </tbody>
       </table>
 
+      {/* ── TRAVAIL ACADÉMIQUE ──────────────────────────────────────────────
+          Les trois distinctions du carnet. Elles sont DÉJÀ saisies par l'école
+          au conseil de classe : on les affiche, on ne les déduit pas de la
+          moyenne. */}
+      {mentions && (
+        <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
+          <tbody>
+            <tr>
+              <td style={th}>{L(sys, 'Travail académique', 'Academic record', 'Trabajo académico')}</td>
+              <td style={th}>{L(sys, 'Avertissement', 'Warning', 'Advertencia')}</td>
+              <td style={{ ...cell, textAlign: 'center' }}>{mentions.avertissement || '—'}</td>
+              <td style={th}>{L(sys, 'Tableau d’honneur', 'Honour roll', 'Cuadro de honor')}</td>
+              <td style={{ ...cell, textAlign: 'center' }}>{mentions.tableauHonneur || '—'}</td>
+              <td style={th}>{L(sys, 'Encouragement', 'Commendation', 'Felicitación')}</td>
+              <td style={{ ...cell, textAlign: 'center' }}>{mentions.encouragement || '—'}</td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+
       <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
         <tbody>
           <tr><td style={{ ...cell, height: 30 }}>{L(sys, 'Appréciation générale du Conseil des maîtres', "Teachers' council general remarks", 'Apreciación general del consejo de maestros')} : {appreciation}</td></tr>
         </tbody>
       </table>
+
+      {/* ── AUTRES STATISTIQUES ─────────────────────────────────────────────
+          Combien d'élèves par tranche de moyenne : un parent y lit où se situe
+          son enfant sans connaître les notes des autres. */}
+      {repartition.length > 0 && (
+        <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
+          <tbody>
+            <tr>
+              <td style={{ ...th, textAlign: 'left' }} colSpan={repartition.length + 1}>
+                {L(sys, 'Autres statistiques', 'Other statistics', 'Otras estadísticas')}
+              </td>
+            </tr>
+            <tr>
+              <td style={th}>{L(sys, 'Intervalle de moyenne', 'Average range', 'Intervalo')}</td>
+              {repartition.map((r) => <td key={r.label} style={th}>{r.label}</td>)}
+            </tr>
+            <tr>
+              <td style={th}>{L(sys, 'Nombre d’élèves', 'Number of pupils', 'N.º de alumnos')}</td>
+              {repartition.map((r) => <td key={r.label} style={{ ...cell, textAlign: 'center' }}>{r.n}</td>)}
+            </tr>
+          </tbody>
+        </table>
+      )}
 
       <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} />
     </OfficialSheet>

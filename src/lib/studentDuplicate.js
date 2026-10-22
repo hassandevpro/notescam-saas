@@ -124,3 +124,33 @@ export function checkDuplicate(candidat, registre = []) {
   }
   return { level: DUP.NONE, matches: [], reason: null };
 }
+
+// ── GARDE DE CRÉATION — le même enfant ne doit pas naître deux fois ─────────
+//
+// CE QUE CECI FERME. L'écran de saisie appelait `checkDuplicate` avant
+// d'enregistrer, mais l'IMPORT DE FICHIER, lui, ne passait par AUCUN contrôle :
+// `ImportPanel` boucle `for (const row of rows) await onImport(row)` et
+// `onImport` est `addStudent`. Réimporter le même fichier — ou un fichier qui
+// répète une ligne — créait donc autant de dossiers que d'imports. Deux dossiers
+// pour un élève, ce sont deux pensions dues, deux bulletins et un effectif faux.
+//
+// Le garde vit ICI, en fonction pure, et il est appelé par `addStudent` : tous
+// les chemins de création le traversent, aujourd'hui comme demain.
+//
+// Ce qu'il NE bloque PAS, volontairement :
+//   • une ligne qui porte l'id d'un élève DÉJÀ présent : c'est une réécriture
+//     (restauration depuis la corbeille, rejeu de synchro), pas une création ;
+//   • le niveau WARN : des jumeaux partagent naissance et téléphone du parent.
+//     L'écran demande confirmation ; l'import, lui, laisse passer et c'est voulu
+//     — on ne refuse pas en silence une inscription légitime.
+//
+//   candidat : l'élève à créer      registre : élèves actifs ET archivés
+export function peutCreerEleve(candidat, registre = []) {
+  const id = candidat?.id ?? null;
+  // Réécriture d'une ligne connue : jamais un doublon.
+  if (id && registre.some((s) => s?.id === id)) return { ok: true, raison: null, existant: null };
+
+  const dup = checkDuplicate({ ...candidat, id }, registre);
+  if (dup.level !== DUP.BLOCK) return { ok: true, raison: null, existant: null };
+  return { ok: false, raison: dup.reason, existant: dup.matches?.[0]?.student ?? null };
+}

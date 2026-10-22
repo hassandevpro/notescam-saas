@@ -1,0 +1,242 @@
+========================================================================
+NotesCam 0.3.19 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.19.tar.gz
+Taille   : 53 464 101 octets
+SHA-256  : 6ebca963062de8ded8a92a26606900d9b45ae42234ca0f883281d02c31178fcc
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.19.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire. Elle contient TOUT ce que contenaient
+la 0.3.18 (frais débloqués en file, classes bilingues), la 0.3.17
+(échanges de fichiers en Excel, classeur des bulletins du second cycle),
+la 0.3.16 (compétences modifiables, profil, barème du primaire) et la
+0.3.15 (journal de caisse, correctifs de synchronisation).
+
+
+>>> LISEZ CECI AVANT D'INSTALLER <<<
+------------------------------------
+
+CETTE VERSION AJOUTE TROIS COLONNES À LA BASE. C'est la différence avec
+les 0.3.17 et 0.3.18, qui n'y touchaient pas :
+
+    apc_matieres.school_id            l'école possède ses propres
+    apc_classe_matieres.school_id       matières de premier cycle
+    schools.prim_bulletin_mode        le réglage du bulletin primaire
+
+Les trois tables concernées sont SYNCHRONISÉES avec le Cloud. Au premier
+démarrage, le serveur pose les colonnes et REMET LE CURSEUR DE DESCENTE
+À ZÉRO pour les remplir : le prochain cycle relit tout.
+
+CE QUE VOUS ALLEZ CONSTATER, et qui est NORMAL :
+
+  · un long rattrapage de synchronisation, comme en 0.3.16 — pas comme
+    en 0.3.17/0.3.18, où il n'y en avait aucun ;
+  · un bandeau de synchronisation actif plus longtemps que d'habitude ;
+  · sur un gros établissement, cela peut durer plusieurs heures.
+
+CE QUI N'ARRIVE PAS pendant ce temps : rien n'est perdu. Les saisies de
+la journée partent dans la file et montent au Cloud normalement. Le
+rattrapage descend, il ne remonte pas : il n'écrase aucune saisie.
+
+Le journal du service le dit, et c'est la trace à garder :
+
+    journalctl -u notescam -n 40 | grep -i "curseur de pull"
+
+PRÉVENEZ L'ÉCOLE AVANT, pas après. Une synchronisation qui travaille
+plusieurs heures sans explication se lit comme une panne.
+
+
+CE QUE CETTE VERSION APPORTE EN PLUS DE LA 0.3.18
+--------------------------------------------------
+
+1. LA MÊME LISTE DE MATIÈRES PARTOUT.
+
+   LE SYMPTÔME : une matière cochée dans « Modifier la classe »
+   n'apparaissait pas à la saisie des notes, ou bien s'y saisissait mais
+   ne s'imprimait pas sur le bulletin. Un enseignant pouvait remplir un
+   trimestre entier d'une matière que le bulletin ne portait pas — en
+   silence, sans aucun message.
+
+   LA CAUSE. Cinq tris différents et trois périmètres différents
+   cohabitaient dans le produit : l'écran Classes, la saisie et le
+   bulletin ne répondaient pas la même chose à la question « quelles
+   matières cette classe traite-t-elle ? ».
+
+   CE QUI CHANGE. Un seul endroit décide désormais, pour tous les
+   cycles — classique, APC primaire, APC 6e–3e, second cycle, bilingue.
+   Les matières cochées sur la classe sont exactement celles que la
+   saisie propose et que le bulletin imprime, dans le même ordre.
+
+   ET QUAND UNE MATIÈRE EST ÉCARTÉE, L'ÉCRAN LE DIT. Un filtre
+   invisible est pire que pas de filtre : la saisie annonce désormais
+   combien de lignes du référentiel ne sont pas couvertes par les
+   matières de la classe, et lesquelles de vos matières ne se rattachent
+   à rien.
+
+2. UNE MATIÈRE HORS RÉFÉRENTIEL EST PERMISE, ET GARDE SON CLASSEMENT.
+
+   Jusqu'ici, une école réglée sur un moteur officiel ne pouvait pas
+   créer une matière absente du référentiel national : « Langue Turc »,
+   « Étude de texte », « Informatique Pratique » n'avaient aucun endroit
+   où exister. Et quand elles existaient malgré tout, le bulletin les
+   rangeait toutes dans « Autres matières ».
+
+   CE QUI CHANGE. Créez la matière dans « Modifier la classe », donnez-
+   lui son classement (Langue, Sciences, Littéraire…) : elle se saisit,
+   elle s'imprime, et elle s'imprime DANS SON CLASSEMENT — l'espagnol
+   chez les langues, plus en « Autres matières ».
+
+   UN CRÉNEAU « LANGUE VIVANTE » est reconnu : l'arrêté ouvre le créneau
+   sans nommer la langue, donc la langue que l'école choisit le remplit.
+
+   Un avis vous annonce où la matière ira, AVANT que vous validiez.
+
+3. LE CARNET DÉTAILLÉ DU PRIMAIRE, DERRIÈRE UN BOUTON.
+
+   Réglages → « Bulletin du primaire », deux choix :
+
+     · « Standard »        le bulletin primaire d'aujourd'hui, INCHANGÉ.
+                           C'est le défaut.
+     · « Carnet détaillé » les six regroupements officiels (« 1)
+                           COMMUNIQUER EN FRANÇAIS ET EN ANGLAIS… »)
+                           avec leur Total et leur Moyenne, la ligne
+                           « Travail académique » (avertissement /
+                           tableau d'honneur / encouragement), les
+                           statistiques de performance, la répartition
+                           des élèves par tranche de moyenne, et la
+                           signature du parent.
+
+   AUCUNE ÉCOLE NE VOIT SON BULLETIN BOUGER tant qu'elle n'a pas cliqué.
+   Le réglage vit avec l'école, pas avec son nom : une école renommée
+   garde son bulletin.
+
+
+INSTALLATION
+------------
+
+Le script de déploiement fait tout dans l'ordre, et s'arrête de lui-même
+si quelque chose ne va pas. Placez l'archive ET le script dans le même
+dossier, sur le serveur, puis :
+
+    chmod +x deploy-0.3.19.sh
+    sudo ./deploy-0.3.19.sh notescam-linux-x64-0.3.19.tar.gz
+
+Ce qu'il fait, dans cet ordre :
+
+  1. relève l'état AVANT (version, school_id, jeton d'école) ;
+  2. ARRÊTE le service — une copie de base prise à chaud peut être
+     déchirée ;
+  3. SAUVEGARDE la base par VACUUM INTO, puis VÉRIFIE la sauvegarde
+     (integrity_check + comptages identiques). Si la sauvegarde n'est
+     pas vérifiée, IL S'ARRÊTE LÀ et remet le service en marche sans
+     avoir touché à l'application. Une sauvegarde non vérifiée n'est pas
+     une sauvegarde ;
+  4. MESURE la file de poussée, sans rien y écrire (voir plus bas) ;
+  5. installe, puis contrôle que le paquet porte VRAIMENT les trois
+     nouveautés et que rien des versions précédentes n'a été perdu ;
+  6. redémarre, vérifie que la version annoncée est bien 0.3.19, que les
+     TROIS COLONNES sont réellement posées dans la base — c'est la seule
+     preuve qui compte — et qu'aucun comptage (élèves, notes,
+     versements, dépenses) n'a diminué.
+
+Il ne supprime aucune base, ne réinitialise aucune file de
+synchronisation, ne dédoublonne rien, ne refait aucun appairage et
+n'écrit aucune donnée métier.
+
+UN CODE DE SORTIE DIFFÉRENT DE 0 EST LE SIGNAL D'APPELER L'ÉDITEUR, pas
+de tenter une réparation. La sauvegarde vérifiée est nommée dans la
+sortie du script.
+
+
+SI LE SCRIPT ANNONCE UNE FILE ENGORGÉE
+---------------------------------------
+
+À l'étape 4, le script compte les entrées de la file de poussée et les
+pointeurs réellement utiles. Relevé sur un serveur d'école le
+2026-10-19 : 11 789 647 entrées pour 3 815 pointeurs, soit 3 090
+doublons chacun. La file s'alimentait plus vite qu'elle ne s'écoulait —
+82 jours pour l'écouler, donc jamais.
+
+SI CE MESSAGE APPARAÎT, le rattrapage de cette version attendra derrière
+la file. Traitez-la APRÈS l'installation, avec son propre script :
+
+    sudo ./dedoublonner-file-poussee.sh --simulation   # mesure seule
+    sudo ./dedoublonner-file-poussee.sh
+
+Ce script prend sa propre sauvegarde vérifiée, ne garde qu'un pointeur
+par ligne (le plus récent), et s'arrête en signalant une erreur si le
+nombre de pointeurs distincts change ne serait-ce que de un. Il ne vide
+PAS la file : ce n'est pas une réinitialisation.
+
+N'EST PAS CONCERNÉ le serveur dont le script dit « file sans
+engorgement notable ». N'y touchez pas.
+
+
+À VÉRIFIER DEPUIS UN POSTE DE L'ÉCOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Maj+R : le navigateur garde
+l'ancienne interface en cache, et c'est de loin la cause la plus
+fréquente d'un « bouton qui n'apparaît pas ». Si l'application est
+installée sur le poste (icône sur le bureau), FERMEZ-LA COMPLÈTEMENT et
+réouvrez-la : tant qu'une fenêtre de l'ancienne version reste ouverte,
+le poste continue de servir l'ancienne interface.
+
+  1. curl -s http://localhost:8080/api/version   doit répondre 0.3.19
+
+  2. Classes → ouvrez une classe → Matières : cochez une matière, puis
+     allez à la saisie des notes, puis au bulletin. La MÊME liste, dans
+     le MÊME ordre, aux trois endroits.
+
+  3. Créez une matière absente du référentiel (« Espagnol » par
+     exemple), classement « Langue » : un avis annonce où elle ira. Sur
+     le bulletin, elle est chez les langues — PLUS dans « Autres
+     matières ».
+
+  4. Réglages → « Bulletin du primaire » : le bouton Standard / Carnet
+     détaillé est là. Laissez « Standard » partout SAUF dans l'école qui
+     a demandé le carnet. Imprimez un bulletin primaire avant et après
+     le clic : seule l'école qui a cliqué voit son bulletin changer.
+
+  5. Les notes déjà saisies sont toutes là et les moyennes sont
+     inchangées : cette version change ce qui s'AFFICHE et ce qu'on peut
+     CRÉER, elle ne change aucun calcul.
+
+  6. Vos effectifs n'ont pas bougé : ouvrez la liste des élèves et
+     comparez au relevé pris avant l'installation (le script l'affiche).
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+
+Réinstallez l'archive 0.3.18 de la même façon.
+
+CE QUE LE RETOUR ARRIÈRE FAIT, exactement :
+
+  · les trois colonnes RESTENT dans la base. C'est sans danger : la
+    0.3.18 les ignore. Aucune donnée n'est perdue, et réinstaller la
+    0.3.19 ensuite les retrouve telles quelles ;
+  · les matières créées hors référentiel restent en base, mais ne
+    s'affichent plus à la saisie ni sur le bulletin officiel — la
+    0.3.18 ne sait pas les lire ;
+  · le réglage « Carnet détaillé » est ignoré : le bulletin primaire
+    revient à la disposition standard ;
+  · AUCUNE NOTE N'EST PERDUE, dans aucun des deux sens.
+
+Si un écran continue de refuser alors que le script dit que tout est en
+place : envoyez la sortie COMPLÈTE du script à l'éditeur. N'essayez pas
+de réparer la base à la main.
+
+------------------------------------------------------------------------

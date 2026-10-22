@@ -113,7 +113,7 @@ export function buildSubjectsForClassicClass({ school, cls, makeId }) {
   if (!rows.length) return [];
   const max = (cls.system || 'FR') === 'EN' ? 100 : 20;
   return rows.map((r, i) => ({
-    id: makeId(),
+    id: makeId(r.name),
     school_id: cls.school_id,
     class_id: cls.id,
     name: r.name,

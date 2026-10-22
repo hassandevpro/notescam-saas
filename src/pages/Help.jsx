@@ -341,11 +341,11 @@ export default function Help() {
             <H3>{t('Ajouter un élève', 'Add a student')}</H3>
             <p>{t('Cliquez sur « + Nouvel élève ». Seuls le nom et la classe sont obligatoires. Les informations personnelles, familiales et les contacts parentaux sont optionnels.', 'Click "+ New student". Only name and class are required. Personal, family, and parent contact info are optional.')}</p>
 
-            <H3>{t('Importer via CSV', 'Import via CSV')}</H3>
+            <H3>{t('Importer via Excel', 'Import via Excel')}</H3>
             <Steps steps={[
-              t('Cliquez sur « Importer CSV » et téléchargez le modèle.', 'Click "Import CSV" and download the template.'),
+              t('Cliquez sur « Importer Excel » et téléchargez le modèle.', 'Click "Import Excel" and download the template.'),
               t('Remplissez les colonnes : nom (obligatoire), classe (obligatoire), date_naissance, genre, matricule, parent_phone…', 'Fill the columns: nom (required), classe (required), date_naissance, genre, matricule, parent_phone…'),
-              t('Importez le fichier. Les élèves sont créés automatiquement.', 'Import the file. Students are created automatically.'),
+              t('Importez le classeur. Les élèves sont créés automatiquement.', 'Import the workbook. Students are created automatically.'),
             ]} />
 
             <H3>{t('Fiche élève', 'Student profile')}</H3>

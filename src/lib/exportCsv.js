@@ -1,3 +1,17 @@
+// ÉCHANGE DE FICHIERS — EXCEL UNIQUEMENT (décision du 2026-10-19, D8).
+//
+// Tout ce que l'application exporte est un classeur .xlsx, et tout ce qu'elle
+// importe doit en être un (.xlsx / .xls). Le CSV a été retiré de bout en bout :
+// un même fichier CSV n'a pas de forme unique — séparateur virgule ou
+// point-virgule selon le Windows du poste, « 12,5 » coupé en deux colonnes sur
+// une machine en locale française, encodage deviné. Le classeur, lui, porte ses
+// types, ses colonnes et ses feuilles : ce qui est exporté se réimporte à
+// l'identique, d'un poste à l'autre et d'une école à l'autre.
+//
+// Le fichier garde son nom, `exportCsv.js` : il est importé par une dizaine
+// de modules et par deux tests qui le lisent PAR CHEMIN (_importStudents,
+// _studentFieldsIO). Le renommer n'ajouterait rien à ce que ce bloc dit.
+
 import { getLang } from './i18n';
 import { useAuthStore } from '../store/authStore';
 import { resolveCountryCode, defaultLangForCountry } from '../countries';
@@ -11,7 +25,7 @@ import { resolveCountryCode, defaultLangForCountry } from '../countries';
 //      en-têtes et données d'exemple sont localisés). Une école Guinée Éq.
 //      obtient le modèle espagnol par défaut.
 //   3. À défaut d'école, on retombe sur la langue de l'UI.
-function templateLang() {
+export function templateLang() {
   try {
     const userPick = localStorage.getItem('notescam_ui_lang_user_set') === 'true';
     if (userPick) return getLang();
@@ -27,15 +41,15 @@ const MSG = {
   emptyData: { fr: 'Fichier vide ou sans données.', en: 'Empty file or no data.', es: 'Archivo vacío o sin datos.' },
   cantRead:  { fr: 'Impossible de lire le fichier.', en: 'Could not read the file.', es: 'No se pudo leer el archivo.' },
   readErr:   { fr: 'Erreur de lecture : ', en: 'Read error: ', es: 'Error de lectura: ' },
+  notExcel: {
+    fr: 'Format refusé : seuls les classeurs Excel (.xlsx, .xls) sont acceptés. Ouvrez votre fichier dans Excel ou LibreOffice, puis « Enregistrer sous » → Classeur Excel (.xlsx).',
+    en: 'Format refused: only Excel workbooks (.xlsx, .xls) are accepted. Open your file in Excel or LibreOffice, then "Save as" → Excel Workbook (.xlsx).',
+    es: 'Formato rechazado: solo se aceptan libros de Excel (.xlsx, .xls). Abra su archivo en Excel o LibreOffice y use «Guardar como» → Libro de Excel (.xlsx).',
+  },
   noStudentCols: {
     fr: 'Colonnes "prenom" et "nom" introuvables. Vérifiez les en-têtes.',
     en: 'Columns "firstName" and "lastName" not found. Check the headers.',
     es: 'No se encontraron las columnas "nombre" y "apellidos". Revise los encabezados.',
-  },
-  noTeacherCol: {
-    fr: 'Colonne "nom_complet" introuvable. Vérifiez les en-têtes.',
-    en: 'Column "full_name" not found. Check the headers.',
-    es: 'No se encontró la columna "nombre_completo". Revise los encabezados.',
   },
 };
 const msg = (key) => MSG[key][getLang()] || MSG[key].fr;
@@ -45,70 +59,101 @@ async function loadXLSX() {
   return (await import('xlsx'));
 }
 
-// ── CSV download ──────────────────────────────────────────────────────────────
-export function downloadCSV(filename, rows) {
-  const escape = (v) => {
-    const s = v == null ? '' : String(v);
-    return s.includes(',') || s.includes('"') || s.includes('\n')
-      ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const csv = rows.map((r) => r.map(escape).join(',')).join('\r\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-  triggerDownload(blob, filename);
-}
+// ── Ce que les sélecteurs de fichier acceptent, et ce qui est refusé ─────────
+// Source unique : un écran qui élargirait son « accept » de son côté ferait
+// croire à l'école qu'un format passe, pour que le lecteur le refuse ensuite.
+export const EXCEL_ACCEPT = '.xlsx,.xls';
+
+// « .xlsm » est accepté à la LECTURE sans figurer dans EXCEL_ACCEPT : c'est un
+// classeur Excel ordinaire muni de macros, que des écoles reçoivent parfois de
+// leur inspection. On ne le propose pas — personne n'a besoin d'être poussé vers
+// les macros — mais il n'y a aucune raison de le refuser quand il arrive.
+export const isExcelFile = (file) => /\.(xlsx|xlsm|xls)$/i.test(file?.name || '');
+
+// Message unique du refus : l'école doit lire QUOI faire, pas « format invalide ».
+export const excelOnlyMessage = () => msg('notExcel');
 
 // ── Excel download ────────────────────────────────────────────────────────────
 export async function downloadExcel(filename, rows, sheetName = 'Données') {
+  return downloadExcelSheets(filename, [{ name: sheetName, rows }]);
+}
+
+// Classeur à PLUSIEURS feuilles : `sheets` = [{ name, rows }]. Sert aux modèles
+// d'import qui embarquent une feuille de référence à côté de la feuille à
+// remplir (ex. la liste réelle des matières de l'école). Le nom d'une feuille
+// Excel est limité à 31 caractères et interdit : \ / ? * [ ] — on nettoie, sinon
+// l'écriture du classeur échoue.
+export async function downloadExcelSheets(filename, sheets) {
   const XLSX = await loadXLSX();
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-  for (let c = range.s.c; c <= range.e.c; c++) {
-    const cell = ws[XLSX.utils.encode_cell({ r: 0, c })];
-    if (cell) cell.s = { font: { bold: true } };
-  }
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  for (const { name, rows } of sheets) {
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = ws[XLSX.utils.encode_cell({ r: 0, c })];
+      if (cell) cell.s = { font: { bold: true } };
+    }
+    // Largeurs de colonnes : sans elles, « Histoire-Géographie (5e A, 5e B) »
+    // s'affiche tronqué et l'école croit le modèle incomplet.
+    ws['!cols'] = Array.from({ length: range.e.c + 1 }, (_, c) => ({
+      wch: Math.min(42, Math.max(12, ...rows.map((r) => String(r?.[c] ?? '').length + 2))),
+    }));
+    XLSX.utils.book_append_sheet(wb, ws, String(name).replace(/[\\/?*[\]:]/g, '-').slice(0, 31));
+  }
   XLSX.writeFile(wb, filename);
 }
 
-// ── Excel / CSV parse (returns { rows, error }) ───────────────────────────────
-export function parseSpreadsheet(file) {
+// ── Lecture d'un classeur : toutes ses feuilles en tableaux de cellules ──────
+// Base commune de tous les lecteurs ci-dessous. Rend { sheets: [{ name, raw }] }
+// dans l'ordre du classeur, cellules déjà converties en chaînes nettoyées.
+//
+// `texte` (≙ l'option `raw: false` de xlsx) décide de CE QUE PORTE une cellule
+// typée, et ce n'est pas un détail d'affichage :
+//
+//   • `false` (défaut) — la VALEUR BRUTE. Une date Excel arrive donc en numéro
+//     de série (« 42078 »), que `normalizeDate` sait reconvertir. C'est le
+//     comportement historique de l'import des élèves et du personnel, et il
+//     doit le rester : avec le texte formaté, une cellule affichée « 15/3/15 »
+//     ne passerait plus aucun motif de date, la date partirait VIDE — et comme
+//     le champ est explicitement présent dans la ligne importée, elle ÉCRASERAIT
+//     la date déjà enregistrée. C'est exactement le défaut que
+//     `_importStudents.test.mjs` garde fermé.
+//
+//   • `true` — le texte tel qu'Excel l'affiche. L'import des enseignants le
+//     demande : ses colonnes sont des libellés (matières, téléphones, matricules)
+//     qu'un arrondi ou une notation scientifique abîmerait.
+export function readWorkbookAoa(file, { texte = false } = {}) {
   return new Promise((resolve) => {
+    if (!isExcelFile(file)) { resolve({ sheets: [], error: msg('notExcel') }); return; }
     const reader = new FileReader();
-    const isExcel = /\.(xlsx|xls|ods)$/i.test(file.name);
-
     reader.onload = async (e) => {
       try {
-        if (isExcel) {
-          const XLSX = await loadXLSX();
-          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-          resolve(rawRowsToStudents(raw));
-        } else {
-          resolve(parseCsvText(e.target.result));
-        }
+        const XLSX = await loadXLSX();
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        const sheets = wb.SheetNames.map((name) => ({
+          name,
+          raw: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '', raw: !texte })
+            .map((r) => r.map((c) => String(c ?? '').trim())),
+        }));
+        resolve({ sheets, error: null });
       } catch (err) {
-        resolve({ rows: [], error: msg('readErr') + err.message });
+        resolve({ sheets: [], error: msg('readErr') + err.message });
       }
     };
-    reader.onerror = () => resolve({ rows: [], error: msg('cantRead') });
-
-    if (isExcel) reader.readAsArrayBuffer(file);
-    else         reader.readAsText(file, 'UTF-8');
+    reader.onerror = () => resolve({ sheets: [], error: msg('cantRead') });
+    reader.readAsArrayBuffer(file);
   });
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
-
-function parseCsvText(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return { rows: [], error: msg('emptyData') };
-  const delim = lines[0].includes(';') ? ';' : ',';
-  const headers = lines[0].split(delim).map((h) => h.trim().toLowerCase());
-  const raw = lines.slice(1).map((l) => l.split(delim).map((c) => c.trim()));
-  return rawRowsToStudents([headers, ...raw]);
+// ── Import des ÉLÈVES — 1re feuille du classeur (rend { rows, error }) ───────
+export async function parseSpreadsheet(file) {
+  const { sheets, error } = await readWorkbookAoa(file);
+  if (error) return { rows: [], error };
+  if (!sheets.length) return { rows: [], error: msg('emptyData') };
+  return rawRowsToStudents(sheets[0].raw);
 }
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
 
 function rawRowsToStudents(raw) {
   if (raw.length < 2) return { rows: [], error: msg('empty') };
@@ -473,45 +518,14 @@ function sansZero(s) {
   return s === '0' ? '' : s;
 }
 
-function triggerDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a   = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ── Grades CSV import ─────────────────────────────────────────────────────────
-// Input: the CSV exported by Grades page (Élève, Sub1 /20, Sub2 /20, Moyenne)
-// Returns: { subjectNames: string[], rows: [{studentName, grades: {name: val}}], error }
-export function parseGradesCSV(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    const isExcel = /\.(xlsx|xls|ods)$/i.test(file.name);
-
-    reader.onload = async (e) => {
-      try {
-        let raw; // tableau de lignes (chaque ligne = tableau de cellules)
-        if (isExcel) {
-          const XLSX = await loadXLSX();
-          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
-            .map((r) => r.map((c) => String(c ?? '').trim()));
-        } else {
-          const lines = e.target.result.split(/\r?\n/).filter((l) => l.trim());
-          if (lines.length < 2) { resolve({ rows: [], subjectNames: [], error: 'Fichier vide.' }); return; }
-          const delim = lines[0].includes(';') ? ';' : ',';
-          raw = lines.map((l) => splitCSVLine(l, delim).map((c) => c.trim()));
-        }
-        resolve(rawRowsToGrades(raw));
-      } catch (err) {
-        resolve({ rows: [], subjectNames: [], error: `Erreur : ${err.message}` });
-      }
-    };
-    reader.onerror = () => resolve({ rows: [], subjectNames: [], error: 'Impossible de lire le fichier.' });
-    if (isExcel) reader.readAsArrayBuffer(file);
-    else         reader.readAsText(file, 'UTF-8');
-  });
+// ── Import des NOTES d'une grille (classeur exporté par l'écran Notes) ───────
+// Entrée : la 1re feuille du classeur (Élève, Mat1 /20, Mat2 /20, …, Moyenne).
+// Rend : { subjectNames: string[], rows: [{ studentName, grades: {nom: val} }], error }
+export async function parseGradesSheet(file) {
+  const { sheets, error } = await readWorkbookAoa(file);
+  if (error) return { rows: [], subjectNames: [], error };
+  if (!sheets.length) return { rows: [], subjectNames: [], error: msg('emptyData') };
+  return rawRowsToGrades(sheets[0].raw);
 }
 
 // Transforme un tableau de lignes brutes (en-tête « Élève, Mat /20…, Moyenne »)
@@ -546,174 +560,27 @@ function rawRowsToGrades(raw) {
   return { rows, subjectNames: subjectCols.map((c) => c.name), error: null };
 }
 
-// ── Lecture brute d'une feuille (grilles compétences) ─────────────────────────
-// Retourne { raw: string[][], error }. Contrairement à parseGradesCSV, aucune
+// Même découpage, exposé : l'import des bulletins du second cycle lit PLUSIEURS
+// feuilles d'un même classeur (une par séquence) et réemploie celui-ci, pour que
+// les deux écrans n'aient pas deux lectures d'en-têtes qui divergeraient un jour.
+//
+// Alias, et non `export function rawRowsToGrades` : deux tests
+// (_importStudents, _studentFieldsIO) extraient les fonctions internes de ce
+// fichier en découpant son texte d'une déclaration « function » en début de ligne
+// à la suivante. Celle-ci sert de borne de fin à « sansZero » ; la préfixer
+// d'« export » ferait embarquer au test tout le reste du module.
+export const parseGradesRows = (raw) => rawRowsToGrades(raw);
+
+// ── Lecture brute de la 1re feuille (grilles de compétences) ────────────────
+// Rend { raw: string[][], error }. Contrairement à parseGradesSheet, aucune
 // hypothèse sur les colonnes (les intitulés de compétences contiennent chiffres,
 // « / » et accents) : l'appelant fait lui-même la correspondance en-tête→colonne.
-export function readSheetAoa(file) {
-  return new Promise((resolve) => {
-    const reader  = new FileReader();
-    const isExcel = /\.(xlsx|xls|ods)$/i.test(file.name);
-
-    reader.onload = async (e) => {
-      try {
-        let raw;
-        if (isExcel) {
-          const XLSX = await loadXLSX();
-          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
-            .map((r) => r.map((c) => String(c ?? '').trim()));
-        } else {
-          const lines = e.target.result.split(/\r?\n/).filter((l) => l.trim());
-          if (lines.length < 2) { resolve({ raw: [], error: msg('emptyData') }); return; }
-          const delim = lines[0].includes(';') ? ';' : ',';
-          raw = lines.map((l) => splitCSVLine(l, delim).map((c) => c.trim()));
-        }
-        if (!raw || raw.length < 2) { resolve({ raw: [], error: msg('emptyData') }); return; }
-        resolve({ raw, error: null });
-      } catch (err) {
-        resolve({ raw: [], error: msg('readErr') + err.message });
-      }
-    };
-    reader.onerror = () => resolve({ raw: [], error: msg('cantRead') });
-    if (isExcel) reader.readAsArrayBuffer(file);
-    else         reader.readAsText(file, 'UTF-8');
-  });
-}
-
-function splitCSVLine(line, delim) {
-  const result = [];
-  let cur = '', inQ = false;
-  for (const ch of line) {
-    if (ch === '"') { inQ = !inQ; }
-    else if (ch === delim && !inQ) { result.push(cur); cur = ''; }
-    else cur += ch;
-  }
-  result.push(cur);
-  return result;
-}
-
-// ── Teacher export ────────────────────────────────────────────────────────────
-const TEACHER_EXPORT_HEADERS = {
-  fr: { cols: ['Nom complet', 'Email', 'Téléphone', 'Spécialité', 'Compte app'], yes: 'Oui', no: 'Non', file: 'enseignants' },
-  en: { cols: ['Full name', 'Email', 'Phone', 'Specialty', 'App account'],       yes: 'Yes', no: 'No',  file: 'teachers' },
-  es: { cols: ['Nombre completo', 'Email', 'Teléfono', 'Especialidad', 'Cuenta app'], yes: 'Sí', no: 'No', file: 'profesores' },
-};
-
-export function exportTeachers(teachers) {
-  const h = TEACHER_EXPORT_HEADERS[templateLang()] || TEACHER_EXPORT_HEADERS.fr;
-  const rows = [
-    h.cols,
-    ...teachers.map((t) => [
-      t.name || '',
-      t.email || '',
-      t.phone || '',
-      t.specialty || '',
-      t.auth_user_id ? h.yes : h.no,
-    ]),
-  ];
-  downloadCSV(`${h.file}_${new Date().toISOString().slice(0, 10)}.csv`, rows);
-}
-
-// ── Teacher import template ───────────────────────────────────────────────────
-const TEACHER_TEMPLATE = {
-  fr: {
-    filename: 'modele_import_enseignants.csv',
-    rows: [
-      ['nom_complet', 'email', 'telephone', 'specialite'],
-      ['M. KAMGA Paul',    'paul.kamga@ecole.cm',   '677001122', 'Mathématiques'],
-      ['Mme NKENG Claire', 'claire.nkeng@ecole.cm', '699334455', 'Français'],
-      ['M. BIBI Samuel',   '',                      '655778899', 'Histoire-Géographie'],
-    ],
-  },
-  en: {
-    filename: 'teacher_import_template.csv',
-    rows: [
-      ['full_name', 'email', 'phone', 'specialty'],
-      ['Mr Paul KAMGA',     'paul.kamga@school.gq',   '222001122', 'Mathematics'],
-      ['Mrs Claire NKENG',  'claire.nkeng@school.gq', '222334455', 'English'],
-      ['Mr Samuel BIBI',    '',                       '222778899', 'Geography & History'],
-    ],
-  },
-  es: {
-    filename: 'modelo_importacion_profesores.csv',
-    rows: [
-      ['nombre_completo', 'email', 'telefono', 'especialidad'],
-      ['Sr. NGUEMA Pedro',  'pedro.nguema@escuela.gq', '222001122', 'Matemáticas'],
-      ['Sra. OBIANG Carmen','carmen.obiang@escuela.gq','222334455', 'Lengua Española'],
-      ['Sr. ABAGA Daniel',  '',                        '222778899', 'Geografía e Historia'],
-    ],
-  },
-};
-
-export function downloadTeacherTemplate() {
-  const tpl = TEACHER_TEMPLATE[templateLang()] || TEACHER_TEMPLATE.fr;
-  downloadCSV(tpl.filename, tpl.rows);
-}
-
-// ── Teacher spreadsheet parse ─────────────────────────────────────────────────
-export function parseTeachersSpreadsheet(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    const isExcel = /\.(xlsx|xls|ods)$/i.test(file.name);
-
-    reader.onload = async (e) => {
-      try {
-        let raw;
-        if (isExcel) {
-          const XLSX = await loadXLSX();
-          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-        } else {
-          const lines = e.target.result.split(/\r?\n/).filter((l) => l.trim());
-          const delim = lines[0]?.includes(';') ? ';' : ',';
-          raw = lines.map((l) => l.split(delim).map((c) => c.trim()));
-        }
-
-        if (!raw || raw.length < 2) {
-          resolve({ rows: [], error: msg('emptyData') });
-          return;
-        }
-
-        const headers = raw[0].map((h) => String(h).trim().toLowerCase().replace(/[^a-zàâéèêëîïôùûç0-9_]/g, ''));
-        const col = (candidates) => headers.findIndex((h) => candidates.some((c) => h === c || h.includes(c)));
-
-        const nomIdx       = col(['nomcomplet', 'nom_complet', 'nombrecompleto', 'nombre_completo', 'nom', 'name', 'enseignant', 'fullname', 'full_name']);
-        const emailIdx     = col(['email', 'mail', 'courriel']);
-        const phoneIdx     = col(['telephone', 'telefono', 'téléphone', 'tel', 'phone', 'portable']);
-        const specialtyIdx = col(['specialite', 'spécialité', 'especialidad', 'specialty', 'matiere', 'discipline', 'asignatura']);
-
-        if (nomIdx === -1) {
-          resolve({ rows: [], error: msg('noTeacherCol') });
-          return;
-        }
-
-        const rows = raw.slice(1)
-          .map((cols) => {
-            const str = (i) => i >= 0 ? String(cols[i] || '').trim() : '';
-            const name = str(nomIdx);
-            if (!name) return null;
-            return {
-              name,
-              email:     str(emailIdx),
-              phone:     str(phoneIdx),
-              specialty: str(specialtyIdx),
-            };
-          })
-          .filter(Boolean);
-
-        resolve({ rows, error: null });
-      } catch (err) {
-        resolve({ rows: [], error: msg('readErr') + err.message });
-      }
-    };
-
-    reader.onerror = () => resolve({ rows: [], error: msg('cantRead') });
-    if (isExcel) reader.readAsArrayBuffer(file);
-    else         reader.readAsText(file, 'UTF-8');
-  });
+export async function readSheetAoa(file) {
+  const { sheets, error } = await readWorkbookAoa(file);
+  if (error) return { raw: [], error };
+  const raw = sheets[0]?.raw || [];
+  if (raw.length < 2) return { raw: [], error: msg('emptyData') };
+  return { raw, error: null };
 }
 
 // ── Student import template ───────────────────────────────────────────────────

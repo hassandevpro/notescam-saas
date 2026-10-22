@@ -115,6 +115,24 @@ export function markVerification(report) {
   } : null;
 }
 
+// RÉPLICATION DES FICHIERS (photos, logos, cachets) — dernier cycle connu.
+//
+// Sans cela, l'école n'avait aucun moyen de savoir où en étaient ses photos :
+// elles ne montaient pas du tout, et rien à l'écran ne le disait. On garde des
+// COMPTEURS et le motif des échecs, jamais un nom de fichier d'élève.
+export function markFileSync(rapport) {
+  if (!rapport) return;
+  state.lastFileSync = {
+    at: new Date().toISOString(),
+    montes: rapport.montes || 0,
+    restants: rapport.restants || 0,
+    references: rapport.references || 0,
+    absentsDuDisque: rapport.absentsDuDisque || 0,
+    ignores: (rapport.ignores || []).length,
+    erreurs: (rapport.erreurs || []).slice(0, 3),
+  };
+}
+
 export function syncHealth() {
   return { ...state, divergenceAlert: divergenceAlert() };
 }

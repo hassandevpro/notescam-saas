@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdirSync, createReadStream, existsSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-import { db, getSchool, DATA_DIR } from './db.js';
+import { db, getSchool, DATA_DIR, FILES_DIR } from './db.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey, licensingEnabled, machineFingerprint, machineFingerprints } from './security.js';
 import { runQuery, runBatch } from './query.js';
 import { runRpc } from './rpc.js';
@@ -29,7 +29,6 @@ import { filesPreHandler, issueFileToken, fileCookieHeader } from './fileAccess.
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = join(__dirname, '..', 'dist');
-const FILES_DIR = process.env.NOTESCAM_FILES_DIR || join(DATA_DIR, 'files');
 mkdirSync(FILES_DIR, { recursive: true });
 
 const PORT = Number(process.env.PORT || 8080);

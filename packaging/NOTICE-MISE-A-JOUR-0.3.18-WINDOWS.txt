@@ -1,0 +1,179 @@
+========================================================================
+NotesCam 0.3.18 (Windows) - Notice pour le responsable informatique
+========================================================================
+
+Installeur : NotesCam-Setup-0.3.18.exe
+Taille     : 30 473 684 octets
+SHA-256    : a767e2698ebb1c012757f31e08a7490017b0d2486349019bba150e984775ab17
+
+VERIFIEZ L'EMPREINTE AVANT D'INSTALLER. Ouvrez PowerShell dans le
+dossier qui contient le fichier et tapez :
+
+    Get-FileHash .\NotesCam-Setup-0.3.18.exe -Algorithm SHA256
+
+Si l'empreinte affichee ne correspond PAS a la ligne ci-dessus,
+N'INSTALLEZ PAS : le fichier a ete altere ou tronque pendant le
+transfert. Redemandez-le.
+
+Pour savoir quelle version tourne actuellement sur le poste, ouvrez
+dans le navigateur :  http://localhost:8080/api/version
+
+
+CE QUE CETTE VERSION APPORTE
+-----------------------------
+
+1. LES FRAIS NE RESTENT PLUS BLOQUES EN FILE D'ATTENTE.
+
+   LE SYMPTOME. Un badge rouge "N echecs sync" en haut de l'ecran, et
+   en le depliant :
+
+       student_fees . upsert
+       UNIQUE constraint failed: student_fees.student_id,
+       student_fees.academic_year
+
+   (au Cloud, la meme chose s'ecrit "duplicate key value violates
+   unique constraint student_fees_student_id_academic_year_key".)
+
+   CE QUE CELA COUTAIT. Le montant saisi au guichet restait dans le
+   navigateur du poste et n'arrivait jamais au dossier de l'eleve.
+   L'ecriture repartait a chaque cycle, indefiniment, puis etait mise
+   de cote. Rien ne permettait de la debloquer depuis l'application.
+
+   LA CAUSE. Une fiche de frais s'identifie par (ELEVE, ANNEE), pas par
+   son identifiant interne. Deux postes qui saisissent les frais du
+   meme eleve pour la meme annee fabriquaient deux identifiants pour
+   une seule fiche possible, et la base refusait le second.
+
+   CE QUI CHANGE. L'application ecrit desormais DANS la fiche qui
+   existe. VOUS N'AVEZ RIEN A FAIRE : les ecritures deja bloquees
+   repartent d'elles-memes au cycle de synchronisation suivant, sans
+   que personne touche au navigateur de la secretaire.
+
+   CE QUI EST PROTEGE, ET C'EST VOULU : un montant deja encaisse n'est
+   JAMAIS ecrase par ce rattrapage. La source de verite reste la liste
+   des versements ; le total paye est recalcule a partir d'elle, et il
+   ne peut que remonter, jamais baisser.
+
+2. LES CLASSES BILINGUES PORTENT LES DEUX PROGRAMMES.
+
+   Une classe bilingue suit le programme francophone ET le programme
+   anglophone. Jusqu'ici elle ne pouvait porter que l'un des deux, donc
+   les matieres - et les unites d'apprentissage - de l'autre programme
+   n'apparaissaient ni a la saisie, ni sur le bulletin.
+
+   A LA CREATION D'UNE CLASSE : une case "Classe bilingue - poser les
+   deux programmes".
+
+   SUR UNE CLASSE QUI EXISTE DEJA : ecran Classes, ouvrez la classe,
+   section Matieres. Cochez "Classe bilingue", choisissez la classe
+   jumelle dans "Fusionner avec", puis cliquez
+   "Ajouter les N matieres de <classe>".
+
+   La classe du NIVEAU EQUIVALENT est proposee d'abord - Class 1 pour
+   une SIL, Class 2 pour un CP, Class 3 pour un CE1, Class 4 pour un
+   CE2, Class 5 pour un CM1, Class 6 pour un CM2 ; Nursery 1/2/3 pour
+   PS/MS/GS ; Form 1 pour la 6e, Form 2 pour la 5e, et ainsi de suite.
+   Si votre etablissement apparie autrement, les autres classes du
+   meme cycle restent proposees : c'est vous qui choisissez.
+
+   CHAQUE MATIERE GARDE SON BAREME : /20 du cote francophone, /100 du
+   cote anglophone, et une pastille FR ou EN le rappelle dans la liste.
+
+   LE BULLETIN EST LE MEME DOCUMENT, avec des matieres dans les deux
+   langues. Les moyennes restent justes : chaque note est ramenee a son
+   propre bareme avant d'etre moyennee, donc une note sur 100 ne pese
+   pas plus qu'une note sur 20. Un eleve a 15/20 partout du cote
+   francais et 75/100 partout du cote anglais sort a 15/20.
+
+   VOUS GARDEZ LA MAIN : decochez une matiere pour la retirer, et
+   ajoutez une matiere qui n'est a aucun referentiel (travaux
+   pratiques, chinois, matiere maison) en bas du tableau, en choisissant
+   son cote donc son bareme.
+
+   CE QUI NE PEUT PAS ARRIVER, et c'est verifie : le geste n'ajoute que
+   ce qui MANQUE. Il ne touche pas aux matieres deja en place, donc
+   aucune note deja saisie n'est menacee, et le refaire deux fois ne
+   cree pas de doublon.
+
+CETTE VERSION NE TOUCHE NI A LA BASE NI AU SERVEUR : aucune table,
+aucune colonne, aucune fonction nouvelle. Les bulletins imprimes sont
+inchanges. Elle contient tout ce que contenaient la 0.3.17, la 0.3.16
+et la 0.3.15.
+
+
+INSTALLATION - TROIS GESTES, DANS CET ORDRE
+--------------------------------------------
+
+1. INSTALLER. Clic droit sur NotesCam-Setup-0.3.18.exe ->
+   "Executer en tant qu'administrateur". Laissez-vous guider.
+   La base de l'ecole (C:\ProgramData\NotesCam\data) n'est jamais
+   touchee par l'installeur.
+
+2. REDEMARRER LE SERVICE. C'EST LE GESTE QU'ON OUBLIE, et sans lui
+   l'ecole conclut que la mise a jour n'a rien change : installer
+   remplace les FICHIERS, mais le serveur continue de tourner avec
+   l'ancien code, et c'est lui qui annonce la version.
+
+   Menu Demarrer -> NotesCam -> "REDEMARRER APRES MAJ", ou bien,
+   dans C:\Program Files\NotesCam :
+
+       clic droit sur REDEMARRER-APRES-MAJ.cmd
+       -> "Executer en tant qu'administrateur"
+
+   Il arrete le service, SAUVEGARDE la base et verifie la sauvegarde,
+   redemarre, puis controle. Si la sauvegarde n'est pas verifiee, il
+   remet le service en marche et s'arrete sans rien avoir modifie.
+
+   (Le service tourne sous le compte SYSTEME : sans elevation, il ne
+   peut pas etre arrete, et le script vous le dira.)
+
+3. CONTROLER. Toujours dans C:\Program Files\NotesCam, double-cliquez
+   verifier-correctifs.cmd. Il lit la BASE et le serveur en marche, et
+   dit si ce poste a vraiment recu la mise a jour.
+
+
+A VERIFIER DEPUIS UN POSTE DE L'ECOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Shift+R : le navigateur garde
+l'ancienne interface en cache, et c'est de loin la cause la plus
+frequente d'un "bouton qui n'apparait pas".
+
+  1. http://localhost:8080/api/version  doit repondre 0.3.18
+
+  2. Classes -> ouvrez une classe -> section Matieres : la case
+     "Classe bilingue" est la. Cochez-la : le selecteur "Fusionner
+     avec" propose la classe du niveau equivalent.
+
+  3. Sur une classe bilingue, cliquez "Ajouter les N matieres de
+     <classe>", puis recliquez : le bouton annonce desormais que les
+     deux programmes sont deja la. C'est la preuve que le geste ne
+     double rien.
+
+  4. Si un badge rouge "echecs sync" portait "student_fees . upsert",
+     il doit disparaitre tout seul au cycle suivant (quelques minutes).
+     Vous pouvez aussi cliquer "Reessayer maintenant" dans le badge.
+
+  5. Vos effectifs n'ont pas bouge : ouvrez la liste des eleves et
+     comparez au releve pris avant l'installation.
+
+
+EN CAS DE PROBLEME - RETOUR ARRIERE
+------------------------------------
+
+Reinstallez simplement NotesCam-Setup-0.3.17.exe par-dessus, puis
+relancez REDEMARRER-APRES-MAJ.cmd. C'est sans risque : cette version
+n'a ajoute ni table ni colonne. Revenir en arriere retire la case
+"Classe bilingue" et remet le blocage des frais ; les matieres
+anglophones deja ajoutees a une classe RESTENT, elles sont des matieres
+ordinaires. Aucune donnee n'est perdue.
+
+Si un ecran continue de refuser alors que verifier-correctifs.cmd dit
+que tout est en place : faites une photo de l'ecran ET de la sortie du
+script, et envoyez-les a l'editeur. N'essayez pas de reparer la base.
+
+------------------------------------------------------------------------
+Ce fichier est en ASCII et en CRLF, comme les autres documents livres
+aux postes Windows : le Bloc-notes d'un Windows ancien affiche un
+fichier en fins de ligne Unix comme une seule ligne illisible.
+------------------------------------------------------------------------

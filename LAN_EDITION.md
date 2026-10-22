@@ -80,6 +80,27 @@ En production, pointer ailleurs via variables d'env :
   simulé par un sondage périodique (8 s, `VITE_LAN_POLL_MS`) de la table filtrée.
   Sémantique INSERT/UPDATE préservée → notifications & messages arrivent en quasi
   direct sans WebSocket. Code applicatif et build cloud inchangés.
+- ✅ **Écran « Mon profil »** : les RPC `update_my_profile`, `set_my_photo` et
+  `touch_my_last_login` (miroir de `supabase_user_profile.sql`) existent enfin en
+  LAN, et `school_users` reçoit `phone` / `photo_url` / `last_login_at`. Avant,
+  enregistrer son nom, son téléphone ou sa photo renvoyait « RPC inconnue » et
+  rien ne tenait. Couvert par `server/_my_profile.test.mjs`.
+- ✅ **Référentiel de l'école** (« Modifier les compétences ») : la colonne
+  `school_id` sur `apc_competences` / `prim_competences` / `mat_domaines`, les
+  trois tables `*_masques` et `referentiel_libelles` existent désormais en LAN.
+  Les trois gestes de l'écran — **ajouter** les siennes, **masquer** une ligne
+  officielle, **renommer** une ligne officielle chez soi — passent, et le
+  référentiel national reste inécrivable (`guardReferentielNational`, le pendant
+  LAN de la RLS). Couvert par `server/_referentiel_ecole.test.mjs`,
+  `_referentiel_recuperation.test.mjs` et `_referentiel_http.test.mjs`.
+- ✅ **Ajouter une compétence du PRIMAIRE** : `addRefLigne` envoyait
+  `code: null`, or `prim_competences.code` est NOT NULL en LAN **comme au
+  Cloud** — l'ajout échouait donc toujours, des deux côtés. La pastille est
+  maintenant dérivée du libellé (`codeMaison`, `src/lib/referentielEcole.js`).
+  Couvert par `src/lib/_referentielEcole.test.mjs`.
+- ✅ **Barème du primaire** : `prim_notes` porte sa clé d'unicité
+  `(eleve_id, competence_id, critere_id, ua)`, donc poser un barème /10 sur une
+  colonne encore vide s'enregistre au lieu de rester en file.
 
 **Restant** :
 - ⬜ ETL optionnel export Supabase → import SQLite (écoles passant du cloud au LAN).

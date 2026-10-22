@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { useStrictMatrix } from '../lib/useStrictMatrix';
-import { downloadCSV } from '../lib/exportCsv';
+import { downloadExcel, readWorkbookAoa, EXCEL_ACCEPT } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import { useT, localeForLang } from '../lib/i18n';
@@ -924,7 +924,8 @@ export default function Fees() {
       }),
     ];
     const suffix = filterClass ? classNameById(filterClass).replace(/\s+/g, '_') : 'tous';
-    downloadCSV(`frais_${suffix}_${activeYear.replace('/', '-')}.csv`, rows);
+    downloadExcel(`frais_${suffix}_${activeYear.replace('/', '-')}.xlsx`, rows,
+      t('Frais', 'Fees', 'Tasas'));
   };
 
   // Impression de la liste des frais (fenêtre dédiée).
@@ -968,16 +969,18 @@ export default function Fees() {
     setTimeout(() => w.print(), 350);
   };
 
-  // Import des frais annuels depuis un CSV (colonnes : Matricule/Élève + Frais annuels).
+  // Import des frais annuels depuis un CLASSEUR (colonnes : Matricule/Élève +
+  // Frais annuels). La lecture passe par readWorkbookAoa : même refus et même
+  // message qu'ailleurs quand le fichier n'est pas un classeur Excel.
   const handleImportFile = async (file) => {
     if (!file) return;
     setImportMsg(t('Importation…', 'Importing…', 'Importando…'));
     try {
-      const text  = await file.text();
-      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      const { sheets, error } = await readWorkbookAoa(file);
+      if (error) { setImportMsg(error); return; }
+      const lines = (sheets[0]?.raw || []).filter((r) => r.some((c) => String(c).trim()));
       if (lines.length < 2) { setImportMsg(t('Fichier vide.', 'Empty file.', 'Archivo vacío.')); return; }
-      const delim = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ',';
-      const header = lines[0].split(delim).map((h) => h.trim().toLowerCase());
+      const header = lines[0].map((h) => String(h).trim().toLowerCase());
       const idxMat    = header.findIndex((h) => h.includes('matricule') || h === 'id');
       const idxName   = header.findIndex((h) => h.includes('élève') || h.includes('eleve') || h.includes('nom') || h.includes('student'));
       const idxAmount = header.findIndex((h) => h.includes('frais') || h.includes('annuel') || h.includes('montant') || h.includes('fees') || h.includes('amount'));
@@ -987,7 +990,7 @@ export default function Fees() {
       const byName = new Map(students.map((s) => [norm(s.name), s]));
       let ok = 0, skip = 0;
       for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(delim);
+        const cols = lines[i];
         const stu = (idxMat >= 0 && byMat.get(norm(cols[idxMat]))) || (idxName >= 0 && byName.get(norm(cols[idxName])));
         const amount = parseInt(String(cols[idxAmount] || '').replace(/[^\d]/g, ''), 10);
         if (!stu || isNaN(amount)) { skip++; continue; }
@@ -1021,14 +1024,14 @@ export default function Fees() {
               {importMsg && <span className="text-xs font-medium text-emerald-600">{importMsg}</span>}
               {visible.length > 0 && (
                 <>
-                  <button onClick={handleExport} className="btn-secondary">{t('Exporter CSV', 'Export CSV')}</button>
+                  <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
                   <button onClick={handlePrint} className="btn-secondary">{t('Imprimer', 'Print', 'Imprimir')}</button>
                 </>
               )}
               {isAdmin && (
                 <>
                   <button onClick={() => fileRef.current?.click()} className="btn-secondary">{t('Importer', 'Import', 'Importar')}</button>
-                  <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => handleImportFile(e.target.files?.[0])} />
+                  <input ref={fileRef} type="file" accept={EXCEL_ACCEPT} className="hidden" onChange={(e) => handleImportFile(e.target.files?.[0])} />
                 </>
               )}
             </div>

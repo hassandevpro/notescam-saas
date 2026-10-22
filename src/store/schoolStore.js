@@ -13,7 +13,7 @@ import { fetchReferentiel, refreshApcReferentiel, fetchApcNotes, upsertApcNote, 
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
-import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, fetchLibelles, setLibelle } from '../lib/referentielEcole';
+import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildBilSubjectsForClass } from '../lib/bilAutoConfig';
@@ -21,7 +21,12 @@ import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
 import { buildSubjectsForMatClass } from '../lib/matAutoConfig';
 import { buildSubjectsForPrimClass } from '../lib/primAutoConfig';
 import { buildSubjectsForClassicClass } from '../core/classicSubjects';
-import { resolveClassEngine } from '../core/engineResolver';
+// Classe bilingue : le programme de l'autre sous-systeme, pose sur la meme
+// classe (cf. completerClasseBilingue, et la demande de THE GENIUS du 19/10).
+import { missingBilingualSubjects, missingFromSiblingClass } from '../core/bilingualSubjects';
+import { resolveClassEngine, firstCycleClasseSlug } from '../core/engineResolver';
+import { matiereIdsForSubject } from '../core/apcMatiereMatch';
+import { APC_TRIMESTRE_IDS } from '../core/apcPeriods';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { isAdvancedDelegation } from '../config/capabilities';
 import { fetchPeriods } from '../lib/academicPeriodsService';
@@ -63,6 +68,7 @@ import { backendOnline } from '../lib/edition';
 import { uuid } from '../lib/uuid';
 import { getNextLevel, computeNextYear, isRepeater, lastSequenceFor } from '../lib/yearEngine';
 import { promotionAlreadyDone } from '../lib/promotionGuard';
+import { peutCreerEleve } from '../lib/studentDuplicate';
 import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 
@@ -313,6 +319,36 @@ function changesClassCalc(existing, data) {
   }
   return false;
 }
+
+// ── L'IDENTIFIANT D'UNE MATIÈRE DE CLASSE VIENT DE CE QU'ELLE EST ──────────
+//
+// RELEVÉ EN PRODUCTION le 2026-10-21, en auditant les 44 écoles : 32 matières
+// de classe en double, dont 8 chez THE GENIUS (27 notes dessus) et 8 chez
+// BRIGHT CONTINENT. Les copies portaient des identifiants sans rapport entre
+// eux — certains manifestement produits par le serveur LAN, d'autres par le
+// Cloud.
+//
+// LE MÉCANISME. L'auto-configuration d'une classe se protégeait du doublon
+// ainsi : « si la classe a déjà des matières dans `get().subjects`, ne rien
+// faire ». Or `get().subjects` est le cache de CE poste. Un poste qui ne les a
+// pas encore descendues — un serveur LAN après remise à zéro du curseur, un
+// navigateur vidé, un second appareil — voit une classe vide, reconfigure, et
+// tire de NOUVEAUX identifiants au hasard. La base accueille donc une seconde
+// série complète. C'est le même défaut que pour les matières maison du premier
+// cycle, à une table près.
+//
+// LA PARADE. L'identifiant ne vient plus du hasard mais de (classe, nom
+// normalisé). Deux postes qui configurent la même classe écrivent LES MÊMES
+// lignes : l'upsert les met à jour, il n'en ajoute pas une seconde série. Cela
+// vaut hors ligne comme en ligne, et sans rien demander au cache.
+//
+// Le nom est normalisé (casse, accents, espaces) pour que « SVT » et « svt  »
+// ne fassent pas deux lignes. Changer le nom d'une matière change son
+// identifiant : c'est voulu, l'écran passe alors par `updateSubject`, qui
+// modifie la ligne existante et ne crée rien.
+const _normMatiere = (nom) => String(nom || '').toLowerCase().normalize('NFD')
+  .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+const idMatiereClasse = (classId, nom) => uuidMaison('subject', classId, _normMatiere(nom));
 
 export const useSchoolStore = create((set, get) => ({
   schoolId:   null,
@@ -896,6 +932,159 @@ export const useSchoolStore = create((set, get) => ({
 
   // `extra` porte ce qui est propre au moteur : pour l'APC, la competence vit dans
   // (classe, trimestre, matiere) — sans ce contexte elle ne s'afficherait nulle part.
+  // ── LE CACHE DU RÉFÉRENTIEL EST AVEUGLE AUX LIGNES MAISON ────────────────
+  //
+  // `refreshReferentiel` ne retélécharge QUE si l'empreinte a changé, et
+  // l'empreinte est l'id de la version ACTIVE du référentiel national. Créer
+  // une matière maison ne la change pas : le cache IDB ne la contient donc
+  // jamais.
+  //
+  // Deux dégâts, tous deux constatés en production le 2026-10-20 :
+  //   • au rechargement de la page, le BULLETIN lit le cache — la matière
+  //     maison n'y est pas, donc elle ne s'imprime pas. C'est le défaut
+  //     rapporté : « je ne les vois pas sur le bulletin » ;
+  //   • le rattrapage, lui, les croit toujours manquantes et les RECRÉE. Huit
+  //     doublons ont été fabriqués ainsi pour BRIGHT CONTINENT.
+  //
+  // D'où ce rechargement FORCÉ, qui court-circuite l'empreinte et réécrit le
+  // cache. L'empreinte est conservée : seules NOS lignes ont bougé, la version
+  // nationale est la même.
+  rechargerApcReferentiel: async () => {
+    if (!backendOnline()) return { error: 'offline' };
+    const data = await fetchReferentiel();
+    if (!data) return { error: 'fetch' };
+    const ancien = await apcRefDB.get().catch(() => null);
+    const blob = { ...data, id: 'referentiel', __fp: ancien?.__fp ?? null };
+    await apcRefDB.put(blob).catch(() => {});
+    publishReferentiels(set, get, { apcRefRaw: blob });
+    return { data: blob };
+  },
+
+  // ── « JE CRÉE UNE MATIÈRE ET ELLE N'APPARAÎT NULLE PART » ─────────────────
+  //
+  // Sur une école réglée en moteur OFFICIEL, les écrans de saisie et les
+  // bulletins lisent le RÉFÉRENTIEL, pas les lignes `subjects`. Créer une
+  // matière dans « Modifier la classe » n'avait donc aucun effet : ni saisie,
+  // ni bulletin. C'est le défaut signalé.
+  //
+  // Cette action est la PORTE : quand l'école ajoute une matière à une classe de
+  // premier cycle, on pose aussi la ligne de référentiel maison correspondante,
+  // pour que la matière existe pour de bon. L'école continue de créer ses
+  // matières là où c'est naturel ; le produit se charge du reste.
+  //
+  // Silencieuse par construction : elle ne remonte aucune erreur à l'écran. La
+  // ligne `subjects` est déjà écrite et vaut pour l'emploi du temps, les
+  // enseignants et les documents non officiels — échouer ici ne doit pas défaire
+  // un geste qui a par ailleurs réussi. L'écran de saisie NOMME de toute façon
+  // les matières qu'aucun référentiel ne réclame.
+  materialiserMatiereOfficielle: async (cls, nom) => {
+    const { schoolId, apcReferentiel } = get();
+    const school = useAuthStore.getState().school;
+    if (!schoolId || !cls || !nom) return { error: 'parametres' };
+    // Premier cycle APC uniquement : le primaire et la maternelle savent déjà
+    // porter une ligne maison, par « Modifier les compétences / les domaines ».
+    if (resolveClassEngine(school, cls) !== 'apc') return { error: 'hors_apc' };
+    if (!apcReferentiel) return { error: 'referentiel' };
+
+    const classeId = firstCycleClasseSlug(cls.level, cls.name);
+    if (!classeId) return { error: 'classe' };
+
+    // Déjà au référentiel (nationale ou maison) ? On ne double pas.
+    const norm = (x) => String(x || '').toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+    if ((apcReferentiel.matieres || []).some((m) => norm(m.nom) === norm(nom))) {
+      return { error: 'existe' };
+    }
+
+    const trimestres = APC_TRIMESTRE_IDS.filter((tid) =>
+      (apcReferentiel.sequences || []).some((s) => s.trimestre_id === tid)) ;
+    const r = await addMatiereMaisonApc({
+      schoolId, nom, classeId,
+      trimestres: trimestres.length ? trimestres : APC_TRIMESTRE_IDS,
+      versionId: (apcReferentiel.versions || [])[0]?.id ?? null,
+      // Plus de `makeId` : l'identifiant est désormais DÉTERMINISTE, dérivé de
+      // (école, nom). C'est le `uuid` tiré ici qui fabriquait les doublons.
+    });
+    if (r.error) return r;
+
+    // Le référentiel en mémoire suit, sans retélécharger : l'écran de saisie
+    // doit proposer la matière tout de suite.
+    set((s) => ({
+      apcReferentiel: s.apcReferentiel && {
+        ...s.apcReferentiel,
+        matieres: [...(s.apcReferentiel.matieres || []), r.matiere],
+        classeMatieres: [...(s.apcReferentiel.classeMatieres || []), r.classeMatiere],
+        competences: [...(s.apcReferentiel.competences || []), ...r.competences],
+      },
+    }));
+    return { data: r.matiere };
+  },
+
+  // ── RATTRAPER LES MATIÈRES DÉJÀ CRÉÉES ───────────────────────────────────
+  //
+  // `materialiserMatiereOfficielle` ne traite que la matière qu'on vient
+  // d'ajouter. Or une école a déjà les siennes : BRIGHT CONTINENT porte
+  // « Étude de texte », « Expression Orale », « TM », « Langue Turc » créées de
+  // longue date. Sans rattrapage il faudrait les supprimer et les recréer une à
+  // une — ce qui perdrait les notes déjà saisies dessus.
+  //
+  // Règle demandée par le responsable : « laisse toutes les matières apparaître
+  // tant qu'elles sont créées et cochées ». Cette action matérialise donc TOUT
+  // ce qui manque, en une fois, à l'ouverture de l'écran de saisie.
+  //
+  // IDEMPOTENTE : une matière déjà au référentiel (nationale ou maison) est
+  // ignorée. La rejouer ne crée aucun doublon.
+  materialiserMatieresManquantes: async (cls) => {
+    const { subjects, apcReferentiel, schoolId } = get();
+    const school = useAuthStore.getState().school;
+    if (!cls || !schoolId || !apcReferentiel) return { created: 0 };
+    if (resolveClassEngine(school, cls) !== 'apc') return { created: 0 };
+    if (!backendOnline()) return { created: 0, skipped: 'offline' };
+
+    const norm = (x) => String(x || '').toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+    // Les noms que le référentiel porte DÉJÀ — nationaux comme maison.
+    const connus = new Set((apcReferentiel.matieres || []).map((m) => norm(m.nom)));
+    // Ce que la classe a coché et que le référentiel ignore. On passe par
+    // `matiereIdsForSubject` pour ne pas recréer « SVT » quand SVTEEHB existe :
+    // les alias de noms font foi, exactement comme à l'affichage.
+    const manquantes = (subjects || [])
+      .filter((s) => s && s.class_id === cls.id && s.name)
+      .filter((s) => !connus.has(norm(s.name)))
+      .filter((s) => matiereIdsForSubject(s.name, apcReferentiel.matieres || []).size === 0);
+    if (!manquantes.length) return { created: 0 };
+
+    // ── ON NE CRÉE RIEN SUR LA FOI DU CACHE ──────────────────────────────────
+    //
+    // Ce qui précède a été décidé contre `apcReferentiel`, c'est-à-dire contre
+    // le cache IndexedDB de CE navigateur. Un poste dont le cache ignore les
+    // lignes maison les croit toutes manquantes : c'est ainsi que trois postes
+    // ont fabriqué trois copies de « Langue Turc » chez BRIGHT CONTINENT.
+    //
+    // Avant d'écrire quoi que ce soit, on redemande donc le référentiel au
+    // serveur et on RECALCULE. Le coût est d'un appel, et seulement quand
+    // quelque chose paraît manquer. `addMatiereMaisonApc` porte en plus sa
+    // propre garde (recherche par nom côté serveur, identifiant déterministe) :
+    // ces deux protections sont indépendantes, et c'est voulu.
+    await get().rechargerApcReferentiel();
+    const frais = get().apcReferentiel;
+    const connusFrais = new Set((frais?.matieres || []).map((m) => norm(m.nom)));
+    const aCreer = manquantes
+      .filter((s) => !connusFrais.has(norm(s.name)))
+      .filter((s) => matiereIdsForSubject(s.name, frais?.matieres || []).size === 0);
+
+    let created = 0;
+    for (const sub of aCreer) {
+      const r = await get().materialiserMatiereOfficielle(cls, sub.name);
+      if (!r.error) created++;
+    }
+    // Le cache IDB ignore ce qu'on vient d'écrire : sans ce rechargement, le
+    // bulletin ne verrait rien au rechargement de la page, et le prochain
+    // passage ici recréerait tout en double.
+    if (created) await get().rechargerApcReferentiel();
+    return { created };
+  },
+
   addRefLigne: async (kind, intitule, extra = {}) => {
     const { schoolId } = get();
     const nom = String(intitule || '').trim();
@@ -906,10 +1095,14 @@ export const useSchoolStore = create((set, get) => ({
     // TEXTE qu'on prefixe par l'ecole pour ne jamais heurter le national.
     const id = kind === 'apc' ? uuid() : idMaison(schoolId, nom);
     if (lignes.some((l) => l.id === id)) return { error: 'existe' };
+    // `code` : NOT NULL sur prim_competences (LAN et Cloud), nullable sur
+    // mat_domaines. L'envoyer a null faisait echouer TOUT ajout de competence
+    // du primaire. On le derive donc du libelle, en evitant les pastilles deja
+    // utilisees par les lignes deja presentes. Cf. codeMaison.
     const record = kind === 'apc'
       ? { id, school_id: schoolId, intitule: nom, actif: true, ordre: 90 + lignes.length, ...extra }
       : { id, school_id: schoolId, intitule: nom, actif: true, ordre: 90 + lignes.length,
-          country_code: 'CM', code: null, ...extra };
+          country_code: 'CM', code: codeMaison(nom, lignes.map((l) => l.code)), ...extra };
     if (!(await upsertLigne(kind, record))) return { error: 'refus' };
     get()._refSetLignes(kind, (prev) => [...prev, record]);
     return { data: record };
@@ -1304,7 +1497,7 @@ export const useSchoolStore = create((set, get) => ({
     if (resolveClassEngine(school, cls) !== 'apc') return { created: 0 };
     let ref = get().apcReferentiel;
     if (!ref) { await get().loadApc(); ref = get().apcReferentiel; }
-    const subs = buildSubjectsForApcClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildSubjectsForApcClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     // Ne pas dupliquer si la classe a déjà des matières.
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
@@ -1329,7 +1522,7 @@ export const useSchoolStore = create((set, get) => ({
     if (resolveClassEngine(school, cls) !== 'maternelle') return { created: 0 };
     let ref = get().matReferentiel;
     if (!ref) { await get().loadMat(); ref = get().matReferentiel; }
-    const subs = buildSubjectsForMatClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildSubjectsForMatClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
     if (existing.length) return { created: 0, skipped: 'already_configured' };
@@ -1353,7 +1546,7 @@ export const useSchoolStore = create((set, get) => ({
     if (resolveClassEngine(school, cls) !== 'apc_primaire') return { created: 0 };
     let ref = get().primReferentiel;
     if (!ref) { await get().loadPrim(); ref = get().primReferentiel; }
-    const subs = buildSubjectsForPrimClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildSubjectsForPrimClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
     if (existing.length) return { created: 0, skipped: 'already_configured' };
@@ -1378,7 +1571,7 @@ export const useSchoolStore = create((set, get) => ({
     // Résolu PAR CLASSE : marche pour 'minesec' comme pour le mode unifié 'officiel'.
     if (resolveClassEngine(school, cls) !== 'sc' || !cls?.serie) return { created: 0 };
     const ref = get().scReferentiel || await get().loadSc();
-    const subs = buildSubjectsForClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildSubjectsForClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     // Ne pas dupliquer si la classe a déjà des matières.
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
@@ -1405,7 +1598,7 @@ export const useSchoolStore = create((set, get) => ({
     const school = useAuthStore.getState().school;
     if (resolveClassEngine(school, cls) !== 'bilingue') return { created: 0 };
     const ref = get().bilReferentiel || await get().loadBil();
-    const subs = buildBilSubjectsForClass({ referentiel: ref, school, cls, makeId: uuid });
+    const subs = buildBilSubjectsForClass({ referentiel: ref, school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
     if (existing.length) return { created: 0, skipped: 'already_configured' };
@@ -1429,11 +1622,55 @@ export const useSchoolStore = create((set, get) => ({
   autoConfigClassic: async (cls) => {
     const school = useAuthStore.getState().school;
     if (resolveClassEngine(school, cls) !== 'classic') return { created: 0 };
-    const subs = buildSubjectsForClassicClass({ school, cls, makeId: uuid });
+    const subs = buildSubjectsForClassicClass({ school, cls, makeId: (nom) => idMatiereClasse(cls.id, nom) });
     if (!subs.length) return { created: 0 };
     // Ne pas dupliquer si la classe a déjà des matières.
     const existing = get().subjects.filter((s) => s.class_id === cls.id);
     if (existing.length) return { created: 0, skipped: 'already_configured' };
+
+    await subjectsDB.putMany(subs);
+    set((s) => ({ subjects: [...s.subjects, ...subs] }));
+    for (const sub of subs) {
+      if (backendOnline()) {
+        upsertSubject(sub).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: sub }); });
+      } else {
+        queueOffline({ table: 'subjects', operation: 'upsert', payload: sub });
+      }
+    }
+    return { created: subs.length };
+  },
+
+  // CLASSE BILINGUE — ajoute le programme de l'AUTRE sous-système.
+  //
+  // Demande de THE GENIUS (2026-10-19) : ses quatre classes « … BIL » portaient
+  // les onze matières francophones et rien d'anglophone, si bien que les
+  // compétences et les unités d'apprentissage anglophones ne pouvaient pas
+  // s'afficher — le périmètre du référentiel d'une classe se déduit de ses
+  // lignes `subjects` (`core/refClassScope.js`).
+  //
+  // Ce geste N'EFFACE RIEN et ne modifie rien : `missingBilingualSubjects`
+  // écarte tout libellé déjà porté par la classe, donc aucune note existante
+  // n'est menacée, et rejouer le geste ne double aucune matière. Contrairement
+  // aux `autoConfigX`, il s'applique à une classe DÉJÀ configurée : c'est tout
+  // son intérêt.
+  //
+  // `sibling` : la classe JUMELLE de l'autre sous-système, désignée par l'école
+  // (CE1 BIL ← Class 3, confirmé par l'administrateur le 19/10). Quand elle est
+  // donnée, on copie SES matières telles qu'elles sont — coefficients, barèmes,
+  // et jusqu'aux matières hors référentiel. Sans jumelle, on retombe sur le
+  // tronc type du niveau.
+  // `keep` : libellés retenus par l'école (tous si omis).
+  completerClasseBilingue: async (cls, { keep = null, sibling = null } = {}) => {
+    if (!cls?.id) return { created: 0 };
+    const existing = get().subjects.filter((s) => s.class_id === cls.id);
+    const subs = sibling?.id
+      ? missingFromSiblingClass({
+          cls, classSubjects: existing, sibling,
+          siblingSubjects: get().subjects.filter((s) => s.class_id === sibling.id),
+          makeId: (nom) => idMatiereClasse(cls.id, nom), keep,
+        })
+      : missingBilingualSubjects({ cls, existing, makeId: (nom) => idMatiereClasse(cls.id, nom), keep });
+    if (!subs.length) return { created: 0 };
 
     await subjectsDB.putMany(subs);
     set((s) => ({ subjects: [...s.subjects, ...subs] }));
@@ -1613,7 +1850,10 @@ export const useSchoolStore = create((set, get) => ({
         return { fees: [...byId.values()] };
       });
       for (const f of fees) {
-        if (backendOnline()) upsertFee(f).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f }); });
+        if (backendOnline()) upsertFee(f).then((saved) => {
+          if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
+          else get().adopterIdFraisDistant(f, saved);
+        });
         else queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
       }
     }
@@ -1781,7 +2021,18 @@ export const useSchoolStore = create((set, get) => ({
   // --- Students ---
 
   addStudent: async (studentData) => {
-    const { schoolId } = get();
+    const { schoolId, students, archivedStudents } = get();
+    // ── LE MÊME ENFANT NE NAÎT PAS DEUX FOIS ────────────────────────────────
+    // L'écran de saisie prévenait déjà ; l'IMPORT DE FICHIER, lui, appelait
+    // `addStudent` ligne par ligne sans le moindre contrôle (cf. ImportPanel).
+    // Réimporter un fichier — ou un fichier qui répète une ligne — créait donc
+    // un dossier de plus à chaque fois. Le garde est ici, sur le chemin que
+    // TOUS les appelants traversent. Il ne refuse que l'identité certaine
+    // (même nom + même naissance, ou matricule déjà pris) et laisse passer les
+    // cas douteux, que l'écran fait confirmer. Les archivés comptent : c'est en
+    // réinscrivant quelqu'un qu'on croyait supprimé que le doublon apparaît.
+    const verdict = peutCreerEleve(studentData, [...students, ...(archivedStudents || [])]);
+    if (!verdict.ok) return { error: 'doublon', reason: verdict.raison, existing: verdict.existant };
     const { userId, fullName } = useAuthStore.getState();
     const record = {
       id: uuid(), school_id: schoolId,
@@ -2031,7 +2282,10 @@ export const useSchoolStore = create((set, get) => ({
       });
       for (const f of feeRecords) {
         if (backendOnline()) {
-          upsertFee(f).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f }); });
+          upsertFee(f).then((saved) => {
+            if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
+            else get().adopterIdFraisDistant(f, saved);
+          });
         } else {
           queueOffline({ table: 'student_fees', operation: 'upsert', payload: f });
         }
@@ -2351,7 +2605,10 @@ export const useSchoolStore = create((set, get) => ({
       });
     }
     if (backendOnline()) {
-      upsertFee(record).then((saved) => { if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: record }); });
+      upsertFee(record).then((saved) => {
+        if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: record });
+        else get().adopterIdFraisDistant(record, saved);
+      });
     } else {
       queueOffline({ table: 'student_fees', operation: 'upsert', payload: record });
     }
@@ -2633,9 +2890,32 @@ export const useSchoolStore = create((set, get) => ({
     set({ fees: nextFees });
     await feesDB.putMany(drifted);
     for (const rec of drifted) {
-      if (backendOnline()) upsertFee(rec).then((ok) => { if (!ok) queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec }); });
+      if (backendOnline()) upsertFee(rec).then((saved) => {
+        if (!saved) queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec });
+        else get().adopterIdFraisDistant(rec, saved);
+      });
       else queueOffline({ table: 'student_fees', operation: 'upsert', payload: rec });
     }
+  },
+
+  // RÉALIGNEMENT D'ID APRÈS UN REFUS SUR (élève, année).
+  //
+  // Le Cloud détenait déjà la fiche de frais sous un AUTRE id ; `upsertFee`
+  // (src/lib/schoolService.js) a écrit dans CETTE ligne et renvoie la ligne du
+  // Cloud. Le poste doit alors abandonner l'id qu'il avait fabriqué, sinon il
+  // le refabrique à chaque saisie et la file se rebloque au cycle suivant.
+  //
+  // Rien n'est détruit côté serveur : on remplace une fiche locale qui n'a
+  // jamais existé ailleurs par celle qui fait foi. Aucun montant n'est écrit
+  // ici — `frais_payes` vient de la ligne du Cloud.
+  adopterIdFraisDistant: async (local, saved) => {
+    if (!saved?.id || !local?.id || saved.id === local.id) return;
+    const row = coerceFeeRow(saved);
+    try { await feesDB.delete(local.id); } catch { /* best-effort : l'écriture serveur est déjà faite */ }
+    await feesDB.put(row);
+    set((s) => ({
+      fees: [...s.fees.filter((f) => f.id !== local.id && f.id !== row.id), row],
+    }));
   },
 
   // --- Class fee grids (grilles tarifaires) ---

@@ -3,7 +3,7 @@
 //   C.6 — Attestation de travail (document simple, signé).
 //   C.7 — Bulletin de paie (mise en page calquée sur le modèle légal camerounais).
 // Socle lib/printDoc (window.print, offline). Aucun générateur d'attestation
-// n'existait dans l'app (seuls exportStaff CSV + printStaffList liste).
+// n'existait dans l'app (seuls exportStaff + printStaffList liste).
 import { openPrintDocument, openRawPrintDocument, docRef, esc } from './printDoc.js';
 
 // ── C.5 — Fiche de dossier personnel ─────────────────────────────────────────

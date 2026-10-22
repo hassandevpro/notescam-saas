@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { hasCapability } from '../config/capabilities';
-import { downloadCSV, downloadExcel, parseSpreadsheet, downloadStudentTemplate } from '../lib/exportCsv';
+import { downloadExcel, parseSpreadsheet, downloadStudentTemplate, EXCEL_ACCEPT } from '../lib/exportCsv';
 import { studentListHtml } from '../lib/studentListDoc';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
@@ -577,9 +577,17 @@ function ImportPanel({ classes, onImport, onCreateClass, onCancel, effectif = []
       resolveRows(creees),
       { students: effectif, classes: [...classes, ...nouvelles], annee },
     );
-    for (const row of rows) await onImport(row);
+    // Un élève déjà inscrit n'est pas réimporté : `addStudent` refuse l'identité
+    // certaine (même nom + même naissance, ou matricule déjà pris). On COMPTE ces
+    // lignes et on les annonce — un import silencieux qui « réussit » en créant
+    // des doublons est exactement ce qui a produit six dossiers pour un enfant.
+    let crees = 0, ignores = 0;
+    for (const row of rows) {
+      const rec = await onImport(row);
+      if (rec?.error === 'doublon') ignores++; else crees++;
+    }
     setImporting(false);
-    setDone({ eleves: rows.length, classes: nouvelles.length });
+    setDone({ eleves: crees, ignores, classes: nouvelles.length });
   };
 
   if (done !== null) {
@@ -591,6 +599,13 @@ function ImportPanel({ classes, onImport, onCreateClass, onCancel, effectif = []
           </div>
           <div>
             <p className="text-emerald-800 font-semibold text-sm">{done.eleves} {t('élève', 'student')}{done.eleves > 1 ? 's' : ''} {t('importé', 'imported')}{done.eleves > 1 ? 's' : ''} {t('avec succès', 'successfully')}</p>
+            {done.ignores > 0 && (
+              <p className="text-emerald-700 text-xs mt-0.5">
+                {done.ignores} {t('déjà inscrit', 'already enrolled')}{done.ignores > 1 ? 's' : ''}
+                {' · '}{t('non recréé pour éviter un doublon', 'not recreated, to avoid a duplicate')}
+                {done.ignores > 1 ? 's' : ''}
+              </p>
+            )}
             {done.classes > 0 && (
               <p className="text-emerald-700 text-xs mt-0.5">
                 {done.classes} {t('classe', 'class')}{done.classes > 1 ? 's' : ''} {t('créée', 'created')}{done.classes > 1 ? 's' : ''}
@@ -609,7 +624,7 @@ function ImportPanel({ classes, onImport, onCreateClass, onCancel, effectif = []
       <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
         <div>
           <h3 className="text-base font-bold text-slate-800">{t('Importer des Élèves', 'Import Students')}</h3>
-          <p className="text-xs text-slate-500 mt-0.5">{t('Importez plusieurs élèves à partir d\'un fichier CSV', 'Import multiple students from a CSV file')}</p>
+          <p className="text-xs text-slate-500 mt-0.5">{t('Importez plusieurs élèves à partir d\'un classeur Excel', 'Import multiple students from an Excel workbook')}</p>
         </div>
         <button onClick={onCancel} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -639,12 +654,12 @@ function ImportPanel({ classes, onImport, onCreateClass, onCancel, effectif = []
               ) : (
                 <div className="flex flex-col items-center gap-2">
                   <svg className="w-8 h-8 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17 8 12 3 7 8" strokeLinecap="round" strokeLinejoin="round"/><line x1="12" y1="3" x2="12" y2="15" strokeLinecap="round"/></svg>
-                  <p className="text-sm font-medium text-slate-600">{t('Glissez votre fichier CSV ici', 'Drag your CSV file here')}</p>
-                  <p className="text-xs text-slate-400">{t('Formats supportés : CSV, Excel (.xlsx)', 'Supported formats: CSV, Excel (.xlsx)')}</p>
+                  <p className="text-sm font-medium text-slate-600">{t('Glissez votre classeur Excel ici', 'Drag your Excel workbook here')}</p>
+                  <p className="text-xs text-slate-400">{t('Format accepté : Excel (.xlsx, .xls)', 'Accepted format: Excel (.xlsx, .xls)')}</p>
                 </div>
               )}
             </div>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.ods" className="hidden"
+            <input ref={fileRef} type="file" accept={EXCEL_ACCEPT} className="hidden"
               onChange={(e) => processFile(e.target.files[0])} />
             <div className="flex gap-2 mt-3">
               <button type="button" onClick={() => fileRef.current?.click()} className="btn-secondary text-xs">{t('Sélectionner un fichier', 'Select a file')}</button>
@@ -772,7 +787,7 @@ function ImportPanel({ classes, onImport, onCreateClass, onCancel, effectif = []
           <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
             <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">{t('Instructions', 'Instructions')}</p>
             <ol className="space-y-2 text-slate-600">
-              {[t('Téléchargez le modèle CSV','Download the CSV template'),t('Remplissez vos données','Fill in your data'),t('Assurez-vous que les matricules sont uniques','Ensure student IDs are unique'),t('Importez votre fichier','Import your file')].map((step, i) => (
+              {[t('Téléchargez le modèle Excel','Download the Excel template'),t('Remplissez vos données','Fill in your data'),t('Assurez-vous que les matricules sont uniques','Ensure student IDs are unique'),t('Importez votre fichier','Import your file')].map((step, i) => (
                 <li key={i} className="flex items-start gap-2.5">
                   <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i+1}</span>
                   <span className="text-xs leading-snug">{step}</span>
@@ -1199,7 +1214,17 @@ export default function Students() {
     // 1) Crée/met à jour l'élève d'abord (il faut un id pour nommer la photo).
     let studentId;
     if (editing) { await updateStudent(editing.id, form); studentId = editing.id; }
-    else         { const rec = await addStudent(form); studentId = rec?.id; }
+    else {
+      const rec = await addStudent(form);
+      // Le store refuse l'identité certaine, même si l'écran l'a déjà filtrée
+      // plus haut : deux gardes valent mieux qu'un silence. Sans ce contrôle,
+      // un refus fermerait le formulaire sans rien créer ni rien dire.
+      if (rec?.error === 'doublon') {
+        window.alert(rec.reason || t('Cet élève est déjà inscrit.', 'This student is already enrolled.'));
+        return;
+      }
+      studentId = rec?.id;
+    }
 
     // 2) Photo : upload du nouveau fichier, ou retrait de la photo existante.
     if (studentId && photo?.file) {

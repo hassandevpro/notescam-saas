@@ -346,6 +346,52 @@ const handlers = {
     return null;
   },
 
+  // ── « Mon profil » : un compte ne modifie QUE le sien ────────────────────
+  // Miroir LAN de supabase_user_profile.sql. L'identité du compte vient du
+  // jeton (ctx.userId), JAMAIS des paramètres : aucun appel ne peut viser le
+  // profil d'un autre. Le nom est aussi recopié sur `users` (c'est lui que lit
+  // l'écran de connexion) et sur la fiche `teachers` liée, pour que le nom
+  // affiché soit le même partout (cartes, personnel, bulletins).
+  update_my_profile(p, ctx) {
+    if (!ctx?.userId) throw new Error('Non authentifié');
+    const name  = (p.p_full_name || '').trim();
+    const phone = (p.p_phone || '').trim() || null;
+    db.prepare(
+      `UPDATE school_users
+          SET full_name = COALESCE(NULLIF(?, ''), full_name),
+              phone     = ?
+        WHERE user_id = ? AND active = 1`,
+    ).run(name, phone, ctx.userId);
+    db.prepare(`UPDATE users SET full_name = COALESCE(NULLIF(?, ''), full_name) WHERE id = ?`)
+      .run(name, ctx.userId);
+    db.prepare(
+      `UPDATE teachers
+          SET name  = COALESCE(NULLIF(?, ''), name),
+              phone = ?
+        WHERE auth_user_id = ?`,
+    ).run(name, phone, ctx.userId);
+    return null;
+  },
+
+  // Photo séparée du nom/téléphone : une simple édition du nom ne doit JAMAIS
+  // effacer la photo au passage. NULL (ou chaîne vide) = retirer la photo.
+  set_my_photo(p, ctx) {
+    if (!ctx?.userId) throw new Error('Non authentifié');
+    const url = (p.p_photo_url || '').trim() || null;
+    db.prepare('UPDATE school_users SET photo_url = ? WHERE user_id = ? AND active = 1')
+      .run(url, ctx.userId);
+    db.prepare('UPDATE teachers SET photo_url = ? WHERE auth_user_id = ?')
+      .run(url, ctx.userId);
+    return null;
+  },
+
+  touch_my_last_login(_p, ctx) {
+    if (!ctx?.userId) return null; // best-effort : ne bloque jamais la connexion
+    db.prepare('UPDATE school_users SET last_login_at = ? WHERE user_id = ? AND active = 1')
+      .run(nowISO(), ctx.userId);
+    return null;
+  },
+
   update_teacher_profile(p, ctx) {
     const m = membership(ctx.userId);
     if (!m) throw new Error('Non autorisé');

@@ -33,13 +33,30 @@ const src = readFileSync(join(ici, 'exportCsv.js'), 'utf8');
 // (le module touche au DOM ailleurs). On l'extrait et on lui injecte les
 // normaliseurs RÉELS extraits du même fichier — ici on teste le mapping ET la
 // normalisation, puisque les valeurs attendues en dépendent.
+// FIN DU DÉCOUPAGE : la prochaine déclaration de premier niveau, quelle qu'elle
+// soit — « function », « export function », « export async function », « const ».
+// Ne chercher que « \nfunction » rendait l'extraction dépendante de l'ORDRE des
+// déclarations d'exportCsv.js : une « export function » glissée entre la fonction
+// extraite et la suivante était embarquée dans le découpage, et new Function
+// refusait alors le mot-clé « export ». C'était la cause exacte du blocage B2
+// (2026-10-18), restée non élucidée tant qu'on cherchait un changement de
+// comportement plutôt qu'un changement d'ordre.
+const PROCHAINE_DECLARATION = /\n(?:export\s+)?(?:async\s+)?(?:function|const|class)\s/;
+const finDuCorps = (debut) => {
+  const relative = src.slice(debut + 10).search(PROCHAINE_DECLARATION);
+  return relative < 0 ? -1 : debut + 10 + relative;
+};
+
 function extraire(nom) {
   const debut = src.indexOf(`function ${nom}`);
   if (debut < 0) throw new Error(`${nom} introuvable dans exportCsv.js`);
-  const fin = src.indexOf('\nfunction ', debut + 10);
+  const fin = finDuCorps(debut);
   return src.slice(debut, fin > 0 ? fin : undefined);
 }
-const fabrique = (nom) => new Function(`${extraire(nom)}; return ${nom};`)();
+// « \n » avant le return : le corps découpé finit souvent sur une ligne de
+// commentaire, qui avalerait un return collé à sa suite (la fonction compile
+// alors, mais ne rend rien).
+const fabrique = (nom) => new Function(`${extraire(nom)}\n; return ${nom};`)();
 
 const normalizeStatut     = fabrique('normalizeStatut');
 const normalizeStatutEtab = fabrique('normalizeStatutEtab');
@@ -50,15 +67,15 @@ const sansZero            = fabrique('sansZero');
 // Ces deux-là s'appuient sur `normalizeDate` : on les reconstruit donc avec la
 // VRAIE fonction en portée, sinon elles la trouveraient indéfinie à l'appel.
 const normalizeRegistreDate = new Function('normalizeDate',
-  `${extraire('normalizeRegistreDate')}; return normalizeRegistreDate;`)(normalizeDate);
+  `${extraire('normalizeRegistreDate')}\n; return normalizeRegistreDate;`)(normalizeDate);
 const splitDateLieu = new Function('normalizeDate',
-  `${extraire('splitDateLieu')}; return splitDateLieu;`)(normalizeDate);
+  `${extraire('splitDateLieu')}\n; return splitDateLieu;`)(normalizeDate);
 
 const rawRowsToStudents = new Function(
   'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate',
   'normalizeStatut', 'normalizeStatutEtab', 'normalizeAptitude',
   'normalizeRegistreDate', 'splitDateLieu', 'sansZero',
-  `${extraire('rawRowsToStudents')}; return rawRowsToStudents;`,
+  `${extraire('rawRowsToStudents')}\n; return rawRowsToStudents;`,
 )(() => 'erreur', normalizeGender, (x) => x, normalizeDate,
   normalizeStatut, normalizeStatutEtab, normalizeAptitude,
   normalizeRegistreDate, splitDateLieu, sansZero);

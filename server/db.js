@@ -212,6 +212,11 @@ ensureColumn('schools',  'ge_grade_max', 'ge_grade_max INTEGER');  // barème GE
 ensureColumn('schools',  'period_mode',  "period_mode TEXT DEFAULT 'auto'"); // pilotage des périodes : 'auto' | 'manual'
 ensureColumn('schools',  'grade_entry_mode', "grade_entry_mode TEXT NOT NULL DEFAULT 'principal'"); // 'principal' | 'subject' (enseignant de matière)
 ensureColumn('schools',  'primary_period_mode', "primary_period_mode TEXT NOT NULL DEFAULT 'trimestres'"); // primaire classique : 'trimestres' (3) | 'sequences' (6)
+// Bulletin du primaire : null/'standard' = disposition actuelle, 'carnet' = les
+// six regroupements officiels + travail academique + stats + signature parent.
+// Le defaut est l'existant : aucune ecole ne voit son bulletin bouger sans
+// l'avoir demande. Parite Cloud : supabase_prim_bulletin_mode.sql.
+ensureColumn('schools',  'prim_bulletin_mode', 'prim_bulletin_mode TEXT');
 ensureColumn('schools',  'bulletin_subject_mode', "bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic'"); // 'synthetic' | 'detailed'
 ensureColumn('schools',  'budget_validation', 'budget_validation INTEGER NOT NULL DEFAULT 0'); // workflows de validation budgétaire (0=off, comportement Budgets inchangé)
 ensureColumn('schools',  'advanced_delegation', 'advanced_delegation INTEGER NOT NULL DEFAULT 0'); // délégation avancée par école (0=off) — miroir de la colonne cloud
@@ -875,6 +880,13 @@ ensureColumn('apc_notes',        'note_max',      'note_max NUMERIC');
 ensureColumn('apc_competences',  'school_id',     'school_id TEXT');
 ensureColumn('prim_competences', 'school_id',     'school_id TEXT');
 ensureColumn('mat_domaines',     'school_id',     'school_id TEXT');
+// Le PREMIER CYCLE était le seul cycle où une école ne pouvait pas créer sa
+// propre MATIÈRE : `apc_competences.matiere_id` pointe vers `apc_matieres`, qui
+// n'avait pas de `school_id`. « Langue Turc » ou « Étude de texte » n'avaient donc
+// aucun endroit où exister, ni à la saisie ni au bulletin.
+// Parité avec le Cloud : supabase_apc_matieres_maison.sql.
+ensureColumn('apc_matieres',        'school_id',  'school_id TEXT');
+ensureColumn('apc_classe_matieres', 'school_id',  'school_id TEXT');
 // Index créés ICI (après l'ALTER) et non dans schema.sql, qui s'exécute AVANT :
 // sur une base déjà installée l'index porterait sur une colonne inexistante et
 // ferait échouer TOUT le démarrage du serveur.
@@ -883,6 +895,8 @@ try {
     CREATE INDEX IF NOT EXISTS idx_apc_competences_school  ON apc_competences(school_id);
     CREATE INDEX IF NOT EXISTS idx_prim_competences_school ON prim_competences(school_id);
     CREATE INDEX IF NOT EXISTS idx_mat_domaines_school     ON mat_domaines(school_id);
+    CREATE INDEX IF NOT EXISTS idx_apc_matieres_school        ON apc_matieres(school_id);
+    CREATE INDEX IF NOT EXISTS idx_apc_classe_matieres_school ON apc_classe_matieres(school_id);
   `);
 } catch (e) {
   console.warn(`[db] index school_id du référentiel non créés : ${e.message}`);

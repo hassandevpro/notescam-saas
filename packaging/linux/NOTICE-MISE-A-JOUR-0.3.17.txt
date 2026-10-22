@@ -1,0 +1,207 @@
+========================================================================
+NotesCam 0.3.17 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.17.tar.gz
+Taille   : 53 427 173 octets
+SHA-256  : 49e278a7ee8a54b78a019c755ea58665439225916004fd9e74fefa1879858b6d
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.17.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire.
+
+Elle contient TOUT ce que contenait la 0.3.16 (les trois écrans
+débloqués : compétences modifiables, profil, barème du primaire) et
+TOUT ce que contenait la 0.3.15 (journal de caisse, correctifs de
+synchronisation, signalements, photos). Si l'une ou l'autre n'a pas
+encore été installée chez vous, installez directement celle-ci : elle
+les remplace.
+
+ELLE NE TOUCHE NI À LA BASE NI AU SERVEUR. Aucune table, aucune colonne,
+aucune fonction nouvelle. Tout est dans l'interface. Conséquence directe,
+et c'est une bonne nouvelle : contrairement à la 0.3.16, il n'y a PAS de
+long rattrapage de synchronisation à attendre après l'installation.
+
+
+CE QUE CETTE VERSION APPORTE EN PLUS DE LA 0.3.16
+--------------------------------------------------
+
+1. LES BULLETINS DU SECOND CYCLE S'EXPORTENT ET SE RÉIMPORTENT.
+
+   Écran Bulletins, une classe de 2nde / 1ère / Terminale, format
+   « 2nd cycle officiel » : deux boutons apparaissent.
+
+     · EXPORTER EXCEL — toute la classe dans un seul classeur :
+
+         - une feuille « Récapitulatif » : une ligne par élève, les
+           matières rangées PAR GROUPE exactement comme sur le bulletin
+           imprimé, la moyenne de chaque groupe, la moyenne générale, le
+           rang et la décision ;
+
+         - puis UNE FEUILLE PAR SÉQUENCE de la période affichée, au
+           format de saisie « Élève, Matière /20, … ».
+
+       C'est le tableau que le censeur reconstituait à la main pour le
+       conseil de classe.
+
+     · IMPORTER EXCEL — relit les feuilles de séquence après que vous
+       les avez remplies dans Excel. C'est ce qui permet de faire
+       circuler un classeur entre les enseignants, puis de tout verser
+       d'un coup au lieu de retaper matière par matière.
+
+   CE QUI EST REFUSÉ, ET POURQUOI C'EST VOULU :
+
+     - la feuille « Récapitulatif » n'est JAMAIS réimportée. Elle
+       contient des moyennes de période, pas des notes : les reverser
+       en base fabriquerait des notes que personne n'a saisies. Seules
+       les feuilles dont le NOM porte un numéro de séquence sont lues ;
+
+     - une case laissée vide n'efface rien. Un classeur rempli matière
+       par matière en est forcément plein ;
+
+     - une note hors barème (25 sur 20) est REJETÉE et comptée à part,
+       jamais ramenée à 20 ;
+
+     - un élève ou une matière que la classe ne connaît pas est LISTÉ,
+       jamais rattaché « au plus proche » ;
+
+     - avant d'écrire quoi que ce soit, un aperçu annonce combien de
+       notes seront enregistrées et, séparément, combien REMPLACERAIENT
+       une note déjà saisie différente. Rien n'est écrit tant que vous
+       n'avez pas validé ;
+
+     - une séquence verrouillée refuse l'écriture, et c'est annoncé.
+
+   Le bouton « Importer Excel » n'apparaît pas sur un compte enseignant.
+
+2. TOUS LES IMPORTS ET EXPORTS DE L'APPLICATION SONT EN EXCEL.
+
+   Élèves, enseignants, personnel, notes, compétences, frais, caisse,
+   rapports : tout ce que l'application produit est désormais un
+   classeur .xlsx, et tout ce qu'elle lit doit en être un.
+
+   ⚠ CE QUI CHANGE POUR VOUS : un fichier .CSV n'est PLUS accepté à
+   l'import. Si vous en avez un, ouvrez-le dans Excel ou LibreOffice et
+   faites « Enregistrer sous » → « Classeur Excel (.xlsx) ». Le message
+   affiché par l'application dit exactement cela.
+
+   Pourquoi ce retrait : un CSV n'a pas de forme unique. Son séparateur
+   dépend des réglages régionaux du poste qui l'a écrit, son encodage se
+   devine, et une note décimale française (« 12,5 ») se coupait en deux
+   colonnes sur une machine et pas sur l'autre. Un classeur Excel porte
+   ses colonnes et ses types : ce qui est exporté se réimporte à
+   l'identique, d'un poste à l'autre.
+
+
+CE QUI N'A PAS CHANGÉ
+----------------------
+
+  · Aucune donnée n'est supprimée ni réécrite par cette mise à jour.
+  · Le rattachement au cloud, s'il existe, est conservé tel quel : la
+    mise à jour ne réappaire rien et ne redemande aucun jeton.
+  · Si votre serveur travaille HORS LIGNE, il continue exactement de
+    même. La synchronisation cloud ne s'active que si l'école a été
+    migrée (jeton scellé) ET qu'un administrateur l'active dans les
+    Paramètres. Sans cela, rien ne sort de votre établissement.
+  · Les bulletins IMPRIMÉS sont inchangés, au pixel près.
+
+
+INSTALLATION — UNE SEULE COMMANDE
+----------------------------------
+
+À lancer en root, depuis le dossier contenant l'archive ET le script :
+
+    sudo ./deploy-0.3.17.sh notescam-linux-x64-0.3.17.tar.gz
+
+Le script fait, dans cet ordre :
+
+    1. il relève la version, le school_id et les effectifs AVANT ;
+    2. il ARRÊTE le service — une copie prise serveur actif peut être
+       déchirée, et on ne s'en aperçoit qu'en voulant s'en servir ;
+    3. il fait une copie de sûreté de la base, consolidée, puis il la
+       VÉRIFIE (contrôle d'intégrité + comptages identiques) ;
+    4. SI LA SAUVEGARDE N'EST PAS VÉRIFIÉE, IL S'ARRÊTE LÀ et remet le
+       service en marche. L'application n'a alors pas été touchée ;
+    5. il installe, redémarre, et recompte tout.
+
+Il rend un verdict. Si une seule ligne est en FAIL : n'essayez rien
+d'autre, envoyez-nous la sortie complète. Elle nomme précisément ce qui
+manque.
+
+La copie de sûreté est déposée dans :
+
+    /var/lib/notescam/data/notescam.db.avant-0.3.17-<horodatage>
+
+Ne la supprimez pas.
+
+
+À VÉRIFIER APRÈS L'INSTALLATION
+--------------------------------
+
+  1. Le service répond :
+
+        curl -s http://localhost:8080/api/version        -> 0.3.17
+
+  2. Le rattachement au cloud est intact (si l'école est appairée) :
+
+        curl -s http://127.0.0.1:8080/api/pair/status
+
+     Le « schoolId » doit être le MÊME qu'avant l'installation. Le
+     script le vérifie déjà, mais revoyez-le.
+
+  3. DEPUIS UN POSTE DE L'ÉCOLE, après un Ctrl+Shift+R :
+
+       · Bulletins -> une classe de 2nde/1ère/Tle -> format « 2nd cycle
+         officiel ». Les deux boutons sont là.
+
+       · Cliquez « Exporter Excel » : le classeur s'ouvre avec une
+         feuille « Récapitulatif » et une feuille par séquence.
+
+       · Réimportez CE MÊME classeur sans l'avoir modifié. L'aperçu doit
+         annoncer 0 note à enregistrer. C'est la preuve que l'aller-
+         retour est fidèle : ce qui sort est exactement ce qui rentre.
+
+  4. VOS EFFECTIFS N'ONT PAS BOUGÉ. Ouvrez la liste des élèves et
+     comparez au relevé pris avant l'installation.
+
+SI UN BOUTON MANQUE À L'ÉCRAN alors que le script dit PASS partout :
+rechargez la page avec Ctrl+Shift+R. Le navigateur garde l'ancienne
+interface en cache, et c'est de loin la cause la plus fréquente.
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+
+Pour revenir à la version précédente (application seule, base conservée) :
+
+    sudo systemctl stop notescam
+    tar xzf notescam-linux-x64-0.3.16.tar.gz
+    cd notescam-linux-x64 && sudo ./install.sh
+
+C'est sans risque, et plus encore que d'habitude : cette version n'a
+ajouté ni table ni colonne. Revenir en arrière ne fait que retirer les
+deux boutons du second cycle et rouvrir le CSV à l'import. Aucune donnée
+n'est perdue.
+
+Si, et SEULEMENT si, la base elle-même pose problème :
+
+    sudo systemctl stop notescam
+    sudo cp -a /var/lib/notescam/data/notescam.db.avant-0.3.17-<horodatage> \
+               /var/lib/notescam/data/notescam.db
+    sudo rm -f /var/lib/notescam/data/notescam.db-wal \
+               /var/lib/notescam/data/notescam.db-shm
+    sudo systemctl start notescam
+
+ATTENTION : restaurer la base ANNULE tout ce qui a été saisi depuis la
+sauvegarde. Ne le faites pas de votre propre initiative — appelez-nous
+d'abord.

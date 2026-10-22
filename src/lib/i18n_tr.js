@@ -15,9 +15,9 @@ export const FR_TO_TR = {
   'Ajouter': 'Ekle',
   'Importer': 'İçe aktar',
   'Exporter': 'Dışa aktar',
-  'Exporter CSV': 'CSV dışa aktar',
   'Exporter Excel': 'Excel dışa aktar',
-  'Importer CSV': 'CSV içe aktar',
+  'Exporter Excel': 'Excel dışa aktar',
+  'Importer Excel': 'Excel içe aktar',
   'Choisir': 'Seç',
   'Choisir…': 'Seç…',
   'Choisir une classe…': 'Bir sınıf seçin…',
@@ -650,13 +650,13 @@ export const FR_TO_TR = {
   'Importer des élèves': 'Öğrenci içe aktar',
   'Importer des Élèves': 'Öğrenci içe aktar',
   "Importez plusieurs élèves à partir d": 'Birden çok öğrenciyi şundan içe aktarın:',
-  "Importez le fichier. Les élèves sont créés automatiquement.":
+  "Importez le classeur. Les élèves sont créés automatiquement.":
     'Dosyayı içe aktarın. Öğrenciler otomatik oluşturulur.',
   'Importez votre fichier': 'Dosyanızı içe aktarın',
-  'Importer via CSV': 'CSV ile içe aktar',
+  'Importer via Excel': 'Excel ile içe aktar',
   'Importation…': 'İçe aktarılıyor…',
   'importé': 'içe aktarıldı',
-  'Glissez votre fichier CSV ici': 'CSV dosyanızı buraya sürükleyin',
+  'Glissez votre classeur Excel ici': 'Excel çalışma kitabınızı buraya sürükleyin',
   'Glissez votre fichier ici': 'Dosyanızı buraya sürükleyin',
   'Choisir un fichier CSV': 'Bir CSV dosyası seç',
   'Choisir PDF ou image': 'PDF veya görsel seç',
@@ -668,9 +668,9 @@ export const FR_TO_TR = {
   'Sélectionner un fichier CSV exporté depuis cette page.':
     'Bu sayfadan dışa aktarılmış bir CSV dosyası seçin.',
   'Format : Élève, Matière /max, …, Moyenne': 'Biçim: Öğrenci, Ders /maks, …, Ortalama',
-  'Formats supportés : CSV, Excel (.xlsx)': 'Desteklenen biçimler: CSV, Excel (.xlsx)',
+  'Format accepté : Excel (.xlsx, .xls)': 'Kabul edilen biçim: Excel (.xlsx, .xls)',
   'En-têtes attendus': 'Beklenen başlıklar',
-  'Téléchargez le modèle CSV': 'CSV şablonunu indirin',
+  'Téléchargez le modèle Excel': 'Excel şablonunu indirin',
   'CSV ou Excel — colonnes : nom_complet, email, telephone, specialite':
     'CSV veya Excel — sütunlar: ad_soyad, eposta, telefon, brans',
   "Remplissez les colonnes : nom (obligatoire), classe (obligatoire), date_naissance, genre, matricule, parent_phone…":
@@ -729,8 +729,9 @@ export const FR_TO_TR = {
     'Sınıfı, tarihi, oturumu (Sabah / Öğleden sonra / Tüm gün) ve isteğe bağlı dersi seçin.',
   'Sélectionnez la classe.': 'Sınıfı seçin.',
   'Sélectionnez la matière et l': 'Dersi ve şunu seçin:',
-  'Sélectionnez un fichier CSV exporté depuis cette page.':
-    'Bu sayfadan dışa aktarılmış bir CSV dosyası seçin.',
+  'Sélectionnez le classeur Excel exporté depuis cette page.':
+    'Bu sayfadan dışa aktarılan Excel çalışma kitabını seçin.',
+  'Importer des notes (Excel)': 'Not içe aktar (Excel)',
   'Sélectionnez une classe pour afficher le procès-verbal.':
     'Tutanağı görüntülemek için bir sınıf seçin.',
   'Sélectionnez une classe pour commencer la saisie.':
@@ -740,7 +741,7 @@ export const FR_TO_TR = {
   "En haut de la page, choisissez la classe, la matière et la séquence (ou le terme).":
     'Sayfanın üstünde sınıfı, dersi ve sınavı (veya dönemi) seçin.',
   "Cliquez sur « Enregistrer la saisie ».": '« Girişi kaydet » seçeneğine tıklayın.',
-  "Cliquez sur « Importer CSV » et téléchargez le modèle.": '« CSV içe aktar » seçeneğine tıklayın ve şablonu indirin.',
+  "Cliquez sur « Importer Excel » et téléchargez le modèle.": '« Excel içe aktar » seçeneğine tıklayın ve şablonu indirin.',
   "Cliquez sur « Modifier les frais ».": '« Ücretleri düzenle » seçeneğine tıklayın.',
   'Notes par matière': 'Derse göre notlar',
   'notes saisies': 'girilen not',
@@ -1292,8 +1293,8 @@ export const FR_TO_TR = {
   'Erreur lors de l\'ajout des matières.': 'Dersler eklenirken hata.',
   'Il saisit son nom, email, mot de passe et le code de l\'établissement.':
     'Adını, e-postasını, şifresini ve okul kodunu girer.',
-  'Importez plusieurs élèves à partir d\'un fichier CSV':
-    'Bir CSV dosyasından birden çok öğrenci içe aktarın',
+  'Importez plusieurs élèves à partir d\'un classeur Excel':
+    'Bir Excel çalışma kitabından birden çok öğrenci içe aktarın',
   'L\'administrateur communique le code établissement (8 caractères, visible dans Paramètres).':
     'Yönetici okul kodunu iletir (8 karakter, Ayarlar bölümünde görünür).',
   'L\'enseignant accède à notescam.app/teacher-signup.':
@@ -2285,7 +2286,7 @@ export const FR_TO_TR = {
   'Erreur inattendue.': 'Beklenmeyen hata.',
 
   // === Import élèves — différenciation classe ===
-  "Importez plusieurs élèves à partir d'un fichier CSV": 'CSV dosyasından birden fazla öğrenci içe aktarın',
+  "Importez plusieurs élèves à partir d'un classeur Excel": 'Excel çalışma kitabından birden fazla öğrenci içe aktarın',
   'Classe pour les élèves sans classe': 'Sınıfı olmayan öğrenciler için sınıf',
   '— Importer sans classe —': '— Sınıfsız içe aktar —',
   'élève(s) sans classe dans le fichier. Laissez vide pour les importer sans classe.': 'öğrencinin dosyada sınıfı yok. Sınıfsız içe aktarmak için boş bırakın.',

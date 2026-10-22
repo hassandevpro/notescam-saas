@@ -18,6 +18,15 @@ import { resolveClassEngine } from '../core/engineResolver';
 import { parseClassName } from '../core/classNameParser';
 import { headTeacherText } from '../lib/headTeachers';
 import { classSubjectsOf } from '../core/subjectOrder';
+// CLASSE BILINGUE — une classe qui suit LES DEUX programmes. Demande de THE
+// GENIUS (2026-10-19) : ses quatre classes « … BIL » ne portaient que les
+// matières francophones, donc les unités d'apprentissage des matières
+// anglophones ne pouvaient pas s'y afficher (le périmètre du référentiel se
+// déduit des lignes `subjects` — cf. core/refClassScope.js).
+import {
+  isBilingualClass, mergeBilingualCatalog, missingBilingualSubjects,
+  siblingClassCandidates, defaultSiblingClass, mergeFromSiblingClass, missingFromSiblingClass,
+} from '../core/bilingualSubjects';
 
 const SYSTEMS = ['FR', 'EN'];
 
@@ -196,13 +205,22 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
       max_students: maxStudents ? Number(maxStudents) : null,
       serie:        eff.serie,
       // `current_year` volontairement ABSENT : hérité de l'année active (addClass).
+      // `bilingue` n'est pas une colonne : la page le retire et s'en sert pour
+      // compléter la classe avec l'autre programme.
+      bilingue,
     };
     // `serie` n'existe en base que pour le Second Cycle MINESEC.
     if (classEngine !== 'sc' || !payload.serie) delete payload.serie;
     return payload;
   };
 
-  const resetForNext = () => { setRawName(''); setMaxStudents(''); setOverrides({}); setAdvanced(false); setCustomScale(false); };
+  // CLASSE BILINGUE à la création. Ce n'est PAS une colonne de `classes` : le
+  // drapeau ne sert qu'à poser, juste après la création, le programme de l'autre
+  // sous-système (cf. `completerClasseBilingue` et core/bilingualSubjects.js).
+  // L'auto-configuration ordinaire pose d'abord le programme du système choisi.
+  const [bilingue, setBilingue] = useState(false);
+
+  const resetForNext = () => { setRawName(''); setMaxStudents(''); setOverrides({}); setAdvanced(false); setCustomScale(false); setBilingue(false); };
 
   const submit = async (another) => {
     if (!eff.name) return;
@@ -378,6 +396,21 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
                         ))}
                       </div>
                     </div>
+                    <div className="sm:col-span-2">
+                      <label className="flex items-start gap-2.5 cursor-pointer rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2.5">
+                        <input type="checkbox" className="accent-indigo-600 w-4 h-4 mt-0.5 cursor-pointer"
+                          checked={bilingue} onChange={(e) => setBilingue(e.target.checked)} />
+                        <span>
+                          <span className="text-xs font-semibold text-indigo-900">
+                            {t('Classe bilingue — poser les deux programmes', 'Bilingual class — set up both programmes')}
+                          </span>
+                          <span className="block text-[11px] text-indigo-700/80 mt-0.5">
+                            {t('Les matières de l’autre sous-système sont ajoutées en plus, avec leur barème (/20 francophone, /100 anglophone). Leurs compétences et unités d’apprentissage apparaissent alors à la saisie. Tout reste décochable ensuite.',
+                               'The other sub-system’s subjects are added as well, with their own scale (/20 French, /100 English). Their competencies and learning units then show up in grade entry. Everything stays removable afterwards.')}
+                          </span>
+                        </span>
+                      </label>
+                    </div>
                     <div>
                       <label className="form-label">{t('Barème', 'Scale', 'Escala')}</label>
                       <div className="flex flex-wrap gap-1.5">
@@ -418,10 +451,42 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
   );
 }
 
+// GROUPE OFFICIEL D'UNE MATIÈRE DE SECOND CYCLE (GROUPE 1 / GROUPE 2).
+//
+// Composant de MODULE, et non défini dans ClassDetailView : une fonction créée à
+// chaque rendu est un type de composant neuf à chaque rendu, donc React démonte
+// et remonte le <select> — qui se refermerait sous le doigt de l'utilisateur.
+//
+// « auto » (valeur vide → `null`) rend la décision au référentiel de la série.
+// Un ordre posé à la main n'est JAMAIS réécrit par lui : l'enrichissement du
+// bulletin ne touche que les matières dont `sc_groupe_ordre` est vide.
+function GroupeSc({ sub, onChange, t }) {
+  return (
+    <select
+      className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
+      value={sub.sc_groupe_ordre ?? ''}
+      aria-label={t('Groupe officiel', 'Official group')}
+      title={t('Groupe officiel de l’arrêté. « auto » laisse le référentiel de la série décider.',
+               'Official group from the ministerial order. "auto" lets the stream framework decide.')}
+      onChange={(e) => onChange(sub.id, {
+        sc_groupe_ordre: e.target.value === '' ? null : Number(e.target.value),
+      })}
+    >
+      <option value="">{t('auto', 'auto')}</option>
+      <option value="1">{t('Groupe 1', 'Group 1')}</option>
+      <option value="2">{t('Groupe 2', 'Group 2')}</option>
+    </select>
+  );
+}
+
 // ── Vue détail / édition d'une classe ────────────────────────────────────────
 function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLanguage }) {
   const t = useT();
   const country = useCountry();
+  // L'école décide du moteur de bulletin de la classe (`school.bulletin_engine`,
+  // que `classes.bulletin_engine` peut surcharger) : il faut donc la lire ici
+  // pour savoir si cette classe relève du second cycle.
+  const school = useAuthStore((s) => s.school);
   const CYCLES = country.cycles.map((c) => ({ value: c.code, label: c.label }));
   const isEN_local = cls.system === 'EN';
   const catalog_local = subjectCatalogForCountry(country.code, isEN_local);
@@ -430,13 +495,87 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const addSubject    = useSchoolStore((s) => s.addSubject);
   const updateSubject = useSchoolStore((s) => s.updateSubject);
   const deleteSubject = useSchoolStore((s) => s.deleteSubject);
+  const completerClasseBilingue = useSchoolStore((s) => s.completerClasseBilingue);
+  // Sur une classe a moteur officiel, une matiere n'existe vraiment que si elle
+  // entre AUSSI au referentiel : sans cela elle n apparait ni a la saisie ni au
+  // bulletin, qui lisent le referentiel et non `subjects`.
+  const materialiserMatiereOfficielle = useSchoolStore((s) => s.materialiserMatiereOfficielle);
 
   const isEN     = cls.system === 'EN';
-  const catalog  = catalog_local;
 
   // Même ordre que le bulletin et que la saisie : c'est ici que l'école choisit
   // ses matières, elle doit les voir rangées comme elles sortiront.
   const classSubjects = classSubjectsOf(subjects, cls.id);
+
+  // ── CLASSE BILINGUE : les deux programmes sur la même classe ──────────────
+  //
+  // Demande de THE GENIUS : « que les unités d'apprentissage des matières
+  // ANGLOPHONES se retrouvent sur les classes bilingues », et « laisse le choix
+  // d'ajouter ou de retirer une matière ». Les UA viennent par le chemin qui
+  // existe déjà : le périmètre du référentiel national d'une classe se déduit de
+  // ses lignes `subjects` (core/refClassScope.js). Poser les matières
+  // anglophones sur la classe fait donc entrer leurs compétences et leurs UA.
+  //
+  // RIEN N'EST POSÉ EN BASE pour marquer une classe bilingue : sa liste de
+  // matières EST la marque (`isBilingualClass`). Pas de colonne, pas de
+  // migration, pas de valeur de plus dans `classes.system` — donc aucun écran
+  // ni aucun moteur ne change de comportement sans qu'on l'ait décidé.
+  const catalogueFr = subjectCatalogForCountry(country.code, false);
+  const catalogueEn = subjectCatalogForCountry(country.code, true);
+  const [bilingue, setBilingue] = useState(() => isBilingualClass(cls, classSubjectsOf(subjects, cls.id)));
+
+  // LA CLASSE JUMELLE. « CE1 BIL = fusion des matières de Class 3 + CE1 »
+  // (administrateur de THE GENIUS, 19/10) : on ne copie donc pas un tronc
+  // type, mais les matières telles que l'école les a posées sur sa classe
+  // jumelle — coefficients, barèmes, et jusqu’aux matières hors référentiel.
+  //
+  // La correspondance de niveau n’est pas devinée : `defaultSiblingClass`
+  // s’appuie sur les slugs du référentiel (Class 3 = CE1), et l’école peut
+  // désigner une autre classe si son organisation diffère.
+  const toutesClasses = useSchoolStore((st) => st.classes);
+  const jumelles = useMemo(() => siblingClassCandidates(cls, toutesClasses), [cls, toutesClasses]);
+  const [jumelleId, setJumelleId] = useState(() => defaultSiblingClass(cls, toutesClasses)?.id || '');
+  const jumelle = useMemo(() => jumelles.find((c) => c.id === jumelleId) || null, [jumelles, jumelleId]);
+  const jumelleSubjects = useMemo(
+    () => (jumelle ? classSubjectsOf(subjects, jumelle.id) : []),
+    [subjects, jumelle],
+  );
+
+  const catalogEntries = useMemo(() => {
+    if (!bilingue) {
+      return catalog_local.map((name) => ({ name, max: isEN_local ? 100 : 20, cote: isEN_local ? 'EN' : 'FR' }));
+    }
+    // D’abord les matières RÉELLES des deux classes, puis le catalogue du
+    // pays pour tout ce que l’école voudrait ajouter en plus.
+    const reelles = jumelle
+      ? mergeFromSiblingClass({ cls, classSubjects, sibling: jumelle, siblingSubjects: jumelleSubjects })
+        .map((e) => ({ name: e.name, max: e.max, cote: e.cote, origine: e.origine }))
+      : [];
+    const vus = new Set(reelles.map((e) => e.name.toLowerCase()));
+    const reste = mergeBilingualCatalog({ cls, catalogueFr, catalogueEn })
+      .filter((e) => !vus.has(e.name.toLowerCase()));
+    return [...reelles, ...reste];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bilingue, cls.system, catalog_local, catalogueFr, catalogueEn, isEN_local, jumelle, jumelleSubjects, classSubjects]);
+  const catalog = useMemo(() => catalogEntries.map((e) => e.name), [catalogEntries]);
+  const infoMatiere = useMemo(
+    () => new Map(catalogEntries.map((e) => [e.name.toLowerCase(), e])),
+    [catalogEntries],
+  );
+  // Le barème suit la matière, pas la classe : /20 en francophone, /100 en
+  // anglophone (décision du responsable, 2026-10-19). En APC le calcul lit de
+  // toute façon les barèmes du ministère dans le référentiel.
+  const baremeDeLaMatiere = (name, cote) => infoMatiere.get(String(name).toLowerCase())?.max
+    ?? (cote === 'EN' || (cls.system || 'FR') === 'EN' ? 100 : 20);
+
+  // Ce qui manque à cette classe pour porter vraiment les deux programmes.
+  const ajoutsBilingues = useMemo(() => {
+    if (!bilingue) return [];
+    return jumelle
+      ? missingFromSiblingClass({ cls, classSubjects, sibling: jumelle, siblingSubjects: jumelleSubjects, makeId: () => '' })
+      : missingBilingualSubjects({ cls, existing: classSubjects, makeId: () => '' });
+  }, [bilingue, cls, classSubjects, jumelle, jumelleSubjects]);
+  const [ajoutEnCours, setAjoutEnCours] = useState(false);
   const studentCount  = students.filter((s) => s.class_id === cls.id).length;
   const teacherCount  = new Set(classSubjects.filter((s) => s.teacher_id).map((s) => s.teacher_id)).size;
   // Aucun lien enseignant du tout : ni titulaire, ni matière affectée à quiconque.
@@ -447,7 +586,11 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
   const [confirmDel, setConfDel] = useState(false);
-  const [customSubject, setCustomSubject] = useState({ name: '', coef: 1, category: '' });
+  // cote : sur une classe bilingue, une matière HORS RÉFÉRENTIEL doit pouvoir
+  // être posée d'un côté ou de l'autre — c'est son barème qui en dépend.
+  const [customSubject, setCustomSubject] = useState({
+    name: '', coef: 1, category: '', cote: cls.system === 'EN' ? 'EN' : 'FR',
+  });
 
   const set = (field) => (e) => { setSaved(false); setForm((f) => ({ ...f, [field]: e.target.value })); };
 
@@ -465,6 +608,20 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
     setTimeout(() => setSaved(false), 2500);
   };
 
+  // ── GROUPE OFFICIEL DU SECOND CYCLE ────────────────────────────────────────
+  // Sur un bulletin de second cycle, chaque matière appartient au GROUPE 1 ou au
+  // GROUPE 2 de l'arrêté, par série. Le référentiel le résout tout seul quand le
+  // nom de la matière lui correspond ; quand il n'y arrive pas, la matière
+  // s'imprimait sous AUTRES MATIÈRES sans que l'école ait le moindre levier —
+  // la colonne `subjects.sc_groupe_ordre` existait (Cloud : supabase_sc_minesec.sql,
+  // LAN : server/db.js) mais aucun écran ne la réglait. C'est ce levier.
+  //
+  // Réservé au second cycle : ailleurs, les groupes ne veulent rien dire.
+  const isSecondCycle = resolveClassEngine(school, cls) === 'sc';
+  const COLS = isSecondCycle
+    ? 'grid-cols-[24px_1fr_72px_72px_148px_120px_180px]'
+    : 'grid-cols-[24px_1fr_72px_72px_148px_180px]';
+
   // Subject catalog toggle (live — no form save needed)
   const subjectNameSet = new Set(classSubjects.map((s) => s.name.toLowerCase()));
 
@@ -473,8 +630,20 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
     if (existing) {
       await deleteSubject(existing.id);
     } else {
-      const max = (cls.system || 'FR') === 'EN' ? 100 : 20;
-      await addSubject({ name, coef: 1, max, class_id: cls.id, teacher_id: null });
+      await addSubject({ name, coef: 1, max: baremeDeLaMatiere(name), class_id: cls.id, teacher_id: null });
+    }
+  };
+
+  // Ajoute d'un geste le programme qui manque, sans toucher aux matières en
+  // place : `missingBilingualSubjects` écarte tout libellé déjà porté, donc
+  // aucune note existante n'est menacée, et rejouer le geste ne double rien.
+  const ajouterProgrammeManquant = async () => {
+    if (!ajoutsBilingues.length) return;
+    setAjoutEnCours(true);
+    try {
+      await completerClasseBilingue(cls, { sibling: jumelle });
+    } finally {
+      setAjoutEnCours(false);
     }
   };
 
@@ -582,14 +751,87 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 ? t('Ajoutez vos domaines de compétences personnalisés.', 'Add your custom competency domains.')
                 : t('Cochez pour activer · modifiez le coefficient et le barème directement', 'Check to activate · edit coefficient and max score directly')}
             </p>
+
+            {/* ── CLASSE BILINGUE ───────────────────────────────────────────
+                Ce n'est pas un réglage de plus : c'est ce qui fait entrer les
+                compétences et les unités d'apprentissage de l'autre programme
+                à la saisie. Le texte le dit, sinon la case paraît cosmétique. */}
+            {!isMaternelle && (
+              <div className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="accent-indigo-600 w-4 h-4 mt-0.5 cursor-pointer"
+                    checked={bilingue}
+                    onChange={(e) => setBilingue(e.target.checked)}
+                  />
+                  <span>
+                    <span className="text-sm font-semibold text-indigo-900">
+                      {t('Classe bilingue — les deux programmes', 'Bilingual class — both programmes')}
+                    </span>
+                    <span className="block text-[11px] text-indigo-700/80 mt-0.5">
+                      {t('Propose aussi les matières de l’autre sous-système, chacune avec son barème (/20 francophone, /100 anglophone). Les compétences et les unités d’apprentissage de ces matières apparaissent alors à la saisie et sur le bulletin.',
+                         'Also offers the other sub-system’s subjects, each with its own scale (/20 French, /100 English). Their competencies and learning units then show up in grade entry and on the report card.')}
+                    </span>
+                  </span>
+                </label>
+                {bilingue && (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-7">
+                    {/* LA CLASSE SOURCE, nommée. L’école doit lire d’où viennent
+                        les matières qu’elle s’apprête à poser sur ses élèves. Le
+                        niveau équivalent est proposé d’abord (Class 3 pour une
+                        CE1), mais rien n’empêche d’apparier autrement. */}
+                    <label className="flex items-center gap-2 text-[11px] text-indigo-900">
+                      {t('Fusionner avec', 'Merge with')}
+                      <select
+                        className="text-xs border border-indigo-200 rounded-lg px-2 py-1.5 bg-white text-gray-700"
+                        value={jumelleId}
+                        onChange={(e) => setJumelleId(e.target.value)}
+                      >
+                        <option value="">
+                          — {t('tronc commun du niveau', 'level default set')} —
+                        </option>
+                        {jumelles.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                            {c.equivalent ? ' · ' + t('niveau équivalent', 'matching level') : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={ajouterProgrammeManquant}
+                      disabled={!ajoutsBilingues.length || ajoutEnCours}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors"
+                    >
+                      {ajoutEnCours
+                        ? t('Ajout en cours…', 'Adding…')
+                        : !ajoutsBilingues.length
+                          ? t('Les deux programmes sont déjà là', 'Both programmes are already here')
+                          : jumelle
+                            ? t(`Ajouter les ${ajoutsBilingues.length} matières de ${jumelle.name}`,
+                                `Add the ${ajoutsBilingues.length} subjects from ${jumelle.name}`)
+                            : t(`Ajouter les ${ajoutsBilingues.length} matières manquantes`,
+                                `Add the ${ajoutsBilingues.length} missing subjects`)}
+                    </button>
+                    <span className="text-[11px] text-indigo-700/80">
+                      {t('Décochez pour retirer une matière. Une matière qui n’est à aucun référentiel s’ajoute en bas du tableau, avec son propre barème.',
+                         'Uncheck to remove a subject. A subject in no syllabus can be added at the bottom of the table, with its own scale.')}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="border border-gray-200 rounded-xl overflow-hidden">
               {/* En-tête tableau */}
-              <div className="grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              <div className={`grid ${COLS} gap-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wider`}>
                 <div />
                 <div>{t('Matière', 'Subject')}</div>
                 <div className="text-center">Coef</div>
                 <div className="text-center">/ Max</div>
                 <div>{t('Classement', 'Category')}</div>
+                {isSecondCycle && <div>{t('Groupe', 'Group')}</div>}
                 <div>{t('Enseignant', 'Teacher')}</div>
               </div>
 
@@ -597,10 +839,15 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
               {!isMaternelle && catalog.map((name, i) => {
                 const existing = classSubjects.find((s) => s.name.toLowerCase() === name.toLowerCase());
                 const checked  = !!existing;
+                // Sur une classe bilingue, dire DE QUEL programme vient la
+                // matière : « Anglais » (francophone) et « English »
+                // (anglophone) sont deux matières différentes, et l'école doit
+                // pouvoir les distinguer d'un coup d'œil.
+                const cote = bilingue ? infoMatiere.get(name.toLowerCase())?.cote : null;
                 return (
                   <div
                     key={name}
-                    className={`grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 items-center px-4 py-2.5 ${
+                    className={`grid ${COLS} gap-3 items-center px-4 py-2.5 ${
                       i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                     } ${checked ? '' : 'opacity-50 hover:opacity-80'} transition-opacity`}
                   >
@@ -612,6 +859,13 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     />
                     <span className={`text-sm truncate ${checked ? 'font-medium text-gray-900' : 'text-gray-500'}`}>
                       {name}
+                      {cote && (
+                        <span className={`ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded align-middle ${
+                          cote === 'EN' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+                        }`}>
+                          {cote}
+                        </span>
+                      )}
                     </span>
                     {checked ? (
                       <>
@@ -647,6 +901,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                             <option key={c.id} value={c.id}>{t(...c.label)}</option>
                           ))}
                         </select>
+                        {isSecondCycle && <GroupeSc sub={existing} onChange={updateSubject} t={t} />}
                         <select
                           className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
                           value={existing.teacher_id || ''}
@@ -661,6 +916,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                         <div className="text-center text-xs text-gray-200">—</div>
                         <div className="text-center text-xs text-gray-200">—</div>
                         <div className="text-xs text-gray-200">—</div>
+                        {isSecondCycle && <div className="text-xs text-gray-200">—</div>}
                         <div className="text-xs text-gray-200">—</div>
                       </>
                     )}
@@ -674,7 +930,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 .map((sub, i) => (
                   <div
                     key={sub.id}
-                    className={`grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 items-center px-4 py-2.5 ${
+                    className={`grid ${COLS} gap-3 items-center px-4 py-2.5 ${
                       (catalog.length + i) % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                     }`}
                   >
@@ -725,6 +981,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                         <option key={c.id} value={c.id}>{t(...c.label)}</option>
                       ))}
                     </select>
+                    {isSecondCycle && <GroupeSc sub={sub} onChange={updateSubject} t={t} />}
                     <select
                       className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
                       value={sub.teacher_id || ''}
@@ -737,7 +994,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 ))}
 
               {/* Ligne ajout matière personnalisée */}
-              <div className="grid grid-cols-[24px_1fr_72px_72px_148px_180px] gap-3 items-center px-4 py-3 bg-brand-50/60 border-t border-brand-100">
+              <div className={`grid ${COLS} gap-3 items-center px-4 py-3 bg-brand-50/60 border-t border-brand-100`}>
                 <div className="text-brand-400 text-lg font-bold text-center leading-none">+</div>
                 <input
                   type="text"
@@ -749,13 +1006,14 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     if (e.key !== 'Enter') return;
                     e.preventDefault();
                     if (!customSubject.name.trim()) return;
-                    const max = (cls.system || 'FR') === 'EN' ? 100 : 20;
+                    materialiserMatiereOfficielle(cls, customSubject.name.trim());
                     addSubject({
-                      name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1, max,
+                      name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1,
+                      max: baremeDeLaMatiere(customSubject.name, customSubject.cote),
                       class_id: cls.id, teacher_id: null,
                       category: customSubject.category || null,
                     });
-                    setCustomSubject({ name: '', coef: 1, category: '' });
+                    setCustomSubject((p2) => ({ name: '', coef: 1, category: '', cote: p2.cote }));
                   }}
                 />
                 <input
@@ -764,7 +1022,19 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                   value={customSubject.coef}
                   onChange={(e) => setCustomSubject((p) => ({ ...p, coef: e.target.value }))}
                 />
-                <div className="text-center text-xs text-gray-300">{t('auto', 'auto', 'auto')}</div>
+                {bilingue ? (
+                  <select
+                    className="w-full text-xs border border-brand-200 rounded-lg px-1 py-1.5 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
+                    value={customSubject.cote}
+                    onChange={(e) => setCustomSubject((prev) => ({ ...prev, cote: e.target.value }))}
+                    aria-label={t('Programme et barème', 'Programme and scale')}
+                  >
+                    <option value="FR">FR /20</option>
+                    <option value="EN">EN /100</option>
+                  </select>
+                ) : (
+                  <div className="text-center text-xs text-gray-300">{t('auto', 'auto', 'auto')}</div>
+                )}
                 {/* CLASSEMENT À LA CRÉATION. C'est ici que la matière était
                     perdue : ajoutée sans famille, elle tombait dans « Autre »
                     dès l'emploi du temps, et il fallait deviner qu'on pouvait
@@ -784,18 +1054,25 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     <option key={c.id} value={c.id}>{t(...c.label)}</option>
                   ))}
                 </select>
+                {/* Le GROUPE ne se choisit pas à la création : le référentiel de
+                    la série l'essaie d'abord sur le nom, et l'école ne tranche
+                    que s'il n'y arrive pas — sur la ligne, juste au-dessus. */}
+                {isSecondCycle && (
+                  <div className="text-center text-xs text-gray-300">{t('auto', 'auto')}</div>
+                )}
                 <button
                   type="button"
                   disabled={!customSubject.name.trim()}
                   onClick={() => {
                     if (!customSubject.name.trim()) return;
-                    const max = (cls.system || 'FR') === 'EN' ? 100 : 20;
+                    materialiserMatiereOfficielle(cls, customSubject.name.trim());
                     addSubject({
-                      name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1, max,
+                      name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1,
+                      max: baremeDeLaMatiere(customSubject.name, customSubject.cote),
                       class_id: cls.id, teacher_id: null,
                       category: customSubject.category || null,
                     });
-                    setCustomSubject({ name: '', coef: 1, category: '' });
+                    setCustomSubject((p2) => ({ name: '', coef: 1, category: '', cote: p2.cote }));
                   }}
                   className="px-3 py-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors"
                 >
@@ -1058,6 +1335,7 @@ export default function Classes() {
   const subjects    = useSchoolStore((s) => s.subjects);
   const students    = useSchoolStore((s) => s.students);
   const addClass    = useSchoolStore((s) => s.addClass);
+  const completerClasseBilingue = useSchoolStore((s) => s.completerClasseBilingue);
   const updateClass = useSchoolStore((s) => s.updateClass);
   const deleteClass = useSchoolStore((s) => s.deleteClass);
   const loadSc      = useSchoolStore((s) => s.loadSc);
@@ -1131,11 +1409,18 @@ export default function Classes() {
   }), [classes, search, cycleF, levelF, statusF, classStats]);
 
   const handleSave = async (form) => {
+    // `bilingue` vient de la modale et n'est PAS une colonne de `classes` : il
+    // décide seulement si l'on pose, en plus, le programme de l'autre
+    // sous-système juste après la création.
+    const { bilingue, ...data } = form;
     if (editing) {
-      await updateClass(editing.id, form);
-      setEditing((prev) => ({ ...prev, ...form }));
+      await updateClass(editing.id, data);
+      setEditing((prev) => ({ ...prev, ...data }));
     } else {
-      const created = await addClass(form);
+      const created = await addClass(data);
+      if (bilingue && created) {
+        await completerClasseBilingue(created, { sibling: defaultSiblingClass(created, classes) });
+      }
       setShowForm(false);
       setEditing(created);
     }
@@ -1217,7 +1502,13 @@ export default function Classes() {
             defaultYear={defaultYear}
             teachers={teachers}
             onSave={handleSave}
-            onSaveAnother={async (form) => { await addClass(form); }}
+            onSaveAnother={async (form) => {
+              const { bilingue, ...data } = form;
+              const cree = await addClass(data);
+              if (bilingue && cree) {
+                await completerClasseBilingue(cree, { sibling: defaultSiblingClass(cree, classes) });
+              }
+            }}
             onClose={() => setShowForm(false)}
           />
         )}

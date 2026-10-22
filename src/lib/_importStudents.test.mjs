@@ -39,8 +39,22 @@ const src = readFileSync(join(ici, 'exportCsv.js'), 'utf8');
 // `rawRowsToStudents` n'est pas exportée (elle est interne au module, qui touche
 // au DOM ailleurs). On l'extrait et on lui injecte des normaliseurs neutres :
 // ce qu'on teste ici est le MAPPING DE COLONNES, pas le formatage des valeurs.
+// FIN DU DÉCOUPAGE : la prochaine déclaration de premier niveau, quelle qu'elle
+// soit — « function », « export function », « export async function », « const ».
+// Ne chercher que « \nfunction » rendait l'extraction dépendante de l'ORDRE des
+// déclarations d'exportCsv.js : une « export function » glissée entre la fonction
+// extraite et la suivante était embarquée dans le découpage, et new Function
+// refusait alors le mot-clé « export ». C'était la cause exacte du blocage B2
+// (2026-10-18), restée non élucidée tant qu'on cherchait un changement de
+// comportement plutôt qu'un changement d'ordre.
+const PROCHAINE_DECLARATION = /\n(?:export\s+)?(?:async\s+)?(?:function|const|class)\s/;
+const finDuCorps = (debut) => {
+  const relative = src.slice(debut + 10).search(PROCHAINE_DECLARATION);
+  return relative < 0 ? -1 : debut + 10 + relative;
+};
+
 const debut = src.indexOf('function rawRowsToStudents');
-const fin   = src.indexOf('\nfunction ', debut + 10);
+const fin   = finDuCorps(debut);
 const corps = src.slice(debut, fin > 0 ? fin : undefined);
 const tel   = (x) => x;
 // `splitDateLieu` rend un COUPLE { date, lieu } : son substitut neutre doit en
@@ -52,7 +66,8 @@ const coupleNeutre = (x) => ({ date: x, lieu: x });
 const rawRowsToStudents = new Function(
   'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate', 'normalizeStatut',
   'normalizeStatutEtab', 'normalizeAptitude', 'normalizeRegistreDate', 'splitDateLieu', 'sansZero',
-  `${corps}; return rawRowsToStudents;`,
+  `${corps}
+; return rawRowsToStudents;`,
 )(() => 'erreur', tel, tel, tel, tel, tel, tel, tel, coupleNeutre, tel);
 
 let echecs = 0;
@@ -128,7 +143,9 @@ ok(String(ordre.name || '').includes('ABEGA'), 'le nom de l’élève reste celu
 // Ici `normalizeDate` n'est plus neutralisée : on rejoue le comportement exact de
 // l'application. C'est ce bloc qui décrit ce que l'école aurait vraiment subi —
 // une date VIDE qui écrase la date enregistrée, et non une date absurde.
-const vraieNormalizeDate = new Function(`${src.slice(src.indexOf('function normalizeDate'), src.indexOf('\nfunction ', src.indexOf('function normalizeDate') + 10))}; return normalizeDate;`)();
+const debutND = src.indexOf('function normalizeDate');
+const vraieNormalizeDate = new Function(`${src.slice(debutND, finDuCorps(debutND))}
+; return normalizeDate;`)();
 ok(vraieNormalizeDate('YAOUNDE') === null,
   'la normalisation rejette un lieu passé comme date (elle rend null, pas la valeur)', vraieNormalizeDate('YAOUNDE'));
 ok(vraieNormalizeDate('2012-03-04') === '2012-03-04',
@@ -136,7 +153,8 @@ ok(vraieNormalizeDate('2012-03-04') === '2012-03-04',
 
 const reel = new Function(
   'msg', 'normalizeGender', 'normalizeStudentName', 'normalizeDate', 'normalizeStatut', 'normalizeStatutEtab', 'normalizeAptitude',
-  `${corps}; return rawRowsToStudents;`,
+  `${corps}
+; return rawRowsToStudents;`,
 )(() => 'erreur', tel, tel, vraieNormalizeDate, tel, tel, tel);
 const avecVraieDate = reel([
   ['Matricule', 'Prénom', 'Nom', 'Lieu de naissance', 'Date de naissance'],

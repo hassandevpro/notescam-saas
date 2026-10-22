@@ -183,6 +183,79 @@ function guardTraceReadOnly(op) {
   }
 }
 
+// --- LE RÉFÉRENTIEL NATIONAL NE S'ÉCRIT PAS ---------------------------
+// `apc_competences`, `prim_competences` et `mat_domaines` portent DEUX natures de
+// ligne depuis les migrations `*_par_ecole` : `school_id` NULL = nationale (seed
+// officiel, partagée par toutes les écoles), renseignée = propre à une école.
+//
+// Au Cloud, la RLS dit exactement cela : « ecriture des siennes », USING
+// `school_id IS NOT NULL AND member_of_school(school_id)`. En LAN il n'y a pas de
+// RLS, donc c'est ce garde qui le dit — sinon un intitulé ministériel pourrait
+// être réécrit, ou une ligne nationale s'approprier par un upsert sur son id. Le
+// bulletin officiel de toutes les classes qui s'y rattachent en dépend, et le
+// seed la réécrirait sans prévenir au redémarrage suivant : le travail serait
+// perdu deux fois.
+//
+// L'école garde les deux gestes prévus pour elle : MASQUER (table `*_masques`)
+// et RENOMMER chez soi (`referentiel_libelles`). Rien ne lui est retiré.
+const REFERENTIEL_OUVERT = {
+  apc_competences: 'compétence', prim_competences: 'compétence', mat_domaines: 'domaine',
+  // Le premier cycle peut désormais porter des MATIÈRES maison
+  // (supabase_apc_matieres_maison.sql). Sans ces deux lignes, l'édition LAN
+  // n'aurait AUCUN garde sur elles : une école pourrait réécrire le libellé
+  // d'une matière nationale, que le seed restaurerait au redémarrage suivant —
+  // le travail perdu deux fois, exactement ce que ce garde existe pour empêcher.
+  // Le Cloud, lui, l'interdit déjà par la RLS « écriture des siennes ».
+  apc_matieres: 'matière', apc_classe_matieres: 'matière',
+};
+function guardReferentielNational(op, ctx) {
+  const mot = REFERENTIEL_OUVERT[op.table];
+  if (!mot) return;
+  if (!['insert', 'upsert', 'update', 'delete'].includes(op.action)) return;
+  if (!ctx?.userId) return;   // chemin serveur de confiance : seed officiel, sync, migration
+  if (!tableColumns(op.table).has('school_id')) return; // base pas encore migrée
+
+  const refus = `Cette ${mot} est officielle : elle appartient au référentiel national et ne se modifie pas. `
+    + `Masquez-la dans votre école, ou renommez-la chez vous.`;
+
+  // 1) Une ligne qui NAÎT doit nommer son école : sans `school_id` elle naîtrait
+  //    nationale — c'est le défaut qui faisait passer une compétence maison pour
+  //    une ligne du ministère. Un UPDATE, lui, ne transporte que les champs
+  //    modifiés : sa propriété se vérifie sur la ligne visée (2), pas ici. Mais
+  //    s'il tente d'EFFACER le school_id, il nationalise la ligne : refusé.
+  const values = op.values == null ? [] : (Array.isArray(op.values) ? op.values : [op.values]);
+  const naissance = op.action === 'insert' || op.action === 'upsert';
+  for (const v of values) {
+    if (!v) continue;
+    if (naissance ? v.school_id == null : ('school_id' in v && v.school_id == null)) throw new Error(refus);
+  }
+
+  // 2) Ce qui est VISÉ ne doit pas être une ligne nationale — y compris par un
+  //    upsert sur l'id d'une ligne nationale, qui l'aurait purement annexée.
+  const ids = [];
+  for (const v of values) if (v?.id != null) ids.push(v.id);
+  for (const f of op.filters || []) {
+    if (f.col !== 'id') continue;
+    if (f.op === 'eq') ids.push(f.val);
+    else if (f.op === 'in' && Array.isArray(f.val)) ids.push(...f.val);
+  }
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    const national = db.prepare(
+      `SELECT 1 FROM ${quoteIdent(op.table)} WHERE id IN (${ph}) AND school_id IS NULL LIMIT 1`,
+    ).get(...ids);
+    if (national) throw new Error(refus);
+    return;
+  }
+
+  // 3) Écriture de masse (update/delete sans ciblage par id) : elle emporterait
+  //    le national avec le reste. On refuse plutôt que de deviner.
+  if (['update', 'delete'].includes(op.action)) {
+    const porteSchool = (op.filters || []).some((f) => f.col === 'school_id' && f.op === 'eq' && f.val != null);
+    if (!porteSchool) throw new Error(refus);
+  }
+}
+
 // --- L'élève qui porte de l'argent : suppression TRACÉE ----------------
 // Historique de cette garde : elle REFUSAIT la suppression d'un élève porteur
 // d'écritures, parce que la cascade FK students → fee_payments effaçait l'argent
@@ -265,6 +338,7 @@ export function runQuery(op, ctx = null) {
     guardAppendOnly(op, ctx);
     guardFeePaymentImmutable(op, ctx); // recettes : pas d'update/delete, caissier estampillé
     guardTraceReadOnly(op);                   // la trace se consulte, elle ne s'écrit pas
+    guardReferentielNational(op, ctx);        // le national reste intact (pendant LAN de la RLS)
     traceStudentCashBeforeDeletion(op, ctx);  // l'argent emporté par la cascade est tracé AVANT
     guardBudgetExpense(op, ctx);   // enforcement budgétaire serveur (chaîne + workflow + permissions)
     guardBudgetStructure(op);      // P5 : pas de modif silencieuse / d'écriture directe des opérations
@@ -376,7 +450,14 @@ function insertOrUpsertCore(op, isUpsert, inserted = []) {
         const updates = cols
           .filter((c) => !conflict.includes(c))
           .map((c) => `${quoteIdent(c)} = excluded.${quoteIdent(c)}`);
-        sql += ` ON CONFLICT(${conflict.map(quoteIdent).join(', ')}) DO UPDATE SET ${updates.join(', ')}`;
+        // Rien à mettre à jour = la ligne EST sa clé (tables d'association pure,
+        // comme les masques du référentiel : (school_id, competence_id) et c'est
+        // tout). `DO UPDATE SET` vide est une erreur de syntaxe SQLite, et elle
+        // faisait échouer le masquage d'une compétence officielle — sans que rien
+        // n'explique le refus. Le geste est idempotent par nature : DO NOTHING.
+        sql += updates.length
+          ? ` ON CONFLICT(${conflict.map(quoteIdent).join(', ')}) DO UPDATE SET ${updates.join(', ')}`
+          : ` ON CONFLICT(${conflict.map(quoteIdent).join(', ')}) DO NOTHING`;
       }
       // Snapshot AVANT (un upsert peut écraser une ligne existante → il faut retirer
       // sa contribution Merkle avant d'ajouter la nouvelle).
@@ -493,6 +574,7 @@ export function runOpsGuarded(ops = [], ctx = null) {
     // server/_bulletinSecurityE2E.test.mjs.
     guardSchoolIsolation(op, ctx); // étanchéité inter-établissements
     guardScopeWrite(op, ctx);      // cloisonnement sectoriel
+    guardReferentielNational(op, ctx); // référentiel : le national ne s'écrit pas
     let res;
     switch (op.action) {
       case 'insert': insertOrUpsertCore(op, false); break;

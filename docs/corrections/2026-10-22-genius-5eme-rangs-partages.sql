@@ -1,0 +1,84 @@
+-- SIX RANGS PORTÉS PAR DEUX MATIÈRES À LA FOIS — THE GENIUS, 5eme
+--
+-- ⚠️  NON APPLIQUÉ. Proposition de renumérotation. L'ordre des matières sur un
+--     bulletin appartient à l'école ; elle le règle elle-même par
+--     « Réorganiser les matières » dans l'écran Bulletins. Ce fichier n'est là
+--     que si elle demande qu'on le fasse à sa place.
+--
+-- CE QU'ON A TROUVÉ. Après le dédoublonnage du 2026-10-22, la 5eme garde 16
+-- matières rangées de 0 à 14, mais SIX rangs sont occupés deux fois, sept rangs
+-- sont vides, et « Genius LABS » n'a pas de rang du tout :
+--
+--   rang  1 : Étude de texte (coef 2)  ·  Chinois (coef 1)
+--   rang  7 : Mathématiques (coef 4)   ·  EXPRESSION ECRITE (coef 2)
+--   rang  8 : Géographie (coef 2)      ·  SVT (coef 2)
+--   rang  9 : Histoire (coef 2)        ·  Informatique (coef 2)
+--   rang 13 : ECM (coef 2)             ·  Langue Nationale (coef 1)
+--   rang 14 : EPS (coef 2)             ·  TM (coef 1)
+--   sans rang : Genius LABS
+--
+-- POURQUOI C'EST GÊNANT, ET POURQUOI CE N'EST PLUS GRAVE. Le glisser-déposer
+-- n'interdit pas deux fois le même rang, et l'auto-configuration en pose un par
+-- matière du référentiel : deux séries peuvent se retrouver sur la même échelle.
+-- À rangs égaux, le comparateur du produit rendait 0, et l'ordre retombait sur
+-- celui de la liste reçue — qui n'est pas le même d'un écran à l'autre. Les deux
+-- matières pouvaient donc s'échanger entre le bulletin et la grille de saisie.
+--
+-- CE DÉFAUT EST CORRIGÉ DANS LE PRODUIT (`src/core/subjectOrder.js`, test
+-- `_subjectOrder.test.mjs`) : le départage continue sur le coefficient, le nom,
+-- puis l'identifiant. L'ordre est désormais le MÊME partout. Ce qui reste n'est
+-- donc plus une incohérence, seulement une numérotation en désordre — et ce
+-- n'est pas à nous de décider l'ordre que l'école veut.
+--
+-- CE QUE LA PROPOSITION FAIT : elle renumérote 0 à 15 l'ordre AFFICHÉ
+-- aujourd'hui, sans en changer une seule ligne de place. Tout trou disparaît,
+-- tout ex æquo disparaît, et « Genius LABS » reçoit enfin un rang (le dernier,
+-- là où il s'affiche déjà faute d'en avoir un).
+--
+-- POUR APPLIQUER : décommenter le bloc entier, jamais une ligne seule — une
+-- renumérotation partielle recréerait des ex æquo.
+
+BEGIN;
+
+-- UPDATE public.subjects SET position = 0  WHERE id = '2ca0d1d8-36ef-cea4-d151-58d1a60d079c';  -- Étude de texte
+-- UPDATE public.subjects SET position = 1  WHERE id = '048cc82c-2e5a-4cb8-b40e-6e33fa60e619';  -- Chinois
+-- UPDATE public.subjects SET position = 2  WHERE id = '129727cd-adc1-3b7f-99ec-a7b61c3be038';  -- Intensive English
+-- UPDATE public.subjects SET position = 3  WHERE id = 'cbecd430-5143-9407-9dee-b422a22d23a8';  -- Mathématiques
+-- UPDATE public.subjects SET position = 4  WHERE id = '48c7fc58-79bd-44fc-8375-8503583b906c';  -- EXPRESSION ECRITE
+-- UPDATE public.subjects SET position = 5  WHERE id = '08b344c7-6bf1-48c2-941a-4e4bcebee347';  -- Géographie
+-- UPDATE public.subjects SET position = 6  WHERE id = 'ffde423f-d691-c7d0-03b5-5bcee617aba8';  -- SVT
+-- UPDATE public.subjects SET position = 7  WHERE id = '8c8ffabc-7c1a-42d3-9ba7-76a0f1c9df6d';  -- Histoire
+-- UPDATE public.subjects SET position = 8  WHERE id = '5aeaedd0-4b9e-bd1c-ea0e-a5bce9bf69c9';  -- Informatique
+-- UPDATE public.subjects SET position = 9  WHERE id = '04a63d43-c9c6-42d7-9600-27e058c6c9c4';  -- DICTEE/CORRECTION ORTHOGRAPHIQUE
+-- UPDATE public.subjects SET position = 10 WHERE id = '1ea8b550-ca81-42f3-a12a-171843a9432b';  -- ESF
+-- UPDATE public.subjects SET position = 11 WHERE id = '945f64cc-2bf3-c969-4dd4-9958c7b05f12';  -- ECM
+-- UPDATE public.subjects SET position = 12 WHERE id = '2ed1373d-d799-440f-b38b-e820b8e3e670';  -- Langue Nationale
+-- UPDATE public.subjects SET position = 13 WHERE id = '13bb6893-4af1-bc7a-88aa-dc2388911306';  -- EPS
+-- UPDATE public.subjects SET position = 14 WHERE id = '07d9694c-c0e8-4462-bd89-231b67b4dbfb';  -- TM
+-- UPDATE public.subjects SET position = 15 WHERE id = 'e996dc6f-cffe-4f62-8c0e-4fbfbb94af24';  -- Genius LABS
+
+COMMIT;
+
+-- ── RETOUR ARRIÈRE ─────────────────────────────────────────────────────────
+-- Rangs EN VIGUEUR au 2026-10-22, ex æquo et trous compris :
+--
+--   UPDATE public.subjects SET position = 1    WHERE id = '2ca0d1d8-36ef-cea4-d151-58d1a60d079c';
+--   UPDATE public.subjects SET position = 1    WHERE id = '048cc82c-2e5a-4cb8-b40e-6e33fa60e619';
+--   UPDATE public.subjects SET position = 4    WHERE id = '129727cd-adc1-3b7f-99ec-a7b61c3be038';
+--   UPDATE public.subjects SET position = 7    WHERE id = 'cbecd430-5143-9407-9dee-b422a22d23a8';
+--   UPDATE public.subjects SET position = 7    WHERE id = '48c7fc58-79bd-44fc-8375-8503583b906c';
+--   UPDATE public.subjects SET position = 8    WHERE id = '08b344c7-6bf1-48c2-941a-4e4bcebee347';
+--   UPDATE public.subjects SET position = 8    WHERE id = 'ffde423f-d691-c7d0-03b5-5bcee617aba8';
+--   UPDATE public.subjects SET position = 9    WHERE id = '8c8ffabc-7c1a-42d3-9ba7-76a0f1c9df6d';
+--   UPDATE public.subjects SET position = 9    WHERE id = '5aeaedd0-4b9e-bd1c-ea0e-a5bce9bf69c9';
+--   UPDATE public.subjects SET position = 10   WHERE id = '04a63d43-c9c6-42d7-9600-27e058c6c9c4';
+--   UPDATE public.subjects SET position = 11   WHERE id = '1ea8b550-ca81-42f3-a12a-171843a9432b';
+--   UPDATE public.subjects SET position = 13   WHERE id = '945f64cc-2bf3-c969-4dd4-9958c7b05f12';
+--   UPDATE public.subjects SET position = 13   WHERE id = '2ed1373d-d799-440f-b38b-e820b8e3e670';
+--   UPDATE public.subjects SET position = 14   WHERE id = '13bb6893-4af1-bc7a-88aa-dc2388911306';
+--   UPDATE public.subjects SET position = 14   WHERE id = '07d9694c-c0e8-4462-bd89-231b67b4dbfb';
+--   UPDATE public.subjects SET position = NULL WHERE id = 'e996dc6f-cffe-4f62-8c0e-4fbfbb94af24';
+--
+-- Même situation relevée dans la 3e de COMPLEXE SCOLAIRE BILINGUE LA RÉUSSITE
+-- (8 rangs partagés). Non traitée ici : l'ordre d'affichage y est désormais
+-- stable lui aussi, et aucune demande n'a été faite pour cette école.

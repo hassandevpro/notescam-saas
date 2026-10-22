@@ -21,7 +21,7 @@ import { fetchExpenses } from '../lib/expenseService';
 import { fetchCashMovements } from '../lib/cashBookService';
 import { cashLedger, cashTotals, monthlySummary, reconcile, pendingBalances } from '../lib/cashBookEngine';
 import { unitLabel } from '../components/budgets/BudgetHierarchyModals';
-import { downloadCSV } from '../lib/exportCsv';
+import { downloadExcel } from '../lib/exportCsv';
 
 // Sentinelle de la caisse du COMPLEXE (school_unit_id = NULL). Une chaîne vide
 // dans un <select> ne distingue pas « complexe » de « rien choisi ».
@@ -132,7 +132,8 @@ export default function CashBook() {
     const pied = [
       [], [t('TOTAUX', 'TOTALS', 'TOTALES'), '', '', '', '', totals.entrees, totals.sorties, totals.solde, '', ''],
     ];
-    downloadCSV(`caisse-${caisseLabel.replace(/\s+/g, '-').toLowerCase()}.csv`, [head, ...body, ...pied]);
+    downloadExcel(`caisse-${caisseLabel.replace(/\s+/g, '-').toLowerCase()}.xlsx`,
+      [head, ...body, ...pied], t('Caisse', 'Cash book', 'Caja'));
   };
 
   return (

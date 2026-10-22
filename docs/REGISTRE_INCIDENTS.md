@@ -124,3 +124,161 @@ colonne : la recherche d'en-tête tentait une correspondance exacte puis approxi
 actions n'étaient pas cliquables.
 
 **Garde-fou** : tests de frais dans `src/lib/`; à préciser.
+
+---
+
+## I8 — « Six fois qu'on me dit que c'est réglé » : l'installeur passé, le serveur jamais relancé
+
+**Date** : 2026-10-18 · **Statut** : clos · **Source** : constat sur le poste d'édition
+
+**Symptôme.** Après installation de la 0.3.16, « Modifier les compétences » et
+« Mon profil » refusaient toujours d'enregistrer. Le barème, lui, passait. Sur une
+seconde machine, le barème ne passait pas non plus.
+
+**Cause réelle.** Les fichiers de `C:\Program Files\NotesCam` étaient bien en 0.3.16,
+mais le processus `node.exe` qui servait le port 8080 avait démarré **la veille** et
+annonçait encore `0.3.4`. Or `server/db.js` pose les tables et colonnes neuves **au
+démarrage** : tant que le service n'a pas redémarré, la base reste à l'ancien schéma et
+les écrans refusent exactement comme avant. Le journal du serveur le disait en clair :
+`[schema] colonne inconnue ignorée: prim_competences.school_id`.
+
+Le **barème passait** parce que sa clé d'unicité (`prim_notes`) avait été posée par une
+version antérieure, déjà redémarrée. C'est ce décalage entre les trois écrans qui a
+rendu le diagnostic évident — et c'est pourquoi il faut croire ce que l'école décrit :
+« l'un marche, les deux autres non » était l'indice.
+
+**Ce qui a fait perdre le plus de temps.** Toutes les vérifications portaient sur une
+base **neuve**, jamais sur la base **installée**. Une base neuve ne peut pas reproduire
+un défaut de migration, et elle ne dit rien du processus réellement en mémoire.
+
+**Leçon.** « Installé » ne veut pas dire « appliqué ». Avant de déclarer un correctif en
+place, comparer **trois** choses, jamais une seule : la version des fichiers, la version
+que le serveur **annonce**, et ce que la **base** porte réellement.
+
+**Garde-fou** :
+- `packaging/REDEMARRER-APRES-MAJ.cmd` + `packaging/sauvegarder-et-redemarrer.mjs` —
+  arrêt, sauvegarde vérifiée, redémarrage, contrôle. Livrés par l'installeur et présents
+  dans le menu Démarrer (« Appliquer la mise à jour »).
+- `packaging/verifier-correctifs.mjs` — lit la base, en lecture seule, et dit correctif
+  par correctif ce qui est posé. Affiche la version du serveur **en marche**, pas celle
+  des fichiers.
+- Côté Linux, `packaging/linux/deploy-0.3.16.sh` fait déjà la séquence complète : le
+  défaut était propre au vecteur Windows, où l'installeur ne redémarre pas le service.
+
+---
+
+## I9 — « student_fees · upsert : duplicate key » — le dû saisi au guichet n'arrivait jamais (THE GENIUS)
+
+**Date** : 2026-10-19 · **Statut** : corrigé dans le code, **non déployé** · **Source** :
+message de l'école, bandeau de synchronisation du navigateur
+
+**Symptôme**, tel que l'école le lit à l'écran (`src/components/Layout.jsx:171`) :
+
+```
+student_fees · upsert
+duplicate key value violates unique constraint "student_fees_student_id_academic_year_key"
+```
+
+**Cause établie, pas supposée.** `student_fees` porte `UNIQUE(student_id, academic_year)`
+des deux côtés — vérifié dans `pg_constraint` de la base de production
+(`student_fees_student_id_academic_year_key UNIQUE (student_id, academic_year)`), et dans
+`server/schema.sql` pour le LAN. Or **tout le chemin d'écriture upsertait sur `id`**
+(`schoolService.upsertFee`, `sync.js`, `dataImport.js`, `sync-push`). Et `saveFee`
+(`src/store/schoolStore.js`) fabrique un `uuid()` neuf dès que la fiche n'est pas dans le
+cache local : autre poste, autre navigateur, cache vidé, lecture restreinte par secteur
+(`fee_scope_allows_student`, policy `FOR ALL` sur la table), ou année active changée sans
+rechargement. L'INSERT heurtait alors la ligne que le Cloud détient déjà **sous un autre
+id** : refus `23505`, élément **bloqué dans la file du navigateur**, rejoué à chaque
+cycle, puis mis en quarantaine après 25 refus. Le montant dû saisi par la caisse
+n'arrivait jamais, et personne ne pouvait le débloquer depuis l'application.
+
+**Ce qui n'a PAS été constaté** (lectures seules sur la base de production, école
+`6b68407b-3d2e-426b-81ff-c4e68e66120a`) : aucun versement orphelin. Les 891 versements
+de THE GENIUS ont tous leur fiche de frais, et les 693 fiches de l'année `2026-2027`
+sont cohérentes (133 980 000 F dus, 84 274 000 F encaissés). **Le blocage était dans la
+file du poste, pas dans les données du Cloud** — aucune donnée financière à réparer.
+
+**Correctif** : l'identité d'une fiche de frais est `(élève, année)`, jamais son `id`.
+`upsertFee` écrit désormais **dans** la ligne existante quand le Cloud la détient sous un
+autre id, et l'appelant réaligne son cache local (`adopterIdFraisDistant`). `sync.js`
+fait le même rattrapage pour les éléments **déjà bloqués** : la file se résorbe d'elle-même
+au prochain cycle, sans intervention sur le poste. Voir décision **D10**.
+
+**Deuxième défaut, trouvé en préparant le paquet Windows et corrigé** : la détection du
+doublon ne reconnaissait que le libellé **Postgres** (`23505`,
+`student_fees_student_id_academic_year_key`). En LAN la base est SQLite et parle par
+`localClient` : pas de code, et une autre phrase — `UNIQUE constraint failed:
+student_fees.student_id, student_fees.academic_year`. Le rattrapage était donc **inerte
+sur les postes d'école**, là où le guichet travaille hors ligne et où il sert le plus.
+`estDoublonFrais` (exporté, partagé par `upsertFee` et `src/lib/sync.js`) reconnaît
+désormais les deux formulations, et refuse toujours les doublons d'une AUTRE table
+(`students.parent_token`).
+
+**Garde-fou** : `src/lib/_feeUpsertConflit.test.mjs` — 21 contrôles, dont celui qui
+compte vraiment : le cache de paiement du Cloud (50 000 F encaissés) n'est **pas** écrasé
+par le 0 d'une fiche qui n'a jamais vu cette ligne.
+
+**Reste ouvert, même famille, non corrigé** : le chemin LAN↔Cloud a le défaut symétrique.
+`sync-push` (`supabase/functions/sync-push/index.ts:125`) et le pull LAN
+(`rawUpsert`, `server/cloudSync.js:120`) travaillent aussi `ON CONFLICT(id)` : une fiche
+de frais dont l'id diverge entre les deux bases ne peut ni monter ni descendre, et reste
+en file de rejeu. Inerte aujourd'hui pour THE GENIUS (la synchro Cloud du LAN exige un
+jeton scellé **et** le mode hybride), à traiter **avant** d'activer la synchro hybride
+dans une école.
+
+---
+
+## I10 — Une matière apparaissait deux fois dans la classe, et comptait deux fois
+
+**Date** : relevé le 2026-10-21, corrigé le 2026-10-22 · **Statut** : **données corrigées
+en production**, parade dans le code (non commitée) · **Source** : audit des 44 écoles,
+puis constat à l'écran de l'école
+
+**Symptôme.** Deux lignes « SVT », deux lignes « Home Economics », deux lignes
+« Language and communication » dans la même classe. L'enseignante saisissait sur l'une
+ou l'autre selon ce que son écran lui montrait ce jour-là. Sur le bulletin, la matière
+sortait **deux fois**, donc son coefficient comptait deux fois dans la moyenne générale.
+
+**Ampleur, mesurée et non estimée.** 33 couples (classe, matière) en double,
+**34 lignes en trop**, dans 4 écoles : goudja 15, THE GENIUS 10, BRIGHT CONTINENT 8
+(toute la Nursery 2), Collège La retraite 1. Un cas à **trois** copies (5eme de
+THE GENIUS, « Histoire »).
+
+**Cause.** L'auto-configuration d'une classe se gardait du doublon en regardant
+`get().subjects` — le **cache du poste**. Un poste qui n'avait pas encore descendu les
+matières (serveur LAN après remise à zéro du curseur, navigateur vidé, second appareil)
+voyait une classe vide, la reconfigurait, et tirait de **nouveaux identifiants au
+hasard**. La base accueillait une seconde série complète.
+
+**Ce qui aggravait.** Une seule saisie écrivait sur les DEUX copies : les 10 notes de SVT
+en 5eme portaient la même valeur, pour le même élève, à la **même seconde**, sur les deux
+identifiants. Le doublon ne se voyait donc pas à la saisie — seulement sur le bulletin.
+
+**Parade dans le produit.** L'identifiant d'une matière de classe est dérivé de
+`(classe, nom normalisé)` : deux postes qui configurent la même classe écrivent les
+**mêmes** lignes, l'upsert les met à jour au lieu d'en ajouter une série. Verrouillé par
+`src/core/_idMatiereDeterministe.test.mjs`, qui refuse tout `makeId()` nu dans les sept
+constructeurs de matières. **Cette parade n'empêche pas les doublons déjà posés** — d'où
+la correction de données.
+
+**Correction des données, appliquée le 2026-10-22 après autorisation explicite.**
+`scripts/audit-matieres-doublons.mjs` (lecture seule) a choisi la ligne à garder, généré
+le SQL et son retour arrière. Vérifié **avant** : aucune note en conflit de valeur, 10
+notes strictement identiques à retirer, 0 à déplacer. Vérifié **après** : 0 couple en
+double, 0 note orpheline, SVT a gardé ses 10 notes, Home Economics ses 41, et
+« Expression Écrite » a retrouvé le rang 3 que portait sa copie. 34 `sync_tombstones`
+écrits (plus 10 pour les notes) : **les écoles en LAN retireront la ligne d'elles-mêmes**
+au prochain cycle. Sans ces pierres tombales, l'école aurait gardé son doublon et l'aurait
+repoussé au Cloud.
+
+**Reste à l'école** : sept coefficients divergeaient entre les deux copies
+(`docs/corrections/2026-10-22-coefficients-a-trancher.sql`). Changer un coefficient change
+une moyenne : la décision ne nous appartient pas.
+
+**Défaut voisin, trouvé au passage et corrigé.** Six rangs de la 5eme de THE GENIUS
+étaient portés par deux matières à la fois. À rangs égaux, le comparateur du produit
+rendait `0` ; `Array.sort` étant stable, l'ordre retombait sur celui de la **liste reçue**,
+qui n'est pas la même d'un écran à l'autre — deux matières pouvaient donc s'échanger entre
+le bulletin et la grille de saisie. C'est exactement ce que la décision **D11** avait
+fermé, revenu par la porte des ex æquo. Le départage continue désormais sur le
+coefficient, le nom, puis l'identifiant (`src/core/subjectOrder.js`).

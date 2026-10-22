@@ -14,6 +14,7 @@ import { useAuthStore } from '../store/authStore';
 import { STAFF_DEPARTMENTS, uploadStaffPhoto, uploadStaffDocument, parseDocs } from '../lib/staffService';
 import { useStrictMatrix } from '../lib/useStrictMatrix';
 import { exportStaff, downloadStaffTemplate, parseStaffSpreadsheet, printStaffList } from '../lib/staffExport';
+import { EXCEL_ACCEPT } from '../lib/exportCsv';
 import { resizeImageToSquare } from '../lib/image';
 import { TeachersPanel } from './Teachers';
 import StaffManager from '../components/StaffManager';
@@ -326,7 +327,7 @@ function StaffDepartmentPanel({ department, label }) {
   const handlePrint  = () => printStaffList(members, label, school);
   const handleExport = () => exportStaff(members, label);
 
-  // Import CSV/Excel : chaque ligne est rattachée AU département courant.
+  // Import d'un classeur Excel : chaque ligne est rattachée AU département courant.
   const handleImport = async (file) => {
     if (!file) return;
     setImportMsg(null);
@@ -351,7 +352,7 @@ function StaffDepartmentPanel({ department, label }) {
               value={search} onChange={(e) => setSearch(e.target.value)} />
           )}
           <button onClick={() => importRef.current?.click()} className="btn-secondary">{t('Importer', 'Import', 'Importar')}</button>
-          <input ref={importRef} type="file" accept=".xlsx,.xls,.csv,.ods" className="hidden"
+          <input ref={importRef} type="file" accept={EXCEL_ACCEPT} className="hidden"
             onChange={(e) => { handleImport(e.target.files?.[0]); e.target.value = ''; }} />
           <button onClick={downloadStaffTemplate} className="btn-secondary" title={t('Télécharger le modèle', 'Download template', 'Descargar plantilla')}>
             {t('Modèle', 'Template', 'Plantilla')}

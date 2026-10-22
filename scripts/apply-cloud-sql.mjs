@@ -19,12 +19,23 @@
 
 import { readFileSync } from 'node:fs';
 
+// Repli sur `.env.local` (gitignoré) pour CE QUI MANQUE seulement. On lit le
+// fichier dans tous les cas : n'y toucher que si le jeton est absent laisse
+// `SUPABASE_PROJECT_REF` vide dès lors que le jeton, lui, vient déjà de
+// l'environnement — et le script retombe alors sur le ref codé en dur.
+try {
+  for (const ligne of readFileSync('.env.local', 'utf8').split(/\r?\n/)) {
+    const m = ligne.match(/^([A-Z_]+)=(.*)$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+  }
+} catch { /* pas de .env.local : tout doit venir de l'environnement */ }
+
 const REF = process.env.SUPABASE_PROJECT_REF || 'ltxopwoxvgslsgzixbpx';
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN || '';
 const GENIUS = '6b68407b-3d2e-426b-81ff-c4e68e66120a';
 
 if (!TOKEN) {
-  console.error('SUPABASE_ACCESS_TOKEN absent de l\'environnement — rien n\'a été exécuté.');
+  console.error('SUPABASE_ACCESS_TOKEN absent de l\'environnement et de .env.local — rien n\'a été exécuté.');
   process.exit(1);
 }
 

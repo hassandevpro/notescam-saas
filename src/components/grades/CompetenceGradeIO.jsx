@@ -12,7 +12,7 @@
 
 import { useState, useRef, useMemo } from 'react';
 import { useT } from '../../lib/i18n';
-import { downloadExcel, readSheetAoa } from '../../lib/exportCsv';
+import { downloadExcel, readSheetAoa, EXCEL_ACCEPT } from '../../lib/exportCsv';
 import { gradeCell } from '../../lib/gradeEntry';
 
 // Normalisation robuste (casse + accents + espaces) pour apparier noms d'élèves
@@ -143,7 +143,7 @@ export default function CompetenceGradeIO({
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-base font-semibold text-gray-900">
-              {t('Importer des notes (Excel/CSV)', 'Import grades (Excel/CSV)', 'Importar notas (Excel/CSV)')}
+              {t('Importer des notes (Excel)', 'Import grades (Excel)', 'Importar notas (Excel)')}
             </h3>
             <button onClick={closePanel} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
           </div>
@@ -237,7 +237,7 @@ export default function CompetenceGradeIO({
             </div>
           )}
 
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.ods" className="hidden"
+          <input ref={fileRef} type="file" accept={EXCEL_ACCEPT} className="hidden"
             onChange={(e) => handleFile(e.target.files?.[0])} />
         </div>
       )}

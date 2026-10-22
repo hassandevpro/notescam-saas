@@ -5,7 +5,7 @@ import { useAuthStore } from '../store/authStore';
 import { frApp, enGrade, esGrade } from '../core/bulletinEngine';
 import { MAT_ACQUIS, MAT_ACQUIS_COLORS } from '../core/matEngine';
 import { matAcquisLabel, matAcquisCode } from '../core/referentielI18n';
-import { downloadCSV } from '../lib/exportCsv';
+import { downloadExcel } from '../lib/exportCsv';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { resolveCountryCode } from '../countries';
@@ -982,16 +982,17 @@ export default function Reports() {
       ]),
     ];
     const cn = selectedClass?.name?.replace(/\s+/g, '_') || 'classe';
-    downloadCSV(`discipline_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+    downloadExcel(`discipline_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      rows, t('Discipline', 'Discipline', 'Disciplina'));
   };
 
   // Bandes calées sur le barème réel du moteur (/20, /100, /10 primaire APC) ou,
   // en maternelle, comptage par niveau d'acquisition.
   const distribution = hasData ? (classReport?.distribution ?? []) : [];
 
-  const csvName = (prefix) => {
+  const workbookName = (prefix) => {
     const cn = selectedClass?.name?.replace(/\s+/g, '_') || 'classe';
-    return `${prefix}_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`;
+    return `${prefix}_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
   };
 
   const handleExportResults = () => {
@@ -1020,7 +1021,8 @@ export default function Reports() {
           ];
         }),
       ];
-    downloadCSV(csvName(isAcquisition ? 'acquisition' : 'resultats'), rows);
+    downloadExcel(workbookName(isAcquisition ? 'acquisition' : 'resultats'), rows,
+      isAcquisition ? t('Acquisitions', 'Acquisition', 'Adquisiciones') : t('Résultats', 'Results', 'Resultados'));
   };
 
   const handleExportSubjects = () => {
@@ -1039,7 +1041,8 @@ export default function Reports() {
           total ? `${Math.round((passCount / total) * 100)}%` : '',
         ]),
       ];
-    downloadCSV(csvName(isAcquisition ? 'domaines' : 'matieres'), rows);
+    downloadExcel(workbookName(isAcquisition ? 'domaines' : 'matieres'), rows,
+      isAcquisition ? t('Domaines', 'Domains', 'Dominios') : t('Matières', 'Subjects', 'Materias'));
   };
 
   // Étiquette du référentiel suivi par la classe — utile quand plusieurs cohabitent.
@@ -1168,10 +1171,10 @@ export default function Reports() {
           {activeTab === 'academique' && hasData && (
             <div className="flex gap-2 flex-wrap items-end">
               <button onClick={handleExportResults} className="btn-secondary text-xs">
-                CSV {t('résultats', 'results')}
+                Excel {t('résultats', 'results')}
               </button>
               <button onClick={handleExportSubjects} className="btn-secondary text-xs">
-                CSV {t('matières', 'subjects')}
+                Excel {t('matières', 'subjects')}
               </button>
               <button
                 onClick={() => setShowPrintOpts((v) => !v)}
@@ -1194,7 +1197,7 @@ export default function Reports() {
           {activeTab === 'discipline' && classId && disciplineReport && (
             <div className="flex gap-2 flex-wrap items-end">
               <button onClick={handleExportDiscipline} className="btn-secondary text-xs">
-                CSV {t('discipline', 'discipline')}
+                Excel {t('discipline', 'discipline')}
               </button>
               <button
                 onClick={() => printDisciplineReport({ school, selectedClass, period, isGE, ...disciplineReport })}

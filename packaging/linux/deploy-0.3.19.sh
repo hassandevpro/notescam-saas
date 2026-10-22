@@ -1,0 +1,396 @@
+#!/usr/bin/env bash
+# Déploiement de la 0.3.19 sur le serveur LAN d'une école déjà appairée.
+#
+# POURQUOI UN SCRIPT ET PAS install.sh TOUT SEUL
+# ──────────────────────────────────────────────
+# `install.sh` remplace l'application et conserve /var/lib/notescam/data, mais il
+# NE SAUVEGARDE PAS la base. Ici le service est arrêté AVANT la copie, la copie
+# est consolidée (VACUUM INTO) et elle est VÉRIFIÉE. Une sauvegarde non vérifiée
+# n'est pas une sauvegarde.
+#
+# CE QUE LA 0.3.19 CHANGE
+# ───────────────────────
+#   1. LA MÊME LISTE DE MATIÈRES PARTOUT. Les matières cochées sur la classe sont
+#      exactement celles qui s'affichent à la saisie des notes et sur le
+#      bulletin, dans le même ordre, pour tous les cycles (classique, APC
+#      primaire, APC 6e-3e, second cycle, bilingue). Avant, cinq tris différents
+#      et trois périmètres différents cohabitaient : une matière pouvait
+#      apparaître à la saisie et manquer au bulletin, en silence.
+#
+#   2. UNE MATIÈRE HORS RÉFÉRENTIEL EST PERMISE, ET GARDE SON CLASSEMENT.
+#      L'école crée « Espagnol », choisit le classement « Langue » : le bulletin
+#      la met chez les langues, plus dans « Autres matières ». Un créneau
+#      « Langue vivante » du référentiel accueille la langue choisie par l'école
+#      — l'arrêté ouvre le créneau sans nommer la langue.
+#
+#   3. LE CARNET DÉTAILLÉ DU PRIMAIRE, DERRIÈRE UN BOUTON. Réglages ->
+#      « Bulletin du primaire » : « Standard » (ce que toutes les écoles ont
+#      aujourd'hui, et le défaut) ou « Carnet détaillé » (les six regroupements
+#      officiels avec Total et Moyenne, le travail académique, les statistiques
+#      de performance, la répartition des élèves, la signature du parent).
+#      AUCUNE école ne voit son bulletin bouger tant qu'elle n'a pas cliqué.
+#
+# ⚠ CONTRAIREMENT AUX 0.3.17 ET 0.3.18, CETTE VERSION AJOUTE DES COLONNES :
+#     apc_matieres.school_id, apc_classe_matieres.school_id  (l'école possède ses
+#       propres matières de premier cycle, le référentiel national reste partagé)
+#     schools.prim_bulletin_mode                             (le bouton ci-dessus)
+#
+#   Ces trois tables sont SYNCHRONISÉES. Au premier démarrage, le serveur pose
+#   les colonnes et REMET LE CURSEUR DE DESCENTE À ZÉRO pour les remplir : le
+#   prochain pull relit tout, et un long rattrapage est à attendre — comme en
+#   0.3.16, pas comme en 0.3.17/0.3.18. Rien n'est perdu pendant ce temps : les
+#   saisies partent dans la file et montent au Cloud normalement. C'est l'école
+#   qui doit en être prévenue, pas une surprise à découvrir le lendemain.
+#
+# Les contrôles des 0.3.18, 0.3.17 et 0.3.16 sont CONSERVÉS tels quels : ils ne
+# vérifient pas une nouveauté, ils gardent fermé ce qui a déjà coûté une
+# intervention (frais bloqués en file, classes bilingues, échanges en Excel,
+# profil, référentiel, masques, `source_balance_raw` qui doit rester absente).
+#
+# Ce script ne fait RIEN d'autre que ce qui est écrit ci-dessous :
+#   • il ne supprime aucune base, ne réinitialise aucune file de synchronisation ;
+#   • il ne dédoublonne PAS la file : s'il en trouve le besoin, il le DIT et
+#     s'arrête là — `dedoublonner-file-poussee.sh` est un geste à part, avec sa
+#     propre sauvegarde et son propre critère d'arrêt ;
+#   • il ne refait aucun appairage, ne change aucun school_id ;
+#   • il n'écrit aucune donnée métier, ni en LAN ni au Cloud ;
+#   • il ne lance aucune synchronisation forcée.
+#
+# CRITÈRES D'ARRÊT. Le script s'arrête de lui-même, AVANT de toucher à
+# l'application, si la sauvegarde n'est pas vérifiable. Après l'installation, il
+# compare et rend un code de sortie non nul au moindre écart : le code ≠ 0 est le
+# signal d'appeler l'éditeur, PAS de tenter une réparation.
+#
+# Usage, en root, depuis le dossier contenant l'archive :
+#   sudo ./deploy-0.3.19.sh notescam-linux-x64-0.3.19.tar.gz
+#
+set -uo pipefail
+
+ARCHIVE="${1:-}"
+PORT="${PORT:-8080}"
+BASE="http://127.0.0.1:$PORT"
+DATA=/var/lib/notescam/data
+DB="$DATA/notescam.db"
+NODE=/opt/notescam/node/bin/node
+VERSION=0.3.19
+
+rouge() { printf '\033[31m%s\033[0m\n' "$*"; }
+vert()  { printf '\033[32m%s\033[0m\n' "$*"; }
+jaune() { printf '\033[33m%s\033[0m\n' "$*"; }
+titre() { printf '\n=== %s ===\n' "$*"; }
+
+ko=0
+verifie() { # verifie "libellé" "obtenu" "attendu"
+  if [[ "$2" == "$3" ]]; then vert "  PASS  $1 ($2)"
+  else rouge "  FAIL  $1 — obtenu: '$2', attendu: '$3'"; ko=$((ko+1)); fi
+}
+
+[[ $EUID -eq 0 ]] || { rouge "À lancer en root : sudo $0 <archive.tar.gz>"; exit 1; }
+[[ -f "$ARCHIVE" ]] || { rouge "Archive introuvable : $ARCHIVE"; exit 1; }
+[[ -f "$DB" ]]      || { rouge "Base introuvable : $DB — ce script met à JOUR une installation existante."; exit 1; }
+
+# Interroge la base SANS dépendre du paquet sqlite3 (souvent absent d'un serveur
+# d'école). Le node embarqué sait le faire : `node:sqlite` est dans le runtime.
+#
+# ATTENTION AUX INDICES. Avec `node -e`, il n'y a PAS de chemin de script dans
+# process.argv : le premier argument est argv[1]. Avec `node script.js`, c'est
+# argv[2].
+#
+# Le JS passe par un heredoc : il contient des apostrophes, qui fermeraient
+# prématurément une chaîne entre quotes simples dans le shell.
+JS_LIRE="$(cat <<'JS'
+const { DatabaseSync } = require('node:sqlite');
+const db = new DatabaseSync(process.argv[1], { readOnly: true });
+for (const r of db.prepare(process.argv[2]).all()) console.log(Object.values(r).join('|'));
+JS
+)"
+JS_COPIER="$(cat <<'JS'
+// VACUUM INTO : copie COHÉRENTE d'une base en mode WAL, sans toucher la source.
+const { DatabaseSync } = require('node:sqlite');
+const db = new DatabaseSync(process.argv[1], { readOnly: true });
+db.exec("VACUUM INTO '" + process.argv[2].replace(/'/g, "''") + "'");
+JS
+)"
+sqf() { "$NODE" -e "$JS_LIRE" "$1" "$2" 2>/dev/null; }
+
+COMPTAGES="SELECT (SELECT COUNT(*) FROM students) || '|' ||
+                  (SELECT COUNT(*) FROM grades) || '|' ||
+                  (SELECT COUNT(*) FROM fee_payments) || '|' ||
+                  (SELECT COUNT(*) FROM budget_expenses) || '|' ||
+                  (SELECT COUNT(*) FROM sync_outbox) AS c"
+
+titre "0. État AVANT"
+VER_AVANT="$(curl -fsS --max-time 5 "$BASE/api/version" 2>/dev/null || echo '<serveur arrêté>')"
+SCHOOL_AVANT="$(curl -fsS --max-time 5 "$BASE/api/pair/status" 2>/dev/null | grep -o '"schoolId":"[^"]*"' | cut -d'"' -f4)"
+echo "  version       : $VER_AVANT"
+echo "  school_id     : ${SCHOOL_AVANT:-<non lu>}"
+echo "  jeton d'école : $([[ -f "$DATA/server-token.key" ]] && echo présent || echo ABSENT)"
+
+titre "1. Arrêt du service (avant la copie : une copie à chaud peut être déchirée)"
+systemctl stop notescam
+sleep 2
+echo "  service : $(systemctl is-active notescam)"
+
+titre "2. Sauvegarde VÉRIFIABLE de la base"
+AVANT="$(sqf "$DB" "$COMPTAGES")"
+echo "  eleves|notes|versements|depenses|file = $AVANT"
+HORO="$(date +%Y%m%d%H%M%S)"
+COPIE="$DATA/notescam.db.avant-$VERSION-$HORO"
+"$NODE" -e "$JS_COPIER" "$DB" "$COPIE" \
+  || { rouge "  La copie a échoué — RIEN n'a été modifié."; systemctl start notescam; exit 1; }
+chown notescam:notescam "$COPIE" 2>/dev/null
+echo "  copie : $COPIE ($(stat -c%s "$COPIE") octets)"
+
+INTEG="$(sqf "$COPIE" "PRAGMA integrity_check")"
+COPIE_CPT="$(sqf "$COPIE" "$COMPTAGES")"
+verifie "integrity_check de la copie" "$INTEG" "ok"
+verifie "comptages identiques dans la copie" "$COPIE_CPT" "$AVANT"
+if [[ $ko -ne 0 ]]; then
+  rouge "SAUVEGARDE NON VÉRIFIÉE — on s'arrête ici. L'application n'a PAS été touchée."
+  systemctl start notescam
+  exit 2
+fi
+vert "  Sauvegarde vérifiée. On peut installer."
+
+# Lecture SEULE, pour savoir quoi dire à l'école à la fin. Cette version remet le
+# curseur de descente à zéro : si la file est déjà engorgée, le rattrapage
+# attendra derrière elle, et c'est le dédoublonnage qu'il faut faire d'abord.
+titre "2 bis. État de la file de poussée (mesure, aucune écriture)"
+FILE_TOTAL="$(sqf "$DB" "SELECT COUNT(*) FROM sync_outbox")"
+FILE_DISTINCT="$(sqf "$DB" "SELECT COUNT(DISTINCT tablename || '|' || row_id) FROM sync_outbox")"
+echo "  entrées ............. ${FILE_TOTAL:-<non lu>}"
+echo "  pointeurs distincts . ${FILE_DISTINCT:-<non lu>}"
+ENGORGEE=0
+if [[ -n "${FILE_TOTAL:-}" && -n "${FILE_DISTINCT:-}" && "$FILE_DISTINCT" -gt 0 ]]; then
+  if [[ "$FILE_TOTAL" -gt $(( FILE_DISTINCT * 3 )) && "$FILE_TOTAL" -gt 10000 ]]; then
+    ENGORGEE=1
+    jaune "  File ENGORGÉE : $FILE_TOTAL entrées pour $FILE_DISTINCT pointeurs utiles."
+    jaune "  À traiter APRÈS cette mise à jour, avec son propre script :"
+    jaune "      sudo ./dedoublonner-file-poussee.sh --simulation   # mesure seule"
+    jaune "      sudo ./dedoublonner-file-poussee.sh"
+    jaune "  Ce script-ci n'y touche pas."
+  else
+    vert "  PASS  file sans engorgement notable"
+  fi
+fi
+APC_AVANT="$(sqf "$DB" "SELECT (SELECT COUNT(*) FROM apc_matieres) || '|' || (SELECT COUNT(*) FROM apc_classe_matieres)")"
+echo "  matières APC | rattachements = ${APC_AVANT:-<non lu>}"
+
+titre "3. Installation"
+TMP="$(mktemp -d)"
+tar xzf "$ARCHIVE" -C "$TMP" || { rouge "Archive illisible"; systemctl start notescam; rm -rf "$TMP"; exit 1; }
+DOSSIER="$(find "$TMP" -maxdepth 1 -type d -name 'notescam-linux-x64*' | head -1)"
+[[ -d "$DOSSIER" ]] || { rouge "Contenu d'archive inattendu"; systemctl start notescam; rm -rf "$TMP"; exit 1; }
+# Archive construite sous Windows : les .sh peuvent être en CRLF, et Linux refuse
+# alors le shebang (« /usr/bin/env: 'bash\r' »). On normalise.
+n=0
+while IFS= read -r -d '' f; do
+  if grep -qU $'\r' "$f" 2>/dev/null; then sed -i 's/\r$//' "$f"; n=$((n+1)); fi
+done < <(find "$DOSSIER" -maxdepth 2 -name '*.sh' -type f -print0)
+[[ $n -gt 0 ]] && echo "  (${n} script(s) normalisé(s) CRLF -> LF)"
+chmod +x "$DOSSIER"/*.sh 2>/dev/null
+( cd "$DOSSIER" && ./install.sh "$PORT" ) || { rouge "install.sh a échoué"; rm -rf "$TMP"; exit 1; }
+rm -rf "$TMP"
+
+titre "4. Ce que la 0.3.19 apporte est-il en place ?"
+# Marqueurs choisis dans le code NEUF et vérifiés présents dans le bundle
+# construit : des libellés d'interface, qui survivent à la minification là où les
+# noms de fonctions non. Un paquet qui ne les porte pas est périmé, quelle que
+# soit la version qu'il annonce.
+DIST=/opt/notescam/app/dist/assets
+grep -rqsF "Carnet détaillé" "$DIST" \
+  && vert "  PASS  réglages : le bouton « Bulletin du primaire » est livré" \
+  || { rouge "  FAIL  dist : « Carnet détaillé » introuvable — le bouton manquera"; ko=$((ko+1)); }
+grep -rqsF "COMMUNIQUER EN FRANÇAIS ET EN ANGLAIS" "$DIST" \
+  && vert "  PASS  carnet : les six regroupements officiels sont livrés" \
+  || { rouge "  FAIL  dist : les regroupements du carnet sont ABSENTS"; ko=$((ko+1)); }
+grep -rqsF "Travail académique" "$DIST" \
+  && vert "  PASS  carnet : la ligne « Travail académique » est livrée" \
+  || { rouge "  FAIL  dist : « Travail académique » ABSENT du carnet"; ko=$((ko+1)); }
+grep -rqsF "rejoindront le domaine" "$DIST" \
+  && vert "  PASS  matière maison : son classement est annoncé à la création" \
+  || { rouge "  FAIL  dist : l'avis de classement est ABSENT"; ko=$((ko+1)); }
+grep -rqsF "langue vivante" "$DIST" \
+  && vert "  PASS  référentiel : le créneau « langue vivante » accueille la langue choisie" \
+  || { rouge "  FAIL  dist : le créneau « langue vivante » est ABSENT — l'espagnol irait en « Autres »"; ko=$((ko+1)); }
+grep -rqsF "ne sont pas couvertes par les matières cochées" "$DIST" \
+  && vert "  PASS  saisie : ce que le périmètre de la classe écarte est ANNONCÉ" \
+  || { rouge "  FAIL  dist : le filtre de périmètre serait invisible"; ko=$((ko+1)); }
+
+titre "4 bis. Le serveur local accepte-t-il les matières de l'école ?"
+# Le garde-fou `guardReferentielNational` est le miroir, côté LAN, de la RLS du
+# Cloud : il protège les lignes NATIONALES (school_id NULL) et ouvre les lignes
+# de l'école. Sans ces deux tables dans sa liste ouverte, créer une matière
+# échouerait ICI alors qu'elle passe au Cloud — exactement le défaut que cette
+# version corrige.
+SRV=/opt/notescam/app/server
+grep -qF "apc_matieres: 'matière'" "$SRV/query.js" \
+  && vert "  PASS  query.js ouvre apc_matieres aux lignes de l'école" \
+  || { rouge "  FAIL  query.js : apc_matieres n'est pas ouverte — création de matière refusée en local"; ko=$((ko+1)); }
+grep -qF "apc_classe_matieres: 'matière'" "$SRV/query.js" \
+  && vert "  PASS  query.js ouvre apc_classe_matieres (le rattachement à la classe)" \
+  || { rouge "  FAIL  query.js : apc_classe_matieres n'est pas ouverte — la matière ne s'attacherait pas"; ko=$((ko+1)); }
+grep -qE "^ensureColumn\('apc_matieres', *'school_id'" "$SRV/db.js" \
+  && vert "  PASS  db.js posera apc_matieres.school_id" \
+  || { rouge "  FAIL  db.js : apc_matieres.school_id ne sera pas posée"; ko=$((ko+1)); }
+grep -qE "^ensureColumn\('apc_classe_matieres', *'school_id'" "$SRV/db.js" \
+  && vert "  PASS  db.js posera apc_classe_matieres.school_id" \
+  || { rouge "  FAIL  db.js : apc_classe_matieres.school_id ne sera pas posée"; ko=$((ko+1)); }
+grep -qF "prim_bulletin_mode" "$SRV/db.js" \
+  && vert "  PASS  db.js posera schools.prim_bulletin_mode (le réglage du carnet)" \
+  || { rouge "  FAIL  db.js : prim_bulletin_mode ne sera pas posée — le bouton ne retiendrait rien"; ko=$((ko+1)); }
+
+titre "4 ter. Ce que la 0.3.18 apportait est toujours là"
+grep -rqs "Classe bilingue" "$DIST" \
+  && vert "  PASS  classes bilingues : la case est livrée" \
+  || { rouge "  FAIL  dist : « Classe bilingue » introuvable — interface périmée"; ko=$((ko+1)); }
+grep -rqs "Fusionner avec" "$DIST" \
+  && vert "  PASS  classes bilingues : le choix de la classe jumelle est livré" \
+  || { rouge "  FAIL  dist : « Fusionner avec » ABSENT — la fusion ne sera pas proposée"; ko=$((ko+1)); }
+grep -rqs "student_fees_student_id_academic_year" "$DIST" \
+  && vert "  PASS  frais : le rattrapage du doublon (élève, année) est livré" \
+  || { rouge "  FAIL  dist : le rattrapage des frais est ABSENT — la file restera bloquée"; ko=$((ko+1)); }
+grep -rqsF "academic_year/i" "$DIST" \
+  && vert "  PASS  frais : le message SQLite du serveur local est reconnu" \
+  || { rouge "  FAIL  dist : la détection SQLite est ABSENTE — correctif inerte ici"; ko=$((ko+1)); }
+
+titre "4 quater. Ce que la 0.3.17 apportait est toujours là"
+grep -rqs "Exporter Excel" "$DIST" \
+  && vert "  PASS  les exports s'annoncent en Excel" \
+  || { rouge "  FAIL  dist : « Exporter Excel » introuvable — interface périmée"; ko=$((ko+1)); }
+grep -rqs "seuls les classeurs Excel" "$DIST" \
+  && vert "  PASS  l'import refuse ce qui n'est pas un classeur, avec son message" \
+  || { rouge "  FAIL  dist : le refus « classeur Excel » est ABSENT"; ko=$((ko+1)); }
+grep -rqs "Feuilles vues" "$DIST" \
+  && vert "  PASS  bulletins du second cycle : l'import du classeur est livré" \
+  || { rouge "  FAIL  dist : l'import des bulletins du second cycle est ABSENT"; ko=$((ko+1)); }
+# Le dist livré doit être celui de CETTE construction : sinon l'école garderait
+# l'ancienne interface par-dessus le nouveau serveur.
+grep -q '"edition"[[:space:]]*:[[:space:]]*"lan"' /opt/notescam/app/dist/edition.json 2>/dev/null \
+  && vert "  PASS  interface : build LAN estampillé ($(grep -o '"built_at"[^,}]*' /opt/notescam/app/dist/edition.json))" \
+  || { rouge "  FAIL  dist/edition.json absent ou non-LAN — interface douteuse"; ko=$((ko+1)); }
+
+titre "4 quinquies. Ce que la 0.3.16 avait débloqué est toujours là"
+# Ces contrôles ne vérifient pas une nouveauté : ils gardent fermé ce qui a déjà
+# coûté une intervention sur site. Un paquet qui les perd est un paquet périmé.
+grep -q "'cash_movements'" "$SRV/syncVerify.js" \
+  && vert "  PASS  syncVerify.js compare la caisse" \
+  || { rouge "  FAIL  syncVerify.js : cash_movements ABSENTE"; ko=$((ko+1)); }
+grep -q "'signalements'" "$SRV/syncVerify.js" \
+  && vert "  PASS  syncVerify.js compare les signalements" \
+  || { rouge "  FAIL  syncVerify.js : signalements ABSENTE"; ko=$((ko+1)); }
+grep -q "rejected" "$SRV/cloudSync.js" \
+  && vert "  PASS  cloudSync.js conserve les lignes refusées par le Cloud" \
+  || { rouge "  FAIL  cloudSync.js : le mécanisme de refus est ABSENT"; ko=$((ko+1)); }
+grep -q "TOMB_CHUNK" "$SRV/syncRepair.js" \
+  && vert "  PASS  syncRepair.js découpe les lots de tombstones" \
+  || { rouge "  FAIL  syncRepair.js : découpage ABSENT"; ko=$((ko+1)); }
+grep -q "update_my_profile" "$SRV/rpc.js" \
+  && vert "  PASS  écran « Mon profil » : les RPC sont présentes" \
+  || { rouge "  FAIL  rpc.js : update_my_profile ABSENTE — le profil restera non modifiable"; ko=$((ko+1)); }
+grep -q "guardReferentielNational" "$SRV/query.js" \
+  && vert "  PASS  référentiel : le national est protégé, le reste est ouvert" \
+  || { rouge "  FAIL  query.js : guardReferentielNational ABSENTE"; ko=$((ko+1)); }
+grep -q "prim_competences_masques" "$SRV/db.js" \
+  && vert "  PASS  « Modifier les compétences » : les tables de masques sont posées" \
+  || { rouge "  FAIL  db.js : les tables de masques du référentiel sont ABSENTES"; ko=$((ko+1)); }
+# La colonne de balance brute doit RESTER ABSENTE tant que la migration Cloud
+# n'est pas passée : une colonne que le Cloud ignore fait refuser la poussée.
+# Le motif vise une ligne ACTIVE, ancrée en début de ligne : db.js garde en
+# commentaire les deux appels à rétablir le jour où la migration passera.
+if grep -qE "^ensureColumn\('(budget_expenses|cash_movements)', *'source_balance_raw'" "$SRV/db.js"; then
+  rouge "  FAIL  db.js poserait source_balance_raw — paquet périmé, NE PAS l'utiliser"; ko=$((ko+1))
+else
+  vert "  PASS  source_balance_raw n'est pas posée (migration Cloud en attente)"
+fi
+
+titre "5. Service et base APRÈS"
+for _ in $(seq 1 40); do curl -fsS --max-time 2 "$BASE/" >/dev/null 2>&1 && break; sleep 1; done
+verifie "service actif" "$(systemctl is-active notescam)" "active"
+verifie "page d'accueil" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE/")" "200"
+VER_APRES="$(curl -fsS --max-time 5 "$BASE/api/version" 2>/dev/null)"
+echo "  /api/version : $VER_APRES"
+# Le numéro cherché vient de $VERSION. Dans deploy-0.3.16.sh ce motif était écrit
+# en dur et cherchait « 0.3.15 » sous un message annonçant 0.3.16 : le contrôle
+# passait au vert sur une installation RESTÉE en arrière. Une seule source
+# désormais, et le message la cite.
+if echo "$VER_APRES" | grep -q "${VERSION//./\\.}"; then
+  vert "  PASS  version $VERSION annoncée"
+else
+  rouge "  FAIL  la version annoncée n'est pas $VERSION"; ko=$((ko+1))
+fi
+
+# LES COLONNES SONT-ELLES VRAIMENT LÀ ? Les contrôles 4 bis lisent le CODE ; ici
+# on lit la BASE, après que le serveur a démarré et exécuté ses `ensureColumn`.
+# C'est la seule preuve qui compte : du code qui pose une colonne et une colonne
+# posée sont deux choses différentes.
+titre "5 bis. Les colonnes de la 0.3.19 sont-elles posées dans la base ?"
+colonne() { # colonne <table> <colonne>
+  if sqf "$DB" "PRAGMA table_info($1)" | grep -q "|$2|"; then
+    vert "  PASS  $1.$2 est en base"
+  else
+    rouge "  FAIL  $1.$2 MANQUE — l'école ne pourra pas créer ses matières"; ko=$((ko+1))
+  fi
+}
+colonne apc_matieres        school_id
+colonne apc_classe_matieres school_id
+colonne schools             prim_bulletin_mode
+
+APRES="$(sqf "$DB" "$COMPTAGES")"
+echo "  eleves|notes|versements|depenses|file = $APRES"
+# La FILE peut légitimement varier (elle se vide ou s'alimente). Les quatre
+# premiers comptages, eux, ne doivent pas DIMINUER : une mise à jour n'efface
+# aucune donnée.
+for i in 1 2 3 4; do
+  a="$(echo "$AVANT" | cut -d'|' -f$i)"; b="$(echo "$APRES" | cut -d'|' -f$i)"
+  nom="$(echo "eleves notes versements depenses" | cut -d' ' -f$i)"
+  if [[ "$b" -lt "$a" ]]; then rouge "  FAIL  $nom : $a -> $b (DIMINUTION)"; ko=$((ko+1));
+  else vert "  PASS  $nom : $a -> $b"; fi
+done
+verifie "integrity_check de la base vive" "$(sqf "$DB" "PRAGMA integrity_check")" "ok"
+verifie "jeton d'école toujours présent" "$([[ -f "$DATA/server-token.key" ]] && echo oui || echo non)" "oui"
+SCHOOL_APRES="$(curl -fsS --max-time 5 "$BASE/api/pair/status" 2>/dev/null | grep -o '"schoolId":"[^"]*"' | cut -d'"' -f4)"
+if [[ -n "$SCHOOL_AVANT" ]]; then verifie "school_id inchangé" "$SCHOOL_APRES" "$SCHOOL_AVANT"
+else echo "  school_id après installation : ${SCHOOL_APRES:-<vide>}"; fi
+APC_APRES="$(sqf "$DB" "SELECT (SELECT COUNT(*) FROM apc_matieres) || '|' || (SELECT COUNT(*) FROM apc_classe_matieres)")"
+echo "  matières APC | rattachements : ${APC_AVANT:-<non lu>} -> ${APC_APRES:-<non lu>}"
+
+titre "VERDICT"
+if [[ $ko -eq 0 ]]; then
+  vert "Toutes les vérifications locales sont PASS."
+  echo
+  jaune "CETTE VERSION AJOUTE TROIS COLONNES SUR DES TABLES SYNCHRONISÉES."
+  echo "Le curseur de descente est remis à zéro : le prochain pull relit tout pour"
+  echo "les remplir, donc un LONG RATTRAPAGE est normal — comme en 0.3.16, pas comme"
+  echo "en 0.3.17/0.3.18. Prévenez l'école. Rien n'est perdu pendant ce temps : les"
+  echo "saisies partent dans la file et montent au Cloud normalement. Le journal du"
+  echo "service le dit :  journalctl -u notescam -n 40 | grep 'curseur de pull'"
+  if [[ "$ENGORGEE" -eq 1 ]]; then
+    echo
+    jaune "LA FILE DE POUSSÉE EST ENGORGÉE (voir l'étape 2 bis)."
+    echo "Le rattrapage attendra derrière elle. Dédoublonnez-la, avec son script :"
+    echo "    sudo ./dedoublonner-file-poussee.sh --simulation   # mesure seule"
+    echo "    sudo ./dedoublonner-file-poussee.sh"
+  fi
+  echo
+  echo "À vérifier depuis un poste de l'école, après un Ctrl+Shift+R :"
+  echo "  · Classes -> ouvrez une classe -> Matières : cochez une matière, puis allez"
+  echo "    à la saisie des notes et au bulletin. La MÊME liste, dans le MÊME ordre."
+  echo "  · Créez une matière absente du référentiel (« Espagnol »), classement"
+  echo "    « Langue » : un avis annonce où elle ira. Sur le bulletin, elle est chez"
+  echo "    les langues — PLUS dans « Autres matières »."
+  echo "  · Réglages -> « Bulletin du primaire » : le bouton Standard / Carnet"
+  echo "    détaillé. Laissez « Standard » pour toutes les écoles SAUF celles qui"
+  echo "    demandent le carnet. Aucun bulletin ne bouge sans ce clic."
+  echo "  · Sur « Carnet détaillé », le bulletin du primaire porte les six"
+  echo "    regroupements avec Total et Moyenne, le travail académique, les"
+  echo "    statistiques, la répartition et la signature du parent."
+  echo "  · Les notes déjà saisies sont toujours là et les moyennes sont inchangées :"
+  echo "    cette version change ce qui s'AFFICHE et ce qu'on peut CRÉER, pas un calcul."
+  exit 0
+else
+  rouge "$ko contrôle(s) en échec."
+  echo "N'essayez RIEN d'autre : envoyez cette sortie complète à l'éditeur."
+  echo "La sauvegarde vérifiée est dans : $COPIE"
+  exit 3
+fi

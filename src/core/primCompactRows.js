@@ -90,6 +90,93 @@ export function critereCellValue(row, critereId) {
  * inchangée. Les deux lignes du carnet sont deux lectures, pas un calcul et son
  * résultat — voir l'en-tête de `primEngine.js`.
  */
+// ── LES SIX REGROUPEMENTS OFFICIELS DU CARNET MINEDUB ─────────────────────
+//
+// Le bulletin imprimé que l'école remet aux parents (modèle THE GENIUS, SIL,
+// relevé le 2026-10-20) ne liste pas onze compétences à plat : il les range
+// sous SIX intitulés numérotés, chacun suivi d'un « Total » et d'une
+// « Moyenne ». Notre gabarit compact affichait les onze lignes sans ces
+// regroupements — c'est ce qui manquait.
+//
+// La donnée existe déjà : `prim_competences.domaine` porte exactement ces six
+// familles (relevé en production : langues, maths_sciences, vie_citoyennete,
+// autonomie, tic, arts_sport), et le NUMÉRO est le chiffre du code (1A → 1).
+// Rien n'est donc inventé ni déduit d'un libellé.
+const DOMAINE_LIBELLE = {
+  langues: ['COMMUNIQUER EN FRANÇAIS ET EN ANGLAIS ET PRATIQUER AU MOINS UNE LANGUE NATIONALE',
+    'COMMUNICATE IN FRENCH AND ENGLISH AND PRACTISE AT LEAST ONE NATIONAL LANGUAGE'],
+  maths_sciences: ['UTILISER LES NOTIONS DE BASE EN MATHÉMATIQUES, SCIENCES ET TECHNOLOGIES',
+    'USE BASIC NOTIONS IN MATHEMATICS, SCIENCE AND TECHNOLOGY'],
+  vie_citoyennete: ['PRATIQUER LES VALEURS SOCIALES ET CITOYENNES',
+    'PRACTISE SOCIAL AND CIVIC VALUES'],
+  autonomie: ["DÉMONTRER L'AUTONOMIE, L'ESPRIT D'INITIATIVE, DE CRÉATIVITÉ ET D'ENTREPRENARIAT",
+    'DEMONSTRATE AUTONOMY, INITIATIVE, CREATIVITY AND ENTREPRENEURSHIP'],
+  tic: ["UTILISER LES CONCEPTS DE BASE ET LES OUTILS DE TECHNOLOGIES DE L'INFORMATION ET DE LA COMMUNICATION",
+    'USE BASIC CONCEPTS AND TOOLS OF INFORMATION AND COMMUNICATION TECHNOLOGY'],
+  arts_sport: ['PRATIQUER LES ACTIVITÉS PHYSIQUES, SPORTIVES ET ARTISTIQUES',
+    'PRACTISE PHYSICAL, SPORTING AND ARTISTIC ACTIVITIES'],
+};
+
+/** Numéro du regroupement, lu sur le code de la compétence : « 1A » → 1. */
+const numeroDe = (code) => {
+  const m = /^\s*(\d+)/.exec(String(code || ''));
+  return m ? Number(m[1]) : null;
+};
+
+/**
+ * Regroupe les lignes par domaine, dans l'ordre d'apparition, et calcule pour
+ * chacun le TOTAL (points obtenus / possibles) et la MOYENNE sur 20.
+ *
+ * Une compétence MAISON ajoutée par l'école (« CHINOIS » sur le modèle) n'a pas
+ * forcément de domaine : elle rejoint le regroupement de son NUMÉRO quand son
+ * code en porte un, sinon elle reste hors regroupement — jamais rangée de force
+ * dans une famille qui n'est pas la sienne.
+ *
+ * @param rows lignes de `buildCompactRows`
+ * @param sys  'FR' | 'EN' — langue des intitulés officiels
+ */
+export function groupesDe(rows, sys = 'FR') {
+  // On regroupe par NUMÉRO d'abord, et par domaine seulement à défaut.
+  //
+  // L'inverse paraissait naturel — le domaine est la donnée officielle — mais
+  // il rangeait mal les compétences MAISON : « 1D » ajoutée par l'école n'a pas
+  // de domaine, sa clé devenait « num:1 », différente de « langues », et elle
+  // formait un septième groupe fantôme au lieu de rejoindre le premier. Comme
+  // tous les codes nationaux portent leur numéro (1A, 2A…), grouper par numéro
+  // redonne exactement les six familles ET accueille les maisons numérotées.
+  const ordre = [];
+  const par = new Map();
+  for (const r of rows || []) {
+    const n = numeroDe(r?.code);
+    const cle = n != null ? `num:${n}` : (r?.domaine || null);
+    if (!cle) continue;
+    if (!par.has(cle)) { par.set(cle, []); ordre.push(cle); }
+    par.get(cle).push(r);
+  }
+  return ordre.map((cle) => {
+    const lignes = par.get(cle);
+    const notees = lignes.filter((r) => r.achieved != null);
+    const achieved = notees.length ? notees.reduce((a, r) => a + Number(r.achieved), 0) : null;
+    const possible = notees.length ? notees.reduce((a, r) => a + Number(r.possible || 0), 0) : null;
+    // L'intitulé officiel vient du DOMAINE : on le prend sur la première ligne
+    // du groupe qui en porte un. Une maison sans domaine hérite ainsi du titre
+    // de la famille qu'elle rejoint, au lieu de le perdre.
+    const domaine = lignes.find((r) => r.domaine)?.domaine || null;
+    const libelle = DOMAINE_LIBELLE[domaine];
+    return {
+      cle,
+      numero: numeroDe(lignes[0]?.code),
+      // Un domaine inconnu du produit garde les codes de ses compétences comme
+      // libellé : mieux qu'un titre inventé, et l'école voit quoi corriger.
+      intitule: libelle ? (sys === 'EN' ? libelle[1] : libelle[0]) : lignes.map((r) => r.code).join(', '),
+      codes: lignes.map((r) => r.code),
+      achieved: achieved == null ? null : Math.round(achieved * 100) / 100,
+      possible: possible == null ? null : Math.round(possible * 100) / 100,
+      moyenne: (achieved == null || !possible) ? null : Math.round((achieved / possible) * 20 * 100) / 100,
+    };
+  });
+}
+
 export function buildCompactRows(compRows) {
   const critereColumns = critereColumnsOf(compRows);
   const rows = (compRows || []).map((r) => {
@@ -98,6 +185,9 @@ export function buildCompactRows(compRows) {
     return {
       code: r.code,
       intitule: r.intitule,
+      // Le DOMAINE voyage avec la ligne : c'est lui qui regroupe les compétences
+      // sous les six intitulés officiels du carnet (voir `groupesDe`).
+      domaine: r.domaine ?? null,
       parCritere,
       achieved: r.totalAchieved ?? null,
       // Pas de barème affiché pour une compétence non évaluée : « — /40 »

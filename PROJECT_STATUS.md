@@ -748,7 +748,12 @@ vérifié, mais l'écran restera vide jusqu'à la première saisie dans « Comp�
 primaire ». Le référentiel national, lui, est bien là (11 compétences). À dire à l'école
 telle quelle : le carnet est prêt, il attend ses notes.
 
-### Ce qui a été corrigé dans le CODE (non commité)
+### Ce qui a été corrigé dans le CODE
+
+**Commité localement, PAS ENCORE POUSSÉ** — `f4dce88` (le lot), `8872c23` (la fusion
+avec `origin/main`). Le `git push` a été refusé par le garde-fou de la session ; il reste
+à lancer à la main. Tant qu'il ne l'est pas, **rien de ce code n'est en ligne** : les 44
+écoles tournent sur `origin/main` = `f5c27c7`.
 
 **3. Le carnet ne se tait plus un trimestre sur deux.** Décision **D19**. Les cinq blocs
 n'étaient câblés que sur la disposition **compacte**, que « Auto » ne choisit que pour une

@@ -9,6 +9,11 @@
 > `main`** le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
 > `package.json` = **0.3.20** · paquet Windows **0.3.20 construit, non envoyé** ·
 > paquet Linux (THE GENIUS) **0.3.19**, pas encore reconstruit
+>
+> ⚠ **Le paquet 0.3.20 et le déploiement en ligne sont DÉJÀ PÉRIMÉS** : le correctif
+> **I12** (la note d'une matière s'écrivait dans la matière suivante — le défaut que le
+> responsable signalait depuis le matin) est commité **après** eux. Il faut reconstruire
+> l'installeur et repousser `main` avant de livrer quoi que ce soit.
 
 ---
 

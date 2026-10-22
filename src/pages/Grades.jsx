@@ -275,6 +275,20 @@ function FastGradeEntry({ students, subject, scoresFor, onCommit, max, sys, lock
   const [errors, setErrors] = useState(() => new Set());
   const [savedId, setSavedId] = useState(null);
 
+  // Le champ est non contrôlé : sans l'identifiant de la matière dans la clé de
+  // ligne, React réutilise le même `<input>` en changeant de matière et la note
+  // précédente reste affichée — puis s'enregistre au premier `blur`. C'est le
+  // défaut signalé le 2026-10-22 (« les 02 matières prennent 20 automatique »),
+  // expliqué en détail dans `components/grades/GradeGrid.jsx`. Les deux
+  // panneaux de saisie partagent le défaut : ils doivent partager la parade.
+  const cleMatiere = subject?.id ?? subject?.name ?? '';
+  const [matiereAffichee, setMatiereAffichee] = useState(cleMatiere);
+  if (matiereAffichee !== cleMatiere) {
+    setMatiereAffichee(cleMatiere);
+    setErrors(new Set());
+    setSavedId(null);
+  }
+
   const focusRow = (i) => {
     const el = refs.current[i];
     if (el) { el.focus(); el.select(); }
@@ -344,7 +358,7 @@ function FastGradeEntry({ students, subject, scoresFor, onCommit, max, sys, lock
           const val = scoresFor(s.id);
           const isSaved = savedId === s.id;
           return (
-            <div key={s.id} className="flex items-center gap-3 px-3 py-1.5 border-b border-gray-50 hover:bg-gray-50/40">
+            <div key={`${cleMatiere}:${s.id}`} className="flex items-center gap-3 px-3 py-1.5 border-b border-gray-50 hover:bg-gray-50/40">
               <span className="w-6 text-xs text-gray-300 text-right shrink-0">{i + 1}</span>
               <span className="flex-1 min-w-0 text-sm text-gray-800 truncate">
                 {s.name}

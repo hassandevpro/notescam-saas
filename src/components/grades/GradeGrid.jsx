@@ -19,6 +19,47 @@ export default function GradeGrid({
   const [dirty,  setDirty]  = useState(() => new Set());
   const [savedId, setSavedId] = useState(null);
 
+  // ── CHANGER DE MATIÈRE DOIT VIDER CE TABLEAU ──────────────────────────────
+  //
+  // SIGNALEMENT DU 2026-10-22, capture d'écran à l'appui : « les 02 matières
+  // prennent 20 automatique, ce n'est pas bon ». Sur la capture, la matière
+  // affichée est « Informatique fondamentale et TIC », le champ de l'élève
+  // affiche 20, et la statistique du panneau dit « Moy. : 12/20 ». La note
+  // ENREGISTRÉE était donc 12 : c'était le CHAMP qui montrait encore le 20 de
+  // Mathématiques, saisi juste avant.
+  //
+  // LA CAUSE. Le champ est NON CONTRÔLÉ (`defaultValue`), et `defaultValue` ne
+  // s'applique qu'au MONTAGE. Les lignes étaient keyées sur le seul `s.id` :
+  // en changeant de matière, React retrouve les mêmes clés pour les mêmes
+  // élèves, réutilise les mêmes `<input>` du DOM, et ne réapplique donc jamais
+  // `defaultValue`. La valeur de la matière précédente restait affichée.
+  //
+  // ET ELLE S'ENREGISTRAIT, ce qui est le vrai dégât. `commit` compare la
+  // valeur du champ à la note stockée : 20 ≠ 12, donc il appelait
+  // `onCommit(eleve, 20)`. Au premier `blur` — c'est-à-dire au premier clic
+  // n'importe où sur l'écran — la note de Mathématiques était écrite dans
+  // Informatique. « Un enseignant avec plusieurs matières : quand il entre les
+  // notes d'une matière, les autres héritent automatiquement », mot pour mot.
+  //
+  // CE N'ÉTAIT DONC NI UN DOUBLON DE MATIÈRES, NI UN DÉFAUT D'APPARIEMENT.
+  // Deux corrections ont été livrées avant celle-ci en cherchant de ce côté :
+  // elles réglaient d'autres défauts réels, mais pas celui-ci.
+  //
+  // LA CORRECTION tient en deux gestes. L'identifiant de la MATIÈRE entre dans
+  // la clé de ligne : React démonte alors les anciens champs et en monte des
+  // neufs, qui reçoivent la bonne valeur. Et l'état par élève — erreurs, point
+  // « non enregistré », ✓ — est remis à zéro, puisqu'il parlait de l'autre
+  // matière. (`setState` pendant le rendu est le motif React prévu pour
+  // ajuster un état quand une prop change ; la garde l'empêche de boucler.)
+  const cleMatiere = subject?.id ?? subject?.name ?? '';
+  const [matiereAffichee, setMatiereAffichee] = useState(cleMatiere);
+  if (matiereAffichee !== cleMatiere) {
+    setMatiereAffichee(cleMatiere);
+    setErrors(new Set());
+    setDirty(new Set());
+    setSavedId(null);
+  }
+
   const focusRow = (i) => {
     const el = refs.current[i];
     if (el) { el.focus(); el.select(); }
@@ -114,7 +155,7 @@ export default function GradeGrid({
               const val = scoresFor(s.id);
               const obs = observationFor(val, max, sys, gradeScale, maxScale);
               return (
-                <tr key={s.id} className="border-b border-gray-50 hover:bg-gray-50/40">
+                <tr key={`${cleMatiere}:${s.id}`} className="border-b border-gray-50 hover:bg-gray-50/40">
                   <td className="px-3 py-1.5 text-center text-xs text-gray-300 tabular-nums">{i + 1}</td>
                   <td className="px-3 py-1.5 text-xs font-mono text-gray-400 truncate">{s.matricule || '—'}</td>
                   <td className="px-3 py-1.5 text-gray-800 truncate">{s.name}</td>

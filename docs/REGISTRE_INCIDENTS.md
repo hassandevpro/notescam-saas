@@ -381,3 +381,130 @@ risque, mais il appartient à l'école.
 
 **À lui demander** : garder la forme fusionnée, ou les deux séparées — et retirer l'autre
 dans « Modifier la classe → Matières ».
+
+---
+
+## I12 — La note d'une matière s'écrivait dans la matière suivante
+
+**Date** : 2026-10-22 · **Statut** : **corrigé dans le code (NON LIVRÉ)** ·
+**Source** : signalement du responsable, **capture d'écran**, après DEUX corrections livrées
+qui visaient autre chose
+
+### Ce que la capture prouve, et que deux jours d'hypothèses n'avaient pas trouvé
+
+Même classe, même élève (ABENA Boris, ELV-2025-0029), deux écrans :
+
+| Matière affichée | Champ de l'élève | Statistique du panneau |
+|---|---|---|
+| Mathématiques | **20** | Moy. : **20**/20 |
+| Informatique fondamentale et TIC | **20** | Moy. : **12**/20 |
+
+La deuxième ligne est le défaut tout entier. La note **enregistrée** valait 12 ; le champ
+affichait **20**, la valeur saisie juste avant dans Mathématiques. Ce n'était donc **pas**
+un doublon de matières, **pas** un défaut d'appariement avec le référentiel, et **pas** un
+problème de synchronisation — les trois pistes suivies jusque-là.
+
+### La cause, en deux temps
+
+**1. Le champ ne se réinitialisait pas.** Le champ de note est **non contrôlé** —
+`defaultValue={displayGrade(val)}` — et `defaultValue` ne s'applique qu'au **montage** du
+composant. Les lignes étaient keyées sur le seul identifiant d'**élève** :
+
+~~~jsx
+<tr key={s.id}>            // ← le défaut
+~~~
+
+En changeant de matière, React retrouve les mêmes clés pour les mêmes élèves, **réutilise
+les mêmes `<input>` du DOM**, et ne réapplique jamais `defaultValue`. La valeur de la
+matière précédente restait affichée.
+
+**2. Et elle s'enregistrait.** C'est ce qui fait la gravité. `commit()` écrit dès que la
+valeur du champ diffère de la note stockée — comportement voulu, c'est lui qui permet la
+sauvegarde automatique :
+
+~~~js
+if (v !== (scoresFor(student.id) ?? '')) { onCommit(student.id, v); … }
+~~~
+
+20 ≠ 12 : au premier `blur`, c'est-à-dire **au premier clic n'importe où sur l'écran**, la
+note de Mathématiques était écrite dans Informatique. « Un enseignant avec plusieurs
+matières : quand il entre les notes d'une matière, les autres héritent automatiquement »
+— mot pour mot le signalement du matin.
+
+### Les DEUX panneaux étaient touchés
+
+Ils ont été écrits séparément et portaient le même défaut, donc ils reçoivent la même
+parade :
+
+| Panneau | Fichier |
+|---|---|
+| « Tableau » | `src/components/grades/GradeGrid.jsx` |
+| « Saisie rapide » | `src/pages/Grades.jsx` (`FastGradeEntry`) |
+
+Les autres écrans de saisie sont **indemnes**, et vérifié : l'écran APC keye ses cellules
+par **compétence**, donc changer de matière change les clés et remonte les champs ; aucun
+autre champ de note du produit n'utilise `defaultValue`.
+
+### La correction
+
+Deux gestes par panneau. L'identifiant de la **matière** entre dans la clé de ligne —
+React démonte alors les anciens champs et en monte des neufs, qui reçoivent la bonne
+valeur. Et l'état par élève (erreurs, point « non enregistré », ✓ « enregistré ») est remis
+à zéro, puisqu'il parlait de l'autre matière.
+
+~~~jsx
+const cleMatiere = subject?.id ?? subject?.name ?? '';
+…
+<tr key={`${cleMatiere}:${s.id}`}>
+~~~
+
+**Preuve** : `src/components/grades/_saisieChangeDeMatiere.test.mjs`, **21 contrôles**.
+Le test a été passé sur le code d'AVANT la correction : **8 échecs**. Sur le code
+corrigé : **0**. Il verrouille l'invariant qui rend le défaut impossible — *tant que le
+champ est non contrôlé, la clé de ligne doit porter la matière* — et il le dit au lieu
+d'échouer bêtement si quelqu'un passe un jour le champ en contrôlé.
+
+### Ce que cet incident apprend sur la méthode
+
+Trois corrections ont été livrées en deux jours sur « les matières se dupliquent / les
+notes se recopient » : les doublons de `subjects` (I10), les paires de traduction (I11),
+puis celle-ci. Les deux premières corrigeaient des défauts **réels et mesurés**, mais
+aucune ne touchait ce que le responsable voyait. Ce qui a débloqué le diagnostic en une
+minute, c'est **une capture d'écran avec un chiffre contradictoire** : « champ 20,
+moyenne 12 ». Aucun audit de base ne pouvait montrer cela — la base était correcte, c'est
+l'écran qui mentait.
+
+**À faire plus tôt la prochaine fois** : demander ce que l'écran AFFICHE, avant d'auditer
+ce que la base CONTIENT.
+
+### Trouvé en chemin, et NON corrigé — les doublons du RÉFÉRENTIEL
+
+L'enquête a mis au jour un défaut distinct, mesuré le 2026-10-22 chez **BRIGHT CONTINENT**
+(classe de référentiel `3e`) : `apc_matieres` porte **14 lignes maison pour 5 matières
+réelles**.
+
+| Nom | Copies | Notes |
+|---|---|---|
+| `Langue Turc` | 3 | 6 + 6 + 0 |
+| `Expression Orale` | 3 | 0 |
+| `Etude de texte` | 3 | 3 + 0 + 0 |
+| `Expresion ecrite` | 3 | 1 + 0 + 0 |
+| `Chimie` | 2 | 0 |
+
+Ce sont exactement les deux noms que le responsable avait cités (« Langue Turc »,
+« Expression Orale ») : trois exemplaires de chacun à la saisie et sur le bulletin. La
+cause est l'identifiant tiré au hasard par `addMatiereMaisonApc`, **déjà corrigé** depuis
+`4e5011e` (identifiant déterministe — les seules lignes récentes s'appellent
+`ec_a8b8fb007184_…`). Seul l'héritage reste.
+
+Le ménage est **écrit et prouvé, pas appliqué** :
+`docs/corrections/2026-10-22-apc-matieres-referentiel-doublons.sql` — 9 matières, 27
+compétences, 6 notes, avec garde-fou d'état, preuve que chaque note supprimée a sa jumelle
+exacte, sauvegarde en base et contrôle après coup dans la même transaction.
+**En attente d'autorisation explicite.**
+
+⚠ **Limite relevée** : il n'existe **aucun déclencheur de pierre tombale** sur
+`apc_matieres`, `apc_competences` ni `apc_notes`. Une suppression dans le Cloud ne se
+propagerait donc **pas** à un serveur d'école en réseau local. BRIGHT CONTINENT travaille
+dans le navigateur, la correction la concerne entièrement ; pour une école LAN, il
+faudrait d'abord poser ces déclencheurs.

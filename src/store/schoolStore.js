@@ -26,6 +26,8 @@ import { buildSubjectsForClassicClass } from '../core/classicSubjects';
 import { missingBilingualSubjects, missingFromSiblingClass } from '../core/bilingualSubjects';
 import { resolveClassEngine, firstCycleClasseSlug } from '../core/engineResolver';
 import { manquesPourClasse } from '../core/apcRattrapage';
+import { unmatchedClassSubjects } from '../core/refClassScope';
+import { competencesForNiveau } from '../core/primEngine';
 import { APC_TRIMESTRE_IDS } from '../core/apcPeriods';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
 import { isAdvancedDelegation } from '../config/capabilities';
@@ -1176,6 +1178,53 @@ export const useSchoolStore = create((set, get) => ({
     // passage ici recréerait tout en double.
     if (created || attached) await get().rechargerApcReferentiel();
     return { created, attached };
+  },
+
+  // ── UNE MATIÈRE AJOUTÉE PAR L'ÉCOLE DOIT POUVOIR SE NOTER (PRIMAIRE) ─────
+  //
+  // Règle du responsable, 2026-10-22 : « c'est l'école qui a ajouté ces
+  // matières, donc laisse-les apparaître pour mettre les notes, pour toutes
+  // les écoles ».
+  //
+  // LE DÉFAUT. Au primaire on note des COMPÉTENCES, pas des matières. Une
+  // matière cochée dont le nom ne correspond à aucune compétence du référentiel
+  // n'était donc notable NULLE PART — et l'écran conseillait « corrigez le
+  // nom », ce qui n'a aucun sens pour « Economics » ou « Travaux Pratiques » :
+  // aucun nom ne les ferait entrer dans le programme national du primaire.
+  //
+  // Relevé sur le CE1 BIL de THE GENIUS : Chinois, Economics, Management,
+  // Practical Work et Travaux Pratiques, cochées et impossibles à noter.
+  //
+  // CE QU'ON FAIT. On crée la compétence MAISON correspondante, exactement
+  // comme « Modifier les compétences » le permet déjà à la main — même chemin,
+  // même identifiant déterministe, même code dérivé du libellé. Elle porte le
+  // nom de la matière, donc le rapprochement la retrouvera, et
+  // `primForClass` ne la montrera QUE dans les classes qui cochent cette
+  // matière (une compétence maison suit sa matière ; une nationale vaut pour
+  // tout le niveau).
+  //
+  // On ne touche à AUCUNE compétence nationale, et on n'écrit rien dans
+  // `prim_niveau_competences` : cette table est GLOBALE, sans school_id, donc
+  // une école n'a pas à y toucher.
+  materialiserCompetencesPrimManquantes: async (cls, niveauSlug) => {
+    const { subjects, primReferentiel, schoolId } = get();
+    if (!cls || !schoolId || !primReferentiel || !niveauSlug) return { created: 0 };
+    if (!backendOnline()) return { created: 0, skipped: 'offline' };
+
+    const duNiveau = competencesForNiveau(primReferentiel, niveauSlug);
+    if (!duNiveau.length) return { created: 0 };
+    const deLaClasse = (subjects || []).filter((s) => s && s.class_id === cls.id && s.name);
+    const manquantes = unmatchedClassSubjects('prim', deLaClasse, duNiveau);
+    if (!manquantes.length) return { created: 0 };
+
+    let created = 0;
+    for (const sub of manquantes) {
+      // `addRefLigne` porte déjà la garde anti-doublon : identifiant
+      // déterministe dérivé de (école, nom), et refus si la ligne est là.
+      const r = await get().addRefLigne('prim', sub.name);
+      if (!r.error) created += 1;
+    }
+    return { created };
   },
 
   addRefLigne: async (kind, intitule, extra = {}) => {

@@ -10,6 +10,7 @@
 // résolution échoue, rendre un bulletin VIDE. Un bulletin qui porte une matière
 // en trop est un défaut ; un bulletin qui en oublie est une faute. Les cas
 // « rien ne doit être filtré » sont donc aussi nombreux ici que les cas positifs.
+import { readFileSync } from 'node:fs';
 import {
   scopeOf, applyScope, apcForClass, primForClass, matForClass, apcMatieresForClass,
   unmatchedClassSubjects,
@@ -238,6 +239,50 @@ titre('primForClass : les masques SEULS, plus le perimetre de la classe');
   ok(typeof scopeOf === 'function', 'scopeOf reste utilise par apc et mat');
 }
 
+titre('primForClass : une competence MAISON ne suit que sa matiere');
+//
+// POURQUOI DEUX REGLES. Une competence NATIONALE est au programme du niveau :
+// elle vaut pour toutes les classes, et seul le masquage l'enleve. Une
+// competence MAISON, elle, n'existe que parce qu'une matiere de l'ecole l'a
+// fait naitre — « Travaux Pratiques », « Economics ». Elle n'a de sens que dans
+// les classes qui cochent cette matiere.
+//
+// Sans cette regle elle apparaitrait dans TOUTES les classes du primaire de
+// l'ecole : `prim_niveau_competences` est VIDE en base (donc « applicable
+// partout »), et aucune ecole ne peut y ecrire son niveau — la table est
+// GLOBALE, sans school_id. Mesure le 2026-10-22.
+{
+  const ref = {
+    competences: [
+      { id: '1a', code: '1A', intitule: 'Lire et écrire', ordre: 1 },
+      { id: '4a', code: '4A', intitule: 'Autonomie et esprit d initiative', ordre: 4 },
+      { id: 'ec_x_tp', code: 'TP', intitule: 'Travaux Pratiques', ordre: 90, school_id: 'E' },
+    ],
+    niveauCompetences: [],
+  };
+
+  // La classe COCHE la matiere : sa competence maison est saisissable.
+  const avec = primForClass(ref, 'ce1', [sub('Lire et écrire'), sub('Travaux Pratiques')], []);
+  const idsAvec = avec.competences.map((c) => c.id);
+  ok(idsAvec.includes('ec_x_tp'), 'la competence maison apparait la ou sa matiere est cochee', idsAvec);
+
+  // Une AUTRE classe du primaire, qui ne la coche pas : elle n'apparait pas...
+  const sans = primForClass(ref, 'sil', [sub('Lire et écrire')], []);
+  const idsSans = sans.competences.map((c) => c.id);
+  ok(!idsSans.includes('ec_x_tp'), 'et pas ailleurs', idsSans);
+
+  // ...mais les NATIONALES restent partout, transversale comprise. C'est la
+  // regle que I17 a posee, et elle ne doit pas etre reprise par celle-ci.
+  ok(idsSans.includes('1a') && idsSans.includes('4a'),
+    'les nationales restent, y compris la transversale 4A', idsSans);
+
+  // Le masque porte aussi sur une competence maison.
+  const masquee = primForClass(ref, 'ce1', [sub('Travaux Pratiques')], ['ec_x_tp']);
+  ok(!masquee.competences.map((c) => c.id).includes('ec_x_tp'),
+    'une competence maison masquee ne revient pas par la matiere',
+    masquee.competences.map((c) => c.id));
+}
+
 titre('matForClass : masques ET perimetre');
 {
   const ref = {
@@ -400,6 +445,41 @@ titre('Section anglophone : resolution identique AVEC et SANS label');
     { saisie: a, bulletin: auBulletin });
 }
 
+
+titre('Le rattrapage du primaire est bien CABLE a l ecran');
+//
+// CE QUE CE BLOC EMPECHE DE REVENIR, et c est arrive le meme jour pour le
+// premier cycle : la correction etait en place dans le magasin et l ecran ne
+// l appelait JAMAIS, parce qu il declenchait sur une liste qui ne contenait pas
+// le cas vise. Vu du dehors : « rien ne change ».
+//
+// La regle qu on fige : c est la liste des matieres SANS COMPETENCE qui
+// declenche, et c est elle que le rattrapage traite.
+{
+  const ecran = readFileSync(new URL('../components/grades/PrimCompetenceWorkspace.jsx', import.meta.url), 'utf8');
+  const magasin = readFileSync(new URL('../store/schoolStore.js', import.meta.url), 'utf8');
+
+  ok(/materialiserCompetencesPrimManquantes/.test(magasin),
+    'le magasin porte le rattrapage du primaire');
+  ok(/unmatchedClassSubjects\('prim'/.test(magasin),
+    'il part des matieres sans competence correspondante');
+  ok(/addRefLigne\('prim'/.test(magasin),
+    'et cree une competence MAISON, par le meme chemin que « Modifier les competences »');
+  // La table est GLOBALE (ni school_id, ni RLS par ecole) : une ecole n a pas a
+  // y ecrire son niveau. On verifie l ABSENCE D ECRITURE, pas l absence du nom —
+  // il figure dans le commentaire qui explique precisement pourquoi on s en abstient.
+  ok(!/from('prim_niveau_competences')/.test(magasin),
+    'aucune ecriture dans prim_niveau_competences (table globale, sans school_id)');
+
+  ok(/materialiserCompetencesPrimManquantes/.test(ecran),
+    'l ecran appelle bien ce rattrapage');
+  ok(/if \(!selectedClass \|\| !referentiel \|\| !niveauSlug \|\| !matieresHorsReferentiel\.length\) return;/.test(ecran),
+    'et il declenche sur les matieres sans competence, pas sur autre chose');
+  ok(/canManageClassSubjects\(/.test(ecran),
+    'jamais sans le droit d ecrire le referentiel (sinon la file boucle sur un refus RLS)');
+  ok(/rattrapees\.current\.has\(selectedClass\.id\)/.test(ecran),
+    'et une seule fois par classe');
+}
 
 console.log(echecs === 0 ? '\nTOUS LES TESTS PASSENT' : `\nECHEC : ${echecs}`);
 process.exitCode = echecs === 0 ? 0 : 1;

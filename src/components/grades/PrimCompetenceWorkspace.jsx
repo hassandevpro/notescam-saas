@@ -13,14 +13,15 @@
 //
 // Monté par Grades.jsx quand la classe est résolue 'apc_primaire'.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../../store/schoolStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
-import { isSubjectScoped } from '../../lib/teacherScope';
+import { isSubjectScoped, canManageClassSubjects } from '../../lib/teacherScope';
+import { hasCapability } from '../../config/capabilities';
 import {
   competenceIdsForTeacher, unresolvedSubjectsForTeacher,
 } from '../../core/primCompetenceMatch';
@@ -111,6 +112,7 @@ export default function PrimCompetenceWorkspace() {
   const school = useAuthStore((s) => s.school);
   const role      = useAuthStore((s) => s.role);
   const teacherId = useAuthStore((s) => s.teacherId);
+  const permissions = useAuthStore((s) => s.permissions);
   // Mode 1 « enseignant de matière » : l'enseignant ne saisit QUE les compétences
   // qui lui sont affectées. Le rattachement passe par `prim_competence_id` quand
   // il existe, sinon par le NOM de la matière (voir primCompetenceMatch) : exiger
@@ -224,6 +226,32 @@ export default function PrimCompetenceWorkspace() {
       : []),
     [referentiel, niveauSlug, classSubjects],
   );
+
+  // ── CE QUE L’ÉCOLE A AJOUTÉ DOIT POUVOIR SE NOTER ───────────────────────
+  //
+  // Règle du responsable, 2026-10-22 : « c’est l’école qui a ajouté ces matières,
+  // donc laisse-les apparaître pour mettre les notes, pour toutes les écoles ».
+  //
+  // Au primaire on note des COMPÉTENCES. Une matière dont le nom ne correspond
+  // à aucune compétence n’était donc notable NULLE PART, et le bandeau
+  // conseillait « corrigez le nom » — ce qui n’a aucun sens pour « Economics »
+  // ou « Travaux Pratiques » : aucun nom ne les ferait entrer au programme
+  // national du primaire. On crée donc la compétence MAISON correspondante,
+  // par le même chemin que « Modifier les compétences » à la main.
+  //
+  // Même motif que le premier cycle : idempotent, tenté une seule fois par
+  // classe, et JAMAIS si le compte n’a pas le droit d’écrire le référentiel —
+  // une écriture refusée par la RLS repartirait en boucle dans la file.
+  const materialiserPrimManquantes = useSchoolStore((s) => s.materialiserCompetencesPrimManquantes);
+  const rattrapees = useRef(new Set());
+  useEffect(() => {
+    if (!selectedClass || !referentiel || !niveauSlug || !matieresHorsReferentiel.length) return;
+    const isDelegate = hasCapability(permissions, '/app/classes');
+    if (!canManageClassSubjects({ role, school, cls: selectedClass, teacherId, isDelegate })) return;
+    if (rattrapees.current.has(selectedClass.id)) return;
+    rattrapees.current.add(selectedClass.id);
+    materialiserPrimManquantes(selectedClass, niveauSlug);
+  }, [selectedClass, referentiel, niveauSlug, matieresHorsReferentiel.length, role, school, teacherId, permissions, materialiserPrimManquantes]);
 
   // Combien de notes chaque compétence porte-t-elle, dans TOUTE l'école ?
   // `primNotes` les contient déjà (chargées par `loadPrim`) : aucun appel de

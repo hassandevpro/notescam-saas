@@ -183,52 +183,63 @@ export function apcForClass(referentiel, classSubjects, masques = []) {
 /**
  * Primaire APC (SIL–CM2). → { competences, exclus }
  *
- * ── POURQUOI LE PRIMAIRE NE FILTRE PLUS PAR LES MATIÈRES DE LA CLASSE ───────
+ * ── DEUX RÈGLES, PARCE QU'IL Y A DEUX SORTES DE COMPÉTENCES ─────────────────
  *
- * RELEVÉ LE 2026-10-22, CE1 BIL de THE GENIUS : sur les ONZE compétences
- * nationales MINEDUB du niveau, NEUF étaient saisissables. Les deux écartées :
+ * NATIONALE (school_id nul) : TOUJOURS retenue, sauf si l'école la masque.
  *
- *     3A — Pratiquer les valeurs sociales
- *     4A — Démontrer l'autonomie, l'esprit d'initiative, la créativité et
- *          l'entrepreneuriat
+ *   RELEVÉ LE 2026-10-22, CE1 BIL de THE GENIUS : sur les ONZE compétences
+ *   nationales MINEDUB du niveau, NEUF étaient saisissables. Les deux écartées :
  *
- * Ce ne sont pas des oublis de l'école : ce sont des compétences TRANSVERSALES.
- * Aucune matière ne porte leur nom, et aucune école n'aura jamais une matière
- * « Entrepreneuriat » en CE1. Le filtre les écartait donc de la saisie ET du
- * bulletin officiel, dans toutes les écoles du primaire, pour toujours.
+ *       3A — Pratiquer les valeurs sociales
+ *       4A — Démontrer l'autonomie, l'esprit d'initiative, la créativité et
+ *            l'entrepreneuriat
  *
- * C'est exactement ce que ce module s'interdit, en haut de ce fichier :
+ *   Ce ne sont pas des oublis de l'école : ce sont des compétences
+ *   TRANSVERSALES. Aucune matière ne porte leur nom, et aucune école n'aura
+ *   jamais une matière « Entrepreneuriat » en CE1. Le filtre par matières
+ *   cochées ne pouvait donc PAS les retenir — jamais, nulle part — et il les
+ *   retirait de la saisie ET du bulletin officiel, dans toutes les écoles.
  *
- *     « Un bulletin qui porte une matière en trop est un défaut ; un bulletin
- *       qui en oublie une est une faute, et elle se découvre devant un parent. »
+ *   C'est exactement ce que ce module s'interdit, en haut de ce fichier :
+ *   « un bulletin qui en oublie une est une faute, et elle se découvre devant
+ *   un parent ». Le levier de l'école reste le MASQUAGE, qui dit la même chose
+ *   explicitement au lieu de la déduire d'un rapprochement impossible.
  *
- * Le garde-fou prévu — « on ne filtre que si au moins une matière se rapproche
- * du référentiel » — ne protégeait pas de ce cas : les neuf autres compétences
- * étant reconnues, le filtre s'appliquait et emportait les deux transversales.
+ * MAISON (school_id posé) : retenue seulement si une matière de CETTE classe la
+ * couvre.
  *
- * ── CE QUI REMPLACE LE FILTRE ───────────────────────────────────────────────
+ *   Une compétence maison n'existe que parce qu'une matière de l'école l'a fait
+ *   naître — « Travaux Pratiques », « Economics ». Elle n'a donc de sens que
+ *   dans les classes où cette matière est cochée. Sans cette règle elle
+ *   apparaîtrait dans TOUTES les classes du primaire de l'école, puisque
+ *   `prim_niveau_competences` est vide en base (donc « applicable partout ») et
+ *   qu'aucune école ne peut y écrire : la table est GLOBALE, sans school_id.
  *
- * Le MASQUAGE, qui existait déjà et que l'écran nomme (« Modifier les
- * compétences »). Il dit ce que le filtre voulait dire — « cette école ne
- * traite pas cela » — mais il le dit EXPLICITEMENT, école par école, au lieu de
- * le déduire d'un rapprochement de noms qui ne peut pas réussir pour une
- * compétence sans matière.
+ *   Le rapprochement par nom suffit ici, et il ne peut pas échouer comme pour
+ *   les transversales : la compétence maison PORTE le nom de la matière, parce
+ *   que c'est elle qui l'a créée.
  *
- * Le premier cycle (apcForClass) et la maternelle (matForClass) GARDENT leur
- * filtre : leurs référentiels sont faits de matières et de domaines qui portent
- * des noms de matières, donc le rapprochement y a un sens. C'est le primaire,
- * et lui seul, dont le référentiel mêle compétences scolaires et compétences
- * transversales.
- *
- * Le paramètre classSubjects reste dans la signature : les appelants le
- * passent, et la question « cette matière correspond-elle à une compétence ? »
- * continue d'être posée ailleurs, par unmatchedClassSubjects, qui NOMME les
- * matières sans correspondance au lieu de retirer des compétences.
+ * Le premier cycle (apcForClass) et la maternelle (matForClass) gardent leur
+ * filtre d'origine : leurs référentiels sont faits de matières et de domaines
+ * qui portent des noms de matières, donc le rapprochement y a un sens partout.
  */
-export function primForClass(referentiel, niveauSlug, classSubjects, masques = []) {   // eslint-disable-line no-unused-vars
+export function primForClass(referentiel, niveauSlug, classSubjects, masques = []) {
   if (!referentiel || !niveauSlug) return { competences: [], exclus: [] };
   const duNiveau = competencesForNiveau(referentiel, niveauSlug);
-  return { competences: duNiveau.filter((c) => !(masques || []).includes(c.id)), exclus: [] };
+  const visibles = duNiveau.filter((c) => !(masques || []).includes(c.id));
+
+  // Ce que les matières de la classe couvrent réellement. Sert UNIQUEMENT à
+  // décider du sort des compétences maison.
+  const couvertes = new Set();
+  for (const s of (classSubjects || [])) {
+    const id = competenceIdForSubject(s, duNiveau);
+    if (id) couvertes.add(id);
+  }
+
+  return {
+    competences: visibles.filter((c) => !c.school_id || couvertes.has(c.id)),
+    exclus: [],
+  };
 }
 
 /** Maternelle (PS/MS/GS). → { domaines, exclus } */

@@ -906,3 +906,82 @@ décocher. Rien n'a été décoché d'office.
 **Autre fait mesuré** : sur les **17 classes du primaire** de THE GENIUS, **aucune matière
 ne porte `prim_competence_id`**. Le rapprochement se fait donc entièrement par le nom, ce
 qui rend le rattachement explicite inutilisé — et fragile le jour où un nom change.
+
+---
+
+## I18 — Au primaire, une matière ajoutée par l'école n'était notable nulle part
+
+**Date** : 2026-10-22 · **Statut** : **corrigé dans le code (NON LIVRÉ)** ·
+**Source** : bandeau de l'écran de saisie primaire, et consigne du responsable
+
+### Le symptôme
+
+> « Matière(s) de cette classe sans compétence correspondante au référentiel :
+> **Chinois, Economics, Management, Practical Work, Travaux Pratiques**. Elles ne se
+> saisissent pas ici et ne figurent pas sur le bulletin officiel. **Corrigez le nom** dans
+> Classes → Modifier la classe → Matières. »
+
+Au primaire on note des **compétences**, pas des matières. Une matière cochée dont le nom
+ne correspond à aucune compétence du référentiel n'était donc notable **nulle part**.
+
+**Et le conseil du bandeau était mauvais.** « Corrigez le nom » n'a aucun sens pour
+`Economics` : **aucun nom** ne le ferait entrer au programme national du primaire. Le
+message demandait à l'école de renommer sa matière pour qu'elle ressemble à autre chose.
+
+### La consigne
+
+> « C'est l'école qui a ajouté ces matières, donc laisse-les apparaître pour mettre les
+> notes, pour toutes les écoles. »
+
+C'est la même règle que pour le premier cycle (**I16**), appliquée au primaire.
+
+### La correction
+
+À l'ouverture de la classe, chaque matière sans compétence fait naître sa **compétence
+maison** — par le chemin qui existait déjà pour le geste manuel (« Modifier les
+compétences ») : identifiant déterministe dérivé de (école, nom), code dérivé du libellé.
+Deux postes qui créent « Travaux Pratiques » écrivent donc la **même** ligne.
+
+**Deux règles de portée, parce qu'il y a deux sortes de compétences :**
+
+| | Portée |
+|---|---|
+| **Nationale** | tout le niveau, **toujours** — seul le masquage l'enlève (**I17**) |
+| **Maison** | seulement les classes qui **cochent sa matière** |
+
+La seconde règle était indispensable : `prim_niveau_competences` est **vide** en base, donc
+une compétence maison apparaîtrait dans **toutes** les classes du primaire de l'école —
+`Economics` en SIL. Et aucune école ne peut y écrire son niveau : **la table est globale,
+sans `school_id`**. En faisant suivre la compétence maison à sa matière, le problème ne se
+pose plus, et rien n'est repris à I17 : 3A et 4A restent partout.
+
+### Un piège vérifié avant d'écrire
+
+Au primaire, les notes vont sur des **critères** (Oral, Écrit, Pratique, Savoir-être). Si
+ces critères avaient été propres à chaque compétence, une compétence maison serait née
+**sans aucun critère** — créée et invisible, exactement le piège rencontré deux fois dans
+la journée (matière APC sans compétence en I11, table synchronisée née vide en I13).
+Vérifié : `prim_criteres` est **globale** (`id, country_code, nom, poids, ordre`), la
+compétence maison hérite des critères sans rien de plus.
+
+### Preuve
+
+`src/core/_refClassScope.test.mjs` : la règle de portée (4 contrôles) **et le câblage**
+(8 contrôles). Ce second bloc existe parce que le même jour, pour le premier cycle, la
+correction était en place dans le magasin et l'écran ne l'appelait **jamais** — vu du
+dehors, « rien ne change ». On fige donc que c'est bien la liste des matières sans
+compétence qui déclenche, que le rattrapage ne part jamais sans le droit d'écrire, et
+qu'il n'écrit **rien** dans la table globale.
+
+### Ce qu'il faut savoir avant de livrer
+
+1. **L'écriture part à l'ouverture de la classe**, sans rien demander, pour un compte
+   habilité. Ouvrir le CE1 BIL de THE GENIUS créera cinq compétences maison. C'est la
+   règle du responsable, mais c'est une écriture déclenchée par une visite : **un bouton
+   explicite reste à trancher avec lui** (même question qu'en I16).
+2. **Le bulletin du primaire s'allongera** de ces compétences, dans les classes qui
+   cochent leur matière — `Economics` et `Management` comprises. Le logiciel fait ce qui
+   est demandé ; si ces matières n'ont rien à faire en CE1, c'est en les **décochant** que
+   cela se règle.
+3. **Le carnet les regroupe par leur code**, pas par domaine : aucun domaine officiel ne
+   leur a été inventé, et `groupesDe` prévoyait déjà ce cas.

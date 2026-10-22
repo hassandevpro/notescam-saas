@@ -180,13 +180,55 @@ export function apcForClass(referentiel, classSubjects, masques = []) {
   return { competences: applyScope(scope, toutes, (c) => c.matiere_id), exclus: scope?.exclus || [] };
 }
 
-/** Primaire APC (SIL–CM2). → { competences, exclus } */
-export function primForClass(referentiel, niveauSlug, classSubjects, masques = []) {
+/**
+ * Primaire APC (SIL–CM2). → { competences, exclus }
+ *
+ * ── POURQUOI LE PRIMAIRE NE FILTRE PLUS PAR LES MATIÈRES DE LA CLASSE ───────
+ *
+ * RELEVÉ LE 2026-10-22, CE1 BIL de THE GENIUS : sur les ONZE compétences
+ * nationales MINEDUB du niveau, NEUF étaient saisissables. Les deux écartées :
+ *
+ *     3A — Pratiquer les valeurs sociales
+ *     4A — Démontrer l'autonomie, l'esprit d'initiative, la créativité et
+ *          l'entrepreneuriat
+ *
+ * Ce ne sont pas des oublis de l'école : ce sont des compétences TRANSVERSALES.
+ * Aucune matière ne porte leur nom, et aucune école n'aura jamais une matière
+ * « Entrepreneuriat » en CE1. Le filtre les écartait donc de la saisie ET du
+ * bulletin officiel, dans toutes les écoles du primaire, pour toujours.
+ *
+ * C'est exactement ce que ce module s'interdit, en haut de ce fichier :
+ *
+ *     « Un bulletin qui porte une matière en trop est un défaut ; un bulletin
+ *       qui en oublie une est une faute, et elle se découvre devant un parent. »
+ *
+ * Le garde-fou prévu — « on ne filtre que si au moins une matière se rapproche
+ * du référentiel » — ne protégeait pas de ce cas : les neuf autres compétences
+ * étant reconnues, le filtre s'appliquait et emportait les deux transversales.
+ *
+ * ── CE QUI REMPLACE LE FILTRE ───────────────────────────────────────────────
+ *
+ * Le MASQUAGE, qui existait déjà et que l'écran nomme (« Modifier les
+ * compétences »). Il dit ce que le filtre voulait dire — « cette école ne
+ * traite pas cela » — mais il le dit EXPLICITEMENT, école par école, au lieu de
+ * le déduire d'un rapprochement de noms qui ne peut pas réussir pour une
+ * compétence sans matière.
+ *
+ * Le premier cycle (apcForClass) et la maternelle (matForClass) GARDENT leur
+ * filtre : leurs référentiels sont faits de matières et de domaines qui portent
+ * des noms de matières, donc le rapprochement y a un sens. C'est le primaire,
+ * et lui seul, dont le référentiel mêle compétences scolaires et compétences
+ * transversales.
+ *
+ * Le paramètre classSubjects reste dans la signature : les appelants le
+ * passent, et la question « cette matière correspond-elle à une compétence ? »
+ * continue d'être posée ailleurs, par unmatchedClassSubjects, qui NOMME les
+ * matières sans correspondance au lieu de retirer des compétences.
+ */
+export function primForClass(referentiel, niveauSlug, classSubjects, masques = []) {   // eslint-disable-line no-unused-vars
   if (!referentiel || !niveauSlug) return { competences: [], exclus: [] };
   const duNiveau = competencesForNiveau(referentiel, niveauSlug);
-  const toutes = duNiveau.filter((c) => !(masques || []).includes(c.id));
-  const scope = scopeOf('prim', classSubjects, duNiveau);
-  return { competences: applyScope(scope, toutes), exclus: scope?.exclus || [] };
+  return { competences: duNiveau.filter((c) => !(masques || []).includes(c.id)), exclus: [] };
 }
 
 /** Maternelle (PS/MS/GS). → { domaines, exclus } */

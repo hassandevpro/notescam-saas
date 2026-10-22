@@ -35,6 +35,14 @@
 > jour, avant tout envoi. Sa notice porte un bandeau qui le dit. L'exe 0.3.21 a lui aussi
 > été reconstruit après I13 — seule l'empreinte ci-dessus est valable.
 >
+> ⚠ **Le bulletin officiel du PRIMAIRE perdait deux compétences, dans toutes les écoles**
+> (incident **I17**). Sur les onze compétences nationales MINEDUB du niveau, **3A (valeurs
+> sociales)** et **4A (autonomie, initiative, créativité, entrepreneuriat)** étaient écartées :
+> ce sont des compétences TRANSVERSALES, aucune matière ne porte leur nom, donc le filtre par
+> matières cochées ne pouvait jamais les retenir. Corrigé — le primaire ne filtre plus que par
+> le MASQUAGE, levier explicite déjà en place. Premier cycle et maternelle gardent leur
+> filtre : leurs référentiels sont faits de matières.
+>
 > ⚠ **Une matière cochée dans la classe n’était pas toujours saisissable** (incident **I16**) :
 > une matière n’est proposée à la saisie que si elle est RATTACHÉE au niveau de la classe, et
 > rien ne posait ce rattachement quand la matière existait déjà à un autre niveau. Mesuré :

@@ -177,30 +177,65 @@ titre('apcForClass : masques ET perimetre');
   ok(apcForClass(null, classe, []).competences.length === 0, 'referentiel null -> liste vide, pas une erreur');
 }
 
-titre('primForClass : masques ET perimetre');
+titre('primForClass : les masques SEULS, plus le perimetre de la classe');
+//
+// CE QUE CE BLOC A CHANGE, ET POURQUOI. Il exigeait auparavant que les matieres
+// cochees FILTRENT les competences du niveau. Releve le 2026-10-22 sur le CE1
+// BIL de THE GENIUS : sur les ONZE competences nationales MINEDUB, NEUF etaient
+// saisissables. Les deux ecartees sont TRANSVERSALES —
+//
+//     3A  Pratiquer les valeurs sociales
+//     4A  Demontrer l'autonomie, l'esprit d'initiative, la creativite et
+//         l'entrepreneuriat
+//
+// — et aucune matiere ne porte leur nom : aucune ecole n'a de matiere
+// « Entrepreneuriat » en CE1. Le filtre les retirait donc du bulletin OFFICIEL,
+// dans toutes les ecoles du primaire. Le module s'interdit precisement cela :
+// « un bulletin qui en oublie une est une faute ».
+//
+// Le masquage reste le levier de l'ecole, et il dit la meme chose
+// EXPLICITEMENT au lieu de la deduire d'un rapprochement de noms impossible.
 {
   const ref = {
     competences: [
       { id: '1a', code: '1A', intitule: 'Lire et écrire', ordre: 1 },
       { id: '2a', code: '2A', intitule: 'Compter', ordre: 2 },
       { id: '6a', code: '6A', intitule: 'Éducation physique', ordre: 3 },
+      { id: '4a', code: '4A', intitule: 'Autonomie et esprit d initiative', ordre: 4 },
     ],
     niveauCompetences: [
       { niveau_id: 'cm2', competence_id: '1a' },
       { niveau_id: 'cm2', competence_id: '2a' },
       { niveau_id: 'cm2', competence_id: '6a' },
+      { niveau_id: 'cm2', competence_id: '4a' },
     ],
   };
-  const classe = [sub('1A'), sub('2A')];                 // 6A decochee
-  const r = primForClass(ref, 'cm2', classe, ['2a']);    // 2A masquee
-  const ids = r.competences.map((c) => c.id);
-  ok(ids.join(',') === '1a', 'seule la competence cochee ET non masquee survit', ids);
-  ok(r.exclus.includes('6a'), 'la competence decochee est annoncee', r.exclus);
+  const classe = [sub('1A'), sub('2A')];                 // 6A et 4A non cochees
+
+  // LE CONTROLE QUI FERME LE DEFAUT : une competence transversale, que rien ne
+  // peut couvrir, reste saisissable et imprimable.
+  const complet = primForClass(ref, 'cm2', classe, []);
+  ok(complet.competences.map((c) => c.id).join(',') === '1a,2a,6a,4a',
+    'les QUATRE competences du niveau restent, dont la transversale 4A',
+    complet.competences.map((c) => c.id));
+  ok(complet.exclus.length === 0, 'et rien n est annonce comme ecarte', complet.exclus);
+
+  // Le masque, lui, porte toujours : c est le levier EXPLICITE de l ecole.
+  const r = primForClass(ref, 'cm2', classe, ['2a']);
+  ok(r.competences.map((c) => c.id).join(',') === '1a,6a,4a',
+    'la competence MASQUEE est la seule retiree', r.competences.map((c) => c.id));
+
   ok(primForClass(ref, null, classe, []).competences.length === 0, 'sans niveau -> liste vide');
   ok(primForClass(null, 'cm2', classe, []).competences.length === 0, 'sans referentiel -> liste vide');
-  // Garde-fou.
+
+  // Une classe dont AUCUN nom n est reconnu garde evidemment tout, comme avant.
   const rien = primForClass(ref, 'cm2', [sub('Zzz')], []);
-  ok(rien.competences.length === 3, 'aucun nom reconnu -> les 3 competences restent', rien.competences.length);
+  ok(rien.competences.length === 4, 'aucun nom reconnu -> les 4 competences restent', rien.competences.length);
+
+  // CE QUI NE DOIT PAS BOUGER : le premier cycle et la maternelle gardent leur
+  // filtre. Leurs referentiels sont faits de matieres, le rapprochement y a un
+  // sens, et la decision d origine reste valable pour eux.
+  ok(typeof scopeOf === 'function', 'scopeOf reste utilise par apc et mat');
 }
 
 titre('matForClass : masques ET perimetre');

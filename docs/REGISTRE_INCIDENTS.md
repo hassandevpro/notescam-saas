@@ -821,3 +821,88 @@ C'est la **deuxième fois** aujourd'hui que j'explique un symptôme au lieu de l
 J'avais sous les yeux « coché mais absent du menu » et j'ai produit une justification
 technique correcte — le catalogue national — au lieu de voir une promesse non tenue. Une
 explication qui laisse l'utilisateur sans solution n'est pas un diagnostic.
+
+---
+
+## I17 — Le bulletin officiel du primaire perdait deux compétences, partout
+
+**Date** : 2026-10-22 · **Statut** : **corrigé dans le code (NON LIVRÉ)** ·
+**Source** : capture de l'écran de saisie primaire de THE GENIUS (CE1 BIL), et sa
+bannière
+
+### Le symptôme, et ce qu'il cachait
+
+L'écran annonçait, correctement :
+
+> *« 2 compétence(s) du niveau ne sont pas couvertes par les matières cochées pour cette
+> classe : elles ne se saisissent pas ici et ne s'impriment pas sur le bulletin. »*
+
+Sur les **onze** compétences nationales MINEDUB du niveau, **neuf** étaient saisissables.
+Les deux écartées :
+
+| Code | Intitulé | Domaine |
+|---|---|---|
+| **3A** | Pratiquer les valeurs sociales | `vie_citoyennete` |
+| **4A** | Démontrer l'autonomie, l'esprit d'initiative, la créativité et l'entrepreneuriat | `autonomie` |
+
+Ce ne sont pas des oublis de l'école. Ce sont des compétences **transversales** : aucune
+matière ne porte leur nom, et **aucune école n'aura jamais une matière « Entrepreneuriat »
+en CE1**. Le rapprochement par nom ne pouvait donc pas réussir — jamais, nulle part.
+
+### Ce que le filtre produisait, et pourquoi c'est une faute
+
+`primForClass` enchaînait deux filtres : les masques de l'école, puis le **périmètre des
+matières cochées**. Le second retirait 3A et 4A de la saisie **et du bulletin officiel**,
+dans **toutes** les écoles du primaire, définitivement.
+
+Le module s'interdit précisément cela, dans son propre en-tête :
+
+> *« Un bulletin qui porte une matière en trop est un défaut ; un bulletin qui en oublie
+> une est une faute, et elle se découvre devant un parent. »*
+
+Le garde-fou prévu — *« on ne filtre que si au moins une matière se rapproche du
+référentiel »* — ne protégeait pas de ce cas : les neuf autres compétences étant
+reconnues, le filtre s'appliquait et emportait les deux transversales avec lui.
+
+### La correction
+
+Le primaire ne filtre plus par les matières cochées. **Le masquage le remplace** : il
+existait déjà, l'écran le nomme (« Modifier les compétences »), et il dit la même chose —
+*« cette école ne traite pas cela »* — mais **explicitement**, au lieu de la déduire d'un
+rapprochement de noms impossible.
+
+Le **premier cycle** (`apcForClass`) et la **maternelle** (`matForClass`) **gardent leur
+filtre** : leurs référentiels sont faits de matières et de domaines qui portent des noms de
+matières, donc le rapprochement y a un sens, et la décision d'origine reste valable. C'est
+le primaire, et lui seul, dont le référentiel mêle compétences scolaires et compétences
+transversales.
+
+La bannière « N compétences non couvertes » disparaît d'elle-même : elle comptait les
+exclues, et il n'y en a plus.
+
+**Preuve** : `src/core/_refClassScope.test.mjs`. Le bloc existant **exigeait** le
+comportement retiré — il a été **récrit, pas supprimé**, avec le relevé qui motive le
+changement. Le contrôle qui ferme le défaut : une compétence transversale que rien ne peut
+couvrir reste saisissable ; et le masque, lui, porte toujours.
+
+### Relevé au passage, non corrigé — les classes bilingues du primaire
+
+| Classe | Matières cochées |
+|---|---|
+| CE1 BIL | **43** |
+| CE2 BIL | **37** |
+| SIL BIL, CP BIL | 22 chacune |
+| Classes monolingues | 11 à 21 |
+
+Le cumul des deux programmes est le fonctionnement voulu de la case « Classe bilingue ».
+Mais le CE1 BIL porte aussi `Economics`, `Management`, `Accounting`, `Philosophy`,
+`Technology` — des matières de lycée dans un CE1. Au primaire elles ne gênent pas la saisie
+(on note des compétences, pas des matières), mais elles encombrent et déclenchent la
+seconde bannière.
+
+**C'est un geste d'école, pas de logiciel** : *Classes → Modifier la classe → Matières*,
+décocher. Rien n'a été décoché d'office.
+
+**Autre fait mesuré** : sur les **17 classes du primaire** de THE GENIUS, **aucune matière
+ne porte `prim_competence_id`**. Le rapprochement se fait donc entièrement par le nom, ce
+qui rend le rattachement explicite inutilisé — et fragile le jour où un nom change.

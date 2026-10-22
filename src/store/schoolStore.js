@@ -9,7 +9,7 @@
 import { create } from 'zustand';
 import { initDB, classesDB, subjectsDB, studentsDB, gradesDB, syncQueueDB, teachersDB, feesDB, feePaymentsDB, academicPeriodsDB, staffDB, classFeeGridsDB, apcRefDB, apcNotesDB, scRefDB, bilRefDB, matRefDB, matObsDB, primRefDB, primNotesDB, schoolUnitsDB, assignmentsDB } from '../lib/db';
 import { fetchSchoolUnits, upsertSchoolUnit, deleteSchoolUnit as sbDeleteSchoolUnit } from '../lib/schoolUnitService';
-import { fetchReferentiel, refreshApcReferentiel, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
+import { fetchReferentiel, refreshApcReferentiel, apcFingerprint, fetchApcNotes, upsertApcNote, buildNoteRecord, noteNkey } from '../lib/apcService';
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
@@ -754,7 +754,7 @@ export const useSchoolStore = create((set, get) => ({
 
     // 1) Cache IDB immédiat
     const [cachedRef, idbNotes] = await Promise.all([
-      apcRefDB.get().catch(() => null),
+      apcRefDB.get(schoolId).catch(() => null),
       apcNotesDB.getAll().catch(() => []),
     ]);
     const notesMap = {};
@@ -767,12 +767,12 @@ export const useSchoolStore = create((set, get) => ({
     // aucune ligne ne transite. Les notes de l'école, elles, sont inchangées.
     if (!backendOnline()) return;
     const [refRes, notes] = await Promise.all([
-      refreshApcReferentiel(cachedRef?.__fp ?? null),
+      refreshApcReferentiel(cachedRef?.__fp ?? null, schoolId),
       fetchApcNotes(schoolId),
     ]);
     if (refRes.data) {
-      const blob = { ...refRes.data, id: 'referentiel', __fp: refRes.fingerprint };
-      await apcRefDB.put(blob).catch(() => {});
+      const blob = { ...refRes.data, id: apcRefDB.cle(schoolId), __fp: refRes.fingerprint };
+      await apcRefDB.put(blob, schoolId).catch(() => {});
       publishReferentiels(set, get, { apcRefRaw: blob });
     }
     if (notes) {
@@ -948,15 +948,22 @@ export const useSchoolStore = create((set, get) => ({
   //     quatre de plus à chaque rechargement de la page.
   //
   // D'où ce rechargement FORCÉ, qui court-circuite l'empreinte et réécrit le
-  // cache. L'empreinte est conservée : seules NOS lignes ont bougé, la version
-  // nationale est la même.
+  // cache.
+  //
+  // L'EMPREINTE EST RECALCULÉE, et ne doit plus être conservée. L'ancienne
+  // version de ce code gardait l'empreinte d'avant en expliquant que « seules
+  // NOS lignes ont bougé, la version nationale est la même » — ce qui était
+  // exactement le défaut : l'empreinte ne voyait pas nos lignes, donc AUCUN
+  // AUTRE POSTE n'apprenait jamais le changement. Depuis `apcFingerprint`, elle
+  // compte aussi les lignes maison de l'école : la recalculer ici, c'est écrire
+  // dans le cache une empreinte qui décrit vraiment ce qu'il contient.
   rechargerApcReferentiel: async () => {
     if (!backendOnline()) return { error: 'offline' };
-    const data = await fetchReferentiel();
+    const { schoolId } = get();
+    const data = await fetchReferentiel(schoolId);
     if (!data) return { error: 'fetch' };
-    const ancien = await apcRefDB.get().catch(() => null);
-    const blob = { ...data, id: 'referentiel', __fp: ancien?.__fp ?? null };
-    await apcRefDB.put(blob).catch(() => {});
+    const blob = { ...data, id: apcRefDB.cle(schoolId), __fp: await apcFingerprint(schoolId).catch(() => null) };
+    await apcRefDB.put(blob, schoolId).catch(() => {});
     publishReferentiels(set, get, { apcRefRaw: blob });
     return { data: blob };
   },

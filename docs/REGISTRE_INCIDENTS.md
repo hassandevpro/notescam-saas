@@ -653,4 +653,80 @@ déduit une défaillance de masse là où il y avait un test unique.
 
 ⚠ **Non traité, et à surveiller** : `.github/workflows/ci.yml` annonce « Tests colocalisés
 (176) » alors qu'il y en a **193**. Le nombre n'a aucun effet sur l'exécution, mais une
-étiquette fausse finit par être crue.
+étiquette fausse finit par être crue. *(Corrigé dans le même commit.)*
+
+---
+
+## I15 — Une suppression en base que l'écran n'apprend jamais
+
+**Date** : 2026-10-22 · **Statut** : **corrigé dans le code (NON LIVRÉ)** ·
+**Source** : signalement du responsable, **deux captures d'écran du même moment**
+
+### Les deux écrans qui se contredisent
+
+| Écran | Ce qu'il montrait |
+|---|---|
+| « Modifier la classe → Matières » | chaque matière **une fois**, avec son enseignant |
+| Menu des matières, à la saisie | `Langue Turc` ×3, `Etude de texte` ×3, `Expresion ecrite` ×2, `Expression Orale` ×2 |
+
+Et la base, elle, n'en portait **plus aucune en double** : les neuf lignes fautives avaient
+été supprimées en production le matin même (**I11 ter**). Les deux écrans ne lisent pas la
+même chose — le premier lit les **matières de la classe**, le second lit le
+**référentiel**. Le défaut était donc entièrement du côté du référentiel, et pas en base.
+
+### Deux défauts cumulés, et le code documentait l'hypothèse devenue fausse
+
+**1. L'empreinte ne voyait pas les lignes de l'école.** Le référentiel APC n'est
+retéléchargé que si son empreinte change, et cette empreinte était **l'id de la version
+nationale active**. `referentielFingerprint.js` justifiait ce choix en toutes lettres : les
+référentiels nationaux sont « globaux, en lecture seule, et identiques pour toutes les
+écoles ». **Cette phrase a cessé d'être vraie en 0.3.19**, quand l'école a pu créer ses
+propres matières de premier cycle (`apc_matieres.school_id`).
+
+Conséquence : supprimer neuf lignes maison ne déplaçait pas l'empreinte. **Aucun
+navigateur ne pouvait apprendre la suppression, jamais** — ni par rechargement, ni par
+Ctrl+Shift+R, qui ne vide pas IndexedDB. La correction en base était réelle et invisible.
+
+Pire, le code le disait sans le voir : `rechargerApcReferentiel` commentait « l'empreinte
+est conservée : seules NOS lignes ont bougé, la version nationale est la même ». C'était
+exactement le défaut, écrit comme une justification.
+
+**2. Le cache mélangeait les écoles.** La RLS de `apc_matieres` est juste —
+`school_id IS NULL OR member_of_school(school_id)` — mais un responsable membre de
+**plusieurs** écoles les reçoit **toutes**, et le cache n'avait qu'une seule clé,
+`'referentiel'`. En passant d'une école à l'autre, on voyait les matières maison de la
+précédente. C'est pourquoi « Langue Turc » s'affichait chez THE GENIUS, qui n'en a aucune.
+
+### La correction
+
+| | Avant | Après |
+|---|---|---|
+| Empreinte APC | id de la version nationale | version **+ comptes des lignes maison de l'école** |
+| Téléchargement | toutes les écoles dont on est membre | **filtré sur l'école active** (`apc_matieres`, `apc_classe_matieres`, `apc_competences`) |
+| Clé de cache | `'referentiel'` | `'referentiel:<school_id>'` |
+| `rechargerApcReferentiel` | gardait l'ancienne empreinte | **recalcule** celle qui décrit ce qu'il écrit |
+
+**Elle se répare toute seule.** L'empreinte stockée dans les navigateurs n'a plus le même
+format : au premier chargement après déploiement, le référentiel est retéléchargé sans que
+personne ait rien à vider.
+
+**Preuve** : `src/lib/_apcRefCache.test.mjs`, **20 contrôles** sur une doublure Supabase qui
+enregistre les filtres émis. Dont celui qui compte : *supprimer des lignes maison change
+l'empreinte* — et sa réciproque, *l'empreinte de l'école A ne bouge pas quand B change*.
+
+**Limite assumée, la même que pour le primaire** : une modification **sur place** qui ne
+change aucun compte (renommer une matière maison, corriger son coefficient) reste
+invisible aux autres postes. Elle est bornée par `rechargerApcReferentiel`, qui
+court-circuite l'empreinte sur le poste qui vient d'écrire.
+
+### Ce que cet incident apprend
+
+C'est la **quatrième fois** de la journée que le diagnostic vient d'une sortie brute, et la
+**deuxième** fois que la cause est une hypothèse écrite en commentaire qui a cessé d'être
+vraie sans que personne relise le commentaire. Un commentaire qui justifie un raccourci
+(« c'est en lecture seule », « c'est identique partout ») devient faux le jour où la
+fonctionnalité qu'il décrit change — et rien ne le signale.
+
+**À faire** : quand une fonctionnalité rend une table **inscriptible par l'école**,
+chercher les commentaires qui la décrivent comme nationale ou figée. Ici, un `grep` sur
+« lecture seule » aurait trouvé le défaut avant l'école.

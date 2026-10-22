@@ -600,9 +600,14 @@ export const staffDB = {
 
 // --- Moteur APC ---
 export const apcRefDB = {
-  // Un seul blob de référentiel keyé 'referentiel'.
-  get: () => idbGet('apc_ref', 'referentiel'),
-  put: (record) => idbPut('apc_ref', { ...record, id: 'referentiel' }),
+  // UN BLOB PAR ÉCOLE. Il n'y en avait qu'un, keyé 'referentiel' : un responsable
+  // membre de plusieurs écoles voyait donc le référentiel de la précédente —
+  // matières maison comprises — tant que l'empreinte ne bougeait pas. Relevé le
+  // 2026-10-22. La clé sans école reste lue en REPLI pour ne pas jeter le cache
+  // des installations existantes au premier chargement.
+  cle: (schoolId) => (schoolId ? `referentiel:${schoolId}` : 'referentiel'),
+  get: (schoolId) => idbGet('apc_ref', apcRefDB.cle(schoolId)),
+  put: (record, schoolId) => idbPut('apc_ref', { ...record, id: apcRefDB.cle(schoolId) }),
 };
 
 export const apcNotesDB = {

@@ -35,6 +35,14 @@
 > jour, avant tout envoi. Sa notice porte un bandeau qui le dit. L'exe 0.3.21 a lui aussi
 > été reconstruit après I13 — seule l'empreinte ci-dessus est valable.
 >
+> ⚠ **Les doublons restaient AFFICHÉS après leur suppression** (incident **I15**) :
+> l'empreinte du référentiel APC était l'id de la version nationale, donc insensible aux
+> lignes maison de l'école, et le cache n'était pas keyé par école. Corrigé — empreinte
+> sensible aux lignes maison, téléchargement filtré sur l'école active, cache par école.
+> **Se répare tout seul au premier chargement après déploiement** (l’empreinte stockée n’a
+> plus le même format), sans rien vider. Avant déploiement, le contournement est de vider
+> les données du site : Ctrl+Shift+R ne suffit pas, IndexedDB y survit.
+>
 > ✅ **Doublons du référentiel de BRIGHT CONTINENT : corrigés en production** le
 > 2026-10-22, sur autorisation explicite. 5 groupes → 0 ; 9 matières, 27 compétences et 6
 > notes jumelles retirées ; les notes des matières gardées (6/3/1) sont intactes.

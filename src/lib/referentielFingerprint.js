@@ -74,6 +74,43 @@ export async function countFingerprint(tables) {
   }
 }
 
+// Empreinte des lignes MAISON d'UNE école, par NOMBRE DE LIGNES.
+//
+// CE QUE SON ABSENCE A COÛTÉ, le 2026-10-22. L'empreinte APC est l'id de la
+// VERSION ACTIVE, et le commentaire en tête de ce fichier explique pourquoi
+// c'était « autoritatif » : les référentiels nationaux sont « globaux, en
+// lecture seule, et identiques pour toutes les écoles ». Cette phrase a cessé
+// d'être vraie en 0.3.19, quand l'école a pu créer ses propres matières de
+// premier cycle (`apc_matieres.school_id`).
+//
+// Conséquence, constatée à l'écran : neuf matières maison en double ont été
+// supprimées en base, et les navigateurs ont continué de les afficher — la
+// version active n'avait pas bougé, donc rien n'était retéléchargé. La
+// suppression était réelle et invisible, sans aucun moyen de s'en apercevoir.
+//
+// On ajoute donc à l'empreinte le COMPTE des lignes maison de l'école. Toute
+// création et toute suppression le déplacent. Reste invisible, comme pour le
+// primaire : une modification sur place qui ne change aucun compte (renommer,
+// corriger un coefficient). C'est la même limite assumée, et elle est bornée
+// par `rechargerApcReferentiel`, qui court-circuite l'empreinte sur le poste qui
+// vient d'écrire.
+export async function maisonFingerprint(tables, schoolId) {
+  if (IS_LAN || !schoolId) return '';
+  try {
+    const counts = await Promise.all(tables.map(async (t) => {
+      const { count, error } = await supabase
+        .from(t).select('school_id', { count: 'exact', head: true }).eq('school_id', schoolId);
+      return error || typeof count !== 'number' ? null : count;
+    }));
+    // Un compte manquant ⇒ on ne devine pas : on rend `null`, ce qui rend
+    // l'empreinte entière nulle et force un téléchargement complet.
+    if (counts.some((c) => c === null)) return null;
+    return `|m:${counts.join(',')}`;
+  } catch {
+    return null;
+  }
+}
+
 // Décision commune aux quatre référentiels.
 //
 //   { changed: false, fingerprint }           → cache à jour, RIEN n'a été téléchargé

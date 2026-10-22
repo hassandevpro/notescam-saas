@@ -11,7 +11,7 @@
 // écraser une note. L'écriture cloud upsert sur ce triplet (anti-doublon).
 
 import { supabase } from './supabase';
-import { refreshReferentiel, versionFingerprint } from './referentielFingerprint';
+import { refreshReferentiel, versionFingerprint, maisonFingerprint } from './referentielFingerprint';
 import { uuid } from './uuid';
 // Définition canonique dans le moteur pur (lisible sans la couche Supabase).
 import { noteNkey } from '../core/apcEngine';
@@ -21,15 +21,28 @@ export { noteNkey };
 // --- Référentiel --------------------------------------------------------------
 // Charge l'intégralité de la structure + les compétences de la version active.
 // Renvoie null en cas d'échec (l'appelant retombe alors sur le cache IDB).
-export async function fetchReferentiel() {
+// LE RÉFÉRENTIEL D'UNE ÉCOLE, PAS DE TOUTES CELLES OÙ L'ON A UN COMPTE.
+//
+// La RLS de `apc_matieres` dit « school_id IS NULL OR member_of_school(school_id) » :
+// elle est juste, mais un responsable membre de PLUSIEURS écoles les voit donc
+// TOUTES. Relevé le 2026-10-22 : en travaillant sur une école, la liste des
+// matières proposait « Langue Turc », « Etude de texte » et « Expression Orale »
+// — les matières maison d'une AUTRE école, trois fois chacune. Le filtre
+// manquait ici, pas dans la base.
+//
+// `schoolId` absent (référentiel chargé avant que l'école soit connue) : on ne
+// filtre pas, exactement comme avant. Mieux vaut une liste trop large qu'un
+// référentiel vide.
+export async function fetchReferentiel(schoolId) {
+  const sienne = (q) => (schoolId ? q.or(`school_id.is.null,school_id.eq.${schoolId}`) : q);
   try {
     const [cycles, classes, trimestres, sequences, matieres, classeMatieres, versions] = await Promise.all([
       supabase.from('apc_cycles').select('*'),
       supabase.from('apc_classes').select('*').order('niveau', { ascending: false }),
       supabase.from('apc_trimestres').select('*').order('numero'),
       supabase.from('apc_sequences').select('*').order('numero'),
-      supabase.from('apc_matieres').select('*').order('ordre'),
-      supabase.from('apc_classe_matieres').select('*'),
+      sienne(supabase.from('apc_matieres').select('*')).order('ordre'),
+      sienne(supabase.from('apc_classe_matieres').select('*')),
       supabase.from('apc_referentiel_versions').select('*').eq('actif', true),
     ]);
 
@@ -38,7 +51,7 @@ export async function fetchReferentiel() {
     if (err) { console.error('fetchReferentiel', err); return null; }
 
     const activeVersionIds = (versions.data || []).map((v) => v.id);
-    let compQ = supabase.from('apc_competences').select('*').eq('actif', true);
+    let compQ = sienne(supabase.from('apc_competences').select('*')).eq('actif', true);
     if (activeVersionIds.length) compQ = compQ.in('referentiel_version_id', activeVersionIds);
     const competences = await compQ;
     if (competences.error) { console.error('fetchReferentiel competences', competences.error); return null; }
@@ -63,11 +76,23 @@ export async function fetchReferentiel() {
 // L'empreinte est l'id de la version active : les imports en insèrent une neuve
 // à chaque publication (cf. referentielFingerprint.js). `fetchReferentiel` reste
 // le chemin autoritatif — aucun delta, aucune fusion partielle.
-export function refreshApcReferentiel(cachedFingerprint) {
+// L'empreinte APC = version nationale active + comptes des lignes MAISON de
+// l'école. La première partie suffisait tant que le référentiel était en lecture
+// seule ; depuis que l'école y écrit, une création ou une suppression de SES
+// lignes doit déplacer l'empreinte, sinon aucun poste ne l'apprend jamais.
+export async function apcFingerprint(schoolId) {
+  const version = await versionFingerprint('apc_referentiel_versions');
+  if (version == null) return null;
+  const maison = await maisonFingerprint(['apc_matieres', 'apc_classe_matieres'], schoolId);
+  if (maison == null) return null;
+  return `${version}${maison}`;
+}
+
+export function refreshApcReferentiel(cachedFingerprint, schoolId) {
   return refreshReferentiel({
     cachedFingerprint,
-    fingerprint: () => versionFingerprint('apc_referentiel_versions'),
-    fetchAll: fetchReferentiel,
+    fingerprint: () => apcFingerprint(schoolId),
+    fetchAll: () => fetchReferentiel(schoolId),
   });
 }
 

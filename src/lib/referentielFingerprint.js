@@ -60,11 +60,20 @@ export async function versionFingerprint(table) {
 
 // Empreinte par NOMBRE DE LIGNES. Une requête HEAD par table, corps vide.
 // `null` dès qu'un compte manque — on ne devine pas.
+//
+// ON COMPTE SUR `*`, PAS SUR `id`. Mesuré le 2026-10-23 contre la base de
+// production : `prim_niveau_competences?select=id` répond **400** — cette table
+// n'a pas de colonne `id`, sa clé est (niveau_id, competence_id). Un seul compte
+// manquant annule l'empreinte entière : le référentiel du PRIMAIRE était donc
+// retéléchargé EN ENTIER (sept tables) à chaque montage d'écran, dans toutes les
+// écoles, alors que le cache IndexedDB contenait déjà exactement la même chose —
+// c'est-à-dire précisément ce que ce fichier existe pour éviter. Avec `*`, les
+// neuf tables (primaire et maternelle) répondent 200.
 export async function countFingerprint(tables) {
   if (IS_LAN) return null;
   try {
     const counts = await Promise.all(tables.map(async (t) => {
-      const { count, error } = await supabase.from(t).select('id', { count: 'exact', head: true });
+      const { count, error } = await supabase.from(t).select('*', { count: 'exact', head: true });
       return error || typeof count !== 'number' ? null : count;
     }));
     if (counts.some((c) => c === null)) return null;

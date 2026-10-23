@@ -985,3 +985,134 @@ qu'il n'écrit **rien** dans la table globale.
    cela se règle.
 3. **Le carnet les regroupe par leur code**, pas par domaine : aucun domaine officiel ne
    leur a été inventé, et `groupesDe` prévoyait déjà ce cas.
+
+---
+
+## I19 — Sur les postes installés, le référentiel « se charge sans cesse » (0.3.22)
+
+**Date** : 2026-10-23 · **Statut** : **corrigé dans le code (NON LIVRÉ)** ·
+**Source** : signalement du responsable, en trois messages
+
+> « quand on essaie d'entrer les notes du primaire, le référentiel se charge sans cesse
+> *Chargement du référentiel APC…* »
+> « la version 0.3.22 qui a ce problème »
+> « **la version en ligne n'a pas le problème de chargement** »
+
+La troisième phrase est celle qui a tranché, et elle a été donnée **avant** que la moindre
+hypothèse ne soit testée. Elle dit : ce n'est pas la base, ce n'est pas l'écran, c'est le
+**client LAN**.
+
+### La cause : un appel que le serveur d'école ne connaît pas
+
+La **0.3.22** (I15) avait ajouté, pour ne plus mélanger les écoles :
+
+```js
+const sienne = (q) => (schoolId ? q.or(`school_id.is.null,school_id.eq.${schoolId}`) : q);
+```
+
+`.or()` existe chez `supabase-js`. Il **n'existe pas** sur `localClient.QueryBuilder`, le
+client qui parle au serveur Fastify de l'école. Sur un poste installé, l'appel levait
+`q.or is not a function` ; le `catch` de `fetchReferentiel` rendait `null` ; et comme la
+**même version** changeait la clé du cache (`referentiel:<school_id>`), il n'y avait **aucun
+cache à peindre**. L'écran de saisie restait donc sur « Chargement du référentiel APC… »
+**pour toujours** — et la saisie du premier cycle était impossible.
+
+**Le dépôt connaissait le piège.** `feeCatalogService.js` porte, depuis des mois :
+« pas de `.or()` (non supporté par le client LAN/localClient) — on tire tout … puis on
+filtre côté client ». Rien ne l'empêchait pour autant.
+
+### Deux écritures de la même famille, trouvées en remontant la divergence
+
+| Écriture | Table | Clé réelle | Ce qui se passait en LAN |
+|---|---|---|---|
+| `apc_classe_matieres.upsert(ligne)` | pas de colonne `id` | `(classe_id, matiere_id)` | `ON CONFLICT(id)` → erreur SQLite, **rattachement I16 mort** |
+| `mat_domaines_masques.upsert(ligne)` | pas de colonne `id` | `(school_id, domaine_id)` | idem, **masquage d'un domaine de maternelle refusé** |
+
+En Cloud, un upsert sans cible visait la clé primaire : les deux marchaient. Le client LAN
+retombe sur son défaut `'id'`. Le correctif I16, livré dans le paquet 0.3.22, **ne pouvait
+donc pas fonctionner sur un poste installé** — ce qui était précisément le reproche
+d'origine (« une matière cochée n'apparaît pas à la saisie »).
+
+Et `auth.js` portait la même divergence avec `.ilike()`, sur le repli qui rattache un
+compte enseignant à sa fiche : un **TypeError** au milieu de la résolution du contexte,
+pas une requête vide.
+
+### La correction
+
+| Ce qui change | Où |
+|---|---|
+| le filtre par école est fait **en JavaScript**, sur les lignes reçues | `src/lib/apcService.js` |
+| `onConflict` **explicite** sur les deux tables à clé composite | `referentielEcole.js`, `matService.js` |
+| le repli par nom compare les noms **en JavaScript** (et exige **une seule** correspondance) | `src/lib/auth.js` |
+| l'empreinte par comptes ne demande plus `id` — **mesuré 400** sur `prim_niveau_competences` | `referentielFingerprint.js` |
+| une demande de référentiel **attend** que l'école soit connue au lieu d'être jetée | `schoolStore.js`, `core/attenteValeur.js` |
+
+### Deux défauts de plus, trouvés en mesurant
+
+**`prim_niveau_competences?select=id` répond 400** (sa clé est `(niveau_id, competence_id)`,
+il n'y a pas de colonne `id`). Un seul compte manquant annule l'empreinte entière : le
+référentiel du **primaire** était donc retéléchargé **en entier**, sept tables, à chaque
+montage d'écran, dans toutes les écoles — c'est-à-dire exactement ce que le fichier
+d'empreintes existe pour éviter. Avec `select=*`, les neuf tables répondent 200.
+
+**Une demande de référentiel arrivée trop tôt était perdue.** L'écran la fait à son
+montage ; `schoolId` n'est posé que par l'effet de `App`. React exécute les effets des
+**enfants avant ceux des parents** : sur une arrivée **directe** sur `/app/grades` (lien,
+favori, F5, Ctrl+Shift+R), `loadApc`/`loadPrim`/`loadMat`/`loadRefMasques` repartaient sans
+rien faire, et **rien ne les rejouait**. Depuis le tableau de bord, le défaut est invisible
+(le référentiel est déjà en mémoire) : il ne frappe que celui qui **vérifie** une
+correction. Corrigé **à la source** plutôt que dans les neuf écrans appelants.
+
+### Preuve
+
+| Test | Ce qu'il fige |
+|---|---|
+| `src/lib/_localClientParite.test.mjs` | toute méthode chaînée sur `supabase.from(…)` existe sur le client LAN — **et** les méthodes interdites (`.or`, `.ilike`, `.like`…) n'apparaissent nulle part dans `src/`, même appelées **indirectement** (c'est par une fonction intermédiaire que la 0.3.22 est passée) |
+| `server/_upsert_cle_composite.test.mjs` | sur une **vraie base SQLite** : `ON CONFLICT(id)` est refusé sur les deux tables, la clé composite passe, et le rejeu est idempotent |
+| `src/core/_attenteValeur.test.mjs` | la demande attend l'école, ne la perd pas dans une course, et n'attend pas pour toujours |
+| `src/store/_chargeursAttendentEcole.test.mjs` | le **câblage** : les quatre chargeurs attendent, les deux chargeurs nationaux sont inchangés |
+| `src/lib/_apcRefCache.test.mjs` | réécrit : l'invariant est le **résultat** (aucune ligne d'une autre école), et **aucun `.or()` émis** |
+
+### Ce qu'il faut savoir avant de livrer
+
+1. **Le paquet 0.3.22 ne doit pas être distribué.** Il porte le défaut : sur un poste
+   installé, la saisie du premier cycle est bloquée. Il n'a été envoyé à aucune école.
+2. **La version en ligne n'était pas touchée** : Supabase connaît `.or()`. Les écoles du
+   Cloud n'ont rien à faire.
+3. **Leçon de méthode, la quatrième du même mois** : le responsable avait dit « la version
+   en ligne n'a pas le problème ». C'est cette phrase, et non l'audit du code, qui a
+   désigné la cause en une minute. Cf. `demander-l-ecran-avant-d-auditer-la-base`.
+
+---
+
+## I20 — L'import de notes écrivait toutes les matières du classeur
+
+**Date** : 2026-10-23 · **Statut** : **corrigé dans le code (NON LIVRÉ)** ·
+**Source** : consigne du responsable — « il faut aussi que l'import de note se fasse une
+matière à la fois »
+
+Le classeur exporté depuis l'écran de saisie porte **une colonne par matière de la
+classe**. L'import lisait **toutes** les colonnes reconnues. Un enseignant qui réimportait
+son fichier après avoir rempli **sa** colonne réécrivait donc celles de ses collègues —
+avec l'état qu'elles avaient **au moment de l'export**, c'est-à-dire périmé dès qu'un
+collègue avait saisi entre-temps.
+
+C'est la même famille de dégâts que **I12** : une note juste, au mauvais endroit, écrite
+sans que rien ne le signale.
+
+La 0.3.19 avait fermé **la moitié** du piège : une cellule **vide** n'efface plus la note
+en place. Une cellule **pleine et périmée**, elle, écrasait toujours.
+
+### La correction
+
+La matière est **choisie** dans le panneau d'import, et c'est la **seule colonne lue** :
+
+* une seule matière dans le classeur → elle est choisie d'office ;
+* plusieurs → le bouton reste inerte (« Choisissez la matière ») ;
+* le bouton annonce **ce qui sera écrit** : « Importer 23 notes — Mathématiques », et non
+  un nombre d'élèves ;
+* l'écran de fin le redit : « Seule cette matière a été écrite. »
+
+Règle **pure** et vérifiée seule : `src/core/importUneMatiere.js`,
+`src/core/_importUneMatiere.test.mjs` (18 contrôles, dont la cellule vide, la colonne
+absente, le hors barème, `ABS`, la virgule décimale et l'élève inconnu).

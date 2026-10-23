@@ -140,17 +140,30 @@ export async function getCurrentUserContext() {
     // `teacherId`, le store n'applique AUCUN filtre : l'enseignant se retrouve
     // devant toute l'école, et en mode « enseignant de matière » sans aucune
     // matière. On retrouve donc une fiche LIBRE portant exactement son nom.
+    //
+    // PAS DE `.ilike()` ICI : le client LAN ne connaît pas cette méthode, et un
+    // appel absent n'est pas une requête vide — c'est un TypeError qui remonte
+    // et casse TOUTE la résolution du contexte sur un poste installé. C'est le
+    // même piège que `.or()`, qui a bloqué la saisie du premier cycle en
+    // 0.3.22 ; un test de parité l'interdit maintenant
+    // (src/lib/_localClientParite.test.mjs). On tire donc les fiches LIBRES de
+    // l'école — il y en a peu — et on compare les noms ici.
+    //
+    // On exige UNE SEULE correspondance. L'ancien `.limit(1)` rattachait le
+    // compte à une fiche prise au hasard quand deux homonymes étaient libres :
+    // mieux vaut ne rattacher personne que de donner à un enseignant les
+    // matières d'un autre.
     if (!teacherId && data.full_name) {
-      const { data: byName } = await supabase
+      const cible = data.full_name.trim().toLowerCase();
+      const { data: libres } = await supabase
         .from('teachers')
-        .select('id, specialty')
+        .select('id, specialty, name')
         .eq('school_id', data.school_id)
-        .is('auth_user_id', null)
-        .ilike('name', data.full_name.trim())
-        .limit(1);
-      if (byName?.length === 1) {
-        teacherId = byName[0].id;
-        specialty = byName[0].specialty ?? null;
+        .is('auth_user_id', null);
+      const homonymes = (libres || []).filter((tr) => (tr.name || '').trim().toLowerCase() === cible);
+      if (homonymes.length === 1) {
+        teacherId = homonymes[0].id;
+        specialty = homonymes[0].specialty ?? null;
       }
     }
   }

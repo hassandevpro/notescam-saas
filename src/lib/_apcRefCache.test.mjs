@@ -121,14 +121,29 @@ titre('Le téléchargement ne mélange plus les écoles');
   ok(noms.filter((n) => n === 'Langue Turc').length === 3, 'les 3 lignes maison de SON école sont là', noms);
   ok(!noms.some((n) => n.startsWith('Maison A')), 'AUCUNE ligne de l’autre école', noms);
 
-  // La preuve côté requête : le filtre est bien posé sur les trois tables qui
-  // portent des lignes maison, et sur elles seulement.
-  const filtre = (t) => globalThis.__appels.filter((a) => a.table === t)
-    .some((a) => a.filtres.some((f) => f.startsWith('or:school_id.is.null,school_id.eq.')));
-  for (const t of ['apc_matieres', 'apc_classe_matieres', 'apc_competences']) {
-    ok(filtre(t), `${t} est filtrée sur l’école`);
+  // ── LA PREUVE CÔTÉ REQUÊTE A CHANGÉ DE SENS, LE 2026-10-23 ───────────────
+  //
+  // Ce bloc exigeait que le filtre soit posé DANS la requête, par
+  // `.or('school_id.is.null,school_id.eq.<école>')`. C'était une erreur, et
+  // elle a coûté la saisie du premier cycle sur tous les postes INSTALLÉS :
+  // `.or()` n'existe pas sur le client LAN, l'appel levait un TypeError, le
+  // référentiel ne se chargeait plus, et l'écran restait sur « Chargement du
+  // référentiel APC… » sans fin. Signalé ainsi : « la version en ligne n'a pas
+  // le problème de chargement ».
+  //
+  // L'invariant qui compte est le RÉSULTAT — vérifié juste au-dessus : les
+  // lignes de l'autre école ne sont pas là. Ce qu'on exige ici désormais, c'est
+  // que le filtre ne soit PLUS confié à la base : aucun `or:` émis, sur aucune
+  // table. La parité du client LAN est gardée par _localClientParite.test.mjs.
+  const emetOr = (t) => globalThis.__appels.filter((a) => a.table === t)
+    .some((a) => a.filtres.some((f) => f.startsWith('or:')));
+  for (const t of ['apc_matieres', 'apc_classe_matieres', 'apc_competences', 'apc_cycles']) {
+    ok(!emetOr(t), `${t} : aucun .or() émis (le client LAN ne le connaît pas)`);
   }
-  ok(!filtre('apc_cycles'), 'apc_cycles, purement nationale, n’est pas filtrée inutilement');
+  // Et les tables à lignes maison sont bien TOUTES LES TROIS lues puis filtrées.
+  const lue = (t) => globalThis.__appels.some((a) => a.table === t);
+  ok(['apc_matieres', 'apc_classe_matieres', 'apc_competences'].every(lue),
+    'les trois tables à lignes maison sont lues, puis filtrées en JavaScript');
 }
 
 titre('Sans école connue, on ne filtre pas — mieux large que vide');

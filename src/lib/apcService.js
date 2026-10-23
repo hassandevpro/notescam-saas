@@ -33,16 +33,38 @@ export { noteNkey };
 // `schoolId` absent (référentiel chargé avant que l'école soit connue) : on ne
 // filtre pas, exactement comme avant. Mieux vaut une liste trop large qu'un
 // référentiel vide.
+//
+// ── LE FILTRE EST FAIT ICI, EN JAVASCRIPT, ET NON DANS LA REQUÊTE ──────────
+//
+// La 0.3.22 écrivait `q.or('school_id.is.null,school_id.eq.<école>')`. Or
+// `.or()` N'EXISTE PAS sur le client LAN (`localClient.QueryBuilder`) : sur les
+// postes installés, l'appel levait « q.or is not a function », le `catch`
+// ci-dessous rendait `null`, et comme la clé de cache avait changé dans la même
+// version, il n'y avait aucun cache à peindre. L'écran de saisie restait sur
+// « Chargement du référentiel APC… » SANS FIN. Signalé le 2026-10-23 : « la
+// version en ligne n'a pas le problème de chargement » — en effet, Supabase
+// connaît `.or()`, le serveur d'école non.
+//
+// Le dépôt le savait déjà : feeCatalogService.js porte le même avertissement
+// (« pas de `.or()` — non supporté par le client LAN ») et tire puis filtre.
+// On fait pareil, pour la même raison, et un test de parité interdit désormais
+// qu'un appel absent du client LAN réapparaisse (src/lib/_localClientParite.test.mjs).
+//
+// Le résultat est identique : la RLS ne rend déjà que les lignes NATIONALES et
+// celles des écoles dont on est membre ; ce filtre ne retire donc que les
+// lignes maison des AUTRES écoles du même responsable.
 export async function fetchReferentiel(schoolId) {
-  const sienne = (q) => (schoolId ? q.or(`school_id.is.null,school_id.eq.${schoolId}`) : q);
+  const sienne = (rows) => (schoolId
+    ? (rows || []).filter((r) => r.school_id == null || r.school_id === schoolId)
+    : (rows || []));
   try {
     const [cycles, classes, trimestres, sequences, matieres, classeMatieres, versions] = await Promise.all([
       supabase.from('apc_cycles').select('*'),
       supabase.from('apc_classes').select('*').order('niveau', { ascending: false }),
       supabase.from('apc_trimestres').select('*').order('numero'),
       supabase.from('apc_sequences').select('*').order('numero'),
-      sienne(supabase.from('apc_matieres').select('*')).order('ordre'),
-      sienne(supabase.from('apc_classe_matieres').select('*')),
+      supabase.from('apc_matieres').select('*').order('ordre'),
+      supabase.from('apc_classe_matieres').select('*'),
       supabase.from('apc_referentiel_versions').select('*').eq('actif', true),
     ]);
 
@@ -51,7 +73,7 @@ export async function fetchReferentiel(schoolId) {
     if (err) { console.error('fetchReferentiel', err); return null; }
 
     const activeVersionIds = (versions.data || []).map((v) => v.id);
-    let compQ = sienne(supabase.from('apc_competences').select('*')).eq('actif', true);
+    let compQ = supabase.from('apc_competences').select('*').eq('actif', true);
     if (activeVersionIds.length) compQ = compQ.in('referentiel_version_id', activeVersionIds);
     const competences = await compQ;
     if (competences.error) { console.error('fetchReferentiel competences', competences.error); return null; }
@@ -61,9 +83,9 @@ export async function fetchReferentiel(schoolId) {
       classes: classes.data || [],
       trimestres: trimestres.data || [],
       sequences: sequences.data || [],
-      matieres: matieres.data || [],
-      classeMatieres: classeMatieres.data || [],
-      competences: competences.data || [],
+      matieres: sienne(matieres.data),
+      classeMatieres: sienne(classeMatieres.data),
+      competences: sienne(competences.data),
       versions: versions.data || [],
     };
   } catch (e) {

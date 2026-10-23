@@ -26,6 +26,7 @@ import { buildSubjectsForClassicClass } from '../core/classicSubjects';
 import { missingBilingualSubjects, missingFromSiblingClass } from '../core/bilingualSubjects';
 import { resolveClassEngine, firstCycleClasseSlug } from '../core/engineResolver';
 import { manquesPourClasse } from '../core/apcRattrapage';
+import { attendreValeur } from '../core/attenteValeur';
 import { unmatchedClassSubjects } from '../core/refClassScope';
 import { competencesForNiveau } from '../core/primEngine';
 import { APC_TRIMESTRE_IDS } from '../core/apcPeriods';
@@ -112,6 +113,30 @@ function publishReferentiels(set, get, patch = {}) {
 // téléchargement. Une seule opération en vol par référentiel ; tous les
 // appelants reçoivent la même promesse, donc le même résultat.
 const _refInFlight = new Map();
+
+// ── L'ÉCOLE N'EST PAS ENCORE CONNUE : ON ATTEND, ON N'ABANDONNE PAS ────────
+//
+// RELEVÉ LE 2026-10-23 : « quand on essaie d'entrer les notes du primaire, le
+// référentiel se charge sans cesse ». L'écran de saisie demande son référentiel
+// À SON MONTAGE, et `schoolId` n'est posé que par l'effet de App (`init`).
+// React exécute les effets des ENFANTS AVANT ceux des parents : sur une arrivée
+// DIRECTE sur /app/grades (lien, favori, F5, Ctrl+Shift+R), la demande partait
+// donc avec `schoolId` à null. Les chargeurs repartaient sans rien faire, et
+// RIEN ne les rejouait — l'effet ne dépend que de la fonction du magasin, qui
+// ne change jamais. L'écran restait sur « Chargement du référentiel… » pour
+// toujours, alors qu'aucun chargement n'avait été entrepris.
+//
+// Corrigé ICI, à la source, et non dans les neuf écrans qui appellent ces
+// chargeurs : un dixième écran serait arrivé avec le même défaut.
+//
+// La règle d'attente elle-même est pure et vérifiée seule (core/attenteValeur.js).
+function attendreSchoolId(get) {
+  return attendreValeur({
+    lire: () => get().schoolId,
+    souscrire: (fn) => useSchoolStore.subscribe(fn),
+  });
+}
+
 function onceInFlight(key, task) {
   const running = _refInFlight.get(key);
   if (running) return running;
@@ -750,7 +775,9 @@ export const useSchoolStore = create((set, get) => ({
   // Charge le référentiel officiel + les notes de l'école (IDB d'abord, puis
   // refresh cloud si online). Appelé par l'écran de saisie APC à son montage.
   loadApc: () => onceInFlight('apc', async () => {
-    const { schoolId } = get();
+    // Attendue, pas devinée : cf. attendreSchoolId. `null` = aucune école après
+    // le délai (session expirée, espace parent) — là, il n'y a rien à charger.
+    const schoolId = await attendreSchoolId(get);
     if (!schoolId) return;
     await initDB();
 
@@ -854,7 +881,8 @@ export const useSchoolStore = create((set, get) => ({
 
   // ── Moteur MATERNELLE (domaines / observations A·ECA·NA) ───────────────────
   loadMat: () => onceInFlight('mat', async () => {
-    const { schoolId } = get();
+    // Même attente : la maternelle a le même écran d'attente, donc le même piège.
+    const schoolId = await attendreSchoolId(get);
     if (!schoolId) return;
     await initDB();
     const [cachedRef, idbObs] = await Promise.all([
@@ -920,7 +948,11 @@ export const useSchoolStore = create((set, get) => ({
   },
 
   loadRefMasques: async (kind) => {
-    const { schoolId } = get();
+    // Les masques et les libellés de l'école sont demandés par les MÊMES effets
+    // de montage que les référentiels : sans attente, un accès direct les
+    // perdait aussi. Le dégât était plus sournois — pas d'écran bloqué, mais
+    // une compétence masquée par l'école réapparaissait dans la saisie.
+    const schoolId = await attendreSchoolId(get);
     if (!schoolId || !backendOnline()) return;
     const [ids, libelles] = await Promise.all([
       fetchMasques(kind, schoolId),
@@ -1337,7 +1369,8 @@ export const useSchoolStore = create((set, get) => ({
 
   // ── Moteur PRIMAIRE APC (compétences × critères /10) ───────────────────────
   loadPrim: () => onceInFlight('prim', async () => {
-    const { schoolId } = get();
+    // Même attente qu'en APC : c'est ICI que le défaut du 2026-10-23 a été vu.
+    const schoolId = await attendreSchoolId(get);
     if (!schoolId) return;
     await initDB();
     const [cachedRef, idbNotes] = await Promise.all([

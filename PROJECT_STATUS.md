@@ -7,26 +7,24 @@
 > Dernière mise à jour : **2026-10-22** (passe « matières dédoublonnées, carnet du
 > primaire » — § 4 quaterdecies) · branche `caisse-journal-et-sync-0.3.15` **poussée sur
 > `main`** le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
-> `package.json` = **0.3.22** · paquets **Windows ET Linux construits, non envoyés** ·
-> déploiement Vercel **à jour** (`b1ca6ed`, READY)
+> `package.json` = **0.3.23**
 >
-> **0.3.22 porte les correctifs I12 à I18.** Les 0.3.20 et 0.3.21 ont été construites
-> puis remplacées **avant tout envoi** : aucune école ne tourne dessus, et leurs notices
-> portent un bandeau « NE PAS DISTRIBUER ».
+> ## ⛔ LE PAQUET 0.3.22 NE DOIT PAS ÊTRE DISTRIBUÉ (I19)
 >
-> | | Windows | Linux |
-> |---|---|---|
-> | Fichier | `packaging/Output/NotesCam-Setup-0.3.22.exe` | `packaging/linux/Output/notescam-linux-x64-0.3.22.tar.gz` |
-> | Taille | 30 799 550 o | 53 521 835 o |
-> | SHA-256 | `be274ec5…6526872` | `6f8e5444…6f15a185` |
-> | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.22-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.22.txt` |
-> | Script | — (installeur) | `packaging/linux/deploy-0.3.22.sh` |
+> Signalé le 2026-10-23 : « le référentiel se charge sans cesse », et — décisif — « **la
+> version en ligne n'a pas le problème** ». La 0.3.22 appelait `.or()`, que le client LAN
+> ne connaît pas : sur un poste **installé**, le référentiel APC ne se chargeait plus du
+> tout et la saisie du premier cycle était **bloquée**. Deux upserts à clé composite
+> (`apc_classe_matieres`, `mat_domaines_masques`) échouaient pour la même raison de
+> divergence Cloud/LAN — le correctif I16 du paquet 0.3.22 était donc **mort** sur un
+> poste installé.
 >
-> **Vérifié DANS chaque paquet, pas dans le dépôt** : `app/package.json` annonce 0.3.22 ·
-> I12 (2 clés de ligne composées, une par écran de saisie) · I13 (règle « table entière »
-> dans `db.js`) · I14 (`/files` servi sans `dist/`) · I15 (filtre du référentiel par
-> école) · I16 (rattachement au niveau). `git status` sur `src/` et `server/` ne rend
-> aucune ligne : les sources des paquets sont exactement celles du dépôt.
+> **Aucune école n'a reçu la 0.3.22** (ni la 0.3.20, ni la 0.3.21). **Les écoles du Cloud
+> n'ont rien à faire** : Supabase connaît `.or()`, la version en ligne n'a jamais été
+> touchée.
+>
+> **0.3.23 porte les correctifs I12 à I20** (I19 : la parité du client LAN ; I20 : l'import
+> de notes, une matière à la fois).
 >
 > **0.3.21 porte les correctifs I12 et I13.** I12 : la note d'une matière s'écrivait dans
 > la matière suivante — le défaut que le responsable signalait depuis le matin. I13 : une

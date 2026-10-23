@@ -120,7 +120,15 @@ export async function deleteMatDomaineMaison(id) {
 
 export async function setMatDomaineMasque(schoolId, domaineId, masque) {
   const q = masque
-    ? supabase.from('mat_domaines_masques').upsert({ school_id: schoolId, domaine_id: domaineId })
+    // `onConflict` EXPLICITE : la table n'a pas de colonne `id`, sa clé est
+    // (school_id, domaine_id). Sans lui, le client LAN retombe sur son défaut
+    // 'id' et le serveur d'école écrit « ON CONFLICT(id) » — erreur SQLite, le
+    // masquage refusé sans explication. Le Cloud, lui, visait déjà la clé
+    // primaire : le défaut ne se voyait que sur les postes installés.
+    ? supabase.from('mat_domaines_masques').upsert(
+      { school_id: schoolId, domaine_id: domaineId },
+      { onConflict: 'school_id,domaine_id' },
+    )
     : supabase.from('mat_domaines_masques').delete()
         .eq('school_id', schoolId).eq('domaine_id', domaineId);
   const { error } = await q;

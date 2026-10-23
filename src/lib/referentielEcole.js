@@ -241,7 +241,12 @@ export async function addMatiereMaisonApc({
   }
 
   const classeMatiere = { classe_id: classeId, matiere_id: matiere.id, coefficient: coef, ordre, optionnelle: false, school_id: schoolId };
-  const cm = await supabase.from('apc_classe_matieres').upsert(classeMatiere);
+  // `onConflict` EXPLICITE : cette table n'a pas de colonne `id`, sa clé est
+  // (classe_id, matiere_id) dans LES DEUX éditions. Sans lui, le client LAN
+  // retombe sur son défaut 'id' et le serveur d'école écrit
+  // « ON CONFLICT(id) » : erreur SQLite, donc rattachement refusé — la matière
+  // maison restait invisible à la saisie sur les postes installés.
+  const cm = await supabase.from('apc_classe_matieres').upsert(classeMatiere, { onConflict: 'classe_id,matiere_id' });
   if (cm.error) { console.error('addMatiereMaisonApc rattachement', cm.error); return { error: 'rattachement' }; }
 
   // Une compétence par trimestre : sans elle la matière ne s'afficherait pas.
@@ -309,7 +314,8 @@ export async function rattacherMatiereAuNiveau({
     classe_id: classeId, matiere_id: matiereId,
     coefficient: coef, ordre, optionnelle: false, school_id: schoolId,
   };
-  const cm = await supabase.from('apc_classe_matieres').upsert(classeMatiere);
+  // Même clé explicite qu'au-dessus : (classe_id, matiere_id), pas `id`.
+  const cm = await supabase.from('apc_classe_matieres').upsert(classeMatiere, { onConflict: 'classe_id,matiere_id' });
   if (cm.error) { console.error('rattacherMatiereAuNiveau rattachement', cm.error); return { error: 'rattachement' }; }
 
   const competences = trimestres.map((tid, i) => ({

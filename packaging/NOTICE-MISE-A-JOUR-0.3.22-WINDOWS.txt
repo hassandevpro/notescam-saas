@@ -1,3 +1,14 @@
+########################################################################
+#  NE PAS DISTRIBUER - VERSION REMPLACEE PAR LA 0.3.23                 #
+#                                                                      #
+#  Ce paquet 0.3.22 BLOQUE la saisie des notes du premier cycle sur un #
+#  poste installe : l ecran reste sur  Chargement du referentiel APC   #
+#  sans jamais finir. Signale le 23/10/2026, corrige par la 0.3.23.    #
+#                                                                      #
+#  Aucune ecole ne l a recu. Si cet installeur traine quelque part,    #
+#  jetez-le et utilisez NOTICE-MISE-A-JOUR-0.3.23-WINDOWS.txt.         #
+########################################################################
+
 ========================================================================
 NotesCam 0.3.22 (Windows) - Notice pour le responsable informatique
 ========================================================================

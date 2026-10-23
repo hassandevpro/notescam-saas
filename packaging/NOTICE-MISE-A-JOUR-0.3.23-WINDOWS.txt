@@ -1,0 +1,328 @@
+========================================================================
+NotesCam 0.3.23 (Windows) - Notice pour le responsable informatique
+========================================================================
+
+Installeur : NotesCam-Setup-0.3.23.exe
+Taille     : 30 804 244 octets
+SHA-256    : 963b600348fe4a1a4d67c5b5304e917f2a11fdb3275cf6916393b2725df394ba
+
+VERIFIEZ L'EMPREINTE AVANT D'INSTALLER. Ouvrez PowerShell dans le
+dossier qui contient le fichier et tapez :
+
+    Get-FileHash .\NotesCam-Setup-0.3.23.exe -Algorithm SHA256
+
+Si l'empreinte affichee ne correspond PAS a la ligne ci-dessus,
+N'INSTALLEZ PAS : le fichier a ete altere ou tronque pendant le
+transfert. Redemandez-le.
+
+Pour savoir quelle version tourne actuellement sur le poste :
+
+    http://localhost:8080/api/version
+
+
+NE DISTRIBUEZ NI LA 0.3.20, NI LA 0.3.21, NI LA 0.3.22
+-------------------------------------------------------
+
+Ces trois versions ont ete construites puis remplacees AVANT d'etre
+envoyees a une ecole. Aucune ecole ne tourne dessus. Si un installeur
+0.3.20, 0.3.21 ou 0.3.22 traine quelque part, JETEZ-LE.
+
+LA 0.3.22 EN PARTICULIER NE DOIT PAS ETRE INSTALLEE : sur un poste
+installe, elle BLOQUE la saisie des notes du premier cycle. L'ecran
+reste sur "Chargement du referentiel APC..." sans jamais finir. La
+cause est expliquee au point 1 ci-dessous.
+
+Cette notice contient TOUT ce que contenaient les notices 0.3.18 a
+0.3.22.
+
+
+CE QUE CETTE VERSION APPORTE
+-----------------------------
+
+1. LE REFERENTIEL SE CHARGE ENFIN SUR UN POSTE INSTALLE.
+
+   C'EST LA RAISON D'ETRE DE CETTE VERSION.
+
+   LE SYMPTOME, tel qu'il a ete signale : "quand on essaie d'entrer les
+   notes du primaire, le referentiel se charge sans cesse - Chargement
+   du referentiel APC...". Et la phrase qui a tout explique : "LA
+   VERSION EN LIGNE N'A PAS LE PROBLEME DE CHARGEMENT".
+
+   LA CAUSE. La 0.3.22 avait ajoute un filtre pour ne plus melanger les
+   matieres de plusieurs ecoles. Ce filtre emploie une fonction que le
+   serveur en ligne connait, mais que le SERVEUR DE L'ECOLE ne connait
+   pas. Sur un poste installe, la lecture du referentiel echouait donc
+   entierement - et comme la meme version changeait la facon de ranger
+   le cache, il ne restait rien a afficher. L'ecran attendait un
+   chargement qui ne pouvait pas aboutir.
+
+   CE QUE CELA COUTAIT. La saisie des notes du premier cycle (6e-3e)
+   etait IMPOSSIBLE sur les postes installes. Les ecoles en ligne,
+   elles, n'ont jamais ete touchees.
+
+   CE QUI CHANGE. Le filtre est applique par le logiciel lui-meme, sur
+   les lignes recues. Et un controle automatique interdit desormais
+   qu'une fonction inconnue du serveur de l'ecole reapparaisse : c'est
+   la deuxieme fois que cette difference entre les deux editions coute
+   une livraison.
+
+   LE CONTROLE, en dix secondes : ouvrez la saisie des notes d'une
+   classe de 6e a 3e. La liste des matieres doit apparaitre. Si l'ecran
+   reste sur "Chargement du referentiel", appelez l'editeur.
+
+2. UNE MATIERE COCHEE DANS LA CLASSE DEVIENT VRAIMENT SAISISSABLE.
+
+   Le correctif annonce en 0.3.22 - une matiere cochee dans "Modifier
+   la classe" qui n'apparaissait pas dans la liste de saisie - NE
+   POUVAIT PAS FONCTIONNER sur un poste installe : l'ecriture qui
+   rattache la matiere au niveau de la classe etait refusee par la base
+   locale, sans aucun message. Meme difference que le point 1.
+
+   Desormais elle passe. Le chinois de 5eme et de 6eme, l'espagnol,
+   l'allemand, l'arabe deviennent saisissables la ou l'ecole les a
+   coches.
+
+3. L'IMPORT DE NOTES SE FAIT UNE MATIERE A LA FOIS.
+
+   LE DEFAUT. Le classeur exporte porte UNE COLONNE PAR MATIERE de la
+   classe, et l'import lisait TOUTES les colonnes. Un enseignant qui
+   remplissait SA colonne puis reimportait son fichier reecrivait aussi
+   les colonnes de ses collegues - avec les notes telles qu'elles
+   etaient AU MOMENT DE L'EXPORT, donc perimees des qu'un collegue
+   avait saisi entre-temps.
+
+   CE QUI CHANGE. La matiere est maintenant CHOISIE dans le panneau
+   d'import, et c'est la SEULE colonne lue. Le bouton annonce ce qui
+   sera ecrit - "Importer 23 notes - Mathematiques" - et l'ecran de fin
+   le redit : "Seule cette matiere a ete ecrite."
+
+   Pour importer une deuxieme matiere, relancez l'import et
+   choisissez-la.
+
+4. LE REFERENTIEL DU PRIMAIRE N'EST PLUS RETELECHARGE A CHAQUE ECRAN.
+
+   Une des sept tables du referentiel primaire etait interrogee d'une
+   facon que la base refuse (reponse 400, mesuree). Faute de pouvoir
+   comparer, le logiciel retelechargeait TOUT le referentiel a chaque
+   ouverture d'ecran, dans toutes les ecoles - exactement ce que le
+   mecanisme de cache existe pour eviter. Corrige.
+
+   Surtout utile a une ecole en ligne dont la connexion est lente.
+
+5. UNE PAGE DE NOTES OUVERTE DIRECTEMENT NE RESTE PLUS A CHARGER.
+
+   En arrivant DIRECTEMENT sur la page des notes - lien, favori, F5,
+   Ctrl+Shift+R - la demande de referentiel partait avant que
+   l'etablissement soit connu, et personne ne la relancait. L'ecran
+   restait sur "Chargement du referentiel" indefiniment. En venant du
+   tableau de bord, le defaut ne se voyait pas : c'est pourquoi il a
+   survecu si longtemps, et pourquoi il frappait surtout celui qui
+   VERIFIE une correction.
+
+   Desormais la demande attend que l'etablissement soit connu, puis
+   part.
+
+6. LA NOTE D'UNE MATIERE NE S'ECRIT PLUS DANS LA MATIERE SUIVANTE.
+
+   (Deja annonce en 0.3.21 et 0.3.22 - jamais livre a une ecole.)
+
+   LE SYMPTOME signale : "un enseignant avec plusieurs matieres, quand
+   il entre les notes d'une matiere les autres matieres heritent
+   automatiquement". Constate a l'ecran : matiere affichee
+   "Informatique fondamentale et TIC", champ de l'eleve a 20, et la
+   statistique du meme panneau annoncant "Moy. : 12/20".
+
+   Au premier clic n'importe ou sur l'ecran, la note de la matiere
+   PRECEDENTE etait ENREGISTREE dans la matiere affichee.
+
+   Changer de matiere reconstruit desormais les cases de saisie. Les
+   deux ecrans ("Tableau" et "Saisie rapide") sont corriges.
+
+   LE CONTROLE : saisissez une note dans une matiere, changez de
+   matiere SANS rien taper. La case doit etre vide, ou porter la note
+   deja enregistree pour cette matiere - jamais celle que vous venez de
+   taper.
+
+   CE QUE L'INSTALLATION NE REPARE PAS : les notes DEJA ecrites par
+   erreur. Le logiciel ne peut pas deviner lesquelles sont fausses.
+   Faites controler les matieres des enseignants qui en portent
+   plusieurs. C'est le seul point qui demande un travail humain.
+
+7. UNE MATIERE N'EXISTE PLUS QU'UNE FOIS PAR CLASSE.
+
+   L'identifiant d'une matiere de classe etait tire au hasard : un
+   poste dont le cache avait ete vide recreait une serie complete de
+   matieres. Il est desormais calcule a partir de la CLASSE et du NOM,
+   donc identique sur tous les postes.
+
+8. UNE MATIERE LOCALE NE COUVRE PLUS LA MEME MATIERE EN DEUX LANGUES.
+
+   Dans une classe bilingue, "Francais" etait rattachee a la fois a
+   Francais et a French : la note saisie une fois s'ecrivait aux deux
+   endroits. Les matieres qui regroupent legitimement deux entrees -
+   "Histoire-Geographie" - continuent de le faire.
+
+9. UNE SUPPRESSION FAITE EN LIGNE ATTEINT ENFIN LES ECRANS.
+
+   Des matieres supprimees cote serveur continuaient de s'afficher
+   indefiniment : le logiciel ne retelechargeait le referentiel que si
+   la version NATIONALE changeait. Un rechargement de page n'y changeait
+   rien, un Ctrl+Shift+R non plus. Desormais toute creation ou
+   suppression d'une matiere de l'ecole est vue, et le referentiel ne
+   melange plus les etablissements.
+
+10. LE BULLETIN DU PRIMAIRE RETROUVE SES ONZE COMPETENCES.
+
+   Deux competences officielles MINEDUB disparaissaient du bulletin
+   dans TOUTES les ecoles :
+
+       3A  Pratiquer les valeurs sociales
+       4A  Demontrer l'autonomie, l'esprit d'initiative, la creativite
+           et l'entrepreneuriat
+
+   Ce sont des competences TRANSVERSALES : aucune matiere ne porte leur
+   nom, donc le filtre par matieres cochees ne pouvait jamais les
+   retenir. Elles reviennent. Pour retirer une competence que l'ecole
+   ne traite pas, le levier reste le bouton "Modifier les competences".
+
+11. AU PRIMAIRE, UNE MATIERE AJOUTEE PAR L'ECOLE DEVIENT NOTABLE.
+
+   Au primaire on note des COMPETENCES, pas des matieres. Une matiere
+   ajoutee par l'ecole dont le nom ne correspondait a aucune competence
+   n'etait notable nulle part, et le message conseillait de "corriger
+   le nom" - ce qui n'a aucun sens pour une matiere maison.
+
+   Desormais, a l'ouverture de la classe, elle fait naitre sa propre
+   competence. Elle n'apparait que dans les classes qui la cochent.
+
+   A SAVOIR : le bulletin du primaire s'allongera de ces competences.
+   Si une matiere n'a rien a faire dans la classe, DECOCHEZ-LA dans
+   Classes -> Modifier la classe -> Matieres.
+
+12. LES PHOTOS D'ELEVES NE SONT PLUS REFUSEES QUAND L'INTERFACE MANQUE.
+
+   Un serveur dont l'interface n'etait pas compilee refusait TOUS les
+   fichiers - photos comprises - alors que le reste repondait
+   normalement. Corrige.
+
+13. L'EN-TETE ANGLAIS OFFICIEL ET LE LOGO DU SECTEUR.
+
+   "Regional Delegation for the West" au lieu de "Regional Delegation
+   Ouest". Les dix regions ont leur nom anglais ; le departement garde
+   le sien. Et le rapport de classe prend le logo, le cachet et le nom
+   de SON secteur, comme le bulletin le faisait deja.
+
+14. UN IMPORT DE NOTES N'EFFACE PLUS CE QU'IL NE PORTE PAS.
+
+   Une cellule vide effacait la note en place. Elles sont maintenant
+   ignorees : l'import complete, il ne remplace pas. C'etait la
+   premiere moitie du defaut ; le point 3 ferme la seconde.
+
+
+CETTE VERSION POSE CINQ TABLES NEUVES DANS LA BASE DU POSTE
+------------------------------------------------------------
+
+    cash_movements              journal de caisse
+    referentiel_libelles        libelles de matieres propres a l'ecole
+    apc_competences_masques     competences masquees par la classe
+    prim_competences_masques    idem, primaire
+    mat_domaines_masques        idem, maternelle
+
+Elles sont creees AU DEMARRAGE DU SERVEUR : le redemarrage de l'etape 2
+n'est donc pas optionnel.
+
+UN LONG RATTRAPAGE DE SYNCHRONISATION EST NORMAL, ET VOULU.
+cash_movements est synchronisee avec le Cloud. Une table qui vient de
+naitre est VIDE, et la descente des donnees avance avec un curseur qui
+ne revient jamais en arriere : sans precaution, la table serait restee
+vide pour toujours alors que les ecritures sont au Cloud. Le serveur
+detecte la table neuve et remet le curseur a zero.
+
+Vous verrez donc un bandeau de synchronisation actif plus longtemps que
+d'habitude, parfois plusieurs heures. Rien n'est perdu pendant ce
+temps : les saisies de la journee montent au Cloud normalement, le
+rattrapage descend et n'ecrase aucune saisie.
+
+PREVENEZ L'ECOLE AVANT, pas apres.
+
+Aucune table existante n'est modifiee, aucune donnee n'est convertie.
+
+
+INSTALLATION - TROIS GESTES, DANS CET ORDRE
+--------------------------------------------
+
+1. INSTALLER. Clic droit sur NotesCam-Setup-0.3.23.exe ->
+   "Executer en tant qu'administrateur". La base de l'ecole
+   (C:\ProgramData\NotesCam\data) n'est jamais touchee par
+   l'installeur.
+
+2. REDEMARRER LE SERVICE. C'EST LE GESTE QU'ON OUBLIE : installer
+   remplace les FICHIERS, mais le serveur continue de tourner avec
+   l'ancien code, et c'est lui qui pose les tables neuves.
+
+   Menu Demarrer -> NotesCam -> "REDEMARRER APRES MAJ", ou bien, dans
+   C:\Program Files\NotesCam : clic droit sur REDEMARRER-APRES-MAJ.cmd
+   -> "Executer en tant qu'administrateur".
+
+   Il arrete le service, SAUVEGARDE la base et VERIFIE la sauvegarde,
+   redemarre, puis controle. Si la sauvegarde n'est pas verifiee, il
+   remet le service en marche et s'arrete sans rien avoir modifie.
+
+3. CONTROLER. Double-cliquez verifier-correctifs.cmd. Il lit la BASE et
+   le serveur en marche, et dit si ce poste a vraiment recu la mise a
+   jour.
+
+
+A VERIFIER DEPUIS UN POSTE DE L'ECOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Shift+R.
+
+  1. http://localhost:8080/api/version  doit repondre 0.3.23
+
+  2. LE CONTROLE DE CETTE VERSION. Ouvrez la saisie des notes d'une
+     classe de 6e a 3e : la liste des matieres apparait, et l'ecran ne
+     reste pas sur "Chargement du referentiel APC...". Faites le meme
+     essai au primaire.
+
+  3. Une matiere cochee dans la classe apparait bien dans la liste
+     deroulante de la saisie.
+
+  4. L'IMPORT. Ouvrez "Importer des notes (Excel)" : il demande
+     maintenant QUELLE matiere importer, et n'ecrit que celle-la.
+
+  5. LE CONTROLE DU CORRECTIF n 6. Avec un compte enseignant portant
+     plusieurs matieres : saisissez une note, changez de matiere SANS
+     rien taper, verifiez que la case ne porte pas la note que vous
+     venez de taper. Dans les DEUX ecrans.
+
+  6. Au primaire, le bulletin porte les onze competences, dont
+     "Pratiquer les valeurs sociales" et celle sur l'autonomie.
+
+  7. Le rattrapage de synchronisation est parti, et le journal de
+     caisse se remplit une fois qu'il est fini. S'il reste vide apres
+     un cycle complet, appelez l'editeur : ne ressaisissez RIEN.
+
+  8. Vos effectifs n'ont pas bouge : comparez au releve pris avant.
+
+
+EN CAS DE PROBLEME - RETOUR ARRIERE
+------------------------------------
+
+Reinstallez NotesCam-Setup-0.3.18.exe par-dessus, puis relancez
+REDEMARRER-APRES-MAJ.cmd. Les cinq tables neuves RESTENT dans la base -
+l'ancien code les ignore - et aucune donnee n'est perdue. Revenir en
+arriere ramene en revanche TOUS les defauts ci-dessus.
+
+NE REVENEZ JAMAIS A LA 0.3.22 : c'est elle qui bloque la saisie du
+premier cycle. Le seul retour arriere valable est la 0.3.18.
+
+Si un ecran continue de refuser alors que verifier-correctifs.cmd dit
+que tout est en place : faites une photo de l'ecran ET de la sortie du
+script, et envoyez-les a l'editeur. N'essayez pas de reparer la base.
+
+------------------------------------------------------------------------
+Ce fichier est en ASCII et en CRLF, comme les autres documents livres
+aux postes Windows : le Bloc-notes d'un Windows ancien affiche un
+fichier en fins de ligne Unix comme une seule ligne illisible.
+------------------------------------------------------------------------

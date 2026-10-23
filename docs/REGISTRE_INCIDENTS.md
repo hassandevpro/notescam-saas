@@ -1026,7 +1026,7 @@ filtre côté client ». Rien ne l'empêchait pour autant.
 | Écriture | Table | Clé réelle | Ce qui se passait en LAN |
 |---|---|---|---|
 | `apc_classe_matieres.upsert(ligne)` | pas de colonne `id` | `(classe_id, matiere_id)` | `ON CONFLICT(id)` → erreur SQLite, **rattachement I16 mort** |
-| `mat_domaines_masques.upsert(ligne)` | pas de colonne `id` | `(school_id, domaine_id)` | idem, **masquage d'un domaine de maternelle refusé** |
+| `mat_domaines_masques.upsert(ligne)` | pas de colonne `id` | `(school_id, domaine_id)` | **même faute, mais inerte** : `setMatDomaineMasque` n'est appelée **par aucun écran** (vérifié) — le masquage d'un domaine passe par `referentielEcole.setMasque`, qui nomme déjà la clé composite. Corrigée pour qu'un futur câblage ne réveille pas le défaut ; **elle n'a rien cassé en école**, et le paquet ne la contient même pas (l'arbre mort est élagué au build). |
 
 En Cloud, un upsert sans cible visait la clé primaire : les deux marchaient. Le client LAN
 retombe sur son défaut `'id'`. Le correctif I16, livré dans le paquet 0.3.22, **ne pouvait

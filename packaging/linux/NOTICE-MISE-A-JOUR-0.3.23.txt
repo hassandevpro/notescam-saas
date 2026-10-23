@@ -1,0 +1,328 @@
+========================================================================
+NotesCam 0.3.23 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.23.tar.gz
+Taille   : 53 531 168 octets
+SHA-256  : ffba2d63f09188260f4e9c31dfaf77bf319f6c8a1623dc4a7f269da703a8b374
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.23.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire. Elle contient TOUT ce que contenaient
+les 0.3.19 à 0.3.22.
+
+LES 0.3.20, 0.3.21 ET 0.3.22 N'ONT JAMAIS ÉTÉ ENVOYÉES. Construites puis
+remplacées avant tout envoi : aucune école ne tourne dessus. Si une
+archive 0.3.22 traîne quelque part, JETEZ-LA — elle porte le défaut
+décrit au point 1 ci-dessous, et elle BLOQUE la saisie des notes du
+premier cycle sur un serveur d'école.
+
+
+>>> LISEZ CECI AVANT D'INSTALLER <<<
+------------------------------------
+
+CETTE VERSION CRÉE CINQ TABLES DANS LA BASE :
+
+    cash_movements              le journal de caisse
+    referentiel_libelles        les libellés de matières de l'école
+    apc_competences_masques     compétences masquées par la classe
+    prim_competences_masques    idem, primaire
+    mat_domaines_masques        idem, maternelle
+
+`cash_movements` est SYNCHRONISÉE avec le Cloud, et c'est le point à
+comprendre avant d'installer.
+
+CE QUI A ÉTÉ CORRIGÉ POUR VOUS AVANT CETTE LIVRAISON. La descente des
+données du Cloud avance avec un curseur : une ligne déjà dépassée n'est
+plus jamais renvoyée. Le serveur savait remettre ce curseur à zéro quand
+une COLONNE apparaissait sur une table synchronisée — il ne le faisait
+PAS quand c'était une TABLE ENTIÈRE.
+
+Mesuré le 22/10/2026 : votre Cloud porte ONZE écritures de caisse,
+datées du 18/10/2026. Votre curseur est donc passé devant depuis
+plusieurs jours. Sans cette correction, vous auriez installé la mise à
+jour, ouvert le journal de caisse, et trouvé une page VIDE —
+définitivement. Et le réflexe naturel aurait été de tout ressaisir :
+onze doublons.
+
+Avec cette version, le serveur voit la table neuve, remet le curseur à
+zéro, et le prochain cycle ramène vos écritures.
+
+CE QUE VOUS ALLEZ CONSTATER, et qui est NORMAL :
+
+  · un long rattrapage de synchronisation, comme en 0.3.16 et 0.3.19 ;
+  · un bandeau de synchronisation actif plus longtemps que d'habitude ;
+  · sur un gros établissement, cela peut durer plusieurs heures.
+
+CE QUI N'ARRIVE PAS pendant ce temps : rien n'est perdu. Les saisies de
+la journée partent dans la file et montent au Cloud normalement. Le
+rattrapage descend, il n'écrase aucune saisie.
+
+Le journal du service le dit, et c'est la trace à garder :
+
+    journalctl -u notescam -n 40 | grep -iE "table entière|curseur de pull"
+
+Vous devez y lire, en clair :
+
+    [db] table(s)/colonne(s) ajoutée(s) sur table(s) synchronisée(s) :
+         cash_movements (table entière), ...
+    [db] curseur de pull remis à zéro : le prochain pull relira tout
+
+Si ces deux lignes sont ABSENTES alors que la version est bien 0.3.23,
+appelez l'éditeur AVANT de conclure quoi que ce soit sur la caisse.
+
+PRÉVENEZ L'ÉCOLE AVANT, pas après. Une synchronisation qui travaille
+plusieurs heures sans explication se lit comme une panne.
+
+
+CE QUE CETTE VERSION APPORTE
+-----------------------------
+
+1. LE RÉFÉRENTIEL SE CHARGE ENFIN SUR UN SERVEUR D'ÉCOLE.
+
+   C'EST LA RAISON D'ÊTRE DE CETTE VERSION, et la raison pour laquelle
+   la 0.3.22 ne doit pas être installée.
+
+   LE SYMPTÔME, tel qu'il a été signalé le 23/10/2026 : « quand on
+   essaie d'entrer les notes du primaire, le référentiel se charge sans
+   cesse — Chargement du référentiel APC… ». Et la phrase qui a tout
+   expliqué : « LA VERSION EN LIGNE N'A PAS LE PROBLÈME DE CHARGEMENT ».
+
+   LA CAUSE. La 0.3.22 avait ajouté un filtre pour ne plus mélanger les
+   matières de plusieurs écoles. Ce filtre emploie une fonction que le
+   serveur en ligne connaît, mais que le SERVEUR DE L'ÉCOLE ne connaît
+   pas : la lecture du référentiel échouait donc entièrement. Et comme
+   la même version changeait la façon de ranger le cache local, il ne
+   restait rien à afficher. L'écran attendait un chargement qui ne
+   pouvait pas aboutir.
+
+   CE QUE CELA COÛTAIT. La saisie des notes du premier cycle (6e–3e)
+   était IMPOSSIBLE. Les écoles en ligne n'ont jamais été touchées.
+
+   CE QUI CHANGE. Le filtre est appliqué par le logiciel lui-même, sur
+   les lignes reçues. Et un contrôle automatique interdit désormais
+   qu'une fonction inconnue de votre serveur réapparaisse : c'est la
+   deuxième fois que cette différence entre les deux éditions coûte une
+   livraison.
+
+   LE CONTRÔLE, en dix secondes : ouvrez la saisie des notes d'une
+   classe de 6e à 3e. La liste des matières doit apparaître.
+
+2. UNE MATIÈRE COCHÉE DANS LA CLASSE DEVIENT VRAIMENT SAISISSABLE.
+
+   Le correctif annoncé en 0.3.22 — votre CHINOIS de 5eme et de 6eme,
+   coché et impossible à noter — NE POUVAIT PAS FONCTIONNER sur votre
+   serveur : l'écriture qui rattache la matière au niveau de la classe
+   était refusée par la base locale, sans aucun message. Même
+   différence que le point 1, trouvée en remontant la même piste.
+
+   Désormais elle passe : la matière est rattachée au niveau de la
+   classe, sans jamais être recréée — donc sans doublon, et sans
+   détacher les notes déjà saisies.
+
+3. L'IMPORT DE NOTES SE FAIT UNE MATIÈRE À LA FOIS.
+
+   LE DÉFAUT. Le classeur exporté porte UNE COLONNE PAR MATIÈRE de la
+   classe, et l'import lisait TOUTES les colonnes. Un enseignant qui
+   remplissait SA colonne puis réimportait son fichier réécrivait aussi
+   les colonnes de ses collègues — avec les notes telles qu'elles
+   étaient AU MOMENT DE L'EXPORT, donc périmées dès qu'un collègue
+   avait saisi entre-temps.
+
+   CE QUI CHANGE. La matière est maintenant CHOISIE dans le panneau
+   d'import, et c'est la SEULE colonne lue. Le bouton annonce ce qui
+   sera écrit — « Importer 23 notes — Mathématiques » — et l'écran de
+   fin le redit : « Seule cette matière a été écrite. »
+
+   Pour importer une deuxième matière, relancez l'import et
+   choisissez-la.
+
+4. UNE PAGE DE NOTES OUVERTE DIRECTEMENT NE RESTE PLUS À CHARGER.
+
+   En arrivant DIRECTEMENT sur la page des notes — lien, favori, F5,
+   Ctrl+Maj+R — la demande de référentiel partait avant que
+   l'établissement soit connu, et personne ne la relançait. L'écran
+   restait sur « Chargement du référentiel » indéfiniment. En venant du
+   tableau de bord, le défaut ne se voyait pas : il frappait surtout
+   celui qui VÉRIFIE une correction.
+
+5. LA NOTE D'UNE MATIÈRE NE S'ÉCRIT PLUS DANS LA MATIÈRE SUIVANTE.
+
+   (Annoncé depuis la 0.3.21 ; aucune de ces versions ne vous a été
+   envoyée, donc le défaut est encore chez vous aujourd'hui.)
+
+   LE SYMPTÔME, signalé par le responsable : « un enseignant avec
+   plusieurs matières, quand il entre les notes d'une matière les
+   autres matières héritent automatiquement ». Constaté à l'écran : la
+   matière affichée était « Informatique fondamentale et TIC », la case
+   de l'élève affichait 20, et la statistique du même panneau annonçait
+   « Moy. : 12/20 ».
+
+   CE QUE CELA COÛTAIT. Au premier clic n'importe où sur l'écran, la
+   note de la matière PRÉCÉDENTE était ENREGISTRÉE dans la matière
+   affichée. Un enseignant qui enchaînait ses matières pouvait remplir
+   toute une classe avec la même note sans rien remarquer : l'écran
+   avait l'air normal, et la sauvegarde est automatique.
+
+   CE QUI CHANGE. Changer de matière reconstruit les cases de saisie.
+   Les deux écrans — « Saisie rapide » et « Tableau » — sont corrigés.
+
+   LE CONTRÔLE, en dix secondes : saisissez une note dans une matière,
+   puis changez de matière SANS rien taper. La case doit être vide, ou
+   porter la note déjà enregistrée pour cette matière — jamais celle
+   que vous venez de taper.
+
+   CE QUE L'INSTALLATION NE RÉPARE PAS : les notes DÉJÀ écrites par
+   erreur. Le logiciel ne peut pas deviner lesquelles sont fausses.
+   Faites contrôler par l'école les matières des enseignants qui en
+   portent plusieurs. C'est le seul point de cette mise à jour qui
+   demande un travail humain.
+
+6. LE BULLETIN DU PRIMAIRE RETROUVE SES ONZE COMPÉTENCES.
+
+   Deux compétences officielles MINEDUB disparaissaient du bulletin,
+   dans TOUTES les écoles :
+
+       3A  Pratiquer les valeurs sociales
+       4A  Démontrer l'autonomie, l'esprit d'initiative, la créativité
+           et l'entrepreneuriat
+
+   Ce sont des compétences TRANSVERSALES : aucune matière ne porte leur
+   nom, donc le filtre par matières cochées ne pouvait jamais les
+   retenir. Elles reviennent. Pour retirer une compétence que l'école
+   ne traite pas, le levier reste le bouton « Modifier les
+   compétences ».
+
+7. AU PRIMAIRE, UNE MATIÈRE AJOUTÉE PAR L'ÉCOLE DEVIENT NOTABLE.
+
+   Au primaire on note des COMPÉTENCES, pas des matières. Une matière
+   ajoutée par l'école dont le nom ne correspondait à aucune compétence
+   n'était notable nulle part, et le message conseillait de « corriger
+   le nom » — ce qui n'a aucun sens pour une matière maison.
+
+   Désormais, à l'ouverture de la classe, elle fait naître sa propre
+   compétence, et n'apparaît que dans les classes qui la cochent.
+
+   À SAVOIR : le bulletin du primaire s'allongera de ces compétences.
+   Sur votre CE1 BIL, cela concerne Chinois, Economics, Management,
+   Practical Work et Travaux Pratiques. Si une matière n'a rien à faire
+   dans la classe, DÉCOCHEZ-LA dans Classes → Modifier la classe →
+   Matières.
+
+8. UNE SUPPRESSION FAITE EN LIGNE ATTEINT ENFIN LES ÉCRANS.
+
+   Des matières supprimées côté serveur continuaient de s'afficher,
+   indéfiniment : le logiciel ne retéléchargeait le référentiel que si
+   la version NATIONALE changeait, et ne voyait donc pas les matières
+   propres à l'école.
+
+9. LES PHOTOS D'ÉLÈVES NE SONT PLUS REFUSÉES QUAND L'INTERFACE MANQUE.
+
+   Un serveur dont la SPA n'est pas compilée refusait TOUS les fichiers
+   — photos comprises — alors que l'API répondait normalement.
+
+10. UNE MATIÈRE N'EXISTE PLUS QU'UNE FOIS PAR CLASSE, et une matière
+   locale ne couvre plus la même matière du référentiel dans les deux
+   langues (« Français » et « French » étaient revendiqués par la même
+   ligne).
+
+11. L'EN-TÊTE ANGLAIS OFFICIEL ET LE LOGO DU SECTEUR.
+
+   Relevé sur un rapport imprimé de votre établissement, le bloc
+   anglais disait « Regional Delegation Ouest ». Il dit désormais
+   « Regional Delegation for the West » — les dix régions ont leur nom
+   anglais officiel, le DÉPARTEMENT garde le sien. Et le rapport de
+   classe prend le logo, le cachet et le nom de SON secteur, comme le
+   bulletin le faisait déjà.
+
+12. UN IMPORT DE NOTES N'EFFACE PLUS CE QU'IL NE PORTE PAS. Une cellule
+   vide était écrite comme une note vide et effaçait la note en place.
+   C'était la première moitié du défaut ; le point 3 ferme la seconde.
+
+
+INSTALLATION
+-------------
+
+En root, depuis le dossier qui contient l'archive :
+
+    sudo ./deploy-0.3.23.sh notescam-linux-x64-0.3.23.tar.gz
+
+Le script, et pas `install.sh` seul : il ARRÊTE le service avant la
+copie, SAUVEGARDE la base par VACUUM INTO et VÉRIFIE la sauvegarde. Une
+sauvegarde non vérifiée n'est pas une sauvegarde. Il s'arrête de
+lui-même, sans toucher à l'application, si la sauvegarde n'est pas
+vérifiable.
+
+Il ne supprime aucune base, ne réinitialise aucune file, ne refait aucun
+appairage, n'écrit aucune donnée métier et ne force aucune
+synchronisation. Un code de sortie différent de zéro est le signal
+d'appeler l'éditeur, PAS de tenter une réparation.
+
+
+À VÉRIFIER APRÈS L'INSTALLATION
+--------------------------------
+
+  1. curl -s http://localhost:8080/api/version  →  0.3.23
+
+  2. LE CONTRÔLE DE CETTE VERSION, celui qui compte. Ouvrez la saisie
+     des notes d'une classe de 6e à 3e : la liste des matières
+     apparaît, et l'écran ne reste pas sur « Chargement du référentiel
+     APC… ». Faites le même essai au primaire.
+
+  3. En 5eme et en 6eme, le CHINOIS apparaît maintenant dans la liste
+     déroulante de la saisie.
+
+  4. L'IMPORT. Ouvrez « Importer des notes (Excel) » : il demande
+     maintenant QUELLE matière importer, et n'écrit que celle-là.
+
+  5. LE CONTRÔLE DU CORRECTIF n° 5. Avec un compte enseignant portant
+     plusieurs matières : saisir une note, changer de matière sans rien
+     taper, et vérifier que la case ne porte pas la note qu'on vient de
+     taper. Dans « Saisie rapide » ET dans « Tableau ».
+
+  6. Au primaire, le bulletin porte les onze compétences.
+
+  7. Le rattrapage de synchronisation est bien parti :
+
+         journalctl -u notescam -n 40 | grep -i "curseur de pull"
+
+  8. Une fois le rattrapage terminé, le journal de caisse porte vos
+     écritures (onze au 18/10/2026). S'il reste vide après un cycle
+     complet, appelez l'éditeur : ne saisissez pas les écritures une
+     deuxième fois, elles sont au Cloud.
+
+  9. Vos effectifs n'ont pas bougé : comparez au relevé pris avant
+     l'installation (le script l'affiche).
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+
+Réinstallez l'archive 0.3.19 de la même façon. NE REVENEZ PAS À LA
+0.3.22 : c'est elle qui bloque la saisie du premier cycle.
+
+CE QUE LE RETOUR ARRIÈRE FAIT, exactement :
+
+  · les cinq tables RESTENT dans la base. C'est sans danger : la 0.3.19
+    les ignore. Aucune donnée n'est perdue, et réinstaller la 0.3.23
+    ensuite les retrouve telles quelles ;
+  · le journal de caisse n'est plus accessible, ses écritures restent
+    en base et au Cloud ;
+  · TOUS LES DÉFAUTS CI-DESSUS REVIENNENT, le n° 5 compris ;
+  · AUCUNE NOTE N'EST PERDUE, dans aucun des deux sens.
+
+Si un écran continue de refuser alors que le script dit que tout est en
+place : envoyez la sortie COMPLÈTE du script à l'éditeur. N'essayez pas
+de réparer la base à la main.
+
+------------------------------------------------------------------------

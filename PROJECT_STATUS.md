@@ -24,7 +24,25 @@
 > touchée.
 >
 > **0.3.23 porte les correctifs I12 à I20** (I19 : la parité du client LAN ; I20 : l'import
-> de notes, une matière à la fois).
+> de notes, une matière à la fois). **Les deux paquets sont construits, non envoyés.**
+>
+> | | Windows | Linux |
+> |---|---|---|
+> | Fichier | `packaging/Output/NotesCam-Setup-0.3.23.exe` | `packaging/linux/Output/notescam-linux-x64-0.3.23.tar.gz` |
+> | Taille | 30 804 244 o | 53 531 168 o |
+> | SHA-256 | `963b6003…5df394ba` | `ffba2d63…703a8b374` |
+> | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.23-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.23.txt` |
+> | Script | — (installeur) | `packaging/linux/deploy-0.3.23.sh` (`bash -n` OK) |
+>
+> **Vérifié DANS le paquet Linux extrait, pas dans le dépôt** : `app/package.json` annonce
+> 0.3.23 · **I19 : `school_id.is.null` ABSENT du bundle** (c'est le marqueur du défaut
+> 0.3.22, contrôlé *en négatif*) · `onConflict:"classe_id,matiere_id"` présent ·
+> `.ilike(` absent de `auth.js` (il n'y reste qu'en commentaire) · empreinte comptée sur
+> `*` dans `referentielFingerprint.js` · I20 « Une matière à la fois » présent · I12 **2**
+> clés de ligne composées (une par écran de saisie) · I13 « table entière » dans `db.js` ·
+> I14 `/files` servi sans `dist/` · I16 marqueur de rattachement présent.
+> Les cinq contrôles `dist` de `deploy-0.3.23.sh` ont été rejoués à la main contre
+> l'archive extraite : tous passent.
 >
 > **0.3.21 porte les correctifs I12 et I13.** I12 : la note d'une matière s'écrivait dans
 > la matière suivante — le défaut que le responsable signalait depuis le matin. I13 : une

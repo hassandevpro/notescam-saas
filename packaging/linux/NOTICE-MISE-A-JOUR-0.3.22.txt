@@ -1,3 +1,15 @@
+########################################################################
+#  NE PAS DISTRIBUER — VERSION REMPLACÉE PAR LA 0.3.23                 #
+#                                                                      #
+#  Cette archive 0.3.22 BLOQUE la saisie des notes du premier cycle    #
+#  sur un serveur d école : l écran reste sur « Chargement du          #
+#  référentiel APC… » sans jamais finir. Le filtre ajouté par cette    #
+#  version emploie une requête que le serveur local ne sait pas faire. #
+#  Signalé le 23/10/2026, corrigé par la 0.3.23.                       #
+#                                                                      #
+#  Aucune école ne l a reçue. Utilisez NOTICE-MISE-A-JOUR-0.3.23.txt.  #
+########################################################################
+
 ========================================================================
 NotesCam 0.3.22 — Notice pour l'administrateur du serveur de l'école
 ========================================================================

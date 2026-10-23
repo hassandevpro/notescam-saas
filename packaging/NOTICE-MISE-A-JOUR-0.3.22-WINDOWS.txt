@@ -1,0 +1,253 @@
+========================================================================
+NotesCam 0.3.22 (Windows) - Notice pour le responsable informatique
+========================================================================
+
+Installeur : NotesCam-Setup-0.3.22.exe
+Taille     : 30 799 550 octets
+SHA-256    : be274ec55786517dc2d8450b17c8aa37c7c2dfe88663319c723caa6bd6526872
+
+VERIFIEZ L'EMPREINTE AVANT D'INSTALLER. Ouvrez PowerShell dans le
+dossier qui contient le fichier et tapez :
+
+    Get-FileHash .\NotesCam-Setup-0.3.22.exe -Algorithm SHA256
+
+Si l'empreinte affichee ne correspond PAS a la ligne ci-dessus,
+N'INSTALLEZ PAS : le fichier a ete altere ou tronque pendant le
+transfert. Redemandez-le.
+
+Pour savoir quelle version tourne actuellement sur le poste :
+
+    http://localhost:8080/api/version
+
+
+NE DISTRIBUEZ NI LA 0.3.20 NI LA 0.3.21
+----------------------------------------
+
+Ces deux versions ont ete construites puis remplacees le meme jour,
+AVANT d'etre envoyees a une ecole. Aucune ecole ne tourne dessus. Si un
+installeur 0.3.20 ou 0.3.21 traine quelque part, jetez-le : il manque a
+la premiere le correctif de saisie, et aux deux les correctifs 4 a 8
+ci-dessous.
+
+Cette notice contient TOUT ce que contenaient les notices 0.3.20,
+0.3.21, et donc aussi la 0.3.18.
+
+
+CE QUE CETTE VERSION APPORTE
+-----------------------------
+
+1. LA NOTE D'UNE MATIERE NE S'ECRIT PLUS DANS LA MATIERE SUIVANTE.
+
+   C'EST LE CORRECTIF LE PLUS IMPORTANT DE LA SERIE.
+
+   LE SYMPTOME, tel qu'il a ete signale : "un enseignant avec plusieurs
+   matieres, quand il entre les notes d'une matiere les autres matieres
+   heritent automatiquement". Et constate a l'ecran : la matiere
+   affichee etait "Informatique fondamentale et TIC", le champ de
+   l'eleve affichait 20, et la statistique du meme panneau annoncait
+   "Moy. : 12/20".
+
+   CE QUE CELA COUTAIT. Au premier clic n'importe ou sur l'ecran, la
+   note de la matiere PRECEDENTE etait ENREGISTREE dans la matiere
+   affichee. Un enseignant qui enchainait ses matieres pouvait remplir
+   toute une classe avec la meme note sans rien remarquer.
+
+   CE QUI CHANGE. Changer de matiere reconstruit les cases de saisie.
+   Les deux ecrans ("Tableau" et "Saisie rapide") sont corriges.
+
+   LE CONTROLE, en dix secondes : saisissez une note dans une matiere,
+   puis changez de matiere SANS rien taper. La case doit etre vide, ou
+   porter la note deja enregistree pour cette matiere - jamais celle
+   que vous venez de taper.
+
+   CE QUE L'INSTALLATION NE REPARE PAS : les notes DEJA ecrites par
+   erreur. Le logiciel ne peut pas deviner lesquelles sont fausses.
+   Faites controler les matieres des enseignants qui en portent
+   plusieurs. C'est le seul point qui demande un travail humain.
+
+2. UNE MATIERE N'EXISTE PLUS QU'UNE FOIS PAR CLASSE.
+
+   L'identifiant d'une matiere de classe etait tire au hasard : un
+   poste dont le cache avait ete vide recreait une serie complete de
+   matieres. Il est desormais calcule a partir de la CLASSE et du NOM,
+   donc identique sur tous les postes.
+
+3. UNE MATIERE LOCALE NE COUVRE PLUS LA MEME MATIERE EN DEUX LANGUES.
+
+   Dans une classe bilingue, "Francais" etait rattachee a la fois a
+   Francais et a French : la note saisie une fois s'ecrivait aux deux
+   endroits. Les matieres qui regroupent legitimement deux entrees -
+   "Histoire-Geographie" - continuent de le faire.
+
+4. UNE SUPPRESSION FAITE EN LIGNE ATTEINT ENFIN LES ECRANS.
+
+   Des matieres supprimees cote serveur continuaient de s'afficher,
+   indefiniment : le logiciel ne retelechargeait le referentiel que si
+   la version NATIONALE changeait, et ne voyait donc pas les matieres
+   propres a l'ecole. Un rechargement de page n'y changeait rien, un
+   Ctrl+Shift+R non plus.
+
+   Desormais, toute creation ou suppression d'une matiere de l'ecole
+   est vue. Et le referentiel ne melange plus les etablissements : un
+   responsable membre de plusieurs ecoles ne voit plus les matieres de
+   l'une dans l'autre.
+
+5. UNE MATIERE COCHEE DANS LA CLASSE DEVIENT SAISISSABLE.
+
+   LE SYMPTOME : une matiere cochee dans "Modifier la classe"
+   n'apparaissait pas dans la liste deroulante au moment de mettre les
+   notes.
+
+   LA CAUSE. Une matiere n'est proposee a la saisie que si elle est
+   rattachee au NIVEAU de la classe. Rien ne posait ce rattachement
+   quand la matiere existait deja ailleurs : une matiere creee en 3eme
+   restait attachee a la 3eme, et le programme national ne prevoit
+   l'espagnol, l'allemand, l'arabe ou le chinois qu'a partir de la 4e.
+
+   CE QUI CHANGE. La matiere est rattachee au niveau de la classe, sans
+   jamais etre recreee - donc sans creer de doublon, et sans detacher
+   les notes deja saisies.
+
+6. LE BULLETIN DU PRIMAIRE RETROUVE SES ONZE COMPETENCES.
+
+   Deux competences officielles MINEDUB disparaissaient du bulletin
+   dans TOUTES les ecoles :
+
+       3A  Pratiquer les valeurs sociales
+       4A  Demontrer l'autonomie, l'esprit d'initiative, la creativite
+           et l'entrepreneuriat
+
+   Ce sont des competences TRANSVERSALES : aucune matiere ne porte leur
+   nom, donc le filtre par matieres cochees ne pouvait jamais les
+   retenir. Elles reviennent. Pour retirer une competence que l'ecole
+   ne traite pas, le levier reste le bouton "Modifier les competences".
+
+7. AU PRIMAIRE, UNE MATIERE AJOUTEE PAR L'ECOLE DEVIENT NOTABLE.
+
+   Au primaire on note des COMPETENCES, pas des matieres. Une matiere
+   ajoutee par l'ecole dont le nom ne correspondait a aucune competence
+   n'etait notable nulle part, et le message conseillait de "corriger
+   le nom" - ce qui n'a aucun sens pour une matiere maison.
+
+   Desormais, a l'ouverture de la classe, elle fait naitre sa propre
+   competence. Elle n'apparait que dans les classes qui la cochent.
+
+   A SAVOIR : le bulletin du primaire s'allongera de ces competences.
+   Si une matiere n'a rien a faire dans la classe, DECOCHEZ-LA dans
+   Classes -> Modifier la classe -> Matieres.
+
+8. LES PHOTOS D'ELEVES NE SONT PLUS REFUSEES QUAND L'INTERFACE MANQUE.
+
+   Un serveur dont l'interface n'etait pas compilee refusait TOUS les
+   fichiers - photos comprises - alors que le reste repondait
+   normalement. Corrige.
+
+9. L'EN-TETE ANGLAIS OFFICIEL ET LE LOGO DU SECTEUR.
+
+   "Regional Delegation for the West" au lieu de "Regional Delegation
+   Ouest". Les dix regions ont leur nom anglais ; le departement garde
+   le sien. Et le rapport de classe prend le logo, le cachet et le nom
+   de SON secteur, comme le bulletin le faisait deja.
+
+10. UN IMPORT DE NOTES N'EFFACE PLUS CE QU'IL NE PORTE PAS.
+
+   Une cellule vide effacait la note en place. Elles sont maintenant
+   ignorees : l'import complete, il ne remplace pas.
+
+
+CETTE VERSION POSE CINQ TABLES NEUVES DANS LA BASE DU POSTE
+------------------------------------------------------------
+
+    cash_movements              journal de caisse
+    referentiel_libelles        libelles de matieres propres a l'ecole
+    apc_competences_masques     competences masquees par la classe
+    prim_competences_masques    idem, primaire
+    mat_domaines_masques        idem, maternelle
+
+Elles sont creees AU DEMARRAGE DU SERVEUR : le redemarrage de l'etape 2
+n'est donc pas optionnel.
+
+UN LONG RATTRAPAGE DE SYNCHRONISATION EST NORMAL, ET VOULU.
+`cash_movements` est synchronisee avec le Cloud. Une table qui vient de
+naitre est VIDE, et la descente des donnees avance avec un curseur qui
+ne revient jamais en arriere : sans precaution, la table serait restee
+vide pour toujours alors que les ecritures sont au Cloud. Le serveur
+detecte la table neuve et remet le curseur a zero.
+
+Vous verrez donc un bandeau de synchronisation actif plus longtemps que
+d'habitude, parfois plusieurs heures. Rien n'est perdu pendant ce
+temps : les saisies de la journee montent au Cloud normalement, le
+rattrapage descend et n'ecrase aucune saisie.
+
+PREVENEZ L'ECOLE AVANT, pas apres.
+
+Aucune table existante n'est modifiee, aucune donnee n'est convertie.
+
+
+INSTALLATION - TROIS GESTES, DANS CET ORDRE
+--------------------------------------------
+
+1. INSTALLER. Clic droit sur NotesCam-Setup-0.3.22.exe ->
+   "Executer en tant qu'administrateur". La base de l'ecole
+   (C:\ProgramData\NotesCam\data) n'est jamais touchee par
+   l'installeur.
+
+2. REDEMARRER LE SERVICE. C'EST LE GESTE QU'ON OUBLIE : installer
+   remplace les FICHIERS, mais le serveur continue de tourner avec
+   l'ancien code, et c'est lui qui pose les tables neuves.
+
+   Menu Demarrer -> NotesCam -> "REDEMARRER APRES MAJ", ou bien, dans
+   C:\Program Files\NotesCam : clic droit sur REDEMARRER-APRES-MAJ.cmd
+   -> "Executer en tant qu'administrateur".
+
+   Il arrete le service, SAUVEGARDE la base et VERIFIE la sauvegarde,
+   redemarre, puis controle. Si la sauvegarde n'est pas verifiee, il
+   remet le service en marche et s'arrete sans rien avoir modifie.
+
+3. CONTROLER. Double-cliquez verifier-correctifs.cmd. Il lit la BASE et
+   le serveur en marche, et dit si ce poste a vraiment recu la mise a
+   jour.
+
+
+A VERIFIER DEPUIS UN POSTE DE L'ECOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Shift+R.
+
+  1. http://localhost:8080/api/version  doit repondre 0.3.22
+
+  2. LE CONTROLE DU CORRECTIF n 1. Avec un compte enseignant portant
+     plusieurs matieres : saisissez une note, changez de matiere SANS
+     rien taper, verifiez que la case ne porte pas la note que vous
+     venez de taper. Dans les DEUX ecrans.
+
+  3. Une matiere cochee dans la classe apparait bien dans la liste
+     deroulante de la saisie.
+
+  4. Au primaire, le bulletin porte les onze competences, dont
+     "Pratiquer les valeurs sociales" et celle sur l'autonomie.
+
+  5. Le rattrapage de synchronisation est parti, et le journal de
+     caisse se remplit une fois qu'il est fini. S'il reste vide apres
+     un cycle complet, appelez l'editeur : ne ressaisissez RIEN.
+
+  6. Vos effectifs n'ont pas bouge : comparez au releve pris avant.
+
+
+EN CAS DE PROBLEME - RETOUR ARRIERE
+------------------------------------
+
+Reinstallez NotesCam-Setup-0.3.18.exe par-dessus, puis relancez
+REDEMARRER-APRES-MAJ.cmd. Les cinq tables neuves RESTENT dans la base -
+l'ancien code les ignore - et aucune donnee n'est perdue. Revenir en
+arriere ramene en revanche TOUS les defauts ci-dessus, le n 1 compris.
+
+Si un ecran continue de refuser alors que verifier-correctifs.cmd dit
+que tout est en place : faites une photo de l'ecran ET de la sortie du
+script, et envoyez-les a l'editeur. N'essayez pas de reparer la base.
+
+------------------------------------------------------------------------
+Ce fichier est en ASCII et en CRLF, comme les autres documents livres
+aux postes Windows : le Bloc-notes d'un Windows ancien affiche un
+fichier en fins de ligne Unix comme une seule ligne illisible.
+------------------------------------------------------------------------

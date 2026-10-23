@@ -1,3 +1,13 @@
+!!! VERSION ABANDONNEE - NE PAS DISTRIBUER !!!
+
+Remplacee par la 0.3.22 avant tout envoi. Il lui manque les correctifs
+I14 a I18 : fichiers refuses sans interface compilee, suppression qui
+n'atteignait pas l'ecran, matiere cochee non saisissable, deux competences
+officielles perdues au primaire, matiere d'ecole impossible a noter.
+Utilisez NOTICE-MISE-A-JOUR-0.3.22-WINDOWS.txt.
+
+========================================================================
+
 ========================================================================
 NotesCam 0.3.21 (Windows) - Notice pour le responsable informatique
 ========================================================================

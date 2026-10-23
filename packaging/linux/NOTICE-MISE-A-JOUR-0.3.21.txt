@@ -1,3 +1,15 @@
+!!! VERSION ABANDONNÉE — NE PAS DISTRIBUER !!!
+
+Remplacée par la 0.3.22 avant tout envoi. Il lui manque les correctifs
+I14 à I18 : fichiers refusés quand l'interface n'est pas compilée, suppression
+qui n'atteignait jamais l'écran, matière cochée non saisissable (le chinois en
+5eme/6eme), deux compétences officielles perdues au primaire, et matière
+ajoutée par l'école impossible à noter.
+
+Utilisez NOTICE-MISE-A-JOUR-0.3.22.txt.
+
+========================================================================
+
 ========================================================================
 NotesCam 0.3.21 — Notice pour l'administrateur du serveur de l'école
 ========================================================================

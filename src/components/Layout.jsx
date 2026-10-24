@@ -171,6 +171,22 @@ function SyncIndicator() {
                     {item.table} · {item.operation}
                   </p>
                   <p className="text-xs text-red-500 mt-0.5 break-words">{item.error}</p>
+                  {/* UN REFUS DE DROITS, DIT EN FRANÇAIS. Le message brut de
+                      Postgres — « new row violates row-level security policy »
+                      — ne dit ni quoi faire ni qui peut le faire, et il a été
+                      remonté tel quel par le responsable le 2026-10-24. Le
+                      serveur ne juge pas le CONTENU de la saisie : il juge le
+                      COMPTE. Sans cette phrase, l'école cherche le défaut dans
+                      ce qu'elle a tapé. */}
+                  {/row[- ]level security/i.test(item.error || '') && (
+                    <p className="text-xs text-red-600 mt-1 break-words">
+                      Refus de <strong>droits</strong>, pas de contenu : ce compte n’est pas
+                      administrateur de cette école, ou la classe sort de son périmètre
+                      (secteur / cycle). La saisie est conservée ici — reprenez-la avec un
+                      compte habilité, ou faites élargir le périmètre du compte. Ne la
+                      ressaisissez pas ailleurs.
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

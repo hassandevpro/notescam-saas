@@ -34,6 +34,22 @@
 > | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.23-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.23.txt` |
 > | Script | — (installeur) | `packaging/linux/deploy-0.3.23.sh` (`bash -n` OK) |
 >
+> ## 🟠 LA 0.3.23 EST INSTALLÉE CHEZ THE GENIUS (2026-10-24)
+>
+> Journal d'installation fourni : `0.3.21 → 0.3.23`, **40 contrôles au vert** (dont I19,
+> I19 bis et I20), 713 élèves inchangés, `integrity_check` ok, jeton et `school_id` intacts.
+> **Un seul échec**, et il a ouvert **I21** : une ligne du Cloud sans `updated_at` n'est
+> **jamais** envoyée au serveur d'école (`sync-pull` les écarte par construction). Chez
+> GENIUS : **60 dépenses sur 60** et **10 écritures de caisse sur 11** sont dans ce cas ;
+> Cloud-wide, **4 215 notes par compétences** (prim 2 337 · apc 1 334 · maternelle 544).
+>
+> Code corrigé et livré. **La correction de base est PRÉPARÉE, NON EXÉCUTÉE** :
+> `docs/corrections/2026-10-24-updated_at-null-descente-bloquee.sql` — **en attente
+> d'autorisation explicite**.
+>
+> Également relevé par le script, et à traiter à part : **la file de poussée de GENIUS est
+> engorgée** — 2 841 584 entrées pour 5 418 pointeurs utiles (`dedoublonner-file-poussee.sh`).
+>
 > **Vérifié DANS le paquet Linux extrait, pas dans le dépôt** : `app/package.json` annonce
 > 0.3.23 · **I19 : `school_id.is.null` ABSENT du bundle** (c'est le marqueur du défaut
 > 0.3.22, contrôlé *en négatif*) · `onConflict:"classe_id,matiere_id"` présent ·

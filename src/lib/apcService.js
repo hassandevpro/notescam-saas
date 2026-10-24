@@ -151,6 +151,25 @@ export function buildNoteRecord({ id, schoolId, eleveId, competenceId, sequenceI
     note_max: Number.isFinite(max) && max > 0 && max !== 20 ? max : null,
     appreciation: appreciation || null,
     date_saisie: new Date().toISOString(),
+    // ── SANS `updated_at`, LA NOTE NE DESCEND JAMAIS VERS LE SERVEUR D'ÉCOLE ──
+    //
+    // Mesuré dans la base de production le 2026-10-24 : les 1 334 notes
+    // `apc_notes` du Cloud avaient TOUTES `updated_at` à NULL, comme les 2 337
+    // du primaire et les 544 de la maternelle — 4 215 notes en tout.
+    //
+    // La descente Cloud → école est un keyset `(updated_at, id)`, et la fonction
+    // `sync-pull` écarte explicitement les lignes sans date
+    // (`.not('updated_at','is',null)` — « le keyset exige updated_at non NULL »).
+    // Une note écrite depuis le Cloud sans cette colonne était donc INVISIBLE
+    // pour toujours sur le serveur de l'école, quel que soit le curseur.
+    //
+    // C'est aussi la colonne que la résolution de conflits lit (LWW,
+    // cloudSync.js) : `Date.parse(null)` vaut 0, donc la note perdait tout
+    // arbitrage contre n'importe quelle ligne locale.
+    //
+    // `date_saisie` ne pouvait pas servir : c'est la date pédagogique de la
+    // saisie, pas l'horloge de synchronisation, et la descente ne la lit pas.
+    updated_at: new Date().toISOString(),
     nkey: noteNkey(eleveId, competenceId, sequenceId),
   };
 }

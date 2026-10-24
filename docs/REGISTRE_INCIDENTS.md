@@ -1116,3 +1116,100 @@ La matière est **choisie** dans le panneau d'import, et c'est la **seule colonn
 Règle **pure** et vérifiée seule : `src/core/importUneMatiere.js`,
 `src/core/_importUneMatiere.test.mjs` (18 contrôles, dont la cellule vide, la colonne
 absente, le hors barème, `ABS`, la virgule décimale et l'élève inconnu).
+
+---
+
+## I21 — Une ligne sans `updated_at` ne descend JAMAIS vers le serveur d'école
+
+**Date** : 2026-10-24 · **Statut** : **code corrigé ; correction de base PRÉPARÉE, NON
+EXÉCUTÉE** · **Source** : journal d'installation de la 0.3.23 sur le serveur de THE GENIUS,
+fourni par le responsable
+
+L'installation s'est bien passée — `0.3.21 → 0.3.23`, 713 élèves inchangés, `integrity_check`
+ok, jeton et `school_id` intacts, et les **40 contrôles** de l'étape 4 au vert, y compris les
+trois nouveaux (I19, I19 bis, I20). **Un seul échec** :
+
+> `FAIL  curseur de descente TOUJOURS à '{…}' — la caisse resterait vide.`
+
+### Le curseur n'était pas la cause, et le contrôle avait pourtant raison
+
+Deux choses se cachaient derrière cette ligne.
+
+**1. Une fausse alarme.** Leur serveur venait de la **0.3.21**, qui avait déjà créé les cinq
+tables et déjà remis le curseur à zéro à ce moment-là. Rien de neuf n'apparaissait : le
+curseur ne *devait* pas être remis à zéro. Le contrôle ne distinguait pas « tables qui
+viennent de naître » de « tables déjà là ». *Une alarme qui crie quand tout va bien finit
+par être ignorée le jour où elle a raison.*
+
+**2. Un vrai défaut, plus grave que celui qu'on cherchait.** Le curseur était posé sur la
+**seule** écriture de caisse portant une date. Mesuré dans la base de production :
+
+| | total | sans `updated_at` |
+|---|---|---|
+| `prim_notes` | 2 337 | **2 337 (100 %)** |
+| `apc_notes` | 1 334 | **1 334 (100 %)** |
+| `mat_observations` | 544 | **544 (100 %)** |
+| `budget_expenses` (GENIUS) | 60 | **60 (100 %)** |
+| `cash_movements` (GENIUS) | 11 | **10** |
+| … et 25 autres tables synchronisées | | de 2 à 1 237 lignes |
+
+La descente Cloud → école est un keyset `(updated_at, id)`, et `sync-pull` écarte
+**explicitement** les lignes sans date :
+
+```ts
+.not('updated_at', 'is', null)   // le keyset exige updated_at non NULL
+```
+
+Une ligne sans `updated_at` est donc **invisible pour toujours** sur un serveur d'école.
+**Remettre le curseur à zéro n'y change rien** : c'est pourquoi la parade de **I13** ne
+suffisait pas, et pourquoi la caisse de THE GENIUS serait restée vide même avec un curseur
+neuf. La même colonne arbitre les conflits (LWW, `cloudSync.js:104`) : `Date.parse(null)`
+vaut 0, donc une ligne sans date perd tout arbitrage.
+
+### Deux origines, les deux dans notre code
+
+| Écrivain | Ce qu'il posait | Conséquence |
+|---|---|---|
+| les trois constructeurs de notes (`apc`/`prim`/`mat`) | `date_saisie` seulement | **4 215 notes** invisibles — `date_saisie` est la date *pédagogique*, la descente ne la lit pas |
+| `scripts/import-caisse-genius.mjs` | `updated_at` **uniquement** dans la branche `ON CONFLICT DO UPDATE` | au **premier** import la colonne reste NULL — c'est l'origine exacte des 70 lignes de THE GENIUS (`import_batch = 'reprise-2026-06-08'`, 2026-10-18 06:12:19) |
+
+Les écritures d'application (`upsertCashMovement`, `upsertExpense`) la posaient déjà : d'où
+**une** écriture de caisse datée sur onze.
+
+### La correction
+
+**Code (livré)** : les trois constructeurs datent ce qu'ils écrivent ; le générateur
+d'import nomme `updated_at` dans la liste des colonnes de ses deux `INSERT` ; et le contrôle
+du script de déploiement distingue désormais les deux situations, puis **affiche les comptes
+locaux à comparer au Cloud** au lieu de crier.
+
+**Base (préparée, non exécutée)** :
+`docs/corrections/2026-10-24-updated_at-null-descente-bloquee.sql` — valeur par défaut
+`now()` sur les tables synchronisées qui n'en avaient pas (purement additif, aucune ligne
+touchée), puis rattrapage `updated_at = now()` des lignes existantes, identifiants
+sauvegardés dans `zz_sauv_updated_at_20261024_*`, contrôles dans la transaction, retour
+arrière écrit.
+
+**Pourquoi `now()` et non `created_at`** : le curseur des écoles est déjà passé devant les
+dates de création (celui de THE GENIUS est au 2026-10-18). Dater ces lignes de leur création
+les laisserait **derrière** le curseur — invisibles comme avant. `now()` les place devant.
+Aucun risque LWW : une ligne que le Cloud n'a jamais pu envoyer n'existe pas en local, il n'y
+a donc rien à écraser.
+
+### Preuve
+
+`src/lib/_updatedAtDescente.test.mjs` (18 contrôles, 7 échecs sur le code d'avant) : il fige
+la règle de `sync-pull` **à la source** (si la descente acceptait un jour les lignes sans
+date, le test entier perdrait sa raison d'être), que les trois constructeurs datent leurs
+écritures sans perdre `date_saisie`, que les deux écritures d'application restent datées, et
+que l'import nomme la colonne **dès le premier passage**.
+
+### Ce qui reste à trancher
+
+L'exécution en production attend une **autorisation explicite**. Après exécution, la
+synchronisation des écoles en serveur local travaillera : pour THE GENIUS, **70 lignes**
+descendront (60 dépenses, 10 écritures de caisse). **Prévenir l'école avant.**
+
+Et, hors de ce défaut : leur **file de poussée est engorgée** — 2 841 584 entrées pour
+5 418 pointeurs utiles, relevé par le script lui-même, qui renvoie à
+`dedoublonner-file-poussee.sh`. À traiter séparément.

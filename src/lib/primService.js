@@ -100,6 +100,11 @@ export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, crite
       ? null
       : Number(pointsMax),
     date_saisie: new Date().toISOString(),
+    // Sans `updated_at`, la note ne descend JAMAIS vers le serveur de l'école :
+    // `sync-pull` écarte les lignes sans date. Mesuré le 2026-10-24 — les 2 337
+    // notes `prim_notes` du Cloud l'avaient toutes à NULL. Voir le commentaire
+    // complet dans apcService.buildNoteRecord.
+    updated_at: new Date().toISOString(),
     nkey: primNkey(eleveId, competenceId, critereId, ua),
   };
 }

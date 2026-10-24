@@ -69,6 +69,11 @@ export function buildObsRecord({ id, schoolId, eleveId, domaineId, trimestreId, 
     niveau_acquis: niveauAcquis || null,
     observation: observation || null,
     date_saisie: new Date().toISOString(),
+    // Sans `updated_at`, l'observation ne descend JAMAIS vers le serveur de
+    // l'école : `sync-pull` écarte les lignes sans date. Mesuré le 2026-10-24 —
+    // les 544 lignes `mat_observations` du Cloud l'avaient toutes à NULL. Voir
+    // le commentaire complet dans apcService.buildNoteRecord.
+    updated_at: new Date().toISOString(),
     nkey: obsNkey(eleveId, domaineId, trimestreId),
   };
 }

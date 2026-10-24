@@ -441,14 +441,44 @@ table_posee apc_competences_masques  "les compétences masquées par la classe"
 table_posee prim_competences_masques "idem, primaire"
 table_posee mat_domaines_masques     "idem, maternelle"
 
-# LE CURSEUR A-T-IL ÉTÉ REMIS À ZÉRO ? C'est ce qui décide si les onze écritures
-# de caisse du Cloud redescendront. Absent = remis à zéro, et c'est ce qu'on veut
-# voir ICI, juste après le premier démarrage.
+# LE CURSEUR A-T-IL ÉTÉ REMIS À ZÉRO ? C'est ce qui décide si les écritures de
+# caisse du Cloud redescendront. Absent = remis à zéro.
+#
+# MAIS CE CONTRÔLE NE VAUT QUE SI LES TABLES VIENNENT DE NAÎTRE. Corrigé le
+# 2026-10-24, après l'installation chez THE GENIUS : leur serveur venait de la
+# 0.3.21, qui avait DÉJÀ créé les cinq tables et DÉJÀ remis le curseur à zéro à
+# ce moment-là. Rien de neuf n'apparaissait donc, le curseur ne devait PAS être
+# remis à zéro — et le script criait quand même. Une alarme qui se déclenche
+# quand tout va bien finit par être ignorée le jour où elle a raison.
+#
+# La question est donc : le curseur porte-t-il DÉJÀ une position pour
+# `cash_movements` ? Si oui, cette table a déjà été descendue au moins une fois,
+# et un curseur non vide est l'état NORMAL.
 CURSEUR="$(sqf "$DB" "SELECT value FROM sync_cursor WHERE name='pull_at'")"
 if [[ -z "$CURSEUR" ]]; then
   vert "  PASS  curseur de descente remis à zéro — le prochain cycle ramènera la caisse"
+elif echo "$CURSEUR" | grep -q 'cash_movements'; then
+  vert "  PASS  curseur déjà positionné sur cash_movements (tables créées par une version antérieure)"
+  # ── ET MAINTENANT LE CONTRÔLE QUI COMPTE VRAIMENT ──────────────────────
+  # Un curseur en place ne dit RIEN de ce qui est arrivé. Mesuré chez THE
+  # GENIUS le 2026-10-24 : dix des onze écritures de caisse du Cloud avaient
+  # `updated_at` à NULL, et la descente écarte les lignes sans date — elles
+  # étaient donc invisibles POUR TOUJOURS, curseur ou pas. On regarde donc la
+  # table elle-même, et on le dit sans l'appeler un échec du déploiement :
+  # la correction est côté Cloud, pas sur ce poste.
+  CAISSE="$(sqf "$DB" "SELECT count(*) FROM cash_movements")"
+  DEPENSES="$(sqf "$DB" "SELECT count(*) FROM budget_expenses")"
+  jaune "  À COMPARER  journal de caisse : ${CAISSE:-0} écriture(s) · dépenses : ${DEPENSES:-0}"
+  jaune "        Comparez ces deux comptes à ceux du Cloud. S'ils sont INFÉRIEURS,"
+  jaune "        ce n'est pas ce déploiement : une ligne du Cloud sans 'updated_at'"
+  jaune "        n'est JAMAIS envoyée (la descente écarte les lignes sans date), et"
+  jaune "        aucune remise à zéro du curseur n'y change quoi que ce soit."
+  jaune "        Relevé chez une école le 2026-10-24 : 10 écritures sur 11 et 60"
+  jaune "        dépenses sur 60 étaient dans ce cas. La correction est côté Cloud."
+  jaune "        Signalez-le à l'éditeur, et NE RESSAISISSEZ RIEN."
 else
-  rouge "  FAIL  curseur de descente TOUJOURS à '$CURSEUR' — la caisse resterait vide. Appelez l'éditeur."
+  rouge "  FAIL  curseur de descente TOUJOURS à '$CURSEUR' alors que les tables viennent de naître"
+  rouge "        — la caisse resterait vide. Appelez l'éditeur."
   ko=$((ko+1))
 fi
 

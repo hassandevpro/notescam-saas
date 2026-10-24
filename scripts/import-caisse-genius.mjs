@@ -327,13 +327,26 @@ if (SQL_OUT) {
   // elle multiplierait les allers-retours : ici, soit tout entre, soit rien.
   L.push(`-- ${depenses.length} dépense(s), statut « paid » : l'argent est sorti de la caisse.`);
   if (depenses.length) {
+    // `updated_at` EST DANS LA LISTE DES COLONNES, et pas seulement dans la
+    // branche ON CONFLICT ci-dessous.
+    //
+    // CE QUE SON ABSENCE A COÛTÉ, mesuré en production le 2026-10-24. Un INSERT
+    // qui ne la nomme pas laisse la colonne à NULL (elle n'avait pas de valeur
+    // par défaut), et la descente Cloud → école est un keyset `(updated_at, id)`
+    // dont la fonction `sync-pull` écarte explicitement les lignes sans date.
+    // Les 60 dépenses et les 10 mouvements de caisse importés chez THE GENIUS
+    // le 2026-10-18 étaient donc INVISIBLES pour toujours sur leur serveur :
+    // le journal de caisse restait vide, et le script de déploiement le disait
+    // (« la caisse resterait vide ») sans que personne ne voie pourquoi.
+    // La branche ON CONFLICT, elle, la posait déjà : seul le PREMIER import
+    // était touché, c'est-à-dire le seul qui compte.
     L.push(`INSERT INTO budget_expenses (id, school_id, budget_id, budget_chapter_id, budget_period_id, school_unit_id,`);
-    L.push(`  amount, receipt, status, expense_date, notes, created_by, source_file, source_row, import_batch, source_balance, source_balance_raw)`);
+    L.push(`  amount, receipt, status, expense_date, notes, created_by, source_file, source_row, import_batch, source_balance, source_balance_raw, updated_at)`);
     L.push('VALUES');
     L.push(depenses.map((d) => `  (${q(d.id)}, ${q(d.school_id)}, ${q(d.budget_id)}, NULL, ${q(d.budget_period_id)},`
       + ` ${q(d.school_unit_id)}, ${q(d.amount)}, ${q(d.receipt)}, 'paid', ${q(d.expense_date)}, ${q(d.notes)},`
       + ` ${q(d.created_by)}, ${q(d.source_file)}, ${q(d.source_row)}, ${q(d.import_batch)},`
-      + ` ${q(d.source_balance)}, ${q(d.source_balance_raw)})`).join(',\n'));
+      + ` ${q(d.source_balance)}, ${q(d.source_balance_raw)}, now())`).join(',\n'));
     L.push(`ON CONFLICT (id) DO UPDATE SET amount = EXCLUDED.amount, expense_date = EXCLUDED.expense_date,`);
     L.push(`  notes = EXCLUDED.notes, receipt = EXCLUDED.receipt, school_unit_id = EXCLUDED.school_unit_id,`);
     L.push(`  budget_period_id = EXCLUDED.budget_period_id, source_balance = EXCLUDED.source_balance,`);
@@ -342,12 +355,14 @@ if (SQL_OUT) {
   L.push('');
   L.push(`-- ${mouvements.length} mouvement(s) de caisse (dont ${mouvements.filter((m) => m.kind === 'report').length} report(s)).`);
   if (mouvements.length) {
+    // `updated_at` dans la liste des colonnes, même raison qu'au-dessus : sans
+    // elle, le mouvement ne descend jamais vers le serveur de l'école.
     L.push(`INSERT INTO cash_movements (id, school_id, school_unit_id, academic_year, date, kind, amount, label,`);
-    L.push(`  reference, source_balance, source_balance_raw, notes, source_file, source_row, import_batch, created_by)`);
+    L.push(`  reference, source_balance, source_balance_raw, notes, source_file, source_row, import_batch, created_by, updated_at)`);
     L.push('VALUES');
     L.push(mouvements.map((m) => `  (${q(m.id)}, ${q(m.school_id)}, ${q(m.school_unit_id)}, ${q(m.academic_year)},`
       + ` ${q(m.date)}, ${q(m.kind)}, ${q(m.amount)}, ${q(m.label)}, ${q(m.reference)}, ${q(m.source_balance)}, ${q(m.source_balance_raw)},`
-      + ` ${q(m.notes)}, ${q(m.source_file)}, ${q(m.source_row)}, ${q(m.import_batch)}, ${q(m.created_by)})`).join(',\n'));
+      + ` ${q(m.notes)}, ${q(m.source_file)}, ${q(m.source_row)}, ${q(m.import_batch)}, ${q(m.created_by)}, now())`).join(',\n'));
     L.push(`ON CONFLICT (id) DO UPDATE SET amount = EXCLUDED.amount, date = EXCLUDED.date, kind = EXCLUDED.kind,`);
     L.push(`  label = EXCLUDED.label, reference = EXCLUDED.reference, school_unit_id = EXCLUDED.school_unit_id,`);
     L.push(`  source_balance = EXCLUDED.source_balance, source_balance_raw = EXCLUDED.source_balance_raw, updated_at = now();`);

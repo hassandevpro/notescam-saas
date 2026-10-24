@@ -4,7 +4,7 @@
 // (cohérence d'imputation, chaîne, permissions, plafond). Objectif analytique par
 // ligne : annuel → période → secteur → alloué / engagé / payé / disponible.
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useAuthStore } from '../store/authStore';
 import { useT } from '../lib/i18n';
@@ -80,6 +80,7 @@ export default function Expenses() {
   const [linePeriods, setLinePeriods] = useState([]);
   const [lineSectors, setLineSectors] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [unimputed, setUnimputed] = useState([]);   // dépenses SANS ligne budgétaire
   const [requests, setRequests] = useState([]);
   const [lineId, setLineId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -104,11 +105,15 @@ export default function Expenses() {
     const an = (b || []).find((x) => x.tier === 'annual') || null;
     setAnnual(an); setChapters(ch || []); setPeriods(pd || []); setUnits(un || []);
     setLinePeriods(lp || []); setLineSectors(ls || []);
+    // La liste ci-dessous est filtrée PAR LIGNE, et seul le budget annuel de l'année
+    // courante est lu : une dépense de reprise de cahier de caisse (aucune ligne, budget
+    // hors hiérarchie) n'y apparaîtrait JAMAIS, et l'écran resterait vide en laissant
+    // croire à une perte. On lit donc TOUTES les dépenses de l'école pour les annoncer.
+    const all = (await fetchExpenses(schoolId)) || [];
+    setUnimputed(all.filter((e) => !e.budget_chapter_id));
     if (an) {
-      const [ex, rq] = await Promise.all([
-        fetchExpenses(schoolId, { budgetId: an.id }), fetchUnlockRequests(schoolId, { budgetId: an.id }),
-      ]);
-      setExpenses(ex || []); setRequests(rq || []);
+      setExpenses(all.filter((e) => e.budget_id === an.id));
+      setRequests((await fetchUnlockRequests(schoolId, { budgetId: an.id })) || []);
     } else { setExpenses([]); setRequests([]); }
     setLoading(false);
   }, [schoolId, year]);
@@ -139,6 +144,7 @@ export default function Expenses() {
 
   const lineExpenses = useMemo(() => expenses.filter((e) => e.budget_chapter_id === lineId), [expenses, lineId]);
   const lineRequests = useMemo(() => requests.filter((r) => r.budget_chapter_id === lineId), [requests, lineId]);
+  const unimputedTotal = useMemo(() => unimputed.reduce((n, e) => n + (Number(e.amount) || 0), 0), [unimputed]);
   const cons = useMemo(() => (line ? lineConsumption(line, { expenses: lineExpenses, requests: lineRequests }) : null), [line, lineExpenses, lineRequests]);
 
   // Cellules période / secteur (objectif analytique).
@@ -272,6 +278,44 @@ export default function Expenses() {
             )}
           </div>
         </div>
+
+        {/* Dépenses SANS ligne budgétaire. Une reprise de cahier de caisse n'invente
+            aucune imputation (`scripts/import-caisse-genius.mjs`) : activer une ligne
+            ne les fait pas apparaître, il faut leur en AFFECTER une. */}
+        {unimputed.length > 0 && (
+          <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900">
+            <div>
+              ⚠ <strong>{unimputed.length} {t('dépense(s) sans ligne budgétaire', 'expense(s) with no budget line', 'gasto(s) sin línea presupuestaria')}</strong> · <span className="tabular-nums font-semibold">{money(unimputedTotal)}</span> — {t(
+                'elles viennent d’une reprise de cahier de caisse, hors budget prévisionnel. La liste par ligne ci-dessous ne peut pas les montrer : activer une ligne n’y change rien, il faut leur en affecter une.',
+                'they come from a cash-book carry-over, outside the forecast budget. The per-line list below cannot show them: activating a line changes nothing, they must be assigned one.',
+                'provienen de un traspaso del libro de caja, fuera del presupuesto. La lista por línea no puede mostrarlos: hay que asignarles una línea.')}{' '}
+              <Link to="/app/caisse" className="font-semibold underline">{t('Voir la caisse', 'Open cash book', 'Ver la caja')}</Link>
+            </div>
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs font-semibold">{t('Voir le détail', 'Show details', 'Ver el detalle')}</summary>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-xs min-w-[520px]">
+                  <thead className="text-amber-700/80"><tr>
+                    <th className="text-left py-1 font-semibold">{t('Date', 'Date', 'Fecha')}</th>
+                    <th className="text-left py-1 font-semibold">{t('Objet', 'Object', 'Objeto')}</th>
+                    <th className="text-left py-1 font-semibold">{t('Secteur', 'Sector', 'Sector')}</th>
+                    <th className="text-right py-1 font-semibold">{t('Montant', 'Amount', 'Importe')}</th>
+                  </tr></thead>
+                  <tbody>
+                    {unimputed.map((e) => (
+                      <tr key={e.id} className="border-t border-amber-200/60">
+                        <td className="py-1 whitespace-nowrap">{e.expense_date || '—'}</td>
+                        <td className="py-1">{e.notes || catTxt(e.category) || t('Dépense', 'Expense', 'Gasto')}</td>
+                        <td className="py-1">{sectorLabelOf(e)}</td>
+                        <td className="py-1 text-right tabular-nums">{money(e.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </div>
+        )}
 
         {!annual ? (
           <Empty t={t} msg={t('Créez d’abord le budget annuel et activez des lignes.', 'Create the annual budget and activate lines first.', 'Cree el presupuesto anual primero.')} />

@@ -255,18 +255,49 @@ async function markFailed(item, err) {
   }
 }
 
-export async function flushSyncQueue() {
+// `ecoleCourante` = l'établissement de la session en cours. L'appelant le
+// connaît (App.jsx le tient de authStore) ; `flushSyncQueue` ne va pas le
+// chercher lui-même, pour rester sans dépendance au magasin d'authentification.
+// Absent ⇒ aucun filtrage, comportement d'avant à l'identique.
+export async function flushSyncQueue({ ecoleCourante = null } = {}) {
   await initDB();
   const all = await syncQueueDB.getAll();
+
+  // ── UNE ÉCRITURE D'UN AUTRE ÉTABLISSEMENT NE PEUT PAS PASSER ICI ─────────
+  //
+  // RELEVÉ LE 2026-10-24. Le responsable a vu « saisies bloquées · 2 élément(s)
+  // — new row violates row-level security policy » alors que la classe qu'il
+  // venait de créer était, elle, bien arrivée au serveur.
+  //
+  // La file est propre au NAVIGATEUR, pas à l'établissement. En changeant de
+  // compte — et les comptes de démonstration et d'école se succèdent sur le
+  // même poste — les écritures restées en file appartiennent encore à l'école
+  // PRÉCÉDENTE. La RLS les refuse, légitimement : la session en cours n'a aucun
+  // droit sur cette école. Elles étaient rejouées jusqu'à MAX_ATTEMPTS, puis
+  // comptées comme « refusées de façon répétée par le serveur » — ce qui fait
+  // craindre une perte de données là où il n'y a qu'un mauvais interlocuteur.
+  //
+  // On les MET DONC DE CÔTÉ, sans jamais les supprimer : elles repartiront
+  // d'elles-mêmes à la prochaine session sur leur école. C'est la règle
+  // cardinale de ce module, et elle n'est pas entamée.
+  const dAutreEcole = [];
+  const queue = all.filter((it) => {
+    if ((it.attempts || 0) >= MAX_ATTEMPTS) return false;
+    const sien = it?.payload?.school_id;
+    // Pas de `school_id` dans la charge : table globale (référentiel national,
+    // tombstone…) ou payload d'un autre format. On ne devine pas, on rejoue.
+    if (ecoleCourante && sien && sien !== ecoleCourante) { dAutreEcole.push(it); return false; }
+    return true;
+  });
 
   // Un élément que le serveur a refusé MAX_ATTEMPTS fois n'est plus rejoué — il
   // consommerait une requête toutes les 20 s sans jamais passer. Il n'est pour
   // autant ni déplacé ni supprimé : il reste en file, compté à part, et visible.
   // C'est ce comptage séparé qui remplace l'ancienne suppression par âge.
-  const queue = all.filter((it) => (it.attempts || 0) < MAX_ATTEMPTS);
-  const stalled = all.length - queue.length;
+  const stalled = all.length - queue.length - dAutreEcole.length;
+  const autreEcole = dAutreEcole.length;
 
-  if (!queue.length) return { synced: 0, failed: 0, total: 0, failedItems: [], stalled };
+  if (!queue.length) return { synced: 0, failed: 0, total: 0, failedItems: [], stalled, autreEcole };
 
   let synced = 0;
   let failed = 0;
@@ -317,7 +348,7 @@ export async function flushSyncQueue() {
     }
   }
 
-  return { synced, failed, total: queue.length, failedItems, stalled };
+  return { synced, failed, total: queue.length, failedItems, stalled, autreEcole };
 }
 
 // ── DURABILITÉ DES ÉCRITURES NON TRANSMISES ─────────────────────────────────

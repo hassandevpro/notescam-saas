@@ -208,12 +208,14 @@ export default function App() {
 
     useUiStore.getState().setSyncing();
     try {
-      const { failed, failedItems = [], stalled = 0 } = await flushSyncQueue();
+      const { failed, failedItems = [], stalled = 0, autreEcole = 0 } = await flushSyncQueue({ ecoleCourante: schoolId });
       // Un élément que le serveur refuse obstinément n'est plus rejoué, mais il
       // est TOUJOURS en file : annoncer « Synchronisé » serait un mensonge, et
       // c'est précisément ce genre de faux positif qui a laissé croire que des
       // notes étaient remontées. Il reste donc signalé jusqu'à son traitement.
-      if (failed === 0 && stalled === 0) {
+      // « Synchronisé » n’est vrai que si la file ne retient RIEN : ni échec, ni
+      // élément bloqué, ni écriture en attente de son établissement.
+      if (failed === 0 && stalled === 0 && autreEcole === 0) {
         useUiStore.getState().setSynced();
         setTimeout(() => useUiStore.getState().setIdle(), 3000);
         // PAS de rechargement complet ici. La file vient de POUSSER des lignes
@@ -230,7 +232,18 @@ export default function App() {
               error: 'Refusées de façon répétée par le serveur. Conservées sur ce poste — utilisez « Télécharger la preuve ».',
             }]
           : failedItems;
-        useUiStore.getState().setSyncError(failed + stalled, items);
+        // MISES DE CÔTÉ, PAS REFUSÉES. Elles appartiennent à un autre
+        // établissement (changement de compte sur ce poste) : les annoncer comme
+        // un refus du serveur fait croire à une perte, et c'est exactement ce
+        // qui a été remonté le 2026-10-24. Elles ne sont pas comptées dans le
+        // total d'erreurs : rien n'est en échec, rien n'est à ressaisir.
+        const avecAutres = autreEcole > 0
+          ? [...items, {
+              table: 'autre établissement', operation: `${autreEcole} écriture(s)`,
+              error: 'En attente de leur établissement d’origine : ce poste a changé de compte. Elles repartiront seules à la prochaine session sur cette école. Rien à ressaisir.',
+            }]
+          : items;
+        useUiStore.getState().setSyncError(failed + stalled + autreEcole, avecAutres);
       }
     } catch (err) {
       console.error('triggerSync', err);

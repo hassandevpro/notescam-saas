@@ -1310,3 +1310,67 @@ n'écrit rien, et les règles de la colonne unique (cellule vide ignorée, hors 
 `src/components/grades/_importExportPortee.test.mjs` (18 contrôles) fige le **câblage** des
 deux écrans, y compris que les deux vues (enseignant et administrateur) ont bien les deux
 boutons d'export.
+
+---
+
+## I24 — « Saisies bloquées » : des écritures d'un AUTRE établissement
+
+**Date** : 2026-10-24 · **Statut** : **corrigé dans le code (NON LIVRÉ en paquet)** ·
+**Source** : capture du bandeau de synchronisation, envoyée par le responsable
+
+```
+subjects · upsert    new row violates row-level security policy for table "subjects"
+classes · upsert     new row violates row-level security policy for table "classes"
+saisies bloquées · 2 élément(s)
+« Refusées de façon répétée par le serveur. »
+```
+
+### Ce que la base a dit, et qui a retourné le diagnostic
+
+Le responsable a précisé : **« la création de classe n'a pas été refusée »** — l'erreur est
+arrivée ensuite, dans le bandeau. Vérifié en base le même jour : la classe **est bien
+arrivée** (`Terminale C`, cycle secondaire, COLLÈGE LA RETRAITE, `updated_at`
+2026-10-24 09:51:58, **13 matières** avec elle), quelques secondes après la connexion de
+`admin@laretraite.demo`.
+
+Les deux éléments bloqués étaient donc **autre chose**. Et les droits l'ont confirmé : les
+trois comptes connectés dans les 36 h ont tous le droit d'écrire **chez eux** —
+`admin@laretraite.demo` (admin), `thegenuisnotescam@gmail.com` (admin),
+`directeur.bcbs@notescam.app` (censeur, `advanced_delegation` actif, `/app/classes` accordé).
+Un refus RLS signifie donc que **la ligne n'appartient pas à l'école de la session**.
+
+### La cause
+
+**La file de poussée est propre au NAVIGATEUR, pas à l'établissement.** Sur un poste où les
+comptes se succèdent — école de démonstration, école réelle, comptes de test (quatre
+sessions sur trois écoles en 48 h ici) — les écritures restées en file appartiennent encore
+à l'école **précédente**. La RLS les refuse, et elle a raison : la session en cours n'a aucun
+droit sur cette école.
+
+Elles étaient pourtant rejouées jusqu'à `MAX_ATTEMPTS`, puis annoncées comme **« refusées de
+façon répétée par le serveur »** — ce qui fait craindre une perte de données là où il n'y a
+qu'un **mauvais interlocuteur**, et pousse à ressaisir ailleurs.
+
+### La correction
+
+| | |
+|---|---|
+| `flushSyncQueue({ ecoleCourante })` | met **de côté** les écritures d'une autre école : elles ne sont ni rejouées, ni comptées en échec, ni **usées** (leur compteur de tentatives n'est pas entamé) |
+| App.jsx / Layout.jsx | passent l'école de la session ; sans elle, le comportement d'avant est inchangé (utile pour le LAN, qui n'a qu'une école) |
+| le bandeau | les nomme : « autre établissement · N écriture(s) — en attente de leur établissement d'origine, elles repartiront seules. **Rien à ressaisir.** » |
+| « Synchronisé » | n'est plus annoncé si la file retient quoi que ce soit : échec, élément bloqué **ou** écriture en attente de son école |
+
+**La règle cardinale du module reste entière : rien n'est supprimé.**
+
+En complément, le refus de RLS lui-même est désormais traduit : le bandeau ajoute une phrase
+qui dit que c'est un refus **de droits et non de contenu**, nomme les deux causes possibles
+(compte non administrateur de cette école, ou classe hors de son périmètre secteur/cycle) et
+rappelle de ne pas ressaisir. Le message brut de Postgres reste affiché au-dessus : c'est
+celui qu'on demande en capture.
+
+### Preuve
+
+`src/lib/_syncAutreEcole.test.mjs` (11 contrôles) : seules les écritures de l'école en cours
+atteignent le serveur, celle de l'autre école **reste en file avec zéro tentative**, elle
+repart d'elle-même quand sa session revient, une charge **sans** `school_id` (référentiel
+national, tombstone) est toujours rejouée, et sans `ecoleCourante` **rien ne change**.

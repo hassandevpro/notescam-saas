@@ -74,7 +74,7 @@ jobs:
             node packaging/license/keygen.mjs
           fi
 
-      - name: Tests colocalises (203)
+      - name: Tests colocalises (204)
         run: npm test
 
       # keygen a REECRIT `server/license-pubkey.txt`, qui est versionnee et

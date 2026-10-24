@@ -69,7 +69,11 @@ function SyncIndicator() {
     // On essaie DIRECTEMENT. L'appel à `pruneExpiredItems()` qui se trouvait ici
     // supprimait les éléments de plus de 48 h avant la tentative : demander
     // « Réessayer » pouvait donc faire disparaître ce qu'on voulait renvoyer.
-    const { failed, failedItems = [], stalled = 0 } = await flushSyncQueue();
+    // L'école de la SESSION : une écriture restée en file pour une AUTRE école
+    // ne peut pas passer ici (la RLS la refuse), et la rejouer ne ferait que
+    // l'user en « refus répété ». Elle est mise de côté, pas perdue.
+    const ecoleCourante = useAuthStore.getState().school?.id || null;
+    const { failed, failedItems = [], stalled = 0 } = await flushSyncQueue({ ecoleCourante });
     setRetrying(false);
     // `stalled` compte les saisies encore en file mais plus rejouées : elles ne
     // doivent pas être absorbées par un « Synchronisé » rassurant.

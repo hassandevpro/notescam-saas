@@ -174,6 +174,41 @@ export async function upsertLigne(kind, record) {
 // des autres établissements est hors d'atteinte.
 
 /**
+ * CHANGER LE COEFFICIENT D'UNE MATIÈRE MAISON, POUR UNE CLASSE.
+ *
+ * Le premier cycle ne lit pas `subjects.coef` : le coefficient qui compte est
+ * celui de `apc_classe_matieres` (puis, à défaut, celui de `apc_matieres`) —
+ * cf. `coefFor`, core/apcEngine. Corriger le coefficient dans « Modifier la
+ * classe » ne touchait donc que `subjects`, et le bulletin gardait 1. C'est la
+ * seconde moitié du défaut signalé le 2026-10-24.
+ *
+ * N'écrit QUE des lignes de l'école : `school_id` est dans le WHERE, et la RLS
+ * refuserait de toute façon une ligne nationale.
+ */
+export async function majCoefMatiereMaisonApc({ schoolId, matiereId, classeId, coef }) {
+  const valeur = Number(coef);
+  if (!schoolId || !matiereId || !classeId || !(valeur > 0)) return { error: 'parametres' };
+
+  // La ligne (classe, matière) porte le coefficient DE CETTE CLASSE : c'est
+  // celle que le bulletin lit en premier. On met à jour, on ne crée pas — si
+  // elle manquait, la matière ne serait pas saisissable du tout, et c'est le
+  // rattachement (`rattacherMatiereAuNiveau`) qui doit la poser.
+  const cm = await supabase.from('apc_classe_matieres')
+    .update({ coefficient: valeur })
+    .eq('classe_id', classeId).eq('matiere_id', matiereId).eq('school_id', schoolId);
+  if (cm.error) { console.error('majCoefMatiereMaisonApc classe', cm.error); return { error: 'classe_matiere' }; }
+
+  // Et le coefficient GLOBAL de la matière maison : il sert de repli dans les
+  // autres classes qui la cochent sans coefficient propre.
+  const m = await supabase.from('apc_matieres')
+    .update({ coefficient: valeur })
+    .eq('id', matiereId).eq('school_id', schoolId);
+  if (m.error) { console.error('majCoefMatiereMaisonApc matiere', m.error); return { error: 'matiere' }; }
+
+  return { data: valeur };
+}
+
+/**
  * Crée une matière propre à l'école, rattachée à une classe du référentiel.
  *
  * @param schoolId   école propriétaire

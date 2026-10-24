@@ -2,24 +2,34 @@ import { useState, useRef } from 'react';
 import { useT } from '../../lib/i18n';
 import { parseGradesSheet, EXCEL_ACCEPT } from '../../lib/exportCsv';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
-import { lignesPourMatiere, matieresDuClasseur } from '../../core/importUneMatiere';
+import { lignesPourMatieres, matieresDuClasseur } from '../../core/importUneMatiere';
 
 // ── Panneau d'import Excel ────────────────────────────────────────────────────
 // Partagé par l'écran « enseignant principal » (Grades) et le poste
 // « enseignant de matière » (SubjectTeacherWorkspace). En mode matière, on lui
 // passe uniquement les matières de l'enseignant → seules celles-ci sont importées.
 //
-// ── UNE MATIÈRE À LA FOIS ───────────────────────────────────────────────────
-// Consigne du responsable, 2026-10-23. Le classeur porte une colonne par
-// matière de la classe ; cet écran les prenait TOUTES. Un enseignant qui
-// réimportait son fichier réécrivait donc les colonnes de ses collègues avec
-// l'état qu'elles avaient au moment de l'EXPORT. La matière est maintenant
-// CHOISIE, et c'est la seule colonne lue. La règle est pure et vérifiée seule :
+// ── LE PÉRIMÈTRE EST CHOISI : TOUTES LES MATIÈRES, OU UNE SEULE ────────────
+//
+// Consigne du 2026-10-23 : « il faut que l'import de note se fasse une matière
+// à la fois ». Puis, le 2026-10-24 : « on doit être capable d'importer soit
+// toutes les notes de toutes les matières, soit une seule matière ».
+//
+// Le classeur porte une colonne par matière de la classe, et cet écran les
+// prenait toutes SANS LE DIRE : un enseignant qui réimportait son fichier
+// réécrivait les colonnes de ses collègues avec l'état qu'elles avaient au
+// moment de l'EXPORT — périmé dès qu'un collègue avait saisi entre-temps.
+//
+// Les deux usages sont légitimes ; ce qui ne l'est pas, c'est d'écrire toutes
+// les colonnes sans l'avoir demandé. Le périmètre est donc EXPLICITE, et rien
+// n'est écrit avant qu'il soit choisi. La règle est pure et vérifiée seule :
 // core/importUneMatiere.js.
 export default function GradeImportPanel({ classStudents, classSubjects, classId, sequence, sys, saveGrade, onClose }) {
   const t = useT();
   const [preview,   setPreview]   = useState(null);
-  const [matiereId, setMatiereId] = useState('');
+  // '' = rien choisi · 'toutes' = toutes les matières du classeur · sinon l'id
+  // de la matière unique.
+  const [portee,    setPortee]    = useState('');
   const [importing, setImporting] = useState(false);
   const [done,      setDone]      = useState(null);
   const fileRef                   = useRef(null);
@@ -29,31 +39,40 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
     const lu = await parseGradesSheet(file);
     setPreview(lu);
     setDone(null);
-    // Le classeur ne porte qu'une matière de cette classe : la choisir pour
-    // l'enseignant est sans ambiguïté. Au-delà, c'est à lui de dire laquelle.
+    // Le classeur ne porte qu'une matière de cette classe : la choisir est sans
+    // ambiguïté. Au-delà, c'est à l'enseignant de dire ce qu'il importe.
     const trouvees = lu && !lu.error ? matieresDuClasseur(lu.subjectNames, classSubjects) : [];
-    setMatiereId(trouvees.length === 1 ? trouvees[0].id : '');
+    setPortee(trouvees.length === 1 ? trouvees[0].id : '');
   };
 
   const matieresDuFichier = preview && !preview.error
     ? matieresDuClasseur(preview.subjectNames, classSubjects)
     : [];
-  const matiere = matieresDuFichier.find((m) => m.id === matiereId) || null;
+  const toutes  = portee === 'toutes';
+  const matiere = matieresDuFichier.find((m) => m.id === portee) || null;
+  // Le périmètre réel de l'écriture, et la seule chose que la règle pure lit.
+  const matieresVisees = toutes ? matieresDuFichier : (matiere ? [matiere] : []);
+  const libellePortee = toutes
+    ? t('toutes les matières', 'all subjects')
+    : (matiere?.name || '');
 
   // Hors barème : refusée. CELLULE VIDE : on ne touche à rien — c'est la
   // moitié du piège fermée en 0.3.19 (`validateGrade('')` rend `''`, pas
   // `null`, et `saveGrade` fusionnait ces vides, EFFAÇANT les notes des
   // collègues). Le choix de la matière ferme l'autre moitié : une cellule
   // pleine mais périmée dans une colonne voisine n'est plus lue du tout.
-  const resolved  = lignesPourMatiere({
+  const resolved  = lignesPourMatieres({
     lignes: preview && !preview.error ? preview.rows : [],
     eleves: classStudents,
-    matiere,
+    matieres: matieresVisees,
     valider: validateGrade,
   });
   const matched   = resolved.filter((r) => r.student);
   const unmatched = resolved.filter((r) => !r.student);
   const aEcrire   = matched.filter((r) => Object.keys(r.gradeEntries).length > 0);
+  // Nombre de NOTES, et non de lignes : avec « toutes les matières », une seule
+  // ligne d'élève en porte plusieurs. Le bouton doit annoncer ce qui sera écrit.
+  const nbNotes   = aEcrire.reduce((n, r) => n + Object.keys(r.gradeEntries).length, 0);
 
   const handleImport = async () => {
     setImporting(true);
@@ -67,13 +86,13 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
     }
     setImporting(false);
     setDone({
-      imported, locked, matiere: matiere?.name || '',
+      imported, locked, matiere: libellePortee, notes: nbNotes,
       skipped: matched.length - imported - locked + unmatched.length,
     });
   };
 
   const resetFile = () => {
-    setPreview(null); setDone(null); setMatiereId('');
+    setPreview(null); setDone(null); setPortee('');
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -117,44 +136,61 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
           ) : (
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('Matière à importer', 'Subject to import')}
+                {t('Ce que l’on importe', 'What to import')}
               </label>
               <select
-                value={matiereId}
-                onChange={(e) => setMatiereId(e.target.value)}
+                value={portee}
+                onChange={(e) => setPortee(e.target.value)}
                 className="w-full md:w-80 rounded-lg border border-gray-200 px-3 py-2 text-sm">
-                <option value="">{t('— Choisir la matière —', '— Choose the subject —')}</option>
+                <option value="">{t('— Choisir —', '— Choose —')}</option>
+                {/* Les deux usages légitimes, nommés tels quels : le titulaire
+                    remonte sa classe entière, l'enseignant sa seule matière. */}
+                {matieresDuFichier.length > 1 && (
+                  <option value="toutes">
+                    {t('Toutes les matières du classeur', 'All subjects in the workbook')} ({matieresDuFichier.length})
+                  </option>
+                )}
                 {matieresDuFichier.map((m) => (
                   <option key={m.id} value={m.id}>{m.name}</option>
                 ))}
               </select>
               <p className="text-xs text-gray-500 mt-1">
-                {t('Une matière à la fois : seules les notes de la matière choisie sont enregistrées. Les autres colonnes du classeur sont ignorées, même si elles portent des notes.',
-                  'One subject at a time: only the chosen subject’s marks are saved. The workbook’s other columns are ignored, even if they hold marks.')}
+                {toutes
+                  ? t('Toutes les colonnes reconnues seront écrites. Si une colonne a été exportée avant qu’un collègue ne saisisse, elle écrasera sa note : préférez sa matière seule en cas de doute.',
+                    'Every recognised column will be written. If a column was exported before a colleague entered marks, it will overwrite them: when in doubt, import their subject alone.')
+                  : t('Une seule matière : les autres colonnes du classeur sont ignorées, même si elles portent des notes.',
+                    'A single subject: the workbook’s other columns are ignored, even if they hold marks.')}
               </p>
             </div>
           )}
 
-          {matiere && matched.length > 0 && (
+          {/* L'aperçu montre EXACTEMENT les colonnes qui seront écrites : une,
+              ou toutes celles du périmètre. Ce qui n'y figure pas ne sera pas
+              touché. */}
+          {matieresVisees.length > 0 && matched.length > 0 && (
             <div className="overflow-x-auto mb-4 rounded-lg border border-gray-100">
               <table className="text-sm w-full border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="text-left px-4 py-2 font-semibold text-gray-600">{t('Élève', 'Student')}</th>
-                    <th className="text-center px-2 py-2 font-semibold text-gray-600 text-xs">
-                      {matiere.name}{matiere.max ? ` /${matiere.max}` : ''}
-                    </th>
+                    {matieresVisees.map((m) => (
+                      <th key={m.id} className="text-center px-2 py-2 font-semibold text-gray-600 text-xs">
+                        {m.name}{m.max ? ` /${m.max}` : ''}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {matched.map(({ student, gradeEntries }, i) => (
                     <tr key={i} className="hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium text-gray-900 text-sm">{student.name}</td>
-                      <td className="text-center px-2 py-2 text-sm">
-                        {gradeEntries[matiere.id] !== undefined
-                          ? <span className={gradeColor(gradeEntries[matiere.id], matiere.max, sys)}>{gradeEntries[matiere.id]}</span>
-                          : <span className="text-gray-300">—</span>}
-                      </td>
+                      {matieresVisees.map((m) => (
+                        <td key={m.id} className="text-center px-2 py-2 text-sm">
+                          {gradeEntries[m.id] !== undefined
+                            ? <span className={gradeColor(gradeEntries[m.id], m.max, sys)}>{gradeEntries[m.id]}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -169,15 +205,15 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
           )}
 
           <div className="flex gap-3 flex-wrap">
-            {/* Le bouton annonce CE QUI SERA ÉCRIT : le nombre de notes de la
-                matière choisie, pas le nombre d'élèves reconnus. Un classeur
-                dont la colonne est vide ne doit pas promettre un import. */}
-            <button onClick={handleImport} disabled={importing || !matiere || aEcrire.length === 0} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
+            {/* Le bouton annonce CE QUI SERA ÉCRIT : le nombre de NOTES du
+                périmètre, pas le nombre d'élèves reconnus. Un classeur dont les
+                colonnes sont vides ne doit pas promettre un import. */}
+            <button onClick={handleImport} disabled={importing || !matieresVisees.length || nbNotes === 0} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
               {importing
                 ? t('Importation…', 'Importing…')
-                : !matiere
-                  ? t('Choisissez la matière', 'Choose the subject')
-                  : `${t('Importer', 'Import')} ${aEcrire.length} ${aEcrire.length > 1 ? t('notes', 'marks') : t('note', 'mark')} — ${matiere.name}`}
+                : !matieresVisees.length
+                  ? t('Choisissez ce que vous importez', 'Choose what to import')
+                  : `${t('Importer', 'Import')} ${nbNotes} ${nbNotes > 1 ? t('notes', 'marks') : t('note', 'mark')} — ${libellePortee}`}
             </button>
             <button onClick={resetFile} className="btn-secondary">{t('Changer de fichier', 'Change file')}</button>
             <input ref={fileRef} type="file" accept={EXCEL_ACCEPT} className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
@@ -189,12 +225,12 @@ export default function GradeImportPanel({ classStudents, classSubjects, classId
         <div className="flex flex-col items-center py-6 gap-3 text-center">
           <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 text-2xl font-bold">✓</div>
           <p className="text-lg font-semibold text-gray-900">
-            {done.imported} {done.imported > 1 ? t('notes importées', 'marks imported') : t('note importée', 'mark imported')}
+            {done.notes ?? done.imported} {(done.notes ?? done.imported) > 1 ? t('notes importées', 'marks imported') : t('note importée', 'mark imported')}
             {done.matiere ? ` — ${done.matiere}` : ''}
           </p>
           <p className="text-xs text-gray-400">
-            {t('Seule cette matière a été écrite. Pour une autre matière, relancez l’import et choisissez-la.',
-              'Only this subject was written. For another subject, run the import again and choose it.')}
+            {t('Seul ce périmètre a été écrit. Pour une autre matière, relancez l’import et choisissez-la.',
+              'Only this scope was written. For another subject, run the import again and choose it.')}
           </p>
           {done.skipped > 0 && <p className="text-sm text-gray-400">{done.skipped} {t('ligne(s) ignorée(s)', 'row(s) skipped')}</p>}
           {done.locked > 0 && <p className="text-sm font-medium text-amber-600">🔒 {done.locked} {t('note(s) refusée(s) : séquence verrouillée', 'grade(s) refused: sequence locked', 'nota(s) rechazada(s): secuencia bloqueada')}</p>}

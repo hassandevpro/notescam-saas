@@ -1006,7 +1006,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     if (e.key !== 'Enter') return;
                     e.preventDefault();
                     if (!customSubject.name.trim()) return;
-                    materialiserMatiereOfficielle(cls, customSubject.name.trim());
+                    materialiserMatiereOfficielle(cls, customSubject.name.trim(), Number(customSubject.coef) || 1);
                     addSubject({
                       name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1,
                       max: baremeDeLaMatiere(customSubject.name, customSubject.cote),
@@ -1065,7 +1065,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                   disabled={!customSubject.name.trim()}
                   onClick={() => {
                     if (!customSubject.name.trim()) return;
-                    materialiserMatiereOfficielle(cls, customSubject.name.trim());
+                    materialiserMatiereOfficielle(cls, customSubject.name.trim(), Number(customSubject.coef) || 1);
                     addSubject({
                       name: customSubject.name.trim(), coef: Number(customSubject.coef) || 1,
                       max: baremeDeLaMatiere(customSubject.name, customSubject.cote),

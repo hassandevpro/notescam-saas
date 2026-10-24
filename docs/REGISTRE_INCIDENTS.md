@@ -1213,3 +1213,100 @@ descendront (60 dépenses, 10 écritures de caisse). **Prévenir l'école avant.
 Et, hors de ce défaut : leur **file de poussée est engorgée** — 2 841 584 entrées pour
 5 418 pointeurs utiles, relevé par le script lui-même, qui renvoie à
 `dedoublonner-file-poussee.sh`. À traiter séparément.
+
+---
+
+## I22 — Le coefficient d'une matière de premier cycle retombait à 1
+
+**Date** : 2026-10-24 · **Statut** : **corrigé dans le code (NON LIVRÉ en paquet)** ·
+**Source** : signalement du responsable
+
+> « corrige le défaut de coef du premier cycle : lorsqu'on crée une matière et qu'on ajoute
+> le coef, ça revient à 1 automatiquement, même quand on choisit un coef plus élevé »
+
+### La cause : deux coefficients, et l'écran remplissait le mauvais
+
+Le premier cycle ne lit **pas** `subjects.coef`. `coefFor` (`core/apcEngine`) lit, dans cet
+ordre :
+
+```
+apc_classe_matieres.coefficient   →   apc_matieres.coefficient   →   1
+```
+
+Or `materialiserMatiereOfficielle` — l'action qui pose la ligne de référentiel quand l'école
+crée une matière — **ne prenait pas de coefficient** : `addMatiereMaisonApc` retombait sur
+son défaut `coef = 1`. Le chiffre saisi par l'école n'allait que dans `subjects.coef`, que
+le bulletin du premier cycle ignore. L'école voyait donc son 3 ou son 4 revenir à 1, sans
+que rien n'explique pourquoi — et le corriger ensuite dans « Modifier la classe » ne
+changeait rien non plus, pour la même raison.
+
+### La correction, en deux moitiés
+
+| | |
+|---|---|
+| **à la création** | `materialiserMatiereOfficielle(cls, nom, coef)` transmet le coefficient saisi (assaini : `> 0`, sinon 1 — jamais 0, qui sortirait la matière de la moyenne) |
+| **après coup** | `updateSubject` propage tout changement de coefficient au référentiel, via la nouvelle `majCoefMatiereApc` → `majCoefMatiereMaisonApc` |
+
+Sans la seconde moitié, la première se perdait au premier ajustement.
+
+**Ce qu'on n'écrit pas.** Une matière **nationale** : sa ligne `apc_classe_matieres`
+appartient au référentiel MINESEC (`school_id` NULL), la RLS la protège, et sa clé primaire
+`(classe_id, matiere_id)` interdit une seconde ligne propre à l'école. Le coefficient
+national est celui du ministère. L'action rend `{ error: 'nationale' }` et **l'écran le
+dit** — au lieu d'accepter en silence un chiffre sans effet, ce qui ramènerait exactement le
+même signalement dans quinze jours.
+
+### Preuve
+
+`src/lib/_matiereMaisonApc.test.mjs` (53 contrôles) : le coefficient arrive sur les **deux**
+lignes, le défaut reste 1 quand rien n'est demandé, la mise à jour ne touche que les lignes
+de l'école (`school_id` dans le WHERE), un coefficient absurde (`0`, `-2`, `''`, `null`,
+`'quatre'`) est refusé **sans aucune écriture**, et un refus de la base remonte.
+`src/store/_coefPremierCycle.test.mjs` (17 contrôles, **13 échecs sur le code d'avant**)
+fige le **câblage** : les deux chemins de création passent le coefficient, `updateSubject`
+le propage, et `coefFor` ne lit toujours pas `subjects`.
+
+---
+
+## I23 — Import/export du secondaire : toute la classe, ou une seule matière
+
+**Date** : 2026-10-24 · **Statut** : **corrigé dans le code (NON LIVRÉ en paquet)** ·
+**Source** : consigne du responsable
+
+> « dans l'écran de note du secondaire, mets les import et export de la même façon que celui
+> du premier cycle, afin que ça exporte ou importe la note d'une matière aussi — donc on
+> doit être capable d'importer soit toutes les notes de toutes les matières, soit une seule
+> matière »
+
+Le premier cycle travaille matière par matière depuis toujours : sa barre
+« Exporter / Importer » est portée par la matière affichée (`CompetenceGradeIO`). Le
+secondaire, lui, ne savait exporter que **la classe entière** — un enseignant qui voulait
+remonter sa matière recevait les colonnes de tous ses collègues, et c'est ce classeur-là
+qu'il réimportait. C'est la cause matérielle de **I20**.
+
+### Ce qui change
+
+**L'export** a deux portées : « Exporter tout » (inchangé, avec sa colonne Moyenne) et
+« Exporter — *matière affichée* ». Une matière seule sort **sans** colonne Moyenne : elle
+vaudrait la note elle-même, et reviendrait à l'import comme une colonne à deviner. Le nom de
+fichier porte la matière, assaini (un intitulé peut contenir `/`, que Windows refuse).
+
+**L'import** demande son **périmètre** : « Toutes les matières du classeur » (proposé
+seulement s'il en porte plus d'une) ou une matière. Rien n'est écrit avant ce choix. Le
+bouton annonce un nombre de **notes** — en mode « toutes », une ligne d'élève en porte
+plusieurs — et l'aperçu montre **exactement** les colonnes qui seront écrites.
+
+En mode « toutes », l'écran prévient de ce que cela implique : une colonne exportée avant
+qu'un collègue ne saisisse écrasera sa note ; en cas de doute, importer sa matière seule.
+C'est le compromis que la consigne demande — les deux usages sont légitimes, ce qui ne l'est
+pas, c'est d'écrire toutes les colonnes **sans l'avoir demandé**.
+
+### Preuve
+
+`src/core/_importUneMatiere.test.mjs` (27 contrôles) : le périmètre « toutes » écrit chaque
+note dans **sa** matière, un périmètre partiel ne touche que les siennes, un périmètre vide
+n'écrit rien, et les règles de la colonne unique (cellule vide ignorée, hors barème refusé,
+`ABS`, virgule décimale) valent colonne par colonne.
+`src/components/grades/_importExportPortee.test.mjs` (18 contrôles) fige le **câblage** des
+deux écrans, y compris que les deux vues (enseignant et administrateur) ont bien les deux
+boutons d'export.

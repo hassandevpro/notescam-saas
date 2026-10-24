@@ -36,6 +36,22 @@ const STUBS = {
             return { data: toutes.filter((r) => r[colonne] === valeur), error: null };
           },
         }),
+        // UPDATE … .eq() … .eq() : chaine filtrante ET « thenable », comme
+        // supabase-js. Ajoutee pour majCoefMatiereMaisonApc, qui MET A JOUR une
+        // ligne existante au lieu d'en ecrire une nouvelle — c'est la seule
+        // facon de ne toucher QUE la ligne de l'ecole.
+        update: (patch) => {
+          const filtres = {};
+          const chaine = {
+            eq(colonne, valeur) { filtres[colonne] = valeur; return chaine; },
+            then(resolve) {
+              if (globalThis.__refus[table]) return resolve({ error: { message: 'refus ' + table } });
+              globalThis.__ecrits.push({ table, action: 'update', rows: [patch], filtres });
+              return resolve({ error: null });
+            },
+          };
+          return chaine;
+        },
       }),
     };`,
 };

@@ -17,7 +17,7 @@
 // barème, un élève absent de la classe.
 //
 //   node src/core/_importUneMatiere.test.mjs
-import { lignesPourMatiere, matieresDuClasseur } from './importUneMatiere.js';
+import { lignesPourMatiere, lignesPourMatieres, matieresDuClasseur } from './importUneMatiere.js';
 
 let pass = 0, fail = 0;
 const ok = (c, label, got) => {
@@ -138,6 +138,44 @@ titre('Sans matière choisie, l’import n’écrit RIEN');
 {
   ok(lignesPourMatiere({ lignes: LIGNES, eleves: ELEVES, matiere: null, valider }).length === 0,
     'aucune ligne tant que la matière n’est pas choisie');
+  ok(lignesPourMatieres({ lignes: LIGNES, eleves: ELEVES, matieres: [], valider }).length === 0,
+    'un périmètre vide n’écrit rien non plus');
+}
+
+// ── « TOUTES LES MATIÈRES » — consigne du 2026-10-24 ───────────────────────
+// « on doit être capable d'importer soit toutes les notes de toutes les
+// matières, soit une seule matière ». Les deux usages sont légitimes ; ce qui
+// ne l'est pas, c'est d'écrire toutes les colonnes SANS l'avoir demandé.
+titre('Le périmètre « toutes les matières » écrit toutes les colonnes demandées');
+{
+  const r = lignesPourMatieres({ lignes: LIGNES, eleves: ELEVES, matieres: CLASSE, valider });
+  const marie = r.find((l) => l.student?.id === 'e1');
+  ok(Object.keys(marie.gradeEntries).sort().join(',') === 'm1,m2,m3',
+    'les trois notes de la ligne sont écrites', marie.gradeEntries);
+  ok(marie.gradeEntries.m1 === '14' && marie.gradeEntries.m2 === '11' && marie.gradeEntries.m3 === '16',
+    'chacune dans SA matière — aucune ne glisse dans la voisine', marie.gradeEntries);
+
+  // Les règles de la colonne unique valent encore, colonne par colonne.
+  const paul = r.find((l) => l.student?.id === 'e2');
+  ok(paul.gradeEntries.m3 === undefined, 'une cellule vide reste ignorée, même en mode « toutes »', paul.gradeEntries);
+  ok(paul.gradeEntries.m1 === '8.5', 'la virgule décimale est normalisée partout', paul.gradeEntries);
+
+  const sarah = r.find((l) => l.student?.id === 'e3');
+  ok(sarah.gradeEntries.m1 === undefined && sarah.gradeEntries.m2 === '9',
+    'une ligne peut être vide pour une matière et pleine pour une autre', sarah.gradeEntries);
+
+  // Le compte que le bouton annonce : des NOTES, pas des lignes.
+  const nbNotes = r.filter((l) => l.student).reduce((n, l) => n + Object.keys(l.gradeEntries).length, 0);
+  ok(nbNotes === 7, 'sept notes à écrire sur les trois élèves reconnus', nbNotes);
+}
+
+titre('Un périmètre partiel ne touche QUE ses matières');
+{
+  // Le cas du titulaire qui remonte deux matières sur trois.
+  const r = lignesPourMatieres({ lignes: LIGNES, eleves: ELEVES, matieres: [MATHS, EPS], valider });
+  const toutes = r.flatMap((l) => Object.keys(l.gradeEntries));
+  ok(!toutes.includes('m2'), 'Français n’est pas écrit', [...new Set(toutes)]);
+  ok(toutes.includes('m1') && toutes.includes('m3'), 'Mathématiques et EPS le sont');
 }
 
 console.log(`\n${pass} réussis, ${fail} échoués`);

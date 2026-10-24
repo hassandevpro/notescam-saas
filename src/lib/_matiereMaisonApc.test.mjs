@@ -12,7 +12,7 @@
 //
 // Lancer :
 //   node --experimental-loader ./src/lib/_matiereMaisonApc.hooks.mjs src/lib/_matiereMaisonApc.test.mjs
-import { addMatiereMaisonApc } from './referentielEcole.js';
+import { addMatiereMaisonApc, majCoefMatiereMaisonApc } from './referentielEcole.js';
 
 let pass = 0, fail = 0;
 const ok = (c, label, got) => {
@@ -187,6 +187,87 @@ titre('une lecture impossible ne doit RIEN ecrire');
   globalThis.__refusLecture = {};
   ok(r.error === 'lecture', 'la lecture refusee est signalee', r.error);
   ok(globalThis.__ecrits.length === 0, 'et aucune ecriture n a eu lieu', globalThis.__ecrits.length);
+}
+
+// ── LE COEFFICIENT CHOISI PAR L'ÉCOLE DOIT ARRIVER AU RÉFÉRENTIEL ──────────
+//
+// Signalé le 2026-10-24 : « quand on crée une matière et qu'on ajoute le coef,
+// ça revient à 1 automatiquement, même quand on choisit un coef plus élevé ».
+//
+// Le premier cycle ne lit PAS `subjects.coef` : `coefFor` (core/apcEngine) lit
+// `apc_classe_matieres.coefficient`, puis `apc_matieres.coefficient`, puis 1.
+// Un coefficient qui n'atteint pas ces deux lignes est donc décoratif.
+titre('le coefficient saisi arrive jusqu au referentiel');
+{
+  globalThis.__ecrits = []; globalThis.__refus = {}; globalThis.__existant = {};
+  const r = await addMatiereMaisonApc({
+    schoolId: 'ecole-1', nom: 'Informatique Pratique', classeId: '6e',
+    trimestres: ['t1'], versionId: 'v1', coef: 4,
+  });
+  ok(!r.error, 'la creation aboutit', r.error);
+  const mat = globalThis.__ecrits[0].rows[0];
+  const rat = globalThis.__ecrits[1].rows[0];
+  ok(Number(mat.coefficient) === 4, 'apc_matieres porte le coefficient 4', mat.coefficient);
+  ok(Number(rat.coefficient) === 4, 'apc_classe_matieres aussi — c est celui que le bulletin lit', rat.coefficient);
+}
+
+titre('sans coefficient fourni, le defaut reste 1');
+{
+  globalThis.__ecrits = []; globalThis.__refus = {}; globalThis.__existant = {};
+  await addMatiereMaisonApc({
+    schoolId: 'ecole-1', nom: 'Chinois', classeId: '5e', trimestres: ['t1'], versionId: 'v1',
+  });
+  ok(Number(globalThis.__ecrits[1].rows[0].coefficient) === 1,
+    'le rattachement vaut 1 quand rien n est demande', globalThis.__ecrits[1].rows[0].coefficient);
+}
+
+// ── CORRIGER LE COEFFICIENT APRÈS COUP ─────────────────────────────────────
+// Sans ce chemin, la correction à la création se perdrait au premier
+// ajustement : l'école modifie le coefficient dans « Modifier la classe », et
+// le bulletin garderait l'ancien.
+titre('majCoefMatiereMaisonApc : les deux lignes de l ecole, et elles seules');
+{
+  globalThis.__ecrits = []; globalThis.__refus = {}; globalThis.__existant = {};
+  const r = await majCoefMatiereMaisonApc({
+    schoolId: 'ecole-1', matiereId: 'm-maison', classeId: '4e', coef: 3,
+  });
+  ok(!r.error && r.data === 3, 'la mise a jour aboutit', r);
+
+  const [cm, mt] = globalThis.__ecrits;
+  ok(cm.table === 'apc_classe_matieres' && cm.action === 'update',
+    'apc_classe_matieres est MISE A JOUR (pas recreee : cela detacherait les notes)', cm);
+  ok(Number(cm.rows[0].coefficient) === 3, 'avec le coefficient demande', cm.rows[0]);
+  ok(cm.filtres.classe_id === '4e' && cm.filtres.matiere_id === 'm-maison',
+    'sur la bonne (classe, matiere)', cm.filtres);
+  ok(cm.filtres.school_id === 'ecole-1',
+    'ET sur school_id : une ligne NATIONALE ne doit jamais etre touchee', cm.filtres);
+
+  ok(mt.table === 'apc_matieres' && mt.action === 'update', 'le coefficient global suit', mt);
+  ok(mt.filtres.id === 'm-maison' && mt.filtres.school_id === 'ecole-1',
+    'la matiere nationale du meme nom reste hors d atteinte', mt.filtres);
+}
+
+titre('majCoefMatiereMaisonApc : un coefficient absurde est refuse');
+{
+  for (const mauvais of [0, -2, '', null, 'quatre']) {
+    globalThis.__ecrits = [];
+    const r = await majCoefMatiereMaisonApc({
+      schoolId: 'ecole-1', matiereId: 'm-maison', classeId: '4e', coef: mauvais,
+    });
+    ok(r.error === 'parametres' && globalThis.__ecrits.length === 0,
+      `coef ${JSON.stringify(mauvais)} : refuse, et AUCUNE ecriture`, r.error);
+  }
+}
+
+titre('majCoefMatiereMaisonApc : un refus de la base est signale');
+{
+  globalThis.__ecrits = []; globalThis.__refus = { apc_classe_matieres: true };
+  const r = await majCoefMatiereMaisonApc({
+    schoolId: 'ecole-1', matiereId: 'm-maison', classeId: '4e', coef: 3,
+  });
+  globalThis.__refus = {};
+  ok(r.error === 'classe_matiere', 'le refus remonte, au lieu d etre avale', r.error);
+  ok(globalThis.__ecrits.length === 0, 'et rien n a ete ecrit a moitie', globalThis.__ecrits.length);
 }
 
 console.log(fail ? `

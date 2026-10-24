@@ -13,7 +13,7 @@ import { fetchReferentiel, refreshApcReferentiel, apcFingerprint, fetchApcNotes,
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
-import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, uuidMaison } from '../lib/referentielEcole';
+import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildBilSubjectsForClass } from '../lib/bilAutoConfig';
@@ -1019,7 +1019,20 @@ export const useSchoolStore = create((set, get) => ({
   // enseignants et les documents non officiels — échouer ici ne doit pas défaire
   // un geste qui a par ailleurs réussi. L'écran de saisie NOMME de toute façon
   // les matières qu'aucun référentiel ne réclame.
-  materialiserMatiereOfficielle: async (cls, nom) => {
+  // `coef` = le coefficient que l'école vient de saisir.
+  //
+  // ── POURQUOI IL EST UN PARAMÈTRE, ET PLUS UN OUBLI ────────────────────────
+  // Signalé le 2026-10-24 : « quand on crée une matière et qu'on ajoute le coef,
+  // ça revient à 1 automatiquement, même quand on choisit un coef plus élevé ».
+  //
+  // L'appel ne passait PAS de coefficient : `addMatiereMaisonApc` retombait sur
+  // son défaut `coef = 1`, et la ligne de référentiel naissait à 1. Le
+  // coefficient saisi, lui, n'allait que dans `subjects.coef` — que le premier
+  // cycle NE LIT PAS : `coefFor` (core/apcEngine) lit
+  // `apc_classe_matieres.coefficient`, puis `apc_matieres.coefficient`, puis 1.
+  // L'école voyait donc son 3 ou son 4 retomber à 1 sur le bulletin, sans que
+  // rien n'explique pourquoi.
+  materialiserMatiereOfficielle: async (cls, nom, coef = 1) => {
     const { schoolId, apcReferentiel } = get();
     const school = useAuthStore.getState().school;
     if (!schoolId || !cls || !nom) return { error: 'parametres' };
@@ -1044,6 +1057,10 @@ export const useSchoolStore = create((set, get) => ({
       schoolId, nom, classeId,
       trimestres: trimestres.length ? trimestres : APC_TRIMESTRE_IDS,
       versionId: (apcReferentiel.versions || [])[0]?.id ?? null,
+      // Le coefficient saisi par l'école, et non le défaut 1. Un coefficient
+      // absurde (0, vide, texte) retombe sur 1 plutôt que de faire disparaître
+      // la matière du calcul de la moyenne.
+      coef: Number(coef) > 0 ? Number(coef) : 1,
       // Plus de `makeId` : l'identifiant est désormais DÉTERMINISTE, dérivé de
       // (école, nom). C'est le `uuid` tiré ici qui fabriquait les doublons.
     });
@@ -2065,6 +2082,57 @@ export const useSchoolStore = create((set, get) => ({
     return record;
   },
 
+  // ── LE COEFFICIENT D'UNE MATIÈRE MAISON DE PREMIER CYCLE ──────────────────
+  //
+  // Le premier cycle ne lit PAS `subjects.coef` : `coefFor` (core/apcEngine) lit
+  // `apc_classe_matieres.coefficient`, puis `apc_matieres.coefficient`, puis 1.
+  // Corriger le coefficient dans « Modifier la classe » ne changeait donc rien
+  // au bulletin — c'est la seconde moitié du défaut signalé le 2026-10-24, et
+  // sans elle la première (le coefficient à la création) se perdrait au premier
+  // ajustement.
+  //
+  // CE QU'ON N'ÉCRIT PAS. Une matière NATIONALE : sa ligne
+  // `apc_classe_matieres` appartient au référentiel MINESEC (`school_id` NULL),
+  // la RLS la protège en écriture, et sa clé primaire (classe_id, matiere_id)
+  // interdit une seconde ligne propre à l'école. Le coefficient national est
+  // celui du ministère ; on rend `{ error: 'nationale' }` pour que l'écran le
+  // DISE, au lieu d'accepter en silence un chiffre qui n'aura aucun effet.
+  majCoefMatiereApc: async (cls, nom, coef) => {
+    const { schoolId, apcReferentiel } = get();
+    const school = useAuthStore.getState().school;
+    const valeur = Number(coef);
+    if (!schoolId || !cls || !nom || !(valeur > 0)) return { error: 'parametres' };
+    if (resolveClassEngine(school, cls) !== 'apc') return { error: 'hors_apc' };
+    if (!apcReferentiel) return { error: 'referentiel' };
+    const classeId = firstCycleClasseSlug(cls.level, cls.name);
+    if (!classeId) return { error: 'classe' };
+
+    const norm = (x) => String(x || '').toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+    const matiere = (apcReferentiel.matieres || []).find((m) => norm(m.nom) === norm(nom));
+    if (!matiere) return { error: 'introuvable' };
+    if (!matiere.school_id) return { error: 'nationale' };
+
+    const r = await majCoefMatiereMaisonApc({
+      schoolId, matiereId: matiere.id, classeId, coef: valeur,
+    });
+    if (r.error) return r;
+
+    // Le référentiel en mémoire suit : le bulletin et l'écran de saisie doivent
+    // montrer le nouveau coefficient sans attendre un rechargement.
+    set((s) => ({
+      apcReferentiel: s.apcReferentiel && {
+        ...s.apcReferentiel,
+        matieres: (s.apcReferentiel.matieres || []).map((m) => (
+          m.id === matiere.id ? { ...m, coefficient: valeur } : m)),
+        classeMatieres: (s.apcReferentiel.classeMatieres || []).map((cm) => (
+          cm.matiere_id === matiere.id && cm.classe_id === classeId
+            ? { ...cm, coefficient: valeur } : cm)),
+      },
+    }));
+    return { data: valeur };
+  },
+
   updateSubject: async (id, data) => {
     const state = get();
     const existing = state.subjects.find((s) => s.id === id);
@@ -2084,6 +2152,24 @@ export const useSchoolStore = create((set, get) => ({
       upsertSubject(record).then((saved) => { if (!saved) queueOffline({ table: 'subjects', operation: 'upsert', payload: record }); });
     } else {
       queueOffline({ table: 'subjects', operation: 'upsert', payload: record });
+    }
+
+    // PREMIER CYCLE : le coefficient doit atteindre le RÉFÉRENTIEL, sinon il
+    // reste décoratif (cf. majCoefMatiereApc). Fait après l'écriture de
+    // `subjects` : le geste de l'école est enregistré quoi qu'il arrive ici.
+    if (data && data.coef !== undefined && Number(data.coef) !== Number(existing?.coef)) {
+      const cls = get().classes.find((c) => c.id === record.class_id);
+      const school = useAuthStore.getState().school;
+      if (cls && resolveClassEngine(school, cls) === 'apc') {
+        const r = await get().majCoefMatiereApc(cls, record.name, data.coef);
+        if (r?.error === 'nationale') {
+          toast.info(tStatic(
+            'Coefficient MINESEC : le bulletin du premier cycle garde le coefficient national de cette matière.',
+            'MINESEC coefficient: the first-cycle report keeps this subject’s national coefficient.',
+            'Coeficiente MINESEC: el boletín del primer ciclo conserva el coeficiente nacional.',
+          ));
+        }
+      }
     }
   },
 

@@ -841,10 +841,33 @@ function PrincipalGrades() {
     return { entered, totalCells, pct: totalCells ? Math.round((entered / totalCells) * 100) : 0, perSubject: perSubject.filter((p) => p.missing > 0) };
   }, [classSubjects, classStudents, gradeMap, classId, sequence]);
 
-  const handleExport = () => {
+  // ── EXPORTER TOUTE LA CLASSE, OU UNE SEULE MATIÈRE ────────────────────────
+  //
+  // Consigne du 2026-10-24 : « dans l'écran de note du secondaire, mets les
+  // import et export de la même façon que celui du premier cycle, afin que ça
+  // exporte ou importe la note d'une matière aussi ».
+  //
+  // Le premier cycle a toujours travaillé matière par matière (sa barre
+  // Exporter/Importer est portée par la matière affichée, cf.
+  // CompetenceGradeIO). Ici l'export ne savait sortir QUE la classe entière :
+  // un enseignant qui voulait remonter sa matière recevait les colonnes de tous
+  // ses collègues, et c'est ce classeur-là qu'il réimportait — d'où les notes
+  // écrasées. Les deux portées existent donc maintenant, et l'import les
+  // accepte toutes les deux (cf. GradeImportPanel).
+  //
+  // `matiere` absente ⇒ la classe entière, avec sa colonne Moyenne, exactement
+  // comme avant. Une seule matière ⇒ deux colonnes, et PAS de moyenne : la
+  // moyenne d'une seule matière serait la note elle-même, et elle reviendrait à
+  // l'import comme une colonne à deviner.
+  const handleExport = (matiere = null) => {
     if (!classId || !classStudents.length || !classSubjects.length || isMaternelle) return;
+    const cols     = matiere ? [matiere] : classSubjects;
     const seqLabel = periods.find((s) => s.value === sequence)?.label || `Seq${sequence}`;
-    const header   = [t('Élève', 'Student'), ...classSubjects.map((s) => `${s.name} /${s.max}`), t('Moyenne', 'Average')];
+    const header   = [
+      t('Élève', 'Student'),
+      ...cols.map((s) => `${s.name} /${s.max}`),
+      ...(matiere ? [] : [t('Moyenne', 'Average')]),
+    ];
     const rows = [
       header,
       ...classStudents.map((student) => {
@@ -852,10 +875,19 @@ function PrincipalGrades() {
         const avg    = getAvg(scores, classSubjects, sys, gOpts);
         // Notes et moyenne écrites en texte à virgule ("13,75") via gradeCell —
         // virgule garantie quelle que soit la locale du poste.
-        return [student.name, ...classSubjects.map((sub) => gradeCell(scores[sub.id])), gradeCell(avg != null ? Math.round(avg * 100) / 100 : '')];
+        return [
+          student.name,
+          ...cols.map((sub) => gradeCell(scores[sub.id])),
+          ...(matiere ? [] : [gradeCell(avg != null ? Math.round(avg * 100) / 100 : '')]),
+        ];
       }),
     ];
-    downloadExcel(`notes_${selectedClass?.name || 'classe'}_${seqLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`, rows, seqLabel);
+    // Le nom de fichier porte la matière : trois exports d'affilée ne doivent
+    // pas se recouvrir dans le dossier Téléchargements. Assaini, parce qu'un
+    // intitulé peut contenir « / » ou « : », que Windows refuse.
+    const bout = matiere ? `_${String(matiere.name).replace(/[^\p{L}\p{N}]+/gu, '-')}` : '';
+    const nom  = `notes_${selectedClass?.name || 'classe'}${bout}_${seqLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    downloadExcel(nom, rows, seqLabel);
   };
 
   const selectSubject = (id) => { setSubjectId(id); setStudentSearch(''); setGradePage(1); };
@@ -901,7 +933,15 @@ function PrincipalGrades() {
               {classId && classStudents.length > 0 && classSubjects.length > 0 && !isMaternelle && (
                 <div className="flex flex-wrap gap-2 no-print">
                   <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer Excel', 'Import Excel')}</button>
-                  <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
+                  <button onClick={() => handleExport()} className="btn-secondary">{t('Exporter tout', 'Export all')}</button>
+                  {/* L'export d'UNE matiere, comme au premier cycle : visible
+                      seulement quand une matiere est affichee, sans quoi le
+                      bouton n'aurait rien a sortir. */}
+                  {currentSubject && (
+                    <button onClick={() => handleExport(currentSubject)} className="btn-secondary">
+                      {t('Exporter', 'Export')} — {currentSubject.name}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -972,7 +1012,15 @@ function PrincipalGrades() {
               {classId && classStudents.length > 0 && classSubjects.length > 0 && !isMaternelle && (
                 <div className="flex flex-wrap gap-2 no-print">
                   <button onClick={() => setShowImport((v) => !v)} className="btn-secondary">{t('Importer Excel', 'Import Excel')}</button>
-                  <button onClick={handleExport} className="btn-secondary">{t('Exporter Excel', 'Export Excel')}</button>
+                  <button onClick={() => handleExport()} className="btn-secondary">{t('Exporter tout', 'Export all')}</button>
+                  {/* L'export d'UNE matiere, comme au premier cycle : visible
+                      seulement quand une matiere est affichee, sans quoi le
+                      bouton n'aurait rien a sortir. */}
+                  {currentSubject && (
+                    <button onClick={() => handleExport(currentSubject)} className="btn-secondary">
+                      {t('Exporter', 'Export')} — {currentSubject.name}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

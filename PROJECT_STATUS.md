@@ -34,6 +34,21 @@
 > | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.23-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.23.txt` |
 > | Script | — (installeur) | `packaging/linux/deploy-0.3.23.sh` (`bash -n` OK) |
 >
+> ## ✅ CORRIGÉ APRÈS LA 0.3.23, EN LIGNE SEULEMENT (2026-10-24)
+>
+> **I22 — le coefficient du premier cycle retombait à 1.** Le premier cycle ne lit pas
+> `subjects.coef` : `coefFor` lit `apc_classe_matieres.coefficient`. L'action qui pose la
+> ligne de référentiel ne recevait **aucun** coefficient. Corrigé à la création **et** sur
+> modification ultérieure ; une matière *nationale* est refusée explicitement (la RLS et la
+> clé primaire l'interdisent) et l'écran le dit.
+>
+> **I23 — import/export du secondaire comme au premier cycle.** L'export sort la classe
+> entière **ou** la matière affichée ; l'import demande son périmètre — toutes les matières
+> du classeur, ou une seule.
+>
+> **Ces deux correctifs ne sont PAS dans le paquet 0.3.23** déjà installé chez THE GENIUS :
+> un paquet 0.3.24 reste à construire pour les postes installés.
+>
 > ## 🟠 LA 0.3.23 EST INSTALLÉE CHEZ THE GENIUS (2026-10-24)
 >
 > Journal d'installation fourni : `0.3.21 → 0.3.23`, **40 contrôles au vert** (dont I19,

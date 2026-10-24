@@ -58,9 +58,23 @@
 > GENIUS : **60 dépenses sur 60** et **10 écritures de caisse sur 11** sont dans ce cas ;
 > Cloud-wide, **4 215 notes par compétences** (prim 2 337 · apc 1 334 · maternelle 544).
 >
-> Code corrigé et livré. **La correction de base est PRÉPARÉE, NON EXÉCUTÉE** :
-> `docs/corrections/2026-10-24-updated_at-null-descente-bloquee.sql` — **en attente
-> d'autorisation explicite**.
+> Code corrigé et livré. **La correction de base a été APPLIQUÉE le 2026-10-24**, sur
+> autorisation explicite, par
+> `node scripts/apply-cloud-sql.mjs --apply docs/corrections/2026-10-24-updated_at-null-descente-bloquee.sql`.
+> **Vérifié par lecture après coup** : THE GENIUS **60/60 dépenses** et **11/11 écritures
+> de caisse** datées (0 sans date) · budget « Reprise de caisse 2025-2026 » daté lui aussi
+> (sans quoi les dépenses seraient descendues sans leur budget) · `apc_notes`,
+> `prim_notes`, `mat_observations` à **0** ligne sans date · **31 tables
+> `zz_sauv_updated_at_20261024_*`**, **6 065 identifiants** sauvegardés (c'est LE retour
+> arrière — à garder jusqu'à validation par l'école) · valeur par défaut `now()` posée,
+> plus aucune colonne `updated_at` sans défaut dans le périmètre contrôlé.
+> **À PRÉVENIR : l'école verra 70 lignes descendre au prochain cycle.**
+>
+> ⚠ **Sur son poste, l'écran Dépenses restera vide malgré la descente** : les 60 dépenses
+> de reprise n'ont **aucune imputation** (`budget_chapter_id` NULL) et l'écran filtre par
+> ligne. Elles s'affichent dans **Caisse**. Correctif d'écran posé dans
+> `src/pages/Expenses.jsx` (bandeau « N dépense(s) sans ligne budgétaire » + détail) —
+> **il n'atteindra le poste qu'avec un paquet 0.3.24**, qui porte déjà I22/I23.
 >
 > Également relevé par le script, et à traiter à part : **la file de poussée de GENIUS est
 > engorgée** — 2 841 584 entrées pour 5 418 pointeurs utiles (`dedoublonner-file-poussee.sh`).

@@ -13,6 +13,7 @@ par identifiant.
 | Date | Objet | Lignes | État |
 |---|---|---|---|
 | 2026-10-19 | BRIGHT CONTINENT — 19 notes d'Espagnol classées en Mathématiques | 19 `grades` | **appliquée et vérifiée** |
+| 2026-10-24 | `updated_at` NULL — les lignes qui ne descendaient jamais vers un serveur d'école | 6 065 lignes, 31 tables | **appliquée et vérifiée** |
 
 ## 2026-10-19 — BRIGHT CONTINENT, Espagnol classé en Mathématiques
 
@@ -133,3 +134,47 @@ classe en double sur les écoles du Cloud. »
 | `2026-10-22-coefficients-a-trancher.sql` | 7 coefficients divergeaient entre les copies. Toutes les lignes sont **commentées** : changer un coefficient change une moyenne |
 | `2026-10-22-genius-baremes-classes-paralleles.sql` | Class 1 A annonce /20 et note ses matières sur /100 ; Class 1 B est en /100 ; NURSERY 1 A est FR /20 et NURSERY 1 B EN /100 (peut-être voulu). Les 4 classes portent **zéro note** — le moment est favorable |
 | `2026-10-22-genius-5eme-rangs-partages.sql` | Renumérotation 0→15 de la 5eme : supprime 6 ex æquo et 7 trous **sans déplacer une seule matière** |
+
+## 2026-10-24 — `updated_at` NULL : les lignes qui ne descendaient jamais
+
+**Constat.** La descente Cloud → école est un keyset `(updated_at, id)` et `sync-pull`
+écarte explicitement les lignes sans date
+(`supabase/functions/sync-pull/index.ts:102`). Une ligne sans `updated_at` est donc
+**invisible pour toujours** sur le serveur d'une école, et remettre le curseur à zéro n'y
+change rien. La même colonne arbitre les conflits (LWW) : `Date.parse(null)` vaut 0, donc
+une telle ligne perd tout arbitrage. Déclencheur : le journal d'installation de la 0.3.23
+chez THE GENIUS, dont le seul échec annonçait une caisse qui resterait vide.
+
+**Deux origines, les deux dans notre code** (corrigées le même jour, commit `7cfd127`) :
+les trois constructeurs de notes (apc/prim/mat) ne posaient que `date_saisie`, la date
+*pédagogique* ; et `scripts/import-caisse-genius.mjs` ne nommait `updated_at` que dans sa
+branche `ON CONFLICT DO UPDATE`, donc la colonne restait NULL au **premier** import —
+origine exacte des 70 lignes de THE GENIUS (lot `reprise-2026-06-08`).
+
+**Fait, sur autorisation explicite**, en une transaction : (A) valeur par défaut `now()`
+posée sur les colonnes `updated_at` qui n'en avaient pas — purement additif, aucune ligne
+réécrite, et cela borde aussi les scripts SQL passés à la main ; (B) `updated_at = now()`
+sur les lignes qui n'en avaient pas, identifiants **sauvegardés d'abord**. `now()` et non
+`created_at` : le curseur des écoles est déjà passé devant les dates de création, dater à
+la création aurait laissé ces lignes **derrière** le curseur, donc toujours invisibles.
+
+**Vérifié après coup** (lectures seules) : THE GENIUS **60/60 dépenses** et **11/11
+écritures de caisse** datées, 0 sans date ; le budget « Reprise de caisse 2025-2026 » daté
+lui aussi — sans quoi les dépenses descendraient sans leur budget, et la FK locale
+(`PRAGMA foreign_keys = ON`) les refuserait ; `apc_notes` / `prim_notes` /
+`mat_observations` à **0** ligne sans date (4 215 rattrapées) ; **31** tables de
+sauvegarde, **6 065** identifiants ; plus aucune colonne `updated_at` sans défaut dans le
+périmètre contrôlé. L'ordre de descente place bien `budgets`, `budget_periods` puis
+`budget_expenses` (`server/cloudSync.js:50`).
+
+**Retour arrière.** Les tables `zz_sauv_updated_at_20261024_*` **sont** le retour arrière
+(script en fin du fichier de correction : remise à NULL par identifiant + retrait des
+défauts). **À garder jusqu'à ce que l'école confirme** ses 11 écritures de caisse et ses
+60 dépenses.
+
+**Ce que la correction ne fait pas.** Les 60 dépenses de reprise n'ont **aucune
+imputation** (`budget_chapter_id` NULL) et pendent à un budget hors hiérarchie
+(`tier` NULL, année 2025-2026) : l'écran **Dépenses**, qui filtre par ligne active de
+l'annuel courant, ne peut pas les montrer — activer une ligne n'y change rien. Elles
+s'affichent dans **Caisse**. Un bandeau les annonce désormais dans Dépenses
+(`src/pages/Expenses.jsx`), à partir du paquet 0.3.24.

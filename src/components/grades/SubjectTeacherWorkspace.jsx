@@ -9,7 +9,6 @@ import { gradeCell } from '../../lib/gradeEntry';
 import { isSequenceLocked, getLockInfo } from '../../lib/lockService';
 import GradeGrid from './GradeGrid';
 import GradeImportPanel from './GradeImportPanel';
-import GradeBundleIO from './GradeBundleIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import { isFundamentalTitulaire } from '../../lib/teacherScope';
 import { bySubjectOrder } from '../../core/subjectOrder';
@@ -300,10 +299,10 @@ export default function SubjectTeacherWorkspace() {
                 </div>
               )}
 
-              {/* Échange de notes entre postes : l'enseignant exporte TOUTES ses
-                  notes en un fichier pour l'administration. Le panneau d'import
-                  Excel ci-dessous, lui, ne concerne que la grille affichée. */}
-              <GradeBundleIO />
+              {/* PLUS DE BARRE « Exporter mes notes (fichier) » ICI : « Importer » et
+                  « Exporter » sont déjà en haut de cet écran. Même raison, même
+                  jour que dans src/pages/Grades.jsx. L'échange par fichier complet
+                  reste sur les écrans de saisie par compétence. */}
 
               {showImport && (
                 <div className="mb-5">

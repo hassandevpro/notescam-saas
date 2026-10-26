@@ -12,7 +12,6 @@ import { isSubjectScoped, isFundamentalTitulaire, canManageClassSubjects, canEdi
 import ClassSubjectsEditor from '../components/grades/ClassSubjectsEditor';
 import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
-import GradeBundleIO from '../components/grades/GradeBundleIO';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
 import ApcCompetenceWorkspace from '../components/grades/ApcCompetenceWorkspace';
 import MatObservationWorkspace from '../components/grades/MatObservationWorkspace';
@@ -1155,11 +1154,16 @@ function PrincipalGrades() {
           </div>
         )}
 
-        {/* Échange de notes entre postes. Volontairement HORS des conditions de
-            classe : l'export est global (toutes les classes, tous les moteurs,
-            toutes les séquences) et l'import de l'admin n'a pas à dépendre de la
-            classe affichée — c'est le fichier qui porte sa destination. */}
-        <GradeBundleIO />
+        {/* PLUS DE BARRE « Exporter mes notes (fichier) » ICI. Cet écran porte déjà
+            « Importer Excel », « Exporter tout » et « Exporter — <matière> » en
+            haut : deux paires de boutons d'échange sur la même page, c'est une de
+            trop, et c'est celle d'en bas qu'on ne cherchait pas. Retiré à la
+            demande du responsable le 2026-10-26.
+
+            L'échange par FICHIER COMPLET (toutes les classes, tous les moteurs, et
+            l'import du fichier d'un enseignant par l'administration) reste en place
+            sur les trois écrans de saisie par compétence, où il est seul. Le
+            composant `GradeBundleIO` est donc conservé. */}
 
         {showImport && classId && !isMaternelle && (
           <GradeImportPanel

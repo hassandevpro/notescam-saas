@@ -154,6 +154,28 @@ eq(ids('Civics', ENSC), 'citizenship', '« Civics » → Citizenship Education, 
   eq(ids('Histoire-Géo', BIL), 'geographie+histoire',
     'bilingue : « Histoire-Géo » couvre toujours DEUX matières');
   eq(ids('Mathématiques', BIL), 'mathematiques', 'bilingue : les maths ne sortent qu’une fois');
+
+  // ── LE CAS SIGNALÉ PAR L'ADMINISTRATION DE THE GENIUS, 2026-10-26 ────────
+  //
+  // « C'est uniquement les matières francophones qui apparaissent dans le
+  // compte enseignant. » Dans une classe bilingue, « Mathematics » touchait
+  // DEUX lignes : l'anglaise par son propre nom, la française par sa
+  // traduction officielle. Le départage par groupe de traduction tranchait
+  // toujours dans l'ordre du groupe — donc toujours pour le français.
+  // L'enseignant de la section anglaise recevait les matières de l'AUTRE
+  // section, et les siennes n'apparaissaient nulle part.
+  //
+  // L'identité d'une ligne prime désormais sur la traduction d'une autre.
+  eq(ids('Mathematics', BIL), 'mathematics', 'bilingue : « Mathematics » reste la matière ANGLAISE');
+  eq(ids('History', BIL), 'history', 'bilingue : « History » reste anglaise');
+  eq(ids('Geography', BIL), 'geography', 'bilingue : « Geography » reste anglaise');
+  eq(String(ids('Mathematics', BIL) !== ids('Mathématiques', BIL)), 'true',
+    'les deux sections ne se recouvrent plus : chacune garde la sienne');
+
+  // CE QUE LA CORRECTION NE DOIT PAS CASSER : quand une seule langue est au
+  // catalogue, la traduction reste le seul rapprochement possible.
+  eq(ids('Mathematics'), 'mathematiques', 'monolingue FR : le repli par traduction tient toujours');
+  eq(ids('Mathématiques', EN), 'mathematics', 'monolingue EN : idem dans l’autre sens');
 }
 
 // ── CE QUE LES AJOUTS NE DOIVENT PAS CASSER ────────────────────────────────

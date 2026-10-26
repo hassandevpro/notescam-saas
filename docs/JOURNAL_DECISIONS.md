@@ -805,3 +805,210 @@ Les 42 écoles restées à `NULL` ne voient rien bouger.
 **Retour arrière.** Retirer les trois props de l'appel à `BulletinPrimAnnualUA` dans
 `Bulletins.jsx` : la disposition détaillée retombe sur son rendu d'avant, sans rien
 perdre — le réglage ne décide que de ce qui s'imprime.
+
+---
+
+## D20 — La mesure d'usage s'arrête au Cloud, et ne voit aucune donnée d'élève
+
+**Date** : 2026-10-24 · **Statut** : en place, inactif tant qu'aucune clé n'est fournie
+**Où** : `src/lib/analytics.js`, `src/lib/analyticsScrub.js`,
+`src/components/AnalyticsRouteTracker.jsx`, tests `src/lib/_analytics*.test.mjs`
+
+**Décision.** PostHog (`posthog-js`) est branché sur l'édition **Cloud uniquement**, avec
+`autocapture` et le rejeu de session **coupés**, et tout ce qui part — y compris les
+propriétés que PostHog fabrique lui-même — passe par un filtre maison.
+
+**Raison, dans l'ordre d'importance.**
+
+1. **L'édition LAN ne doit parler à personne.** Un poste d'école travaille hors ligne par
+   conception ; lui faire émettre des requêtes vers un service tiers contredit l'argument
+   du produit et ferait sortir de l'école des données scolaires. `IS_LAN` est une
+   constante de build et l'import de `posthog-js` est **dynamique** : vérifié après
+   `npm run build:lan`, **aucun fichier de `dist/` ne contient la chaîne « posthog »**.
+   En Cloud, la bibliothèque part dans un *chunk* séparé (334 Ko) qui n'est téléchargé
+   que si une clé existe.
+2. **L'écran porte des noms d'élèves, des notes, des montants et des téléphones de
+   parents.** `autocapture` envoie le texte des éléments cliqués ; le rejeu de session
+   envoie l'écran. Les deux sont donc coupés, et ne doivent pas être rallumés « pour
+   voir ». L'URL courante porte l'identifiant de l'élève consulté : `capture_pageview`
+   est coupé aussi, et les chemins sont gabarisés (`/app/students/:id`).
+3. **Une clé d'ingestion n'a rien à faire dans le dépôt.** Rien n'est écrit en dur :
+   sans `VITE_POSTHOG_KEY`, le module est inerte — aucun chargement, aucun appel. Le
+   repli en dur de `supabase.js` est un autre cas : c'est une clé anonyme déjà publique.
+
+**Ce que ça interdit.** Rallumer `autocapture` ou le rejeu de session ; importer
+`posthog-js` ailleurs que dans `src/lib/analytics.js` ; envoyer un nom, une adresse
+e-mail, une note ou un texte libre dans les propriétés d'un événement. Les deux tests
+colocalisés échouent dans chacun de ces cas — dont un qui relit **toutes** les sources de
+`src/` pour vérifier qu'aucun autre fichier n'importe la bibliothèque.
+
+**Le filtre, et pourquoi il écarte au lieu de tronquer.** `analyticsScrub.js` compare les
+noms de propriété **par jeton** (jamais par sous-chaîne : « cycle » contient « cle »,
+« hôtel » contient « tel » — un `includes` jetterait des propriétés anodines et on
+finirait par le désactiver), écarte les valeurs qui ressemblent à un e-mail ou à un
+téléphone même sous une clé anodine, et **écarte** toute chaîne de plus de 64 caractères
+plutôt que de la tronquer : le début d'un texte libre, c'est souvent le nom.
+
+**Réglages.** `VITE_POSTHOG_KEY` (absente = tout est inerte) et `VITE_POSTHOG_HOST`
+(défaut `https://eu.i.posthog.com` — les écoles sont en Afrique centrale, leurs données
+scolaires n'ont aucune raison de transiter par les États-Unis ; pointer ailleurs, ou une
+instance auto-hébergée, se fait par cette variable). Persistance en `localStorage`, pas
+de cookie : rien à demander à l'utilisateur.
+
+**Retour arrière.** Retirer `VITE_POSTHOG_KEY` de l'environnement de build : tout
+redevient inerte sans toucher au code. Pour désinstaller : `npm rm posthog-js`, supprimer
+les quatre fichiers ci-dessus et les trois branchements (`main.jsx`, `App.jsx`,
+`store/authStore.js`).
+
+---
+
+## D21 — Le barème d'un bulletin vient de la classe, sa langue n'y touche pas
+
+**Date** : 2026-10-26 · **Statut** : appliqué dans le dépôt, non déployé
+**Où** : `src/core/bulletinScale.js`, `src/pages/Bulletins.jsx` (les cinq bulletins
+classiques), test `src/core/_bulletinScale.test.mjs`
+
+**Décision.** `maxScale` et le seuil de réussite d'un bulletin se lisent dans
+`classes.grade_max`. La langue de la classe (`system`) ne sert plus que de **valeur par
+défaut** quand la classe ne dit rien : /20 en FR, /100 en EN, comme avant.
+
+**Raison.** Relevé chez THE GENIUS le 2026-10-26 : FORM1 et FORM2 sont des classes
+anglophones — matières saisies en anglais, programme bilingue spécial, notes sur /20 —
+mais portaient `system = 'FR'`. Leur bulletin sortait donc entièrement en français, alors
+que **tout le cadre est déjà bilingue dans le code** (`APC_GROUPS` porte « SCIENCES
+EXACTES / EXACT SCIENCES » et n'affiche que la moitié du système de la classe). Les
+basculer en `'EN'` aurait corrigé la langue **et multiplié les notes par cinq** : les cinq
+bulletins classiques écrivaient `maxScale = sys === 'FR' ? 20 : 100`. Un 10/20 serait
+sorti 50. La langue et le barème sont deux choses distinctes — une classe anglophone du
+Cameroun note sur /20 comme sa jumelle francophone, c'est le programme bilingue qui le
+veut — et `classes.grade_max` existe précisément pour porter le barème de sortie. Le
+moteur bilingue le lisait déjà (`core/bilEngine`) ; les bulletins, non.
+
+**Ce que ça change ailleurs**, mesuré sur les 282 classes de la plateforme (lecture
+seule) : 112 FR sans barème, 84 FR/20, 32 EN sans barème, 23 ES, 15 EN/100 — **rien ne
+bouge** (la classe ne dit rien, ou dit exactement le défaut de son système). Changent :
+**8 classes EN réglées /20** (2 écoles) et **6 classes FR réglées /10** (4 écoles), qui
+obtiennent enfin le barème qu'elles avaient demandé ; et **2 classes FR réglées /100**
+(FORM1, FORM2) qui passeraient à /100 — **celles-là sont mal réglées**, leurs notes sont
+/20, et leur `grade_max` est à corriger en même temps que leur système.
+
+**La conversion des notes suit la même règle.** `BulletinAPC` ne convertissait que selon
+la LANGUE (« si FR, ne rien convertir ») : une matière saisie /100 sur une classe FR
+s'imprimait brute sur un bulletin /20. Elle se fait maintenant du barème de **saisie**
+(`subjects.max`) vers celui de l'**impression**, et ne touche à rien quand les deux
+coïncident — le cas courant. Vérifié avant de changer : les 132 matières dont le barème
+diffère de celui de leur classe portent **0 note** aujourd'hui, donc aucun bulletin déjà
+imprimé ne change de chiffre.
+
+**Ce que ça interdit.** Redéduire un barème ou un seuil de `sys` dans un bulletin. Le
+test colocalisé fige les deux défauts (FR → /20 seuil 10, EN → /100 seuil 50) et les
+valeurs aberrantes (`0`, négatif, illisible → défaut, jamais une division par zéro).
+
+### D21 bis — corrigé le même jour, avant livraison
+
+Deux fautes dans D21 tel qu'écrit plus haut, trouvées en cherchant des marqueurs pour
+le script de déploiement de la 0.3.24 — et non par un test, ce qui est le point à
+retenir.
+
+**1. La règle existait déjà.** `classScale(cls, school)`, dans `src/lib/useCountry.js`,
+disait exactement la même chose — `grade_max` sinon le défaut du système — et existait
+AVANT `core/bulletinScale`. Elle a été écrite deux fois faute d'avoir cherché. Elle
+n'est pas supprimée (`honorRollEngine` l'appelle) : elle DÉLÈGUE désormais au module
+pur, et le test rejoue sa table de vérité d'origine pour prouver que la délégation ne
+change le barème d'aucune école.
+
+**2. Le correctif ne couvrait qu'un endroit sur huit.** Le même
+`sys === 'FR' ? 20 : 100` était recopié dans **sept autres** fichiers : fiche élève,
+portail parent (deux fois), rapports de classe (deux fois), modèle PDF de bulletin,
+les deux blocs du tableau de bord, et `server/rpc.js` (portail parent côté LAN). Livrer
+D21 seul aurait donné, pour FORM1 et FORM2 réglées /20, un bulletin juste et un tableau
+de bord, une fiche élève et un portail parent qui annoncent encore /100 : la même note
+affichée de deux façons selon la page. Les huit lisent maintenant la même règle.
+`server/rpc.js` la redit en trois lignes, avec sa référence : le paquet LAN ne copie pas
+`src/core` (seuls `src/lib`, `src/governance`, `src/domains`), et `classScale` vit dans
+un module qui importe React.
+
+**3. Conséquence mesurable, à confirmer avec l'école concernée.** La Guinée Équatoriale
+était incohérente et ne l'est plus : les cinq bulletins classiques imprimaient une
+classe ES sur **/100** alors que la même page déclarait admis à **5**
+(`geGradeMax(school) / 2`), et que les notes y sont saisies sur /10 ou /20
+(`SubjectTeacherWorkspace` lit déjà `geGradeMax`). Le barème ES suit désormais le pays :
+/10 par défaut, /20 si l'école l'a réglé. **23 classes** changent d'affichage — aucune
+au Cameroun, donc aucun paquet LAN concerné, mais à annoncer avant le déploiement Cloud.
+
+---
+
+## D22 — Une matière déjà portée sous un autre nom n'est pas reproposée
+
+**Date** : 2026-10-26 · **Statut** : appliqué dans le dépôt, non déployé
+**Où** : `src/core/bilingualSubjects.js` (`SYNONYMES`, `memeMatiere`,
+`missingBilingualSubjects`, `mergeFromSiblingClass`), test colocalisé
+
+**Décision.** Le rapprochement « cette matière manque-t-elle à la classe ? » se fait par
+**enseignement**, pas par libellé exact. Des groupes de synonymes curatés disent que
+« ICT », « Computer Studies » et « Computer Science » nomment la même chose.
+
+**Raison.** Relevé chez THE GENIUS le 2026-10-26 : FORM1 et FORM2 portaient quatre
+matières en double. L'école avait saisi les siennes — **ICT** (41 et 15 notes),
+**Literature in English** (21 et 17), **ML** — et « Ajouter le programme manquant » avait
+posé **à côté** les libellés officiels — Computer Science, English Literature, Manual
+Labour — **vides**. Le bulletin imprimait donc les deux lignes, la copie en « ABS ».
+L'école décochait la copie ; la bannière la reproposait au geste suivant, parce que
+`missingBilingualSubjects` comparait les **libellés exacts** : « ICT » n'est pas
+« Computer Science », donc elle la croyait absente, indéfiniment. C'est le « on décoche
+et ça revient toujours » signalé par l'école.
+
+**Volontairement d'un seul côté à la fois.** Chaque groupe ne contient que des libellés
+d'un **même sous-système**. « Français intensif » et « French Language » n'y sont **pas**
+ensemble : une classe bilingue peut légitimement enseigner les deux, et c'est le rôle de
+la table `EQUIVALENCES` (déjà là) de le **signaler** à l'école sans trancher à sa place.
+Regrouper les deux langues ici déferait la fusion bilingue de D17.
+
+**Ce que ça ne fait pas.** Rien n'est renommé, fusionné ni supprimé : les matières en
+place et les notes qui y pendent sont hors d'atteinte. Le seul effet est de **ne plus
+proposer** ce que la classe porte déjà. Les matières réellement absentes restent
+proposées — le test le vérifie dans les deux sens, y compris pour la fusion depuis la
+classe jumelle.
+
+---
+
+## D23 — Zéro est une valeur : une colonne ouverte à la main se referme à la main
+
+**Date** : 2026-10-26 · **Statut** : appliqué dans le dépôt, non déployé
+**Où** : `src/core/primColumnBareme.js` (`notesSaisies`),
+`src/components/grades/PrimCompetenceWorkspace.jsx` (`BaremeCell`, `setBareme`),
+test colocalisé
+
+**Décision.** Dans la saisie du primaire, poser **0** sur le barème d'une colonne
+(Oral, Écrit, Pratique, Savoir-être) signifie « cette école ne pose aucun barème ici »
+— donc **retour au barème officiel du référentiel**. Pour un critère que le national
+ignore, cet officiel vaut zéro : la colonne se **referme** et retrouve son repère « à
+définir ». Pour un critère officiel, le même geste rend sa colonne au barème MINEDUB.
+Une seule règle, deux effets justes.
+
+**Raison.** Signalé par l'école le 2026-10-26, essayé sur « Pratique » : « quand je
+change le barème et que j'essaie de revenir à zéro, ça refuse ». C'était exact et le
+refus était **muet**. Depuis que les quatre critères officiels sont tous proposés, un
+critère sans barème national naît à **zéro** (`points_max: 0`, `aNoter`) — « Pratique »
+sur 1A, 1B et 2A. L'école pouvait donc l'**ouvrir** en posant son chiffre, mais jamais
+le refermer : `BaremeCell` rejetait `n <= 0` et **remettait l'ancienne valeur sans un
+mot**. Un écran qui annule le geste sans rien dire se lit comme une panne.
+
+**Pourquoi ça ne s'écrit pas `0` en base.** `prim_notes.points_max` porte
+`CHECK (points_max IS NULL OR (points_max > 0 AND points_max <= 200))` : zéro y est
+refusé par le schéma lui-même, en LAN comme en Cloud. « Revenir à zéro » s'écrit donc
+**NULL**, que le même schéma définit déjà comme « le barème officiel du référentiel ».
+Aucune migration, aucune contrainte à desserrer : la valeur de retour existait déjà,
+c'est le chemin pour y revenir qui manquait.
+
+**Ce qui reste refusé, et dit.** Refermer une colonne qui porte une saisie. Baisser un
+barème rend une note **fausse** (18/20 → 18/10) ; refermer la colonne la rend
+**invisible** — elle resterait en base sans colonne pour la montrer. Le filtre de la
+remise à zéro (`notesSaisies`) est pour cela plus large que celui de la baisse
+(`notesHorsBareme`) : il compte aussi le **zéro saisi** et l'**ABS**, qui sont des
+saisies et non des cases vides. Le message nomme les élèves concernés, comme pour la
+baisse de barème.
+
+**Hors périmètre.** L'écran du premier cycle (`ApcCompetenceWorkspace`) garde son refus
+de zéro : son barème par défaut est /20, jamais zéro, et son moteur ne connaît pas la
+notion de compétence non notée. Rien à y refermer, donc rien à y changer.

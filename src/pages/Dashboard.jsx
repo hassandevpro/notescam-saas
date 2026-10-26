@@ -178,6 +178,7 @@ export default function Dashboard() {
       <TeacherClasses
         classes={classes} students={students} subjects={subjects} gradeMap={gradeMap}
         linked={!!teacherId} scoped={isSubjectScoped(role, school)} teacherId={teacherId}
+        school={school}
       />
     ),
     [BLOCK.ACADEMICS]: () => (

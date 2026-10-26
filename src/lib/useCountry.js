@@ -7,6 +7,7 @@
 import { useMemo } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { getCountry, resolveCountryCode, COUNTRIES, defaultLangForCountry } from '../countries';
+import { bulletinScale } from '../core/bulletinScale';
 
 export function useCountry() {
   const school = useAuthStore((s) => s.school);
@@ -81,12 +82,13 @@ export function primaryPeriodMode(school) {
 
 // Barème de sortie effectif d'une classe (moyenne générale + affichages).
 // Champ explicite `classes.grade_max` si défini, sinon défaut système :
-// FR → /20, EN → /100, ES → réglage école (/10 ou /20). Rétrocompatible : une
-// classe sans grade_max retombe exactement sur l'ancien comportement.
+// FR → /20, EN → /100, ES → réglage école (/10 ou /20).
+//
+// LA RÈGLE N'EST PLUS ÉCRITE ICI : elle vit dans `core/bulletinScale`, module pur
+// que le reste du produit appelle directement (les bulletins, le portail parent,
+// les tableaux de bord). Cette porte-ci reste parce que le moteur du tableau
+// d'honneur l'appelle et parce qu'elle sait lire le réglage d'école ES, que le
+// module pur ne peut pas atteindre. Deux portes, une seule règle.
 export function classScale(cls, school) {
-  const explicit = Number(cls?.grade_max);
-  if (explicit > 0) return explicit;
-  const sys = cls?.system || 'FR';
-  if (sys === 'ES') return geGradeMax(school);
-  return sys === 'EN' ? 100 : 20;
+  return bulletinScale(cls, cls?.system, geGradeMax(school)).maxScale;
 }

@@ -9,7 +9,7 @@
 //   • rien d'existant n'est converti en silence.
 //
 // Lancer : node src/core/_primColumnBareme.test.mjs
-import { baremeEnVigueur, notesHorsBareme, baremeRecevable } from './primColumnBareme.js';
+import { baremeEnVigueur, notesHorsBareme, notesSaisies, baremeRecevable } from './primColumnBareme.js';
 import { competencePointsTotal, primCote } from './primEngine.js';
 
 let pass = 0, fail = 0;
@@ -113,6 +113,56 @@ const porteurs = [
   const t = competencePointsTotal({ oral: 14 }, criteres);
   ok(t.achieved === 14 && t.possible === 20,
      'note héritée : valeur et échelle inchangées', t);
+}
+
+// ── 13. REVENIR À ZÉRO : refermer une colonne qu'on avait ouverte ──────────
+// Le défaut signalé : « quand je change le barème et que j’essaie de revenir à
+// zéro, ça refuse » (essayé sur « Pratique »). Une colonne sans barème national
+// naît à zéro, l'école y pose son chiffre — et ne pouvait plus l'enlever.
+{
+  const COLONNE_VIDE = [null, undefined, {}];
+  // Zéro n’est pas un barème : il dit « rien posé ici », donc retour à l’officiel.
+  ok(baremeEnVigueur(COLONNE_VIDE, 20, 0) === 20,
+     'zéro posé sur un critère OFFICIEL → sa colonne revient au barème MINEDUB',
+     baremeEnVigueur(COLONNE_VIDE, 20, 0));
+  // Et quand le national ne connaît pas le critère, cet officiel vaut zéro :
+  // la colonne se referme, ce qui est exactement le geste demandé.
+  ok(baremeEnVigueur(COLONNE_VIDE, 0, 0) === 0,
+     'zéro posé sur un critère SANS barème national → colonne refermée',
+     baremeEnVigueur(COLONNE_VIDE, 0, 0));
+  // Aller-retour complet, tel que l’écran le produit : ouverture à /5, puis
+  // remise à zéro — les lignes écrites pour porter le barème repassent à NULL.
+  ok(baremeEnVigueur(COLONNE_VIDE, 0, 5) === 5, "ouverture : la colonne vaut /5");
+  const apresRemiseAZero = [{ note: null, points_max: null }, { note: null, points_max: null }];
+  ok(baremeEnVigueur(apresRemiseAZero, 0, 0) === 0,
+     'remise à zéro : les lignes à points_max NULL ne retiennent plus /5',
+     baremeEnVigueur(apresRemiseAZero, 0, 0));
+}
+
+// ── 14. Une colonne qui porte une saisie ne se referme pas en silence ──────
+// Baisser un barème rend une note FAUSSE (18/20 → 18/10) ; refermer la colonne
+// la rend INVISIBLE — elle resterait en base sans colonne pour la montrer. Le
+// filtre est donc plus large que `notesHorsBareme` : il compte aussi l'ABS et le
+// zéro, qui sont des saisies et non des cases vides.
+{
+  const vides = [null, undefined, {}, { id: 'a', name: 'A', note: null }, { id: 'b', name: 'B', note: '' }];
+  ok(notesSaisies(vides).length === 0,
+     'colonne sans aucune saisie : la remise à zéro est permise', notesSaisies(vides));
+  ok(notesSaisies(null).length === 0, "aucun élève : rien ne bloque");
+  ok(notesSaisies([{ id: 'c', name: 'C', note: 12 }]).length === 1,
+     'une note chiffrée bloque la remise à zéro');
+  ok(notesSaisies([{ id: 'd', name: 'D', note: 0 }]).length === 1,
+     'un ZÉRO est une note : il bloque aussi (0 saisi ≠ case vide)');
+  ok(notesSaisies([{ id: 'e', name: 'E', note: 'ABS' }]).length === 1,
+     'une ABSENCE saisie est une saisie : elle bloque aussi');
+  // Témoin du contraste avec la règle de la BAISSE de barème, qui les ignore.
+  ok(notesHorsBareme([{ id: 'e', name: 'E', note: 'ABS' }], 5).length === 0,
+     'témoin : pour une baisse de barème, un ABS ne dépasse rien');
+  // Et le nom des porteurs est rendu, pour que l’enseignant sache qui corriger.
+  const porteurs = [{ id: 'f', name: 'FOTSO', note: 3 }, { id: 'g', name: 'GAKA', note: 'ABS' }];
+  ok(notesSaisies(porteurs).map((x) => x.name).join(',') === 'FOTSO,GAKA',
+     'les porteurs sont nommés, pas seulement comptés',
+     notesSaisies(porteurs).map((x) => x.name));
 }
 
 console.log(fail ? `\n❌ ${fail} échec(s) sur ${pass + fail}` : `\n✅ Barème de colonne : tout passe (${pass})`);

@@ -525,7 +525,13 @@ const handlers = {
     const cl = st?.class_id ? db.prepare('SELECT * FROM classes WHERE id = ?').get(st.class_id) : null;
     const sc = db.prepare('SELECT * FROM schools WHERE id = ?').get(st.school_id) || null;
     const sys = cl?.system || 'FR';
-    const scale = sys === 'FR' ? 20 : 100;
+    // MÊME RÈGLE QUE `src/core/bulletinScale.js` (D21) : le barème vient de la
+    // CLASSE, sa langue ne sert que de repli. Redite ici parce que le paquet LAN
+    // ne copie pas src/core ; si l'une des deux bouge, l'autre doit suivre.
+    const demande = Number(cl?.grade_max);
+    const scale = Number.isFinite(demande) && demande > 0
+      ? demande
+      : (sys === 'FR' ? 20 : 100);
     const showRank = !!sc?.parent_show_rank;
 
     const subjects = db.prepare(

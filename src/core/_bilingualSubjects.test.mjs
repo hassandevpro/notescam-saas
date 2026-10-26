@@ -20,7 +20,7 @@ import {
   bilingualSubjectChoices, buildSubjectsForBilingualClass, missingBilingualSubjects,
   isBilingualClass, mergeBilingualCatalog, BAREME_FR, BAREME_EN,
   siblingClassCandidates, mergeFromSiblingClass, missingFromSiblingClass,
-  niveauPartage, defaultSiblingClass,
+  niveauPartage, defaultSiblingClass, memeMatiere,
 } from './bilingualSubjects.js';
 // Le moteur classique, INCHANGÉ : c'est lui qui doit rester juste avec deux barèmes.
 import { calcFR } from './bulletinEngine.js';
@@ -349,6 +349,79 @@ const FORM1    = { id: 'c-f1',   school_id: 'ecole', name: 'FORM1',    level: 'F
   ok(siblingClassCandidates(cls, sansEquiv).some((c) => c.name === 'Class 1 A'),
     '… mais l’école garde la main pour apparier autrement',
     siblingClassCandidates(cls, sansEquiv).map((c) => c.name));
+}
+
+// ── LA MATIÈRE DÉJÀ PORTÉE SOUS UN AUTRE NOM N'EST PAS REPROPOSÉE ──────────
+//
+// Mesuré chez THE GENIUS le 2026-10-26 : FORM1 et FORM2 portaient ICT (41 et 15
+// notes), Literature in English (21 et 17) et ML, et « Ajouter le programme
+// manquant » avait posé À CÔTÉ Computer Science, English Literature et Manual
+// Labour, vides. Le bulletin imprimait les deux lignes, la copie en ABS ;
+// l'école décochait la copie et elle revenait, parce que le rapprochement se
+// faisait sur le LIBELLÉ EXACT.
+{
+  ok(memeMatiere('ICT', 'Computer Science'), 'ICT et Computer Science = le même enseignement');
+  ok(memeMatiere('Computer Studies', 'ict'), 'Computer Studies aussi, dans les deux sens');
+  ok(memeMatiere('Literature in English', 'English Literature'), 'Literature in English = English Literature');
+  ok(memeMatiere('ML', 'Manual Labour'), 'ML = Manual Labour');
+  ok(memeMatiere('Mathematics', 'Mathematics'), 'identité de libellé : inchangé');
+  ok(!memeMatiere('Mathematics', 'Mathématiques'), 'les deux langues restent DEUX matières');
+
+  // Le point qui ne doit pas bouger : une classe bilingue peut enseigner les
+  // deux français. On SIGNALE l'équivalence (EQUIVALENCES), on ne la confond pas.
+  ok(!memeMatiere('Français intensif', 'French Language'),
+    'Français intensif et French Language ne sont pas fusionnés');
+  ok(!memeMatiere('Biology', 'Chemistry'), 'deux matières différentes le restent');
+  ok(!memeMatiere('', 'Biology') && !memeMatiere('Biology', null), 'libellé vide : jamais une correspondance');
+
+  const clsF2 = { id: 'c1', school_id: 's1', name: 'FORM2', level: 'Form 2', system: 'FR', cycle: 'secondaire' };
+  const porte = (noms) => noms.map((name, i) => ({ id: 's' + i, class_id: 'c1', name }));
+
+  // Avant : « Computer Science » était reproposée alors qu’ICT portait 15 notes.
+  const avecIct = missingBilingualSubjects({ cls: clsF2, existing: porte(['ICT']), makeId: (n) => n });
+  ok(!avecIct.some((r) => norm_(r.name) === 'computer science'),
+    'ICT en place ⇒ Computer Science n’est plus reproposée',
+    avecIct.map((r) => r.name).join(' | '));
+
+  // … et ce qui manque VRAIMENT reste proposé : le geste garde son sens.
+  ok(avecIct.some((r) => norm_(r.name) === 'mathematics'),
+    'les matières réellement absentes restent proposées');
+
+  // Sans la matière, rien ne change : le comportement d'origine est conservé.
+  const sansRien = missingBilingualSubjects({ cls: clsF2, existing: [], makeId: (n) => n });
+  ok(sansRien.some((r) => norm_(r.name) === 'computer science'),
+    'classe vide ⇒ Computer Science est bien proposée');
+
+  // Rejouer le geste ne doit RIEN ajouter : c’est ce qui fabriquait les doublons.
+  const apres = porte(['ICT'].concat(sansRien.filter((r) => norm_(r.name) !== 'computer science').map((r) => r.name)));
+  const reste = missingBilingualSubjects({ cls: clsF2, existing: apres, makeId: (n) => n });
+  ok(reste.length === 0, 'programme complet (ICT comprise) ⇒ plus rien à ajouter',
+    reste.map((r) => r.name).join(' | '));
+}
+
+// … ET LA FUSION DEPUIS LA CLASSE JUMELLE SUIT LA MÊME RÈGLE ─────────────
+// C'est l'autre chemin qui pose des matières : si la jumelle anglophone porte
+// « Computer Science » et la classe « ICT », proposer la première refait le
+// doublon. Ce qui manque vraiment reste proposé.
+{
+  const cls = { id: 'c-bil', school_id: 'ecole', name: 'FORM2', level: 'Form 2', system: 'FR', cycle: 'secondaire' };
+  const jum = { id: 'c-en', school_id: 'ecole', name: 'Form 2 EN', level: 'Form 2', system: 'EN', cycle: 'secondaire' };
+  const aMoi = [{ id: 'a1', name: 'ICT', coef: 2, max: 20 }];
+  const chezElle = [{ id: 'b1', name: 'Computer Science', coef: 2, max: 100 },
+                    { id: 'b2', name: 'Mathematics', coef: 4, max: 100 }];
+  const ajouts = missingFromSiblingClass({
+    cls, classSubjects: aMoi, sibling: jum, siblingSubjects: chezElle, makeId: (n) => n,
+  });
+  ok(!ajouts.some((a) => norm_(a.name) === 'computer science'),
+    'jumelle : Computer Science n’est pas ajoutée à une classe qui a déjà ICT',
+    ajouts.map((a) => a.name).join(' | '));
+  ok(ajouts.some((a) => norm_(a.name) === 'mathematics'),
+    'jumelle : ce qui manque vraiment est toujours ajouté',
+    ajouts.map((a) => a.name).join(' | '));
+  const fusion = mergeFromSiblingClass({ cls, classSubjects: aMoi, sibling: jum, siblingSubjects: chezElle });
+  ok(fusion.filter((f) => memeMatiere(f.name, 'Computer Science')).length === 1,
+    'la fusion montre UNE seule ligne pour cet enseignement',
+    fusion.map((f) => f.name + (f.deja ? ' (déjà)' : '')).join(' | '));
 }
 
 console.log(`\n${pass} ok, ${fail} ko`);

@@ -13,6 +13,9 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../../lib/i18n';
 import { clsStat } from '../../core/bulletinEngine';
+// Le barème vient de la classe (`grade_max`), pas de sa langue — cf. D21.
+import { bulletinScale } from '../../core/bulletinScale';
+import { geGradeMax } from '../../lib/useCountry';
 
 function latestSeqWithData(classId, studentIds, gradeMap) {
   for (let seq = 6; seq >= 1; seq--) {
@@ -25,6 +28,9 @@ function latestSeqWithData(classId, studentIds, gradeMap) {
 
 export default function TeacherClasses({
   classes, students, subjects, gradeMap, linked = true, scoped = false, teacherId = null,
+  // `school` ne sert QU'au barème des classes ES (réglage d'école) : sans lui,
+  // une classe de Guinée Équatoriale retomberait sur le défaut du pays.
+  school = null,
 }) {
   const t = useT();
 
@@ -33,8 +39,7 @@ export default function TeacherClasses({
     const allSubs = subjects.filter((s) => s.class_id === cls.id);
     const subs  = scoped ? allSubs.filter((s) => s.teacher_id === teacherId) : allSubs;
     const sys   = cls.system || 'FR';
-    const pass  = sys === 'FR' ? 10 : 50;
-    const max   = sys === 'FR' ? 20 : 100;
+    const { maxScale: max, passThreshold: pass } = bulletinScale(cls, sys, geGradeMax(school));
     const seqs  = cls.cycle !== 'secondaire' ? [1, 2, 3] : sys === 'EN' ? [1, 2, 3] : [1, 2, 3, 4, 5, 6];
 
     const latestSeq = latestSeqWithData(cls.id, studs.map((s) => s.id), gradeMap);

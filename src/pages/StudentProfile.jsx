@@ -10,6 +10,9 @@ import StudentAvatar from '../components/StudentAvatar';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
 import { resolveTransferType, TRANSFER_TYPES, CLOTURE_MOTIFS } from '../core/transferEngine';
+// Le barème vient de la classe (`grade_max`), pas de sa langue — cf. D21.
+import { bulletinScale } from '../core/bulletinScale';
+import { geGradeMax } from '../lib/useCountry';
 import { copyText } from '../lib/clipboard';
 import { useT, localeForLang } from '../lib/i18n';
 import { toast } from '../store/toastStore';
@@ -313,8 +316,7 @@ export default function StudentProfile() {
   const cls     = student ? classes.find((c) => c.id === student.class_id) : null;
   const subs    = cls ? classSubjectsOf(subjects, cls.id) : [];
   const sys     = cls?.system || 'FR';
-  const maxScale = sys === 'FR' ? 20 : 100;
-  const pass     = sys === 'FR' ? 10 : 50;
+  const { maxScale, passThreshold: pass } = bulletinScale(cls, sys, geGradeMax(school));
 
   const fee = useMemo(() => fees.find((f) => f.student_id === id), [fees, id]);
   // Situation des frais via le moteur tarifaire (grille de classe + mode + échéances).

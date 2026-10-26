@@ -50,6 +50,22 @@ export function notesHorsBareme(porteurs, nouveau) {
   });
 }
 
+// Notes SAISIES dans une colonne, quelle qu'en soit la valeur — 'ABS' comprise.
+//
+// Sert au seul cas de la REMISE À ZÉRO. Zéro n'est pas un barème : il dit « cette
+// école ne pose aucun barème ici », donc retour au barème officiel du référentiel
+// — et colonne FERMÉE quand le national n'en a pas (« Pratique » sur 1A, 1B, 2A).
+// Fermer une colonne ne rend pas une note fausse comme le ferait une baisse de
+// barème : elle la rend INVISIBLE, puisque la colonne quitte l'écran et les
+// totaux. On refuse donc tant qu'il y a quoi que ce soit dedans, une absence
+// saisie étant une saisie — ce filtre est pour cela plus large que
+// `notesHorsBareme`, qui ne regarde que les nombres.
+//
+//   porteurs : [{ id, name, note }] — un par élève de la colonne
+export function notesSaisies(porteurs) {
+  return (porteurs || []).filter((p) => p?.note != null && p.note !== '');
+}
+
 // Un barème saisi est-il recevable ? Zéro ou négatif ne veut rien dire, et
 // au-delà de 200 c'est une faute de frappe (2000 pour 20).
 export const baremeRecevable = (v) => {

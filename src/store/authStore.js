@@ -4,6 +4,7 @@ import { getCurrentUserContext } from '../lib/auth';
 import { cacheUserContext, loadCachedContext, clearCachedContext } from '../lib/authContextCache';
 import { resolveCountryCode, defaultLangForCountry } from '../countries';
 import { touchLastLogin } from '../lib/userProfileService';
+import { identifyUser, resetAnalytics } from '../lib/analytics';
 
 // Extrait du state les champs qui composent le contexte utilisateur, pour
 // les remettre en cache (ex. après mise à jour de l'école hors-ligne).
@@ -229,6 +230,9 @@ export const useAuthStore = create((set, get) => ({
       loading: false,
     });
     syncUiLangToSchool(ctx?.school);
+    // Mesure d'usage : on rattache l'appareil au COMPTE, par identifiants
+    // techniques. Ni le nom ni l'adresse e-mail ne partent (src/lib/analytics.js).
+    identifyUser({ userId: ctx?.user?.id, schoolId: ctx?.school?.id, role: ctx?.role });
     // Horodate la dernière connexion (best-effort, sans bloquer ni faire échouer
     // le login). Ne s'exécute que sur une connexion réelle : les re-fire de
     // SIGNED_IN au retour d'onglet court-circuitent setSession en amont.
@@ -275,6 +279,7 @@ export const useAuthStore = create((set, get) => ({
    */
   logout: async () => {
     const uid = get().user?.id;
+    resetAnalytics();          // coupe le lien appareil ↔ compte précédent
     await supabase.auth.signOut();
     clearCachedContext(uid);   // ne pas laisser de contexte en cache après déconnexion
     set({

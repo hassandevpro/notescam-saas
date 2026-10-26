@@ -234,18 +234,32 @@ export function matiereIdsForSubject(name, matieres, label = (m) => m?.nom) {
   if (!n || !matieres?.length) return out;
   const available = new Set(matieres.map((m) => m.id));
 
-  // 1) Nom exact du référentiel : libellé affiché, nom officiel, libellé anglais
-  //    officiel, ou id/sigle.
+  // 1) Nom exact du référentiel, PAR FORCE DÉCROISSANTE.
+  //
+  //    CLASSE BILINGUE — défaut corrigé le 2026-10-26, signalé par
+  //    l'administration de THE GENIUS : « c'est uniquement les matières
+  //    francophones qui apparaissent dans le compte enseignant ».
+  //
+  //    Quand le référentiel porte LES DEUX matières d'un groupe de traduction
+  //    (classe bilingue), « Mathematics » touchait deux lignes à la fois : la
+  //    ligne ANGLAISE par son propre nom, et la ligne FRANÇAISE par sa
+  //    traduction officielle (`APC_MATIERE_EN`). `sansDoublonDeLangue` tranchait
+  //    alors dans l'ordre du groupe, c'est-à-dire TOUJOURS pour le français :
+  //    l'enseignant de la section anglaise se voyait servir les matières de la
+  //    section française, et les siennes n'apparaissaient nulle part.
+  //
+  //    L'identité d'une ligne (son propre nom, son id) prime donc sur la
+  //    TRADUCTION d'une autre ligne. En classe monolingue rien ne change : la
+  //    ligne anglaise n'existe pas, la traduction reste le seul rapprochement
+  //    possible, et elle joue comme avant.
+  const parForce = [new Set(), new Set(), new Set()];   // 0 identité · 1 libellé affiché · 2 traduction
   for (const m of matieres) {
     const enOfficiel = APC_MATIERE_EN[String(m.id ?? '').trim().toLowerCase()];
-    if (norm(label(m)) === n
-      || norm(m.nomOfficiel ?? m.nom) === n
-      || (enOfficiel && norm(enOfficiel) === n)
-      || norm(m.id) === n) {
-      out.add(m.id);
-    }
+    if (norm(m.nomOfficiel ?? m.nom) === n || norm(m.id) === n) parForce[0].add(m.id);
+    else if (norm(label(m)) === n) parForce[1].add(m.id);
+    else if (enOfficiel && norm(enOfficiel) === n) parForce[2].add(m.id);
   }
-  if (out.size) return sansDoublonDeLangue(out);
+  for (const niveau of parForce) if (niveau.size) return sansDoublonDeLangue(niveau);
 
   // 2) Alias, du plus spécifique au plus général — premier motif gagnant.
   //    Les cibles sont ordonnées (langue de la matière d'abord) : on ne garde

@@ -5,6 +5,9 @@ import { pickLang } from '../lib/i18n';
 import { studentFeeSituation, FEE_STATUS } from '../lib/feeEngine';
 import { STATUS_UI, TRANCHE_UI } from '../components/fees/feeUi';
 import { formatMoney, currencyCode } from '../lib/currency';
+// Même barème que le bulletin : celui de la classe, pas celui de sa langue (D21).
+import { bulletinScale } from '../core/bulletinScale';
+import { geGradeMax } from '../lib/useCountry';
 
 const localeFor = (lang) => (lang === 'es' ? 'es-ES' : lang === 'en' ? 'en-US' : 'fr-FR');
 
@@ -13,14 +16,14 @@ function fmtDate(d, locale = 'fr-FR') {
   return new Date(d).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-function calcSeqAvg(subjects, gradeMap, seq, sys) {
+function calcSeqAvg(subjects, gradeMap, seq, maxScale) {
   let sw = 0, tc = 0;
   (subjects || []).forEach((sub) => {
     const v = gradeMap[sub.id]?.[seq];
     if (!v || v === 'ABS' || v === '') return;
     const num = parseFloat(v);
     if (isNaN(num)) return;
-    sw += (num / (sub.max || 20)) * (sys === 'FR' ? 20 : 100) * (sub.coef || 1);
+    sw += (num / (sub.max || 20)) * maxScale * (sub.coef || 1);
     tc += sub.coef || 1;
   });
   return tc ? Math.round((sw / tc) * 100) / 100 : null;
@@ -79,8 +82,7 @@ export default function ParentPortal() {
 
   const { student, class: cls, school, fee, subjects, grades } = data;
   const sys      = cls?.system || 'FR';
-  const maxScale = sys === 'FR' ? 20 : 100;
-  const pass     = sys === 'FR' ? 10 : 50;
+  const { maxScale, passThreshold: pass } = bulletinScale(cls, sys, geGradeMax(school));
 
   // Build grade map: { [subject_id]: { [sequence]: value } }
   const gradeMap = {};
@@ -89,7 +91,7 @@ export default function ParentPortal() {
     gradeMap[subject_id][sequence] = value;
   });
 
-  const seqAvgs = [1, 2, 3, 4, 5, 6].map((seq) => calcSeqAvg(subjects, gradeMap, seq, sys));
+  const seqAvgs = [1, 2, 3, 4, 5, 6].map((seq) => calcSeqAvg(subjects, gradeMap, seq, maxScale));
 
   // Montants dans la devise de l'établissement.
   const money = (n) => formatMoney(n, currencyCode(school));

@@ -47,6 +47,9 @@ import { apcForClass, primForClass, matForClass } from '../core/refClassScope';
 // Ordre d'affichage des matieres : une seule regle pour tout le produit.
 import { classSubjectsOf } from '../core/subjectOrder';
 import { APC_GROUPS, groupSubjects, domaineForSubject } from '../core/subjectGroup';
+// Le barème d'impression vient de la classe (`grade_max`), pas de sa langue :
+// une classe anglophone du Cameroun note sur /20 comme sa jumelle francophone.
+import { bulletinScale } from '../core/bulletinScale';
 // Second cycle et bilingue : rapprochement tolérant du nom local avec la ligne
 // de référentiel qui porte le GROUPE officiel, le coefficient et la charge.
 import { resolveRefRow, unmatchedAgainstRef } from '../core/refNameMatch';
@@ -337,8 +340,7 @@ function BulletinClassic({
   school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys,
   teachers, gradeMap, classId, classStudents = [], subjectRanks = {}, subjectStats = {}, qrSrc,
 }) {
-  const passThreshold = sys === 'FR' ? 10 : 50;
-  const maxScale      = sys === 'FR' ? 20 : 100;
+  const { maxScale, passThreshold } = bulletinScale(cls, sys, geGradeMax(school));
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
   const autoDecision  = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
   // Une classe de maternelle/primaire atterrit ici pour ses bulletins TRIMESTRIELS
@@ -455,8 +457,7 @@ function BulletinClassic({
 
 // ── Bulletin Moderne ──────────────────────────────────────────────────────────
 function BulletinModern({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, qrSrc }) {
-  const passThreshold = sys === 'FR' ? 10 : 50;
-  const maxScale      = sys === 'FR' ? 20 : 100;
+  const { maxScale, passThreshold } = bulletinScale(cls, sys, geGradeMax(school));
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
   const decision      = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
   const apprGlobal    = getAppreciation(studentAvg, school?.grade_scale, sys);
@@ -623,8 +624,17 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
 // ── Bulletin APC ──────────────────────────────────────────────────────────────
 function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, classStudents = [], qrSrc }) {
   const isEnSys    = sys === 'EN';
-  const passThr    = isEnSys ? 50 : 10;
-  const maxScale   = isEnSys ? 100 : 20;
+  const { maxScale, passThreshold: passThr } = bulletinScale(cls, sys, geGradeMax(school));
+  // Note ramenée au barème du bulletin. `sub.max` est le barème de SAISIE de la
+  // matière, `maxScale` celui de l'impression : quand ils coïncident — le cas
+  // courant — la note est rendue telle quelle, sans arrondi. La conversion ne
+  // regardait auparavant que la LANGUE (« si FR, ne rien convertir »), donc une
+  // matière saisie /100 sur une classe FR s’imprimait brute sur un bulletin /20.
+  const surBareme = (v, sub) => {
+    if (v === null || v === undefined) return null;
+    const saisie = Number(sub?.max) || maxScale;
+    return saisie === maxScale ? v : Math.round((v / saisie) * maxScale * 100) / 100;
+  };
   const passed     = studentAvg !== null && studentAvg >= passThr;
   const decision   = isEnSys ? (passed ? 'PASSED' : 'FAILED') : (passed ? 'ADMIS(E)' : 'AJOURNÉ(E)');
   const apprGlobal = getAppreciation(studentAvg, school?.grade_scale, sys);
@@ -673,7 +683,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
       const g = subjectGrades[sub.id];
       if (g !== null && g !== undefined) {
         // Échelle native du système : /20 en FR, /100 en EN (anglophone).
-        const disp = sys === 'FR' ? g : Math.round((g / (sub.max || 100)) * maxScale * 100) / 100;
+        const disp = surBareme(g, sub);
         pts     += disp * sub.coef;
         coefSum += sub.coef;
       }
@@ -706,7 +716,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   subjects.forEach((sub) => {
     const rawG = subjectGrades[sub.id];
     if (rawG !== null && rawG !== undefined) {
-      const on20 = sys === 'FR' ? rawG : Math.round((rawG / (sub.max || 100)) * maxScale * 100) / 100;
+      const on20 = surBareme(rawG, sub);
       gPts += on20 * sub.coef; gCoef += sub.coef;
     }
   });
@@ -771,7 +781,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
                 const rawG   = subjectGrades[sub.id];
                 // Échelle native du système : /20 en FR, /100 en EN (anglophone).
                 const on20   = rawG !== null && rawG !== undefined
-                  ? (sys === 'FR' ? rawG : Math.round((rawG / (sub.max || 100)) * maxScale * 100) / 100)
+                  ? surBareme(rawG, sub)
                   : null;
                 const total  = on20 !== null ? Math.round(on20 * sub.coef * 100) / 100 : '—';
                 const sRank  = getSubjectRank(sub);
@@ -904,8 +914,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
 
 // ── Bulletin Primaire (annuel — T1 + T2 + T3 côte à côte) ────────────────────
 function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, stats, sys, teachers, gradeMap, classId, qrSrc }) {
-  const passThreshold = sys === 'FR' ? 10 : 50;
-  const maxScale      = sys === 'FR' ? 20 : 100;
+  const { maxScale, passThreshold } = bulletinScale(cls, sys, geGradeMax(school));
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
   const decision      = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
   const apprGlobal    = getAppreciation(studentAvg, school?.grade_scale, sys);
@@ -1071,8 +1080,7 @@ function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, st
 
 // ── Bulletin Annuel Secondaire (T1 / T2 / T3 / Moy.Ann) ──────────────────────
 function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, sys, teachers, gradeMap, classId, annualDecision, qrSrc }) {
-  const passThreshold = sys === 'FR' ? 10 : 50;
-  const maxScale      = sys === 'FR' ? 20 : 100;
+  const { maxScale, passThreshold } = bulletinScale(cls, sys, geGradeMax(school));
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
 
   // Décision annuelle : valeur posée explicitement par l'admin, sinon dérivée du seuil.

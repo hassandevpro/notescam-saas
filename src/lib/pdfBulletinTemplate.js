@@ -1,4 +1,7 @@
 import { supabase } from './supabase';
+// Le barème vient de la classe (`grade_max`), pas de sa langue — cf. D21.
+import { bulletinScale } from '../core/bulletinScale';
+import { geGradeMax } from './useCountry';
 
 // ── Convertit la 1ère page d'un PDF en PNG via PDF.js ─────────────────────
 
@@ -77,8 +80,7 @@ export const DATA_KEYS = [
 // ── Construit le dictionnaire de données à partir du contexte bulletin ─────
 
 export function buildDataDict({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys }) {
-  const maxScale = sys === 'FR' ? 20 : 100;
-  const passThreshold = sys === 'FR' ? 10 : 50;
+  const { maxScale, passThreshold } = bulletinScale(cls, sys, geGradeMax(school));
   const passed = studentAvg !== null && studentAvg >= passThreshold;
 
   const dict = {

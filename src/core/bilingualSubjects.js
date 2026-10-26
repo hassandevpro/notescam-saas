@@ -92,6 +92,52 @@ function equivalentDe(nom, cote, autreCote) {
   return null;
 }
 
+// ── LE MÊME ENSEIGNEMENT, ÉCRIT AUTREMENT ──────────────────────────────────
+//
+// RELEVÉ EN PRODUCTION (THE GENIUS, 2026-10-26, lecture seule). FORM1 et FORM2
+// portaient quatre matières en DOUBLE : l'école avait saisi les siennes — ICT
+// (41 et 15 notes), Literature in English (21 et 17), ML — et « Ajouter le
+// programme manquant » a posé À CÔTÉ les libellés officiels — Computer Science,
+// English Literature, Manual Labour — vides. Le bulletin imprimait donc les deux
+// lignes, la copie en ABS. L'école décochait la copie ; la bannière la
+// reproposait au geste suivant, parce que le rapprochement se faisait sur le
+// LIBELLÉ EXACT : « ICT » n'est pas « Computer Science », donc elle la croyait
+// absente, indéfiniment.
+//
+// Ces groupes disent seulement : ces libellés nomment le MÊME enseignement.
+// Ils ne servent QU'À NE PAS REPROPOSER ce que la classe porte déjà. Rien n'est
+// renommé, fusionné ni supprimé — les matières en place et leurs notes sont hors
+// d'atteinte.
+//
+// VOLONTAIREMENT D'UN SEUL CÔTÉ À LA FOIS : chaque groupe ne contient que des
+// libellés d'un MÊME sous-système. « Français intensif » et « French Language »
+// n'y sont pas ensemble — une classe bilingue peut légitimement enseigner les
+// deux, et c'est le rôle d'EQUIVALENCES (ci-dessus) de le SIGNALER à l'école
+// sans trancher à sa place. Regrouper les deux langues ici déferait la fusion
+// bilingue elle-même.
+const SYNONYMES = [
+  ['computer science', 'computer studies', 'ict'],
+  ['english literature', 'literature in english'],
+  ['manual labour', 'manual labor', 'ml'],
+  ['informatique', 'tic'],
+];
+
+// Index libellé normalisé → numéro de groupe. Construit une fois.
+const GROUPE_DE = new Map();
+SYNONYMES.forEach((groupe, i) => { for (const n of groupe) GROUPE_DE.set(n, i); });
+
+/**
+ * Deux libellés nomment-ils le même enseignement ? Identité d'abord (c'est le
+ * cas courant, et le comportement d'avant), puis appartenance au même groupe.
+ */
+export function memeMatiere(a, b) {
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const ga = GROUPE_DE.get(na);
+  return ga !== undefined && ga === GROUPE_DE.get(nb);
+}
+
 /**
  * Les deux troncs d'une classe bilingue, côte à côte.
  *
@@ -285,9 +331,14 @@ export function mergeFromSiblingClass({ cls, classSubjects = [], sibling = null,
       cote: coteCls, origine: 'classe', deja: true,
     });
   }
+  // Les libellés que la classe porte DÉJÀ, pour le rapprochement par synonyme :
+  // la jumelle propose « Computer Science » là où la classe a « ICT » — c'est la
+  // même matière, et la proposer ferait le doublon relevé en FORM1/FORM2.
+  const porteesCls = (classSubjects || []).map((s) => s?.name);
   for (const s of siblingSubjects || []) {
     const n = norm(s?.name);
     if (!n || vus.has(n)) continue;       // déjà portée : la classe fait foi
+    if (porteesCls.some((nom) => memeMatiere(nom, s.name))) { vus.add(n); continue; }
     vus.add(n);
     out.push({
       name: s.name, coef: Number(s.coef) || 1, max: baremeOuDefaut(s, coteJum),
@@ -382,9 +433,12 @@ export function mergeBilingualCatalog({ cls, catalogueFr = [], catalogueEn = [] 
  * @returns {Array} lignes `subjects` à créer (celles déjà présentes sont ignorées)
  */
 export function missingBilingualSubjects({ cls, existing = [], makeId, keep = null }) {
-  const deja = new Set((existing || []).map((s) => norm(s.name)));
+  const portees = (existing || []).map((s) => s?.name);
   const base = (existing || []).length;
+  // `memeMatiere` couvre l'identité de libellé — le filtre d'avant — ET les
+  // libellés synonymes, pour qu'une matière déjà portée sous un autre nom ne
+  // soit pas reproposée en double à chaque geste.
   return buildSubjectsForBilingualClass({ cls, makeId, keep })
-    .filter((r) => !deja.has(norm(r.name)))
+    .filter((r) => !portees.some((nom) => memeMatiere(nom, r.name)))
     .map((r, i) => ({ ...r, position: base + i }));
 }

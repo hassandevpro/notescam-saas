@@ -6,6 +6,9 @@ import { Link } from 'react-router-dom';
 import { useT } from '../../lib/i18n';
 import { clsStat } from '../../core/bulletinEngine';
 import { resolveClassEngine } from '../../core/engineResolver';
+// Le barème vient de la classe (`grade_max`), pas de sa langue — cf. D21.
+import { bulletinScale } from '../../core/bulletinScale';
+import { geGradeMax } from '../../lib/useCountry';
 import { feeDashboard } from '../../lib/feeEngine';
 import { TRACKS, trackKeyForClass, currentPeriodOfTrack, periodAt } from '../../lib/calendarTracks';
 import { classEntryProgress, latestPeriodWithData, indexPrimNotes } from '../../lib/gradeEntryProgress';
@@ -257,8 +260,7 @@ export function ClassTable({ classStats }) {
           </thead>
           <tbody className="divide-y divide-gray-50">
             {classStats.map(({ cls, subs, studs, sys, seq, trackKey, stats }) => {
-              const pass = sys === 'FR' ? 10 : 50;
-              const max  = sys === 'FR' ? 20 : 100;
+              const { maxScale: max, passThreshold: pass } = bulletinScale(cls, sys, geGradeMax(school));
               const passRate = stats ? Math.round((stats.above / stats.total) * 100) : null;
               const period = periodAt(trackKey, seq);
               return (

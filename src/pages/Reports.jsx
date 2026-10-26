@@ -6,6 +6,7 @@ import { frApp, enGrade, esGrade } from '../core/bulletinEngine';
 import { MAT_ACQUIS, MAT_ACQUIS_COLORS } from '../core/matEngine';
 import { matAcquisLabel, matAcquisCode } from '../core/referentielI18n';
 import { downloadExcel } from '../lib/exportCsv';
+import { enteteRapport, rapportComplet } from '../lib/reportExcel';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { resolveCountryCode, bulletinOfficials } from '../countries';
@@ -16,6 +17,9 @@ import { resolveCountryCode, bulletinOfficials } from '../countries';
 // quelle que soit la classe.
 import { classIdentity } from '../lib/schoolIdentity';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
+// Le barème vient de la classe (`grade_max`), pas de sa langue — cf. D21. Le cas
+// ES passe par `geGradeMax`, exactement comme l'ancien branchement `isGE`.
+import { bulletinScale } from '../core/bulletinScale';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import { resolveClassEngine, SECTIONS } from '../core/engineResolver';
 import { apcBulletinPeriods, apcPeriodLabel } from '../core/apcPeriods';
@@ -421,7 +425,7 @@ function computeClassReport(cls, period, ctx) {
     apcMasques:      ctx.apcMasques,
     primMasques:     ctx.primMasques,
     sys, gOpts,
-    scaleMax:      isGE ? geGradeMax(school) : sys === 'FR' ? 20 : 100,
+    scaleMax:      bulletinScale(cls, sys, geGradeMax(school)).maxScale,
     passThreshold: isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50,
     gradeScale:    school?.grade_scale,
   });
@@ -882,7 +886,7 @@ export default function Reports() {
   const isGE            = resolveCountryCode(school) === 'guinea_eq';
   const gOpts           = gradingOpts(school, selectedClass?.cycle);
   const passThreshold   = isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
-  const maxScale        = isGE ? geGradeMax(school) : sys === 'FR' ? 20 : 100;
+  const maxScale        = bulletinScale(cls, sys, geGradeMax(school)).maxScale;
   // Moteur de la classe : maternelle / primaire APC → périodes par trimestre.
   const classEngine     = selectedClass ? resolveClassEngine(school, selectedClass) : 'classic';
   const isFund          = classEngine === 'maternelle' || classEngine === 'apc_primaire';
@@ -1035,10 +1039,26 @@ export default function Reports() {
     return `${prefix}_${cn}_${period.label.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
   };
 
+  // LE CLASSEUR REPREND LA PAGE IMPRIMÉE, de haut en bas : en-tête, chiffres de
+  // la classe, classement (avec le barème de chaque matière), puis « Résultats
+  // par matière ». Avant, il ne portait qu'un tableau nu, dans un fichier
+  // séparé de celui des matières — ce que l'informaticien de THE GENIUS a
+  // résumé le 2026-10-26 : « n'affiche pas tous les détails, comme celle
+  // imprimée ». Le détail de ce qui manquait est dans src/lib/reportExcel.js.
   const handleExportResults = () => {
-    // Maternelle : ni moyenne ni rang — on exporte les niveaux d'acquisition.
+    const dateDuJour = new Date().toLocaleDateString(isGE ? 'es-ES' : 'fr-FR',
+      { day: 'numeric', month: 'long', year: 'numeric' });
+    const commun = {
+      school, classe: selectedClass, periode: period, stats,
+      scale: reportScale, date: dateDuJour, effectif: studentResults.length, t,
+    };
+
+    // Maternelle : ni moyenne ni rang — on exporte les niveaux d'acquisition,
+    // sous le même en-tête (c'est lui qui dit de quelle classe on parle).
     const rows = isAcquisition
       ? [
+        ...enteteRapport({ ...commun, stats: { total: studentResults.length } }),
+        [t('ACQUISITIONS', 'ACQUISITION', 'ADQUISICIONES')],
         [t('Nom', 'Name'), t('Matricule', 'Student ID'), ...reportColumns.map((c) => c.name), t('Tendance', 'Trend')],
         ...studentResults.map(({ student, cotes, cote }) => [
           student.name, student.matricule || '',
@@ -1046,23 +1066,16 @@ export default function Reports() {
           matAcquisCode(cote || '', sys),
         ]),
       ]
-      : [
-        [t('Rang', 'Rank'), t('Nom', 'Name'), t('Matricule', 'Student ID'),
-          ...reportColumns.map((c) => c.name),
-          t('Moyenne', 'Average'), t('Appréciation', 'Grade'), t('Décision', 'Decision')],
-        ...studentResults.map(({ student, avg, rank, appr, scores }) => {
-          const decision = avg !== null ? (avg >= reportPass ? t('Admis(e)', 'Passed') : t('Ajourné(e)', 'Failed')) : '';
-          return [
-            rank?.rankN ?? '', student.name, student.matricule || '',
-            ...reportColumns.map((c) => scores[c.id] ?? ''),
-            avg ?? '',
-            sys === 'EN' && appr?.txt ? `${appr.g} - ${appr.txt}` : (appr?.text || appr?.g || ''),
-            decision,
-          ];
-        }),
-      ];
-    downloadExcel(workbookName(isAcquisition ? 'acquisition' : 'resultats'), rows,
-      isAcquisition ? t('Acquisitions', 'Acquisition', 'Adquisiciones') : t('Résultats', 'Results', 'Resultados'));
+      : rapportComplet({
+        ...commun,
+        studentResults,
+        colonnes: reportColumns,
+        pass: reportPass,
+        apprTxt: (appr) => (sys === 'EN' && appr?.txt ? `${appr.g} - ${appr.txt}` : (appr?.text || appr?.g || '')),
+        subjectStats,
+      });
+    downloadExcel(workbookName(isAcquisition ? 'acquisition' : 'rapport'), rows,
+      isAcquisition ? t('Acquisitions', 'Acquisition', 'Adquisiciones') : t('Rapport', 'Report', 'Informe'));
   };
 
   const handleExportSubjects = () => {
@@ -1210,8 +1223,10 @@ export default function Reports() {
 
           {activeTab === 'academique' && hasData && (
             <div className="flex gap-2 flex-wrap items-end">
-              <button onClick={handleExportResults} className="btn-secondary text-xs">
-                Excel {t('résultats', 'results')}
+              <button onClick={handleExportResults} className="btn-secondary text-xs"
+                title={t('Le rapport complet, comme à l’impression : en-tête, classement et résultats par matière',
+                         'The full report, as printed: header, ranking and results by subject')}>
+                Excel {t('rapport', 'report')}
               </button>
               <button onClick={handleExportSubjects} className="btn-secondary text-xs">
                 Excel {t('matières', 'subjects')}

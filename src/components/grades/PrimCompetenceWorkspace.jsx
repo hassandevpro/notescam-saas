@@ -35,7 +35,7 @@ import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal, primCote,
   trimestreOfUA, PRIM_COTE_DEFAULT,
 } from '../../core/primEngine';
-import { baremeEnVigueur, notesHorsBareme } from '../../core/primColumnBareme';
+import { baremeEnVigueur, notesHorsBareme, notesSaisies } from '../../core/primColumnBareme';
 // Le PÉRIMÈTRE de la classe — ses matières cochées dans « Modifier la classe ».
 // Le bulletin l'applique déjà (primForClass) : la saisie doit lister EXACTEMENT
 // les mêmes compétences, sinon on saisit des notes qui ne s'impriment jamais.
@@ -59,7 +59,18 @@ function BaremeCell({ value, disabled, onCommit }) {
   useEffect(() => { setLocal(String(value ?? '')); }, [value]);
   const commit = () => {
     const n = parseFloat(String(local).replace(',', '.'));
-    if (!Number.isFinite(n) || n <= 0) { setLocal(String(value ?? '')); return; }
+    // ZÉRO EST UNE VALEUR, PAS UNE FAUTE DE SAISIE. Il dit « pas de barème
+    // d'école ici » : la colonne retourne au barème officiel du référentiel, et
+    // se referme quand le national n'en a pas. Sans ce cran, l'école pouvait
+    // OUVRIR une colonne née à zéro (« Pratique » sur 1A, 1B, 2A) mais jamais la
+    // refermer : le champ revenait à l'ancienne valeur sans un mot d'explication,
+    // ce qui se lit comme un refus de l'application. C'est `setBareme` qui décide
+    // et qui explique — ce champ ne fait que transmettre.
+    //
+    // Un champ VIDÉ, lui, revient bien à la valeur affichée : effacer puis quitter
+    // la cellule est tout autant un geste d'abandon qu'une intention, et on ne
+    // referme pas une colonne sur une ambiguïté. Il faut écrire 0.
+    if (!Number.isFinite(n) || n < 0) { setLocal(String(value ?? '')); return; }
     if (n !== value) onCommit(n);
   };
   return (
@@ -410,14 +421,51 @@ export default function PrimCompetenceWorkspace() {
   // transforme pas en silence un 18/20 en 18/10. L'enseignant corrige d'abord les
   // notes concernées — même règle que l'écran du premier cycle.
   const setBareme = (critereId, nouveau) => {
-    const trop = notesHorsBareme(
-      classStudents.map((stu) => ({
-        id: stu.id,
-        name: stu.name,
-        note: primNotes[primNkey(stu.id, competenceId, critereId, ua)]?.note,
-      })),
-      nouveau,
-    );
+    const porteurs = classStudents.map((stu) => ({
+      id: stu.id,
+      name: stu.name,
+      note: primNotes[primNkey(stu.id, competenceId, critereId, ua)]?.note,
+    }));
+
+    // ── REMISE À ZÉRO : REFERMER UNE COLONNE QU'ON AVAIT OUVERTE ─────────────
+    //
+    // LE DÉFAUT QUE CECI CORRIGE : une colonne sans barème national naît à zéro
+    // et l'école y pose son chiffre. Le geste inverse était impossible. Zéro est
+    // refusé par la base elle-même (`CHECK points_max > 0`), donc « revenir à
+    // zéro » ne s'écrit pas 0 : il s'écrit NULL, que le schéma définit déjà comme
+    // « le barème officiel du référentiel ». Pour un critère que le national
+    // ignore, cet officiel VAUT zéro — la colonne se referme et retrouve son
+    // repère « à définir ». Pour un critère officiel, le même geste rend sa
+    // colonne au barème MINEDUB : une seule règle, deux effets justes.
+    if (nouveau === 0) {
+      const saisies = notesSaisies(porteurs);
+      if (saisies.length) {
+        setBaremeMsg({
+          critereId,
+          text: t(
+            `Remise à zéro refusée : ${saisies.length} note(s) sont saisies dans cette colonne (${saisies.slice(0, 3).map((s) => s.name).join(', ')}${saisies.length > 3 ? '…' : ''}). Effacez-les d'abord — sinon elles resteraient en base sans colonne pour les montrer.`,
+            `Reset refused: ${saisies.length} grade(s) are entered in this column (${saisies.slice(0, 3).map((s) => s.name).join(', ')}${saisies.length > 3 ? '…' : ''}). Clear them first — otherwise they would stay in the database with no column to show them.`,
+          ),
+        });
+        return;
+      }
+      setBaremeMsg(null);
+      setPendingBareme((p) => ({ ...p, [`${competenceId}_${critereId}`]: 0 }));
+      // On n'efface que ce qui a été écrit. Une ligne n'existe ici que parce
+      // qu'un barème y a été posé — la colonne est vide, on vient de le vérifier :
+      // lui remettre `points_max` à NULL la rend muette, et un élève jamais touché
+      // n'a pas besoin d'une ligne pour ne rien dire.
+      for (const stu of classStudents) {
+        if (!primNotes[primNkey(stu.id, competenceId, critereId, ua)]) continue;
+        savePrimNote({
+          eleveId: stu.id, competenceId, critereId, ua,
+          note: null, pointsMax: null,
+        });
+      }
+      return;
+    }
+
+    const trop = notesHorsBareme(porteurs, nouveau);
     if (trop.length) {
       setBaremeMsg({
         critereId,
@@ -621,8 +669,8 @@ export default function PrimCompetenceWorkspace() {
            'Official per-criterion scale (points) — varies by competency · total and grade are computed from criteria already entered.')}
         {' · '}
         {t(
-          'le barème se change sous le nom du critère (Oral, Écrit…) et vaut pour cette UA : le total suit',
-          'the scale is editable under the criterion name (Oral, Written…) and applies to this unit: the total follows',
+          'le barème se change sous le nom du critère (Oral, Écrit…) et vaut pour cette UA : le total suit · 0 referme la colonne (elle ne compte plus)',
+          'the scale is editable under the criterion name (Oral, Written…) and applies to this unit: the total follows · 0 closes the column (it no longer counts)',
         )}
       </div>
 

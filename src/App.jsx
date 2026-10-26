@@ -1,5 +1,6 @@
 import { useEffect, useCallback, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import AnalyticsRouteTracker from './components/AnalyticsRouteTracker';
 import { useAuthStore } from './store/authStore';
 import { useSchoolStore } from './store/schoolStore';
 import { useUiStore } from './store/uiStore';
@@ -301,6 +302,7 @@ export default function App() {
   return (
     <LanLicenseGate>
     <BrowserRouter>
+      <AnalyticsRouteTracker />
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/" element={<Landing />} />

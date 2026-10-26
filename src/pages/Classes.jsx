@@ -237,7 +237,12 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
 
   const teacherName   = teachers.find((tc) => tc.id === teacherId)?.name;
   const sysLabel      = isGE ? 'ES' : eff.system;
-  const scaleLabel    = isGE ? `/${country?.geMax || 10}` : `/${eff.grade_max || '—'}`;
+  // Le barème ne se déduit PAS de la langue (D21). On n'affiche donc un chiffre
+  // que si la classe en porte un : « EN /— » ne disait rien à personne, et un
+  // barème deviné aurait menti. Hors Guinée Éq., où il vient du réglage d'école.
+  const scaleLabel    = isGE
+    ? `/${country?.geMax || 10}`
+    : (Number(eff.grade_max) > 0 ? `/${Number(eff.grade_max)}` : '');
   const cycleLabel    = CYCLES.find((c) => c.value === eff.cycle)?.label || eff.cycle;
   const templateLabel = classEngine === 'sc'
     ? `${t('Second Cycle', 'Upper sec.')}${eff.serie ? ` · ${eff.serie.toUpperCase()}` : ` · ${t('série ?', 'stream ?')}`}`
@@ -297,7 +302,9 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
                 <Chip tone="indigo">{cycleIcon(eff.cycle)} {cycleLabel}</Chip>
                 {eff.level ? <Chip>{eff.level}</Chip> : <Chip tone="amber">{t('Niveau ?', 'Level ?', 'Nivel ?')}</Chip>}
                 {eff.serie && <Chip>{t('Série', 'Stream')} {eff.serie.toUpperCase()}</Chip>}
-                <Chip>{sysLabel} {scaleLabel}</Chip>
+                {/* `scaleLabel` est VIDE quand la classe ne fixe aucun barème : on
+                    ne laisse pas une espace traîner dans la pastille. */}
+                <Chip>{[sysLabel, scaleLabel].filter(Boolean).join(' ')}</Chip>
                 {engine !== 'classic' && <Chip tone="indigo">📋 {templateLabel}</Chip>}
               </div>
               {(classEngine === 'apc' || (classEngine === 'sc' && eff.serie)) && (
@@ -732,8 +739,15 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
               <div>
                 <label className="form-label">{t('Système de notation', 'Grading system')}</label>
                 <select className="form-input" value={form.system || 'FR'} onChange={set('system')}>
+                  {/* LE SOUS-SYSTÈME, ET RIEN QUE LUI. Ce choix dit le PROGRAMME
+                      suivi — francophone ou anglophone — et non le barème : celui-ci
+                      se règle matière par matière, et la classe le fixe pour son
+                      bulletin (`grade_max`), cf. D21. Annoncer « EN — notes sur 100 »
+                      ici était faux dès qu'une classe anglophone notait sur /20, ce
+                      qui est le cas de FORM1 et FORM2 : le réglage le plus visible
+                      de l'écran contredisait le barème réellement appliqué. */}
                   {SYSTEMS.map((s) => (
-                    <option key={s} value={s}>{s === 'FR' ? t('FR — notes sur 20', 'FR — grades out of 20') : t('EN — notes sur 100', 'EN — grades out of 100')}</option>
+                    <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
               </div>
@@ -1217,7 +1231,10 @@ function ClassCard({ cls, stats, onEdit, onDuplicate, onDelete, onGo, onConfigur
   const cycle = cls.cycle || 'secondaire';
   const theme = CYCLE_THEME[cycle] || CYCLE_THEME.secondaire;
   const sys   = cls.system || 'FR';
-  const scale = sys === 'FR' ? '/20' : sys === 'EN' ? '/100' : '/10';
+  // LE BARÈME NE SE DÉDUIT PLUS DE LA LANGUE (D21) : une classe anglophone du
+  // Cameroun note sur /20 comme sa jumelle francophone. La carte annonce donc le
+  // SOUS-SYSTÈME, qui est un fait, et non un barème qu'elle devinait — il se lit
+  // sur la fiche de la classe, où il vient de `grade_max`.
   const max   = cls.max_students || null;
   const pct   = max ? Math.min(100, Math.round((studentCount / max) * 100)) : null;
   const fillColor = pct === null ? 'bg-slate-300' : pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-400' : 'bg-emerald-500';
@@ -1275,10 +1292,10 @@ function ClassCard({ cls, stats, onEdit, onDuplicate, onDelete, onGo, onConfigur
         </div>
       </div>
 
-      {/* Badges cycle + barème */}
+      {/* Badges cycle + sous-système */}
       <div className="px-5 flex flex-wrap gap-1.5">
         <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${theme.badge}`}>{CYCLE_LABELS[cycle]}</span>
-        <span className="text-[11px] font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-100">{t('Barème', 'Scale', 'Escala')} {scale}</span>
+        <span className="text-[11px] font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-100">{t('Système', 'System', 'Sistema')} {sys}</span>
       </div>
 
       {/* Effectif + remplissage */}

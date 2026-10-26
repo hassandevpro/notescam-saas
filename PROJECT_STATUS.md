@@ -4,10 +4,48 @@
 > actualiser à la fin. Toute ligne ici doit être vérifiable par une commande ou un
 > fichier : si une information ne peut pas être prouvée, elle est marquée « à vérifier ».
 >
-> Dernière mise à jour : **2026-10-22** (passe « matières dédoublonnées, carnet du
-> primaire » — § 4 quaterdecies) · branche `caisse-journal-et-sync-0.3.15` **poussée sur
-> `main`** le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
-> `package.json` = **0.3.23**
+> Dernière mise à jour : **2026-10-26** (release **0.3.24** : les deux paquets sont
+> construits — § ci-dessous) · branche `caisse-journal-et-sync-0.3.15`, dernier push sur
+> `main` le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
+> `package.json` = **0.3.24**
+>
+> ## 📦 0.3.24 — LES DEUX PAQUETS SONT CONSTRUITS, NON ENVOYÉS (2026-10-26)
+>
+> **Rien n'est déployé** : ni Vercel (le Cloud tourne toujours sur le dernier push de
+> `main`), ni une école. Les artefacts sont sur le poste de build.
+>
+> | | Windows | Linux |
+> |---|---|---|
+> | Fichier | `packaging/Output/NotesCam-Setup-0.3.24.exe` | `packaging/linux/Output/notescam-linux-x64-0.3.24.tar.gz` |
+> | Taille | 30 820 861 o | 53 544 380 o |
+> | SHA-256 | `c9cc923f…f54c695b` | `8eeaf300…ee157751` |
+> | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.24-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.24.txt` |
+> | Script | — (installeur) | `packaging/linux/deploy-0.3.24.sh` (`bash -n` OK) |
+>
+> **Node embarqué** : v24.22.1 pour les deux, comme la 0.3.23.
+>
+> **Elle ne touche NI au schéma NI à la synchronisation** : aucune table, aucune colonne,
+> aucun curseur remis à zéro (`git diff 6bb98d6..HEAD -- server/` est vide avant la passe
+> du jour, et la passe du jour ne touche `server/rpc.js` que pour lire `grade_max`). Il
+> n'y a donc pas de rattrapage à attendre, contrairement aux 0.3.16, 0.3.19 et 0.3.23.
+>
+> **Ce qu'elle porte** : les cinq correctifs du 2026-10-26 (matières anglophones dans le
+> compte enseignant · une matière décochée ne revient plus, D22 · le barème du bulletin
+> vient de la classe, D21 + D21 bis · zéro referme une colonne du primaire, D23 · le
+> classeur Excel du rapport dit ce que dit le papier) **et** ce qui a été corrigé depuis
+> l'envoi de la 0.3.23 (I21 `updated_at`, I22 coefficient du premier cycle, I23
+> import/export du secondaire, le refus de droits dit en français, la dépense sans ligne
+> budgétaire).
+>
+> **Ce que GENIUS doit faire, et que le logiciel ne peut pas deviner** : régler FORM1 et
+> FORM2 sur `system=EN` **ET** `grade_max=20` ensemble (le gel C2 refuse le changement si
+> une séquence est verrouillée) ; décocher une dernière fois les quatre doublons (0 note,
+> donc sans perte) ; remettre `Citizenship` et `History` de /100 à /20.
+>
+> **Point à annoncer avant le prochain déploiement Cloud** : D21 bis rend aux classes
+> **ES** (Guinée Équatoriale, 23 classes) le barème de leur pays — /10, ou /20 si réglé —
+> là où les cinq bulletins classiques imprimaient /100 avec un seuil de réussite à 5.
+> Aucune classe du Cameroun concernée, donc aucun paquet LAN.
 >
 > ## ⛔ LE PAQUET 0.3.22 NE DOIT PAS ÊTRE DISTRIBUÉ (I19)
 >
@@ -46,8 +84,8 @@
 > entière **ou** la matière affichée ; l'import demande son périmètre — toutes les matières
 > du classeur, ou une seule.
 >
-> **Ces deux correctifs ne sont PAS dans le paquet 0.3.23** déjà installé chez THE GENIUS :
-> un paquet 0.3.24 reste à construire pour les postes installés.
+> **Ces deux correctifs ne sont PAS dans le paquet 0.3.23** déjà installé chez THE GENIUS.
+> Ils sont dans le **0.3.24**, construit le 2026-10-26 (§ ci-dessus) et pas encore envoyé.
 >
 > ## 🟠 LA 0.3.23 EST INSTALLÉE CHEZ THE GENIUS (2026-10-24)
 >

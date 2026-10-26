@@ -1,0 +1,297 @@
+========================================================================
+NotesCam 0.3.24 (Windows) - Notice pour le responsable informatique
+========================================================================
+
+Installeur : NotesCam-Setup-0.3.24.exe
+Taille     : 30 820 861 octets
+SHA-256    : c9cc923f5f9357dc6a61ceac89522def5f3b4023532eea3b924d80e2f54c695b
+
+VERIFIEZ L'EMPREINTE AVANT D'INSTALLER. Ouvrez PowerShell dans le
+dossier qui contient le fichier et tapez :
+
+    Get-FileHash .\NotesCam-Setup-0.3.24.exe -Algorithm SHA256
+
+Si l'empreinte affichee ne correspond PAS a la ligne ci-dessus,
+N'INSTALLEZ PAS : le fichier a ete altere ou tronque pendant le
+transfert. Redemandez-le.
+
+Pour savoir quelle version tourne actuellement sur le poste :
+
+    http://localhost:8080/api/version
+
+Cette notice contient TOUT ce que contenait la notice 0.3.23. Les
+0.3.20, 0.3.21 et 0.3.22 ne doivent JAMAIS etre distribuees : si un de
+ces installeurs traine quelque part, jetez-le.
+
+
+>>> CE QUI EST DIFFERENT DES TROIS DERNIERES MISES A JOUR <<<
+-------------------------------------------------------------
+
+CETTE VERSION NE TOUCHE NI AU SCHEMA DE LA BASE, NI A LA
+SYNCHRONISATION : aucune table, aucune colonne, aucun curseur remis a
+zero. Il n'y a donc PAS de long rattrapage a attendre, contrairement aux
+0.3.16, 0.3.19 et 0.3.23. C'est une version d'ecrans et de bulletins.
+
+
+CE QUE CETTE VERSION APPORTE
+-----------------------------
+
+1. LES MATIERES ANGLOPHONES APPARAISSENT DANS LE COMPTE DE
+   L'ENSEIGNANT.
+
+   LE SYMPTOME, signale par l'administration le 26/10/2026 : "c'est
+   uniquement les matieres francophones qui apparaissent dans le compte
+   enseignant".
+
+   LA CAUSE. En classe bilingue, le referentiel porte LES DEUX matieres
+   du couple de traduction. "Mathematics" touchait donc deux lignes a
+   la fois : la ligne ANGLAISE par son propre nom, et la ligne FRANCAISE
+   par sa traduction officielle. Le departage se faisait toujours pour le
+   francais : l'enseignant de la section anglaise se voyait servir les
+   matieres de la section francaise, et les siennes nulle part.
+
+   CE QUI CHANGE. Le nom propre d'une ligne passe devant la TRADUCTION
+   d'une autre. En classe monolingue, RIEN ne change : la ligne anglaise
+   n'existe pas, la traduction reste le seul rapprochement possible et
+   joue comme avant.
+
+2. UNE MATIERE DECOCHEE DANS LA CLASSE NE REVIENT PLUS.
+
+   LE SYMPTOME, signale le 26/10/2026 : "il y a les matieres qu'on
+   decoche dans classe, ca revient toujours".
+
+   LA CAUSE, relevee sur FORM1 et FORM2 : quatre doublons - ICT en face
+   de Computer Science, Literature in English en face de English
+   Literature, ML en face de Manual Labour, Francais intensif en face de
+   French Language. L'ecole avait saisi les siennes, et "Ajouter le
+   programme manquant" avait pose A COTE les libelles officiels, VIDES.
+   Le bouton comparait les LIBELLES EXACTS : "ICT" n'etant pas
+   "Computer Science", il la croyait absente et la reproposait au geste
+   suivant, indefiniment.
+
+   CE QUI CHANGE. Le rapprochement se fait par ENSEIGNEMENT, sur des
+   groupes de synonymes. Rien n'est renomme, fusionne ni supprime : les
+   matieres en place et leurs notes sont hors d'atteinte.
+
+   CE QUE L'INSTALLATION NE FAIT PAS : effacer les doublons deja poses.
+   Ils sont a decocher une DERNIERE fois, et ils ne reviendront plus. Ils
+   portent 0 note - verifie - donc le decochage ne perd rien. C'est
+   l'ecole qui dit lequel du couple elle garde.
+
+3. LE BAREME D'UN BULLETIN VIENT DE LA CLASSE, PLUS DE SA LANGUE.
+
+   LE RELEVE, le 26/10/2026 : FORM1 et FORM2 sont anglophones - matieres
+   saisies en anglais, programme bilingue special, notes sur /20 - mais
+   portaient le systeme "francais". Leur bulletin sortait donc EN
+   FRANCAIS, en-tetes de groupes comprises.
+
+   POURQUOI IL A FALLU UN CORRECTIF AVANT DE CORRIGER LE REGLAGE. Le
+   bareme se deduisait de la LANGUE : /20 en francais, /100 en anglais.
+   Basculer ces classes en anglais aurait donc MULTIPLIE CHAQUE NOTE PAR
+   5 : un 10/20 imprime 50. Le bareme se lit maintenant dans la classe,
+   et la langue n'en est plus que la valeur par defaut.
+
+   HUIT ENDROITS, UNE SEULE REGLE. Le meme calcul etait recopie dans le
+   bulletin, la fiche eleve, le portail parent, les rapports de classe, le
+   modele PDF et les deux blocs du tableau de bord. Ils lisent tous la
+   meme regle : une moyenne ne peut plus s'afficher sur /20 ici et sur
+   /100 l'ecran d'a cote.
+
+4. AU PRIMAIRE, UNE COLONNE OUVERTE A LA MAIN SE REFERME A LA MAIN.
+
+   LE SYMPTOME, signale le 26/10/2026 et essaye sur "Practical" :
+   "quand je change le bareme et que j'essaie de revenir a zero, ca
+   refuse". C'etait exact, et le refus etait MUET : le champ remettait
+   l'ancienne valeur sans un mot d'explication.
+
+   LA CAUSE. Un critere que le bareme national ignore - "Pratique" sur
+   1A, 1B et 2A - nait a ZERO et attend le chiffre de l'ecole. Celle-ci
+   pouvait donc l'OUVRIR, mais jamais le refermer.
+
+   CE QUI CHANGE. Poser 0 signifie "pas de bareme d'ecole ici" et rend
+   la colonne au bareme officiel du referentiel - donc FERMEE quand le
+   national n'en a pas, et rendue au bareme MINEDUB quand il en a un.
+   Refermer une colonne qui porte une saisie reste REFUSE - la note
+   resterait en base sans colonne pour la montrer - mais le refus est
+   desormais affiche et nomme les eleves a corriger.
+
+5. LE CLASSEUR EXCEL DU RAPPORT DE CLASSE DIT CE QUE DIT LA FEUILLE
+   IMPRIMEE.
+
+   LE SYMPTOME, signale par l'informaticien le 26/10/2026, photo du papier
+   a l'appui : "le fichier importe sur Excel n'affiche pas tous les
+   details, comme celle imprimee". Il manquait quatre choses :
+
+     - l'EN-TETE - etablissement, annee scolaire, classe, periode,
+       effectif, date. Sans lui, un fichier rouvert trois semaines plus
+       tard ne dit plus de quelle classe il parle ;
+     - les CHIFFRES DE LA CLASSE - moyenne, taux de reussite, admis ;
+     - le BAREME DE CHAQUE MATIERE. Le papier porte "SVT /20" ; le
+       classeur n'ecrivait que "SVT". Quand deux matieres d'une meme
+       classe ne sont pas sur la meme echelle - le cas au premier cycle -
+       les colonnes deviennent indiscernables : un 8 est la moyenne sur
+       /10 et l'echec sur /20 ;
+     - le tableau RESULTATS PAR MATIERE, qui partait dans un AUTRE
+       fichier. Les deux tableaux sont maintenant dans le meme classeur.
+
+
+AUSSI DANS CETTE VERSION - CORRIGE DEPUIS QUE LA 0.3.23 A ETE ENVOYEE
+---------------------------------------------------------------------
+
+6. LES LIGNES SANS DATE DESCENDENT ENFIN DU CLOUD.
+
+   C'est l'unique echec du journal d'installation de la 0.3.23 chez vous. La
+   descente Cloud -> ecole avance sur un couple (date de modification, id)
+   et ECARTE par construction les lignes sans date. Mesure en base le
+   24/10/2026 : vos 60 depenses et 10 de vos 11 ecritures de caisse en
+   etaient la, plus 4 215 notes par competences pour toute la plateforme.
+
+   La correction du Cloud a ete appliquee le 24/10/2026 : les lignes
+   existantes ont leur date. Ce paquet ferme la seconde moitie : aucune
+   ligne neuve ne repart sans date.
+
+   CE QUE VOUS ALLEZ CONSTATER, et qui est NORMAL : au prochain cycle,
+   environ 70 lignes descendent chez vous (vos depenses et vos ecritures
+   de caisse). Ce ne sont pas des doublons : ce sont les votres, restees
+   en haut. NE LES RESSAISISSEZ PAS.
+
+7. LE COEFFICIENT DU PREMIER CYCLE COMPTE VRAIMENT.
+
+   Signale le 24/10/2026 : "lorsqu'on cree une matiere et qu'on ajoute le
+   coef, ca revient a 1 automatiquement, meme quand on choisit un coef plus
+   eleve". Le premier cycle ne lit pas le coefficient de la matiere de la
+   classe mais celui du REFERENTIEL, et le chiffre saisi n'y allait pas.
+   Corrige a la creation ET sur modification ulterieure. Une matiere
+   NATIONALE est refusee explicitement, et l'ecran le dit.
+
+8. L'IMPORT ET L'EXPORT DU SECONDAIRE CHOISISSENT LEUR PORTEE.
+
+   Comme au premier cycle depuis la 0.3.23 : l'export sort la classe
+   entiere OU la matiere affichee, et l'import demande ce qu'il doit lire -
+   toutes les matieres du classeur, ou une seule. Un enseignant ne reecrit
+   donc plus les colonnes de ses collegues avec des valeurs perimees.
+
+9. UN REFUS DE DROITS EST DIT EN FRANCAIS.
+
+   La file de synchronisation affichait le message brut de la base -
+   "new row violates row-level security policy for table subjects" -
+   qui ne dit ni ce qui est refuse, ni qui pourrait le faire. L'ecole
+   cherchait donc le defaut dans ce qu'elle venait de TAPER, alors que le
+   serveur juge le COMPTE, pas le contenu. Une phrase est ajoutee : refus
+   de DROITS, les deux causes possibles, et la consigne qui compte - la
+   saisie est conservee, NE PAS la ressaisir ailleurs. Le message brut
+   reste affiche au-dessus : c'est lui qu'on demande en capture.
+
+   Et une ecriture appartenant a un AUTRE etablissement n'est plus comptee
+   comme un refus du serveur : elle est ecartee pour ce qu'elle est.
+
+10. UNE DEPENSE SANS LIGNE BUDGETAIRE N'EST PLUS INVISIBLE.
+
+    Signale : "bien qu'ils ont reparti la ligne budgetaire et active, il
+    ne voit rien dans depenses". Reactiver une ligne ne POUVAIT pas
+    marcher : vos 60 depenses ne portent aucune imputation et pendent au
+    budget "Reprise de caisse 2025-2026", pas au previsionnel que l'ecran
+    lisait. L'ecran les excluait trois fois. Le message precedent etait
+    exact mais trompeur : il envoyait activer une ligne en laissant croire
+    que les depenses existantes suivraient.
+
+
+CE QUE L'ECOLE DOIT FAIRE, ET QUE LE LOGICIEL NE PEUT PAS DEVINER
+-----------------------------------------------------------------
+
+1. FORM1 ET FORM2 : LA LANGUE *ET* LE BAREME, LES DEUX ENSEMBLE.
+   Classes -> Modifier la classe : systeme "anglais", et bareme 20.
+   Leur bareme vaut 100 aujourd'hui alors que leurs notes sont sur /20 :
+   si on ne corrige que la langue, leur bulletin sortira sur /100.
+   Si une sequence de la classe est verrouillee, le changement est refuse
+   (gel des notes) : deverrouillez d'abord.
+
+2. LES QUATRE DOUBLONS DE FORM1/FORM2 sont a decocher une derniere fois
+   (Computer Science, English Literature, Manual Labour / ML, French
+   Language). Ils portent 0 note : rien n'est perdu.
+
+3. CITIZENSHIP ET HISTORY de FORM1/FORM2 sont saisies sur /100 alors que
+   le reste de la classe est sur /20. A remettre a 20 dans les matieres de
+   la classe, sinon ces deux colonnes resteront hors echelle.
+
+
+INSTALLATION - TROIS GESTES, DANS CET ORDRE
+--------------------------------------------
+
+1. INSTALLER. Clic droit sur NotesCam-Setup-0.3.24.exe ->
+   "Executer en tant qu'administrateur". La base de l'ecole
+   (C:\ProgramData\NotesCam\data) n'est jamais touchee par
+   l'installeur.
+
+2. REDEMARRER LE SERVICE. C'EST LE GESTE QU'ON OUBLIE : installer
+   remplace les FICHIERS, mais le serveur continue de tourner avec
+   l'ancien code.
+
+   Menu Demarrer -> NotesCam -> "REDEMARRER APRES MAJ", ou bien, dans
+   C:\Program Files\NotesCam : clic droit sur REDEMARRER-APRES-MAJ.cmd
+   -> "Executer en tant qu'administrateur".
+
+   Il arrete le service, SAUVEGARDE la base et VERIFIE la sauvegarde,
+   redemarre, puis controle. Si la sauvegarde n'est pas verifiee, il
+   remet le service en marche et s'arrete sans rien avoir modifie.
+
+3. CONTROLER. Double-cliquez verifier-correctifs.cmd. Il lit la BASE et
+   le serveur en marche, et dit si ce poste a vraiment recu la mise a
+   jour.
+
+
+A VERIFIER DEPUIS UN POSTE DE L'ECOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Shift+R.
+
+  1. http://localhost:8080/api/version  doit repondre 0.3.24
+
+  2. LE CONTROLE DE CETTE VERSION. Ouvrez le compte d'un enseignant de
+     la section ANGLAISE d'une classe bilingue : ses matieres sont en
+     anglais, plus celles de la section francaise.
+
+  3. Classes -> FORM2 -> Matieres : decochez un doublon, enregistrez,
+     rouvrez l'ecran. Il ne doit PAS etre revenu, et "Ajouter le
+     programme manquant" ne doit plus le proposer.
+
+  4. LE BAREME, une fois FORM1/FORM2 reglees en anglais ET sur 20 :
+     leur bulletin sort en ANGLAIS et sur /20. Comparez une note du
+     bulletin a la note saisie - elles doivent etre IDENTIQUES, pas
+     multipliees par 5. Verifiez ensuite la MEME moyenne sur la fiche
+     de l'eleve et au tableau de bord.
+
+  5. Primaire -> saisie par competence : posez un bareme sur
+     "Pratique", puis remettez 0. La colonne doit se refermer et
+     reprendre son repere "a definir". Avec une note dedans, le refus
+     doit s'afficher et nommer l'eleve.
+
+  6. Rapports -> un rapport de classe -> export Excel : le classeur
+     porte l'en-tete, les chiffres de la classe, "Matiere /bareme" et
+     le tableau "Resultats par matiere", dans le MEME fichier.
+
+  7. Vos effectifs n'ont pas bouge : comparez au releve pris avant.
+
+
+EN CAS DE PROBLEME - RETOUR ARRIERE
+------------------------------------
+
+Reinstallez NotesCam-Setup-0.3.23.exe par-dessus, puis relancez
+REDEMARRER-APRES-MAJ.cmd. Rien ne reste a defaire : cette version n'a
+cree ni table ni colonne, et n'a converti aucune donnee.
+
+Les reglages que vous aurez corriges (langue et bareme de FORM1 et
+FORM2, matieres decochees) RESTENT : ce sont des donnees, pas du code.
+Le bulletin de ces classes repasserait en revanche sur /100, puisque la
+0.3.23 deduit encore le bareme de la langue. Et TOUS les defauts
+ci-dessus reviennent.
+
+Si un ecran continue de refuser alors que verifier-correctifs.cmd dit
+que tout est en place : faites une photo de l'ecran ET de la sortie du
+script, et envoyez-les a l'editeur. N'essayez pas de reparer la base.
+
+------------------------------------------------------------------------
+Ce fichier est en ASCII et en CRLF, comme les autres documents livres
+aux postes Windows : le Bloc-notes d'un Windows ancien affiche un
+fichier en fins de ligne Unix comme une seule ligne illisible.
+------------------------------------------------------------------------

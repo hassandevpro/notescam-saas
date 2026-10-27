@@ -1,0 +1,39 @@
+-- RETOUR ARRIÈRE de `2026-10-27-genius-competences-maison-ordre.sql`
+--
+-- À n'utiliser que si la correction a été appliquée ET que son résultat
+-- surprend. Elle ne touchait que la colonne `ordre` de huit lignes de l'école :
+-- le retour arrière repose donc les huit valeurs d'origine.
+--
+-- ✅ CES VALEURS SONT RELEVÉES, PAS DÉDUITES. Elles viennent de la requête
+--    lancée en production le 2026-10-27 sur
+--    `school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a'` :
+--
+--      CH  Chinois             101        TP   Travaux Pratiques   105
+--      EC  Economics           102        EG   Économie Générale   106
+--      MA  Management          103        GE   Gestion             107
+--      PW  Practical Work      104        GE2  General Economics   108
+--
+--    Relancer tout de même la requête de vérification du fichier principal
+--    AVANT d'appliquer quoi que ce soit : si l'école a bougé ses lignes depuis,
+--    ces valeurs ne sont plus celles d'avant.
+--
+-- AUCUNE NOTE n'est concernée, ni avant ni après : `competence_id` ne bouge
+-- dans aucun des deux sens. La colonne `domaine` non plus — si l'école a rangé
+-- ses lignes dans une famille entre-temps, ce retour arrière ne le défait pas.
+
+-- BEGIN;
+--
+-- UPDATE prim_competences SET ordre = 101 WHERE school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a' AND code = 'CH';
+-- UPDATE prim_competences SET ordre = 102 WHERE school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a' AND code = 'EC';
+-- UPDATE prim_competences SET ordre = 103 WHERE school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a' AND code = 'MA';
+-- UPDATE prim_competences SET ordre = 104 WHERE school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a' AND code = 'PW';
+-- UPDATE prim_competences SET ordre = 105 WHERE school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a' AND code = 'TP';
+-- UPDATE prim_competences SET ordre = 106 WHERE school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a' AND code = 'EG';
+-- UPDATE prim_competences SET ordre = 107 WHERE school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a' AND code = 'GE';
+-- UPDATE prim_competences SET ordre = 108 WHERE school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a' AND code = 'GE2';
+--
+-- -- CONTRÔLE DANS LA MÊME TRANSACTION : les huit valeurs doivent être revenues.
+-- SELECT code, intitule, ordre FROM prim_competences
+--  WHERE school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a' ORDER BY ordre;
+--
+-- COMMIT;

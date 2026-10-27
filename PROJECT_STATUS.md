@@ -1102,6 +1102,277 @@ matière sans classe, note sans matière, matière sans nom, classe sans nom.
 `_referentiel_http` (§ 8) — pas un défaut de code, mais un faux rouge qui coûtera cher en
 CI. `npm run build` → OK.
 
+## 4 quindecies. Le carnet du primaire, deux défauts signalés par THE GENIUS (2026-10-27)
+
+Deux réparations, **écrites et testées, ni commitées ni déployées**. Les deux viennent du
+même signalement : les bulletins que le carnet APC sort pour THE GENIUS ne ressemblent pas
+à ce que l'école attend.
+
+### R2 — une famille de compétences imprimée DEUX fois
+
+**Le symptôme.** Sur les bulletins de l'école, le bandeau « 6) PRATIQUER… » et sa ligne de
+total apparaissaient deux fois, avec les huit compétences maison de l'école — CH, EC, MA, PW,
+TP, EG, GE, GE2 — coincées entre les deux.
+
+**La cause, reproduite.** Les deux gabarits — `BulletinPrimCompact` et
+`BulletinPrimAnnualUA` — fermaient un groupe en comparant la ligne `i` à la ligne `i + 1`.
+Cela suppose les membres d'une famille **contigus**. Or `addRefLigne` posait
+`ordre = 90 + lignes.length` : le référentiel national occupe 10 à 110, et les compétences
+maison recevaient 101, 102, 103… — pile **entre 6A (100) et 6B (110)**. La famille 6 était
+coupée en deux, donc imprimée deux fois. Relevé en production : **huit** lignes chez THE
+GENIUS (ordres 101 à 108), et une chez BRIGHT CONTINENT (Agro-pastoral, ordre 101).
+
+**Le correctif.** Un seul repérage des débuts et fins de groupe, par `reperesDeGroupe`
+(`src/core/primCompactRows.js`), partagé par les deux gabarits : une famille se ferme à sa
+**dernière** ligne, contiguë ou non. Et `addRefLigne` pose désormais
+`max(ordre) + 10` au lieu de `90 + n`, donc **après** le national, non dedans.
+
+**Les lignes déjà en base gardent leur `ordre`.** Le gabarit les imprime correctement sans
+rien changer en base : le SQL de remise en ordre est **optionnel**,
+`docs/corrections/2026-10-27-genius-competences-maison-ordre.sql`, avec son retour
+arrière. **Non appliqué.**
+
+### R1 — « c'est uniquement l'écrit »
+
+**Le signalement.** Pride (informaticien de l'école), le 2026-10-27, sur ses cinq niveaux :
+« c'est uniquement l'écrit, il n'y a pas de pratique et de l'oral. » Les deux bulletins
+fournis (`ffd.pdf`, CM1 — `ttf.pdf`, CE2 BIL, 2026-2027 Trimestre 1) impriment les quatre
+colonnes Oral / Écrit / Pratique / Savoir-être et sont **entièrement vides** :
+« Bulletin provisoire : compétences non encore évaluées ».
+
+**Pourquoi rien ne permettait de les retirer.** `prim_criteres` est NATIONALE. Et
+`primColumnBareme.js` ne sait fermer qu'un critère que le national **ignore** — jamais un
+critère officiel. Le geste manquait, pas le réglage.
+
+**Le correctif** — décision **D26**. Un bouton « Critères évalués » dans « Compétences du
+primaire », qui masque un critère **pour cette école seule** : sa colonne quitte la saisie,
+le bulletin, le rapport de classe et le PV, **et ses points quittent le barème**. La
+compétence 1A du SIL passe de 40 points à 15 si l'école ne garde que l'écrit. Réversible
+d'un clic, et **aucune note n'est touchée** — l'écran annonce leur nombre avant le geste.
+
+**La fenêtre est favorable, et elle se referme.** Les colonnes de GENIUS sont vides
+aujourd'hui : masquer ne cache aucune note. Après la première saisie, le même geste
+escamoterait du travail de ses enseignants.
+
+**Hors contrat de synchronisation.** `prim_criteres_masques` n'est PAS dans `SYNCED_TABLES`
+— comme ses trois tables sœurs, c'est un réglage local. Aucune colonne n'est ajoutée à une
+table synchronisée : le piège **B1** ne s'applique pas.
+
+**Effet de bord corrigé au passage** : `loadPrim` charge désormais les masques. L'écran
+« Rapports » les **lisait sans les charger** — ses moyennes dépendaient de l'écran visité
+avant.
+
+### R3 — l’épreuve de l’école qui manquait au total de sa famille
+
+**Ce que j’avais écrit plus haut était faux**, et les captures du 2026-10-27 l’ont montré :
+la fonctionnalité n’est pas absente. THE GENIUS **a déjà** ses épreuves dans NotesCam —
+Dictée-Question, Étude de texte, Production d’écrits, Calcul Rapide, Problèmes,
+Connaissances générales, et « CHINOIS » — ajoutées par « Modifier les compétences ». Elles
+s’impriment sur le carnet CM1 2025/2026 avec leur propre barème.
+
+**Le vrai défaut est arithmétique.** Elles comptaient dans le total général et dans la
+moyenne générale, mais **pas dans le total de leur famille**. Reproduit sur le cas du CM1 :
+
+```
+Somme des six lignes imprimées sous la famille 1 : 194/220
+Total que le carnet écrit sous la famille 1      : 107/120
+ÉCART : 87 points obtenus et 100 points de barème manquent au sous-total.
+```
+
+Un parent lisait donc, sous « 1) COMMUNIQUER EN FRANÇAIS… », un total qui ne faisait pas la
+somme des lignes au-dessus.
+
+**La cause.** `groupesDe` range par le chiffre du code (« 1A » → famille 1), et `codeMaison`
+**refuse** de produire un code commençant par un chiffre — pour qu’une ligne de l’école ne
+soit jamais prise pour un code du ministère. « Dictée - Question » devient « DQ ». Aucun
+rattachement ne restait, et `addRefLigne` n’a jamais renseigné `domaine`.
+
+**Et le piège en face**, reproduit lui aussi : poser `domaine = langues` ne suffisait pas —
+`num:1` et `langues` sont deux clés pour une seule famille, donc le bandeau « 1) » et son
+total s’imprimaient **deux fois**.
+
+**Le correctif** — décision **D27**. `groupesDe` apprend des lignes présentes quel domaine
+porte quel numéro (1A porte `langues`, donc `langues` = famille 1) ; rien n’est codé en
+dur. Et l’école choisit la famille **à l’écran** : à l’ajout, et après coup sur une ligne
+déjà créée. Une ligne **nationale** reste indéplaçable.
+
+**Aucune migration, aucun SQL.** `prim_competences.domaine` existe déjà des deux côtés, et
+la policy d’écriture de `supabase_prim_competences_par_ecole.sql` couvre déjà la mise à
+jour d’une ligne de l’école. Les sept lignes de THE GENIUS se rangent en sept clics ; tant
+qu’elles ne le sont pas, un bandeau ambre les nomme et dit ce qui se passe.
+
+**VÉRIFIÉ EN PRODUCTION le 2026-10-27** (requête du responsable, console Supabase) : la
+base porte **neuf** compétences maison de primaire, et **toutes ont `domaine = NULL`**. Le
+défaut est donc actif, et il touche deux écoles.
+
+| école | code | intitulé | ordre | domaine |
+|---|---|---|---|---|
+| BRIGHT CONTINENT | AP | Agro-pastoral | 101 | `NULL` |
+| THE GENIUS | CH | Chinois | 101 | `NULL` |
+| THE GENIUS | EC | Economics | 102 | `NULL` |
+| THE GENIUS | MA | Management | 103 | `NULL` |
+| THE GENIUS | PW | Practical Work | 104 | `NULL` |
+| THE GENIUS | TP | Travaux Pratiques | 105 | `NULL` |
+| THE GENIUS | EG | Économie Générale | 106 | `NULL` |
+| THE GENIUS | GE | Gestion | 107 | `NULL` |
+| THE GENIUS | GE2 | General Economics | 108 | `NULL` |
+
+**Ce que ça confirme.** `school_id` est correctement renseigné partout : aucune ligne
+maison ne se fait passer pour nationale, l’incident que je redoutais n’existe pas. Et
+**R2 était SOUS-ESTIMÉ** : j’avais écrit « les 3 compétences maison (CH, PW, EG) » ; elles
+sont **huit**, aux ordres 101 à 108, toutes entre 6A (ordre 100) et 6B (ordre 110). La
+famille 6 était coupée par huit lignes, pas trois.
+
+**Ce que ça INFIRME, et c’est mon erreur.** Les épreuves lues sur la capture du CM1 —
+Dictée-Question, Étude de texte, Production d’écrits, Calcul Rapide, Problèmes,
+Connaissances générales — **n’existent pas dans cette base**. Ce carnet ne sort donc pas
+de ce référentiel : soit il précède les regroupements, soit il vient de l’autre
+établissement « Genius », soit ce n’est pas une sortie NotesCam. Ma lecture des
+sous-totaux imprimés (« 110.5 sous une famille qui ne vaudrait que 50 ») reposait sur une
+photo de travers : elle ne prouvait rien.
+
+### Le point à trancher avec l’école, et qui n’est pas un défaut de code
+
+Sept des huit lignes de THE GENIUS portent des noms de matières du **secondaire** —
+Economics, Management, Practical Work, Travaux Pratiques, Économie Générale, Gestion,
+General Economics — dans le référentiel du **primaire**.
+
+⚠️ *Première lecture, à corriger par ce qui suit : j’en avais conclu qu’elles appartenaient
+à des classes du secondaire, et qu’Economics / General Economics / Économie Générale
+formaient un doublon bilingue du type § 4 quaterdecies. La requête nominative dit autre
+chose — voir le tableau ci-dessous.*
+
+**Portée réelle, vérifiée dans le code et non supposée** : `primForClass`
+(`src/core/refClassScope.js:240`) ne retient une ligne MAISON que si une matière de la
+classe se résout vers elle — `visibles.filter((c) => !c.school_id || couvertes.has(c.id))`.
+Ces huit lignes ne s’impriment donc **pas** sur tous les carnets du primaire, seulement
+dans les classes dont une matière porte ce nom. Reste à savoir lesquelles :
+
+```sql
+SELECT p.code, p.intitule, p.ordre,
+       (SELECT count(*) FROM public.prim_notes n
+         WHERE n.competence_id = p.id)                                  AS notes,
+       (SELECT count(DISTINCT s.class_id) FROM public.subjects s
+         WHERE s.school_id = p.school_id AND s.name ILIKE p.intitule)   AS classes_qui_l_impriment
+  FROM public.prim_competences p
+ WHERE p.school_id = '6b68407b-3d2e-426b-81ff-c4e68e66120a'
+ ORDER BY p.ordre;
+```
+
+(Le compte des classes est un PLANCHER : le vrai appariement accepte aussi des alias de
+noms et un `prim_competence_id` explicite, cf. `primCompetenceMatch`.)
+
+**RÉPONSE, relevée en production le 2026-10-27 :**
+
+| code | intitulé | ordre | notes | classes portant une matière de ce nom |
+|---|---|---|---|---|
+| CH | Chinois | 101 | **0** | **19** |
+| EC | Economics | 102 | **0** | 1 |
+| MA | Management | 103 | **0** | 1 |
+| PW | Practical Work | 104 | **0** | 2 |
+| TP | Travaux Pratiques | 105 | **0** | 3 |
+| EG | Économie Générale | 106 | **0** | 3 |
+| GE | Gestion | 107 | **0** | 1 |
+| GE2 | General Economics | 108 | **0** | **0** |
+
+**Aucune des huit ne porte la moindre note.** Supprimer n’importe laquelle ne détruit rien,
+et la clé étrangère ne s’y opposera pas. `prim_niveau_competences` et
+`prim_bareme_criteres` partent en cascade.
+
+**Chinois s’imprime vraiment sur le primaire.** 19 classes portent une matière de ce nom,
+pour 17 classes de primaire annoncées au § 4 quaterdecies : la couverture est donc
+complète ou presque. Les deux défauts — le bandeau de la famille 6 imprimé deux fois (R2)
+et les points absents du total de famille (R3) — étaient **visibles sur les carnets réels**,
+pas seulement reproductibles en test.
+
+**J’AI SUPPOSÉ QUE C’ÉTAIT LE SECONDAIRE. C’EST FAUX.** La requête nominative, lancée le
+2026-10-27, rend des classes de PRIMAIRE pour les sept :
+
+| code | intitulé | classes qui portent une matière de ce nom |
+|---|---|---|
+| CH | Chinois | 5eme, 6eme + **les 17 classes du primaire** (SIL, SIL BIL, CP, CP BIL, CE1, CE1 BIL, CE2, CE2 BIL, CM1, CM2, Class 1 A, Class 1 B, Class 2 à 6) |
+| EC | Economics | CE1 BIL |
+| MA | Management | CE1 BIL |
+| PW | Practical Work | CE1 BIL, CE2 BIL |
+| TP | Travaux Pratiques | CE1, CE1 BIL, CE2 |
+| EG | Économie Générale | CE1, CE2, CE2 BIL |
+| GE | Gestion | CE1 |
+| GE2 | General Economics | *(aucune)* |
+
+**Ce que ça règle.** Chinois est enseigné dans TOUT le primaire : R2 et R3 étaient donc
+visibles sur 17 carnets, pas seulement en test. Et la paire Travaux Pratiques / Practical
+Work est un nommage BILINGUE cohérent — section francophone et section BIL — pas un
+doublon accidentel. Je l’avais rangée à tort dans les doublons du § 4 quaterdecies.
+
+**EXPOSITION PAR CARNET** — et c’est ce qui corrige une autre de mes approximations. La
+base porte huit lignes maison, mais `primForClass` n’en retient qu’un sous-ensemble par
+classe. Aucun carnet n’en montre huit :
+
+| classe | lignes maison imprimées |
+|---|---|
+| CE1 BIL | CH, EC, MA, PW, TP — **cinq** |
+| CE1 | CH, TP, EG, GE — quatre |
+| CE2 | CH, TP, EG — trois |
+| CE2 BIL | CH, PW, EG — trois |
+| les 13 autres classes du primaire | CH seule |
+
+Ma première lecture de `ttf.pdf` (CE2 BIL) annonçait « Chinois, Practical Work, Économie
+Générale » : elle était donc **exacte pour ce carnet-là**. C’est en la généralisant à huit
+que je me suis trompé — huit est le total de la BASE, pas d’un bulletin.
+
+**CE QUI RESTE UNE QUESTION POUR L’ÉCOLE, et que je ne tranche pas.** « Economics »,
+« Management », « Gestion » et « Économie Générale » sont des matières de CE1 et CE2 —
+des enfants de sept à neuf ans. Soit l’école le veut, soit ces matières ont été créées sur
+les mauvaises classes. Aucune ne porte de note, donc l’erreur, s’il y en a une, ne coûte
+encore rien. **C’est à l’école de le dire, pas au logiciel de le deviner.**
+
+**La conduite à tenir :**
+
+* **Chinois** → la ranger dans la famille 1 (langues). Un geste, et le total de la famille 1
+  redevient la somme de ce qui est imprimé, sur les 17 carnets.
+* **GE2 (General Economics)** → zéro note, zéro classe : elle ne sert à rien. Se supprime.
+* **Travaux Pratiques / Practical Work** → à ranger dans une famille (6, activités
+  physiques, sportives et artistiques, est le candidat naturel), pas à supprimer.
+* **Economics, Management, Gestion, Économie Générale** → demander à l’école avant de
+  toucher. Si elles sont là par erreur, elles se suppriment sans rien casser (zéro note).
+
+```
+node src/core/_primFamillesMaison.test.mjs → 33 ok, 0 ko
+node src/core/_primGroupes.test.mjs        → 21 ok  (non-régression)
+node src/core/_carnetPrimaire.test.mjs     → 52 ok, 0 ko
+npm run build                              → ✓
+npm run build:lan                          → ✓
+```
+
+### Preuves
+
+```
+node src/core/_carnetPrimaire.test.mjs       → 52 ok, 0 ko   (34 avant R2)
+node src/core/_primCriteresMasques.test.mjs  → 27 ok, 0 ko
+npm test                                     → 210 ok, 0 ko
+npm run build                                → ✓
+npm run build:lan                            → ✓
+npm run validate                             → 11/11 critiques, 0 échec — BUILD AUTORISÉ
+```
+
+**Réserve de `validate`** : le gate de parité Postgres `supabase_sync_merkle_selfcheck.sql`
+est `[MANUEL]` (Docker/psql indisponibles ici) et **n'a pas tourné**.
+
+### Ce qui reste à faire, et qui appartient à l'école
+
+1. **La migration Cloud `supabase_prim_criteres_masques.sql` n'est PAS appliquée.** Elle
+   doit l'être **avant** que l'écran ne serve en ligne, sinon le masque échouera en
+   silence côté Cloud. Additive, idempotente, elle ne touche pas `prim_criteres`.
+2. **R3 est traité** (voir ci-dessus) — mais il reste **un geste à l'école** : ranger ses
+   sept lignes maison dans leur famille, depuis « Modifier les compétences ». Tant que ce
+   n'est pas fait, leurs points manquent au sous-total de leur famille. Aucun SQL, aucune
+   migration : sept listes déroulantes.
+3. **Une question à poser à l'école** : a-t-elle validé le passage au carnet APC, ou
+   veut-elle retrouver son format 2025-2026 ? La question de donner un `domaine` à CH, PW
+   et EG est, elle, **répondue** : oui, et elle le fait elle-même à l'écran.
+
+**Rien n'est commité. Rien n'est déployé. Aucun des quatre fichiers SQL n'est appliqué.**
+
 ## 5. Travaux en cours — 69 fichiers non commités
 
 38 fichiers modifiés (+1303 / −510) et 31 non suivis. Regroupement proposé pour des
@@ -1164,6 +1435,26 @@ des déclarations. Le garde-fou reste inscrit dans `exportCsv.js` (près de
 1. **Barèmes de THE GENIUS** — Class 1 A annonce /20 et note ses 12 matières sur /100.
    Les 4 classes concernées portent **zéro note** : corriger maintenant ne déplace aucune
    moyenne, attendre les premières notes rendrait le même geste coûteux.
+
+   > **RELEVÉ SUR LA MACHINE DE L'ÉCOLE, le 2026-10-27 — à lire avant d'agir.** Le
+   > responsable a lancé `corriger-bareme-classe.sh` sur **FORM1 et FORM2**, PAS sur les
+   > quatre classes ci-dessus. Sa sortie dit trois choses que ce point n'annonçait pas :
+   >
+   > * **ce ne sont pas les mêmes classes** — FORM1 et FORM2 sont deux des quatre
+   >   bilingues du § 4 duodecies, ni Class 1 A/B ni NURSERY 1 A/B ;
+   > * **le sens est INVERSE** — la classe est déclarée /100 alors que ses matières et
+   >   ses notes sont déjà toutes en /20 (« matières hors /20 : 0 », « max 20 ») ; le
+   >   script propose donc 100 → 20, et non l'inverse ;
+   > * **elles ne sont PAS vides** : **652 notes** en FORM1, **272 en FORM2**, soit
+   >   **924**. L'argument « corriger maintenant ne déplace aucune moyenne » ne tient
+   >   pas pour celles-là. Il reste vrai pour Class 1 A/B et NURSERY 1 A/B, qui sont
+   >   bien à zéro note et qu'aucune commande n'a touchées.
+   >
+   > **Rien n'a été modifié.** Le script simule par défaut (`APPLIQUER=0`), `--appliquer`
+   > n'a pas été passé, et la session s'est arrêtée au `^C` juste avant le § 2 « Les
+   > verrous » — celui qui explique que le refus à l'écran vient d'un verrou
+   > `localStorage` propre au POSTE, et qu'ouvrir la fiche **depuis un autre poste**
+   > suffit, sans aucun SQL.
 2. **Sept coefficients** divergeaient entre les copies fusionnées. Les valeurs en vigueur
    sont celles des lignes qui portaient les notes, et restent plausibles — rien ne presse,
    mais l'école doit savoir que la question existe.

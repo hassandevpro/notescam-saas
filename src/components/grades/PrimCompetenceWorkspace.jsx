@@ -40,6 +40,9 @@ import { baremeEnVigueur, notesHorsBareme, notesSaisies } from '../../core/primC
 // Le bulletin l'applique déjà (primForClass) : la saisie doit lister EXACTEMENT
 // les mêmes compétences, sinon on saisit des notes qui ne s'impriment jamais.
 import { primForClass, unmatchedClassSubjects, scopeOf } from '../../core/refClassScope';
+// Les six familles du carnet, prises à la MÊME source que les bandeaux imprimés :
+// ce que l'école choisit ici est exactement ce qui s'imprimera.
+import { FAMILLES_PRIMAIRE, familleLabel } from '../../core/primCompactRows';
 import { classSubjectsOf } from '../../core/subjectOrder';
 import ReferentielEditor from './ReferentielEditor';
 import { withLibelles } from '../../lib/referentielEcole';
@@ -139,12 +142,16 @@ export default function PrimCompetenceWorkspace() {
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
   const masques        = useSchoolStore((s) => s.refMasques.prim);
+  // Les CRITÈRES que l'école n'évalue pas : ils retirent une COLONNE de saisie,
+  // là où `masques` retire une LIGNE de compétence.
+  const masquesCrit    = useSchoolStore((s) => s.refMasques.prim_crit);
   const libelles       = useSchoolStore((s) => s.refLibelles.prim);
   const loadRefMasques = useSchoolStore((s) => s.loadRefMasques);
   const addRef         = useSchoolStore((s) => s.addRefLigne);
   const renameRef      = useSchoolStore((s) => s.renameRefLigne);
   const removeRef      = useSchoolStore((s) => s.removeRefLigne);
   const restoreRef     = useSchoolStore((s) => s.restoreRefLigne);
+  const setRefFamille  = useSchoolStore((s) => s.setRefFamille);
   const resetLibelle   = useSchoolStore((s) => s.resetRefLibelle);
 
   const classId    = useUiStore((s) => s.gradesClassId);
@@ -187,6 +194,16 @@ export default function PrimCompetenceWorkspace() {
   const niveauSlug = selectedClass ? primaireNiveauSlug(selectedClass.level, selectedClass.name) : null;
 
   const sys = selectedClass?.system || 'FR';
+
+  // Les familles telles que l'école les lira : numérotées comme sur le carnet,
+  // et abrégées — l'intitulé officiel complet fait trois lignes.
+  const famillesPrim = useMemo(
+    () => FAMILLES_PRIMAIRE.map((id, i) => {
+      const complet = familleLabel(id, sys) || id;
+      return { id, label: `${i + 1}) ${complet.slice(0, 44)}${complet.length > 44 ? '…' : ''}` };
+    }),
+    [sys],
+  );
 
   // ── CE QUE L'ÉCOLE A RETIRÉ OU RENOMMÉ VAUT AUSSI ICI ─────────────────────
   // « Modifier les compétences » retirait et renommait dans SON propre volet,
@@ -279,6 +296,21 @@ export default function PrimCompetenceWorkspace() {
     return par;
   }, [primNotes]);
 
+  // Le même compte, par CRITÈRE. Masquer « Oral » est réversible, mais pas
+  // anodin : la colonne quitte la saisie ET le bulletin, et ses points quittent
+  // le barème. Ce nombre est ce qui transforme « je retire une colonne vide »
+  // en « je retire 412 notes de l'affichage » — la seule phrase qui arrête un
+  // geste dont on ne mesurait pas la portée.
+  const notesParCritere = useMemo(() => {
+    const par = {};
+    for (const n of Object.values(primNotes || {})) {
+      if (!n?.critere_id) continue;
+      if (n.note == null || n.note === '') continue;
+      par[n.critere_id] = (par[n.critere_id] || 0) + 1;
+    }
+    return par;
+  }, [primNotes]);
+
   // ── UNE COMPÉTENCE MASQUÉE QUE LA CLASSE ENSEIGNE POURTANT ────────────────
   //
   // RELEVÉ EN PRODUCTION le 2026-10-21, école BRIGHT CONTINENT. L'école avait
@@ -324,8 +356,9 @@ export default function PrimCompetenceWorkspace() {
       });
   }, [isSubjectTeacher, referentiel, masques, subjects, teacherId, classId, sys, notesParCompetence, t]);
 
-  useEffect(() => { loadRefMasques('prim'); }, [loadRefMasques]);
+  useEffect(() => { loadRefMasques('prim'); loadRefMasques('prim_crit'); }, [loadRefMasques]);
   const [refOpen, setRefOpen] = useState(false);
+  const [critOpen, setCritOpen] = useState(false);
 
   useEffect(() => {
     if (competences.length && !competences.some((c) => c.id === competenceId)) setCompetenceId(competences[0].id);
@@ -340,7 +373,7 @@ export default function PrimCompetenceWorkspace() {
   // barème dépend de l'aptitude — on affiche l'UNION apte/inapte (la colonne
   // "Pratique" sera grisée ligne par ligne pour un élève inapte, cf. criteresForStudent).
   const critereRows = (aptitude) => (niveauSlug
-    ? criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude)
+    ? criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude, masquesCrit)
       .map((cr) => ({ ...cr, nom: primCritereLabel(cr, sys) }))
     : []);
   const criteresApte   = critereRows('apte');
@@ -367,6 +400,10 @@ export default function PrimCompetenceWorkspace() {
     const connus = new Set(base.map((c) => c.id));
     const manquants = (referentiel?.criteres || [])
       .filter((c) => !connus.has(c.id))
+      // Un critère MASQUÉ par l'école ne revient pas par cette porte : il est
+      // absent du barème national pour cette compétence OU retiré par elle, et
+      // dans les deux cas il n'a pas à reparaître en colonne « à définir ».
+      .filter((c) => !(masquesCrit || []).includes(c.id))
       .map((c) => ({
         id: c.id,
         nom: primCritereLabel(c, sys),
@@ -375,7 +412,7 @@ export default function PrimCompetenceWorkspace() {
         aNoter: true,
       }));
     return [...base, ...manquants].sort((a, b) => a.ordre - b.ordre);
-  }, [competenceId, criteresApte, criteresInapte, referentiel, sys]);
+  }, [competenceId, criteresApte, criteresInapte, referentiel, sys, masquesCrit]);
   // Barème réellement applicable à UN élève (dépend de son aptitude pour '6a').
   // Le périmètre d'un élève suit son aptitude, PLUS les critères activés par
   // l'école (barème posé à la main). Sans cela, une note saisie dans une colonne
@@ -580,10 +617,20 @@ export default function PrimCompetenceWorkspace() {
           {t('Compétences nationales MINEDUB — chargées automatiquement. Votre école peut les adapter. Saisie par Unité d’Apprentissage (UA) ; barème et cote calculés.',
              'National MINEDUB competencies — loaded automatically. Your school can adapt them. Entry per Learning Unit (UA); scale and grade computed.')}
         </p>
-        <button type="button" onClick={() => setRefOpen(true)}
-          className="mt-2 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-          {t('Modifier les compétences', 'Edit competencies')}
-        </button>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" onClick={() => setRefOpen(true)}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+            {t('Modifier les compétences', 'Edit competencies')}
+          </button>
+          {/* Une école qui n'évalue qu'à l'écrit retire ici Oral, Pratique et
+              Savoir-être, une fois pour toutes. Sans ce bouton, les quatre
+              colonnes du référentiel national s'imposaient à toutes les écoles :
+              trois vides sur chaque bulletin, et aucun moyen de les enlever. */}
+          <button type="button" onClick={() => setCritOpen(true)}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+            {t('Critères évalués', 'Assessed criteria')}
+          </button>
+        </div>
       </div>
 
       {refOpen && (
@@ -597,13 +644,47 @@ export default function PrimCompetenceWorkspace() {
           motSingulier={t('compétence', 'competency')}
           renommable={() => true}
           onRename={(l, nom) => renameRef('prim', l.id, nom)}
-          onAdd={(nom) => addRef('prim', nom)}
+          // La FAMILLE voyage dans `domaine` : c'est la colonne que `groupesDe`
+          // lit pour totaliser. Sans elle, une épreuve maison manquait au total
+          // de sa famille tout en comptant dans le total général.
+          onAdd={(nom, famille) => addRef('prim', nom, famille ? { domaine: famille } : {})}
+          familles={famillesPrim}
+          onSetFamille={(l, famille) => setRefFamille('prim', l.id, famille)}
           onMasquer={(l) => removeRef('prim', l.id)}
           onSupprimer={(l) => removeRef('prim', l.id)}
           onDemasquer={(l) => restoreRef('prim', l.id)}
           onResetLibelle={(l) => resetLibelle('prim', l.id)}
           nbNotes={(l) => notesParCompetence[l.id] || 0}
           onClose={() => setRefOpen(false)}
+        />
+      )}
+
+      {/* LES CRITÈRES D'ÉVALUATION, QUE L'ÉCOLE PEUT RETIRER.
+          `prim_criteres` est NATIONALE : aucune ligne n'appartient à l'école,
+          donc ni ajout ni renommage ici — `onAdd` et `onRename` sont absents, et
+          `renommable` rend faux. Le seul geste est le masque, et il est
+          réversible. `onSupprimer` pointe volontairement sur le même masque que
+          `onMasquer` : l'éditeur appelle l'un ou l'autre selon la nature de la
+          ligne, et une ligne nationale n'est jamais supprimée. */}
+      {critOpen && (
+        <ReferentielEditor
+          titre={t('Critères évalués', 'Assessed criteria')}
+          sousTitre={t(
+            'Le référentiel MINEDUB en propose quatre. Retirez ceux que votre école n’évalue pas : leur colonne quitte la saisie et le bulletin, et leurs points quittent le barème. Réversible.',
+            'The MINEDUB framework offers four. Remove those your school does not assess: their column leaves entry and the report card, and their points leave the scale. Reversible.',
+          )}
+          lignes={(referentiel?.criteres || [])
+            .slice()
+            .sort((a, b) => (a.ordre || 0) - (b.ordre || 0))
+            .map((c) => ({ ...c, intitule: primCritereLabel(c, sys) }))}
+          masques={masquesCrit}
+          motSingulier={t('critère', 'criterion')}
+          renommable={() => false}
+          onMasquer={(l) => removeRef('prim_crit', l.id)}
+          onSupprimer={(l) => removeRef('prim_crit', l.id)}
+          onDemasquer={(l) => restoreRef('prim_crit', l.id)}
+          nbNotes={(l) => notesParCritere[l.id] || 0}
+          onClose={() => setCritOpen(false)}
         />
       )}
 

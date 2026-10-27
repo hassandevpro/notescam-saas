@@ -52,6 +52,9 @@ export default function PvWorkspace({ t }) {
   // délibérait sur des matières qui ne s'impriment pas.
   const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
   const primMasques     = useSchoolStore((s) => s.refMasques.prim);
+  // Les CRITERES que l'ecole n'evalue pas : sans eux ici, cet ecran
+  // moyennerait sur des colonnes que le bulletin n'imprime pas.
+  const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
   const loadRefMasques  = useSchoolStore((s) => s.loadRefMasques);
   const viewYear    = useUiStore((s) => s.viewYear);
 
@@ -101,7 +104,7 @@ export default function PvWorkspace({ t }) {
   const needsApc  = useMemo(() => targets.some((c) => resolveClassEngine(school, c) === 'apc'), [targets, school]);
   const needsPrim = useMemo(() => targets.some((c) => resolveClassEngine(school, c) === 'apc_primaire'), [targets, school]);
   useEffect(() => { if (needsApc) { loadApc(); loadRefMasques('apc'); } }, [needsApc, loadApc, loadRefMasques]);
-  useEffect(() => { if (needsPrim) { loadPrim(); loadRefMasques('prim'); } }, [needsPrim, loadPrim, loadRefMasques]);
+  useEffect(() => { if (needsPrim) { loadPrim(); loadRefMasques('prim'); loadRefMasques('prim_crit'); } }, [needsPrim, loadPrim, loadRefMasques]);
 
   useEffect(() => { if (school?.id) recentGenerations(school.id).then(setHistory); }, [school?.id]);
 
@@ -123,13 +126,13 @@ export default function PvWorkspace({ t }) {
       primReferentiel, primNotes, primNiveauSlug: primaireNiveauSlug(cls.level, cls.name),
       primBareme: primReferentiel?.bareme,
       primSequences: section === 'primaire' && primaryPeriodMode(school) === 'sequences',
-      apcMasques, primMasques,
+      apcMasques, primMasques, primCriteresMasques,
       // Les DEUX enseignants principaux (mention seule, cf. src/lib/headTeachers.js).
       teacherName: headTeacherText(cls, teachers),
     });
   }, [school, countryCode, schoolYear, period, students, subjects, gradeMap,
       apcReferentiel, apcNotes, primReferentiel, primNotes, teachers,
-      apcMasques, primMasques]);
+      apcMasques, primMasques, primCriteresMasques]);
 
   // Feuille HTML d'une classe (identité surchargée par l'unité pédagogique).
   const sheetForClass = useCallback((cls) => {

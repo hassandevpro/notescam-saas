@@ -36,7 +36,7 @@ import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
 import { PRIM_GRADE_MAX } from '../../core/primEngine';
 // Les six regroupements officiels du carnet MINEDUB. Le calcul est dans le
 // moteur : ce gabarit n'additionne rien lui-même (règle de tous les bulletins).
-import { groupesDe } from '../../core/primCompactRows';
+import { groupesDe, reperesDeGroupe } from '../../core/primCompactRows';
 import { primCoteLabel } from '../../core/referentielI18n';
 
 const COTE_COLORS = { 'A+': '#059669', A: '#10b981', ECA: '#f59e0b', IP: '#f59e0b', NA: '#ef4444' };
@@ -89,14 +89,10 @@ export default function BulletinPrimCompact({
   // groupe quand la ligne i est la DERNIERE de sa famille — c'est la que se
   // pose la ligne « n) INTITULE · Total · Moyenne » du carnet.
   const groupes = avecGroupes ? groupesDe(rows, sys) : [];
-  const groupeDe = new Map();
-  for (const g of groupes) for (const code of g.codes) groupeDe.set(code, g);
-  const finDeGroupe = (i) => {
-    if (!avecGroupes) return null;
-    const g = groupeDe.get(rows[i]?.code);
-    if (!g) return null;
-    return groupeDe.get(rows[i + 1]?.code) === g ? null : g;
-  };
+  // Les repères viennent du moteur : une famille dont les membres ne se suivent
+  // pas — une compétence maison intercalée — n'imprime plus son total deux fois.
+  const { fin: finsDeGroupe } = reperesDeGroupe(rows, groupes);
+  const finDeGroupe = (i) => (avecGroupes ? finsDeGroupe.get(i) || null : null);
 
   const classLabel = cls?.name || '';
   const titre = L(sys, `BULLETIN DE NOTES — ${classLabel}`,

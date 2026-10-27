@@ -296,9 +296,9 @@ function apcReport({ cls, students, subjects, period, apcNotes, apcReferentiel: 
 // Moyenne /10 d'une compétence sur la période : moyenne des pourcentages
 // (points obtenus / points du barème officiel) de chaque UA notée. Même règle
 // que le bulletin primaire, pour que rapport et bulletin ne divergent jamais.
-function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas, primNotes }) {
+function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas, primNotes, criteresMasques = [] }) {
   const aptitude = competenceId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte';
-  const criteres = criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude);
+  const criteres = criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude, criteresMasques);
   if (!criteres.length) return null;
   const pcts = uas.map((ua) => {
     const notesByCritere = {};
@@ -313,7 +313,7 @@ function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas
   return round2((pcts.reduce((a, b) => a + b, 0) / pcts.length) / 100 * PRIM_GRADE_MAX);
 }
 
-function primReport({ cls, students, subjects, period, primNotes, primReferentiel, primMasques, sys }) {
+function primReport({ cls, students, subjects, period, primNotes, primReferentiel, primMasques, primCriteresMasques = [], sys }) {
   const scaleMax = PRIM_GRADE_MAX;
   const passThreshold = PRIM_GRADE_MAX / 2;
   const niveauSlug = primaireNiveauSlug(cls?.level, cls?.name);
@@ -345,6 +345,7 @@ function primReport({ cls, students, subjects, period, primNotes, primReferentie
     for (const col of columns) {
       const moyenne = primCompetenceAvg({
         referentiel: primReferentiel, niveauSlug, student, competenceId: col.id, uas, primNotes,
+        criteresMasques: primCriteresMasques,
       });
       if (moyenne != null) {
         scores[col.id] = moyenne;
@@ -469,11 +470,16 @@ export function buildClassReport({
   // une matière masquée, ou décochée dans la classe, restait une colonne alors
   // qu'elle ne figurait pas sur les bulletins.
   apcMasques = [], primMasques = [],
+  // Les CRITÈRES que l'école n'évalue pas (Oral, Pratique, Savoir-être chez une
+  // école qui n'évalue qu'à l'écrit). Sans eux ici, le rapport de classe
+  // moyennerait sur des colonnes que le bulletin n'imprime pas — exactement la
+  // divergence que `primCompetenceAvg` dit vouloir éviter.
+  primCriteresMasques = [],
 }) {
   const ctx = { cls, students, subjects, period, sys, gOpts, scaleMax, passThreshold };
   switch (engine) {
     case 'maternelle':   return maternelleReport({ ...ctx, matObservations });
-    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques });
+    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques, primCriteresMasques });
     case 'apc':          return apcReport({ ...ctx, apcNotes, apcReferentiel, apcMasques, gradeScale });
     default:             return classicReport({ ...ctx, gradeMap });
   }

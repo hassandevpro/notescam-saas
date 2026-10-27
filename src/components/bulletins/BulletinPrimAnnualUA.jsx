@@ -21,7 +21,7 @@ import {
 import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
 // Les six regroupements officiels du carnet MINEDUB. MÊME fonction que le
 // gabarit compact : un seul calcul pour un même carnet, deux dispositions.
-import { groupesDe } from '../../core/primCompactRows';
+import { groupesDe, reperesDeGroupe } from '../../core/primCompactRows';
 // L'échelle vient du moteur : un « /10 » écrit en dur dans le libellé se serait
 // mis à mentir dès que l'échelle change.
 import { PRIM_GRADE_MAX } from '../../core/primEngine';
@@ -206,20 +206,13 @@ export default function BulletinPrimAnnualUA({
       possible: r.totalAchieved == null ? null : (r.totalPossible ?? null),
     })), sys)
     : [];
-  const groupeDe = new Map();
-  for (const g of groupes) for (const code of g.codes) groupeDe.set(code, g);
   // Le bandeau se pose avant la PREMIÈRE compétence de la famille, le total
-  // après la DERNIÈRE : d'où les deux comparaisons avec les lignes voisines.
-  const debutDeGroupe = (i) => {
-    const g = groupeDe.get(competenceRows[i]?.code);
-    if (!g) return null;
-    return groupeDe.get(competenceRows[i - 1]?.code) === g ? null : g;
-  };
-  const finDeGroupe = (i) => {
-    const g = groupeDe.get(competenceRows[i]?.code);
-    if (!g) return null;
-    return groupeDe.get(competenceRows[i + 1]?.code) === g ? null : g;
-  };
+  // après la DERNIÈRE. Les deux repères viennent du moteur, et non d'une
+  // comparaison avec la ligne voisine : celle-ci dédoublait bandeau et total
+  // dès qu'une compétence maison coupait la famille en deux.
+  const { debut: debutsDeGroupe, fin: finsDeGroupe } = reperesDeGroupe(competenceRows, groupes);
+  const debutDeGroupe = (i) => debutsDeGroupe.get(i) || null;
+  const finDeGroupe = (i) => finsDeGroupe.get(i) || null;
 
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys}>

@@ -48,10 +48,25 @@ export default function ReferentielEditor({
   // saisir, et 18 notes déjà posées ne s'imprimaient plus. Personne ne
   // pouvait relier l'un à l'autre.
   nbNotes = () => 0,        // (ligne) => number
+  // ── OÙ SE RANGE UNE LIGNE MAISON ────────────────────────────────────────
+  //
+  // Le carnet du primaire totalise par FAMILLE. Une ligne maison n'a pas de
+  // numéro dans son code — « Dictée - Question » devient « DQ » — donc rien ne
+  // disait à quelle famille elle appartient : elle s'imprimait, comptait dans le
+  // total général, et manquait au total de sa famille. Un parent lisait sous
+  // « 1) COMMUNIQUER… » un total qui ne faisait pas la somme des lignes
+  // au-dessus.
+  //
+  // `familles` absent ⇒ l'écran est exactement celui d'avant. Seul le primaire
+  // le passe : la maternelle et l'APC ne totalisent pas par famille.
+  familles = null,          // [{ id, label }] | null
+  familleDe = (l) => l?.domaine ?? '',
+  onSetFamille,             // (ligne, familleId) => Promise
   onClose,
 }) {
   const t = useT();
   const [nouveau, setNouveau] = useState('');
+  const [familleNouvelle, setFamilleNouvelle] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
   // Brouillon { id: texte } — ce que l'utilisateur a tapé SANS l'avoir enregistré.
@@ -76,6 +91,10 @@ export default function ReferentielEditor({
   const visibles = lignes.filter((l) => !masques.includes(l.id));
   const caches   = lignes.filter((l) => masques.includes(l.id));
 
+  // Les lignes de l'école qui ne sont rattachées à aucune famille. Les masquées
+  // en sont exclues : elles ne s'impriment pas, donc elles ne faussent rien.
+  const orphelines = familles ? visibles.filter((l) => !estNational(l) && !familleDe(l)) : [];
+
   const run = async (fn) => { setBusy(true); try { return await fn(); } finally { setBusy(false); } };
 
   const handleRetrait = async (ligne) => {
@@ -94,6 +113,8 @@ export default function ReferentielEditor({
     if (code === 'liee') return t('Impossible : des notes sont déjà rattachées. Masquez la ligne plutôt que de la supprimer.',
                                   'Not possible: marks are already attached. Hide the row instead of deleting it.');
     if (code === 'existe') return t('Ce libellé existe déjà.', 'That label already exists.');
+    if (code === 'nationale') return t('Une ligne officielle garde la famille que le ministère lui donne.',
+                                       'An official row keeps the family the ministry gives it.');
     return t('Enregistrement refusé par le serveur. Si cela persiste, la mise à jour de la base n’a pas encore été appliquée.',
              'Save refused by the server. If this persists, the database update has not been applied yet.');
   };
@@ -127,12 +148,22 @@ export default function ReferentielEditor({
     });
   };
 
+  // Un refus doit se VOIR : sans ce toast, la liste reprenait silencieusement
+  // son ancienne valeur et l'école croyait avoir rangé sa ligne.
+  const handleFamille = async (ligne, familleId) => {
+    const r = await run(() => onSetFamille?.(ligne, familleId));
+    if (r?.error) { toast.error(direEchec(r.error)); return; }
+    toast.success(t('Enregistré.', 'Saved.'));
+  };
+
   const handleAdd = async () => {
     const v = nouveau.trim().replace(/\s+/g, ' ');
     if (!v) return;
-    const r = await run(() => onAdd?.(v));
+    const r = await run(() => onAdd?.(v, familleNouvelle || null));
     if (r?.error) { toast.error(direEchec(r.error)); return; }
     setNouveau('');
+    // La famille, elle, RESTE choisie : une école qui saisit ses six épreuves de
+    // français les range toutes dans la même famille, l'une après l'autre.
   };
 
   const cible = lignes.find((l) => l.id === confirmId) || null;
@@ -199,6 +230,25 @@ export default function ReferentielEditor({
                         title={t('Rendre le libellé officiel', 'Restore the official wording')}
                         className="shrink-0 text-gray-300 hover:text-brand-600 text-sm">↩</button>
                     )}
+                    {/* La famille ne se choisit que pour une ligne MAISON : une
+                        ligne officielle tient la sienne du ministère, et la
+                        déplacer fausserait le carnet de toutes les écoles. */}
+                    {familles && !estNational(l) && onSetFamille && (
+                      <select
+                        value={familleDe(l) || ''}
+                        disabled={busy}
+                        onChange={(e) => handleFamille(l, e.target.value || null)}
+                        title={t('Famille sous laquelle cette ligne est totalisée',
+                                 'Family this row is totalled under')}
+                        className="shrink-0 mt-1 max-w-[9rem] rounded border border-gray-200 px-1.5 py-1 text-[11px] text-gray-600
+                          focus:outline-none focus:border-brand-500"
+                      >
+                        <option value="">{t('— sans famille —', '— no family —')}</option>
+                        {familles.map((f) => (
+                          <option key={f.id} value={f.id}>{f.label}</option>
+                        ))}
+                      </select>
+                    )}
                     {confirmId === l.id ? (
                       <button type="button" disabled={busy} onClick={() => handleRetrait(l)}
                         className="shrink-0 text-xs font-bold text-red-600 hover:text-red-700">✓</button>
@@ -228,14 +278,40 @@ export default function ReferentielEditor({
                'Renaming an “official” row only changes how it reads in your school: its ministry identity, your marks and the official report card stay intact.')}
           </p>
 
+          {/* Une ligne maison SANS famille s'imprime et compte dans le total
+              général, mais pas dans le total de sa famille : le carnet affiche
+              alors un sous-total qui ne fait pas la somme des lignes au-dessus.
+              On le dit AVANT que le bulletin ne parte chez les parents. */}
+          {familles && orphelines.length > 0 && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              {t(`${orphelines.length} ligne(s) de votre école ne sont rattachées à aucune famille : `,
+                 `${orphelines.length} of your school's rows belong to no family: `)}
+              <span className="font-semibold">{orphelines.map((l) => l.intitule).join(', ')}</span>
+              {t('. Elles s’impriment et comptent dans le total général, mais elles manquent au total de leur famille. Choisissez-la dans la liste au bout de la ligne.',
+                 '. They print and count in the overall total, but they are missing from their family total. Pick it in the list at the end of the row.')}
+            </p>
+          )}
+
           {onAdd && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 type="text" value={nouveau} onChange={(e) => setNouveau(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
                 placeholder={placeholderAjout || t(`Nouvelle ${motSingulier} propre à votre école…`, `New ${motSingulier} of your own…`)}
-                className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                className="flex-1 min-w-[12rem] rounded-lg border border-gray-200 px-3 py-2 text-sm"
               />
+              {familles && (
+                <select
+                  value={familleNouvelle}
+                  onChange={(e) => setFamilleNouvelle(e.target.value)}
+                  className="rounded-lg border border-gray-200 px-2 py-2 text-sm text-gray-600 max-w-[12rem]"
+                >
+                  <option value="">{t('Famille…', 'Family…')}</option>
+                  {familles.map((f) => (
+                    <option key={f.id} value={f.id}>{f.label}</option>
+                  ))}
+                </select>
+              )}
               <button type="button" onClick={handleAdd} disabled={!nouveau.trim() || busy}
                 className="btn-primary" style={{ width: 'auto', paddingInline: '1.25rem' }}>
                 {t('Ajouter', 'Add')}

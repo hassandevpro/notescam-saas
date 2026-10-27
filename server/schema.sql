@@ -1576,6 +1576,29 @@ CREATE TABLE IF NOT EXISTS mat_domaines_masques (
   masque_le  TEXT,
   PRIMARY KEY (school_id, domaine_id)
 );
+-- Critères d'évaluation du primaire masqués par une école.
+--
+-- POURQUOI CETTE TABLE EXISTE. Le référentiel MINEDUB évalue chaque compétence
+-- sur quatre critères — Oral, Écrit, Pratique, Savoir-être — et `prim_criteres`
+-- est NATIONALE : les quatre colonnes s'imprimaient donc sur le bulletin de
+-- toutes les écoles, qu'elles s'en servent ou non. THE GENIUS a signalé le
+-- 2026-10-27 n'évaluer QU'À L'ÉCRIT sur ses cinq niveaux : « il n'y a pas de
+-- pratique et de l'oral ». Trois colonnes vides sur chaque bulletin, et aucun
+-- moyen de les retirer — `primColumnBareme.js` ne sait fermer qu'un critère que
+-- le national ignore, pas un critère officiel.
+--
+-- On MASQUE, on ne supprime pas, et on ne s'approprie pas la ligne nationale :
+-- `supabase_prim_competences_par_ecole.sql` avait écarté l'ouverture de
+-- `prim_criteres` parce qu'elle « demanderait de revoir primEngine, pas
+-- seulement une policy ». Un masque par école reste en deçà : la table
+-- nationale ne bouge pas, les notes déjà saisies restent en base, et le geste
+-- est réversible d'un clic.
+CREATE TABLE IF NOT EXISTS prim_criteres_masques (
+  school_id  TEXT NOT NULL REFERENCES schools(id)       ON DELETE CASCADE,
+  critere_id TEXT NOT NULL REFERENCES prim_criteres(id) ON DELETE CASCADE,
+  masque_le  TEXT,
+  PRIMARY KEY (school_id, critere_id)
+);
 
 -- Libellé de remplacement d'une ligne NATIONALE, pour UNE école. L'id officiel
 -- ne bouge pas : les notes déjà saisies restent attachées, et le bulletin

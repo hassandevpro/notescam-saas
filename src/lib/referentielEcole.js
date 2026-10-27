@@ -22,6 +22,11 @@ export const REF_ECOLE = {
   mat:  { table: 'mat_domaines',     masques: 'mat_domaines_masques',     fk: 'domaine_id'    },
   apc:  { table: 'apc_competences',  masques: 'apc_competences_masques',  fk: 'competence_id' },
   prim: { table: 'prim_competences', masques: 'prim_competences_masques', fk: 'competence_id' },
+  // Les CRITÈRES du primaire (Oral, Écrit, Pratique, Savoir-être). Seul le
+  // MASQUE est ouvert : `prim_criteres` reste nationale, sans `school_id`, donc
+  // ni `addRefLigne` ni `renameRefLigne` n'ont de sens ici — une école qui
+  // n'évalue qu'à l'écrit retire des colonnes, elle n'en invente pas.
+  prim_crit: { table: 'prim_criteres', masques: 'prim_criteres_masques', fk: 'critere_id' },
 };
 
 // Une ligne appartient-elle à CETTE école ? Seules celles-là sont modifiables :

@@ -1403,6 +1403,11 @@ export const ALLOWED_TABLES = new Set([
   // l'écran « Modifier les compétences » se heurtait à « Table non autorisée »
   // et l'école ne pouvait ni masquer ni renommer quoi que ce soit en LAN.
   'apc_competences_masques', 'prim_competences_masques', 'mat_domaines_masques',
+  // Les critères d'évaluation que l'école n'utilise pas (Oral, Pratique,
+  // Savoir-être chez une école qui n'évalue qu'à l'écrit). Même nature que les
+  // masques ci-dessus, et comme eux HORS `SYNCED_TABLES` : un masque est un
+  // réglage d'affichage local, il ne voyage pas et ne touche pas au contrat.
+  'prim_criteres_masques',
   'referentiel_libelles',
   // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
   'domain_events', 'audit_events', 'signalements',

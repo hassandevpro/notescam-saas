@@ -413,7 +413,7 @@ export const useSchoolStore = create((set, get) => ({
   matObservations: {},
   // Ce que CETTE ecole a masque dans chaque referentiel national (ids). Masquer
   // ne supprime rien : le national reste intact pour les 43 autres etablissements.
-  refMasques:      { mat: [], apc: [], prim: [] },
+  refMasques:      { mat: [], apc: [], prim: [], prim_crit: [] },
   // Libelles de remplacement poses par CETTE ecole sur des lignes NATIONALES.
   // L'identite officielle est conservee : seules les notes resteraient attachees.
   refLibelles:     { mat: {}, apc: {}, prim: {} },
@@ -930,6 +930,10 @@ export const useSchoolStore = create((set, get) => ({
     mat:  { blob: 'matReferentiel',  liste: 'domaines'    },
     apc:  { blob: 'apcReferentiel',  liste: 'competences' },
     prim: { blob: 'primReferentiel', liste: 'competences' },
+    // Les critères vivent dans le MÊME référentiel que les compétences, sous
+    // une autre liste. Le slot suffit donc à rendre `loadRefMasques`,
+    // `removeRefLigne` et `restoreRefLigne` utilisables tels quels.
+    prim_crit: { blob: 'primReferentiel', liste: 'criteres' },
   }[kind] || null),
 
   _refLignes: (kind) => {
@@ -1290,9 +1294,18 @@ export const useSchoolStore = create((set, get) => ({
     // mat_domaines. L'envoyer a null faisait echouer TOUT ajout de competence
     // du primaire. On le derive donc du libelle, en evitant les pastilles deja
     // utilisees par les lignes deja presentes. Cf. codeMaison.
+    // `ordre` : APRÈS la derniere ligne existante, nationale comprise. Le
+    // « 90 + lignes.length » d'avant visait deja la fin de liste, mais 90 est
+    // DANS la plage du referentiel du primaire (10 a 110) : les trois
+    // competences maison de THE GENIUS — Chinois, Practical Work, Economie
+    // Generale — recevaient 101, 102, 103 et atterrissaient entre 6A (100) et
+    // 6B (110). La famille 6 se retrouvait coupee en deux, et le carnet
+    // imprimait son bandeau et son total DEUX fois. Cf. `reperesDeGroupe`,
+    // core/primCompactRows.js, qui repare l'affichage ; ceci repare la cause.
+    const ordre = lignes.reduce((m, l) => Math.max(m, Number(l.ordre) || 0), 80) + 10;
     const record = kind === 'apc'
-      ? { id, school_id: schoolId, intitule: nom, actif: true, ordre: 90 + lignes.length, ...extra }
-      : { id, school_id: schoolId, intitule: nom, actif: true, ordre: 90 + lignes.length,
+      ? { id, school_id: schoolId, intitule: nom, actif: true, ordre, ...extra }
+      : { id, school_id: schoolId, intitule: nom, actif: true, ordre,
           country_code: 'CM', code: codeMaison(nom, lignes.map((l) => l.code)), ...extra };
     if (!(await upsertLigne(kind, record))) return { error: 'refus' };
     get()._refSetLignes(kind, (prev) => [...prev, record]);
@@ -1321,6 +1334,32 @@ export const useSchoolStore = create((set, get) => ({
     if (!(await setLibelle(kind, schoolId, id, nom))) return { error: 'refus' };
     set((st) => ({ refLibelles: { ...st.refLibelles, [kind]: { ...st.refLibelles[kind], [id]: nom } } }));
     return { data: 'surcharge' };
+  },
+
+  // ── RANGER UNE LIGNE MAISON DANS SA FAMILLE ──────────────────────────────
+  //
+  // Le carnet du primaire totalise par FAMILLE (les six regroupements du
+  // MINEDUB). Une ligne nationale y est rattachee par le chiffre de son code
+  // (« 1A » -> famille 1) ; une ligne MAISON n'en a pas — `codeMaison` refuse
+  // meme d'en produire un, pour qu'on ne la prenne pas pour un code du
+  // ministere. Son seul rattachement est donc `domaine`, et rien ne permettait
+  // de le renseigner : les six epreuves de THE GENIUS (Dictee-Question, Etude
+  // de texte, Production d'ecrits, Calcul Rapide, Problemes, Connaissances
+  // generales) s'imprimaient et comptaient dans le total general, mais
+  // manquaient au total de leur famille. Cf. `groupesDe`, primCompactRows.js.
+  //
+  // NATIONALE : refus. Son domaine vient du ministere ; le deplacer changerait
+  // le carnet de toutes les ecoles, ce que la RLS refuserait de toute facon.
+  setRefFamille: async (kind, id, domaine) => {
+    const { schoolId } = get();
+    const ligne = get()._refLignes(kind).find((l) => l.id === id);
+    if (!ligne || !schoolId) return { error: 'introuvable' };
+    if (ligne.school_id !== schoolId) return { error: 'nationale' };
+    if (!backendOnline()) return { error: 'offline' };
+    const valeur = domaine || null;
+    if (!(await upsertLigne(kind, { ...ligne, domaine: valeur }))) return { error: 'refus' };
+    get()._refSetLignes(kind, (prev) => prev.map((l) => (l.id === id ? { ...l, domaine: valeur } : l)));
+    return { data: valeur };
   },
 
   // Rendre son libelle officiel a une ligne nationale surchargee.
@@ -1400,6 +1439,13 @@ export const useSchoolStore = create((set, get) => ({
     publishReferentiels(set, get, { primRefRaw: cachedRef || null });
 
     if (!backendOnline()) return;
+    // Les masques de l'école voyagent AVEC le référentiel, comme `loadMat` le
+    // fait déjà pour la maternelle. Sans cela, ils n'étaient chargés que par les
+    // écrans qui les demandent explicitement : « Rapports », qui les lit sans
+    // les charger, calculait donc ses moyennes sur des colonnes et des lignes
+    // que le bulletin n'imprime pas, selon l'écran visité avant lui.
+    get().loadRefMasques('prim');
+    get().loadRefMasques('prim_crit');
     const [refRes, notes] = await Promise.all([
       refreshPrimReferentiel(cachedRef?.__fp ?? null),
       fetchPrimNotes(schoolId),

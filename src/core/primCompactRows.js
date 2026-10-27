@@ -124,6 +124,21 @@ const numeroDe = (code) => {
 };
 
 /**
+ * Les six familles, dans l'ordre du carnet, pour les proposer à l'école.
+ *
+ * Même source que les bandeaux imprimés : une famille ajoutée ici apparaît du
+ * même coup dans la liste de choix et sur le bulletin, sans seconde liste à
+ * tenir à jour.
+ */
+export const FAMILLES_PRIMAIRE = Object.keys(DOMAINE_LIBELLE);
+
+/** Intitulé officiel d'une famille, ou `null` si le domaine est inconnu. */
+export function familleLabel(domaine, sys = 'FR') {
+  const l = DOMAINE_LIBELLE[domaine];
+  return l ? (sys === 'EN' ? l[1] : l[0]) : null;
+}
+
+/**
  * Regroupe les lignes par domaine, dans l'ordre d'apparition, et calcule pour
  * chacun le TOTAL (points obtenus / possibles) et la MOYENNE sur 20.
  *
@@ -144,11 +159,41 @@ export function groupesDe(rows, sys = 'FR') {
   // formait un septième groupe fantôme au lieu de rejoindre le premier. Comme
   // tous les codes nationaux portent leur numéro (1A, 2A…), grouper par numéro
   // redonne exactement les six familles ET accueille les maisons numérotées.
+  //
+  // ── QUELLE FAMILLE PORTE QUEL DOMAINE ? ON L'APPREND DES LIGNES ──────────
+  //
+  // Une ligne MAISON n'a pas de numéro dans son code : `codeMaison` refuse même
+  // d'en produire un, pour qu'on ne la confonde pas avec un code du ministère
+  // (« Dictée - Question » → « DQ »). Son seul rattachement possible est donc le
+  // DOMAINE, que l'école choisit à l'écran.
+  //
+  // Mais `domaine` et numéro sont deux clés différentes pour une même famille :
+  // tel quel, « DQ » avec `domaine = 'langues'` formait un SEPTIÈME groupe
+  // portant le même titre que le premier — le carnet imprimait donc deux fois
+  // « 1) COMMUNIQUER EN FRANÇAIS… », chacun avec un bout du total.
+  //
+  // On relie les deux par la DONNÉE, pas par une table écrite à la main : 1A
+  // porte `langues`, donc `langues` est la famille 1. Si le ministère renumérote
+  // un jour ses familles, le rattachement suit sans qu'on y touche.
+  const numeroDuDomaine = new Map();
+  for (const r of rows || []) {
+    const n = numeroDe(r?.code);
+    if (n != null && r?.domaine && !numeroDuDomaine.has(r.domaine)) numeroDuDomaine.set(r.domaine, n);
+  }
+
   const ordre = [];
   const par = new Map();
   for (const r of rows || []) {
     const n = numeroDe(r?.code);
-    const cle = n != null ? `num:${n}` : (r?.domaine || null);
+    // Un domaine qu'AUCUNE ligne nationale ne porte reste sa propre clé : une
+    // école qui range ses épreuves ailleurs garde son groupe, elle ne le voit
+    // pas fondre dans une famille qui n'est pas la sienne.
+    let cle = null;
+    if (n != null) cle = `num:${n}`;
+    else if (r?.domaine) {
+      const nDom = numeroDuDomaine.get(r.domaine);
+      cle = nDom != null ? `num:${nDom}` : r.domaine;
+    }
     if (!cle) continue;
     if (!par.has(cle)) { par.set(cle, []); ordre.push(cle); }
     par.get(cle).push(r);
@@ -165,7 +210,10 @@ export function groupesDe(rows, sys = 'FR') {
     const libelle = DOMAINE_LIBELLE[domaine];
     return {
       cle,
-      numero: numeroDe(lignes[0]?.code),
+      // Le numéro se lit sur la CLÉ, pas sur la première ligne : une famille
+      // dont l'école a mis son épreuve en tête (« Calcul Rapide » avant 2B)
+      // perdait sinon son numéro, et son bandeau s'imprimait sans « 2) ».
+      numero: /^num:(\d+)$/.test(cle) ? Number(cle.slice(4)) : null,
       // Un domaine inconnu du produit garde les codes de ses compétences comme
       // libellé : mieux qu'un titre inventé, et l'école voit quoi corriger.
       intitule: libelle ? (sys === 'EN' ? libelle[1] : libelle[0]) : lignes.map((r) => r.code).join(', '),
@@ -175,6 +223,62 @@ export function groupesDe(rows, sys = 'FR') {
       moyenne: (achieved == null || !possible) ? null : Math.round((achieved / possible) * 20 * 100) / 100,
     };
   });
+}
+
+/**
+ * Où poser le BANDEAU et le TOTAL d'un regroupement, quand ses membres ne se
+ * suivent pas.
+ *
+ * ── LE DÉFAUT QUE CECI CORRIGE (THE GENIUS, relevé le 2026-10-27) ──────────
+ *
+ * Les deux gabarits décidaient en regardant la ligne VOISINE : « la suivante
+ * est-elle d'une autre famille ? alors je suis la dernière de la mienne ». Juste
+ * tant que les membres d'une famille se suivent — et ils ne se suivent plus dès
+ * qu'une compétence MAISON s'intercale.
+ *
+ * Une maison n'a ni `domaine` ni numéro dans son code (« CH », « PW », « EG ») :
+ * `groupesDe` la laisse donc hors regroupement, à dessein. Mais `addRefLigne`
+ * lui donnait un `ordre` qui la plaçait au MILIEU du national. Sur le CE2 BIL de
+ * THE GENIUS, « Chinois », « Practical Work » et « Économie Générale » tombaient
+ * entre 6A (ordre 100) et 6B (ordre 110) : la famille 6 se retrouvait coupée en
+ * deux morceaux, et le carnet imprimait DEUX fois
+ * « 6) PRATIQUER LES ACTIVITÉS PHYSIQUES, SPORTIVES ET ARTISTIQUES » — avec le
+ * MÊME total les deux fois, puisque `groupesDe` ne l'avait compté qu'une. Un
+ * parent lisait donc deux totaux identiques pour un seul groupe.
+ *
+ * On repère ici la PREMIÈRE et la DERNIÈRE ligne de chaque famille, où qu'elles
+ * soient dans la liste. Un groupe n'a ainsi qu'un bandeau et qu'un total, quoi
+ * qu'il y ait entre les deux. Ce qui s'intercale reste visible et compté dans le
+ * total général — on ne masque rien, on cesse seulement de compter double.
+ *
+ * @param rows    lignes du bulletin, dans l'ordre d'affichage
+ * @param groupes sortie de `groupesDe` pour ces mêmes lignes
+ * @returns {{debut: Map<number, object>, fin: Map<number, object>}}
+ *          index de ligne → groupe dont elle OUVRE / FERME la famille.
+ */
+export function reperesDeGroupe(rows, groupes) {
+  const groupeDe = new Map();
+  for (const g of groupes || []) for (const code of g?.codes || []) groupeDe.set(code, g);
+
+  // Un seul parcours : on retient l'index de la première et de la dernière
+  // ligne de chaque famille. `dernier` est écrasé à chaque membre rencontré,
+  // donc il porte bien le DERNIER à la fin du parcours.
+  const premier = new Map();
+  const dernier = new Map();
+  (rows || []).forEach((r, i) => {
+    const g = groupeDe.get(r?.code);
+    if (!g) return;
+    if (!premier.has(g)) premier.set(g, i);
+    dernier.set(g, i);
+  });
+
+  // Deux familles ne peuvent pas ouvrir sur la même ligne, ni fermer sur la
+  // même : l'inversion est donc sans perte.
+  const debut = new Map();
+  const fin = new Map();
+  for (const [g, i] of premier) debut.set(i, g);
+  for (const [g, i] of dernier) fin.set(i, g);
+  return { debut, fin };
 }
 
 export function buildCompactRows(compRows) {

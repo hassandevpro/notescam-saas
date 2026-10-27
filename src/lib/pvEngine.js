@@ -223,7 +223,7 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
 // Colonnes = compétences du niveau ; unités = UA de la période. La note d'une
 // compétence sur une UA = pourcentage des points obtenus ramené à /10 — même
 // règle que le bulletin primaire officiel.
-function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme, competences }) {
+function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme, competences, criteresMasques = [] }) {
   const GRADE_MAX = 10;
   // `competences` est fourni par `buildClassPv` : masques de l'école + matières
   // réellement cochées pour la classe. Repli sur le niveau entier si l'appelant
@@ -232,9 +232,12 @@ function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bar
   const scale = bareme?.length ? bareme : PRIM_COTE_DEFAULT;
   const coefOf = (c) => (c.coefficient == null ? 1 : Number(c.coefficient) || 1);
 
+  // Les critères masqués par l'école sortent aussi du PV : le conseil doit
+  // délibérer sur ce que le bulletin imprime, pas sur des colonnes retirées.
   const criteresFor = (compId, student) => criteresForCompetence(
     referentiel, niveauSlug, compId,
     compId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte',
+    criteresMasques,
   );
 
   const uaScore = (student, comp, ua) => {
@@ -293,6 +296,8 @@ export function buildClassPv(ctx) {
     // procès-verbal alors qu'elle ne figurait pas sur les bulletins. Le conseil
     // délibérait donc sur des colonnes que le bulletin n'imprimait pas.
     apcMasques = [], primMasques = [],
+    // Idem pour les CRITÈRES que l'école n'évalue pas.
+    primCriteresMasques = [],
   } = ctx;
 
   if (!pvApplicable(engine)) return null;
@@ -316,7 +321,7 @@ export function buildClassPv(ctx) {
   const base = engine === 'apc'
     ? buildApcPv({ sys, students, units, referentiel: apcRefEcole, notes: apcNotes, classeSlug: apcClasseSlug, annual, trimestreId: `t${trim || 1}`, gradeScale })
     : engine === 'apc_primaire'
-      ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme, competences: primComps })
+      ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme, competences: primComps, criteresMasques: primCriteresMasques })
       : buildNotesPv({ cls, sys, students, subjects, gradeMap, units, opts, gradeScale });
 
   const { cols, rows, maxScale, pass } = base;

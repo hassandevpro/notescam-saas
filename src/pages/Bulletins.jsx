@@ -1632,6 +1632,9 @@ export default function Bulletins() {
   const matMasques      = useSchoolStore((s) => s.refMasques.mat);
   const matLibelles     = useSchoolStore((s) => s.refLibelles.mat);
   const primMasques     = useSchoolStore((s) => s.refMasques.prim);
+  // Les critères que l'école n'évalue pas. Distincts des masques de COMPÉTENCE
+  // ci-dessus : ceux-ci retirent une COLONNE du bulletin, pas une ligne.
+  const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
   const primLibelles    = useSchoolStore((s) => s.refLibelles.prim);
   const apcLibelles     = useSchoolStore((s) => s.refLibelles.apc);
   const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
@@ -1929,7 +1932,7 @@ export default function Bulletins() {
   const apcReady = isApc && !!apcReferentiel && !!apcClasseSlug && classStudents.length > 0;
 
   // ── PRIMAIRE APC (SIL–CM2) — données du bulletin officiel (aperçu écran) ─────
-  useEffect(() => { if (isPrim) { loadPrim(); loadRefMasques('prim'); } }, [isPrim, loadPrim, loadRefMasques]);
+  useEffect(() => { if (isPrim) { loadPrim(); loadRefMasques('prim'); loadRefMasques('prim_crit'); } }, [isPrim, loadPrim, loadRefMasques]);
   const primNiveauSlug = isPrim ? primaireNiveauSlug(selectedClass?.level, selectedClass?.name) : null;
   // `PRIM_GRADE_MAX` vient du moteur (primEngine) — il n'est PLUS redéfini ici.
   // Une constante locale `= 10` masquait la source unique : depuis le passage de
@@ -1960,8 +1963,11 @@ export default function Bulletins() {
   const primCriteresFor = (compId, student) => {
     const aptitude = compId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte';
     // Point de passage unique des critères (Oral/Écrit/Pratique/Savoir-être) vers
-    // le bulletin : on y traduit leur nom une fois pour toutes.
-    return criteresForCompetence(primReferentiel, primNiveauSlug, compId, aptitude)
+    // le bulletin : on y traduit leur nom une fois pour toutes, et on y retire
+    // ceux que l'école n'évalue pas. Les colonnes du bulletin étant l'union des
+    // critères rencontrés (`critereColumnsOf`), les masquer ICI suffit à les
+    // faire disparaître des deux dispositions.
+    return criteresForCompetence(primReferentiel, primNiveauSlug, compId, aptitude, primCriteresMasques)
       .map((cr) => ({ ...cr, nom: primCritereLabel(cr, sys) }));
   };
 
@@ -2203,8 +2209,8 @@ export default function Bulletins() {
   // évaluer. Mémoïsé — il ne dépend que du référentiel et du niveau.
   const primNiveauTotal = useMemo(() => {
     if (!isPrim || !primReferentiel || !primNiveauSlug) return null;
-    return niveauPointsTotal(primReferentiel, primNiveauSlug, primCompetencesEcole);
-  }, [isPrim, primReferentiel, primNiveauSlug, primCompetencesEcole]);
+    return niveauPointsTotal(primReferentiel, primNiveauSlug, primCompetencesEcole, 'apte', primCriteresMasques);
+  }, [isPrim, primReferentiel, primNiveauSlug, primCompetencesEcole, primCriteresMasques]);
 
   // Titre du bulletin : rendu dans le SYSTÈME de la classe, comme `apcTitle`.
   const primTitle = (() => {

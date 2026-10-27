@@ -424,6 +424,7 @@ function computeClassReport(cls, period, ctx) {
     matObservations: ctx.matObservations,
     apcMasques:      ctx.apcMasques,
     primMasques:     ctx.primMasques,
+    primCriteresMasques: ctx.primCriteresMasques,
     sys, gOpts,
     scaleMax:      bulletinScale(cls, sys, geGradeMax(school)).maxScale,
     passThreshold: isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50,
@@ -812,6 +813,9 @@ export default function Reports() {
   // colonnes que le bulletin n'imprime pas (cf. core/refClassScope.js).
   const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
   const primMasques     = useSchoolStore((s) => s.refMasques.prim);
+  // Les CRITERES que l'ecole n'evalue pas : sans eux ici, cet ecran
+  // moyennerait sur des colonnes que le bulletin n'imprime pas.
+  const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
   const loadApc  = useSchoolStore((s) => s.loadApc);
   const loadMat  = useSchoolStore((s) => s.loadMat);
   const loadPrim = useSchoolStore((s) => s.loadPrim);
@@ -945,9 +949,9 @@ export default function Reports() {
   const reportCtx = useMemo(() => ({
     school, schoolUnits, students, subjects, gradeMap,
     apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
-    apcMasques, primMasques,
+    apcMasques, primMasques, primCriteresMasques,
   }), [school, schoolUnits, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
-      apcMasques, primMasques]);
+      apcMasques, primMasques, primCriteresMasques]);
 
   const classReport = useMemo(
     () => (selectedClass ? computeClassReport(selectedClass, period, reportCtx) : null),

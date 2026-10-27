@@ -23,7 +23,7 @@
 //
 //   node src/core/_carnetPrimaire.test.mjs
 import { readFileSync } from 'node:fs';
-import { buildCompactRows, groupesDe } from './primCompactRows.js';
+import { buildCompactRows, groupesDe, reperesDeGroupe } from './primCompactRows.js';
 
 let pass = 0, fail = 0;
 const ok = (c, label, got) => {
@@ -144,6 +144,99 @@ titre('Sans le réglage, rien ne s ajoute');
     ok(/groupes:\s*avecGroupes\s*=\s*false/.test(src),
       `${f.split('/').pop()} : le carnet est ÉTEINT par défaut`);
   }
+}
+
+// ── 4. UNE FAMILLE COUPÉE EN DEUX N'IMPRIME QU'UN BANDEAU ET QU'UN TOTAL ───
+//
+// LE CAS RÉEL (THE GENIUS, CE2 BIL, relevé le 2026-10-27). Trois compétences
+// MAISON — « CH Chinois », « PW Practical Work », « EG Économie Générale » —
+// n'ont ni domaine ni numéro dans leur code, donc `groupesDe` les laisse hors
+// regroupement, à dessein. Mais leur `ordre` (101, 102, 103) les plaçait entre
+// 6A (100) et 6B (110) : la famille 6 n'était plus contiguë. Les deux gabarits
+// décidaient alors en regardant la ligne voisine, et imprimaient
+// « 6) PRATIQUER LES ACTIVITÉS PHYSIQUES… » DEUX fois, avec le même total.
+titre('Une compétence maison intercalée ne dédouble pas le regroupement');
+{
+  const GENIUS = [
+    ligne('1A', 'langues', 36, 40),
+    ligne('6A', 'arts_sport', 19, 20),
+    ligne('CH', null, 18, 20),   // maison : ni domaine, ni numéro dans le code
+    ligne('PW', null, 15, 20),
+    ligne('EG', null, 17, 20),
+    ligne('6B', 'arts_sport', 17.5, 20),
+  ];
+  const rows = formeDetaillee(GENIUS);
+  const groupes = groupesDe(rows, 'FR');
+  const { debut, fin } = reperesDeGroupe(rows, groupes);
+
+  ok(groupes.length === 2, 'deux familles seulement : la 1 et la 6', groupes.length);
+  const g6 = groupes.find((g) => g.numero === 6);
+  ok(g6 && g6.codes.join(',') === '6A,6B', 'la famille 6 reste 6A + 6B', g6?.codes);
+
+  // Le cœur du défaut : UN bandeau et UN total par famille, pas un par morceau.
+  ok(debut.size === groupes.length, 'autant de bandeaux que de familles', debut.size);
+  ok(fin.size === groupes.length, 'autant de totaux que de familles', fin.size);
+
+  // Et ils tombent aux bons endroits : le bandeau sur 6A (index 1), le total
+  // sur 6B (index 5) — pas sur 6A, qui est la fin du premier morceau.
+  ok(debut.get(1) === g6, 'le bandeau de la famille 6 s ouvre sur 6A', [...debut.keys()]);
+  ok(fin.get(5) === g6, 'le total de la famille 6 se pose sur 6B', [...fin.keys()]);
+  ok(fin.get(1) === undefined, 'aucun total posé sur 6A, qui n est pas la dernière', fin.get(1)?.codes);
+
+  // Les trois maisons restent des lignes visibles, simplement hors famille :
+  // on ne les masque pas, on cesse de compter leur voisinage comme une rupture.
+  for (const [i, code] of [[2, 'CH'], [3, 'PW'], [4, 'EG']]) {
+    ok(debut.get(i) === undefined && fin.get(i) === undefined,
+      `« ${code} » ne porte ni bandeau ni total`);
+  }
+  // Le total de la famille 6 ne compte QUE 6A et 6B : 36.5 / 40.
+  ok(g6.achieved === 36.5 && g6.possible === 40, 'famille 6 : 36.5 / 40, les maisons exclues',
+    [g6.achieved, g6.possible]);
+}
+
+// Non-régression : sur des familles contiguës, les repères sont EXACTEMENT ceux
+// que donnait la comparaison avec la ligne voisine.
+titre('Sur des familles contiguës, rien ne change');
+{
+  const rows = formeDetaillee(COMP_ROWS);
+  const groupes = groupesDe(rows, 'FR');
+  const { debut, fin } = reperesDeGroupe(rows, groupes);
+  const groupeDe = new Map();
+  for (const g of groupes) for (const code of g.codes) groupeDe.set(code, g);
+  // L'ancienne règle, rejouée telle quelle.
+  const ancienDebut = (i) => {
+    const g = groupeDe.get(rows[i]?.code);
+    return !g || groupeDe.get(rows[i - 1]?.code) === g ? null : g;
+  };
+  const ancienFin = (i) => {
+    const g = groupeDe.get(rows[i]?.code);
+    return !g || groupeDe.get(rows[i + 1]?.code) === g ? null : g;
+  };
+  let ecarts = 0;
+  rows.forEach((_, i) => {
+    if ((debut.get(i) || null) !== ancienDebut(i)) ecarts++;
+    if ((fin.get(i) || null) !== ancienFin(i)) ecarts++;
+  });
+  ok(ecarts === 0, 'mêmes bandeaux et mêmes totaux qu avant sur les 11 compétences', ecarts);
+}
+
+// Et le garde-fou de source : plus aucun gabarit ne regarde la ligne voisine.
+titre('Les gabarits ne décident plus sur la ligne voisine');
+{
+  for (const f of ['src/components/bulletins/BulletinPrimCompact.jsx',
+    'src/components/bulletins/BulletinPrimAnnualUA.jsx']) {
+    const src = readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    ok(/reperesDeGroupe\(/.test(src), `${f.split('/').pop()} : les repères viennent du moteur`);
+    ok(!/\[i \+ 1\]|\[i - 1\]/.test(src),
+      `${f.split('/').pop()} : aucune comparaison avec la ligne voisine`);
+  }
+  // La cause racine : un `ordre` de ligne maison ne doit plus tomber dans la
+  // plage du référentiel national (10 à 110 pour le primaire).
+  const store = readFileSync('src/store/schoolStore.js', 'utf8');
+  ok(!/ordre:\s*90\s*\+\s*lignes\.length/.test(store),
+    'schoolStore : plus de « 90 + lignes.length », qui tombait entre 6A et 6B');
+  ok(/Math\.max\(m,\s*Number\(l\.ordre\)/.test(store),
+    'schoolStore : une ligne maison se range APRÈS la dernière existante');
 }
 
 console.log(`\n${fail ? '❌' : '✅'} Carnet du primaire, deux dispositions : ${pass} contrôle(s) ok, ${fail} ko`);

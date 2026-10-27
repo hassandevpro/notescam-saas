@@ -1085,3 +1085,112 @@ identifiant et qu'une liste de fichiers. Le vrai remède reste `no-undef`, c'est
 ESLint — à poser, mais pas dans un correctif d'urgence, et pas sans décision (une
 dépendance d'outillage et une passe sur tout le dépôt ne s'improvisent pas un jour de
 panne). Voir le point ouvert de PROJECT_STATUS.
+
+## D26 — Le référentiel national propose quatre critères ; l'école dit lesquels elle évalue
+
+**Date** : 2026-10-27 · **Statut** : appliqué dans le dépôt, **migration Cloud non appliquée**
+**Où** : `supabase_prim_criteres_masques.sql`, `server/schema.sql`, `server/db.js`
+(`TABLES_AUTORISEES`), `src/core/primEngine.js` (`criteresForCompetence`,
+`niveauPointsTotal`), `src/lib/referentielEcole.js` (`REF_ECOLE.prim_crit`),
+`src/store/schoolStore.js`, les quatre écrans qui lisent les critères, test colocalisé
+`src/core/_primCriteresMasques.test.mjs`
+
+**Décision.** Une école peut **masquer** un critère d'évaluation du primaire (Oral, Écrit,
+Pratique, Savoir-être) pour elle seule. Le masque retire la colonne de la saisie, du
+bulletin, du rapport de classe et du PV — **et ses points du barème**. Il est réversible et
+ne touche aucune note.
+
+**Raison.** `prim_criteres` est NATIONALE : les quatre colonnes s'imposaient aux 44 écoles.
+THE GENIUS a signalé le 2026-10-27, sur ses cinq niveaux : « c'est uniquement l'écrit, il
+n'y a pas de pratique et de l'oral ». Ses bulletins CM1 et CE2 BIL sortaient avec trois
+colonnes qui ne seraient jamais remplies, et **rien ne permettait de les retirer** : **D23**
+ne sait refermer qu'un critère que le national **ignore**, jamais un critère officiel. Le
+geste manquait, pas le réglage.
+
+**Pourquoi les points partent avec la colonne.** Une colonne qui ne sera jamais interrogée
+ne peut pas rester au dénominateur : chaque élève plafonnerait sous la note qu'il mérite.
+La compétence 1A du SIL passe donc de 40 points (Oral 20 + Écrit 15 + Savoir-être 5) à 15
+si l'école ne garde que l'écrit. L'école repose ensuite **ses** barèmes colonne par
+colonne, par le chemin que D23 a ouvert.
+
+**Ce que ça n'est PAS.** `supabase_prim_competences_par_ecole.sql` avait écarté l'ouverture
+de `prim_criteres` — « les rendre modifiables demanderait de revoir primEngine, pas
+seulement une policy ». Cette décision reste **en deçà** : la table nationale ne reçoit ni
+`school_id`, ni droit d'écriture, ni critère maison. Seul un **masque par école** s'ajoute,
+même mécanique que `prim_competences_masques`, en production depuis la 0.3.20.
+
+**Conséquence sur la synchronisation : aucune.** `prim_criteres_masques` est **hors de
+`SYNCED_TABLES`**, comme ses trois tables sœurs : un masque est un réglage d'affichage
+local, il ne monte ni ne descend. Aucune colonne n'est ajoutée à une table synchronisée,
+donc le piège de **D1/B1** — une colonne inconnue du Cloud qui fait refuser la ligne
+entière — ne s'applique pas. En revanche la migration Cloud doit être appliquée **avant**
+que l'écran ne serve en ligne, sinon le masque échouera silencieusement côté Cloud.
+
+**Effet de bord corrigé au passage.** `loadPrim` charge désormais les masques, comme
+`loadMat` le faisait déjà. L'écran « Rapports » les **lisait sans les charger** : ses
+moyennes dépendaient donc de l'écran visité auparavant.
+
+**Comment revenir en arrière.** Démasquer depuis « Critères évalués » rend toutes les
+colonnes et tous les points ; les notes n'ayant jamais été touchées, l'état d'avant revient
+entier. Pour défaire la fonctionnalité elle-même : `DROP TABLE public.prim_criteres_masques`
+et retirer `prim_crit` de `REF_ECOLE` — les cinq appels à `criteresForCompetence`
+retombent sur leur paramètre par défaut `masques = []`, qui ne masque rien.
+
+## D27 — Une épreuve de l'école appartient à une famille du carnet, et l'école le dit
+
+**Date** : 2026-10-27 · **Statut** : appliqué dans le dépôt · **Aucune migration**
+**Où** : `src/core/primCompactRows.js` (`groupesDe`, `FAMILLES_PRIMAIRE`, `familleLabel`),
+`src/store/schoolStore.js` (`setRefFamille`), `src/components/grades/ReferentielEditor.jsx`
+(props `familles` / `familleDe` / `onSetFamille`),
+`src/components/grades/PrimCompetenceWorkspace.jsx`, test colocalisé
+`src/core/_primFamillesMaison.test.mjs`
+
+**Décision.** Une compétence MAISON du primaire porte désormais une **famille**, choisie par
+l'école à l'écran — à l'ajout, et après coup sur une ligne déjà créée. Elle est rangée dans
+la colonne `domaine`, qui existait déjà des deux côtés. `groupesDe` relie le `domaine` au
+NUMÉRO de la famille, et le total de la famille additionne enfin tout ce qui s'imprime
+sous elle.
+
+**Le défaut, relevé sur un bulletin réel.** Le CM1 de THE GENIUS (2025/2026, capture du
+2026-10-27) porte six épreuves ajoutées par l'école : Dictée-Question, Étude de texte,
+Production d'écrits, Calcul Rapide, Problèmes, Connaissances générales — plus « CHINOIS ».
+Elles s'imprimaient, et elles comptaient dans le total général et la moyenne générale.
+Mais elles **manquaient au total de leur famille** : sur le cas reproduit, la famille 1
+écrivait `107/120` là où les six lignes imprimées au-dessus font `194/220`. **87 points
+obtenus et 100 points de barème** disparaissaient d'un sous-total remis aux parents. Un
+carnet qui ne s'additionne pas n'est vérifiable par personne.
+
+**Pourquoi une ligne maison n'avait pas de famille.** `groupesDe` regroupe par le chiffre du
+code (« 1A » → famille 1). `codeMaison` **refuse** de produire un code commençant par un
+chiffre — à dessein, pour qu'on ne confonde jamais une ligne de l'école avec un code du
+ministère : « Dictée - Question » devient « DQ ». Il ne restait donc aucun rattachement, et
+`addRefLigne` n'a jamais renseigné `domaine`.
+
+**Pourquoi poser `domaine` ne suffisait pas.** La clé de regroupement d'une nationale est
+`num:1`, celle d'un domaine était `langues` : deux clés pour une seule famille. Le carnet
+imprimait alors **deux fois** le bandeau « 1) COMMUNIQUER EN FRANÇAIS… », chacun avec un
+bout du total — le même genre d'écart que `reperesDeGroupe` venait de fermer, par un autre
+chemin. `groupesDe` **apprend donc des lignes** quel domaine porte quel numéro : 1A porte
+`langues`, donc `langues` est la famille 1. Si le ministère renumérote ses familles, le
+rattachement suit sans qu'on y touche — rien n'est codé en dur.
+
+**Ce qu'on refuse.** Déplacer une ligne **nationale** : son domaine vient du ministère, et
+la changer fausserait le carnet des 44 écoles. `setRefFamille` renvoie `'nationale'`, et la
+RLS refuserait de toute façon. Et un domaine qu'aucune nationale ne porte garde **son
+propre groupe** : une école qui range ses épreuves ailleurs n'est pas absorbée de force
+dans une famille qui n'est pas la sienne.
+
+**Aucune migration.** `prim_competences.domaine` existe déjà au Cloud comme en LAN, et la
+policy d'écriture de `supabase_prim_competences_par_ecole.sql` couvre déjà la mise à jour
+d'une ligne dont `school_id` est le sien. **Rien à appliquer en base.**
+
+**L'école n'a pas besoin de SQL.** Les lignes déjà créées — les sept de THE GENIUS — se
+rangent depuis l'écran, en sept clics. Tant qu'elles ne le sont pas, un bandeau ambre les
+nomme et dit exactement ce qui se passe : « elles s'impriment et comptent dans le total
+général, mais elles manquent au total de leur famille ».
+
+**Comment revenir en arrière.** Remettre la famille à « — sans famille — » rend l'état
+d'avant, ligne par ligne. Pour défaire la fonctionnalité : retirer `familles` du montage de
+`ReferentielEditor` (l'éditeur reprend son comportement d'avant, celui que la maternelle et
+l'APC gardent déjà), et rendre à `groupesDe` sa clé `r.domaine` au lieu du numéro appris.
+Aucune donnée n'est perdue : `domaine` reste écrit.

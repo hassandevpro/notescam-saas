@@ -60,11 +60,32 @@ export function trimestreOfUA(ua) {
 // compétence '6a' (sport), le profil dépend de l'aptitude de l'élève ('apte' par
 // défaut) — 'inapte' n'a en général pas de critère "pratique". Renvoie
 // [{ id: critere_id, nom, points_max, ordre }], triés par ordre.
-export function criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude = 'apte') {
+//
+// `masques` : les critères que L'ÉCOLE n'évalue pas (`prim_criteres_masques`).
+// Le référentiel MINEDUB en propose quatre — Oral, Écrit, Pratique,
+// Savoir-être — et les impose à toutes les écoles, puisque `prim_criteres` est
+// nationale. Une école qui n'évalue qu'à l'écrit imprimait donc trois colonnes
+// vides sur chaque bulletin, sans aucun moyen de les retirer : `setBareme(0)`
+// ne ferme qu'un critère que le national IGNORE (cf. primColumnBareme.js), pas
+// un critère officiel. Signalé par THE GENIUS le 2026-10-27.
+//
+// UN MASQUE RETIRE AUSSI SES POINTS DU BARÈME. C'est voulu, et c'est la seule
+// lecture cohérente : une colonne qui ne sera jamais interrogée ne peut pas
+// rester au dénominateur, sinon chaque élève plafonnerait sous la note qu'il
+// mérite. La compétence 1A du SIL passe ainsi de 40 points (Oral 20 + Écrit 15
+// + Savoir-être 5) à 15 si l'école ne garde que l'écrit. L'école repose ensuite
+// SES barèmes colonne par colonne (`setBareme`), comme elle le fait déjà.
+//
+// Les notes déjà saisies dans un critère masqué restent EN BASE : masquer
+// cache, ne supprime pas, et se défait d'un clic. L'écran avertit du nombre de
+// notes concernées avant le geste (`nbNotes`, ReferentielEditor).
+export function criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude = 'apte', masques = []) {
   const bareme = referentiel?.baremeCriteres || [];
   const criteresById = new Map((referentiel?.criteres || []).map((c) => [c.id, c]));
+  const masque = new Set(masques || []);
   return bareme
     .filter((b) => b.niveau_id === niveauSlug && b.competence_id === competenceId && (b.aptitude || 'apte') === aptitude)
+    .filter((b) => !masque.has(b.critere_id))
     .map((b) => ({
       id: b.critere_id,
       nom: criteresById.get(b.critere_id)?.nom || b.critere_id,
@@ -233,10 +254,13 @@ export function pointsAverage(achieved, possible, gradeMax = PRIM_GRADE_MAX) {
  * « provisoire » : sans ce dénominateur théorique, l'école ne peut pas voir
  * quelle part du programme reste à évaluer.
  */
-export function niveauPointsTotal(referentiel, niveauSlug, competences, aptitude = 'apte') {
+export function niveauPointsTotal(referentiel, niveauSlug, competences, aptitude = 'apte', masques = []) {
   let total = 0;
   for (const c of competences || []) {
-    for (const cr of criteresForCompetence(referentiel, niveauSlug, c.id, aptitude) || []) {
+    // Les critères masqués par l'école sortent AUSSI de ce dénominateur :
+    // annoncer « sur 300 » à une école qui n'évalue qu'à l'écrit lui dirait
+    // qu'il lui reste du programme à évaluer là où il n'y en a plus.
+    for (const cr of criteresForCompetence(referentiel, niveauSlug, c.id, aptitude, masques) || []) {
       const m = Number(cr.points_max);
       if (Number.isFinite(m) && m > 0) total += m;
     }

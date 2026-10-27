@@ -1434,3 +1434,87 @@ Cet incident n'a rien appris de neuf sur le code : il a montré qu'**une applica
 écran d'erreur ne peut pas être dépannée à distance**. Une école ne lit pas une console.
 Tant que la panne n'écrit rien, elle n'existe pour personne — et le diagnostic se fait
 sur des photos d'adresse de navigateur.
+
+### Dénouement, le jour même
+
+**Cause trouvée, et c'était la nôtre** : voir **I26**. L'écran d'erreur ajouté par
+D24 a donné le nom de la variable fautive **en une minute**, dès que l'école a
+installé la 0.3.25 — là où deux heures d'élimination n'avaient rien donné.
+
+**Une des hypothèses de ce registre était fausse, et il faut l'écrire** : I8 (le
+service Windows non redémarré) n'y était pour rien, et le poste de la photo n'était
+pas une école Windows mais un **poste client Windows** de THE GENIUS, dont le serveur
+est Ubuntu. Le raisonnement « la photo est Windows, donc ce n'est pas GENIUS » était
+faux : seuls les SERVEURS se répartissent entre Linux et Windows, les postes sont
+tous sous Windows.
+
+## I26 — « school is not defined » : le tableau de bord blanchissait pour tout administrateur
+
+**Date** : 2026-10-27 · **Statut** : **corrigé, paquet 0.3.26 construit** · **Source** :
+le bouton « Copier » de l'écran d'erreur livré la veille (D24), envoyé par le responsable
+
+```
+NotesCam — rapport de panne
+Serveur   : 0.3.25
+Adresse   : /app
+Erreur    : school is not defined
+    at Ps (Dashboard-KK9sTTpl.js:1:27494)   at Array.map
+```
+
+### La cause, exactement
+
+`ClassTable` (`src/components/dashboard/AcademicBlocks.jsx`) appelait
+`bulletinScale(cls, sys, geGradeMax(school))` alors qu'il ne reçoit **que**
+`classStats` : `school` y était une **variable libre**. Au rendu, `ReferenceError`,
+et React démonte l'arbre entier — la page blanche.
+
+Elle vient de **D21 bis** (2026-10-26), la passe qui a porté la même ligne dans neuf
+fichiers pour que le barème du bulletin vienne de la classe et non de sa langue. Huit
+l'avaient dans leur portée. Le neuvième était dans un fichier à **plusieurs composants** :
+`school` est un paramètre de `useAcademicStats`, pas de `ClassTable`.
+
+**Tout compte administrateur** ouvrant `/app` tombait dessus — c'est son écran
+d'accueil. Un compte **enseignant** est redirigé vers `/app/grades` et ne passait pas
+par là : d'où « sur n'importe quel poste », tous les postes ouvrant le même écran.
+
+**Aucune donnée touchée.** Le journal de déploiement du 27/10 chez THE GENIUS le prouve :
+713 élèves, 1353 notes, 921 versements, identiques avant et après, `integrity_check` OK.
+
+### Pourquoi rien ne l'a vu — trois filets, trois mailles trop larges
+
+| Filet | Pourquoi il est passé à côté |
+|---|---|
+| `npm run build:lan` | sort en **0**. Rollup ne signale pas une variable libre : il **suppose un global**. Vérifié dans le journal du build, aucun avertissement |
+| les 208 tests | **aucun ne rend un composant**. La faute n'existe qu'au rendu de celui-là |
+| le script de déploiement | ses marqueurs cherchent des **libellés**. Une variable libre n'en laisse aucun |
+
+Et le dépôt **n'a pas de linter** : `no-undef` l'aurait vue en une seconde.
+
+### La correction
+
+Le barème se calcule désormais dans `useAcademicStats`, **là où `school` existe**, et
+voyage avec la ligne de statistiques (`maxScale`, `passThreshold`). `ClassTable` lit
+ce que la ligne porte. Le barème appartenait de toute façon à la statistique, pas au
+tableau qui l'affiche : calculé une fois, il ne peut plus manquer son contexte.
+
+### Preuve
+
+`src/components/dashboard/_variablesLibres.test.mjs` — 17 contrôles, 0 échec. Il lit le
+source, retire commentaires et littéraux de chaîne (sans quoi « Previous school » ferait
+hurler le test à tort), découpe en blocs de premier niveau et vérifie que les **onze**
+écrans qui lisent `school` le reçoivent. Il se termine par une **auto-vérification** :
+on lui donne le source fautif et on exige qu'il le refuse — un détecteur qu'on n'a jamais
+vu détecter n'est pas un détecteur.
+
+### Deux leçons, et la seconde est la plus chère
+
+**1. L'écran d'erreur s'est payé en une journée.** Livré la veille sans savoir ce qu'il
+attraperait, il a donné la cause en une minute. Sans lui : deux heures d'élimination,
+cinq hypothèses, et toutes fausses.
+
+**2. Une passe « mécanique » dans N fichiers n'est pas mécanique.** D21 bis avait déjà
+été écrite une fois en ne couvrant qu'un endroit sur huit, et corrigée pour cela le jour
+même. La reprise a couvert les neuf — mais en a cassé un, parce que *porter la même
+ligne* suppose que le contexte est le même, et il ne l'était pas. Le réflexe à garder :
+après une passe répétitive, vérifier la **portée** de chaque site, pas seulement sa
+présence.

@@ -1055,3 +1055,33 @@ recharge **une fois** ; quand ce rattrapage ne suffit pas, c'est le filet qui pa
 
 **Ce que ça ne corrige pas.** Rien. Ce composant ne répare aucun défaut : il rend la panne
 **lisible**, donc transmissible, donc réparable. C'est le seul objectif.
+
+## D25 — Une valeur calculée voyage avec sa ligne, elle ne se recalcule pas à l'affichage
+
+**Date** : 2026-10-27 · **Statut** : appliqué dans le dépôt, non déployé
+**Où** : `src/components/dashboard/AcademicBlocks.jsx` (`useAcademicStats`,
+`ClassTable`), test colocalisé `_variablesLibres.test.mjs`
+
+**Décision.** Le barème d'une classe est calculé **dans le hook qui produit la ligne de
+statistiques**, où le réglage d'école est en portée, et transporté sur cette ligne
+(`maxScale`, `passThreshold`). Le composant qui affiche ne recalcule rien : il lit.
+
+**Raison.** `ClassTable` appelait `geGradeMax(school)` sans recevoir `school` — une
+variable libre, « school is not defined », page blanche pour tout administrateur (I26).
+La règle ci-dessus rend la faute **impossible à réécrire** : il n'y a plus de calcul dans
+le composant d'affichage, donc plus de contexte à oublier. Ce n'est pas qu'une parade,
+c'est aussi le bon découpage — le barème est une propriété de la statistique, pas de la
+table HTML qui la montre.
+
+**La portée d'un fichier à PLUSIEURS composants n'est pas celle qu'on lit.** C'est le
+piège exact : `school` était à trois lignes au-dessus, dans le même fichier, et dans une
+AUTRE fonction. Huit des neuf sites de D21 bis étaient dans des fichiers à un seul
+composant, où « porter la même ligne » marchait.
+
+**Garde-fou, et ce qu'il ne remplace pas.** `_variablesLibres.test.mjs` vérifie, sans
+aucune dépendance nouvelle, que les onze écrans qui lisent `school` le reçoivent, et il
+s'auto-vérifie sur le source fautif. **Ce n'est pas un linter** : il ne couvre qu'un
+identifiant et qu'une liste de fichiers. Le vrai remède reste `no-undef`, c'est-à-dire
+ESLint — à poser, mais pas dans un correctif d'urgence, et pas sans décision (une
+dépendance d'outillage et une passe sur tout le dépôt ne s'improvisent pas un jour de
+panne). Voir le point ouvert de PROJECT_STATUS.

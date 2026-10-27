@@ -59,7 +59,17 @@ export function useAcademicStats({
     const stats = seq !== null && isNumericEngine(engine)
       ? clsStat(studs, gradeMap, cls.id, [seq], subs, sys)
       : null;
-    return { cls, subs, studs, sys, engine, trackKey, track, seq, cal, stats };
+
+    // LE BARÈME SE CALCULE ICI, et voyage avec la ligne (D21 + D24 bis).
+    // Il se lisait dans `ClassTable`, qui ne reçoit QUE `classStats` : `school`
+    // y était une variable LIBRE. Chaque administrateur ouvrant /app déclenchait
+    // donc « school is not defined » et voyait une page blanche — `vite build` ne
+    // voit pas cette faute, elle n'existe qu'au rendu de ce composant-là. Le
+    // barème appartient de toute façon à la statistique, pas au tableau qui
+    // l'affiche : calculé une fois ici, il ne peut plus manquer son contexte.
+    const { maxScale, passThreshold } = bulletinScale(cls, sys, geGradeMax(school));
+
+    return { cls, subs, studs, sys, engine, trackKey, track, seq, cal, stats, maxScale, passThreshold };
   }), [classes, subjects, students, school, countryCode, seqDates, today, gradeMap, sources]);
 
   const globalPassRate = useMemo(() => {
@@ -259,8 +269,8 @@ export function ClassTable({ classStats }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {classStats.map(({ cls, subs, studs, sys, seq, trackKey, stats }) => {
-              const { maxScale: max, passThreshold: pass } = bulletinScale(cls, sys, geGradeMax(school));
+            {classStats.map(({ cls, subs, studs, sys, seq, trackKey, stats,
+                              maxScale: max, passThreshold: pass }) => {
               const passRate = stats ? Math.round((stats.above / stats.total) * 100) : null;
               const period = periodAt(trackKey, seq);
               return (

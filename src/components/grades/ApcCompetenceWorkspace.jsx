@@ -15,6 +15,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
+import { celluleSuivante } from '../../lib/gridNavigation';
 import { isSequenceLocked } from '../../lib/lockService';
 import { noteNkey } from '../../lib/apcService';
 import { firstCycleClasseSlug, resolveClassEngine } from '../../core/engineResolver';
@@ -52,7 +53,7 @@ const APC_MAX = APC_DEFAULT_MAX; // barème par défaut des notes APC (/20)
 // ── Cellule note ──────────────────────────────────────────────────────────────
 // `max` = barème de CETTE évaluation (compétence × séquence). La saisie est
 // bornée à [0, max] : sur une évaluation /3, taper 14 est refusé à la frappe.
-function NoteCell({ value, max = APC_MAX, disabled, onCommit }) {
+function NoteCell({ value, max = APC_MAX, disabled, onCommit, champRef, onNav }) {
   const [local, setLocal] = useState(value ?? '');
   useEffect(() => { setLocal(value ?? ''); }, [value]);
   const commit = () => {
@@ -60,14 +61,28 @@ function NoteCell({ value, max = APC_MAX, disabled, onCommit }) {
     if (v === null) { setLocal(value ?? ''); return; }
     if (v !== (value ?? '')) onCommit(v);
   };
+  // Quitter la cellule déclenche `onBlur` : la note part avant le déplacement.
+  // `auDebut`/`aLaFin` ne valent que sans sélection — tant qu'un bout de texte
+  // est surligné, ← et → défont la sélection (cf. gridNavigation.js).
+  const onKeyDown = (e) => {
+    const el = e.currentTarget;
+    const sansSelection = el.selectionStart === el.selectionEnd;
+    const bouge = onNav?.(e.key, {
+      auDebut: sansSelection && el.selectionStart === 0,
+      aLaFin:  sansSelection && el.selectionStart === String(el.value).length,
+    });
+    if (bouge) { e.preventDefault(); return; }
+    if (e.key === 'Enter') el.blur();
+  };
   return (
     <input
+      ref={champRef}
       type="text"
       value={local}
       disabled={disabled}
       onChange={(e) => setLocal(e.target.value)}
       onBlur={commit}
-      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+      onKeyDown={onKeyDown}
       placeholder="—"
       title={`/${max}`}
       className={`w-16 text-center rounded border border-gray-200 px-1 py-1 text-sm
@@ -408,6 +423,31 @@ export default function ApcCompetenceWorkspace() {
 
   // Lecture/écriture d'une cellule (note ou appréciation) en préservant l'autre champ.
   const recordFor = (eleveId, competenceId) => apcNotes[noteNkey(eleveId, competenceId, sequenceId)] || null;
+
+  // ── NAVIGATION AU CLAVIER ──────────────────────────────────────────────────
+  // Même geste que dans la grille du primaire : les champs s'enregistrent ici
+  // pour que la touche pressée dans l'un puisse donner le focus à l'autre. La
+  // séquence verrouillée ferme TOUTES les cellules d'un coup, donc le prédicat
+  // ne regarde que `locked` — contrairement au primaire, où l'aptitude de
+  // l'élève et les critères masqués ferment les cellules une par une.
+  const cellules = useRef(new Map());
+  const poserCellule = (row, col) => (el) => {
+    const cle = `${row}:${col}`;
+    if (el) cellules.current.set(cle, el);
+    else cellules.current.delete(cle);
+  };
+  const naviguer = (row, col) => (key, caret) => {
+    const cible = celluleSuivante(
+      key,
+      { row, col, rows: classStudents.length, cols: competences.length, actif: () => !locked },
+      caret,
+    );
+    const el = cible && cellules.current.get(`${cible.row}:${cible.col}`);
+    if (!el) return false;
+    el.focus();
+    el.select();   // la frappe suivante remplace la note au lieu de s'y coller
+    return true;
+  };
 
   // Barème de l'évaluation (compétence × séquence) : relu de la première note
   // déjà saisie dans la colonne, /20 par défaut. La même compétence peut donc
@@ -758,17 +798,18 @@ export default function ApcCompetenceWorkspace() {
               </tr>
             </thead>
             <tbody>
-              {classStudents.map((stu) => (
+              {classStudents.map((stu, ri) => (
                 <tr key={stu.id} className="border-t border-gray-100">
                   <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">
                     {stu.name}
                   </td>
-                  {competences.map((c) => {
+                  {competences.map((c, ci) => {
                     const rec = recordFor(stu.id, c.id);
                     return (
                       <td key={c.id} className="px-3 py-1.5">
                         <NoteCell value={rec?.note != null ? String(rec.note) : ''}
                           max={baremeFor(c.id)} disabled={locked}
+                          champRef={poserCellule(ri, ci)} onNav={naviguer(ri, ci)}
                           onCommit={(v) => saveCell(stu.id, c.id, { note: v })} />
                       </td>
                     );

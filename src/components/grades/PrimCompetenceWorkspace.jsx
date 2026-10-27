@@ -20,6 +20,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
+import { celluleSuivante } from '../../lib/gridNavigation';
 import { isSubjectScoped, canManageClassSubjects } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
 import {
@@ -94,7 +95,7 @@ function BaremeCell({ value, disabled, onCommit }) {
 }
 
 // ── Cellule note (bornée au barème /points_max du critère) ─────────────────────
-function NoteCell({ value, max, disabled, onCommit }) {
+function NoteCell({ value, max, disabled, onCommit, champRef, onNav }) {
   const [local, setLocal] = useState(value ?? '');
   useEffect(() => { setLocal(value ?? ''); }, [value]);
   const commit = () => {
@@ -102,16 +103,33 @@ function NoteCell({ value, max, disabled, onCommit }) {
     if (v === null) { setLocal(value ?? ''); return; }
     if (v !== (value ?? '')) onCommit(v);
   };
+  // Quitter la cellule déclenche `onBlur`, donc la note est enregistrée AVANT
+  // le déplacement : la navigation n'a rien à committer elle-même.
+  //
+  // `auDebut`/`aLaFin` ne valent que SANS sélection : tant qu'un bout de texte
+  // est surligné, ← et → servent à défaire la sélection, pas à changer de
+  // colonne (cf. gridNavigation.js).
+  const onKeyDown = (e) => {
+    const el = e.currentTarget;
+    const sansSelection = el.selectionStart === el.selectionEnd;
+    const bouge = onNav?.(e.key, {
+      auDebut: sansSelection && el.selectionStart === 0,
+      aLaFin:  sansSelection && el.selectionStart === String(el.value).length,
+    });
+    if (bouge) { e.preventDefault(); return; }
+    if (e.key === 'Enter') el.blur();
+  };
   if (disabled) {
     return <input type="text" value="—" disabled className="w-16 text-center rounded border border-gray-100 px-1 py-1 text-sm text-gray-300 bg-gray-50" />;
   }
   return (
     <input
+      ref={champRef}
       type="text"
       value={local}
       onChange={(e) => setLocal(e.target.value)}
       onBlur={commit}
-      onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+      onKeyDown={onKeyDown}
       placeholder="—"
       className={`w-16 text-center rounded border border-gray-200 px-1 py-1 text-sm
         focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
@@ -424,6 +442,39 @@ export default function PrimCompetenceWorkspace() {
       : criteresApte;
     const connus = new Set(officiels.map((c) => c.id));
     return [...officiels, ...criteres.filter((c) => c.aNoter && !connus.has(c.id) && baremeFor(c.id) > 0)];
+  };
+
+  // ── NAVIGATION AU CLAVIER ──────────────────────────────────────────────────
+  // Onze compétences × quatre critères × trente élèves : la grille par
+  // compétence est la plus longue saisie de l'application, et elle se faisait
+  // entièrement à la souris. Les champs s'enregistrent chacun dans `cellules`
+  // pour que la touche pressée dans l'un puisse donner le focus à l'autre.
+  const cellules = useRef(new Map());
+  const poserCellule = (row, col) => (el) => {
+    const cle = `${row}:${col}`;
+    if (el) cellules.current.set(cle, el);
+    else cellules.current.delete(cle);
+  };
+  // Une cellule fermée ne doit jamais recevoir le focus : `celluleSuivante`
+  // l'enjambe grâce à ce prédicat (élève inapte en 6A, critère masqué par
+  // l'école…).
+  const celluleOuverte = (row, col) => {
+    const stu = classStudents[row];
+    const cr = criteres[col];
+    if (!stu || !cr) return false;
+    return criteresForStudent(stu).some((x) => x.id === cr.id);
+  };
+  const naviguer = (row, col) => (key, caret) => {
+    const cible = celluleSuivante(
+      key,
+      { row, col, rows: classStudents.length, cols: criteres.length, actif: celluleOuverte },
+      caret,
+    );
+    const el = cible && cellules.current.get(`${cible.row}:${cible.col}`);
+    if (!el) return false;
+    el.focus();
+    el.select();   // la frappe suivante remplace la note au lieu de s'y coller
+    return true;
   };
 
   // Note d'une cellule (compétence × critère × UA courante).
@@ -882,7 +933,7 @@ export default function PrimCompetenceWorkspace() {
               </tr>
             </thead>
             <tbody>
-              {classStudents.map((stu) => {
+              {classStudents.map((stu, ri) => {
                 const studentCriteres = criteresForStudent(stu);
                 const studentCritereIds = new Set(studentCriteres.map((c) => c.id));
                 const { achieved, possible } = competenceTotal(stu);
@@ -895,12 +946,14 @@ export default function PrimCompetenceWorkspace() {
                         <span className="ml-1.5 text-[10px] text-amber-600 font-normal">({t('inapte', 'unfit')})</span>
                       )}
                     </td>
-                    {criteres.map((c) => (
+                    {criteres.map((c, ci) => (
                       <td key={c.id} className="px-3 py-1.5">
                         <NoteCell
                           value={noteFor(stu.id, c.id)}
                           max={baremeFor(c.id)}
                           disabled={!studentCritereIds.has(c.id)}
+                          champRef={poserCellule(ri, ci)}
+                          onNav={naviguer(ri, ci)}
                           // La note NAÎT avec le barème de sa colonne. Sans ce
                           // `pointsMax`, une note saisie APRÈS un changement de
                           // barème repartait au barème officiel : la colonne se

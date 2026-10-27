@@ -1,3 +1,10 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+REMPLACÉE PAR LA 0.3.26. La 0.3.25 a bien été installée (THE GENIUS, le
+2026-10-27) et elle a rendu la panne lisible, mais elle porte encore le
+défaut hérité de la 0.3.24 : l'écran d'accueil d'un ADMINISTRATEUR reste
+blanc. Utilisez la notice 0.3.26 et son paquet. Aucune donnée touchée.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 ========================================================================
 NotesCam 0.3.25 — Notice pour l'administrateur du serveur de l'école
 ========================================================================

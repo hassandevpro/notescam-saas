@@ -1,3 +1,10 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+REMPLACEE PAR LA 0.3.26. La 0.3.25 a bien ete installee (THE GENIUS, le
+2026-10-27) et elle a rendu la panne lisible, mais elle porte encore le
+defaut herite de la 0.3.24 : l'ecran d'accueil d'un ADMINISTRATEUR reste
+blanc. Utilisez la notice 0.3.26 et son paquet. Aucune donnee touchee.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 ========================================================================
 NotesCam 0.3.25 (Windows) - Notice pour le responsable informatique
 ========================================================================

@@ -4,12 +4,59 @@
 > actualiser à la fin. Toute ligne ici doit être vérifiable par une commande ou un
 > fichier : si une information ne peut pas être prouvée, elle est marquée « à vérifier ».
 >
-> Dernière mise à jour : **2026-10-27** (release **0.3.25** : les deux paquets sont
+> Dernière mise à jour : **2026-10-27** (release **0.3.26** : les deux paquets sont
 > construits — § ci-dessous) · branche `caisse-journal-et-sync-0.3.15`, dernier push sur
 > `main` le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
-> `package.json` = **0.3.25**
+> `package.json` = **0.3.26**
 >
-> ## 🔴 EN COURS — PAGE BLANCHE APRÈS LA CONNEXION, CAUSE NON ÉTABLIE (I25)
+> ## ⚠️ CORRECTION D'UNE ERREUR DE CE DOCUMENT (2026-10-27)
+>
+> **Ce fichier affirmait que la 0.3.24 n'avait été envoyée à personne. C'était faux.**
+> Le journal de déploiement de THE GENIUS du 2026-10-27 montre son serveur en
+> `{"data":{"version":"0.3.24"}}` avant la mise à jour. La 0.3.24 **était installée**.
+>
+> Cette ligne fausse a coûté : elle a écarté d'emblée la bonne piste (une régression
+> de la 0.3.24) et orienté deux heures d'analyse vers des causes d'environnement. La
+> règle de ce document — « toute ligne doit être vérifiable par une commande ou un
+> fichier » — n'avait pas été tenue : « non envoyé » n'était prouvé par rien. **Ce qui
+> est installé où se vérifie par `/api/version`, jamais de mémoire.**
+>
+> Au passage, une seconde erreur de raisonnement : « la photo est un poste Windows,
+> donc ce n'est pas GENIUS ». Faux. Seuls les **serveurs** se répartissent Linux /
+> Windows ; les **postes** sont tous sous Windows. GENIUS = serveur Ubuntu, postes
+> Windows.
+>
+> ## ✅ RÉSOLU — LA PAGE BLANCHE VENAIT DE NOUS (I25 → I26)
+>
+> `school is not defined` : le tableau par classe de l'écran d'accueil lisait un
+> réglage qu'il ne reçoit pas — une **variable libre** introduite par D21 bis le
+> 26/10, dans le neuvième des neuf fichiers de la passe. **Tout administrateur**
+> ouvrant `/app` blanchissait ; un enseignant, redirigé vers `/app/grades`, non.
+>
+> **Aucune donnée touchée** : 713 élèves, 1353 notes, 921 versements, identiques avant
+> et après chez GENIUS, `integrity_check` OK.
+>
+> **C'est l'écran d'erreur de la 0.3.25 (D24) qui a donné la cause**, en une minute,
+> par son bouton « Copier ». Il s'est payé en une journée.
+>
+> **Corrigé en 0.3.26** (D25) : le barème se calcule là où `school` existe et voyage
+> avec la ligne. Garde-fou : `_variablesLibres.test.mjs`, 17 contrôles, dont une
+> auto-vérification sur le source fautif.
+>
+> ## 🟠 POINT OUVERT — LE DÉPÔT N'A PAS DE LINTER
+>
+> `npm run build:lan` sort en 0 sur une variable libre (Rollup **suppose un global**),
+> et aucun des 208 tests ne rend un composant. `no-undef` (ESLint) aurait vu I26 en une
+> seconde. À décider : poser ESLint, en sachant que c'est une dépendance d'outillage et
+> une passe sur tout le dépôt — à faire à froid, pas dans un correctif d'urgence.
+>
+> ## 🟠 POINT OUVERT — LA FILE DE POUSSÉE DE GENIUS EST ENGORGÉE
+>
+> Relevé le 2026-10-27 : **8 980 488 entrées pour 6 141 pointeurs utiles**. Le script
+> `dedoublonner-file-poussee.sh` existe et le déploiement ne touche pas à la file. À
+> lancer d'abord en `--simulation`. **Rien n'est à supprimer sans autorisation.**
+>
+> ## 📜 L'INCIDENT TEL QU'IL A ÉTÉ VÉCU (I25)
 >
 > Signalé le 2026-10-27 : « le logiciel ne s'ouvre pas après avoir entré les
 > informations de connexion, la page reste blanche, sur n'importe quel poste ». Photo à
@@ -38,18 +85,23 @@
 >
 > La 0.3.25 **ne corrige pas ce défaut** : elle le rend lisible (D24). Voir I25.
 >
-> ## 📦 0.3.25 — LES DEUX PAQUETS SONT CONSTRUITS, NON ENVOYÉS (2026-10-27)
+> ## 📦 0.3.26 — LES DEUX PAQUETS SONT CONSTRUITS, NON ENVOYÉS (2026-10-27)
 >
 > **Rien n'est déployé** : ni Vercel (le Cloud tourne toujours sur le dernier push de
 > `main`), ni une école. Les artefacts sont sur le poste de build.
 >
 > | | Windows | Linux |
 > |---|---|---|
-> | Fichier | `packaging/Output/NotesCam-Setup-0.3.25.exe` | `packaging/linux/Output/notescam-linux-x64-0.3.25.tar.gz` |
-> | Taille | 30 822 101 o | 53 540 293 o |
-> | SHA-256 | `ff24bb41…f49feab2f` | `f7dda848…53faa40fc` |
-> | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.25-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.25.txt` |
-> | Script | — (installeur) | `packaging/linux/deploy-0.3.25.sh` (`bash -n` OK) |
+> | Fichier | `packaging/Output/NotesCam-Setup-0.3.26.exe` | `packaging/linux/Output/notescam-linux-x64-0.3.26.tar.gz` |
+> | Taille | 30 822 161 o | 53 547 792 o |
+> | SHA-256 | `060aad8e…461f8e8f` | `4830b459…dff27eb6` |
+> | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.26-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.26.txt` |
+> | Script | — (installeur) | `packaging/linux/deploy-0.3.26.sh` (`bash -n` OK) |
+>
+> ⚠️ **La 0.3.25 A ÉTÉ INSTALLÉE chez THE GENIUS le 2026-10-27** (journal fourni,
+> sauvegarde vérifiée, données inchangées). Elle n'est donc pas « abandonnée » : elle
+> est **remplacée**, et ses deux notices portent un bandeau qui le dit. La 0.3.24,
+> elle, était installée aussi — voir la correction en tête de ce fichier.
 >
 > ⛔ **La 0.3.24 est ABANDONNÉE, ne pas la distribuer** : construite le 2026-10-26 et
 > remplacée par celle-ci le 2026-10-27, **avant tout envoi** — aucune école ne l'a reçue.

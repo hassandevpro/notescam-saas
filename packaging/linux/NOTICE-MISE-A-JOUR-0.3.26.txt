@@ -1,0 +1,391 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+CORRECTIF URGENT. Si vous avez installé la 0.3.24 ou la 0.3.25,
+INSTALLEZ CELLE-CI : sur ces deux versions, l'écran d'accueil d'un compte
+ADMINISTRATEUR reste blanc après la connexion. Aucune donnée n'est touchée
+— ni perdue, ni à ressaisir : c'est l'affichage qui s'arrête.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+========================================================================
+NotesCam 0.3.26 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.26.tar.gz
+Taille   : 53 547 792 octets
+SHA-256  : 4830b45977e0c8d55c9a50af7970f57e34f89376691d97d65c4c2fdcdff27eb6
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.26.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire. Elle contient TOUT ce que contenait
+la 0.3.23, et tout ce qu'avait préparé la 0.3.24 — construite la veille
+et remplacée par celle-ci avant tout envoi. Aucune école n'a reçu la
+0.3.24 : si un fichier portant ce numéro traîne quelque part, jetez-le.
+
+
+>>> CE QUI EST DIFFÉRENT DES TROIS DERNIÈRES MISES À JOUR <<<
+-------------------------------------------------------------
+
+CETTE VERSION NE TOUCHE NI AU SCHÉMA DE LA BASE, NI À LA
+SYNCHRONISATION : aucune table, aucune colonne, aucun curseur remis à
+zéro. Il n'y a donc PAS de long rattrapage à attendre, contrairement aux
+0.3.16, 0.3.19 et 0.3.23. C'est une version d'écrans et de bulletins.
+
+Si un long rattrapage démarre quand même après installation, ce
+n'est pas celle-ci qui l'a provoqué : c'est un reste de la précédente,
+et il faut le laisser finir.
+
+
+CE QUE CETTE VERSION APPORTE
+-----------------------------
+
+0. LA PAGE BLANCHE APRÈS LA CONNEXION EST CORRIGÉE.
+
+   C'est le défaut que vous nous avez signalé le 27/10 : « le logiciel ne
+   s'ouvre pas après avoir entré les informations de connexion, la page
+   reste blanche, sur n'importe quel poste ». Il était chez nous, et dans
+   la 0.3.24 que vous aviez installée.
+
+   LA CAUSE, exactement. Le 26/10, en faisant venir le barème du bulletin
+   de la classe et non plus de sa langue, la même ligne a été portée dans
+   neuf fichiers. Dans l'un d'eux — le tableau par classe de l'écran
+   d'accueil — elle lisait un réglage que ce tableau ne reçoit pas. Au
+   moment de l'afficher, le programme s'arrêtait sur un nom inconnu, et
+   l'affichage entier tombait avec lui. Tous les postes étaient touchés
+   parce que tous ouvrent ce même écran après la connexion.
+
+   POURQUOI SEULS LES ADMINISTRATEURS. Un compte enseignant est envoyé
+   directement à la saisie des notes : il ne passe pas par ce tableau.
+
+   AUCUNE DONNÉE N'A ÉTÉ TOUCHÉE. Ni perdue, ni modifiée, ni à ressaisir.
+   Le défaut était dans l'affichage seul. Votre journal de déploiement du
+   27/10 le confirme : 713 élèves, 1353 notes, 921 versements, avant comme
+   après.
+
+   CE QUE LA 0.3.25 A FAIT, ET QUI A SERVI. Elle n'a pas corrigé ce
+   défaut — elle a remplacé la page blanche par un écran qui NOMME la
+   panne. C'est son bouton « Copier » qui nous a donné le nom exact en une
+   minute, là où deux heures de recherche n'avaient rien donné. Gardez ce
+   réflexe : si un écran s'arrête, envoyez-nous ce bloc.
+
+0 bis. UN CONTRÔLE DU SCRIPT DE DÉPLOIEMENT DISAIT FAUX.
+
+   Dans votre journal du 27/10, une ligne en rouge : « l import prendrait
+   encore TOUTES les colonnes du classeur ». C'était une FAUSSE ALERTE —
+   le correctif est bien là depuis la 0.3.23. Le contrôle cherchait un
+   libellé d'écran qui avait été remplacé entre-temps par le choix de
+   portée que vous voyez à l'import. Il échouait donc à chaque
+   déploiement depuis la 0.3.23, sur une fonction qui marche. Corrigé :
+   il vérifie maintenant les deux libellés réellement affichés. Une
+   fausse alerte use la confiance dans les quarante autres contrôles.
+
+0. UNE PANNE D'AFFICHAGE NE DONNE PLUS UNE PAGE BLANCHE.
+
+   Signalé le 27/10/2026 : « le logiciel ne s'ouvre pas après avoir
+   entré les informations de connexion, et lorsqu'on clique sur
+   connexion la page reste blanche, sur n'importe quel poste ».
+
+   CETTE VERSION NE CORRIGE PAS CE DÉFAUT-LÀ. Sa cause n'est pas
+   établie, et nous préférons l'écrire que le laisser croire. Elle
+   corrige ce qui le rendait impossible à diagnostiquer.
+
+   L'application n'avait aucun écran d'erreur : quand un affichage
+   tombait, il ne restait RIEN — pas un message, pas un bouton, pas un
+   code. Ni vous ni nous n'avions de quoi travailler.
+
+   Désormais, à la place du blanc, l'écran affiche en français qu'il y
+   a une panne, le message d'erreur, LA VERSION QUE LE SERVEUR ANNONCE,
+   un bouton « Copier », et deux sorties : recharger, ou revenir à la
+   connexion.
+
+   SI LA PAGE BLANCHE REVIENT APRÈS CETTE MISE À JOUR, elle ne sera
+   plus muette : appuyez sur « Copier » et envoyez-nous le bloc, ou
+   photographiez l'écran. C'est exactement ce qui nous manquait.
+
+   Rien n'est effacé par cet écran : il ne vide aucun stockage et ne
+   déconnecte personne. Ce qui attendait d'être synchronisé attend
+   toujours.
+
+   AVANT TOUT, SI VOUS AVEZ CE SYMPTÔME EN CE MOMENT : sur le POSTE
+   SERVEUR, menu Démarrer -> « Appliquer la mise à jour (redémarrer) ».
+   L'installeur Windows ne redémarre pas le service tout seul : les
+   fichiers peuvent être neufs pendant que le programme en mémoire est
+   l'ancien. « Installé » ne veut pas dire « appliqué ». Le menu
+   Démarrer porte aussi « Vérifier la mise à jour », qui affiche la
+   version RÉELLEMENT en marche.
+
+0 bis. L'ÉCRAN DES CLASSES NE PROMET PLUS UN BARÈME QU'IL NE TIENT PAS.
+
+   Le choix du système annonçait « EN — notes sur 100 » et « FR — notes
+   sur 20 ». C'était faux dès qu'une classe anglophone notait sur /20,
+   ce qui est le cas de FORM1 et FORM2 : le réglage le plus visible de
+   l'écran contredisait le barème réellement appliqué. Il affiche
+   maintenant le sous-système seul — EN ou FR — et le barème se lit sur
+   la fiche de la classe, d'où il vient (voir le point 3).
+
+0 ter. UNE SEULE PAIRE DE BOUTONS D'ÉCHANGE PAR ÉCRAN DE SAISIE.
+
+   « Exporter mes notes (fichier) » et « Importer les notes d'un
+   enseignant » doublonnaient les boutons déjà présents en haut de
+   l'écran. Ils sont retirés de là. L'échange par fichier complet reste
+   sur les écrans de saisie par compétence, où il est seul.
+
+1. LES MATIÈRES ANGLOPHONES APPARAISSENT DANS LE COMPTE DE
+   L'ENSEIGNANT.
+
+   LE SYMPTÔME, signalé par l'administration le 26/10/2026 : « c'est
+   uniquement les matières francophones qui apparaissent dans le compte
+   enseignant ».
+
+   LA CAUSE. En classe bilingue, le référentiel porte LES DEUX matières
+   du couple de traduction. « Mathematics » touchait donc deux lignes à
+   la fois : la ligne ANGLAISE par son propre nom, et la ligne FRANÇAISE
+   par sa traduction officielle. Le départage se faisait toujours pour le
+   français : l'enseignant de la section anglaise se voyait servir les
+   matières de la section française, et les siennes nulle part.
+
+   CE QUI CHANGE. Le nom propre d'une ligne passe devant la TRADUCTION
+   d'une autre. En classe monolingue, RIEN ne change : la ligne anglaise
+   n'existe pas, la traduction reste le seul rapprochement possible et
+   joue comme avant.
+
+2. UNE MATIÈRE DÉCOCHÉE DANS LA CLASSE NE REVIENT PLUS.
+
+   LE SYMPTÔME, signalé le 26/10/2026 : « il y a les matières qu'on
+   décoche dans classe, ça revient toujours ».
+
+   LA CAUSE, relevée sur FORM1 et FORM2 : quatre doublons — ICT en face
+   de Computer Science, Literature in English en face de English
+   Literature, ML en face de Manual Labour, Français intensif en face de
+   French Language. L'école avait saisi les siennes, et « Ajouter le
+   programme manquant » avait posé À CÔTÉ les libellés officiels, VIDES.
+   Le bouton comparait les LIBELLÉS EXACTS : « ICT » n'étant pas
+   « Computer Science », il la croyait absente et la reproposait au geste
+   suivant, indéfiniment.
+
+   CE QUI CHANGE. Le rapprochement se fait par ENSEIGNEMENT, sur des
+   groupes de synonymes. Rien n'est renommé, fusionné ni supprimé : les
+   matières en place et leurs notes sont hors d'atteinte.
+
+   CE QUE L'INSTALLATION NE FAIT PAS : effacer les doublons déjà posés.
+   Ils sont à décocher une DERNIÈRE fois, et ils ne reviendront plus. Ils
+   portent 0 note — vérifié — donc le décochage ne perd rien. C'est
+   l'école qui dit lequel du couple elle garde.
+
+3. LE BARÈME D'UN BULLETIN VIENT DE LA CLASSE, PLUS DE SA LANGUE.
+
+   LE RELEVÉ, le 26/10/2026 : FORM1 et FORM2 sont anglophones — matières
+   saisies en anglais, programme bilingue spécial, notes sur /20 — mais
+   portaient le système « français ». Leur bulletin sortait donc EN
+   FRANÇAIS, en-têtes de groupes comprises.
+
+   POURQUOI IL A FALLU UN CORRECTIF AVANT DE CORRIGER LE RÉGLAGE. Le
+   barème se déduisait de la LANGUE : /20 en français, /100 en anglais.
+   Basculer ces classes en anglais aurait donc MULTIPLIÉ CHAQUE NOTE PAR
+   5 : un 10/20 imprimé 50. Le barème se lit maintenant dans la classe,
+   et la langue n'en est plus que la valeur par défaut.
+
+   HUIT ENDROITS, UNE SEULE RÈGLE. Le même calcul était recopié dans le
+   bulletin, la fiche élève, le portail parent, les rapports de classe, le
+   modèle PDF et les deux blocs du tableau de bord. Ils lisent tous la
+   même règle : une moyenne ne peut plus s'afficher sur /20 ici et sur
+   /100 l'écran d'à côté.
+
+4. AU PRIMAIRE, UNE COLONNE OUVERTE À LA MAIN SE REFERME À LA MAIN.
+
+   LE SYMPTÔME, signalé le 26/10/2026 et essayé sur « Practical » :
+   « quand je change le barème et que j'essaie de revenir à zéro, ça
+   refuse ». C'était exact, et le refus était MUET : le champ remettait
+   l'ancienne valeur sans un mot d'explication.
+
+   LA CAUSE. Un critère que le barème national ignore — « Pratique » sur
+   1A, 1B et 2A — naît à ZÉRO et attend le chiffre de l'école. Celle-ci
+   pouvait donc l'OUVRIR, mais jamais le refermer.
+
+   CE QUI CHANGE. Poser 0 signifie « pas de barème d'école ici » et rend
+   la colonne au barème officiel du référentiel — donc FERMÉE quand le
+   national n'en a pas, et rendue au barème MINEDUB quand il en a un.
+   Refermer une colonne qui porte une saisie reste REFUSÉ — la note
+   resterait en base sans colonne pour la montrer — mais le refus est
+   désormais affiché et nomme les élèves à corriger.
+
+5. LE CLASSEUR EXCEL DU RAPPORT DE CLASSE DIT CE QUE DIT LA FEUILLE
+   IMPRIMÉE.
+
+   LE SYMPTÔME, signalé par l'informaticien le 26/10/2026, photo du papier
+   à l'appui : « le fichier importé sur Excel n'affiche pas tous les
+   détails, comme celle imprimée ». Il manquait quatre choses :
+
+     · l'EN-TÊTE — établissement, année scolaire, classe, période,
+       effectif, date. Sans lui, un fichier rouvert trois semaines plus
+       tard ne dit plus de quelle classe il parle ;
+     · les CHIFFRES DE LA CLASSE — moyenne, taux de réussite, admis ;
+     · le BARÈME DE CHAQUE MATIÈRE. Le papier porte « SVT /20 » ; le
+       classeur n'écrivait que « SVT ». Quand deux matières d'une même
+       classe ne sont pas sur la même échelle — le cas au premier cycle —
+       les colonnes deviennent indiscernables : un 8 est la moyenne sur
+       /10 et l'échec sur /20 ;
+     · le tableau RÉSULTATS PAR MATIÈRE, qui partait dans un AUTRE
+       fichier. Les deux tableaux sont maintenant dans le même classeur.
+
+
+AUSSI DANS CETTE VERSION — CORRIGÉ DEPUIS QUE LA 0.3.23 A ÉTÉ ENVOYÉE
+---------------------------------------------------------------------
+
+6. LES LIGNES SANS DATE DESCENDENT ENFIN DU CLOUD.
+
+   C'est l'unique échec du journal d'installation de la 0.3.23 chez vous. La
+   descente Cloud -> école avance sur un couple (date de modification, id)
+   et ÉCARTE par construction les lignes sans date. Mesuré en base le
+   24/10/2026 : vos 60 dépenses et 10 de vos 11 écritures de caisse en
+   étaient là, plus 4 215 notes par compétences pour toute la plateforme.
+
+   La correction du Cloud a été appliquée le 24/10/2026 : les lignes
+   existantes ont leur date. Ce paquet ferme la seconde moitié : aucune
+   ligne neuve ne repart sans date.
+
+   CE QUE VOUS ALLEZ CONSTATER, et qui est NORMAL : au prochain cycle,
+   environ 70 lignes descendent chez vous (vos dépenses et vos écritures
+   de caisse). Ce ne sont pas des doublons : ce sont les vôtres, restées
+   en haut. NE LES RESSAISISSEZ PAS.
+
+7. LE COEFFICIENT DU PREMIER CYCLE COMPTE VRAIMENT.
+
+   Signalé le 24/10/2026 : « lorsqu'on crée une matière et qu'on ajoute le
+   coef, ça revient à 1 automatiquement, même quand on choisit un coef plus
+   élevé ». Le premier cycle ne lit pas le coefficient de la matière de la
+   classe mais celui du RÉFÉRENTIEL, et le chiffre saisi n'y allait pas.
+   Corrigé à la création ET sur modification ultérieure. Une matière
+   NATIONALE est refusée explicitement, et l'écran le dit.
+
+8. L'IMPORT ET L'EXPORT DU SECONDAIRE CHOISISSENT LEUR PORTÉE.
+
+   Comme au premier cycle depuis la 0.3.23 : l'export sort la classe
+   entière OU la matière affichée, et l'import demande ce qu'il doit lire —
+   toutes les matières du classeur, ou une seule. Un enseignant ne réécrit
+   donc plus les colonnes de ses collègues avec des valeurs périmées.
+
+9. UN REFUS DE DROITS EST DIT EN FRANÇAIS.
+
+   La file de synchronisation affichait le message brut de la base —
+   « new row violates row-level security policy for table "subjects" » —
+   qui ne dit ni ce qui est refusé, ni qui pourrait le faire. L'école
+   cherchait donc le défaut dans ce qu'elle venait de TAPER, alors que le
+   serveur juge le COMPTE, pas le contenu. Une phrase est ajoutée : refus
+   de DROITS, les deux causes possibles, et la consigne qui compte — la
+   saisie est conservée, NE PAS la ressaisir ailleurs. Le message brut
+   reste affiché au-dessus : c'est lui qu'on demande en capture.
+
+   Et une écriture appartenant à un AUTRE établissement n'est plus comptée
+   comme un refus du serveur : elle est écartée pour ce qu'elle est.
+
+10. UNE DÉPENSE SANS LIGNE BUDGÉTAIRE N'EST PLUS INVISIBLE.
+
+    Signalé : « bien qu'ils ont réparti la ligne budgétaire et activé, il
+    ne voit rien dans dépenses ». Réactiver une ligne ne POUVAIT pas
+    marcher : vos 60 dépenses ne portent aucune imputation et pendent au
+    budget « Reprise de caisse 2025-2026 », pas au prévisionnel que l'écran
+    lisait. L'écran les excluait trois fois. Le message précédent était
+    exact mais trompeur : il envoyait activer une ligne en laissant croire
+    que les dépenses existantes suivraient.
+
+
+CE QUE L'ÉCOLE DOIT FAIRE, ET QUE LE LOGICIEL NE PEUT PAS DEVINER
+-----------------------------------------------------------------
+
+1. FORM1 ET FORM2 : LA LANGUE **ET** LE BARÈME, LES DEUX ENSEMBLE.
+   Classes -> Modifier la classe : système « anglais », et barème 20.
+   Leur barème vaut 100 aujourd'hui alors que leurs notes sont sur /20 :
+   si on ne corrige que la langue, leur bulletin sortira sur /100.
+   Si une séquence de la classe est verrouillée, le changement est refusé
+   (gel des notes) : déverrouillez d'abord.
+
+2. LES QUATRE DOUBLONS DE FORM1/FORM2 sont à décocher une dernière fois
+   (Computer Science, English Literature, Manual Labour / ML, French
+   Language). Ils portent 0 note : rien n'est perdu.
+
+3. CITIZENSHIP ET HISTORY de FORM1/FORM2 sont saisies sur /100 alors que
+   le reste de la classe est sur /20. À remettre à 20 dans les matières de
+   la classe, sinon ces deux colonnes resteront hors échelle.
+
+
+INSTALLATION
+-------------
+
+En root, depuis le dossier qui contient l'archive :
+
+    sudo ./deploy-0.3.26.sh notescam-linux-x64-0.3.26.tar.gz
+
+Le script, et pas `install.sh` seul : il ARRÊTE le service avant la
+copie, SAUVEGARDE la base par VACUUM INTO et VÉRIFIE la sauvegarde. Une
+sauvegarde non vérifiée n'est pas une sauvegarde. Il s'arrête de
+lui-même, sans toucher à l'application, si la sauvegarde n'est pas
+vérifiable.
+
+Il ne supprime aucune base, ne réinitialise aucune file, ne refait aucun
+appairage, n'écrit aucune donnée métier et ne force aucune
+synchronisation. Un code de sortie différent de zéro est le signal
+d'appeler l'éditeur, PAS de tenter une réparation.
+
+
+À VÉRIFIER APRÈS L'INSTALLATION
+--------------------------------
+
+  1. curl -s http://localhost:8080/api/version  →  0.3.26
+
+  2. LE CONTRÔLE DE CETTE VERSION. Ouvrez le compte d'un enseignant de
+     la section ANGLAISE d'une classe bilingue : ses matières sont en
+     anglais, plus celles de la section française.
+
+  3. Classes -> FORM2 -> Matières : décochez un doublon, enregistrez,
+     rouvrez l'écran. Il ne doit PAS être revenu, et « Ajouter le
+     programme manquant » ne doit plus le proposer.
+
+  4. LE BARÈME, une fois FORM1/FORM2 réglées en anglais ET sur 20 : leur
+     bulletin sort en ANGLAIS et sur /20. Comparez une note du bulletin
+     à la note saisie — elles doivent être IDENTIQUES, pas multipliées
+     par 5. Vérifiez ensuite la MÊME moyenne sur la fiche de l'élève et
+     au tableau de bord : c'est ce qui prouve que les huit écrans lisent
+     la même règle.
+
+  5. Primaire -> saisie par compétence : posez un barème sur
+     « Pratique », puis remettez 0. La colonne doit se refermer et
+     reprendre son repère « à définir ». Avec une note dedans, le refus
+     doit s'afficher et nommer l'élève.
+
+  6. Rapports -> un rapport de classe -> export Excel : le classeur
+     porte l'en-tête, les chiffres de la classe, « Matière /barème » et
+     le tableau « Résultats par matière », dans le MÊME fichier.
+
+  7. Vos effectifs n'ont pas bougé : comparez au relevé pris avant
+     l'installation (le script l'affiche).
+
+
+EN CAS DE PROBLÈME — RETOUR ARRIÈRE
+------------------------------------
+
+Réinstallez la 0.3.23 de la même façon. Rien ne reste à défaire : cette
+version n'a créé ni table ni colonne, et n'a converti aucune donnée.
+
+CE QUE LE RETOUR ARRIÈRE FAIT, exactement :
+
+  · AUCUNE NOTE N'EST PERDUE, dans aucun des deux sens ;
+  · les réglages que vous aurez corrigés (langue et barème de FORM1 et
+    FORM2, matières décochées) RESTENT : ce sont des données, pas du
+    code. Le bulletin de ces classes repasserait en revanche sur /100,
+    puisque la 0.3.23 déduit encore le barème de la langue ;
+  · TOUS LES DÉFAUTS CI-DESSUS REVIENNENT.
+
+Si un écran continue de refuser alors que le script dit que tout est en
+place : envoyez la sortie COMPLÈTE du script à l'éditeur. N'essayez pas
+de réparer la base à la main.
+
+------------------------------------------------------------------------

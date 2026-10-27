@@ -1374,3 +1374,63 @@ celui qu'on demande en capture.
 atteignent le serveur, celle de l'autre école **reste en file avec zéro tentative**, elle
 repart d'elle-même quand sa session revient, une charge **sans** `school_id` (référentiel
 national, tombstone) est toujours rejouée, et sans `ecoleCourante` **rien ne change**.
+
+## I25 — « La page reste blanche après la connexion, sur n'importe quel poste »
+
+**Date** : 2026-10-27 · **Statut** : **cause NON ÉTABLIE** · le symptôme est rendu lisible
+(D24), le défaut n'est pas trouvé · **Source** : message du responsable + photo d'un poste
+
+> « Depuis la dernière mise à jour, le logiciel ne s'ouvre pas après avoir entré les
+> informations de connexion, et lorsqu'on clique sur connexion la page reste blanche, sur
+> n'importe quel poste où j'ai essayé d'ouvrir. »
+
+### Ce que la photo établit
+
+Chrome sur un portable **Windows**, onglet « NotesCam », adresse `localhost:8080/app`,
+page **entièrement blanche**, 27 oct. 08:01.
+
+Deux faits en découlent, et ils orientent tout le reste :
+
+1. **La page de connexion s'est affichée** — ils ont pu saisir puis valider. L'application
+   **démarre** : ce n'est ni un `index.html` périmé, ni un paquet mal installé, ni un
+   `dist` absent (ces trois cas ne donnent aucun écran du tout).
+2. `/app` sans redirection, c'est `HomeRoute` → `<Dashboard />` : un compte
+   **administrateur** (un enseignant serait parti sur `/app/grades`).
+
+Le défaut est donc dans le **premier rendu authentifié**, et le blanc s'explique
+mécaniquement : l'application n'avait **aucun `ErrorBoundary`**, et React démonte l'arbre
+entier quand le rendu jette. Voir **D24**, qui ferme ce trou-là.
+
+### Ce qui est éliminé, avec sa vérification
+
+| Piste | Verdict |
+|---|---|
+| Un morceau d'application absent du paquet | **Non.** `dist` extrait de l'artefact 0.3.23 réellement envoyé : 136 morceaux, **0 référence introuvable** |
+| Cache figé du service worker | **Non.** Le `sw.js` livré est **auto-destructeur** (`selfDestroying` en LAN) : il se désinscrit et vide les caches |
+| Le verrou de licence LAN | **Non.** `LanLicenseGate` est *fail-open* et affiche un message ; il est de toute façon **au-dessus** de la connexion |
+| La mesure d'usage ajoutée en 0.3.24 | **Non.** `analyticsActif()` est faux en LAN, `posthog-js` n'est jamais chargé, et le paquet 0.3.24 **n'est pas parti** |
+| Un `src/lib` qui importerait `src/core` absent du paquet | **Non.** Le serveur n'importe que `policyEngine`, `budgetLinesEngine`, `expenseEngine`, la gouvernance et `domains/finance` — aucun ne descend dans `src/core` |
+
+### La piste la plus forte, non confirmée
+
+**I8, et elle est propre au vecteur Windows** — la photo est un poste Windows :
+« l'installeur ne redémarre pas le service ». Les fichiers sont neufs, le processus en
+mémoire est l'ancien, et `server/db.js` pose les colonnes neuves **au démarrage**. Un
+client neuf qui parle à un serveur ancien lit des formes qu'il n'attend pas — et sans
+filet, ça finit en blanc. Le fait que **tous** les postes tombent va dans ce sens : ils
+parlent au **même** serveur.
+
+**Ce qui manque pour trancher**, et que seule l'école peut donner :
+- la version que le serveur **annonce** (menu Démarrer → « Vérifier la mise à jour », qui
+  lit le serveur en marche et non les fichiers) ;
+- le message d'erreur — que l'écran de D24 affiche désormais tout seul.
+
+**Et le remède à essayer d'abord**, deux minutes : menu Démarrer du **poste serveur** →
+« Appliquer la mise à jour (redémarrer) » (sauvegarde vérifiée, puis redémarrage).
+
+### Leçon, déjà payée une fois
+
+Cet incident n'a rien appris de neuf sur le code : il a montré qu'**une application sans
+écran d'erreur ne peut pas être dépannée à distance**. Une école ne lit pas une console.
+Tant que la panne n'écrit rien, elle n'existe pour personne — et le diagnostic se fait
+sur des photos d'adresse de navigateur.

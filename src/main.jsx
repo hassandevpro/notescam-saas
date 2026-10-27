@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './styles/index.css';
 import { initAnalytics } from './lib/analytics';
+// Le dernier filet : une exception de rendu démontait l'arbre entier et laissait
+// une page BLANCHE, sans un mot (incident du 2026-10-27). Voir le fichier.
+import AppErrorBoundary from './components/AppErrorBoundary';
 
 // Auto-réparation après déploiement (PWA) : quand un nouveau build remplace les
 // chunks (nouveaux hashs) et que le service worker purge l'ancien cache, un
@@ -18,7 +21,9 @@ window.addEventListener('vite:preloadError', () => {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
   </React.StrictMode>
 );
 

@@ -1012,3 +1012,46 @@ baisse de barème.
 **Hors périmètre.** L'écran du premier cycle (`ApcCompetenceWorkspace`) garde son refus
 de zéro : son barème par défaut est /20, jamais zéro, et son moteur ne connaît pas la
 notion de compétence non notée. Rien à y refermer, donc rien à y changer.
+
+## D24 — Une panne se lit à l'écran, ou elle n'existe pour personne
+
+**Date** : 2026-10-27 · **Statut** : appliqué dans le dépôt, non déployé
+**Où** : `src/components/AppErrorBoundary.jsx` (nouveau), `src/main.jsx`
+
+**Décision.** L'application porte désormais un **garde-fou de rendu** (`ErrorBoundary`)
+autour de la racine. Quand une exception traverse le rendu, l'écran affiche en français
+qu'il y a une panne, **le message d'erreur**, **la version que le serveur annonce**, un
+bouton **Copier** qui met le tout dans le presse-papier, et deux sorties : recharger, ou
+revenir à la connexion.
+
+**Raison.** Une recherche de `ErrorBoundary` dans `src/` ne rendait **rien** : il n'y en
+avait aucun, nulle part. Or React démonte l'arbre **entier** quand le rendu jette — il ne
+reste pas un mot, pas un bouton, pas un code. C'est exactement ce que l'école a décrit le
+2026-10-27 (I25) : « la page reste blanche, sur n'importe quel poste ». Personne sur place
+n'a de raison de savoir ouvrir la console du navigateur, et sans elle il n'y avait
+**strictement rien** à transmettre. Le défaut était peut-être petit ; l'absence de filet,
+elle, a coûté le diagnostic.
+
+**La version du serveur est sur l'écran, et ce n'est pas un détail.** C'est la question
+qu'on pose à chaque incident, et celle qui a déjà tranché I8 : sous Windows, l'installeur
+ne redémarre pas le service, donc les **fichiers** sont neufs pendant que le serveur **en
+mémoire** est l'ancien. « Installé » ne veut pas dire « appliqué ». L'écran de panne
+interroge `/api/version` et affiche ce que le serveur **annonce** — pas ce que le disque
+porte. En édition cloud la route n'existe pas : l'échec est silencieux, l'écran s'affiche
+sans.
+
+**Ce qu'il ne fait pas, volontairement.** Il **ne vide aucun stockage** et **ne déconnecte
+personne**. La file de synchronisation hors ligne vit dans le navigateur du poste : un
+écran d'erreur qui « nettoie » ferait perdre des saisies que l'école n'a pas encore vues
+partir — ce que la règle cardinale du module de synchronisation interdit. « Revenir à la
+connexion » ne fait que changer d'adresse.
+
+**Deux phrases, pas une.** Un morceau d'application non téléchargé (serveur redémarré
+pendant que l'onglet était ouvert, `dist` remplacé sous les pieds) se répare par un
+rechargement : il a sa propre phrase, et on ne demande pas à une école de nous signaler ce
+qu'elle résout elle-même en dix secondes. Un défaut de programmation, lui, demande le bloc
+copié. Le filet complète le rattrapage `vite:preloadError` de `src/main.jsx`, qui
+recharge **une fois** ; quand ce rattrapage ne suffit pas, c'est le filet qui parle.
+
+**Ce que ça ne corrige pas.** Rien. Ce composant ne répare aucun défaut : il rend la panne
+**lisible**, donc transmissible, donc réparable. C'est le seul objectif.

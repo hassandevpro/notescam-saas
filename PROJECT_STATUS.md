@@ -4,23 +4,58 @@
 > actualiser à la fin. Toute ligne ici doit être vérifiable par une commande ou un
 > fichier : si une information ne peut pas être prouvée, elle est marquée « à vérifier ».
 >
-> Dernière mise à jour : **2026-10-26** (release **0.3.24** : les deux paquets sont
+> Dernière mise à jour : **2026-10-27** (release **0.3.25** : les deux paquets sont
 > construits — § ci-dessous) · branche `caisse-journal-et-sync-0.3.15`, dernier push sur
 > `main` le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
-> `package.json` = **0.3.24**
+> `package.json` = **0.3.25**
 >
-> ## 📦 0.3.24 — LES DEUX PAQUETS SONT CONSTRUITS, NON ENVOYÉS (2026-10-26)
+> ## 🔴 EN COURS — PAGE BLANCHE APRÈS LA CONNEXION, CAUSE NON ÉTABLIE (I25)
+>
+> Signalé le 2026-10-27 : « le logiciel ne s'ouvre pas après avoir entré les
+> informations de connexion, la page reste blanche, sur n'importe quel poste ». Photo à
+> l'appui : Chrome sous **Windows**, `localhost:8080/app`, page entièrement blanche.
+>
+> **La page de connexion s'affichait** — l'application démarre donc, et c'est le
+> **premier rendu authentifié** qui tombe. `/app` sans redirection = `HomeRoute` →
+> `<Dashboard />`, donc un compte **administrateur**.
+>
+> **Éliminé, chaque piste avec sa vérification** : le `dist` extrait de l'artefact
+> 0.3.23 réellement envoyé porte ses **136 morceaux avec 0 référence introuvable** · son
+> `sw.js` est **auto-destructeur** (il se désinscrit et vide les caches) ·
+> `LanLicenseGate` est *fail-open* et se trouve **au-dessus** de la connexion · la mesure
+> d'usage est inerte en LAN et son paquet n'est pas parti · aucun module du serveur ne
+> descend dans `src/core`, absent du paquet.
+>
+> **Piste la plus forte, NON confirmée : I8**, propre au vecteur Windows — « l'installeur
+> ne redémarre pas le service ». Fichiers neufs, processus en mémoire ancien,
+> `server/db.js` pose les colonnes **au démarrage**. Tous les postes tombent parce
+> qu'ils parlent au **même** serveur.
+>
+> **Ce qui manque pour trancher**, et que seule l'école peut donner : la version que le
+> serveur **annonce** (menu Démarrer → « Vérifier la mise à jour »), et le message
+> d'erreur — que l'écran de D24 affiche désormais tout seul. **Remède à essayer
+> d'abord** : poste serveur → « Appliquer la mise à jour (redémarrer) ».
+>
+> La 0.3.25 **ne corrige pas ce défaut** : elle le rend lisible (D24). Voir I25.
+>
+> ## 📦 0.3.25 — LES DEUX PAQUETS SONT CONSTRUITS, NON ENVOYÉS (2026-10-27)
 >
 > **Rien n'est déployé** : ni Vercel (le Cloud tourne toujours sur le dernier push de
 > `main`), ni une école. Les artefacts sont sur le poste de build.
 >
 > | | Windows | Linux |
 > |---|---|---|
-> | Fichier | `packaging/Output/NotesCam-Setup-0.3.24.exe` | `packaging/linux/Output/notescam-linux-x64-0.3.24.tar.gz` |
-> | Taille | 30 820 861 o | 53 544 380 o |
-> | SHA-256 | `c9cc923f…f54c695b` | `8eeaf300…ee157751` |
-> | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.24-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.24.txt` |
-> | Script | — (installeur) | `packaging/linux/deploy-0.3.24.sh` (`bash -n` OK) |
+> | Fichier | `packaging/Output/NotesCam-Setup-0.3.25.exe` | `packaging/linux/Output/notescam-linux-x64-0.3.25.tar.gz` |
+> | Taille | 30 822 101 o | 53 540 293 o |
+> | SHA-256 | `ff24bb41…f49feab2f` | `f7dda848…53faa40fc` |
+> | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.25-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.25.txt` |
+> | Script | — (installeur) | `packaging/linux/deploy-0.3.25.sh` (`bash -n` OK) |
+>
+> ⛔ **La 0.3.24 est ABANDONNÉE, ne pas la distribuer** : construite le 2026-10-26 et
+> remplacée par celle-ci le 2026-10-27, **avant tout envoi** — aucune école ne l'a reçue.
+> Ses empreintes étant déjà publiées dans un commit, elle n'a pas été reconstruite sous
+> son propre numéro : un document du dépôt serait devenu faux. Ses deux notices portent
+> un bandeau qui le dit (même traitement que la 0.3.20).
 >
 > **Node embarqué** : v24.22.1 pour les deux, comme la 0.3.23.
 >
@@ -29,7 +64,13 @@
 > du jour, et la passe du jour ne touche `server/rpc.js` que pour lire `grade_max`). Il
 > n'y a donc pas de rattrapage à attendre, contrairement aux 0.3.16, 0.3.19 et 0.3.23.
 >
-> **Ce qu'elle porte** : les cinq correctifs du 2026-10-26 (matières anglophones dans le
+> **Ce qu'elle porte EN PLUS de la 0.3.24** : l'écran d'erreur (D24) — une panne
+> d'affichage ne donne plus une page blanche muette mais le message, la version que le
+> serveur annonce, un bouton « Copier » et deux sorties ; l'écran des classes qui ne
+> promet plus « EN — notes sur 100 » quand la classe note sur /20 ; et une seule paire de
+> boutons d'échange par écran de saisie.
+>
+> **Et tout ce que portait la 0.3.24** : les cinq correctifs du 2026-10-26 (matières anglophones dans le
 > compte enseignant · une matière décochée ne revient plus, D22 · le barème du bulletin
 > vient de la classe, D21 + D21 bis · zéro referme une colonne du primaire, D23 · le
 > classeur Excel du rapport dit ce que dit le papier) **et** ce qui a été corrigé depuis

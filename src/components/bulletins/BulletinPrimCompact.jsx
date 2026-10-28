@@ -39,6 +39,9 @@ import { PRIM_GRADE_MAX } from '../../core/primEngine';
 import { groupesDe, reperesDeGroupe } from '../../core/primCompactRows';
 import { primCoteLabel } from '../../core/referentielI18n';
 import { MARQUE_NON_EVALUEE } from '../../core/noteEtat';
+// La décision « ce carnet tient-il sur une page ? » est un calcul, pas un goût :
+// elle vit dans le moteur, calibrée sur des hauteurs mesurées.
+import { densiteRequise } from '../../core/primCompactDensite';
 
 const COTE_COLORS = { 'A+': '#059669', A: '#10b981', ECA: '#f59e0b', IP: '#f59e0b', NA: '#ef4444' };
 const ACCENT  = '#047857';   // vert foncé du bandeau — identité du carnet
@@ -100,6 +103,32 @@ export default function BulletinPrimCompact({
     `REPORT OF MARKS – ${classLabel}`, `BOLETÍN DE NOTAS — ${classLabel}`);
   const sousTitre = [periodLabel, school?.current_year].filter(Boolean).join(' · ');
 
+  // ── « LE BULLETIN DOIT TENIR SUR UNE PAGE » ───────────────────────────────
+  //
+  // Mesuré (scripts/print-capacity-bulletin.mjs) : le carnet complet bascule
+  // entre 17 et 19 compétences — au-delà, l'auto-ajustement refuse de réduire
+  // davantage (plancher de lisibilité 0,86) et le bas part sur une 2e page
+  // presque vide. C'est le cas des classes BILINGUES, qui portent deux blocs de
+  // langue, et des écoles qui ajoutent leurs lignes maison.
+  //
+  // On resserre ALORS, et alors seulement : un carnet de onze compétences garde
+  // la mise en page aérée que l'école relit. Rien n'est retiré dans les deux
+  // cas — mêmes lignes, mêmes totaux, mêmes mentions obligatoires.
+  const dense = densiteRequise({
+    lignes: rows.length,
+    groupes: groupes.length,
+    additional: additionalSubjects.length,
+    legende: coteBareme.length > 0,
+    provisoire: nonEvalueesCodes.length > 0,
+    appreciation: !!(appreciationGenerale || decision),
+    mentions: !!mentions,
+    stats: !!statsClasse,
+    repartition: repartition.length > 0,
+  });
+
+  // Le gabarit entier respire d'un cran de moins en dense : chaque interstice
+  // vaut quelques millimètres, et c'est la somme qui fait tenir la page.
+  const gap = dense ? 2 : 4;
   const th = { ...mkTH(pt), background: TH_BG, color: TH_TXT };
   const cell = mkCell(pt);
   const num = { ...cell, textAlign: 'center', whiteSpace: 'nowrap' };
@@ -112,25 +141,34 @@ export default function BulletinPrimCompact({
   const provisoire = nonEvalueesCodes.length > 0;
 
   return (
-    <OfficialSheet school={school} pageNo={pageNo} total={total} pt={pt} sys={sys}>
-      <OfficialHeader school={school} sys={sys} title={titre} accent={ACCENT} rounded basic />
+    <OfficialSheet school={school} pageNo={pageNo} total={total} pt={pt} sys={sys} dense={dense}>
+      {/* En dense, la période est FONDUE dans le bandeau de titre : deux bandeaux
+          colorés empilés coûtaient 49 px pour deux lignes, un seul en coûte 29 et
+          porte la même information. */}
+      <OfficialHeader
+        school={school} sys={sys} title={titre} accent={ACCENT} rounded basic
+        dense={dense} subtitle={dense ? sousTitre : null}
+      />
 
-      <div style={{
-        background: ACCENT, color: '#fff', textAlign: 'center', fontWeight: 'bold',
-        padding: '3px 6px', fontSize: `${pt + 0.5}pt`, letterSpacing: '0.02em',
-        WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
-      }}>
-        {sousTitre}
-      </div>
+      {!dense && (
+        <div style={{
+          background: ACCENT, color: '#fff', textAlign: 'center', fontWeight: 'bold',
+          padding: '3px 6px', fontSize: `${pt + 0.5}pt`, letterSpacing: '0.02em',
+          WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
+        }}>
+          {sousTitre}
+        </div>
+      )}
 
       <OfficialIdentityBand
         student={student} classLabel={classLabel} effectif={effectif}
         profPrincipal={titulaire} sys={sys} accent={ACCENT} tint={TH_BG}
+        dense={dense}
         ppLabel={headTeacherLabel(headTeacherCount(titulaire), sys, { basic: true })}
       />
 
       {/* ── Tableau principal : une ligne par compétence ─────────────────── */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4, tableLayout: 'fixed' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: gap, tableLayout: 'fixed' }}>
         <colgroup>
           <col style={{ width: '6%' }} />
           <col />
@@ -220,7 +258,7 @@ export default function BulletinPrimCompact({
           national. Elles n'entrent PAS dans le total général — sinon le /240
           cesserait d'être comparable au barème du niveau. */}
       {additionalSubjects.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 6, tableLayout: 'fixed' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: dense ? 3 : 6, tableLayout: 'fixed' }}>
           <thead>
             <tr>
               <th style={{ ...th, textAlign: 'left' }} colSpan={2 + critereColumns.length + 2}>
@@ -257,7 +295,7 @@ export default function BulletinPrimCompact({
 
       {/* ── Légende des cotes ────────────────────────────────────────────── */}
       {coteBareme.length > 0 && (
-        <div style={{ marginTop: 4, fontSize: `${pt - 0.8}pt`, color: '#374151' }}>
+        <div style={{ marginTop: gap, fontSize: `${pt - 0.8}pt`, color: '#374151' }}>
           <strong>{L(sys, 'Échelle', 'Grading scale', 'Escala')} :</strong>{' '}
           {/* Le libellé passe par `primCoteLabel` : `PRIM_COTE_DEFAULT` porte des
               libellés FRANÇAIS, et la légende d'un bulletin anglophone affichait
@@ -278,7 +316,7 @@ export default function BulletinPrimCompact({
       {/* ── Mention « bulletin provisoire » ──────────────────────────────── */}
       {provisoire && (
         <div style={{
-          marginTop: 4, padding: '3px 6px', border: `1px solid ${ACCENT}`,
+          marginTop: gap, padding: dense ? '1px 6px' : '3px 6px', border: `1px solid ${ACCENT}`,
           background: '#ecfdf5', fontSize: `${pt - 0.8}pt`, color: '#065f46',
           WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
         }}>
@@ -291,7 +329,7 @@ export default function BulletinPrimCompact({
       )}
 
       {/* ── Synthèse ─────────────────────────────────────────────────────── */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 5 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: dense ? 3 : 5 }}>
         <tbody>
           <tr>
             <td style={{ ...th, width: '20%' }}>{L(sys, 'Total obtenu', 'Total obtained', 'Total obtenido')}</td>
@@ -348,7 +386,7 @@ export default function BulletinPrimCompact({
 
           <tr>
             <td style={th}>{L(sys, 'Observations du titulaire', 'Class teacher’s remarks', 'Observaciones')}</td>
-            <td style={{ ...cell, height: 26, borderTop: B }} colSpan={signatureParent ? 4 : 7} />
+            <td style={{ ...cell, height: dense ? 16 : 26, borderTop: B }} colSpan={signatureParent ? 4 : 7} />
             {signatureParent && (
               <>
                 <td style={th} colSpan={1}>{L(sys, 'Signature du parent', 'Parent’s signature', 'Firma del padre')}</td>
@@ -363,15 +401,25 @@ export default function BulletinPrimCompact({
           Combien d'élèves par tranche de moyenne. Le carnet la porte en pied :
           un parent y lit où se situe son enfant dans la classe. */}
       {repartition.length > 0 && (
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: gap }}>
           <tbody>
+            {/* En dense, le titre « Autres statistiques » disparaît comme LIGNE :
+                c'est une ligne entière pour deux mots, alors que la ligne
+                suivante dit déjà de quoi il s'agit. L'intitulé se replie donc
+                dans la cellule de gauche. */}
+            {!dense && (
+              <tr>
+                <td style={{ ...th, textAlign: 'left' }} colSpan={repartition.length + 1}>
+                  {L(sys, 'Autres statistiques', 'Other statistics', 'Otras estadísticas')}
+                </td>
+              </tr>
+            )}
             <tr>
-              <td style={{ ...th, textAlign: 'left' }} colSpan={repartition.length + 1}>
-                {L(sys, 'Autres statistiques', 'Other statistics', 'Otras estadísticas')}
+              <td style={th}>
+                {dense
+                  ? L(sys, 'Répartition — moyennes', 'Spread — averages', 'Reparto — promedios')
+                  : L(sys, 'Intervalle de moyenne', 'Average range', 'Intervalo')}
               </td>
-            </tr>
-            <tr>
-              <td style={th}>{L(sys, 'Intervalle de moyenne', 'Average range', 'Intervalo')}</td>
               {repartition.map((r) => <td key={r.label} style={th}>{r.label}</td>)}
             </tr>
             <tr>
@@ -383,7 +431,7 @@ export default function BulletinPrimCompact({
       )}
 
       <OfficialSignatures
-        school={school} sys={sys} profPrincipal={titulaire}
+        school={school} sys={sys} profPrincipal={titulaire} dense={dense}
         headLabel={L(sys, 'Le Directeur / La Directrice', 'The Head Teacher', 'El Director / La Directora')}
         teacherLabel={L(sys, "L'Enseignant(e)", 'The Class Teacher', 'El Maestro / La Maestra')}
       />

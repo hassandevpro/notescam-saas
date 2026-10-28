@@ -72,16 +72,32 @@ export function OfficialWatermark({ src }) {
 // lycée). Le fondamental MINEDUB passe sa propre teinte (maternelle violet,
 // primaire vert) pour une identité visuelle distincte. `rounded` adoucit les coins
 // (bulletins des tout-petits) sans changer le format officiel.
-export function OfficialHeader({ school, sys, title, accent = '#1e3a5f', rounded = false, basic = false }) {
+// `dense` : disposition resserrée, pour les carnets qui ne tiendraient pas sur
+// une page autrement (cf. core/primCompactDensite.js). Rien n'est RETIRÉ — en-tête
+// officiel, armoiries et mentions ministérielles restent au complet, ce sont des
+// mentions obligatoires. Seuls le logo, les interlignes et les tailles cèdent du
+// terrain. Défaut `false` : aucun autre bulletin n'est touché.
+//
+// `subtitle` : fondu DANS le bandeau de titre quand il est fourni. Deux bandeaux
+// colorés empilés coûtaient 49 px pour deux lignes de texte ; un seul en coûte 29
+// et dit la même chose.
+export function OfficialHeader({
+  school, sys, title, subtitle, accent = '#1e3a5f', rounded = false, basic = false, dense = false,
+}) {
   const officials = bulletinOfficials(school, { basic, sys });
   const blocks    = officials?.blocks ?? [];
   const bilingual = officials?.bilingual && blocks.length > 1;
   const centerW   = bilingual ? '34%' : '50%';
   const sideW     = bilingual ? '33%' : '50%';
   const yearLbl   = sys === 'EN' ? 'Academic year' : sys === 'ES' ? 'Año escolar' : 'Année scolaire';
+  const logoPx    = dense ? 38 : 56;
 
   const Block = ({ b }) => (
-    <td style={{ width: sideW, textAlign: 'center', fontSize: '9pt', lineHeight: 1.3, padding: 2, verticalAlign: 'top' }}>
+    <td style={{
+      width: sideW, textAlign: 'center',
+      fontSize: dense ? '8pt' : '9pt', lineHeight: dense ? 1.12 : 1.3,
+      padding: dense ? 1 : 2, verticalAlign: 'top',
+    }}>
       <strong>{b.republic}</strong><br />
       {b.motto}<br />————————<br />
       {b.ministry}{b.lines.length > 0 && <br />}
@@ -92,30 +108,41 @@ export function OfficialHeader({ school, sys, title, accent = '#1e3a5f', rounded
 
   return (
     <>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 4 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: dense ? 2 : 4 }}>
         <tbody>
           <tr>
             {blocks[0] && <Block b={blocks[0]} />}
-            <td style={{ width: centerW, textAlign: 'center', padding: 2, verticalAlign: 'top' }}>
+            <td style={{ width: centerW, textAlign: 'center', padding: dense ? 1 : 2, verticalAlign: 'top' }}>
               {school?.logo_url && (
-                <AssetImg src={school.logo_url} alt="" style={{ width: 56, height: 56, objectFit: 'contain', display: 'block', margin: '0 auto 2px' }} />
+                <AssetImg src={school.logo_url} alt="" style={{ width: logoPx, height: logoPx, objectFit: 'contain', display: 'block', margin: '0 auto 2px' }} />
               )}
-              <strong style={{ fontSize: '11pt', display: 'block' }}>{(school?.name || '').toUpperCase()}</strong>
+              <strong style={{ fontSize: dense ? '10pt' : '11pt', display: 'block', lineHeight: dense ? 1.1 : undefined }}>{(school?.name || '').toUpperCase()}</strong>
               {(school?.address || school?.phone) && (
-                <span style={{ fontSize: '8.5pt' }}>
+                <span style={{ fontSize: dense ? '8pt' : '8.5pt' }}>
                   {school?.address ? `B.P. ${school.address}` : ''}{school?.address && school?.phone ? ' · ' : ''}{school?.phone || ''}
                 </span>
               )}
               <br />
-              <span style={{ fontSize: '8.5pt' }}>{yearLbl} : <strong>{school?.current_year || '—'}</strong></span>
+              <span style={{ fontSize: dense ? '8pt' : '8.5pt' }}>{yearLbl} : <strong>{school?.current_year || '—'}</strong></span>
             </td>
             {bilingual && blocks[1] && <Block b={blocks[1]} />}
           </tr>
         </tbody>
       </table>
       {title && (
-        <div className="apc-title-bar" style={{ background: accent, color: '#fff', textAlign: 'center', padding: '4px 8px', fontWeight: 'bold', fontSize: '13pt', letterSpacing: '.4px', marginBottom: 5, borderRadius: rounded ? 6 : 0 }}>
+        <div className="apc-title-bar" style={{
+          background: accent, color: '#fff', textAlign: 'center',
+          padding: dense ? '2px 8px' : '4px 8px', fontWeight: 'bold',
+          fontSize: dense ? '11pt' : '13pt', letterSpacing: '.4px',
+          marginBottom: dense ? 3 : 5, borderRadius: rounded ? 6 : 0,
+          WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
+        }}>
           {title}
+          {subtitle && (
+            <span style={{ fontWeight: 'normal', fontSize: dense ? '9pt' : '10pt', opacity: 0.95 }}>
+              {'  ·  '}{subtitle}
+            </span>
+          )}
         </div>
       )}
     </>
@@ -183,7 +210,11 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
 // teintée (accent), puis les détails d'état civil sur fond clair. Conserve TOUS
 // les champs officiels (naissance, genre, matricule, redoublant, parents, P.
 // principal) — seule la présentation change. `accent` = bande, `tint` = détails.
-export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, ppLabel, sys, accent = '#1e3a5f', tint = '#eef2f7' }) {
+// `dense` : même bandeau, resserré. L'état civil reste COMPLET — un bulletin
+// officiel porte la date et le lieu de naissance, le matricule et le tuteur, et
+// ce n'est pas négociable pour gagner des millimètres. Ce sont la photo, les
+// interlignes et les rembourrages qui cèdent.
+export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, ppLabel, sys, accent = '#1e3a5f', tint = '#eef2f7', dense = false }) {
   const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
   const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
   const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
@@ -193,16 +224,20 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
   const Chk = ({ on }) => (
     <span style={{ display: 'inline-block', width: 9, height: 9, border: B, margin: '0 2px', verticalAlign: 'middle', background: on ? '#374151' : '#fff' }} />
   );
+  // En dense, la cellule d'état civil passe à 8,5 pt sans rembourrage vertical :
+  // c'est la ligne la plus répétée du bandeau, donc celle qui rend le plus.
+  const idCell = dense ? mkCell(8.5, 1.1, 0) : CELL;
+
   return (
-    <div style={{ marginBottom: 4 }}>
+    <div style={{ marginBottom: dense ? 2 : 4 }}>
       {/* Bande colorée : photo + nom + classe */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: accent, color: '#fff', borderRadius: '6px 6px 0 0', padding: '5px 10px', ...pcx }}>
-        <div style={{ background: '#fff', borderRadius: 4, padding: 2, lineHeight: 0, flexShrink: 0 }}>
-          <BulletinPhoto src={student?.photo_url} width={46} height={56} radius={2} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: dense ? 7 : 10, background: accent, color: '#fff', borderRadius: '6px 6px 0 0', padding: dense ? '2px 8px' : '5px 10px', ...pcx }}>
+        <div style={{ background: '#fff', borderRadius: 4, padding: dense ? 1 : 2, lineHeight: 0, flexShrink: 0 }}>
+          <BulletinPhoto src={student?.photo_url} width={dense ? 34 : 46} height={dense ? 42 : 56} radius={2} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: '13pt', fontWeight: 'bold', lineHeight: 1.15 }}>{student?.name || ''}</div>
-          <div style={{ fontSize: '9pt', opacity: 0.95 }}>
+          <div style={{ fontSize: dense ? '11pt' : '13pt', fontWeight: 'bold', lineHeight: 1.1 }}>{student?.name || ''}</div>
+          <div style={{ fontSize: dense ? '8.5pt' : '9pt', opacity: 0.95, lineHeight: 1.15 }}>
             {L(sys, 'Classe', 'Class', 'Clase')} : <strong>{classTxt}</strong>{effectif != null ? ` · ${L(sys, 'Effectif', 'Class size', 'Total')} : ${effectif}` : ''}
           </div>
         </div>
@@ -211,12 +246,12 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <tbody>
           <tr>
-            <td style={{ ...CELL, background: tint, ...pcx }}>{L(sys, 'Né(e) le', 'Born on', 'Nacido/a el')} : {student?.date_naissance || ''} {student?.lieu_naissance ? `${L(sys, 'à', 'in', 'en')} ${student.lieu_naissance}` : ''}</td>
-            <td style={{ ...CELL, background: tint, ...pcx }}>{L(sys, 'Genre', 'Gender', 'Género')} : {genderLabel(student?.gender, sys)} · {L(sys, 'Identifiant', 'ID', 'Identificador')} : {student?.matricule || ''}</td>
+            <td style={{ ...idCell, background: tint, ...pcx }}>{L(sys, 'Né(e) le', 'Born on', 'Nacido/a el')} : {student?.date_naissance || ''} {student?.lieu_naissance ? `${L(sys, 'à', 'in', 'en')} ${student.lieu_naissance}` : ''}</td>
+            <td style={{ ...idCell, background: tint, ...pcx }}>{L(sys, 'Genre', 'Gender', 'Género')} : {genderLabel(student?.gender, sys)} · {L(sys, 'Identifiant', 'ID', 'Identificador')} : {student?.matricule || ''}</td>
           </tr>
           <tr>
-            <td style={CELL}>{L(sys, 'Parents / Tuteurs', 'Parents / Guardians', 'Padres / Tutores')} : {parents}{phone}</td>
-            <td style={CELL}>{L(sys, 'Redoublant', 'Repeater', 'Repetidor')} : {L(sys, 'Oui', 'Yes', 'Sí')} <Chk on={redoublant} /> {L(sys, 'Non', 'No', 'No')} <Chk on={!redoublant} /> · {ppLbl} : {profPrincipal || ''}</td>
+            <td style={idCell}>{L(sys, 'Parents / Tuteurs', 'Parents / Guardians', 'Padres / Tutores')} : {parents}{phone}</td>
+            <td style={idCell}>{L(sys, 'Redoublant', 'Repeater', 'Repetidor')} : {L(sys, 'Oui', 'Yes', 'Sí')} <Chk on={redoublant} /> {L(sys, 'Non', 'No', 'No')} <Chk on={!redoublant} /> · {ppLbl} : {profPrincipal || ''}</td>
           </tr>
         </tbody>
       </table>
@@ -237,9 +272,13 @@ export function PageNumber({ n, total, sys }) {
 }
 
 // ── Feuille A4 officielle = une page physique ─────────────────────────────────
-export function OfficialSheet({ school, pageNo, total, pt = 10, sys, children }) {
+// `dense` ajoute `apc-sheet-dense`, qui rend à la page le rembourrage VERTICAL
+// de la feuille : `@page` fournit déjà 8 mm de marge, et les 4 px ajoutés en
+// haut comme en bas s'empilaient par-dessus. C'est la marge du bas récupérée —
+// la dernière, et celle qui ne coûte rien à personne.
+export function OfficialSheet({ school, pageNo, total, pt = 10, sys, dense = false, children }) {
   return (
-    <div className="bulletin-paper apc-sheet" style={{ position: 'relative', fontFamily: bulletinFontFamily(school), fontSize: `${pt}pt`, color: '#111' }}>
+    <div className={`bulletin-paper apc-sheet${dense ? ' apc-sheet-dense' : ''}`} style={{ position: 'relative', fontFamily: bulletinFontFamily(school), fontSize: `${pt}pt`, color: '#111' }}>
       <OfficialWatermark src={school?.logo_url} />
       <div style={{ position: 'relative', zIndex: 1 }}>
         {children}
@@ -256,16 +295,24 @@ export function OfficialSheet({ school, pageNo, total, pt = 10, sys, children })
 // `headLabel`/`teacherLabel` : surcharges optionnelles (ex. fondamental MINEDUB —
 // « Le Directeur / La Directrice » et « L'Enseignant(e) » au lieu de Proviseur /
 // Professeur Principal, propres au secondaire).
-export function OfficialSignatures({ school, sys, profPrincipal, headLabel, teacherLabel }) {
+// `dense` : les trois cases restent, à une hauteur qui se signe encore. 92 px
+// font 24 mm — généreux ; 58 px en font 15 mm, ce qui laisse la place d'une
+// signature et d'un cachet. En dessous, on ne gagnerait plus des millimètres
+// mais la possibilité de signer, et le bulletin ne vaudrait plus rien.
+export function OfficialSignatures({ school, sys, profPrincipal, headLabel, teacherLabel, dense = false }) {
   const chef   = headLabel    || (sys === 'EN' ? 'The Principal' : sys === 'ES' ? 'El Director' : "Le Chef d'établissement");
   const parent = sys === 'EN' ? 'Parent / Guardian' : sys === 'ES' ? 'Padre / Tutor' : 'Visa du Parent / Tuteur';
   const pp     = teacherLabel || (sys === 'EN' ? 'The Form Master' : sys === 'ES' ? 'El Tutor' : 'Le Professeur Principal');
 
   // 3 colonnes de largeur ET de hauteur identiques, chacune bordée (B). Titres
   // centrés, en gras ; taille et interligne uniformes (fidélité au modèle).
-  const cell  = { ...CELL, width: '33.33%', textAlign: 'center', verticalAlign: 'top', height: 92, padding: '4px 6px 6px' };
-  const title = { fontWeight: 'bold', fontSize: '10pt', lineHeight: 1.25 };
-  const name  = { color: '#666', fontSize: '9pt', lineHeight: 1.2, marginTop: 1 };
+  const cell  = {
+    ...(dense ? mkCell(9, 1.1, 0) : CELL),
+    width: '33.33%', textAlign: 'center', verticalAlign: 'top',
+    height: dense ? 58 : 92, padding: dense ? '2px 4px 3px' : '4px 6px 6px',
+  };
+  const title = { fontWeight: 'bold', fontSize: dense ? '9pt' : '10pt', lineHeight: dense ? 1.15 : 1.25 };
+  const name  = { color: '#666', fontSize: dense ? '8pt' : '9pt', lineHeight: 1.15, marginTop: 1 };
   // Neutralisation du fond blanc des scans (`mix-blend-mode:multiply` porté par
   // les classes .bulletin-*-img + print-color-adjust) : le tampon reste bleu et
   // parfaitement circulaire, la signature transparente. `objectFit:contain` +
@@ -273,7 +320,7 @@ export function OfficialSignatures({ school, sys, profPrincipal, headLabel, teac
   const ink   = { objectFit: 'contain', background: 'transparent' };
 
   return (
-    <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
+    <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: dense ? 3 : 8 }}>
       <tbody>
         <tr>
           {/* Parent / Tuteur — espace de signature manuscrite (même hauteur) */}
@@ -293,16 +340,20 @@ export function OfficialSignatures({ school, sys, profPrincipal, headLabel, teac
               neutralise le top/right/opacity de la classe .bulletin-stamp-img. */}
           <td style={cell}>
             <div style={title}>{chef}</div>
-            <div style={{ position: 'relative', height: 60, maxWidth: 190, margin: '2px auto 0' }}>
+            {/* En dense, cette zone commande la hauteur de TOUTE la rangée : une
+                case ramenée à 58 px que son tampon de 60 px repousserait à 60 ne
+                ferait rien gagner. Tampon et signature suivent donc la même
+                réduction, en gardant leurs proportions. */}
+            <div style={{ position: 'relative', height: dense ? 36 : 60, maxWidth: 190, margin: '2px auto 0' }}>
               {school?.stamp_url && (
                 <AssetImg
                   src={school.stamp_url}
                   alt=""
                   className="bulletin-stamp-img"
                   style={{
-                    position: 'absolute', left: '50%', top: 8, right: 'auto',
+                    position: 'absolute', left: '50%', top: dense ? 2 : 8, right: 'auto',
                     transform: 'translateX(-50%)',
-                    width: 54, height: 54, maxWidth: 'none', opacity: 0.95,
+                    width: dense ? 34 : 54, height: dense ? 34 : 54, maxWidth: 'none', opacity: 0.95,
                     margin: 0, ...ink, zIndex: 1,
                   }}
                 />
@@ -313,9 +364,9 @@ export function OfficialSignatures({ school, sys, profPrincipal, headLabel, teac
                   alt=""
                   className="bulletin-sig-img"
                   style={{
-                    position: 'absolute', left: '50%', top: 2,
+                    position: 'absolute', left: '50%', top: dense ? 0 : 2,
                     transform: 'translateX(-50%)',
-                    height: 34, width: 'auto', maxWidth: 150,
+                    height: dense ? 22 : 34, width: 'auto', maxWidth: dense ? 110 : 150,
                     margin: 0, ...ink, zIndex: 2,
                   }}
                 />

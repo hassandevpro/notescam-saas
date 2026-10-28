@@ -351,10 +351,40 @@
      La largeur est divisée par le facteur pour compenser la réduction, sinon le
      bulletin réduit n'occuperait plus que `facteur` × la largeur de la page.
      Même technique que le socle HTML autonome (printLayout.js). */
+  /* ⚠ `zoom`, PAS `transform: scale()`.
+     ────────────────────────────────────────────────────────────────────────
+     CE DÉFAUT A ÉTÉ MESURÉ, et il annulait tout le mécanisme. `transform` est
+     purement VISUEL : il peint l'élément plus petit mais ne change pas sa boîte
+     de mise en page. La feuille continuait donc d'occuper sa hauteur d'origine,
+     le navigateur coupait la page au même endroit, et le bas partait sur une 2e
+     page — réduite, mais toujours sur deux pages.
+
+     Relevé au banc (scripts/print-capacity-bulletin.mjs, comptage de pages sur
+     le PDF réel), carnet de 22 compétences : facteur 0,969 correctement posé,
+     et PDF à 2 pages. C'est exactement ce que l'école constatait, alors que la
+     hauteur mesurée annonçait que ça tenait.
+
+     LE PIÈGE ÉTAIT DÉJÀ CONNU, ET ÉCRIT. `lib/print/printLayout.js` le dit noir
+     sur blanc depuis son origine — « POURQUOI UNE HAUTEUR IMPOSÉE. Réduire
+     visuellement ne suffit pas : Chrome pagine sur la hauteur de la BOÎTE, pas
+     sur son rendu (vérifié : même nombre de pages avec et sans réduction) » —
+     et il impose donc `height` en plus du `transform`. Le chemin DOM vivant a
+     copié la technique SANS cette partie, tout en affirmant ici même qu'elle
+     était « la même que le socle HTML autonome ». Elle ne l'était pas.
+
+     `zoom` REFLOW : il réduit la boîte autant que le rendu, donc le contenu
+     tient réellement dans la page. Il rend du même coup inutile la compensation
+     de largeur (`width: calc(100% / facteur)`), qui n'existait que pour
+     rattraper ce que `transform` ne faisait pas, et la hauteur imposée que le
+     socle autonome doit calculer en JS.
+
+     Compatibilité : `zoom` est désormais spécifié (CSS Viewport) et appliqué par
+     Chrome, Edge et Safari depuis toujours, par Firefox depuis la 126. Le parc
+     des écoles imprime depuis Chrome (l'application est une PWA), et un
+     navigateur qui l'ignorerait retomberait sur le comportement d'AVANT —
+     deux pages, soit le défaut d'aujourd'hui, jamais un bulletin tronqué. */
   .bulletin-paper {
-    transform-origin: top left;
-    transform: scale(var(--nc-fit, 1));
-    width: calc(100% / var(--nc-fit, 1));
+    zoom: var(--nc-fit, 1);
   }
 
   .bulletin-paper {
@@ -419,6 +449,13 @@
      se répète et ni une matière ni un pied ne sont scindés au milieu. */
   .apc-sheet {
     padding: 4px 7px !important;   /* taille de police pilotée en pt par le composant (≥10pt) */
+  }
+  /* Feuille DENSE (carnet qui ne tiendrait pas autrement, cf.
+     core/primCompactDensite.js) : le rembourrage VERTICAL est rendu à la page.
+     `@page` fournit déjà la marge de 8 mm ; ces 4 px en haut et en bas
+     s'ajoutaient par-dessus, sans rien protéger. */
+  .apc-sheet.apc-sheet-dense {
+    padding: 0 7px !important;
   }
   .apc-sheet thead { display: table-header-group; }
   .apc-sheet tbody.apc-mat,

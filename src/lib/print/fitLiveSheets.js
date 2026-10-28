@@ -23,7 +23,16 @@
 // lisibilité, mais sur le DOM vivant et UNIQUEMENT pour l'impression :
 //   1. il mesure chaque feuille à la hauteur imprimable réelle du profil ;
 //   2. il écrit le facteur de réduction dans une variable CSS sur la feuille ;
-//   3. `@media print` applique la réduction (et compense la largeur).
+//   3. `@media print` applique la réduction, par `zoom`.
+//
+// ⚠ POURQUOI `zoom` ET NON `transform: scale()`. Mesuré sur le PDF réel
+// (`npm run test:print:bulletin`) : avec `transform`, le facteur était
+// correctement posé et le document faisait TOUJOURS deux pages. `transform` ne
+// peint que : il ne change pas la boîte de mise en page, et Chrome pagine sur la
+// boîte. `printLayout.js` le contourne en imposant aussi `height` ; ici c'est
+// `zoom` qui s'en charge, puisqu'il recompose. Ne pas « simplifier » en revenant
+// à `transform` : le facteur serait juste et l'impression fausse, ce qui est le
+// pire des deux mondes — c'est précisément le défaut qui a vécu ici.
 //
 // L'écran n'est donc pas touché : on ne rétrécit pas l'aperçu que la secrétaire
 // lit, seulement la feuille qui part à l'imprimante.

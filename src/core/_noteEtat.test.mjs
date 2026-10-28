@@ -200,3 +200,58 @@ process.exitCode = fail ? 1 : 0;
 
 console.log(`\n${fail ? '❌' : '✅'} TOTAL avec le branchement : ${pass} ok, ${fail} ko`);
 process.exitCode = fail ? 1 : 0;
+
+// ── 10. BULLETIN, RAPPORT ET PV DOIVENT DIRE LE MÊME CHIFFRE ──────────────
+// Le commentaire de `primCompetenceAvg` l'affirme depuis sa première ligne :
+// « pour que rapport et bulletin ne divergent jamais ». Il l'affirmait en
+// passant à côté des deux nouveaux états — le rapport et le PV ignoraient le
+// réglage, donc un parent et le conseil de classe lisaient deux moyennes
+// différentes pour le même élève. Ces contrôles ferment ça.
+{
+  const titre3 = (t) => console.log(`\n-- ${t} --`);
+  titre3('Les trois documents reçoivent les deux états');
+
+  const cre = readFileSync('src/lib/classReportEngine.js', 'utf8');
+  ok(/primNonEvaluees = \[\], zeroSiManquante = false/.test(cre),
+    'classReportEngine : buildClassReport accepte les deux');
+  ok(cre.includes('celluleDeNote('), 'classReportEngine : ne jette plus les cellules absentes');
+  ok(/nonEvaluee: classId \? nonEvaluees\.includes/.test(cre),
+    'classReportEngine : les passe au total');
+
+  const pv = readFileSync('src/lib/pvEngine.js', 'utf8');
+  ok(/primNonEvaluees = \[\], zeroSiManquante = false/.test(pv),
+    'pvEngine : buildClassPv accepte les deux');
+  ok(pv.includes('celluleDeNote('), 'pvEngine : ne jette plus les cellules absentes');
+  ok(/nonEvaluee: classId \? nonEvaluees\.includes/.test(pv), 'pvEngine : les passe au total');
+
+  const rep = readFileSync('src/pages/Reports.jsx', 'utf8');
+  ok(/zeroSiManquante: !!school\?\.notes_manquantes_zero/.test(rep),
+    'Rapports : lit le réglage de l école');
+  ok(rep.includes('s.primNonEvaluees'), 'Rapports : lit les compétences non évaluées');
+
+  const pvw = readFileSync('src/components/documents/PvWorkspace.jsx', 'utf8');
+  ok(/zeroSiManquante: !!school\?\.notes_manquantes_zero/.test(pvw), 'PV : lit le réglage');
+  ok(pvw.includes('s.primNonEvaluees'), 'PV : lit les compétences non évaluées');
+
+  titre3('UNE SEULE définition de la clé, sinon les documents divergent');
+  {
+    const svc = readFileSync('src/lib/primService.js', 'utf8');
+    ok(/export \{ nonEvalKey \} from '\.\.\/core\/primEngine\.js'/.test(svc),
+      'primService réexporte la clé du moteur au lieu d en garder une copie');
+    const eng = readFileSync('src/core/primEngine.js', 'utf8');
+    ok((eng.match(/export const nonEvalKey/g) || []).length === 1,
+      'et le moteur la définit une fois, exactement');
+    // Le moteur doit rester PUR : les rapports tournent sous Node dans les
+    // tests, et un import de `supabase` les rendrait intestables.
+    ok(!/from '.*supabase/.test(eng), 'le moteur n importe pas supabase — il doit tourner sous Node');
+    // On vise l'IMPORT, pas la mention : `classReportEngine` cite
+    // « primService.primNkey » dans un commentaire d'explication, et une
+    // recherche trop large ferait échouer ce test sur une phrase.
+    const importeLeService = (src) => /^\s*import\s[^\n]*primService/m.test(src);
+    ok(!importeLeService(cre) && !importeLeService(pv),
+      'ni le rapport ni le PV ne traversent le service pour une clé');
+  }
+}
+
+console.log(`\n${fail ? '❌' : '✅'} TOTAL — états, branchement et convergence : ${pass} ok, ${fail} ko`);
+process.exitCode = fail ? 1 : 0;

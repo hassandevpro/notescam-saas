@@ -55,6 +55,7 @@ export default function PvWorkspace({ t }) {
   // Les CRITERES que l'ecole n'evalue pas : sans eux ici, cet ecran
   // moyennerait sur des colonnes que le bulletin n'imprime pas.
   const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
+  const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
   const loadRefMasques  = useSchoolStore((s) => s.loadRefMasques);
   const viewYear    = useUiStore((s) => s.viewYear);
 
@@ -127,12 +128,16 @@ export default function PvWorkspace({ t }) {
       primBareme: primReferentiel?.bareme,
       primSequences: section === 'primaire' && primaryPeriodMode(school) === 'sequences',
       apcMasques, primMasques, primCriteresMasques,
+      // Le conseil de classe doit deliberer sur les memes chiffres que ceux
+      // remis aux parents : les deux etats declares par l ecole voyagent donc
+      // jusqu ici aussi.
+      primNonEvaluees, zeroSiManquante: !!school?.notes_manquantes_zero,
       // Les DEUX enseignants principaux (mention seule, cf. src/lib/headTeachers.js).
       teacherName: headTeacherText(cls, teachers),
     });
   }, [school, countryCode, schoolYear, period, students, subjects, gradeMap,
       apcReferentiel, apcNotes, primReferentiel, primNotes, teachers,
-      apcMasques, primMasques, primCriteresMasques]);
+      apcMasques, primMasques, primCriteresMasques, primNonEvaluees]);
 
   // Feuille HTML d'une classe (identité surchargée par l'unité pédagogique).
   const sheetForClass = useCallback((cls) => {

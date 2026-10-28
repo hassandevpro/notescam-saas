@@ -129,6 +129,14 @@ export const primNoteScale = (raw, defaultMax) => {
 // interroger l'Oral sur 10 en UA1 et sur 20 en UA3 : le total possible suit chaque
 // note. Sommer les points obtenus d'un côté et les barèmes officiels de l'autre
 // donnerait un pourcentage faux dès que les deux divergent.
+// Clé d'une déclaration « compétence non évaluée » : classe × compétence × UA.
+//
+// Elle vit ICI, dans le moteur pur, et non dans `primService` — qui importe
+// `supabase`, un module navigateur. Les moteurs de rapport et de PV tournent
+// aussi sous Node dans les tests : leur faire traverser le service pour une
+// concaténation de trois chaînes les rendait intestables (ERR_MODULE_NOT_FOUND).
+export const nonEvalKey = (classId, competenceId, ua) => `${classId}|${competenceId}|${ua}`;
+
 // Entrée de `notesByCritere` pour UNE ligne de `prim_notes`, ou `undefined` si
 // la ligne n'apporte rien.
 //

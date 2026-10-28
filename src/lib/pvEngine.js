@@ -28,7 +28,7 @@ import { apcForClass, primForClass } from '../core/refClassScope.js';
 import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
-  primNkey,
+  primNkey, celluleDeNote, nonEvalKey,
 } from '../core/primEngine.js';
 // Les intitulés du référentiel officiel sont stockés en français : sur une classe
 // du secteur anglophone, le PV les rend en anglais, comme le fait le bulletin.
@@ -223,7 +223,8 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
 // Colonnes = compétences du niveau ; unités = UA de la période. La note d'une
 // compétence sur une UA = pourcentage des points obtenus ramené à /10 — même
 // règle que le bulletin primaire officiel.
-function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme, competences, criteresMasques = [] }) {
+function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme, competences, criteresMasques = [],
+  classId = null, nonEvaluees = [], zeroSiManquante = false }) {
   const GRADE_MAX = 10;
   // `competences` est fourni par `buildClassPv` : masques de l'école + matières
   // réellement cochées pour la classe. Repli sur le niveau entier si l'appelant
@@ -245,10 +246,16 @@ function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bar
     if (!criteres.length) return null;
     const notesByCritere = {};
     for (const cr of criteres) {
-      const rec = notes[primNkey(student.id, comp.id, cr.id, ua)];
-      if (rec?.note != null && rec.note !== '') notesByCritere[cr.id] = { note: rec.note, max: rec.points_max ?? cr.points_max };
+      // `celluleDeNote` et non `if (rec?.note != null)` : une cellule ABSENTE
+      // porte une note nulle, et le test naïf la jetait — le conseil de classe
+      // aurait alors délibéré sur un zéro là où l'absence était justifiée.
+      const c = celluleDeNote(notes[primNkey(student.id, comp.id, cr.id, ua)], cr.points_max);
+      if (c) notesByCritere[cr.id] = c;
     }
-    const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
+    const { achieved, possible } = competencePointsTotal(notesByCritere, criteres, {
+      nonEvaluee: classId ? nonEvaluees.includes(nonEvalKey(classId, comp.id, ua)) : false,
+      zeroSiManquante,
+    });
     return achieved != null && possible ? r2((achieved / possible) * GRADE_MAX) : null;
   };
 
@@ -298,6 +305,9 @@ export function buildClassPv(ctx) {
     apcMasques = [], primMasques = [],
     // Idem pour les CRITÈRES que l'école n'évalue pas.
     primCriteresMasques = [],
+    // Les deux etats declares par l ecole. Sans eux, le PV delibere sur d autres
+    // moyennes que celles du bulletin remis aux parents.
+    primNonEvaluees = [], zeroSiManquante = false,
   } = ctx;
 
   if (!pvApplicable(engine)) return null;
@@ -321,7 +331,7 @@ export function buildClassPv(ctx) {
   const base = engine === 'apc'
     ? buildApcPv({ sys, students, units, referentiel: apcRefEcole, notes: apcNotes, classeSlug: apcClasseSlug, annual, trimestreId: `t${trim || 1}`, gradeScale })
     : engine === 'apc_primaire'
-      ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme, competences: primComps, criteresMasques: primCriteresMasques })
+      ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme, competences: primComps, criteresMasques: primCriteresMasques, classId: cls?.id || null, nonEvaluees: primNonEvaluees, zeroSiManquante })
       : buildNotesPv({ cls, sys, students, subjects, gradeMap, units, opts, gradeScale });
 
   const { cols, rows, maxScale, pass } = base;

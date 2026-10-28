@@ -153,8 +153,10 @@ export async function computePrimAnnual({ schoolId, classId, annee, gradeMax = 1
 // Le grain est celui du réel : la CM1 peut n'avoir pas évalué les TIC à l'UA 2
 // et les évaluer à l'UA 3, sans que la CM2 soit concernée.
 
-/** Clé locale d'une déclaration. */
-export const nonEvalKey = (classId, competenceId, ua) => `${classId}|${competenceId}|${ua}`;
+// Réexportée depuis le moteur PUR : une seule définition pour tout le monde.
+// Deux copies finiraient par diverger, et le bulletin ne lirait plus la même
+// clé que le rapport de classe — divergence invisible et très coûteuse.
+export { nonEvalKey } from '../core/primEngine.js';
 
 export async function fetchPrimNonEvaluees(schoolId) {
   const { data, error } = await supabase

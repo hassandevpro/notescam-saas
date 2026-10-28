@@ -30,8 +30,9 @@ import {
 } from '../core/apcEngine.js';
 import { apcSeqIdsForTrimestre, apcTrimestreOfSeqNum } from '../core/apcPeriods.js';
 import {
-  competencesForNiveau, criteresForCompetence, competencePointsTotal,
+  competencesForNiveau, criteresForCompetence, competencePointsTotal, celluleDeNote,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
+  nonEvalKey,
 } from '../core/primEngine.js';
 import { MAT_ACQUIS_CODES, MAT_ACQUIS_LABELS, dominantAcquis } from '../core/matEngine.js';
 import { firstCycleClasseSlug, primaireNiveauSlug } from '../core/engineResolver.js';
@@ -296,24 +297,32 @@ function apcReport({ cls, students, subjects, period, apcNotes, apcReferentiel: 
 // Moyenne /10 d'une compétence sur la période : moyenne des pourcentages
 // (points obtenus / points du barème officiel) de chaque UA notée. Même règle
 // que le bulletin primaire, pour que rapport et bulletin ne divergent jamais.
-function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas, primNotes, criteresMasques = [] }) {
+function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas, primNotes, criteresMasques = [],
+  classId = null, nonEvaluees = [], zeroSiManquante = false }) {
   const aptitude = competenceId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte';
   const criteres = criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude, criteresMasques);
   if (!criteres.length) return null;
   const pcts = uas.map((ua) => {
     const notesByCritere = {};
     for (const cr of criteres) {
-      const r = primNotes?.[primKey(student.id, competenceId, cr.id, ua)];
-      if (r?.note != null && r.note !== '') notesByCritere[cr.id] = { note: r.note, max: r.points_max ?? cr.points_max };
+      // `celluleDeNote` et non `if (r?.note != null)` : une cellule déclarée
+      // ABSENTE porte une note nulle, et le test naïf la jetait — elle
+      // redevenait alors un zéro dès que l'école compte les manquantes.
+      const c = celluleDeNote(primNotes?.[primKey(student.id, competenceId, cr.id, ua)], cr.points_max);
+      if (c) notesByCritere[cr.id] = c;
     }
-    const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
+    const { achieved, possible } = competencePointsTotal(notesByCritere, criteres, {
+      nonEvaluee: classId ? nonEvaluees.includes(nonEvalKey(classId, competenceId, ua)) : false,
+      zeroSiManquante,
+    });
     return achieved != null && possible ? (achieved / possible) * 100 : null;
   }).filter((v) => v != null);
   if (!pcts.length) return null;
   return round2((pcts.reduce((a, b) => a + b, 0) / pcts.length) / 100 * PRIM_GRADE_MAX);
 }
 
-function primReport({ cls, students, subjects, period, primNotes, primReferentiel, primMasques, primCriteresMasques = [], sys }) {
+function primReport({ cls, students, subjects, period, primNotes, primReferentiel, primMasques, primCriteresMasques = [],
+  primNonEvaluees = [], zeroSiManquante = false, sys }) {
   const scaleMax = PRIM_GRADE_MAX;
   const passThreshold = PRIM_GRADE_MAX / 2;
   const niveauSlug = primaireNiveauSlug(cls?.level, cls?.name);
@@ -346,6 +355,7 @@ function primReport({ cls, students, subjects, period, primNotes, primReferentie
       const moyenne = primCompetenceAvg({
         referentiel: primReferentiel, niveauSlug, student, competenceId: col.id, uas, primNotes,
         criteresMasques: primCriteresMasques,
+        classId: cls?.id || null, nonEvaluees: primNonEvaluees, zeroSiManquante,
       });
       if (moyenne != null) {
         scores[col.id] = moyenne;
@@ -475,11 +485,16 @@ export function buildClassReport({
   // moyennerait sur des colonnes que le bulletin n'imprime pas — exactement la
   // divergence que `primCompetenceAvg` dit vouloir éviter.
   primCriteresMasques = [],
+  // Les deux états que l'école déclare, et qui changent les totaux du bulletin.
+  // Sans eux ici, le rapport de classe afficherait d'autres moyennes que les
+  // bulletins qu'il est censé résumer — la divergence même que
+  // `primCompetenceAvg` dit vouloir éviter depuis toujours.
+  primNonEvaluees = [], zeroSiManquante = false,
 }) {
   const ctx = { cls, students, subjects, period, sys, gOpts, scaleMax, passThreshold };
   switch (engine) {
     case 'maternelle':   return maternelleReport({ ...ctx, matObservations });
-    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques, primCriteresMasques });
+    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques, primCriteresMasques, primNonEvaluees, zeroSiManquante });
     case 'apc':          return apcReport({ ...ctx, apcNotes, apcReferentiel, apcMasques, gradeScale });
     default:             return classicReport({ ...ctx, gradeMap });
   }

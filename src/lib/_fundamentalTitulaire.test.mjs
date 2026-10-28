@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isFundamentalTitulaire, isSubjectScopedForClass, subjectsForClass, isSubjectScoped,
+  isFundamentalTitulaire, isSubjectScopedForClass, subjectsForClass, isSubjectScoped, mySubjects,
 } from './teacherScope.js';
 
 const MOI = 'teacher-1';
@@ -68,4 +68,32 @@ test('toutes les matières de SA classe maternelle, aucune ailleurs', () => {
 
   // La maternelle d'une collègue : rien.
   assert.deepEqual(subjectsForClass(subjects, MOI, psAutre, 'teacher', subjectMode), []);
+});
+
+// ── LA GARDE `teacherId` NULLE ──────────────────────────────────────────────
+//
+// Un compte « enseignant » sans fiche enseignant liée a `teacherId` null. Le
+// filtre `s.teacher_id === teacherId` devenait alors `=== null` et lui RENDAIT
+// les matières non affectées — l'inverse de ce qu'on veut. `mySubjects` écarte
+// ce cas depuis l'origine ; `subjectsForClass` ne l'écartait pas.
+test('compte sans fiche enseignant : aucune matière, pas les non affectées', () => {
+  const subjects = [
+    { id: 's1', class_id: 'c-6e', name: 'Mathématiques', teacher_id: null },
+    { id: 's2', class_id: 'c-6e', name: 'Français',      teacher_id: MOI },
+  ];
+  // Mode 1, teacherId null : rien. Avant la garde, `s1` remontait.
+  assert.deepEqual(subjectsForClass(subjects, null, sixe, 'teacher', subjectMode), []);
+  // `mySubjects` répond déjà cela : les deux fonctions doivent s'accorder.
+  assert.deepEqual(mySubjects(subjects, null, 'c-6e'), []);
+  // Un admin, lui, garde la vue complète même sans fiche enseignant.
+  assert.deepEqual(
+    subjectsForClass(subjects, null, sixe, 'admin', subjectMode).map((s) => s.id),
+    ['s1', 's2'],
+  );
+  // Et en mode 'principal', un enseignant sans fiche garde la vue complète :
+  // le resserrement est un réglage d'école, pas une conséquence du compte.
+  assert.deepEqual(
+    subjectsForClass(subjects, null, sixe, 'teacher', principalMode).map((s) => s.id),
+    ['s1', 's2'],
+  );
 });

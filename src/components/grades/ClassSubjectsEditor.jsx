@@ -13,8 +13,9 @@ import { useMemo, useState } from 'react';
 import { useSchoolStore } from '../../store/schoolStore';
 import { useT } from '../../lib/i18n';
 import { toast } from '../../store/toastStore';
-import { canManageClassSubjects, canEditSubjectRow } from '../../lib/teacherScope';
+import { canManageClassSubjects, canEditSubjectRow, gradeEntryMode } from '../../lib/teacherScope';
 import { classSubjectsOf } from '../../core/subjectOrder';
+import { collectSubjectBundle } from '../../lib/studentBundle';
 
 // Barème par défaut selon le système de la classe (comme l'auto-config).
 const defaultMax = (cls) => ((cls?.system || 'FR') === 'EN' ? 100 : 20);
@@ -24,6 +25,7 @@ export default function ClassSubjectsEditor({
 }) {
   const t = useT();
   const subjects      = useSchoolStore((s) => s.subjects);
+  const gradeMap      = useSchoolStore((s) => s.gradeMap);
   const addSubject    = useSchoolStore((s) => s.addSubject);
   const updateSubject = useSchoolStore((s) => s.updateSubject);
   const deleteSubject = useSchoolStore((s) => s.deleteSubject);
@@ -38,6 +40,46 @@ export default function ClassSubjectsEditor({
   const rows = useMemo(
     () => classSubjectsOf(subjects, cls?.id),
     [subjects, cls?.id],
+  );
+
+  // ── COMBIEN DE NOTES CETTE LIGNE PORTE-T-ELLE ? ───────────────────────────
+  //
+  // L'avertissement de suppression disait « les notes déjà saisies sur cette
+  // ligne seront perdues » à TOUTES les lignes, y compris les vides — donc
+  // précisément à celles qu'on retire parce qu'elles n'ont rien à faire là.
+  // Un avertissement qui crie au loup sur une ligne vide est un avertissement
+  // qu'on finit par cliquer sans le lire, et le jour où il porte sur 412 notes
+  // il ne retient plus personne. On le CHIFFRE, comme le fait déjà le masquage
+  // d'un critère au primaire.
+  //
+  // `collectSubjectBundle` est la fonction qu'emploie `deleteSubject` lui-même :
+  // le nombre annoncé est donc exactement ce que la suppression emportera, et
+  // non une seconde idée de ce qu'est une note saisie.
+  const notesParMatiere = useMemo(() => {
+    const grades = Object.entries(gradeMap || {}).map(([key, scores]) => ({ key, scores }));
+    const par = {};
+    for (const sub of rows) par[sub.id] = collectSubjectBundle(sub.id, { grades }).subjectGrades.length;
+    return par;
+  }, [gradeMap, rows]);
+
+  // ── MODE 1 : UNE MATIÈRE SANS ENSEIGNANT N'EST SAISISSABLE PAR PERSONNE ───
+  //
+  // En mode « enseignant de matière » (`schools.grade_entry_mode = 'subject'`),
+  // `mySubjects` ne rend que les lignes dont `teacher_id` est l'enseignant
+  // connecté. Une ligne créée sans affectation — ce que fait `handleAdd` dès
+  // que le compte peut gérer la classe (`teacher_id: null`) — n'apparaît donc
+  // sur AUCUN poste de saisie : ni chez le titulaire, qui est filtré comme les
+  // autres dans ce mode, ni chez un spécialiste, qui n'y est pas nommé.
+  //
+  // Rien ne le signalait. La matière figurait bien dans la liste, elle
+  // s'imprimait bien sur le bulletin — vide, et personne ne pouvait la remplir.
+  // On le DIT ici, à l'endroit même où la ligne se crée et où l'affectation se
+  // corrige, plutôt que de laisser l'école le découvrir à l'impression.
+  const sansEnseignant = useMemo(
+    () => (gradeEntryMode(school) === 'subject'
+      ? rows.filter((s) => !s.teacher_id).map((s) => s.name)
+      : []),
+    [school, rows],
   );
 
   const mot = isMaternelle
@@ -173,9 +215,21 @@ export default function ClassSubjectsEditor({
 
           {confirmId && (
             <p className="text-xs text-red-600">
-              {t('Cliquez sur ✓ pour confirmer. Les notes déjà saisies sur cette ligne seront perdues.',
-                 'Click ✓ to confirm. Any marks already entered on that row will be lost.')}
+              {notesParMatiere[confirmId] > 0
+                ? t(`Cliquez sur ✓ pour confirmer. ${notesParMatiere[confirmId]} note(s) déjà saisie(s) quitteront les bulletins ; la ligne et ses notes restent récupérables dans la corbeille.`,
+                     `Click ✓ to confirm. ${notesParMatiere[confirmId]} mark(s) already entered will leave the report cards; the row and its marks stay recoverable from the trash.`)
+                : t('Cliquez sur ✓ pour confirmer. Cette ligne ne porte aucune note.',
+                     'Click ✓ to confirm. That row carries no marks.')}
             </p>
+          )}
+
+          {sansEnseignant.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {t(
+                `Votre école est en mode « chaque enseignant saisit ses matières ». Sans enseignant affecté, ces lignes ne sont saisissables par personne : ${sansEnseignant.join(', ')}. Affectez-leur un enseignant dans Classes → Modifier la classe, ou repassez l'école en mode « le titulaire saisit tout » dans Paramètres.`,
+                `Your school is in “each teacher enters their own subjects” mode. With no teacher assigned, these rows cannot be entered by anyone: ${sansEnseignant.join(', ')}. Assign a teacher in Classes → Edit class, or switch the school back to “the class teacher enters everything” in Settings.`,
+              )}
+            </div>
           )}
 
           {canManage && (

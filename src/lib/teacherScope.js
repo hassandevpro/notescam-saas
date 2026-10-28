@@ -44,9 +44,18 @@ export function isSubjectScopedForClass(role, school, cls, teacherId) {
 
 // Les matières saisissables sur une classe : les siennes, ou TOUTES celles de la
 // classe quand elle en est la titulaire au fondamental.
+//
+// MÊME GARDE QUE `mySubjects`, et pour la même raison : un compte sans fiche
+// enseignant (`teacherId` null) n'a aucune affectation, et le filtre
+// `s.teacher_id === teacherId` devient alors `=== null` — c'est-à-dire qu'il
+// lui OUVRE exactement les matières que personne ne s'est vu affecter, au lieu
+// de ne rien lui ouvrir. `mySubjects` écarte ce cas depuis l'origine ; ici il
+// manquait. Les deux fonctions répondent à la même question et doivent dire la
+// même chose, sinon le périmètre dépend de laquelle l'écran a appelée.
 export function subjectsForClass(subjects, teacherId, cls, role, school) {
   const inClass = (subjects || []).filter((s) => s.class_id === cls?.id);
   if (!isSubjectScopedForClass(role, school, cls, teacherId)) return inClass;
+  if (!teacherId) return [];
   return inClass.filter((s) => s.teacher_id === teacherId);
 }
 

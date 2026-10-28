@@ -21,6 +21,8 @@ import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { celluleSuivante } from '../../lib/gridNavigation';
+import { toast } from '../../store/toastStore';
+import { nonEvalKey } from '../../lib/primService';
 import { isSubjectScoped, canManageClassSubjects } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
 import {
@@ -95,7 +97,13 @@ function BaremeCell({ value, disabled, onCommit }) {
 }
 
 // ── Cellule note (bornée au barème /points_max du critère) ─────────────────────
-function NoteCell({ value, max, disabled, onCommit, champRef, onNav }) {
+//
+// `statut === 'absent'` = ABSENCE JUSTIFIÉE. La cellule reste hors moyenne même
+// quand l'école a demandé que les notes manquantes comptent zéro — c'est tout
+// l'intérêt du bouton. Il est rendu EN DUR à côté du champ plutôt qu'au survol :
+// un bouton qui n'apparaît qu'à la souris n'existe pas sur une tablette, et la
+// saisie se fait aussi sur tablette.
+function NoteCell({ value, statut, max, disabled, onCommit, onStatut, champRef, onNav }) {
   const [local, setLocal] = useState(value ?? '');
   useEffect(() => { setLocal(value ?? ''); }, [value]);
   const commit = () => {
@@ -122,19 +130,41 @@ function NoteCell({ value, max, disabled, onCommit, champRef, onNav }) {
   if (disabled) {
     return <input type="text" value="—" disabled className="w-16 text-center rounded border border-gray-100 px-1 py-1 text-sm text-gray-300 bg-gray-50" />;
   }
+  const absent = statut === 'absent';
   return (
-    <input
-      ref={champRef}
-      type="text"
-      value={local}
-      onChange={(e) => setLocal(e.target.value)}
-      onBlur={commit}
-      onKeyDown={onKeyDown}
-      placeholder="—"
-      className={`w-16 text-center rounded border border-gray-200 px-1 py-1 text-sm
-        focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
-        placeholder:text-gray-300 ${gradeColor(local, max, 'ES')}`}
-    />
+    <span className="inline-flex items-center gap-1">
+      <input
+        ref={champRef}
+        type="text"
+        value={absent ? '' : local}
+        disabled={absent}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={onKeyDown}
+        placeholder={absent ? 'Abs' : '—'}
+        className={`w-16 text-center rounded border border-gray-200 px-1 py-1 text-sm
+          focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
+          placeholder:text-gray-300 disabled:bg-amber-50 disabled:border-amber-200
+          disabled:placeholder:text-amber-600 disabled:italic
+          ${absent ? '' : gradeColor(local, max, 'ES')}`}
+      />
+      {onStatut && (
+        <button
+          type="button"
+          onClick={() => onStatut(absent ? null : 'absent')}
+          title={absent
+            ? 'Absence justifiée — cliquer pour revenir à une note'
+            : 'Déclarer une absence justifiée (reste hors moyenne)'}
+          aria-pressed={absent}
+          className={`shrink-0 w-5 h-5 rounded text-[10px] font-semibold leading-none
+            border transition-colors ${absent
+              ? 'bg-amber-100 border-amber-300 text-amber-700'
+              : 'bg-white border-gray-200 text-gray-300 hover:text-gray-600 hover:border-gray-300'}`}
+        >
+          A
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -159,6 +189,8 @@ export default function PrimCompetenceWorkspace() {
   const primNotes   = useSchoolStore((s) => s.primNotes);
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
+  const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
+  const setPrimNonEvalueeAction = useSchoolStore((s) => s.setPrimNonEvaluee);
   const masques        = useSchoolStore((s) => s.refMasques.prim);
   // Les CRITÈRES que l'école n'évalue pas : ils retirent une COLONNE de saisie,
   // là où `masques` retire une LIGNE de compétence.
@@ -482,6 +514,34 @@ export default function PrimCompetenceWorkspace() {
     const r = primNotes[primNkey(eleveId, competenceId, critereId, ua)];
     return r?.note != null ? String(r.note) : '';
   };
+  const statutFor = (eleveId, critereId) =>
+    primNotes[primNkey(eleveId, competenceId, critereId, ua)]?.statut || null;
+
+  // Cette compétence a-t-elle été déclarée non évaluée pour cette classe à cette
+  // UA ? Le toast en cas de refus n'est pas décoratif : la case est optimiste,
+  // et si le serveur refuse elle revient toute seule à son état d'avant. Sans
+  // un mot, ce retour en arrière se lit comme un clic qui n'a pas pris.
+  const nonEvaluee = classId
+    ? primNonEvaluees.includes(nonEvalKey(classId, competenceId, ua))
+    : false;
+  const basculerNonEvaluee = async (declaree) => {
+    const r = await setPrimNonEvalueeAction({ classId, competenceId, ua, declaree });
+    if (r?.error) {
+      toast.error(r.error === 'offline'
+        ? t('Hors ligne : la déclaration n’a pas été enregistrée.',
+            'Offline: the declaration was not saved.')
+        : t('Déclaration refusée par le serveur.', 'Declaration refused by the server.'));
+    }
+  };
+  // Déclarer une absence EFFACE la note : une cellule ne peut pas être à la fois
+  // « absent » et porter un 12. C'est aussi ce qui rend le geste réversible sans
+  // ambiguïté — on revient à une case vide, pas à une note qu'on aurait oubliée.
+  const setStatut = (eleveId, critereId, s) => savePrimNote({
+    eleveId, competenceId, critereId, ua,
+    note: s === 'absent' ? '' : noteFor(eleveId, critereId),
+    pointsMax: baremeFor(critereId),
+    statut: s,
+  });
   // Les notes sont passées AVEC leur barème : `competencePointsTotal` additionne
   // les points possibles note par note, et non le barème officiel de la colonne.
   const notesByCritereFor = (eleveId) => {
@@ -868,6 +928,32 @@ export default function PrimCompetenceWorkspace() {
         </div>
       ) : (
         <>
+        {/* COMPÉTENCE NON ÉVALUÉE — le contrepoids du réglage « une note
+            manquante compte zéro ». Sans cette case, une compétence que la
+            classe n'a pas travaillée mettrait tous ses élèves à zéro. Elle vaut
+            pour CETTE classe à CETTE UA : la CM1 peut n'avoir pas évalué les TIC
+            à l'UA 2 et les évaluer à l'UA 3, sans que la CM2 soit concernée. */}
+        <label className={`mb-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer
+          ${nonEvaluee ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+          <input
+            type="checkbox"
+            checked={nonEvaluee}
+            onChange={(e) => basculerNonEvaluee(e.target.checked)}
+            className="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-400"
+          />
+          <span className={nonEvaluee ? 'text-amber-800' : 'text-gray-600'}>
+            {t('Compétence non évaluée pour cette classe à cette UA',
+               'Competency not assessed for this class at this LU')}
+            <span className="block text-xs opacity-80">
+              {nonEvaluee
+                ? t('Elle s’imprime « - - - - » sur le bulletin et ne compte dans aucun total. Les notes déjà saisies restent en base.',
+                    'It prints “- - - -” on the report card and counts in no total. Marks already entered stay in the database.')
+                : t('À cocher si la classe n’a pas travaillé cette compétence : ses élèves n’auront pas zéro.',
+                    'Tick if the class has not covered this competency: its pupils will not get zero.')}
+            </span>
+          </span>
+        </label>
+
         {/* TÉLÉPHONE — une carte par élève. Le barème reste en tête de carte :
             il appartient à l'évaluation, pas à l'élève, donc on ne le répète pas
             douze fois. Le total et la cote s'affichent sous les critères, là où
@@ -892,10 +978,15 @@ export default function PrimCompetenceWorkspace() {
             const cote = primCote(achieved, possible, bareme);
             return `${achieved}/${possible}${cote ? ` · ${cote.cote}` : ''}`;
           }}
-          isFilled={(stu, c) => noteFor(stu.id, c.id) !== '' && noteFor(stu.id, c.id) != null}
+          // Une absence déclarée est une cellule TRAITÉE : sans cela, le compteur
+          // d'avancement réclamerait éternellement une note qui ne viendra pas.
+          isFilled={(stu, c) => (noteFor(stu.id, c.id) !== '' && noteFor(stu.id, c.id) != null)
+            || statutFor(stu.id, c.id) === 'absent'}
           renderCell={(stu, c) => (
             <NoteCell
               value={noteFor(stu.id, c.id)}
+              statut={statutFor(stu.id, c.id)}
+              onStatut={(s) => setStatut(stu.id, c.id, s)}
               max={baremeFor(c.id)}
               disabled={!new Set(criteresForStudent(stu).map((x) => x.id)).has(c.id)}
               onCommit={(v) => savePrimNote({
@@ -950,6 +1041,8 @@ export default function PrimCompetenceWorkspace() {
                       <td key={c.id} className="px-3 py-1.5">
                         <NoteCell
                           value={noteFor(stu.id, c.id)}
+                          statut={statutFor(stu.id, c.id)}
+                          onStatut={(s) => setStatut(stu.id, c.id, s)}
                           max={baremeFor(c.id)}
                           disabled={!studentCritereIds.has(c.id)}
                           champRef={poserCellule(ri, ci)}

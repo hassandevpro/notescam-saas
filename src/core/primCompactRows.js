@@ -297,6 +297,9 @@ export function buildCompactRows(compRows) {
       // Pas de barème affiché pour une compétence non évaluée : « — /40 »
       // laisserait croire qu'elle a été interrogée et ratée.
       possible: r.totalAchieved == null ? null : (r.totalPossible ?? null),
+      // DÉCLARÉE non évaluée par la classe — à distinguer de « rien de saisi ».
+      // Le carnet imprime « - - - - » dans un cas, « — » dans l'autre.
+      nonEvaluee: r.nonEvaluee === true,
       cote: r.totalCote ?? null,
     };
   });

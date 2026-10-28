@@ -38,6 +38,7 @@ import { PRIM_GRADE_MAX } from '../../core/primEngine';
 // moteur : ce gabarit n'additionne rien lui-même (règle de tous les bulletins).
 import { groupesDe, reperesDeGroupe } from '../../core/primCompactRows';
 import { primCoteLabel } from '../../core/referentielI18n';
+import { MARQUE_NON_EVALUEE } from '../../core/noteEtat';
 
 const COTE_COLORS = { 'A+': '#059669', A: '#10b981', ECA: '#f59e0b', IP: '#f59e0b', NA: '#ef4444' };
 const ACCENT  = '#047857';   // vert foncé du bandeau — identité du carnet
@@ -162,8 +163,15 @@ export default function BulletinPrimCompact({
               {critereColumns.map((c) => (
                 <CritereCell key={c.id} val={r.parCritere?.[c.id]} pt={pt} />
               ))}
+              {/* « - - - - » ET « — » NE DISENT PAS LA MÊME CHOSE, et le parent
+                  qui lit le bulletin doit pouvoir les distinguer. Le tiret seul
+                  = rien n'a été saisi ; « - - - - » = la classe a DÉCLARÉ n'avoir
+                  pas évalué cette compétence, et c'est pour cela qu'elle ne
+                  compte dans aucun total. */}
               <td style={{ ...num, fontWeight: 'bold' }}>
-                {r.achieved == null
+                {r.nonEvaluee
+                  ? <span style={{ color: '#6b7280', letterSpacing: '0.1em' }}>{MARQUE_NON_EVALUEE}</span>
+                  : r.achieved == null
                   ? <span style={{ color: '#9ca3af' }}>—</span>
                   : <>{fix2(r.achieved)}<span style={{ color: '#6b7280', fontSize: '0.86em' }}> /{fix2(r.possible)}</span></>}
               </td>

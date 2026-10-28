@@ -14,6 +14,8 @@
 //   niveauComp = { niveau_id, competence_id, coefficient|null, actif }  (optionnel)
 
 // Barème de cote par défaut (repli si le référentiel n'en fournit pas). Seuils en %.
+import { etatDeNote, pointsDeNote } from './noteEtat.js';
+
 export const PRIM_COTE_DEFAULT = [
   { cote: 'A+',  libelle: 'Très bien acquis',        seuil_min: 90, ordre: 1 },
   { cote: 'A',   libelle: 'Acquis',                  seuil_min: 70, ordre: 2 },
@@ -127,14 +129,51 @@ export const primNoteScale = (raw, defaultMax) => {
 // interroger l'Oral sur 10 en UA1 et sur 20 en UA3 : le total possible suit chaque
 // note. Sommer les points obtenus d'un côté et les barèmes officiels de l'autre
 // donnerait un pourcentage faux dès que les deux divergent.
-export function competencePointsTotal(notesByCritere, criteres) {
+// Entrée de `notesByCritere` pour UNE ligne de `prim_notes`, ou `undefined` si
+// la ligne n'apporte rien.
+//
+// ELLE EXISTE POUR UNE SEULE RAISON, ET C'EST UN PIÈGE QUI A ÉTÉ TENDU QUATRE
+// FOIS. Les appelants construisaient leur map avec `if (r?.note != null)` : une
+// cellule marquée ABSENTE porte `note = NULL`, elle était donc écartée, et
+// `competencePointsTotal` ne la distinguait plus d'une cellule jamais saisie.
+// Avec le réglage « une note manquante compte zéro », l'absence justifiée serait
+// devenue un zéro — exactement ce que le bouton « A » sert à empêcher.
+export function celluleDeNote(row, defaultMax) {
+  if (row?.note != null && row.note !== '') return { note: row.note, max: row.points_max ?? defaultMax };
+  if (row?.statut) return { note: null, statut: row.statut };
+  return undefined;
+}
+
+// `options` — les trois états qui ne sont pas « une note » (cf. core/noteEtat.js) :
+//   nonEvaluee      : la classe n'a pas évalué cette compétence à cette UA.
+//                     Elle ne compte NULLE PART et s'imprime « - - - - ».
+//   zeroSiManquante : l'école a demandé qu'une case jamais saisie compte zéro.
+//                     N'est vrai QU'AU BULLETIN — jamais sur l'écran de saisie,
+//                     où une case vide doit rester une case vide.
+export function competencePointsTotal(notesByCritere, criteres, options = {}) {
+  const { nonEvaluee = false, zeroSiManquante = false } = options;
+  // Le drapeau voyage avec le résultat : c'est lui que le carnet lit pour
+  // écrire « - - - - » au lieu d'un tiret ordinaire. Sans lui, « non évaluée »
+  // et « rien de saisi » s'imprimeraient pareil, et toute la déclaration
+  // deviendrait invisible pour le parent qui lit le bulletin.
+  if (nonEvaluee) return { achieved: null, possible: null, nonEvaluee: true };
+
   let achieved = 0, possible = 0, any = false;
   for (const cr of criteres || []) {
-    const v = primNoteScale(notesByCritere?.[cr.id], cr.points_max);
-    if (v === null) continue;
+    const src = notesByCritere?.[cr.id];
+    const v = primNoteScale(src, cr.points_max);
+    if (v !== null) { any = true; achieved += v.note; possible += v.max; continue; }
+    // Rien de saisi ici. Absence justifiée → hors total, toujours. Case vide →
+    // zéro seulement si l'école l'a demandé et qu'on imprime.
+    const pts = pointsDeNote(
+      etatDeNote({ note: src?.note ?? src, statut: src?.statut }, { zeroSiManquante }),
+      null,
+      cr.points_max,
+    );
+    if (!pts) continue;
     any = true;
-    achieved += v.note;
-    possible += v.max;
+    achieved += pts.obtenu;
+    possible += pts.possible;
   }
   return any
     ? { achieved: Math.round(achieved * 100) / 100, possible: Math.round(possible * 100) / 100 }

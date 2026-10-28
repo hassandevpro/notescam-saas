@@ -120,3 +120,83 @@ titre('Par défaut, aucune école ne voit son bulletin changer');
 
 console.log(`\n${fail ? '❌' : '✅'} États d'une note : ${pass} contrôle(s) ok, ${fail} ko`);
 process.exitCode = fail ? 1 : 0;
+
+// ── 9. LE BRANCHEMENT RÉEL : competencePointsTotal ─────────────────────────
+// Le module ci-dessus est pur et juste, mais il ne sert à rien tant que le
+// moteur ne l'appelle pas. Ces contrôles-là sont ceux qui cassent si quelqu'un
+// « simplifie » competencePointsTotal un jour.
+{
+  const { competencePointsTotal, celluleDeNote } = await import('./primEngine.js');
+  const titre2 = (t) => console.log(`\n-- ${t} --`);
+
+  // Compétence 1A du CP : Oral 20 + Écrit 15 + Savoir-être 5 = 40.
+  const CRIT = [
+    { id: 'oral',        points_max: 20 },
+    { id: 'ecrit',       points_max: 15 },
+    { id: 'savoir_etre', points_max: 5 },
+  ];
+
+  titre2('Sans réglage, rien ne change pour les écoles qui n ont rien demandé');
+  {
+    const t1 = competencePointsTotal({ ecrit: { note: 12, max: 15 } }, CRIT);
+    ok(t1.achieved === 12 && t1.possible === 15,
+      'un seul critère noté : 12/15, les deux autres ignorés', t1);
+  }
+
+  titre2('Avec le réglage, les critères non saisis entrent au dénominateur');
+  {
+    const t2 = competencePointsTotal({ ecrit: { note: 12, max: 15 } }, CRIT, { zeroSiManquante: true });
+    ok(t2.achieved === 12 && t2.possible === 40,
+      '12/40 — Oral et Savoir-être comptent 0 sur leur barème officiel', t2);
+  }
+
+  titre2('L absence justifiée tient bon, même avec le réglage allumé');
+  {
+    const t3 = competencePointsTotal(
+      { ecrit: { note: 12, max: 15 }, oral: { note: null, statut: 'absent' } },
+      CRIT, { zeroSiManquante: true },
+    );
+    ok(t3.possible === 20, 'Oral (20) sort du dénominateur : 15 + 5 = 20', t3);
+    ok(t3.achieved === 12, 'et le 12 reste acquis', t3);
+  }
+
+  titre2('Une compétence non évaluée ne compte nulle part et se signale');
+  {
+    const t4 = competencePointsTotal({ ecrit: { note: 12, max: 15 } }, CRIT,
+      { zeroSiManquante: true, nonEvaluee: true });
+    ok(t4.achieved === null && t4.possible === null, 'aucun total', t4);
+    ok(t4.nonEvaluee === true,
+      'et le drapeau remonte — sans lui le carnet ne saurait pas écrire « - - - - »', t4);
+  }
+
+  titre2('celluleDeNote : le piège tendu quatre fois');
+  {
+    ok(celluleDeNote({ note: 12, points_max: 15 }, 20)?.note === 12, 'une note ordinaire passe');
+    ok(celluleDeNote({ note: 12 }, 20)?.max === 20, 'sans barème propre, le barème officiel');
+    // LE CŒUR : une cellule ABSENTE porte note = NULL. Les appelants la
+    // jetaient avec un `if (r?.note != null)`, et elle redevenait un zéro.
+    ok(celluleDeNote({ note: null, statut: 'absent' }, 20)?.statut === 'absent',
+      'une cellule ABSENTE n est pas jetée malgré sa note nulle',
+      celluleDeNote({ note: null, statut: 'absent' }, 20));
+    ok(celluleDeNote({ note: null }, 20) === undefined, 'une cellule vraiment vide n apporte rien');
+    ok(celluleDeNote(null, 20) === undefined, 'une ligne absente non plus');
+  }
+
+  titre2('Le bulletin passe bien le réglage, la saisie jamais');
+  {
+    const bul = readFileSync('src/pages/Bulletins.jsx', 'utf8');
+    ok(/zeroSiManquante: !!school\?\.notes_manquantes_zero/.test(bul),
+      'Bulletins.jsx lit le réglage de l école');
+    ok(bul.includes('celluleDeNote'), 'Bulletins.jsx lit les cellules absentes');
+    ok(bul.includes('nonEvalKey'), 'Bulletins.jsx sait quelles compétences sont non évaluées');
+
+    const ws = readFileSync('src/components/grades/PrimCompetenceWorkspace.jsx', 'utf8');
+    ok(!/zeroSiManquante/.test(ws),
+      'l ÉCRAN DE SAISIE ne connaît pas le réglage — une case vide y reste vide');
+    ok(ws.includes("statut: s"), 'l écran sait déclarer une absence');
+    ok(ws.includes('setPrimNonEvalueeAction'), 'et déclarer une compétence non évaluée');
+  }
+}
+
+console.log(`\n${fail ? '❌' : '✅'} TOTAL avec le branchement : ${pass} ok, ${fail} ko`);
+process.exitCode = fail ? 1 : 0;

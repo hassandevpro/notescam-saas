@@ -81,7 +81,7 @@ export async function fetchPrimNotes(schoolId) {
 //   NOT NULL héritée de prim_notes côté Supabase (colonne vestige, plus utilisée
 //   en lecture — cf. trimestreOfUA). Ignoré silencieusement côté LAN (colonne
 //   absente du schéma récent, filtrée par pickColumns).
-export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, critereId, ua, enseignantId, note, pointsMax }) {
+export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, critereId, ua, enseignantId, note, pointsMax, statut }) {
   return {
     id: id || uuid(),
     school_id: schoolId,
@@ -92,6 +92,12 @@ export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, crite
     trimestre_id: `t${trimestreOfUA(ua)}`,
     enseignant_id: enseignantId || null,
     note: note === '' || note === undefined ? null : note,
+    // ABSENCE JUSTIFIÉE. `note` est NUMERIC des deux côtés : y écrire 'ABS'
+    // faisait rejeter l'upsert, et c'est pour cela qu'« Absent » n'a jamais
+    // existé au primaire. Le statut vit donc à côté de la note, et une cellule
+    // « absente » porte `note = NULL` + `statut = 'absent'` — ce qui la
+    // distingue d'une case simplement pas encore saisie (statut NULL).
+    statut: statut === '' || statut === undefined ? null : statut,
     // Barème de CETTE évaluation. NULL = le barème officiel du référentiel pour ce
     // critère — c'est ce que valent toutes les notes antérieures, qu'aucun écran
     // n'a jamais pu saisir autrement. Le moteur lit NULL comme « barème officiel »
@@ -135,4 +141,44 @@ export async function computePrimAnnual({ schoolId, classId, annee, gradeMax = 1
   });
   if (error) { console.error('computePrimAnnual', error); return null; }
   return data;
+}
+
+// --- Compétences non évaluées -------------------------------------------------
+// Une classe peut n'avoir pas évalué une compétence à une UA donnée. Elle
+// s'imprime alors « - - - - » et ne compte dans aucun total — ni au numérateur,
+// ni au dénominateur. Sans cette déclaration, le réglage
+// `schools.notes_manquantes_zero` serait inutilisable : une compétence que
+// personne n'a évaluée mettrait toute la classe à zéro.
+//
+// Le grain est celui du réel : la CM1 peut n'avoir pas évalué les TIC à l'UA 2
+// et les évaluer à l'UA 3, sans que la CM2 soit concernée.
+
+/** Clé locale d'une déclaration. */
+export const nonEvalKey = (classId, competenceId, ua) => `${classId}|${competenceId}|${ua}`;
+
+export async function fetchPrimNonEvaluees(schoolId) {
+  const { data, error } = await supabase
+    .from('prim_competences_non_evaluees').select('*').eq('school_id', schoolId);
+  if (error) { console.error('fetchPrimNonEvaluees', error); return null; }
+  return data;
+}
+
+// Déclare (ou retire) une compétence non évaluée. `declaree = false` SUPPRIME la
+// ligne : l'absence de ligne est l'état normal, et on ne garde pas une trace
+// d'un geste défait — sinon la table grossirait d'autant de lignes mortes que
+// de clics.
+export async function setPrimNonEvaluee({ schoolId, classId, competenceId, ua, declaree }) {
+  if (declaree) {
+    const { error } = await supabase.from('prim_competences_non_evaluees').upsert({
+      school_id: schoolId, class_id: classId, competence_id: competenceId, ua,
+      declare_le: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }, { onConflict: 'school_id,class_id,competence_id,ua' });
+    if (error) { console.error('setPrimNonEvaluee', error); return false; }
+    return true;
+  }
+  const { error } = await supabase.from('prim_competences_non_evaluees').delete()
+    .eq('school_id', schoolId).eq('class_id', classId)
+    .eq('competence_id', competenceId).eq('ua', ua);
+  if (error) { console.error('setPrimNonEvaluee(retrait)', error); return false; }
+  return true;
 }

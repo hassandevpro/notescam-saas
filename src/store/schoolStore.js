@@ -14,7 +14,8 @@ import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
 import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
-import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey } from '../lib/primService';
+import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey,
+  fetchPrimNonEvaluees, nonEvalKey, setPrimNonEvaluee as pousserNonEvaluee } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildBilSubjectsForClass } from '../lib/bilAutoConfig';
 import { buildSubjectsForApcClass } from '../lib/apcAutoConfig';
@@ -419,6 +420,10 @@ export const useSchoolStore = create((set, get) => ({
   refLibelles:     { mat: {}, apc: {}, prim: {} },
   primReferentiel: null,
   primNotes:       {},
+  // Compétences qu'une classe n'a pas évaluées à une UA. Liste de clés
+  // `classId|competenceId|ua` : elles s'impriment « - - - - » et ne comptent
+  // dans aucun total. Vide = tout a été évalué, ce qui est le cas de départ.
+  primNonEvaluees: [],
   // Référentiels OFFICIELS, avant surcharge. Privés (préfixe `_`) : aucun écran
   // ne doit les lire — ils servent à recalculer la surcharge depuis l'origine.
   _apcRefRaw:  null,
@@ -1446,10 +1451,20 @@ export const useSchoolStore = create((set, get) => ({
     // que le bulletin n'imprime pas, selon l'écran visité avant lui.
     get().loadRefMasques('prim');
     get().loadRefMasques('prim_crit');
-    const [refRes, notes] = await Promise.all([
+    // Les déclarations « non évaluée » voyagent avec les notes, pour la même
+    // raison que les masques ci-dessus : « Rapports » et les bulletins les
+    // lisent, et un écran qui les lirait sans les charger imprimerait un zéro
+    // là où la classe a déclaré n'avoir rien évalué.
+    const [refRes, notes, nonEval] = await Promise.all([
       refreshPrimReferentiel(cachedRef?.__fp ?? null),
       fetchPrimNotes(schoolId),
+      fetchPrimNonEvaluees(schoolId),
     ]);
+    // null = lecture en échec : on ne déclare RIEN plutôt que d'effacer par
+    // erreur des déclarations déjà posées (même prudence que loadRefMasques).
+    if (nonEval) {
+      set({ primNonEvaluees: nonEval.map((r) => nonEvalKey(r.class_id, r.competence_id, r.ua)) });
+    }
     if (refRes.data) {
       const blob = { ...refRes.data, id: 'referentiel', __fp: refRes.fingerprint };
       await primRefDB.put(blob).catch(() => {});
@@ -1464,13 +1479,34 @@ export const useSchoolStore = create((set, get) => ({
     }
   }),
 
+  // Déclare (ou retire) une compétence NON ÉVALUÉE pour une classe à une UA.
+  //
+  // C'est le contrepoids indispensable du réglage « une note manquante compte
+  // zéro » : sans lui, une compétence que la classe n'a pas travaillée mettrait
+  // tous ses élèves à zéro. L'état optimiste est posé AVANT l'aller-retour
+  // réseau — la case doit répondre au clic — et défait si le serveur refuse.
+  setPrimNonEvaluee: async ({ classId, competenceId, ua, declaree }) => {
+    const { schoolId } = get();
+    if (!schoolId || !classId || !competenceId) return { error: 'incomplet' };
+    const cle = nonEvalKey(classId, competenceId, ua);
+    const avant = get().primNonEvaluees;
+    const apres = declaree
+      ? [...new Set([...avant, cle])]
+      : avant.filter((k) => k !== cle);
+    set({ primNonEvaluees: apres });
+    if (!backendOnline()) { set({ primNonEvaluees: avant }); return { error: 'offline' }; }
+    const ok = await pousserNonEvaluee({ schoolId, classId, competenceId, ua, declaree });
+    if (!ok) { set({ primNonEvaluees: avant }); return { error: 'refus' }; }
+    return { data: declaree };
+  },
+
   // Enregistre/écrase une note (compétence × critère × UA 1-8). IDB → cloud/queue.
   //
   // `pointsMax` est le barème de CETTE évaluation. Omis, on conserve celui déjà
   // enregistré : changer une note ne doit pas ramener en silence la colonne au
   // barème officiel. Il n'est donc PAS défauté ici — seul l'écran de saisie le
   // pose, explicitement.
-  savePrimNote: async ({ eleveId, competenceId, critereId, ua, note, pointsMax }) => {
+  savePrimNote: async ({ eleveId, competenceId, critereId, ua, note, pointsMax, statut }) => {
     const { schoolId, primNotes } = get();
     if (!schoolId) return;
     const teacherId = useAuthStore.getState().teacherId || null;
@@ -1483,6 +1519,11 @@ export const useSchoolStore = create((set, get) => ({
       id: existing?.id, schoolId, eleveId, competenceId, critereId, ua,
       enseignantId: teacherId, note,
       pointsMax: pointsMax === undefined ? existing?.points_max : pointsMax,
+      // `undefined` = l'appelant ne parle pas du statut (saisie ordinaire d'une
+      // note) : on garde celui de la ligne. `null` = il le retire
+      // explicitement. Sans cette distinction, taper une note effacerait
+      // l'absence qu'on vient de déclarer, et inversement.
+      statut: statut === undefined ? existing?.statut ?? null : statut,
     });
     await primNotesDB.put(record);
     set({ primNotes: { ...get().primNotes, [nkey]: record } });

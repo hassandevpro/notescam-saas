@@ -33,11 +33,13 @@ import { classIdentity } from '../lib/schoolIdentity';
 import {
   competencesForNiveau, bulletinRows as primBulletinRows, generalAverage as primGeneralAverage,
   primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresForCompetence, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
-  primNoteScale, PRIM_GRADE_MAX,
+  primNoteScale, PRIM_GRADE_MAX, celluleDeNote,
   // Totaux en points : servent la ligne « Total obtenu » et la mention
   // « provisoire ». La MOYENNE generale reste generalAverage (primGeneralAverage).
   pointsOverall, niveauPointsTotal,
 } from '../core/primEngine';
+import { nonEvalKey } from '../lib/primService';
+import { MARQUE_ABSENT, MARQUE_NON_EVALUEE } from '../core/noteEtat';
 import { domainesForMaternelle } from '../core/matEngine';
 import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineMatch';
 // Périmètre RÉEL de la classe dans le référentiel national : une matière
@@ -1642,6 +1644,7 @@ export default function Bulletins() {
   const loadMat         = useSchoolStore((s) => s.loadMat);
   const primReferentiel = useSchoolStore((s) => s.primReferentiel);
   const primNotes       = useSchoolStore((s) => s.primNotes);
+  const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
   const loadPrim        = useSchoolStore((s) => s.loadPrim);
 
   const myTeacher       = role === 'teacher' ? teachers.find((t) => t.id === teacherId) : null;
@@ -1975,16 +1978,26 @@ export default function Bulletins() {
   // (points obtenus / points du barème officiel, variable par compétence) de
   // chaque UA notée — ramenée à /10 pour rester comparable à l'échelle historique
   // du bulletin (cote, classement, moyenne générale inchangés).
+  // Les trois états qui ne sont pas « une note », à passer aux totaux.
+  //
+  // `zeroSiManquante` est vrai ICI et nulle part ailleurs : on imprime un
+  // bulletin. L'écran de saisie ne le passe jamais, sinon un enseignant qui a
+  // noté 5 élèves sur 30 verrait les 25 autres à zéro avant d'avoir fini.
+  const primOptions = (compId, ua) => ({
+    nonEvaluee: classId ? primNonEvaluees.includes(nonEvalKey(classId, compId, ua)) : false,
+    zeroSiManquante: !!school?.notes_manquantes_zero,
+  });
+
   const primCompAvg = (eleveId, compId, student) => {
     const criteres = primCriteresFor(compId, student);
     if (!criteres.length) return null;
     const pcts = primUAs.map((ua) => {
       const notesByCritere = {};
       for (const cr of criteres) {
-        const r = primNotes[primNkey(eleveId, compId, cr.id, ua)];
-        if (r?.note != null && r.note !== '') notesByCritere[cr.id] = { note: r.note, max: r.points_max ?? cr.points_max };
+        const c = celluleDeNote(primNotes[primNkey(eleveId, compId, cr.id, ua)], cr.points_max);
+        if (c) notesByCritere[cr.id] = c;
       }
-      const { achieved, possible } = competencePointsTotal(notesByCritere, criteres);
+      const { achieved, possible } = competencePointsTotal(notesByCritere, criteres, primOptions(compId, ua));
       return achieved != null && possible ? (achieved / possible) * 100 : null;
     }).filter((v) => v != null);
     if (!pcts.length) return null;
@@ -2140,6 +2153,7 @@ export default function Bulletins() {
         // ferait imprimer « [object Object] » dans la case.
         const notesByCritere = {};   // { [critere_id]: note }        → affichage
         const baremes = {};          // { [critere_id]: points_max }  → calcul + en-tête
+        const statuts = {};          // { [critere_id]: 'absent' }    → total
         for (const cr of criteres) {
           const r = primNotes[primNkey(student.id, c.id, cr.id, ua)];
           if (r?.note != null && r.note !== '') {
@@ -2147,15 +2161,22 @@ export default function Bulletins() {
             // Barème RÉELLEMENT utilisé pour cette évaluation : celui que
             // l'enseignant a posé, sinon celui du référentiel.
             baremes[cr.id] = Number(r.points_max ?? cr.points_max);
+          } else if (r?.statut) {
+            // Une absence justifiée s'affiche ET se transmet au total, qui doit
+            // la laisser hors moyenne même si l'école compte les manquantes zéro.
+            notesByCritere[cr.id] = MARQUE_ABSENT;
+            statuts[cr.id] = r.statut;
           }
         }
-        const { achieved, possible } = competencePointsTotal(
-          Object.fromEntries(Object.entries(notesByCritere)
-            .map(([id, note]) => [id, { note, max: baremes[id] }])),
+        const { achieved, possible, nonEvaluee } = competencePointsTotal(
+          Object.fromEntries(criteres.map((cr) => [cr.id, statuts[cr.id]
+            ? { note: null, statut: statuts[cr.id] }
+            : { note: notesByCritere[cr.id], max: baremes[cr.id] }])),
           criteres,
+          primOptions(c.id, ua),
         );
         const cote = achieved != null ? primCote(achieved, possible, primBareme) : null;
-        return { ua, trimestre: trimestreOfUA(ua), notesByCritere, baremes, achieved, possible, cote: cote?.cote || null };
+        return { ua, trimestre: trimestreOfUA(ua), notesByCritere, baremes, achieved, possible, nonEvaluee, cote: cote?.cote || null };
       });
       const notedUAs = uas.filter((u) => u.achieved != null);
       // Le TOTAL moyenne les points obtenus sur les UA notées : son dénominateur
@@ -2172,7 +2193,11 @@ export default function Bulletins() {
       const totalCote = totalAchieved != null ? primCote(totalAchieved, totalPossible, primBareme) : null;
       // `domaine` voyage avec la ligne : c'est lui qui range la compétence sous
       // l'un des six intitulés officiels du carnet (voir `groupesDe`).
-      return { code: c.code, intitule: c._override ? c.intitule : primCompetenceLabel(c, sys), domaine: c.domaine ?? null, criteres, uas, totalAchieved, totalPossible, totalCote: totalCote?.cote || null };
+      // La compétence est « non évaluée » pour le bulletin si TOUTES les UA de
+      // la période l'ont été : une seule UA évaluée suffit à la faire compter,
+      // sinon on effacerait un travail réellement noté.
+      const nonEvaluee = uas.length > 0 && uas.every((u) => u.nonEvaluee);
+      return { code: c.code, intitule: c._override ? c.intitule : primCompetenceLabel(c, sys), domaine: c.domaine ?? null, criteres, uas, totalAchieved, totalPossible, nonEvaluee, totalCote: totalCote?.cote || null };
     });
   };
 

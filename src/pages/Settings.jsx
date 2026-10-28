@@ -456,6 +456,10 @@ export default function Settings() {
         payslip_font_size: school.payslip_font_size || 'normal',
         grade_entry_mode: school.grade_entry_mode === 'subject' ? 'subject' : 'principal',
         primary_period_mode: school.primary_period_mode === 'sequences' ? 'sequences' : 'trimestres',
+        // Booléen qui arrive tantôt en 1/0 (SQLite, édition LAN), tantôt en
+        // true/false (Postgres). `!!` ramène les deux au même, sinon la case
+        // resterait décochée en LAN alors que le réglage est bien allumé.
+        notes_manquantes_zero: !!school.notes_manquantes_zero,
         // Deux mondes présentés à l'admin : Classique vs Officiel (unifié). Tout
         // drapeau officiel « historique » (minesec/minedub…) est remonté sur 'officiel'.
         bulletin_engine: isOfficialEngine(school.bulletin_engine) ? 'officiel' : 'classic',
@@ -947,6 +951,51 @@ export default function Settings() {
                     "À ne basculer qu'avant de commencer les saisies. Les notes primaires déjà enregistrées en trimestres 1, 2 et 3 seraient relues comme les séquences 1, 2 et 3 : l'ancien Trimestre 2 se retrouverait alors dans le Trimestre 1, qui couvre les séquences 1 et 2.",
                     'Switch before you start entering marks. Primary marks already saved as terms 1, 2 and 3 would be read as sequences 1, 2 and 3: the old Term 2 would land inside Term 1, which covers sequences 1 and 2.',
                     'Cambie antes de capturar notas: las notas ya guardadas cambiarían de trimestre.',
+                  )}
+                </div>
+              )}
+            </Section>
+
+            {/* ── Notes manquantes : comptent-elles zéro ? ─────────────────── */}
+            <Section title={t('Notes manquantes', 'Missing marks', 'Notas faltantes')} className="mt-6">
+              <p className="text-sm text-gray-500 mb-4">
+                {t(
+                  "Par défaut, une note jamais saisie est EXCLUE de la moyenne : un élève qui n'a composé qu'une fois est noté sur cette seule épreuve. Certaines écoles veulent l'inverse — qui n'a pas composé a zéro.",
+                  'By default a mark never entered is EXCLUDED from the average: a pupil who sat only one paper is marked on that paper alone. Some schools want the opposite — whoever did not sit gets zero.',
+                  'Por defecto, una nota nunca capturada se EXCLUYE del promedio.',
+                )}
+              </p>
+              <label className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${
+                form.notes_manquantes_zero ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white'
+              } ${isAdmin ? 'cursor-pointer hover:border-brand-300' : 'opacity-60 cursor-not-allowed'}`}>
+                <input
+                  type="checkbox"
+                  disabled={!isAdmin}
+                  checked={!!form.notes_manquantes_zero}
+                  onChange={(e) => setForm((f) => ({ ...f, notes_manquantes_zero: e.target.checked }))}
+                  className="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-400"
+                />
+                <span>
+                  <span className="font-semibold text-gray-900 text-sm block">
+                    {t('Une note manquante compte zéro sur le bulletin',
+                       'A missing mark counts as zero on the report card',
+                       'Una nota faltante cuenta como cero')}
+                  </span>
+                  <span className="text-xs text-gray-500 mt-1.5 block">
+                    {t(
+                      "Au moment du BULLETIN seulement — jamais à la saisie. L'écran de l'enseignant continue d'afficher une case vide tant qu'il n'a pas fini. Deux échappatoires : le bouton « A » d'une cellule déclare une absence justifiée, et la case « Compétence non évaluée » met « - - - - » pour toute la classe.",
+                      'On the REPORT CARD only — never while entering. The teacher screen keeps showing an empty cell until entry is done. Two ways out: the “A” button on a cell marks a justified absence, and the “Competency not assessed” box prints “- - - -” for the whole class.',
+                      'Solo en el boletín, nunca al capturar.',
+                    )}
+                  </span>
+                </span>
+              </label>
+              {form.notes_manquantes_zero && !school?.notes_manquantes_zero && (
+                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                  {t(
+                    "Ce réglage change la moyenne des bulletins DÉJÀ imprimés : les rangs peuvent bouger. Tirez un bulletin de contrôle avant de distribuer. Il se défait d'un clic, et aucune note n'est modifiée.",
+                    'This setting changes the average on report cards ALREADY printed: ranks may move. Print a test report card before handing them out. It is undone with one click, and no mark is changed.',
+                    'Este ajuste cambia los promedios ya impresos: compruebe antes de distribuir.',
                   )}
                 </div>
               )}

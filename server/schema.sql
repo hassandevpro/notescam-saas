@@ -1600,6 +1600,29 @@ CREATE TABLE IF NOT EXISTS prim_criteres_masques (
   PRIMARY KEY (school_id, critere_id)
 );
 
+-- Compétences qu'une classe n'a PAS évaluées à une UA donnée. Elles s'impriment
+-- « - - - - » sur le bulletin et ne comptent dans aucun total — ni au
+-- numérateur, ni au dénominateur.
+--
+-- Sans elle, le réglage `schools.notes_manquantes_zero` serait inutilisable :
+-- une compétence que personne n'a évaluée mettrait toute la classe à zéro. Le
+-- grain est celui du réel — la CM1 peut n'avoir pas évalué les TIC à l'UA 2 et
+-- les évaluer à l'UA 3, sans que la CM2 soit concernée.
+--
+-- Miroir de `public.prim_competences_non_evaluees` au Cloud
+-- (supabase_notes_manquantes_et_non_evaluees.sql).
+CREATE TABLE IF NOT EXISTS prim_competences_non_evaluees (
+  school_id     TEXT NOT NULL REFERENCES schools(id)          ON DELETE CASCADE,
+  class_id      TEXT NOT NULL REFERENCES classes(id)          ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES prim_competences(id) ON DELETE CASCADE,
+  ua            INTEGER NOT NULL,
+  declare_le    TEXT,
+  updated_at    TEXT,
+  PRIMARY KEY (school_id, class_id, competence_id, ua)
+);
+CREATE INDEX IF NOT EXISTS idx_prim_non_eval_school ON prim_competences_non_evaluees(school_id);
+CREATE INDEX IF NOT EXISTS idx_prim_non_eval_class  ON prim_competences_non_evaluees(class_id);
+
 -- Libellé de remplacement d'une ligne NATIONALE, pour UNE école. L'id officiel
 -- ne bouge pas : les notes déjà saisies restent attachées, et le bulletin
 -- ministériel garde son identité. `kind` = 'mat' | 'apc' | 'prim'.

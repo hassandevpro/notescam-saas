@@ -81,6 +81,12 @@ const EXCLUSIONS = new Map([
   ['apc_notes',        'ids de référentiel divergents entre seed local et Cloud (db.js)'],
   ['prim_notes',       'idem'],
   ['mat_observations', 'idem'],
+  // « Compétence non évaluée » : même nature et MÊME écart que `prim_notes`,
+  // dont elle ne se sépare pas. Elle porte un `competence_id`, donc exactement
+  // l'id qui diverge. La répliquer seule serait pire que ne pas la répliquer :
+  // le « - - - - » descendrait sans les notes qu'il qualifie. Elle sortira
+  // d'ici en même temps que les trois tables ci-dessus — 27/10/2026.
+  ['prim_competences_non_evaluees', 'idem — indissociable de prim_notes'],
   // Configuration tarifaire par classe. La dette de chaque élève est complète
   // sans elle : `student_fees` porte un INSTANTANÉ des tranches (feeEngine.js),
   // et cette table-là se réplique. Reste un écart de CONFIGURATION, traité à part.

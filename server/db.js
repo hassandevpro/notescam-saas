@@ -298,6 +298,18 @@ ensureColumn('prim_notes', 'ua', 'ua INTEGER');
 // Pendant de apc_notes.note_max : sans cette colonne, un Oral noté /10 serait
 // relu sur le barème officiel du critère au prochain démarrage — donc faux.
 ensureColumn('prim_notes', 'points_max', 'points_max NUMERIC');
+// Absence JUSTIFIÉE. `note` est NUMERIC et le reste : écrire 'ABS' dedans
+// rejetait l'upsert côté Cloud, et c'est pour cela qu'« Absent » n'a jamais
+// existé au primaire. Le statut vit donc à côté de la note.
+//
+// ⚠️  CETTE COLONNE EST SUR UNE TABLE SYNCHRONISÉE. Elle n'est licite que si
+// `supabase_notes_manquantes_et_non_evaluees.sql` a DÉJÀ tourné au Cloud :
+// sinon `sync-push` refuse la ligne entière et les notes cessent de monter.
+ensureColumn('prim_notes', 'statut', 'statut TEXT');
+// Le réglage d'école : une note manquante compte-t-elle zéro au bulletin ?
+// Éteint par défaut — l'allumer change la moyenne de tous les bulletins déjà
+// imprimés, ce qu'aucune école ne doit subir sans l'avoir demandé.
+ensureColumn('schools', 'notes_manquantes_zero', 'notes_manquantes_zero INTEGER NOT NULL DEFAULT 0');
 
 // ── LA CLÉ D'UNICITÉ DE prim_notes A CHANGÉ, ET LES BASES INSTALLÉES NON ─────
 //
@@ -1073,6 +1085,14 @@ export const SYNCED_TABLES = new Set([
   // seed = mêmes ids référentiel) ; la synchro LAN↔Cloud des notes reste un
   // chantier à part (les ids de compétences cloud diffèrent du seed local).
   'apc_notes', 'mat_observations', 'prim_notes',
+  // « Compétence non évaluée » (« - - - - » au bulletin). Déclarée ici pour
+  // suivre `prim_notes`, avec laquelle elle n'a de sens qu'ensemble — et pour
+  // en partager l'écart : comme elle, la table porte un `competence_id`, et les
+  // ids du référentiel Cloud diffèrent de ceux du seed local. Elle est donc
+  // inscrite aux EXCLUSIONS du contrat de synchronisation, et ne circule pas
+  // tant que le chantier des ids n'est pas traité. Le jour où les notes du
+  // primaire voyageront, elle voyagera avec elles.
+  'prim_competences_non_evaluees',
   // Socle P0 — le domaine transverse Signalement suit le même sync LWW Phase 2.
   // (domain_events/audit_events sont append-only : réplication par curseur `seq`,
   //  chantier de sync-pull dédié — cf. docs/ARCHITECTURE_KERNEL.md.)
@@ -1408,6 +1428,13 @@ export const ALLOWED_TABLES = new Set([
   // masques ci-dessus, et comme eux HORS `SYNCED_TABLES` : un masque est un
   // réglage d'affichage local, il ne voyage pas et ne touche pas au contrat.
   'prim_criteres_masques',
+  // Les compétences qu'une classe n'a pas évaluées à une UA donnée (« - - - - »
+  // au bulletin). Contrairement aux masques ci-dessus, ce n'est PAS un réglage
+  // d'affichage : c'est un fait pédagogique que l'enseignante déclare, et il
+  // doit se lire à l'identique depuis les deux éditions — sinon un bulletin
+  // tiré du Cloud imprimerait un zéro là où celui de l'école imprime « ---- ».
+  // D'où sa présence AUSSI dans `SYNCED_TABLES`.
+  'prim_competences_non_evaluees',
   'referentiel_libelles',
   // Socle P0 — outbox d'events, journal d'audit, domaine transverse Signalement.
   'domain_events', 'audit_events', 'signalements',

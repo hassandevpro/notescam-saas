@@ -15,7 +15,7 @@
 
 import { Fragment } from 'react';
 import {
-  mkCell, mkTH, fix2, L,
+  mkCellVar, mkTHVar, fix2, L,
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
 import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
@@ -59,8 +59,8 @@ const baremeAffiche = (row, cr) => {
 // par trimestre s'adaptent au nombre d'UA réellement présentes (2 colonnes,
 // Notes+Cote, par UA).
 function CompetenceUATable({ sys, row }) {
-  const cell = mkCell(7, 1.1, 1);
-  const th   = { ...mkTH(7, 1.1, 1), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
+  const cell = mkCellVar(1.1);
+  const th   = { ...mkTHVar(1.1), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
   const trimLabels = TRIM_LABELS[sys === 'EN' ? 'en' : sys === 'ES' ? 'es' : 'fr'];
   const labelCol = { width: '16%', textAlign: 'left' };
   const colCount = 1 + row.uas.length * 2;
@@ -71,10 +71,10 @@ function CompetenceUATable({ sys, row }) {
     .filter((g) => g.uas.length > 0);
 
   return (
-    <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 8 }}>
+    <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 'var(--nc-gap)' }}>
       <thead>
         <tr>
-          <td colSpan={colCount} style={{ ...th, textAlign: 'left', fontSize: 8 }}>
+          <td colSpan={colCount} style={{ ...th, textAlign: 'left', fontSize: 'var(--nc-body)' }}>
             {L(sys, 'COMPÉTENCE', 'COMPETENCY', 'COMPETENCIA')} {row.code} : {row.intitule.toUpperCase()}
             {row.totalPossible ? ` (${row.totalPossible} ${L(sys, 'points', 'points', 'puntos')})` : ''}
           </td>
@@ -93,8 +93,8 @@ function CompetenceUATable({ sys, row }) {
           <th style={{ ...th, ...labelCol }}>{L(sys, 'Évaluation', 'Assessment', 'Evaluación')}</th>
           {row.uas.map((u) => (
             <Fragment key={u.ua}>
-              <th style={{ ...th, fontSize: 6.5 }}>{L(sys, 'Notes', 'Marks', 'Notas')}</th>
-              <th style={{ ...th, fontSize: 6.5 }}>{L(sys, 'Cote', 'Grade', 'Nota')}</th>
+              <th style={{ ...th, fontSize: 'var(--nc-small)' }}>{L(sys, 'Notes', 'Marks', 'Notas')}</th>
+              <th style={{ ...th, fontSize: 'var(--nc-small)' }}>{L(sys, 'Cote', 'Grade', 'Nota')}</th>
             </Fragment>
           ))}
         </tr>
@@ -159,12 +159,20 @@ export default function BulletinPrimAnnualUA({
   // ses regroupements, son travail académique et sa répartition — sans qu'aucun
   // message ne l'explique. Le réglage de l'école doit valoir pour les DEUX
   // dispositions, sinon il ne vaut rien.
-  mentions,                     // { avertissement, tableauHonneur, encouragement }
+  mentions,                     // { avertissement, tableauHonneur, encouragement, felicitation }
   repartition = [],             // [{ label: '[10-11.99]', n: 3 }]
   groupes: avecGroupes = false, // les six regroupements officiels
 }) {
-  const cell = mkCell(10);
-  const th   = { ...mkTH(11), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
+  // MÊME CONTRAT DE DENSITÉ QUE LA DISPOSITION COMPACTE (lib/print/fitDensity.js).
+  // Il n'était posé que sur le gabarit compact — or « Auto » ne le choisit que
+  // pour une période d'UNE unité d'apprentissage. Dès qu'une école imprimait un
+  // trimestre ou l'année, c'est CE gabarit qui rendait, sans aucune variable
+  // `--nc-*` : l'ajustement ne trouvait plus de feuille à mesurer, ne réduisait
+  // rien, et le carnet débordait sur une deuxième page. Mesuré dans
+  // l'application elle-même (édition LAN) : Trimestre 1 et Annuel sortaient sur
+  // 3 pages, la console disant « aucune feuille .bulletin-paper.nc-densite ».
+  const cell = mkCellVar();
+  const th   = { ...mkTHVar(), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 
   const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
   const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
@@ -215,16 +223,17 @@ export default function BulletinPrimAnnualUA({
   const finDeGroupe = (i) => finsDeGroupe.get(i) || null;
 
   return (
-    <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys}>
-      <OfficialHeader school={school} sys={sys} title={title} accent={PRIM_ACCENT} basic />
-      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={PRIM_ACCENT} tint={PRIM_TH_BG} />
+    <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys} vars>
+      <OfficialHeader school={school} sys={sys} title={title} accent={PRIM_ACCENT} basic vars />
+      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={PRIM_ACCENT} tint={PRIM_TH_BG} vars />
 
       {rowsWithCriteresCote.map((row, i) => (
         <Fragment key={row.code}>
           {/* Bandeau « n) INTITULÉ OFFICIEL » — ouvre la famille. */}
           {debutDeGroupe(i) && (
             <div style={{
-              ...th, textAlign: 'left', padding: '2px 4px', marginBottom: 2, fontSize: 8,
+              ...th, textAlign: 'left', padding: 'var(--nc-pad-v) 4px',
+              marginBottom: 'calc(var(--nc-gap) * 0.3)', fontSize: 'var(--nc-small)',
             }}>
               {debutDeGroupe(i).numero != null ? `${debutDeGroupe(i).numero}) ` : ''}
               {debutDeGroupe(i).intitule.toUpperCase()}
@@ -235,7 +244,8 @@ export default function BulletinPrimAnnualUA({
           {finDeGroupe(i) && (
             <div style={{
               ...cell, background: '#f3f4f6', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
-              display: 'flex', justifyContent: 'space-between', padding: '2px 4px', marginBottom: 8, fontSize: 8,
+              display: 'flex', justifyContent: 'space-between', padding: 'var(--nc-pad-v) 4px',
+              marginBottom: 'var(--nc-gap)', fontSize: 'var(--nc-small)',
             }}>
               <span style={{ fontStyle: 'italic' }}>
                 {finDeGroupe(i).numero != null ? `${finDeGroupe(i).numero}) ` : ''}{finDeGroupe(i).intitule}
@@ -255,7 +265,7 @@ export default function BulletinPrimAnnualUA({
       ))}
 
       {/* Synthèse — identique à la vue trimestrielle */}
-      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 5 }}>
+      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'var(--nc-gap)' }}>
         <tbody>
           <tr>
             <td style={{ width: '50%', verticalAlign: 'top', paddingRight: 4 }}>
@@ -285,11 +295,16 @@ export default function BulletinPrimAnnualUA({
       </table>
 
       {/* ── TRAVAIL ACADÉMIQUE ──────────────────────────────────────────────
-          Les trois distinctions du carnet. Elles sont DÉJÀ saisies par l'école
+          Les QUATRE distinctions du carnet. Elles sont DÉJÀ saisies par l'école
           au conseil de classe : on les affiche, on ne les déduit pas de la
-          moyenne. */}
+          moyenne. L'écran de saisie, lui, en PROPOSE une valeur tirée du travail
+          de l'élève (`core/conseilPropositions.js`) ; le conseil l'applique d'un
+          clic, et c'est cette saisie-là qui arrive ici.
+          « Félicitations » manquait des deux dispositions du carnet. Ce tableau
+          est autonome — pas de grille à huit colonnes à respecter — donc la
+          quatrième paire s'ajoute sans rien déplacer. */}
       {mentions && (
-        <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
+        <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'calc(var(--nc-gap) * 0.5)' }}>
           <tbody>
             <tr>
               <td style={th}>{L(sys, 'Travail académique', 'Academic record', 'Trabajo académico')}</td>
@@ -297,16 +312,18 @@ export default function BulletinPrimAnnualUA({
               <td style={{ ...cell, textAlign: 'center' }}>{mentions.avertissement || '—'}</td>
               <td style={th}>{L(sys, 'Tableau d’honneur', 'Honour roll', 'Cuadro de honor')}</td>
               <td style={{ ...cell, textAlign: 'center' }}>{mentions.tableauHonneur || '—'}</td>
-              <td style={th}>{L(sys, 'Encouragement', 'Commendation', 'Felicitación')}</td>
+              <td style={th}>{L(sys, 'Encouragement', 'Commendation', 'Estímulo')}</td>
               <td style={{ ...cell, textAlign: 'center' }}>{mentions.encouragement || '—'}</td>
+              <td style={th}>{L(sys, 'Félicitations', 'Congratulations', 'Felicitación')}</td>
+              <td style={{ ...cell, textAlign: 'center' }}>{mentions.felicitation || '—'}</td>
             </tr>
           </tbody>
         </table>
       )}
 
-      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
+      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'calc(var(--nc-gap) * 0.5)' }}>
         <tbody>
-          <tr><td style={{ ...cell, height: 30 }}>{L(sys, 'Appréciation générale du Conseil des maîtres', "Teachers' council general remarks", 'Apreciación general del consejo de maestros')} : {appreciation}</td></tr>
+          <tr><td style={{ ...cell, height: 'var(--nc-observ)' }}>{L(sys, 'Appréciation générale du Conseil des maîtres', "Teachers' council general remarks", 'Apreciación general del consejo de maestros')} : {appreciation}</td></tr>
         </tbody>
       </table>
 
@@ -314,7 +331,7 @@ export default function BulletinPrimAnnualUA({
           Combien d'élèves par tranche de moyenne : un parent y lit où se situe
           son enfant sans connaître les notes des autres. */}
       {repartition.length > 0 && (
-        <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
+        <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'calc(var(--nc-gap) * 0.5)' }}>
           <tbody>
             <tr>
               <td style={{ ...th, textAlign: 'left' }} colSpan={repartition.length + 1}>
@@ -333,7 +350,7 @@ export default function BulletinPrimAnnualUA({
         </table>
       )}
 
-      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} />
+      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} vars />
     </OfficialSheet>
   );
 }

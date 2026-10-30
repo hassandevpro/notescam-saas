@@ -3,6 +3,9 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { buildRanks } from '../core/bulletinEngine';
 import { vieScolaireAutoConduite } from '../core/scEngine';
+// Les cinq champs du bas du bulletin, proposés d'après le travail de l'élève —
+// jamais écrits d'office : le conseil applique d'un clic.
+import { propositionsConseil, ecartsConseil, lotConseil } from '../core/conseilPropositions';
 import { vieScolaire } from '../lib/vieScolaireService';
 import { aggregateAttendance, attendanceAuto } from '../core/attendanceEngine';
 import { fetchTimetableSlots } from '../lib/schoolService';
@@ -324,6 +327,21 @@ export default function ConseilDeClasse() {
   const assistAuto = assistRow
     ? { ...vieScolaireAutoConduite(vsActions, classId, assistRow.stu.id, [seq]), ...attendanceAuto(attAgg, assistRow.stu.id, seq) }
     : null;
+
+  // Les cinq champs du bas du bulletin, PROPOSÉS d'après le travail de l'élève.
+  // La moyenne est déjà dans le barème de la classe (`scale`), donc le moteur
+  // n'a rien à convertir ici. Rien n'est écrit : le drawer affiche la
+  // proposition, et le conseil l'applique d'un clic.
+  const assistProp = assistRow
+    ? propositionsConseil(assistRow.avg, scale, { sys, gradeScale: school?.grade_scale, maxScale: geGradeMax(school) })
+    : null;
+  // Un seul enregistrement pour tout le lot : cinq `saveGrade` successifs
+  // auraient mis cinq éléments dans la file de synchro hors ligne, et le
+  // dernier lu aurait pu écraser les précédents.
+  const applyLot = useCallback((lot) => {
+    if (!assistRow || !lot || !Object.keys(lot).length) return;
+    saveGrade(classId, assistRow.stu.id, seq, lot);
+  }, [assistRow, classId, seq, saveGrade]);
 
   // Élèves dont le bulletin diffère de l'appel pour cette séquence. Seuls ceux
   // qui ONT des heures à l'appel : une école qui ne fait pas l'appel ne doit
@@ -828,6 +846,7 @@ export default function ConseilDeClasse() {
             DECISIONS={DECISIONS} onClose={() => setAssistId(null)}
             onField={(field, value) => setField(assistRow.stu.id, field, value)}
             vsAuto={assistAuto}
+            prop={assistProp} onLot={applyLot}
             t={t} isGE={isGE}
           />
         )}
@@ -995,11 +1014,28 @@ function StudentCard({ row, idx, pass, scale, honorMode, DECISIONS, onAssist, on
 }
 
 // ── 6. ASSISTANT DE DÉCISION — drawer ────────────────────────────────────────
-function DecisionAssistant({ row, pass, scale, honorMode, DECISIONS, onClose, onField, vsAuto, t, isGE }) {
+function DecisionAssistant({ row, pass, scale, honorMode, DECISIONS, onClose, onField, vsAuto, prop, onLot, t, isGE }) {
   const { stu, scores, avg, rang, a } = row;
   const isTrue = (f) => scores[f] === 'true';
   const passVal = isGE ? 'aprobado' : 'admis';
   const eff = effectiveDecision(scores, avg, pass, passVal);
+
+  // Les champs du bas du bulletin que le travail de l'élève propose de changer.
+  // Vide quand la saisie est déjà conforme — le drawer ne montre alors rien, et
+  // ne tente surtout pas de réécrire ce qui y est.
+  const ecarts = prop ? ecartsConseil(prop, scores) : [];
+  const LIBELLES = {
+    appreciation: t('Appréciation', 'Appreciation'),
+    avertissement: t('Avertissement', 'Warning'),
+    tableauHonneur: isGE ? 'Cuadro de Honor' : t('Tableau d’honneur', 'Honour roll'),
+    encouragement: t('Encouragements', 'Encouragement'),
+    felicitation: t('Félicitations', 'Congratulations'),
+  };
+  const dit = (champ) => {
+    if (champ === 'appreciation') return `${LIBELLES.appreciation} : ${prop.appreciation}`;
+    if (champ === 'avertissement') return `${LIBELLES.avertissement} : ${prop.avertissement}`;
+    return `${LIBELLES[champ]} : ${prop[champ] ? t('oui', 'yes') : t('non', 'no')}`;
+  };
 
   return (
     <div className="fixed inset-0 z-[70] no-print" onClick={onClose}>
@@ -1036,6 +1072,32 @@ function DecisionAssistant({ row, pass, scale, honorMode, DECISIONS, onClose, on
                 className="mt-2 w-full py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold"
               >
                 {t('Appliquer', 'Apply')} : {DECISIONS.find((d) => d.value === a.suggested)?.label}
+              </button>
+            </div>
+          )}
+
+          {/* ── CE QUE LE TRAVAIL DE L'ÉLÈVE PROPOSE ─────────────────────────
+              Le bas du bulletin (appréciation, avertissement conditionnel,
+              tableau d'honneur, encouragement, félicitations) sortait identique
+              pour tous les élèves d'une même cote. Il se dérive maintenant de
+              la moyenne — mais seulement en PROPOSITION : le conseil garde la
+              main, comme pour les sanctions de Vie scolaire. */}
+          {ecarts.length > 0 && (
+            <div className="rounded-xl bg-amber-50/70 border border-amber-100 p-3.5">
+              <p className="text-xs font-semibold text-amber-800">
+                ✍️ {t('D’après son travail', 'Based on their work')}
+                {prop.pct != null ? ` (${prop.pct} %)` : ''}
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {ecarts.map((champ) => (
+                  <li key={champ} className="text-sm text-slate-600">{dit(champ)}</li>
+                ))}
+              </ul>
+              <button
+                onClick={() => onLot(lotConseil(prop, scores, ecarts))}
+                className="mt-2 w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold"
+              >
+                {t('Appliquer', 'Apply')}
               </button>
             </div>
           )}

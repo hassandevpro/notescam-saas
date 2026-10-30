@@ -10,7 +10,10 @@ import Layout from '../components/Layout';
 import Modal from '../components/Modal';
 import AssetImg from '../components/AssetImg';
 import '../styles/bulletin.css';
-import { setPrintProfile, fitLiveSheets, resetLiveSheets } from '../lib/print';
+import {
+  setPrintProfile, ajusterDensite, reinitialiserDensite, attendreRessources,
+  fitLiveSheets, resetLiveSheets,
+} from '../lib/print';
 import { useT } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
 import WhatsappFirstModal from '../components/notify/WhatsappFirstModal';
@@ -25,14 +28,21 @@ import ScBulletinExcelIO from '../components/bulletins/ScBulletinExcelIO';
 import BulletinBilOfficial, { BulletinBilAnnual } from '../components/bulletins/BulletinBilOfficial';
 import BulletinPrimAnnualUA from '../components/bulletins/BulletinPrimAnnualUA';
 import BulletinPrimCompact from '../components/bulletins/BulletinPrimCompact';
+// La variante BILINGUE du carnet : deux blocs de programme au lieu des six
+// familles. Le moteur rend [] pour une classe monolingue — c'est lui, et non
+// un réglage d'école, qui décide, en lisant les lignes du bulletin.
+import { programmesDe } from '../core/primProgramme';
 import { buildCompactRows } from '../core/primCompactRows';
+// Les cinq champs du bas du carnet, PROPOSÉS d'après le travail de l'élève. Le
+// moteur ne décide rien : la saisie reste la seule source de ce qui s'imprime.
+import { propositionsConseil, lotConseil, ecartsConseil } from '../core/conseilPropositions';
 import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
 import { mkCell, mkTH, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
 import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
 import { classIdentity } from '../lib/schoolIdentity';
 import {
   competencesForNiveau, bulletinRows as primBulletinRows, generalAverage as primGeneralAverage,
-  primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresForCompetence, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
+  primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresForCompetence, criteresDeSecours, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
   primNoteScale, PRIM_GRADE_MAX, celluleDeNote,
   // Totaux en points : servent la ligne « Total obtenu » et la mention
   // « provisoire ». La MOYENNE generale reste generalAverage (primGeneralAverage).
@@ -1494,7 +1504,16 @@ function AnnualDecisionPicker({ classId, studentId, lastSeq, current, countryCod
 // ── Éditeur d'appréciation du travail de l'élève (par élève & par période) ────
 // Persiste sous gradeMap[<class>_<student>_<lastSeq>]['__appreciation__'] — même
 // mécanisme que la décision annuelle. Écriture au blur (pas à chaque frappe).
-function AppreciationEditor({ classId, studentId, lastSeq, current, sys }) {
+//
+// IL PORTE AUSSI LA PROPOSITION DU BAS DU CARNET. Les cinq champs (appréciation,
+// avertissement conditionnel, tableau d'honneur, encouragement, félicitations)
+// doivent varier d'un élève à l'autre, « en fonction du travail de l'élève ».
+// `core/conseilPropositions.js` les dérive de sa moyenne ; cette ligne les
+// MONTRE, et le bouton « Appliquer » les écrit — en un seul enregistrement, et
+// seulement pour les champs qui diffèrent de la saisie. Jamais d'écrasement
+// silencieux : sans ce clic, rien ne change, et le bulletin continue de
+// n'imprimer que ce que l'école a saisi.
+function AppreciationEditor({ classId, studentId, lastSeq, current, sys, proposition, scores }) {
   const saveGrade = useSchoolStore((s) => s.saveGrade);
   const t = useT();
   const [val, setVal] = useState(current || '');
@@ -1503,6 +1522,34 @@ function AppreciationEditor({ classId, studentId, lastSeq, current, sys }) {
     if ((current || '') === (val || '')) return;
     await saveGrade(classId, studentId, lastSeq, { __appreciation__: val });
   };
+
+  const ecarts = proposition ? ecartsConseil(proposition, scores || {}) : [];
+  const appliquer = async () => {
+    const lot = lotConseil(proposition, scores || {}, ecarts);
+    if (!Object.keys(lot).length) return;
+    if (lot.__appreciation__ != null) setVal(lot.__appreciation__);
+    await saveGrade(classId, studentId, lastSeq, lot);
+  };
+  // Ce que la proposition dit, en clair. Un champ déjà conforme n'y figure pas :
+  // la ligne ne montre que ce que le clic changerait.
+  const resume = proposition ? [
+    ecarts.includes('appreciation') ? proposition.appreciation : null,
+    ecarts.includes('avertissement')
+      ? (proposition.avertissement
+        ? L(sys, 'avertissement conditionnel', 'conditional warning', 'advertencia condicional')
+        : L(sys, 'aucun avertissement', 'no warning', 'sin advertencia'))
+      : null,
+    ecarts.includes('tableauHonneur')
+      ? `${proposition.tableauHonneur ? '' : L(sys, 'pas de ', 'no ', 'sin ')}${L(sys, 'tableau d’honneur', 'honour roll', 'cuadro de honor')}`
+      : null,
+    ecarts.includes('encouragement')
+      ? `${proposition.encouragement ? '' : L(sys, 'pas d’', 'no ', 'sin ')}${L(sys, 'encouragement', 'commendation', 'estímulo')}`
+      : null,
+    ecarts.includes('felicitation')
+      ? `${proposition.felicitation ? '' : L(sys, 'pas de ', 'no ', 'sin ')}${L(sys, 'félicitations', 'congratulations', 'felicitación')}`
+      : null,
+  ].filter(Boolean) : [];
+
   return (
     <div className="mb-4 p-3 rounded-xl border border-sky-200 bg-sky-50 no-print">
       <label className="text-xs font-semibold text-sky-900 uppercase tracking-wider block mb-1.5">
@@ -1516,6 +1563,24 @@ function AppreciationEditor({ classId, studentId, lastSeq, current, sys }) {
         onChange={(e) => setVal(e.target.value)}
         onBlur={commit}
       />
+      {resume.length > 0 && (
+        <div className="mt-2 flex items-start justify-between gap-3">
+          <p className="text-xs text-sky-800 min-w-0">
+            <span className="font-semibold">
+              {L(sys, 'D’après son travail', 'Based on their work', 'Según su trabajo')}
+              {proposition.pct != null ? ` (${proposition.pct} %)` : ''} :
+            </span>{' '}
+            {resume.join(' · ')}
+          </p>
+          <button
+            type="button"
+            onClick={appliquer}
+            className="shrink-0 text-xs font-semibold text-brand-600 hover:text-brand-700"
+          >
+            {t('Appliquer', 'Apply')}
+          </button>
+        </div>
+      )}
       <p className="text-xs text-sky-700/70 mt-1">
         {t('Saisie par élève et par période — apparaît sur le bulletin.', 'Per student and period — shown on the report card.')}
       </p>
@@ -1524,11 +1589,23 @@ function AppreciationEditor({ classId, studentId, lastSeq, current, sys }) {
 }
 
 // ── Page principale ───────────────────────────────────────────────────────────
+// L'ORDRE DES DEUX ENFANTS N'EST PAS UN DÉTAIL DE STYLE.
+//
+// Le socle d'impression évite la page blanche finale avec
+// `.bulletin-paper:last-child { break-after: auto }`. Tant que le calque de
+// filigrane était rendu APRÈS `{children}`, la feuille n'était plus le dernier
+// enfant de son parent : la règle ne s'appliquait plus, `break-after: page`
+// restait, et CHAQUE bulletin était suivi d'un saut de page — donc d'une page
+// blanche. Pour les écoles en plan Starter seulement, ce qui explique qu'on ne
+// l'ait pas vu en interne.
+//
+// Le calque passe donc AVANT. Il reste au-dessus du bulletin : il est en
+// `position: absolute` avec `z-index: 10`, alors que la feuille est en flux
+// normal — l'ordre de peinture suit le z-index, pas l'ordre du DOM.
 function WatermarkWrap({ active, children }) {
   if (!active) return children;
   return (
     <div style={{ position: 'relative' }}>
-      {children}
       <div style={{
         position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1543,6 +1620,7 @@ function WatermarkWrap({ active, children }) {
           NotesCam Starter
         </span>
       </div>
+      {children}
     </div>
   );
 }
@@ -1565,9 +1643,11 @@ export default function Bulletins() {
   const setPrimLayout   = useUiStore((s) => s.setPrimLayout);
   const primOrientation = useUiStore((s) => s.primOrientation);
   const setPrimOrientation = useUiStore((s) => s.setPrimOrientation);
-  useEffect(() => {
-    setPrintProfile(primOrientation === 'landscape' ? 'large' : 'bulletin');
-  }, [primOrientation]);
+  // Le profil de page et le profil MESURÉ doivent être le même : poser la
+  // géométrie paysage dans le CSS tout en mesurant contre la hauteur utile du
+  // portrait ferait chercher une densité pour une page qui n'existe pas.
+  const profilPage = primOrientation === 'landscape' ? 'large' : 'bulletin';
+  useEffect(() => { setPrintProfile(profilPage); }, [profilPage]);
 
   const PERIODS = [
     { value: 'seq_1',  label: t('Séquence 1',  'Sequence 1'),  short: 'Séq 1', seqs: [1] },
@@ -1970,8 +2050,20 @@ export default function Bulletins() {
     // ceux que l'école n'évalue pas. Les colonnes du bulletin étant l'union des
     // critères rencontrés (`critereColumnsOf`), les masquer ICI suffit à les
     // faire disparaître des deux dispositions.
-    return criteresForCompetence(primReferentiel, primNiveauSlug, compId, aptitude, primCriteresMasques)
-      .map((cr) => ({ ...cr, nom: primCritereLabel(cr, sys) }));
+    const officiels = criteresForCompetence(primReferentiel, primNiveauSlug, compId, aptitude, primCriteresMasques);
+    // UNE COMPÉTENCE D'ÉCOLE N'A AUCUNE LIGNE DANS `prim_bareme_criteres` —
+    // table nationale, sans `school_id`. Mesuré sur la base de production le
+    // 2026-10-29 : 38 compétences d'école chez THE GENIUS, 0 barème. Sans ce
+    // repli, la matière cochée obtenait bien sa ligne au bulletin et à la
+    // saisie, mais pas une seule case où écrire une note : elle imprimait « — »
+    // pour toujours. Le barème de secours est celui que l'école a posé sur la
+    // MATIÈRE (`subjects.max`) — voir `criteresDeSecours`.
+    const liste = officiels.length
+      ? officiels
+      : criteresDeSecours(primReferentiel?.criteres, (crId) => classStudents.flatMap(
+        (stu) => primUAs.map((ua) => primNotes[primNkey(stu.id, compId, crId, ua)]),
+      ));
+    return liste.map((cr) => ({ ...cr, nom: primCritereLabel(cr, sys) }));
   };
 
   // Moyenne /10 d'une compétence sur la période : moyenne des pourcentages
@@ -2094,12 +2186,25 @@ export default function Bulletins() {
   // situe son enfant sans avoir à connaître les notes des autres.
   // Les bornes reproduisent celles du carnet imprimé.
   // Carnet détaillé du primaire : réglage de l'école, jamais son nom.
-  const primCarnet = school?.prim_bulletin_mode === 'carnet';
+  // Les cinq blocs du carnet sont allumés par les DEUX modes carnet : 'carnet'
+  // (critères en colonnes) et 'carnet_epreuves' (une ligne par épreuve, modèle
+  // du carnet papier). Le test portait sur l'égalité stricte, et la seconde
+  // valeur aurait donc éteint en silence le travail académique, les statistiques
+  // et la signature du parent — alors que le carnet papier les porte tous.
+  const primCarnet = String(school?.prim_bulletin_mode || '').startsWith('carnet');
+  // Disposition des LIGNES du carnet : voir `BulletinPrimCompact`.
+  const primEpreuves = school?.prim_bulletin_mode === 'carnet_epreuves';
 
-  // Les trois distinctions du carnet, telles que l'école les a saisies au
+  // Les QUATRE distinctions du carnet, telles que l'école les a saisies au
   // conseil de classe. Une seule lecture pour les DEUX dispositions du carnet
   // (compacte et détaillée) : dupliquer l'expression aurait laissé les deux
   // bulletins diverger au premier changement.
+  //
+  // « FÉLICITATIONS » MANQUAIT. `getAbsCond` la relit depuis toujours
+  // (`__felicitation__`), le conseil de classe la saisit déjà, la base la
+  // stocke — mais aucune des deux dispositions du carnet ne l'imprimait. Un
+  // élève félicité par son conseil recevait un carnet muet là-dessus, alors que
+  // les photos du carnet de l'école la portent.
   const primMentionsFor = (student) => {
     if (!primCarnet) return undefined;
     const a = getAbsCond(gradeMap, classId, student.id, period.seqs);
@@ -2109,8 +2214,33 @@ export default function Bulletins() {
       avertissement: a.averTravail > 0 ? `${a.averTravail}` : non,
       tableauHonneur: a.th ? oui : non,
       encouragement: a.encouragement ? oui : non,
+      felicitation: a.felicitation ? oui : non,
     };
   };
+
+  // ── L'APPRÉCIATION DU CARNET DOIT VARIER D'UN ÉLÈVE À L'AUTRE ────────────
+  // Elle valait `primCoteLabel(cote)` — le libellé de la COTE. Deux élèves de
+  // même cote recevaient donc mot pour mot la même appréciation (« Enfant
+  // Expert »), et le carnet papier, lui, porte « Excellent », « Very good »…
+  // On lit donc d'abord la SAISIE (`__appreciation__`, déjà en base des deux
+  // côtés et déjà éditée par `AppreciationEditor` pour les bulletins APC), et
+  // on ne retombe sur le libellé de la cote que si l'école n'a rien écrit —
+  // aucune régression pour les carnets déjà imprimés.
+  const primAppreciationSaisie = (sid) => {
+    const lastSeq = period?.seqs?.[period.seqs.length - 1];
+    if (!lastSeq) return '';
+    return (gradeMap?.[`${classId}_${sid}_${lastSeq}`] || {})['__appreciation__'] || '';
+  };
+  const primAppreciationFor = (student, d) =>
+    primAppreciationSaisie(student.id) || (d?.appreciationGenerale || '');
+
+  // La proposition tirée du TRAVAIL de l'élève — affichée à côté du champ de
+  // saisie, jamais écrite d'office (cf. `core/conseilPropositions.js`).
+  const primPropositionFor = (sid) => propositionsConseil(
+    primDataById[sid]?.moyenneGenerale ?? null,
+    PRIM_GRADE_MAX,
+    { sys, gradeScale: school?.grade_scale },
+  );
 
   const primRepartition = useMemo(() => {
     if (!isPrim) return [];
@@ -2251,9 +2381,20 @@ export default function Bulletins() {
 
   // Disposition EFFECTIVE : 'auto' suit la période (une seule UA → compacte),
   // sinon le choix explicite de l'utilisateur s'applique.
-  const primLayout = primLayoutPref === 'auto'
-    ? (primSingleUA ? 'compact' : 'detail')
-    : primLayoutPref;
+  //
+  // UNE EXCEPTION, et elle est nécessaire : l'école qui a choisi le modèle de
+  // son CARNET PAPIER (`carnet_epreuves`) attend ce document-là, pas un
+  // mini-tableau par compétence avec les UA en colonnes. « Auto » basculait sur
+  // la vue détaillée dès qu'une période couvrait plusieurs UA — c'est-à-dire sur
+  // tout bulletin trimestriel, donc presque toujours — et le modèle demandé ne
+  // se serait jamais imprimé. Un choix EXPLICITE de l'utilisateur reste
+  // prioritaire : on ne lui retire pas la vue détaillée, on cesse seulement de
+  // la lui imposer.
+  const primLayout = primEpreuves && primLayoutPref === 'auto'
+    ? 'compact'
+    : primLayoutPref === 'auto'
+      ? (primSingleUA ? 'compact' : 'detail')
+      : primLayoutPref;
 
   // ── MATERNELLE (PS/MS/GS) — données du bulletin officiel (aperçu écran) ──────
   useEffect(() => { if (isMat) { loadMat(); loadRefMasques('mat'); } }, [isMat, loadMat, loadRefMasques]);
@@ -2632,7 +2773,9 @@ export default function Bulletins() {
     // 150 ms : le temps que React ait monté tous les bulletins de la classe.
     // La mesure doit venir APRÈS ce montage, sinon elle porterait sur un DOM
     // incomplet et la plupart des feuilles repartiraient sans réduction.
-    const timer = setTimeout(() => { imprimerAjuste(); setPrintAll(false); }, 150);
+    const timer = setTimeout(() => {
+      imprimerAjuste().finally(() => setPrintAll(false));
+    }, 150);
     return () => clearTimeout(timer);
   }, [printAll]);
 
@@ -2652,28 +2795,129 @@ export default function Bulletins() {
     ? Math.max(0, STARTER_DAILY_PRINT_LIMIT - printCount)
     : Infinity;
 
-  // Ajuste les feuilles, imprime, puis retire l'ajustement.
+  // ── L'AJUSTEMENT SE GREFFE SUR LE CYCLE D'IMPRESSION DU NAVIGATEUR ────────
   //
-  // Le retrait est fait dans un `finally` ET après l'impression : `window.print()`
-  // est synchrone et bloquant dans Chrome, mais une exception pendant la mesure
-  // ne doit pas laisser l'écran avec des bulletins rétrécis — la variable CSS ne
-  // joue qu'en @media print, mais autant ne rien laisser derrière.
-  const imprimerAjuste = () => {
-    let bilan = { ajustees: 0, debordantes: 0, total: 0 };
+  // POURQUOI PAS SEULEMENT DANS LE BOUTON. Parce que l'école n'imprime pas
+  // toujours par le bouton : Ctrl+P, le menu « Imprimer », « Enregistrer au
+  // format PDF » passent tous par `beforeprint` et ne voyaient AUCUN
+  // ajustement. Le bulletin sortait alors à sa taille brute — c'est l'un des
+  // chemins par lesquels le défaut des deux pages atteignait les parents.
+  //
+  // `ajusterDensite` est synchrone et idempotent : elle peut donc tourner dans
+  // `beforeprint` (qui n'attend pas de promesse) et deux fois de suite sans
+  // rien cumuler. `afterprint` nettoie, et c'est seulement là qu'on touche à
+  // l'état React — changer d'état pendant que Chrome compose les pages
+  // provoquerait un rendu au pire moment.
+  // DEUX MÉCANISMES, DEUX POPULATIONS DE FEUILLES — et c'est délibéré.
+  //
+  // Seuls les gabarits qui déclarent le contrat de densité portent la classe
+  // `nc-densite` (cf. `OfficialSheet`, option `vars`) ; aujourd'hui, le carnet
+  // primaire APC. Eux seuls passent par la recherche de densité.
+  //
+  // Tous les autres modèles — Classique, Moderne, Second Cycle, Boletín GE,
+  // Maternelle — gardent `fitLiveSheets` : ils n'ont aucune variable `--nc-*`
+  // dans leur mise en page, une recherche de densité ne ferait donc rien chez
+  // eux, et les priver de leur réduction `zoom` les renverrait sur deux pages.
+  // Le jour où l'un d'eux adoptera le contrat, il lui suffira de demander
+  // `vars` : il changera de population sans qu'on touche ici.
+  const SEL_DENSITE = '.bulletin-paper.nc-densite';
+  const SEL_AUTRES  = '.bulletin-paper:not(.nc-densite)';
+  const bilanFit = useRef({ debordantes: 0 });
+
+  // ── RELEVÉ D'IMPRESSION ────────────────────────────────────────────────────
+  //
+  // Diagnostiquer une impression qui déborde CHEZ QUELQU'UN D'AUTRE est presque
+  // impossible : l'écran va bien, le PDF va mal, et personne ne peut regarder la
+  // page au moment exact où le navigateur la découpe. On a perdu plusieurs
+  // allers-retours à deviner.
+  //
+  // Avec `?ncdebug=1` dans l'URL, l'écran écrit donc ses mesures DANS LE TITRE
+  // du document le temps de l'impression. Chrome reprend ce titre comme nom du
+  // fichier PDF : il suffit alors d'envoyer le fichier, son nom porte le relevé.
+  // Sans le paramètre, rien ne change — ni à l'écran, ni sur le papier.
+  const titreSauve = useRef(null);
+  const releve = () => {
     try {
-      bilan = fitLiveSheets('.bulletin-paper', 'bulletin');
-      window.print();
-    } finally {
-      resetLiveSheets('.bulletin-paper');
+      const b = bilanFit.current || {};
+      const d = (b.details || [])[0];
+      const el = document.querySelector(SEL_DENSITE);
+      const cs = el ? getComputedStyle(el) : null;
+      return [
+        `f${b.total ?? '?'}`,                               // feuilles trouvées
+        `d${d ? d.d.toFixed(3) : '?'}`,                     // densité retenue
+        `h${d ? d.h : '?'}`,                                // hauteur obtenue
+        `v${b.vise ?? '?'}`,                                // hauteur visée
+        `u${b.utile ?? '?'}`,                               // hauteur utile brute
+        `r${d ? d.r : '?'}`,                                // reliquat posé
+        `e${d ? d.etat : '?'}`,                             // plafond/ajuste/plancher
+        `p${cs ? cs.paddingTop + '-' + cs.paddingLeft : '?'}`, // rembourrage réel
+        `w${el ? Math.round(el.getBoundingClientRect().width) : '?'}`,
+        `b${cs ? cs.getPropertyValue('--nc-body').trim().slice(0, 18) : '?'}`,
+      ].join(' ');
+    } catch (e) {
+      return `releve-impossible:${e.message}`.slice(0, 80);
     }
-    // Un bulletin trop long pour être réduit sans devenir illisible coulera sur
-    // une 2e page. On le DIT, plutôt que de laisser l'école le découvrir à
-    // l'imprimante — et le message nomme le levier : moins de matières, ou un
-    // barème de matières composites.
-    if (bilan.debordantes > 0) {
-      setFitWarning(bilan.debordantes);
-      setTimeout(() => setFitWarning(0), 8000);
-    }
+  };
+
+  useEffect(() => {
+    const debug = typeof window !== 'undefined'
+      && /[?&]ncdebug=1/.test(window.location.search);
+
+    const avant = () => {
+      try {
+        const neuf   = ajusterDensite(SEL_DENSITE, profilPage);
+        const ancien = fitLiveSheets(SEL_AUTRES, profilPage);
+        bilanFit.current = {
+          ...neuf,
+          debordantes: (neuf?.debordantes || 0) + (ancien?.debordantes || 0),
+        };
+      } catch (e) {
+        // Une mesure qui échoue ne doit JAMAIS empêcher d'imprimer : on
+        // imprime le bulletin tel quel plutôt que rien du tout. Mais on le DIT :
+        // une exception avalée ici donne exactement le symptôme d'avant le
+        // correctif, sans rien dans la console.
+        console.error('[NotesCam/impression] ajustement impossible :', e);
+        bilanFit.current = { debordantes: 0, erreur: e?.message };
+      }
+      if (debug) {
+        const txt = releve();
+        console.info('[NotesCam/impression]', txt);
+        titreSauve.current = document.title;
+        document.title = `NC ${txt}`;
+      }
+    };
+    const apres = () => {
+      if (titreSauve.current !== null) {
+        document.title = titreSauve.current;
+        titreSauve.current = null;
+      }
+      reinitialiserDensite(SEL_DENSITE);
+      resetLiveSheets(SEL_AUTRES);
+      // Un bulletin trop long pour être resserré sans devenir illisible coule
+      // sur une 2e page. On le DIT, plutôt que de laisser l'école le découvrir
+      // à l'imprimante — et le message nomme le levier : moins de matières, ou
+      // un barème de matières composites.
+      const n = bilanFit.current?.debordantes || 0;
+      if (n > 0) {
+        setFitWarning(n);
+        setTimeout(() => setFitWarning(0), 8000);
+      }
+    };
+    window.addEventListener('beforeprint', avant);
+    window.addEventListener('afterprint', apres);
+    return () => {
+      window.removeEventListener('beforeprint', avant);
+      window.removeEventListener('afterprint', apres);
+    };
+  }, []);
+
+  // Le bouton n'ajuste plus lui-même : il attend les POLICES ET LES IMAGES,
+  // puis imprime. Mesurer avant que la police du bulletin soit disponible
+  // donnerait les métriques de la police de repli, et le texte se replacerait
+  // ensuite — on aurait mesuré une autre feuille que celle qui sort.
+  const imprimerAjuste = async () => {
+    await attendreRessources();
+    window.print();
   };
 
   const handlePrintSingle = () => {
@@ -2682,8 +2926,9 @@ export default function Bulletins() {
       incrementDailyPrint();
       setPrintCount((c) => c + 1);
     }
-    // Le bulletin doit tenir sur UNE page : on mesure et on réduit juste avant
-    // d'imprimer, puis on retire la réduction. Voir lib/print/fitLiveSheets.js.
+    // Le bulletin doit tenir sur UNE page, et la remplir : la densité est
+    // CHERCHÉE par la mesure dans `beforeprint`, pas estimée ici. Voir
+    // lib/print/fitDensity.js.
     imprimerAjuste();
   };
 
@@ -2814,6 +3059,22 @@ export default function Bulletins() {
     if (primLayout === 'compact') {
       const c = primCompactDataFor(student);
       if (!c) return null;
+      // ── LE CARNET D'UNE CLASSE BILINGUE ────────────────────────────────
+      // Les mêmes lignes, coupées en DEUX BLOCS de programme au lieu des six
+      // familles — c'est ce que fait le carnet papier de Class 2/CP. Le moteur
+      // rend [] dès qu'un seul programme est reconnu, donc toutes les classes
+      // monolingues gardent exactement le bulletin d'avant. Le découpage ne
+      // dépend que des LIBELLÉS, pas de l'élève : seuls les totaux changent
+      // d'un bulletin à l'autre.
+      // `primCompetencesEcole` est la liste NON TRADUITE : c'est elle qui dit
+      // quelle compétence est nationale et quelle maison porte quel nom de
+      // matière. Les intitulés de `c.rows`, eux, sont déjà passés par
+      // `primCompetenceLabel` et s'écrivent dans la langue du bulletin — ils ne
+      // diraient donc rien du programme (mesuré sur l'écran réel le 2026-10-29).
+      const programmes = primCarnet ? programmesDe(c.rows, {
+        cls: selectedClass, sys, coteBareme: primBareme,
+        classSubjects, competences: primCompetencesEcole,
+      }) : [];
       return (
         <WatermarkWrap key={student.id} active={f.watermark}>
           <BulletinPrimCompact
@@ -2827,7 +3088,7 @@ export default function Bulletins() {
             // La MOYENNE reste celle du bulletin APC primaire (generalAverage) :
             // elle vient de `primDataById`, inchangée.
             moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
-            appreciationGenerale={d.appreciationGenerale}
+            appreciationGenerale={primAppreciationFor(student, d)}
             rank={primRanks[student.id]}
             coteBareme={primBareme}
             // ── LES CINQ BLOCS DU CARNET SONT UN CHOIX D'ÉCOLE ─────────────
@@ -2836,16 +3097,25 @@ export default function Bulletins() {
             // s'imprime exactement comme avant. Pas de nom d'école en dur : la
             // prochaine qui veut ce carnet le coche, sans toucher au code.
             //
-            // Les trois distinctions sont DÉJÀ saisies par l'école (conseil de
-            // classe : `th`, `encouragement`, `aver_travail`) : on les affiche,
-            // on ne les recalcule pas à partir de la moyenne.
+            // Les QUATRE distinctions sont DÉJÀ saisies par l'école (conseil de
+            // classe : `th`, `encouragement`, `felicitation`, `aver_travail`) :
+            // on les affiche, on ne les recalcule pas à partir de la moyenne.
+            // Ce qui est tiré du travail de l'élève, c'est la PROPOSITION
+            // offerte à la saisie — jamais ce qui s'imprime ici.
             mentions={primMentionsFor(student)}
             statsClasse={primCarnet && primClassStats ? {
               premier: primClassStats.max, dernier: primClassStats.min, generale: primClassStats.avg,
+              // « Suc. rates / % réussite » du carnet papier. `rate` est déjà
+              // calculé (élèves à la moyenne / élèves notés) : on l'affiche, on
+              // ne le recalcule pas. Seul le modèle papier le porte.
+              reussite: primEpreuves ? primClassStats.rate : null,
             } : undefined}
             repartition={primCarnet ? primRepartition : []}
+            repartitionTotal={primEpreuves ? primClassStats?.count : undefined}
             signatureParent={primCarnet}
             groupes={primCarnet}
+            programmes={programmes}
+            disposition={primEpreuves ? 'epreuves' : 'criteres'}
             pt={primOrientation === 'landscape' ? 9 : 8.5}
           />
         </WatermarkWrap>
@@ -2861,7 +3131,7 @@ export default function Bulletins() {
           competenceRows={primAnnualRowsFor(student)}
           moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
           rang={primRanks[student.id]} classStats={primClassStats}
-          appreciation={d.appreciationGenerale}
+          appreciation={primAppreciationFor(student, d)}
           // Le carnet de l'école vaut aussi pour la disposition détaillée : sur
           // un trimestre (UA1-3), « Auto » choisit celle-ci, et le réglage ne
           // devait pas se taire pour autant. Mêmes props, même source.
@@ -2933,13 +3203,25 @@ export default function Bulletins() {
                       plancher de lisibilité : on le dit APRÈS l'impression, en
                       nommant le levier, au lieu de laisser l'école le découvrir
                       sur la feuille. */}
+                  {/* LE MESSAGE DOIT NOMMER LE BON LEVIER. « Trop de matières »
+                      ne veut rien dire au primaire APC : ce qui déborde, c'est
+                      la disposition DÉTAILLÉE PAR UA, qui imprime un tableau par
+                      compétence — onze tableaux pour un trimestre, soit près du
+                      double d'une page, même réduite au plancher lisible
+                      (mesuré : 1835 px pour 1043 px utiles). La disposition
+                      Compacte porte les mêmes totaux de période sur UNE page.
+                      C'est donc elle qu'on propose, pas une refonte du
+                      référentiel de l'école. */}
                   {fitWarning > 0 && (
                     <span className="no-print text-xs font-medium text-amber-600 self-center">
-                      {fitWarning === 1
-                        ? t('1 bulletin dépasse une page : trop de matières pour la réduire sans la rendre illisible.',
-                            '1 report card exceeds one page: too many subjects to shrink it legibly.')
-                        : t(`${fitWarning} bulletins dépassent une page : trop de matières pour les réduire sans les rendre illisibles.`,
-                            `${fitWarning} report cards exceed one page: too many subjects to shrink them legibly.`)}
+                      {isPrim && primLayout === 'detail'
+                        ? t(`${fitWarning === 1 ? 'Ce bulletin dépasse' : `${fitWarning} bulletins dépassent`} une page : la vue « Détaillée par UA » imprime un tableau par compétence. Choisissez « Compacte » pour tenir sur une page.`,
+                            `${fitWarning === 1 ? 'This report card exceeds' : `${fitWarning} report cards exceed`} one page: the “Detailed by LU” view prints one table per competency. Choose “Compact” to fit on one page.`)
+                        : fitWarning === 1
+                          ? t('1 bulletin dépasse une page : trop de matières pour la réduire sans la rendre illisible.',
+                              '1 report card exceeds one page: too many subjects to shrink it legibly.')
+                          : t(`${fitWarning} bulletins dépassent une page : trop de matières pour les réduire sans les rendre illisibles.`,
+                              `${fitWarning} report cards exceed one page: too many subjects to shrink them legibly.`)}
                     </span>
                   )}
                   {selectedStudent && (
@@ -3027,7 +3309,12 @@ export default function Bulletins() {
               {primLayoutPref === 'auto'
                 ? (primSingleUA
                     ? t(`Auto : UA ${primSingleUA} → vue compacte`, `Auto: UL ${primSingleUA} → compact view`)
-                    : t('Auto : période multi-UA → vue détaillée', 'Auto: multi-UL period → detailed view'))
+                    // On DIT le nombre de pages. Une école qui lit « vue
+                    // détaillée » ne peut pas deviner que ce choix lui coûte
+                    // une deuxième feuille par élève ; elle le découvre à
+                    // l'imprimante, et c'est ce qui a coûté trois mois.
+                    : t('Auto : période multi-UA → vue détaillée (2 pages par élève)',
+                        'Auto: multi-UL period → detailed view (2 pages per pupil)'))
                 : t('Réglage manuel', 'Manual setting')}
             </span>
           </div>
@@ -3450,14 +3737,23 @@ export default function Bulletins() {
               )}
 
               {/* Appréciation du travail de l'élève — bulletins APC (officiel 1er
-                  cycle + APC classique). Saisie par élève et par période. */}
-              {selectedStudent && !printAll && (showApcOfficial || format === 'apc') && period?.seqs?.length > 0 && (
+                  cycle + APC classique) ET carnet du primaire. Saisie par élève
+                  et par période.
+                  LE CARNET DU PRIMAIRE EN ÉTAIT PRIVÉ : son « Appréciation »
+                  valait le libellé de la cote, donc le même mot pour tous les
+                  élèves d'une même cote, et aucun champ ne permettait d'y
+                  toucher. C'est là que les cinq champs du bas du carnet se
+                  saisissent désormais, avec leur proposition tirée du travail
+                  de l'élève. */}
+              {selectedStudent && !printAll && (showApcOfficial || format === 'apc' || isPrim) && period?.seqs?.length > 0 && (
                 <AppreciationEditor
                   classId={classId}
                   studentId={selectedStudent.id}
                   lastSeq={period.seqs[period.seqs.length - 1]}
                   current={apcAppreciationFor(selectedStudent.id)}
                   sys={sys}
+                  proposition={isPrim ? primPropositionFor(selectedStudent.id) : null}
+                  scores={gradeMap?.[`${classId}_${selectedStudent.id}_${period.seqs[period.seqs.length - 1]}`] || {}}
                 />
               )}
 

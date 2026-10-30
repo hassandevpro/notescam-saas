@@ -124,3 +124,9 @@ test-results/
 playwright-report/
 blob-report/
 .playwright/
+
+# Rapports de mesure d'impression (48 Mo d'archives et de captures) : artefacts
+# de banc, reproductibles par `npm run bulletin:visual`. Rien a versionner.
+rapport_impression/
+rapport_impression.zip
+rapport_impression.rar

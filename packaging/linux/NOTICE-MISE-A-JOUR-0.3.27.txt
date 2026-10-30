@@ -1,0 +1,178 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+CONDITION PRÉALABLE — À LIRE AVANT D'INSTALLER.
+
+Cette version ajoute une colonne `bulletin_accent` à la table `schools`.
+`schools` est SYNCHRONISÉE avec le Cloud. Si le Cloud ne connaît pas
+encore cette colonne, il REJETTE LA LIGNE ENTIÈRE : l'école cesse de
+remonter TOUS ses réglages, pas seulement la couleur.
+
+AVANT d'installer sur une école APPAIRÉE au Cloud, faire tourner au
+Cloud (Supabase → SQL Editor) le fichier du dépôt :
+
+    supabase_bulletin_accent.sql
+
+Le script de déploiement REFUSE de s'exécuter tant que vous ne l'avez
+pas confirmé (voir « Installation » plus bas).
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+========================================================================
+NotesCam 0.3.27 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.27.tar.gz
+Taille   : 53 580 131 octets
+SHA-256  : 0ef98a4fee54669857398e3c41379a0c845230f3ce4bfc286bad487769fb386f
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.27.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire. Elle contient TOUT ce que contenait
+la 0.3.26.
+
+Node embarqué : v24.22.2.
+
+
+>>> CE QUE CETTE VERSION CHANGE <<<
+------------------------------------
+
+ELLE NE FAIT QU'UNE CHOSE, ET C'EST LE DÉFAUT SIGNALÉ DEPUIS TROIS MOIS :
+le bulletin PRIMAIRE APC sortait sur DEUX pages dès qu'on imprimait un
+TRIMESTRE ou l'ANNÉE.
+
+LA CAUSE, exactement. L'écran choisit la disposition du bulletin d'après
+la période. Le réglage « Auto » — celui par défaut, que l'école n'a
+jamais touché — ne retient la vue COMPACTE que pour UNE unité
+d'apprentissage. Dès qu'on imprime un trimestre (UA 1-3) ou l'année,
+c'est l'AUTRE gabarit qui s'imprime, « Détaillée par UA ». Or ce gabarit
+n'avait jamais reçu la mécanique qui mesure la feuille et la réduit
+jusqu'à ce qu'elle tienne. Elle ne trouvait donc aucune feuille à
+mesurer, ne réduisait rien, et rendait un bilan parfaitement vert.
+
+Les trois correctifs précédents portaient tous sur le gabarit COMPACT.
+Ils étaient justes, et ils sont dans cette version aussi. Aucun ne
+touchait celui que l'école imprimait réellement.
+
+CE QUI EST MESURÉ, dans l'application elle-même (pas sur un banc) :
+
+    Période / disposition              Pages    Remplissage
+    UA 1          (Auto → compacte)      1        98,2 %
+    Trimestre 1   (Auto → détaillée)     3         —
+    Annuel        (Auto → détaillée)     3         —
+    Trimestre 1   forcé « Compacte »     1        98,2 %
+
+Après correction, la vue détaillée descend jusqu'à la plus petite taille
+lisible et passe de 3 pages à 2.
+
+
+>>> CE QUE CETTE VERSION NE FAIT PAS, ET IL FAUT LE DIRE <<<
+-------------------------------------------------------------
+
+LA VUE « DÉTAILLÉE PAR UA » RESTE SUR DEUX PAGES, ET C'EST NORMAL.
+
+Elle imprime UN TABLEAU PAR COMPÉTENCE — onze tableaux. Mesuré à la plus
+petite taille encore lisible (7 points) : il faudrait 1827 pixels de
+hauteur, la page en offre 1043. Aucun réglage ne la fera tenir sur une
+page. On a choisi de NE PAS écraser le texte jusqu'à l'illisible.
+
+POUR UNE PAGE PAR ÉLÈVE : choisir la disposition « COMPACTE ».
+Elle porte les mêmes totaux de période, et remplit la page à 98 %.
+
+L'écran le dit désormais lui-même, à deux endroits :
+  · à côté de « Auto » : « période multi-UA → vue détaillée
+    (2 pages par élève) » ;
+  · après une impression qui déborde : « Ce bulletin dépasse une page :
+    la vue « Détaillée par UA » imprime un tableau par compétence.
+    Choisissez « Compacte » pour tenir sur une page. »
+
+LE CHOIX DE LA DISPOSITION RESTE À L'ÉCOLE. Les deux vues ne portent pas
+la même information : la détaillée montre CHAQUE unité d'apprentissage
+séparément, la compacte donne les totaux de la période. Faire basculer
+« Auto » sur la compacte serait une décision de produit, pas un
+correctif.
+
+
+SCHÉMA ET SYNCHRONISATION
+--------------------------
+
+UNE SEULE COLONNE EST AJOUTÉE : `schools.bulletin_accent` (couleur
+d'accent des bulletins). Aucun curseur n'est remis à zéro : il n'y a PAS
+de long rattrapage à attendre, contrairement aux 0.3.16, 0.3.19 et
+0.3.23.
+
+La colonne est sans effet tant que l'école ne choisit pas de couleur
+(NULL = vert MINEDUB, aspect inchangé). Mais elle VOYAGE vers le Cloud :
+d'où la condition préalable en tête de cette notice.
+
+Si un long rattrapage démarre quand même après installation, ce n'est
+pas celle-ci qui l'a provoqué : c'est un reste de la précédente, et il
+faut le laisser finir.
+
+
+INSTALLATION
+-------------
+
+0. (ÉCOLE APPAIRÉE AU CLOUD) Faire tourner `supabase_bulletin_accent.sql`
+   au Cloud. Voir la tête de cette notice.
+
+1. Transférer les deux fichiers sur le serveur :
+
+       scp notescam-linux-x64-0.3.27.tar.gz deploy-0.3.27.sh ecole@serveur:~
+
+2. Vérifier l'empreinte, puis lancer le déploiement EN CONFIRMANT la
+   condition préalable :
+
+       sha256sum notescam-linux-x64-0.3.27.tar.gz
+       chmod +x deploy-0.3.27.sh
+       sudo NOTESCAM_CLOUD_ACCENT_OK=1 ./deploy-0.3.27.sh notescam-linux-x64-0.3.27.tar.gz
+
+   Sans `NOTESCAM_CLOUD_ACCENT_OK=1`, le script s'arrête et explique
+   pourquoi — c'est voulu.
+
+   Le script arrête le service AVANT la copie, SAUVEGARDE la base
+   (VACUUM INTO) et VÉRIFIE la sauvegarde, installe, redémarre, puis
+   passe une trentaine de contrôles et affiche un VERDICT.
+
+   `install.sh` seul fonctionne aussi, mais il NE SAUVEGARDE PAS la
+   base. Préférez le script de déploiement.
+
+
+À VÉRIFIER DEPUIS UN POSTE DE L'ÉCOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Shift+R.
+
+  1. curl -s http://localhost:8080/api/version  →  0.3.27
+
+  2. LE CONTRÔLE DE CETTE VERSION. Bulletins → une classe du PRIMAIRE →
+     période « UA 1 » → cliquez un élève → « Imprimer ce bulletin ».
+     L'aperçu d'impression doit montrer UNE SEULE PAGE, bien remplie.
+
+  3. Changez la période pour « Trimestre 1 ». À côté de « Auto »,
+     l'écran doit afficher « (2 pages par élève) ». Cliquez
+     « Compacte » : le bulletin repasse sur UNE page.
+
+  4. Tous les autres bulletins (collège, lycée, maternelle, bilingue)
+     doivent s'imprimer EXACTEMENT comme avant. Cette version ne touche
+     qu'au primaire APC.
+
+
+EN CAS DE PROBLÈME
+-------------------
+
+Envoyez-nous :
+  · la sortie complète de `deploy-0.3.27.sh` (elle porte le VERDICT) ;
+  · le PDF du bulletin concerné. Pour qu'il porte les mesures, ouvrez
+    l'écran avec l'adresse
+        http://<IP-serveur>:8080/app/bulletins?ncdebug=1
+    puis imprimez vers PDF : le NOM du fichier portera le relevé.
+
+Aucun diagnostic ne modifie la base.

@@ -1,7 +1,7 @@
 {
   "name": "notescam-saas",
   "private": true,
-  "version": "0.3.26",
+  "version": "0.3.27",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -38,7 +38,8 @@
     "video:record": "node remotion/recorder/record-demos.mjs",
     "test:bilingue": "node src/core/_bilEngine.test.mjs && node --experimental-loader ./scripts/lib/esm-resolve.mjs src/lib/_bilAutoConfig.test.mjs && node server/_bilSeed.test.mjs && node server/_bulletinAccess.test.mjs && node server/_bulletinSecurityE2E.test.mjs",
     "demo:bilingue": "node --experimental-loader ./scripts/lib/esm-resolve.mjs scripts/demo-bilingue-bulletins.mjs",
-    "test:print:bulletin": "node --experimental-loader ./scripts/lib/jsx-resolve.mjs scripts/print-capacity-bulletin.mjs"
+    "test:print:bulletin": "node --experimental-loader ./scripts/lib/jsx-resolve.mjs scripts/print-capacity-bulletin.mjs",
+    "bulletin:visual": "node --experimental-loader ./scripts/lib/jsx-resolve.mjs scripts/bulletin-prim-visual.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS schools (
   logo_url           TEXT,
   stamp_url          TEXT,
   signature_url      TEXT,
+  bulletin_accent    TEXT,   -- couleur d'accent des bulletins (#rrggbb) ; NULL = vert MINEDUB
   plan               TEXT NOT NULL DEFAULT 'starter',
   price_per_student  REAL NOT NULL DEFAULT 0,
   license_status     TEXT DEFAULT 'trial',

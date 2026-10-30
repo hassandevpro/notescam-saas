@@ -310,6 +310,13 @@ ensureColumn('prim_notes', 'statut', 'statut TEXT');
 // Éteint par défaut — l'allumer change la moyenne de tous les bulletins déjà
 // imprimés, ce qu'aucune école ne doit subir sans l'avoir demandé.
 ensureColumn('schools', 'notes_manquantes_zero', 'notes_manquantes_zero INTEGER NOT NULL DEFAULT 0');
+// Couleur d'accent des bulletins, choisie par l'école. Miroir de
+// `supabase_bulletin_accent.sql`, qui doit avoir tourné au Cloud AVANT qu'un
+// paquet portant cette ligne ne soit distribué : `schools` est synchronisée, et
+// `sync-push` filtre les tables et non les colonnes — une colonne inconnue du
+// Cloud fait rejeter la ligne ENTIÈRE, donc tous les réglages de l'école, pas
+// seulement la couleur. NULL = vert MINEDUB par défaut, aspect inchangé.
+ensureColumn('schools', 'bulletin_accent', 'bulletin_accent TEXT');
 
 // ── LA CLÉ D'UNICITÉ DE prim_notes A CHANGÉ, ET LES BASES INSTALLÉES NON ─────
 //

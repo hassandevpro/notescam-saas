@@ -1,0 +1,184 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+CONDITION PREALABLE - A LIRE AVANT D'INSTALLER.
+
+Cette version ajoute une colonne 'bulletin_accent' a la table 'schools'.
+'schools' est SYNCHRONISEE avec le Cloud. Si le Cloud ne connait pas
+encore cette colonne, il REJETTE LA LIGNE ENTIERE : l'ecole cesse de
+remonter TOUS ses reglages, pas seulement la couleur.
+
+AVANT d'installer sur une ecole APPAIREE au Cloud, faire tourner au
+Cloud (Supabase -> SQL Editor) le fichier du depot :
+
+    supabase_bulletin_accent.sql
+
+Si l'ecole n'est pas appairee (LAN seul), la question ne se pose pas.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+========================================================================
+NotesCam 0.3.27 (Windows) - Notice pour le responsable informatique
+========================================================================
+
+Installeur : NotesCam-Setup-0.3.27.exe
+Taille     : 30 851 402 octets
+SHA-256    : 0194d767166ddcda0a24d005123c275d6bfaa21a104642f257ab1dce2ed5bd27
+
+Verifiez l'empreinte avant d'installer, sur le poste serveur :
+
+    Get-FileHash .\NotesCam-Setup-0.3.27.exe -Algorithm SHA256
+
+Si elle ne correspond pas a la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a ete altere ou tronque pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    http://localhost:8080/api/version
+
+Cette mise a jour s'applique par-dessus la 0.3.6 ou toute version plus
+recente, sans etape intermediaire. Elle contient TOUT ce que contenait
+la 0.3.26.
+
+Node embarque : v24.22.2.
+
+
+>>> CE QUE CETTE VERSION CHANGE <<<
+------------------------------------
+
+ELLE NE FAIT QU'UNE CHOSE, ET C'EST LE DEFAUT SIGNALE DEPUIS TROIS MOIS :
+le bulletin PRIMAIRE APC sortait sur DEUX pages des qu'on imprimait un
+TRIMESTRE ou l'ANNEE.
+
+LA CAUSE, exactement. L'ecran choisit la disposition du bulletin d'apres
+la periode. Le reglage "Auto" - celui par defaut, que l'ecole n'a jamais
+touche - ne retient la vue COMPACTE que pour UNE unite d'apprentissage.
+Des qu'on imprime un trimestre (UA 1-3) ou l'annee, c'est l'AUTRE
+gabarit qui s'imprime, "Detaillee par UA". Or ce gabarit n'avait jamais
+recu la mecanique qui mesure la feuille et la reduit jusqu'a ce qu'elle
+tienne. Elle ne trouvait donc rien a mesurer, ne reduisait rien, et
+annoncait que tout allait bien.
+
+Les trois correctifs precedents portaient tous sur le gabarit COMPACT.
+Ils etaient justes, et ils sont dans cette version aussi. Aucun ne
+touchait celui que l'ecole imprimait reellement.
+
+CE QUI EST MESURE, dans l'application elle-meme (pas sur un banc) :
+
+    Periode / disposition              Pages    Remplissage
+    UA 1          (Auto -> compacte)     1        98,2 %
+    Trimestre 1   (Auto -> detaillee)    3        -
+    Annuel        (Auto -> detaillee)    3        -
+    Trimestre 1   force "Compacte"       1        98,2 %
+
+Apres correction, la vue detaillee descend jusqu'a la plus petite taille
+lisible et passe de 3 pages a 2.
+
+
+>>> CE QUE CETTE VERSION NE FAIT PAS, ET IL FAUT LE DIRE <<<
+-------------------------------------------------------------
+
+LA VUE "DETAILLEE PAR UA" RESTE SUR DEUX PAGES, ET C'EST NORMAL.
+
+Elle imprime UN TABLEAU PAR COMPETENCE - onze tableaux. Mesure a la plus
+petite taille encore lisible (7 points) : il faudrait 1827 pixels de
+hauteur, la page en offre 1043. Aucun reglage ne la fera tenir sur une
+page. On a choisi de NE PAS ecraser le texte jusqu'a l'illisible.
+
+POUR UNE PAGE PAR ELEVE : choisir la disposition "COMPACTE".
+Elle porte les memes totaux de periode, et remplit la page a 98 %.
+
+L'ecran le dit desormais lui-meme, a deux endroits :
+  - a cote de "Auto" : "periode multi-UA -> vue detaillee
+    (2 pages par eleve)" ;
+  - apres une impression qui deborde : "Ce bulletin depasse une page :
+    la vue << Detaillee par UA >> imprime un tableau par competence.
+    Choisissez << Compacte >> pour tenir sur une page."
+
+LE CHOIX DE LA DISPOSITION RESTE A L'ECOLE. Les deux vues ne portent pas
+la meme information : la detaillee montre CHAQUE unite d'apprentissage
+separement, la compacte donne les totaux de la periode. Faire basculer
+"Auto" sur la compacte serait une decision de produit, pas un correctif.
+
+
+SCHEMA ET SYNCHRONISATION
+--------------------------
+
+UNE SEULE COLONNE EST AJOUTEE : schools.bulletin_accent (couleur
+d'accent des bulletins). Aucun curseur n'est remis a zero : il n'y a PAS
+de long rattrapage a attendre, contrairement aux 0.3.16, 0.3.19 et
+0.3.23.
+
+La colonne est sans effet tant que l'ecole ne choisit pas de couleur
+(vide = vert MINEDUB, aspect inchange). Mais elle VOYAGE vers le Cloud :
+d'ou la condition prealable en tete de cette notice.
+
+Si un long rattrapage demarre quand meme apres installation, ce n'est
+pas celle-ci qui l'a provoque : c'est un reste de la precedente, et il
+faut le laisser finir.
+
+
+INSTALLATION - TROIS GESTES, DANS CET ORDRE
+--------------------------------------------
+
+0. (ECOLE APPAIREE AU CLOUD UNIQUEMENT) Faire tourner
+   supabase_bulletin_accent.sql au Cloud. Voir la tete de cette notice.
+
+1. INSTALLER. Clic droit sur NotesCam-Setup-0.3.27.exe ->
+   "Executer en tant qu'administrateur". La base de l'ecole
+   (C:\ProgramData\NotesCam\data) n'est jamais touchee par
+   l'installeur.
+
+2. REDEMARRER LE SERVICE. C'EST LE GESTE QU'ON OUBLIE : installer
+   remplace les FICHIERS, mais le serveur continue de tourner avec
+   l'ancien code.
+
+   Menu Demarrer -> NotesCam -> "REDEMARRER APRES MAJ", ou bien, dans
+   C:\Program Files\NotesCam : clic droit sur REDEMARRER-APRES-MAJ.cmd
+   -> "Executer en tant qu'administrateur".
+
+   Il arrete le service, SAUVEGARDE la base et VERIFIE la sauvegarde,
+   redemarre, puis controle. Si la sauvegarde n'est pas verifiee, il
+   remet le service en marche et s'arrete sans rien avoir modifie.
+
+3. CONTROLER. Double-cliquez verifier-correctifs.cmd. Il lit la BASE et
+   le serveur en marche, et dit si ce poste a vraiment recu la mise a
+   jour. Il ne modifie rien.
+
+   LA LIGNE A REGARDER pour cette version :
+
+       OK   Couleur d'accent des bulletins (0.3.27) - et donc :
+            le service a redemarre
+
+   Si elle est KO, le service tourne ENCORE sur l'ancien code : la
+   colonne est posee au demarrage. Reprenez le geste 2.
+
+
+A VERIFIER DEPUIS UN POSTE DE L'ECOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Shift+R.
+
+  1. http://localhost:8080/api/version  doit repondre 0.3.27
+
+  2. LE CONTROLE DE CETTE VERSION. Bulletins -> une classe du PRIMAIRE
+     -> periode "UA 1" -> cliquez un eleve -> "Imprimer ce bulletin".
+     L'apercu d'impression doit montrer UNE SEULE PAGE, bien remplie.
+
+  3. Changez la periode pour "Trimestre 1". A cote de "Auto", l'ecran
+     doit afficher "(2 pages par eleve)". Cliquez "Compacte" : le
+     bulletin repasse sur UNE page.
+
+  4. Tous les autres bulletins (college, lycee, maternelle, bilingue)
+     doivent s'imprimer EXACTEMENT comme avant. Cette version ne touche
+     qu'au primaire APC.
+
+
+EN CAS DE PROBLEME
+-------------------
+
+Envoyez-nous :
+  - le resultat de verifier-correctifs.cmd ;
+  - le PDF du bulletin concerne. Pour qu'il porte les mesures, ouvrez
+    l'ecran avec l'adresse
+        http://localhost:8080/app/bulletins?ncdebug=1
+    puis imprimez vers PDF : le NOM du fichier portera le releve.
+
+La base n'est jamais modifiee par un diagnostic.

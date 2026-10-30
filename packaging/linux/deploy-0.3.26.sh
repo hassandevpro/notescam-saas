@@ -406,8 +406,8 @@ titre "4 (0.3.26). Le correctif de CETTE version est-il dans le paquet ?"
 # forme fautive « ...(school) » survit donc telle quelle. Verifie sur les deux
 # archives livrables : le morceau Dashboard de la 0.3.25 en porte EXACTEMENT une,
 # celui de la 0.3.26 aucune. C est l empreinte meme du defaut.
-if ls "$DIST"/assets/Dashboard-*.js >/dev/null 2>&1; then
-  if grep -ohE '\([A-Za-z_$]*school\)' "$DIST"/assets/Dashboard-*.js | grep -q .; then
+if ls "$DIST"/Dashboard-*.js >/dev/null 2>&1; then
+  if grep -ohE '\([A-Za-z_$]*school\)' "$DIST"/Dashboard-*.js | grep -q .; then
     rouge "  FAIL  dist : le tableau de bord lit encore un « school » LIBRE — la page blanchira"
     ko=$((ko+1))
   else

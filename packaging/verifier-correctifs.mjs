@@ -82,6 +82,17 @@ const controles = [
   ['Avis « l’enseignant a saisi ses notes »',
     () => clesUniques('teacher_notifications')
       .includes(['school_id', 'teacher_id', 'class_id', 'sequence'].sort().join(','))],
+  // 0.3.27 — POSÉE AU DÉMARRAGE par `ensureColumn` (server/db.js). C'est donc
+  // aussi le contrôle qui dit si le service a VRAIMENT redémarré avec le
+  // nouveau code : installer remplace les fichiers, et tant que le serveur
+  // tourne encore sur l'ancien, la colonne n'existe pas.
+  //
+  // ⚠️ `schools` est SYNCHRONISÉE, et `sync-push` filtre les tables, pas les
+  // colonnes : si le Cloud ignore `bulletin_accent`, il rejette la LIGNE
+  // ENTIÈRE (PGRST204) et l'école cesse de remonter TOUS ses réglages. La
+  // migration `supabase_bulletin_accent.sql` doit avoir tourné au Cloud.
+  ['Couleur d’accent des bulletins (0.3.27) — et donc : le service a redémarré',
+    () => colonnes('schools').includes('bulletin_accent')],
 ];
 
 console.log('');

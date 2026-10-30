@@ -301,7 +301,14 @@ export default function App() {
 
   return (
     <LanLicenseGate>
-    <BrowserRouter>
+    {/* v7_relativeSplatPath : sans effet sur ce code — nos deux seules routes
+        splat (plus bas) renvoient vers des cibles ABSOLUES, que le drapeau ne
+        touche pas. Posé uniquement pour taire l'avis de React Router 6.
+        v7_startTransition reste VOLONTAIREMENT absent : toutes les pages sont
+        en lazy() sous un seul Suspense, et le drapeau supprimerait le
+        PageLoader pendant le téléchargement d'un morceau — sur les postes des
+        écoles, cliquer « Bulletins » semblerait ne rien faire. Voir I28. */}
+    <BrowserRouter future={{ v7_relativeSplatPath: true }}>
       <AnalyticsRouteTracker />
       <Suspense fallback={<PageLoader />}>
         <Routes>

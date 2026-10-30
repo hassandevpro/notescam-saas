@@ -608,6 +608,10 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
       ...form,
       teacher_id:   form.teacher_id   || null,
       teacher2_id:  form.teacher2_id  || null,
+      // « Hérité de l'école » se stocke NULL, jamais '' : la colonne est lue par
+      // `resolveClassEngine`, et une chaîne vide y passerait pour une surcharge
+      // posée alors qu'elle n'en est pas une.
+      bulletin_engine: form.bulletin_engine || null,
       max_students: form.max_students !== '' ? Number(form.max_students) : null,
     });
     setSaving(false);
@@ -752,6 +756,37 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 </select>
               </div>
             )}
+
+            {/* ── CE QUE LA CLASSE SAISIT ET IMPRIME ─────────────────────────
+                `classes.bulletin_engine` existe depuis toujours (« null = hérite
+                de l'école ») et `resolveClassEngine` l'honore en premier — mais
+                AUCUN écran ne l'exposait. Une classe du primaire était donc
+                routée d'office vers la saisie par COMPÉTENCES, sans retour
+                possible : les matières cochées ci-dessous n'étaient alors
+                notables nulle part.
+
+                MESURÉ sur CE2 BIL (37 matières, 2026-10-29) : le bulletin
+                « Primaire APC officiel » en montre 1 sur 37 ; les formats
+                Classique, Moderne et APC les montrent toutes les 37. Les
+                matières n'étaient donc pas perdues — elles étaient inatteignables
+                depuis la saisie, faute de ce réglage.
+
+                Défaut `null` : aucune classe existante ne change de comportement. */}
+            <div className="col-span-2 md:col-span-1">
+              <label className="form-label">{t('Saisie et bulletin', 'Entry and report')}</label>
+              <select className="form-input" value={form.bulletin_engine || ''} onChange={set('bulletin_engine')}>
+                <option value="">{t('Hérité de l’école', 'Inherited from school')}</option>
+                <option value="classic">{t('Par matières (classique)', 'By subject (classic)')}</option>
+                <option value="officiel">{t('Officiel (par compétences)', 'Official (by competency)')}</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {resolveClassEngine(school, { ...cls, bulletin_engine: form.bulletin_engine || null }) === 'classic'
+                  ? t('Les matières cochées ci-dessous se saisissent et s’impriment avec leur coefficient et leur barème.',
+                      'The subjects checked below are entered and printed with their coefficient and scale.')
+                  : t('Le programme officiel note des COMPÉTENCES : les matières cochées ci-dessous servent alors à choisir les compétences, et n’apparaissent pas une par une. Choisissez « Par matières » pour les saisir et les imprimer telles quelles.',
+                      'The official programme grades COMPETENCIES: the subjects checked below then only select competencies and do not appear one by one. Choose “By subject” to enter and print them as they are.')}
+              </p>
+            </div>
           </div>
 
 
@@ -1532,7 +1567,7 @@ export default function Classes() {
 
         {/* Modal édition classe */}
         {editing && (
-          <Modal title={`${t('Modifier', 'Edit')} — ${editing.name}`} onClose={() => setEditing(null)} size="xl">
+          <Modal title={`${t('Modifier', 'Edit')} — ${editing.name}`} onClose={() => setEditing(null)} size="2xl">
             <ClassDetailView
               cls={editing}
               teachers={teachers}

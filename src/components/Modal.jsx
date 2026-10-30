@@ -5,6 +5,13 @@ const SIZE_CLASSES = {
   md: 'max-w-lg',
   lg: 'max-w-2xl',
   xl: 'max-w-4xl',
+  // Pour les dialogues qui portent un TABLEAU : « Modifier la classe » liste une
+  // ligne par matière, avec coefficient, barème, classement et enseignant. À
+  // `xl` (896 px) ces cinq colonnes se serrent au point que les libellés
+  // reviennent à la ligne — une classe bilingue en compte 37. Taille ajoutée
+  // plutôt qu'élargissement de `xl`, qui aurait élargi tous les autres
+  // dialogues de l'application sans que personne l'ait demandé.
+  '2xl': 'max-w-6xl',
 };
 
 export default function Modal({ title, onClose, size = 'md', children }) {

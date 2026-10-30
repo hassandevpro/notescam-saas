@@ -6,13 +6,22 @@ Cette version ajoute une colonne `bulletin_accent` à la table `schools`.
 encore cette colonne, il REJETTE LA LIGNE ENTIÈRE : l'école cesse de
 remonter TOUS ses réglages, pas seulement la couleur.
 
-AVANT d'installer sur une école APPAIRÉE au Cloud, faire tourner au
-Cloud (Supabase → SQL Editor) le fichier du dépôt :
+>>> CETTE CONDITION EST REMPLIE DEPUIS LE 30/10/2026. <<<
 
-    supabase_bulletin_accent.sql
+`supabase_bulletin_accent.sql` A ÉTÉ APPLIQUÉE AU CLOUD ce jour-là, et
+vérifiée par lectures seules :
 
-Le script de déploiement REFUSE de s'exécuter tant que vous ne l'avez
-pas confirmé (voir « Installation » plus bas).
+    colonne      présente — text, nullable
+    contrainte   bulletin_accent IS NULL OU au format #rrggbb
+    écoles       44 au total, 0 avec une couleur choisie
+
+« 0 couleur choisie » est le résultat attendu : personne n'a encore
+choisi, donc AUCUN bulletin ne change d'aspect.
+
+VOUS N'AVEZ DONC RIEN À FAIRE AU CLOUD. Le script de déploiement vous
+demandera quand même de confirmer cette condition — c'est voulu, la
+confirmation est tracée dans le journal de déploiement. Confirmez-la :
+elle est vraie (voir « Installation » plus bas).
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 ========================================================================
@@ -20,8 +29,8 @@ NotesCam 0.3.27 — Notice pour l'administrateur du serveur de l'école
 ========================================================================
 
 Archive  : notescam-linux-x64-0.3.27.tar.gz
-Taille   : 53 580 131 octets
-SHA-256  : 0ef98a4fee54669857398e3c41379a0c845230f3ce4bfc286bad487769fb386f
+Taille   : 53 609 764 octets
+SHA-256  : 61896ad52fb2e20459fdc0166339083797a0e5874b2281ebe7d4793d7fcf7946
 
 Vérifiez l'empreinte avant d'installer, sur le serveur :
 
@@ -120,8 +129,8 @@ faut le laisser finir.
 INSTALLATION
 -------------
 
-0. (ÉCOLE APPAIRÉE AU CLOUD) Faire tourner `supabase_bulletin_accent.sql`
-   au Cloud. Voir la tête de cette notice.
+0. RIEN À FAIRE AU CLOUD : `supabase_bulletin_accent.sql` a été appliquée
+   et vérifiée le 30/10/2026. Voir la tête de cette notice.
 
 1. Transférer les deux fichiers sur le serveur :
 

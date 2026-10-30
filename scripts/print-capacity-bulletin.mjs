@@ -4,11 +4,12 @@
 // « bulletin » (A4 portrait, marge 8 mm), bloc par bloc, pour savoir ce qui le
 // fait déborder sur une seconde page et de combien.
 //
-// POURQUOI MESURER PLUTÔT QUE RÉGLER À L'ŒIL. `fitLiveSheets` réduit déjà
-// chaque feuille, mais refuse de descendre sous `MIN_FIT_SCALE` (0,86) : en
-// dessous, un bulletin devient illisible, et il coule alors sur deux pages.
-// Savoir si l'on est à 0,88 ou à 0,62 change tout — dans un cas il manque
-// quelques millimètres, dans l'autre il faut revoir la disposition.
+// POURQUOI MESURER PLUTÔT QUE RÉGLER À L'ŒIL. Le carnet remplit la page par
+// une densité CHERCHÉE (`--nc-d`, lib/print/fitDensity.js) : entre le plancher
+// de lisibilité (corps à 7 pt) et le plafond (10 pt). Ce banc répond à la seule
+// question qui reste : à partir de combien de compétences même le plancher ne
+// suffit plus ? Savoir qu'on est à 0,88 ou à 0,12 de densité change tout — dans
+// un cas il reste de la marge, dans l'autre la prochaine ligne fait déborder.
 //
 // Le composant RÉEL est rendu (react-dom/server + loader JSX) : mesurer une
 // copie HTML écrite à la main ne prouverait rien sur ce qui s'imprime.
@@ -20,7 +21,7 @@ import { startServer, writeDoc } from './lib/print-harness.mjs';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 const { renderToStaticMarkup } = require('react-dom/server');
-const { readFileSync } = require('node:fs');
+const { readFileSync, readdirSync } = require('node:fs');
 
 const SRC = new URL('../src/', import.meta.url).href;
 
@@ -28,12 +29,38 @@ const SRC = new URL('../src/', import.meta.url).href;
 // clés restent VIDES : ce banc mesure une mise en page, il ne contacte rien.
 globalThis.__VITE_ENV__ = {};
 
-const { pageMetrics } = await import(`${SRC}lib/print/printStyles.js`);
-const { MIN_FIT_SCALE, facteurFit } = await import(`${SRC}lib/print/fitLiveSheets.js`);
+const { pageMetrics, printCss, DENSITE } = await import(`${SRC}lib/print/printStyles.js`);
+const { ajusterFeuilles } = await import('./lib/densite-navigateur.mjs');
 const { default: BulletinPrimCompact } = await import(`${SRC}components/bulletins/BulletinPrimCompact.jsx`);
 const { createElement } = require('react');
 
-const CSS = readFileSync(new URL('../src/styles/bulletin.css', import.meta.url), 'utf8');
+// Le CSS DU BUILD, pas le seul bulletin.css : sans le préambule Tailwind
+// (`box-sizing: border-box`), la feuille déborde de son rembourrage et toutes les
+// mesures sont fausses. Voir le commentaire détaillé dans bulletin-prim-visual.mjs.
+// `npm run build` est donc un préalable à ce banc.
+function cssLivre() {
+  const dir = new URL('../dist/assets/', import.meta.url);
+  let fichiers = [];
+  try { fichiers = readdirSync(dir); } catch { /* dist absent */ }
+  const ordre = [
+    fichiers.find((x) => /^index-.*\.css$/.test(x)),
+    fichiers.find((x) => /^Bulletins-.*\.css$/.test(x)),
+  ].filter(Boolean);
+  if (ordre.length < 2) {
+    console.error('\n  ✖ CSS du build introuvable. Lancez `npm run build` avant ce banc.\n');
+    process.exit(1);
+  }
+  return ordre.map((x) => readFileSync(new URL(x, dir), 'utf8')).join('\n');
+}
+const CSS = cssLivre();
+
+// La couche d'impression N'EST PAS dans le CSS du build : `setPrintProfile`
+// l'injecte à l'exécution, en fin de <head>. C'est elle qui porte le contrat de
+// densité (`--nc-d` et tous les `--nc-*`) et la géométrie de la feuille. Sans
+// elle, ce banc mesurait un carnet dont le corps retombait à la taille par
+// défaut du navigateur — 12 pt — et toutes ses conclusions étaient fausses.
+const CSS_PRINT = printCss({ profile: 'bulletin', screen: false, page: true });
+
 const m = pageMetrics('bulletin');
 
 // ── Fixtures : le cas RÉEL le plus lourd ────────────────────────────────────
@@ -138,45 +165,42 @@ function bulletinHtml(n, blocs = {}) {
   };
   const body = renderToStaticMarkup(createElement(BulletinPrimCompact, props));
   return `<!doctype html><html><head><meta charset="utf-8"/><style>
-    @page { size: A4 portrait; margin: ${m.margin}mm; }
     html,body{margin:0;padding:0}
     ${CSS}
-  </style></head><body><div class="bulletin-panel">${body}</div></body></html>`;
+  </style>
+  <style id="nc-print-styles">${CSS_PRINT}</style>
+  </head><body><div class="bulletin-panel">${body}</div></body></html>`;
 }
 
 const { server, port } = await startServer();
 const browser = await chromium.launch({ channel: 'chrome' }).catch(() => chromium.launch());
 const page = await browser.newPage({ viewport: { width: 1200, height: 1600 } });
 
+/**
+ * Mesure un carnet comme l'application le fait : recherche de densité en média
+ * SCREEN (le seul où une page web peut se mesurer elle-même), la géométrie
+ * d'impression étant posée par la classe `.nc-mesure`.
+ */
 async function mesure(nom, n, blocs) {
   const html = bulletinHtml(n, blocs);
   await page.goto(writeDoc(`bul-${nom}`, html, port), { waitUntil: 'load' });
-  await page.emulateMedia({ media: 'print' });
-  const h = await page.evaluate((w) => {
-    const el = document.querySelector('.bulletin-paper');
-    el.style.setProperty('width', `${w}mm`, 'important');
-    el.style.setProperty('max-width', 'none', 'important');
-    el.style.setProperty('margin', '0', 'important');
-    el.style.setProperty('box-shadow', 'none', 'important');
-    el.style.setProperty('transform', 'none', 'important');
-    return el.offsetHeight;
-  }, m.contentW);
-  const besoin = h / m.contentHpx;              // facteur qu'il FAUDRAIT
-  const fit = facteurFit(h, m.contentHpx);      // ce que le socle accepte
-  const tient = h - 1 <= m.contentHpx;
-  const etat = tient ? 'tient déjà'
-    : fit != null ? `réduit à ${fit}`
-    : `DÉBORDE — il faudrait ${(1 / besoin).toFixed(3)} < ${MIN_FIT_SCALE}`;
+  await page.emulateMedia({ media: 'screen' });
+  const [b] = await ajusterFeuilles(page, m);
+  const etat = b.etat === 'plancher'
+    ? `DÉBORDE — même au plancher (${DENSITE.bodyMin} pt)`
+    : b.etat === 'plafond'
+      ? `tient au plafond (${DENSITE.bodyMax} pt)`
+      : `densité ${b.d.toFixed(3)}`;
   console.log(
-    `  ${nom.padEnd(26)} ${String(Math.round(h)).padStart(5)} px  `
-    + `(${(h / m.contentHpx * 100).toFixed(1)} % de la page)  ${etat}`,
+    `  ${nom.padEnd(26)} ${String(Math.round(b.hauteur)).padStart(5)} px  `
+    + `(${(b.remplissage * 100).toFixed(1)} % de la page)  ${etat}`,
   );
-  return { nom, h, fit, tient };
+  return { nom, h: b.hauteur, d: b.d, tient: b.etat !== 'plancher' };
 }
 
 console.log(`Profil « bulletin » : ${m.contentW}×${m.contentH} mm `
   + `(${Math.round(m.contentWpx)}×${Math.round(m.contentHpx)} px)`);
-console.log(`Plancher de lisibilité MIN_FIT_SCALE = ${MIN_FIT_SCALE}\n`);
+console.log(`Bornes de densité : corps ${DENSITE.bodyMin}–${DENSITE.bodyMax} pt\n`);
 
 const TOUT = {
   groupes: true, legende: true, provisoire: true, appreciation: true,
@@ -219,7 +243,12 @@ console.log('\n— Décomposition du carnet complet à 22 compétences');
     }));
     // Les lignes du tableau principal, pour isoler le coût d'une compétence et
     // celui d'un bandeau de regroupement.
-    const t = inner.querySelector('table');
+    // La table des COMPÉTENCES, pas la première du document : depuis que
+    // l'en-tête officiel est lui-même une table, `querySelector('table')`
+    // renvoyait le bandeau RÉPUBLIQUE (86 px) et le relevé des lignes ne
+    // voulait plus rien dire. On la reconnaît à son en-tête.
+    const t = [...inner.querySelectorAll('table')]
+      .find((x) => /Compétence/.test(x.querySelector('tr')?.textContent || ''));
     const trs = t ? [...t.querySelectorAll('tr')].map((tr) => tr.offsetHeight) : [];
     return {
       padTop: parseFloat(cs.paddingTop), padBottom: parseFloat(cs.paddingBottom),
@@ -242,7 +271,7 @@ console.log('\n— Décomposition du carnet complet à 22 compétences');
 // l'imprimante recevra. C'est la règle du banc : on ne juge jamais un document
 // sur son apparence à l'écran. On applique donc le MÊME facteur que
 // `fitLiveSheets` poserait, puis on compte les pages.
-console.log('\n— PDF réel : nombre de pages (auto-ajustement appliqué comme à l’impression)');
+console.log('\n— PDF réel : combien de compétences tiennent encore sur UNE page ?');
 {
   // pdf.js doit être chargé en MODULE : la page doit donc venir du serveur
   // HTTP du harnais, pas d'un file://. Même mécanisme qu'openRasterizer.
@@ -258,43 +287,57 @@ console.log('\n— PDF réel : nombre de pages (auto-ajustement appliqué comme 
   const pdfjsPage = await browser.newPage();
   await pdfjsPage.goto(writeDoc('__compteur', compteurHtml, port));
   await pdfjsPage.waitForFunction(() => window.__pret === true, null, { timeout: 20000 });
-  let tout = true;
-  for (const n of [11, 17, 19, 22, 26, 30]) {
+
+  // ON NE CODE PLUS LA CAPACITÉ EN DUR, ON LA MESURE.
+  //
+  // L'ancienne version exigeait « une page jusqu'à 28 compétences », chiffre
+  // relevé une fois sur un mécanisme qui n'existe plus. Un seuil écrit à la
+  // main vieillit en silence : il finit par exiger moins que ce que le produit
+  // sait faire, ou davantage, et dans les deux cas c'est le banc qu'on fait
+  // taire. On cherche donc la limite, on l'affiche, et on n'exige qu'un
+  // PLANCHER — celui dont les écoles ont besoin.
+  //
+  // CE PLANCHER VIENT DU TERRAIN : une classe BILINGUE de CE1 porte 16 lignes
+  // sur le carnet de référence de l'école, et les écoles qui ajoutent leurs
+  // matières maison montent à 22. En deçà de 22, le produit ne couvre plus ses
+  // utilisateurs connus — c'est donc là qu'est la limite à défendre.
+  const PLANCHER_EXIGE = 22;
+
+  let derniereQuiTient = 0;
+  let premiereQuiDeborde = null;
+  for (const n of [11, 17, 19, 22, 24, 26, 28, 30, 32]) {
     const html = bulletinHtml(n, TOUT);
     await page.goto(writeDoc(`bul-pdf-${n}`, html, port), { waitUntil: 'load' });
+
+    // Exactement le chemin de l'application : recherche en média screen,
+    // impression en média print.
+    await page.emulateMedia({ media: 'screen' });
+    const [b] = await ajusterFeuilles(page, m);
     await page.emulateMedia({ media: 'print' });
-    // Le facteur que le socle poserait, mesuré dans les mêmes conditions.
-    const h = await page.evaluate((w) => {
-      const el = document.querySelector('.bulletin-paper');
-      const sauve = el.getAttribute('style') || '';
-      el.style.setProperty('width', `${w}mm`, 'important');
-      el.style.setProperty('max-width', 'none', 'important');
-      el.style.setProperty('margin', '0', 'important');
-      el.style.setProperty('transform', 'none', 'important');
-      const mesure = el.offsetHeight;
-      el.setAttribute('style', sauve);
-      return mesure;
-    }, m.contentW);
-    const s = facteurFit(h, m.contentHpx);
-    if (s != null) {
-      await page.evaluate((v) => {
-        document.querySelector('.bulletin-paper').style.setProperty('--nc-fit', String(v));
-      }, s);
-    }
+
     const pdf = await page.pdf({
-      format: 'A4', printBackground: true,
+      format: 'A4', printBackground: true, preferCSSPageSize: true,
       margin: { top: `${m.margin}mm`, bottom: `${m.margin}mm`, left: `${m.margin}mm`, right: `${m.margin}mm` },
     });
     const pages = await pdfjsPage.evaluate(
       (b64) => window.__numPages(b64),
       Buffer.from(pdf).toString('base64'),
     );
-    const ok = pages === 1;
-    if (!ok) tout = false;
+    if (pages === 1) derniereQuiTient = n;
+    else if (premiereQuiDeborde === null) premiereQuiDeborde = n;
+
     console.log(`  ${String(n).padStart(2)} compétences : ${pages} page(s)`
-      + `${s != null ? ` (réduit à ${s})` : ''}  ${ok ? 'OK' : '⟵ DÉBORDE'}`);
+      + `  densité ${b.d.toFixed(3)} (${b.etat})`
+      + `  remplissage ${(b.remplissage * 100).toFixed(1)} %`);
   }
-  console.log(tout ? '\n  ✅ Tous tiennent sur UNE page.' : '\n  ❌ Au moins un déborde.');
+
+  const ok = derniereQuiTient >= PLANCHER_EXIGE;
+  console.log(`\n  Capacité mesurée : UNE page jusqu'à ${derniereQuiTient} compétences`
+    + (premiereQuiDeborde ? ` (2 pages dès ${premiereQuiDeborde})` : ''));
+  console.log(ok
+    ? `  ✅ Au-dessus du plancher exigé (${PLANCHER_EXIGE} compétences).`
+    : `  ❌ SOUS le plancher exigé (${PLANCHER_EXIGE} compétences) — régression.`);
+  if (!ok) process.exitCode = 1;
 }
 
 await browser.close();

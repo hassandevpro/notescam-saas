@@ -112,6 +112,83 @@ export const CLASS = {
  *                                   ce CSS dans SA page, il ne doit alors pas
  *                                   déborder sur l'interface.
  */
+/**
+ * LA GÉOMÉTRIE D'IMPRESSION DE LA FEUILLE DE BULLETIN, ÉCRITE UNE FOIS.
+ *
+ * Elle est émise DEUX FOIS à partir de ce même texte : sous `@media print`,
+ * et sous la classe `.nc-mesure` que `lib/print/fitDensity.js` pose le temps
+ * de mesurer. Sans cela, l'ajustement mesure une feuille — celle de l'écran,
+ * rembourrage 24/28 px et largeur max 820 px — et en imprime une autre —
+ * rembourrage 4/7 px, largeur de la zone imprimable. Relevé : 1098 px mesurés
+ * pour 1044 px imprimés, 5 % d'erreur, dans le sens qui veut. Quelques
+ * millimètres suffisent à expédier le bloc signatures sur une deuxième page,
+ * puisqu'il est solidaire (break-inside: avoid) : il part alors EN ENTIER, en
+ * laissant la première page vide aux trois quarts.
+ *
+ * @param {string} sel  sélecteur de la feuille, portée comprise
+ */
+function geometrieFeuille(sel, m) {
+  return `
+    ${sel} {
+      box-sizing: border-box;
+      width: ${m.contentW}mm;
+      max-width: none;
+      margin: 0;
+      padding: 0;
+      box-shadow: none;
+      border-radius: 0;
+      background: #fff;
+    }`;
+}
+
+/**
+ * LE CONTRAT DE DENSITÉ — une seule variable, `--nc-d`, de 0 à 1.
+ *
+ * 0 = plancher de LISIBILITÉ (corps à 7 pt) ; 1 = plafond ESTHÉTIQUE (corps à
+ * 10 pt, lignes hautes, zones libres généreuses). Tout ce qui occupe de la
+ * hauteur en dérive par `calc()` : le gabarit n'a plus de taille écrite en
+ * dur, et `fitDensity` n'a plus qu'un seul bouton à tourner.
+ *
+ * Défaut : 1. Une feuille sur laquelle personne n'a lancé la recherche garde
+ * donc la mise en page la plus aérée — jamais une version resserrée par
+ * accident.
+ *
+ * `--nc-reliquat` reçoit, APRÈS convergence, les pixels qui restent. Ils vont
+ * aux zones où quelqu'un ÉCRIT — observations du titulaire, cadres de
+ * signature — jamais au décor : c'est ce qui fait qu'un bulletin de quatre
+ * compétences remplit sa page au lieu de flotter en haut d'un grand vide.
+ */
+export const DENSITE = {
+  bodyMin: 7,    bodyMax: 10,    // pt — corps du tableau
+  headMin: 8,    headMax: 11,    // pt — en-têtes
+  smallMin: 6.5, smallMax: 9,    // pt — mentions, légendes
+  padMin: 0,     padMax: 5,      // px — rembourrage vertical d'une cellule
+  gapMin: 1,     gapMax: 6,      // px — interstice entre deux blocs
+  logoMin: 30,   logoMax: 62,    // px
+  stampMin: 32,  stampMax: 56,   // px
+  signMin: 46,   signMax: 98,    // px — hauteur d'un cadre de signature
+  observMin: 14, observMax: 52,  // px — case d'observations, hors reliquat
+};
+
+function densiteCss(sel) {
+  const d = DENSITE;
+  const entre = (min, max, u) => `calc(${min}${u} + var(--nc-d) * ${+(max - min).toFixed(3)}${u})`;
+  return `
+    ${sel} {
+      --nc-d: 1;
+      --nc-reliquat: 0px;
+      --nc-body:   ${entre(d.bodyMin, d.bodyMax, 'pt')};
+      --nc-head:   ${entre(d.headMin, d.headMax, 'pt')};
+      --nc-small:  ${entre(d.smallMin, d.smallMax, 'pt')};
+      --nc-pad-v:  ${entre(d.padMin, d.padMax, 'px')};
+      --nc-gap:    ${entre(d.gapMin, d.gapMax, 'px')};
+      --nc-logo:   ${entre(d.logoMin, d.logoMax, 'px')};
+      --nc-stamp:  ${entre(d.stampMin, d.stampMax, 'px')};
+      --nc-sign:   calc(${entre(d.signMin, d.signMax, 'px')} + var(--nc-reliquat) * 0.4);
+      --nc-observ: calc(${entre(d.observMin, d.observMax, 'px')} + var(--nc-reliquat) * 0.6);
+    }`;
+}
+
 export function printCss({ profile = DEFAULT_PROFILE, screen = true, page = true, scope = '' } = {}) {
   const m = pageMetrics(profile);
   const S = scope ? `${scope} ` : '';
@@ -134,9 +211,32 @@ export function printCss({ profile = DEFAULT_PROFILE, screen = true, page = true
   return `
   /* ═══ SOCLE D'IMPRESSION NOTESCAM — profil « ${profile} » (${m.cssSize}, marge ${m.margin} mm) ═══ */
   ${S}* { box-sizing: border-box; }
+
+  /* Le contrat de densité vaut à l'écran COMME à l'impression : l'aperçu doit
+     montrer la mise en page qui sortira, sinon on valide autre chose que ce
+     qu'on imprime. */
+  ${densiteCss(`${S}.bulletin-paper`)}
+
+  /* LA BOÎTE DE LA FEUILLE APPARTIENT ICI, ET NULLE PART AILLEURS.
+     « bulletin.css » compacte historiquement le carnet APC à l'impression avec
+     « @media print { .apc-sheet { padding: 4px 7px !important } } ». Cette
+     règle ne vaut QU'en média print : la feuille y devenait 8 px plus haute et
+     son contenu 14 px plus étroit qu'à l'écran, là où l'ajustement la mesure.
+     Mesurer 1090 px et imprimer 1098 px, c'est imprimer une 2e page.
+     Une feuille qui déclare « nc-densite » annule donc ce compactage : son
+     rembourrage vient de « --nc-pad-v », cherché par la mesure. Les gabarits
+     qui ne le déclarent pas ne sont pas touchés. */
+  ${S}.bulletin-paper.nc-densite { padding: 0 !important; }
+
+  /* La géométrie d'IMPRESSION, hors média, sous la classe de mesure. */
+  ${geometrieFeuille(`${S}.bulletin-paper.nc-mesure`, m)}
+
   ${screenCss}
 
   @media print {
+    /* … et la même, pour de vrai. */
+    ${geometrieFeuille(`${S}.bulletin-paper`, m)}
+
     /* 1. Géométrie — la marge appartient à la page, pas à la feuille. */
     ${page ? `@page { size: ${m.cssSize}; margin: ${m.margin}mm; }` : '/* @page : laissé au document hôte */'}
 

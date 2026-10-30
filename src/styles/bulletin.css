@@ -320,6 +320,38 @@
     overflow: visible !important;
   }
 
+  /* ── LE CHROME DE L'APPLICATION NE DOIT RIEN OCCUPER SUR LE PAPIER ───────
+     DÉFAUT MESURÉ le 2026-10-29, sur l'écran réel, en média `print` :
+
+         sheetTop  : 32          ← la feuille commence 32 px sous le haut
+         parents   : DIV.p-4 pb-[calc(6rem+env(safe-area…))]
+                     h=1110  pad=32px/32px
+         feuille   : 1046 px · hauteur utile d'une page : 1062 px
+
+     La feuille TENAIT (1 046 < 1 062). C'est le conteneur de l'application —
+     celui qui aère l'écran et réserve la place de la barre du bas sur mobile —
+     qui ajoutait 32 px au-dessus et 32 px au-dessous, soit 64 px : le total
+     passait à 1 110 px, Chrome coupait, et la page 2 ne recevait que la barre
+     « Visa du Parent · L'Enseignant(e) · Le Directeur ».
+
+     `main { padding: 0 }` existait déjà, mais le rembourrage n'est pas sur
+     `main` : il est sur un DIV à l'intérieur. La règle ne l'atteignait pas.
+
+     Ce vol de 64 px frappait TOUS les modèles de bulletin, et il expliquait
+     l'écart constant entre la hauteur mesurée — qui annonçait que ça tenait —
+     et le PDF, qui sortait sur deux pages. C'est le même piège que `transform`
+     contre `zoom`, documenté plus bas : la mesure dit vrai sur la feuille, et
+     faux sur la page.
+
+     `:has()` plutôt qu'une classe utilitaire nommée : la classe vient de
+     Tailwind et changera. Ce qui ne changera pas, c'est qu'un conteneur du
+     bulletin ne doit pas s'imprimer. Un navigateur sans `:has()` retombe sur
+     le comportement d'avant — deux pages, jamais un bulletin tronqué. */
+  main :has(.bulletin-layout) {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
   /* Supprimer la grille layout pour le print */
   .bulletin-layout {
     display: block;
@@ -451,7 +483,7 @@
     padding: 4px 7px !important;   /* taille de police pilotée en pt par le composant (≥10pt) */
   }
   /* Feuille DENSE (carnet qui ne tiendrait pas autrement, cf.
-     core/primCompactDensite.js) : le rembourrage VERTICAL est rendu à la page.
+     lib/print/fitDensity.js) : le rembourrage VERTICAL est rendu à la page.
      `@page` fournit déjà la marge de 8 mm ; ces 4 px en haut et en bas
      s'ajoutaient par-dessus, sans rien protéger. */
   .apc-sheet.apc-sheet-dense {

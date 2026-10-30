@@ -27,3 +27,11 @@ export {
 export {
   fitLiveSheets, resetLiveSheets, facteurFit, MIN_FIT_SCALE, FIT_VAR,
 } from './fitLiveSheets';
+
+// Le remplissage de page PAR LA MESURE — successeur de `fitLiveSheets` pour les
+// gabarits qui déclarent le contrat de densité (`--nc-d`). Voir fitDensity.js.
+export {
+  ajusterDensite, reinitialiserDensite, attendreRessources,
+  chercherDensite, chercherReliquat, D_MIN, D_MAX, CIBLE_MIN,
+  VAR_D, VAR_RELIQUAT, CLASSE_MESURE,
+} from './fitDensity';

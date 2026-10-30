@@ -1194,3 +1194,313 @@ d'avant, ligne par ligne. Pour défaire la fonctionnalité : retirer `familles` 
 `ReferentielEditor` (l'éditeur reprend son comportement d'avant, celui que la maternelle et
 l'APC gardent déjà), et rendre à `groupesDe` sa clé `r.domaine` au lieu du numéro appris.
 Aucune donnée n'est perdue : `domaine` reste écrit.
+
+---
+
+## D28 — Un gabarit d'impression porte le contrat de densité, ou il n'est pas imprimable
+
+**Date** : 2026-10-29 · **Contexte** : I27, le bulletin primaire sur deux pages depuis
+trois mois.
+
+**La décision.** Tout gabarit que l'application peut envoyer à l'imprimante porte le
+contrat de densité : classe `nc-densite` sur sa feuille (`OfficialSheet … vars`) et
+**aucune taille écrite en dur** — tout dérive de `--nc-d`. Un gabarit qui ne le porte pas
+est un gabarit qu'on n'imprime pas.
+
+**Pourquoi.** Le contrat n'avait été posé que sur `BulletinPrimCompact`. Or le choix du
+gabarit dépend de la **période** : « Auto » ne retient le compact que pour une seule unité
+d'apprentissage. Dès qu'une école imprimait un trimestre, `BulletinPrimAnnualUA` rendait —
+sans une variable. `ajusterDensite` ne trouvait aucune feuille, ne réduisait rien, et
+**rendait un bilan vert**. Le défaut était donc invisible depuis le code *et* depuis les
+bancs : il ne se voyait qu'à l'imprimante de l'école.
+
+**Ce qui le verrouille.** `src/components/bulletins/_primDetailDensite.test.mjs` rend le
+composant réel et refuse toute `font-size` numérique dans la feuille. Il a échoué à sa
+première exécution et a trouvé trois tailles oubliées dans `bulletinOfficialParts` — le
+genre de preuve qu'on ne peut pas obtenir en relisant.
+
+**Ce qu'on refuse.** Rendre `vars` obligatoire pour tout le monde d'un coup : les six
+autres modèles (secondaire, maternelle, bilingue) n'ont pas de variables dans leur mise en
+page et gardent leur réduction `zoom` (`fitLiveSheets`). Chaque changement reste
+**conditionné à `vars`** : un gabarit qui ne le demande pas ne bouge pas d'un pixel. Le
+jour où l'un d'eux prend le contrat, il lui suffira de demander `vars`.
+
+**Ce qu'on refuse aussi : faire tenir l'intenable.** La vue « Détaillée par UA » imprime un
+tableau par compétence — onze tableaux, **1 827 px mesurés pour 1 043 px utiles** au
+plancher lisible de 7 pt. Aucune densité ne la fera tenir sur une page. On ne l'écrase
+donc pas jusqu'à l'illisible : elle descend au plancher et **l'écran le dit**, en nommant
+le remède (« Compacte »). C'est la règle déjà posée pour le plancher — avertir plutôt
+qu'écraser — appliquée là où elle mord.
+
+**Ce qui reste à l'école.** Le choix de la disposition. « Auto » continue de préférer la
+vue détaillée sur une période multi-UA, parce que les deux vues ne portent pas la même
+information : la détaillée montre **chaque UA séparément**, la compacte les totaux de
+période. Changer ce défaut n'est pas une correction technique, c'est une décision de
+produit — elle appartient au responsable, pas au correctif. En attendant, le libellé
+annonce le coût : « vue détaillée **(2 pages par élève)** ».
+
+**Comment revenir en arrière.** Retirer `vars` des quatre appels de
+`BulletinPrimAnnualUA` : le gabarit reprend ses tailles figées et son comportement d'avant.
+Les modifications de `bulletinOfficialParts` sont inertes sans `vars`.
+
+## D29 — Le programme d'une ligne se lit sur sa matière, jamais sur son intitulé
+
+**Le constat.** Sur les sept bulletins papier de THE GENIUS photographiés le 2026-10-29,
+six rangent les compétences sous les six familles du MINEDUB. Le septième — « Class 2/CP »,
+une classe **bilingue** — ne les range pas comme ça : il coupe la liste en **deux blocs de
+programme**, chacun avec son total, sa moyenne et sa cote, puis donne le total général.
+
+```
+…lignes anglophones…      English   Total: 242   Average: 17.29/20
+…lignes francophones…     French    Total: 260   Average: 18.57/20
+Total                     502 / 560                        Grade: A
+```
+
+242 + 260 = 502 : le document se vérifie lui-même. Les six familles ne donnent pas cette
+lecture, parce qu'une famille mélange les deux programmes.
+
+**La décision.** `src/core/primProgramme.js` découpe les lignes en deux blocs de programme
+— plus un bloc résiduel. Le gabarit dessine le **même bandeau** que pour une famille :
+c'est une variante de regroupement, pas un second bulletin.
+
+**Ce que le banc a corrigé.** La première version classait chaque ligne d'après la **langue
+de son intitulé**. Montée sur l'édition LAN et ouverte dans Chrome (CP BIL, 19 matières,
+les deux troncs), elle n'a produit **aucun bloc**. La cause se lisait à l'écran :
+
+```
+[1A] [Communicate in French]      [1B] [Communicate in English]
+```
+
+Les compétences nationales sont stockées en français et **traduites à l'affichage**
+(`referentielI18n.primCompetenceLabel`) : sur un bulletin anglophone, les onze s'écrivent
+en anglais, et tout tombait du même côté. **Un intitulé de ligne ne dit pas le programme,
+il dit la langue du document.**
+
+**Ce qui le dit vraiment.** La **matière** qui a réclamé la compétence. `refClassScope`
+applique déjà une règle écrite et testée : « la première matière, dans l'ordre de la
+classe, qui réclame une compétence la garde ; les suivantes reçoivent leur propre
+compétence maison ». On la **rejoue**, avec la même fonction de rapprochement
+(`competenceIdForSubject`), et une matière appartient à l'un des deux troncs officiels du
+niveau, que `classicSubjects` porte déjà dans les deux langues. Rien n'est deviné : on
+relit une attribution que le produit a faite.
+
+**Aucun réglage, aucune migration.** `bilingualSubjects` pose déjà le principe — « la
+liste des matières EST la marque du bilinguisme ». Une classe dont les lignes relèvent
+d'un seul tronc rend `[]`, et le carnet garde ses six familles. Mesuré sur l'écran réel :
+classe monolingue → six bandeaux, 1 page, inchangé.
+
+**Le troisième bloc, qui n'est pas sur le papier.** Deux sortes de lignes n'appartiennent à
+aucun programme : les matières d'aucun tronc (« Chinois ») et les compétences nationales
+qu'aucune matière de la classe ne réclame. Les ranger de force serait un faux. Elles vont
+donc dans « Autres matières » — et **c'est ce qui fait tenir l'addition** : sans ce bloc,
+elles comptaient dans le total général sans figurer nulle part, et un parent qui additionne
+les deux blocs ne retombait pas sur le total. Mesuré : 143,2 + 173,1 + 66 = **382,3**, le
+total imprimé.
+
+**Ce qu'on refuse.** Une colonne `programme` en base, et un quatrième mode de carnet. Le
+carnet papier de l'école est le **même document** pour CE1 (monolingue, six familles) et
+pour Class 2/CP (bilingue, deux blocs) : c'est la classe qui diffère, pas le réglage.
+
+**Le coût, mesuré.** Une classe bilingue porte les deux troncs. En « une ligne par
+épreuve », 19 matières font **1 084 px pour 1 043 px utiles**, densité déjà au plancher →
+2 pages (contre 1 116 px avec les six familles : le découpage par programme en fait gagner
+32, pas 41). En « critères en colonnes », la même classe tient sur **une page**
+(densité 0,53). Le paysage ne sauve rien (1 073 px pour ~700 px utiles).
+
+**Comment revenir en arrière.** Ne plus passer `programmes` à `BulletinPrimCompact` : le
+gabarit reprend `groupesDe` et les six familles. `primProgramme.js` devient inerte.
+
+## D30 — Le bas du carnet se dérive du travail de l'élève, mais ne s'écrit jamais tout seul
+
+**Le reproche, mot pour mot.** Les cinq champs du bas du carnet — « Appréciation »,
+« Avertissement conditionnel », « Tableau d'honneur », « Encouragement »,
+« Félicitations » — devaient **« varier »**, et « **en fonction du travail de l'élève** ».
+
+**Trois défauts réels, mesurés avant d'écrire.**
+
+1. **« Félicitations » ne s'imprimait nulle part.** `getAbsCond` relit `__felicitation__`
+   depuis toujours, l'écran Conseil de classe la saisit, `student_absences.felicitation`
+   la stocke des deux côtés — mais aucune des deux dispositions du carnet ne la portait.
+   Un élève félicité par son conseil recevait un carnet muet là-dessus, alors que quatre
+   des sept photos du carnet de l'école la portent.
+2. **L'« Appréciation » ne pouvait pas varier.** Elle valait `primCoteLabel(cote)`, donc
+   le libellé de la **cote** : tous les élèves d'une même cote recevaient mot pour mot la
+   même appréciation (« Enfant Expert »), quand le papier porte « Excellent », « Very
+   good ». Et aucun champ ne permettait d'y toucher : `AppreciationEditor` existait, avec
+   sa colonne en base, mais n'était affiché que pour les bulletins APC — jamais pour le
+   carnet du primaire.
+3. **Rien ne liait le bas du carnet au travail de l'élève.** Le conseil cochait à la main,
+   sans aucune indication.
+
+**La règle retenue.** Le travail de l'élève **PROPOSE**, le conseil **ÉCRIT**. Un moteur
+pur (`src/core/conseilPropositions.js`) ramène la moyenne en pourcentage de son barème —
+la normalisation du moteur des tableaux d'honneur, `score = moyenne / barème`, donc une
+seule règle pour le /20 francophone, le /100 anglophone et le /10 de GE — puis en déduit
+les cinq champs. L'écran affiche la proposition **à côté** du champ, avec un bouton
+« Appliquer » ; sans ce clic, rien ne change et le bulletin n'imprime que la saisie. C'est
+mot pour mot la convention d'`AutoHint` pour les sanctions de Vie scolaire : « jamais
+d'écrasement silencieux ». La règle du dépôt tient donc — « ne jamais inventer de notes,
+moyennes, cotes, rangs ou mentions » : rien d'inventé n'atteint le papier sans décision
+humaine.
+
+**Les quatre seuils ne sont pas des nombres choisis là.** Chacun reprend une borne que le
+produit utilise déjà, pour qu'un élève ne soit pas « Très Bien » sur son bulletin et hors
+des félicitations au conseil : **50 %** = le seuil de réussite (`clsStat` : barème / 2) ;
+**60 %** = la borne « Assez Bien » de `frApp` (12/20) ; **70 %** = « Bien » (14/20), et le
+`minAvgPct` du tableau « Élèves méritants » ; **80 %** = « Très Bien » (16/20), le
+`minAvgPct` du tableau d'excellence, et le `scale * 0.8` de l'analyse du conseil. Une
+école qui veut d'autres bornes les passe en `seuils` — rien n'est figé, rien n'est en
+double.
+
+**L'appréciation vient de l'échelle de l'école**, `school.grade_scale` via
+`getAppreciation`, jamais d'une table parallèle. Avec un piège mesuré : `enGrade` lit un
+**pourcentage**, et le carnet du primaire est sur 20. Sans la mise à l'échelle, 17,29/20 —
+le meilleur élève de la classe — ressortait **« Fail »**. Un test de non-régression garde
+la conversion.
+
+**Mesuré sur l'édition LAN montée, Chrome piloté.** Carnet bilingue CP BIL BANC, mode
+`carnet_epreuves`. Avant : `Appreciation | Achieved`, et les quatre distinctions à `no`.
+Bandeau : « Based on their work (79,9 %) ». Après « Appliquer » : `Appreciation | Very
+Good`, `Honour roll yes`, `Commendation yes`, `Congratulations no` — 79,9 % passe sous les
+80 %, et le seuil fait son travail. Après rechargement, les valeurs sont relues **en
+base**. La feuille fait toujours **1 046 px, 1 page** (`--nc-d 0`, fit 0,962) : le
+correctif de pagination de D29/I29 n'est pas entamé.
+
+**Et ça varie.** Les onze élèves du banc : 70 % → « Good » + honneur + encouragement ;
+79 % → « Very Good » ; 80,3 % → « Excellent » + félicitations. Les cinq élèves de 6eme A
+au Conseil de classe : 83 % → Acquis + les trois distinctions ; 71 % → Acquis + deux ;
+60 % → En cours d'acquisition + une ; 52 % → aucune ; 39 % → Insuffisant + avertissement.
+Cinq élèves, cinq bas de bulletin différents.
+
+**Un seul enregistrement par clic.** `lotConseil` rend le lot complet, et l'écran appelle
+`saveGrade` **une fois** : cinq appels successifs auraient mis cinq éléments dans la file
+de synchro hors ligne, où le dernier lu peut écraser les précédents.
+
+**Ce qu'on refuse.** Écrire les cinq champs d'office à l'ouverture du bulletin. Une
+appréciation écrite par l'enseignant ne disparaît jamais sous une mention calculée : le
+bandeau la **signale**, il ne la remplace pas, et appliquer une autre distinction ne
+touche pas le texte. Une proposition d'appréciation vide n'est jamais un écart — elle
+n'effacerait qu'un texte que l'école a écrit.
+
+**Le coût de place.** La ligne de synthèse du carnet compact compte **huit colonnes**, et
+les trois paires d'alors les occupaient déjà toutes avec l'en-tête « Travail académique ».
+L'en-tête part : c'est un nom de rubrique, pas une donnée, le carnet papier ne le porte
+pas, et les quatre paires tiennent alors exactement. La disposition détaillée par UA a son
+propre tableau, sans grille à respecter : la quatrième paire s'y ajoute sans rien déplacer.
+
+**Comment revenir en arrière.** Ne plus passer `proposition` à `AppreciationEditor` et
+`prop` à `DecisionAssistant` : les deux écrans reprennent la saisie nue.
+`conseilPropositions.js` devient inerte. Pour l'appréciation, remettre
+`appreciationGenerale={d.appreciationGenerale}` : le carnet retrouve le libellé de la
+cote. Pour « Félicitations », retirer `mentions.felicitation` des deux gabarits.
+
+## D31 — Le droit d'écrire se lit sur la table qu'on écrit, et il rend un périmètre
+
+**La règle.** Un écran qui garde une écriture doit interroger la policy de **la table qu'il
+écrit**, pas celle d'une table voisine. Et il doit en tirer un **périmètre** — quoi — plutôt
+qu'un oui/non.
+
+**Pourquoi la poser maintenant.** Les trois écrans officiels gardaient leur rattrapage de
+référentiel avec `canManageClassSubjects`, miroir de la policy de `subjects` (titulariat
+exigé). Ils écrivent `prim_competences`, `mat_domaines` et `apc_matieres`, dont les trois
+policies disent la même chose, et autre chose : tout membre de l'école écrit les lignes de
+son école. L'écran était donc plus strict que la base, et son commentaire invoquait un
+refus RLS qui n'aurait jamais eu lieu. Coût réel : une enseignante de matière devant
+« Demandez à l'administration », sans une case à remplir (cf. **I30**).
+
+**Ce que `refLineScope` rend.**
+`{}` — tout le périmètre de la classe (admin, délégué `/app/classes`, titulaire) :
+le comportement d'avant, inchangé. `{ onlyTeacherId }` — ses propres matières, pour un
+enseignant de matière. `null` — rien, pour un censeur non délégué, un surveillant, ou un
+compte enseignant **sans fiche rattachée** (sinon `teacher_id === null` lui ouvrirait les
+matières que personne ne s'est vu affecter — le piège déjà corrigé dans `mySubjects`).
+
+**Ce qu'on ne déplace pas.** L'arbitrage « la PREMIÈRE matière qui réclame une compétence
+la garde » continue de se calculer sur **toute la classe**, et seule la création est
+restreinte. Sinon l'ordre des lignes du bulletin dépendrait de qui a ouvert l'écran le
+premier, et la même classe changerait de bulletin sans raison visible.
+
+**Ce qu'on refuse.** Un réglage. C'est la ligne déjà écrite dans `teacherScope.js` :
+« une enseignante ne doit pas attendre qu'on l'autorise à nommer les matières de sa propre
+classe ». La sécurité tient au périmètre, pas à un interrupteur.
+
+**La cellule qui refuse en silence.** Corrigée du même coup : `validateGrade` refuse ce qui
+dépasse le barème de la colonne, et la cellule revenait à sa valeur d'avant sans un mot —
+ce qui se lit comme une note perdue. Elle nomme maintenant la raison et où la changer. Le
+cas est fréquent précisément sur les compétences AJOUTÉES PAR L'ÉCOLE, qui n'ont aucun
+barème national (`prim_bareme_criteres` n'a pas de `school_id`) : c'est l'enseignant qui le
+pose, juste au-dessus de la case.
+
+**Comment revenir en arrière.** Remettre `if (!canManageClassSubjects({…})) return;` dans
+les trois effets de rattrapage et retirer `refLineScope` : le droit redevient le titulariat,
+et l'impasse revient avec lui. Pour les filtres de classe, remettre
+`competenceIdsForTeacher(...).size > 0` (primaire) et `domaineIdsForTeacher(...).size > 0`
+(maternelle). Pour le message de refus, retirer `onRefus` de `NoteCell`.
+
+## D32 — Une colonne de saisie existe quand elle a un barème, et le barème se reprend de l'école
+
+**La règle, en deux temps.**
+
+1. **Une compétence ajoutée par l'école s'ouvre avec un barème**, pas à zéro. Il n'est pas
+   inventé : on reprend ce que l'école emploie déjà sur ce critère dans la classe, sinon le
+   gabarit officiel le plus fréquent du niveau, sinon 20. Et il s'écrit par le **même chemin**
+   que si l'enseignant l'avait tapé (`setBareme`) — donc même refus si une note le dépasse,
+   même persistance pour toute la colonne, et modifiable à tout instant.
+2. **Une colonne sans barème ne s'affiche pas.** Elle reste à un clic, sous le tableau.
+
+**Pourquoi la poser.** `prim_bareme_criteres` est une table NATIONALE : clé
+(`niveau_id`, `competence_id`), aucun `school_id`, aucune école n'y écrit. Une compétence
+qu'une école ajoute — « CHINESE », « Espagnol », « Dictée », « Maths paper 1 » — n'y a donc
+aucune ligne, ses quatre colonnes naissaient à zéro, et une colonne à zéro a ses cases
+**désactivées**. Relevé à l'écran, compte enseignant :
+
+```
+barèmes  : [0, 0, 0, 0]
+ELEVE PROF 01  [—, —, —, —]    les quatre cases inactives
+```
+
+Il fallait deviner qu'on tape d'abord un chiffre dans la petite case du barème, en en-tête.
+Symétriquement, les compétences nationales affichaient leurs critères inutilisés en
+« à définir » — « Pratique » sur 1A, 1B, 2A — soit trois ou quatre colonnes grisées à
+enjamber, à chaque compétence et à chaque UA.
+
+**Le barème n'est pas une constante nationale.** Sept bulletins réels de THE GENIUS
+(2025/2026, SIL à CM1) le montrent, et montrent que l'école s'écarte du MINEDUB quand elle
+le juge bon :
+
+```
+SIL      1A 40 · 2A 30 · 3A/3B/4/5/5A/5B 20 · CHINOIS 20      (= le national)
+CE1      A/B/C 40 · 2A/2B 30 · 5A 20        (le national dit 30/30/20/40/40/40)
+CM1      1B 50 · Dictée 40 · Problèmes 50 · Calcul rapide 20
+CLASS V  Maths paper 1 70 · English 1/2 50 · ICT 20 · EPS 20
+```
+
+D'où l'ordre « l'école d'abord, le référentiel ensuite », et jamais une valeur sortie de
+nulle part. À égalité de fréquence, le **plus grand** l'emporte : un barème plus large ne
+refuse aucune note déjà saisie, l'inverse si.
+
+**Une seule colonne s'ouvre d'office : « Écrit ».** Dans les sept bulletins, CHAQUE matière
+ajoutée par l'école est évaluée « Written / Écrite ». Ouvrir les quatre imposerait quatre
+notes par élève pour une matière évaluée sur une seule épreuve.
+
+**Ce qu'on refuse.** Réutiliser `refMasques.prim_crit` pour « désactiver » : ce masquage est
+**global à l'école**, et GENIUS évalue « Pratique » en TIC mais pas en Dictée. La donnée
+porte déjà la bonne granularité — par compétence.
+
+**Ce qui distingue « fermée » de « jamais ouverte ».** Une colonne refermée par l'école garde
+des lignes à `points_max` NULL ; une colonne jamais ouverte n'a aucune ligne. Sans cette
+distinction, le barème se reposerait tout seul après chaque fermeture. Mesuré : la fermeture
+survit au rechargement.
+
+**Le défaut que cette décision a elle-même créé, et sa parade.** L'ouverture automatique
+partait au premier rendu, quand `primNotes` est encore vide parce que rien n'est chargé — pas
+parce que la colonne est vierge. `setBareme` réécrit alors toute la colonne en conservant
+« la note actuelle », qui vaut `null` dans une carte vide : **quatre notes effacées à la
+simple ouverture de l'écran.** D'où `primNotesPrets` dans le magasin — faux jusqu'à ce que la
+lecture serveur ait abouti (ou, hors ligne, le cache local). Toute écriture dérivée d'une
+lecture doit attendre ce drapeau.
+
+**Comment revenir en arrière.** Retirer `baremeOuverture` et son effet, et rendre aux rendus
+`criteres` à la place de `criteresActifs` : les colonnes vides réapparaissent en « à définir »
+et les compétences maison renaissent à zéro. `primNotesPrets` peut rester — il ne coûte rien
+et protège toute écriture dérivée d'une lecture.

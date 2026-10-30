@@ -4,10 +4,69 @@
 > actualiser à la fin. Toute ligne ici doit être vérifiable par une commande ou un
 > fichier : si une information ne peut pas être prouvée, elle est marquée « à vérifier ».
 >
-> Dernière mise à jour : **2026-10-27** (release **0.3.26** : les deux paquets sont
+> Dernière mise à jour : **2026-10-29** (release **0.3.27** : les deux paquets sont
 > construits — § ci-dessous) · branche `caisse-journal-et-sync-0.3.15`, dernier push sur
 > `main` le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
-> `package.json` = **0.3.26**
+> `package.json` = **0.3.27**
+>
+> ## 📦 0.3.27 — LES DEUX PAQUETS SONT CONSTRUITS, NON ENVOYÉS (2026-10-29)
+>
+> **Rien n'est déployé** : ni Vercel, ni une école. Les artefacts sont sur le poste de
+> build. **Rien n'est commité** non plus — le travail est dans l'arbre de travail.
+>
+> | | Windows | Linux |
+> |---|---|---|
+> | Fichier | `packaging/Output/NotesCam-Setup-0.3.27.exe` | `packaging/linux/Output/notescam-linux-x64-0.3.27.tar.gz` |
+> | Taille | 30 851 402 o | 53 580 131 o |
+> | SHA-256 | `0194d767…2ed5bd27` | `0ef98a4f…69fb386f` |
+> | Notice | `packaging/NOTICE-MISE-A-JOUR-0.3.27-WINDOWS.txt` | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.27.txt` |
+> | Script | — (installeur) | `packaging/linux/deploy-0.3.27.sh` (`bash -n` OK) |
+>
+> **Node embarqué** : v24.22.2 pour les deux.
+>
+> **Ce qu'elle corrige** : I27 — le bulletin primaire APC sortait sur **deux pages dès
+> qu'on imprimait un trimestre ou l'année**, depuis trois mois. Le contrat de densité
+> n'était posé que sur le gabarit *compact* ; « Auto » n'y envoie que les périodes d'UNE
+> unité d'apprentissage. Voir I27 et D28.
+>
+> **Limite assumée, écrite dans les deux notices** : la vue « Détaillée par UA » reste sur
+> **2 pages** (un tableau par compétence : 1 827 px mesurés pour 1 043 px utiles, au
+> plancher lisible). Elle descend désormais au plancher — 3 pages → 2 — et **l'écran le
+> dit** en nommant le remède. **Pour une page par élève : disposition « Compacte »**
+> (98,2 % de remplissage).
+>
+> ### ⛔ CONDITION BLOQUANTE AVANT TOUT ENVOI
+>
+> Ces paquets embarquent `schools.bulletin_accent` (ajoutée par `ensureColumn` dans
+> `server/db.js`). **`schools` est synchronisée et `sync-push` filtre les tables, pas les
+> colonnes** : si le Cloud ignore la colonne, il rejette la **ligne entière** (PGRST204) —
+> l'école perd la remontée de **tous** ses réglages, pas seulement la couleur.
+>
+> `supabase_bulletin_accent.sql` **doit avoir tourné au Cloud avant distribution**. Cette
+> autorisation n'a **pas** été donnée, et **je n'ai pas pu vérifier l'état du Cloud** : le
+> connecteur Supabase était hors service pendant la session. `deploy-0.3.27.sh` **refuse de
+> s'exécuter** sans `NOTESCAM_CLOUD_ACCENT_OK=1`, et les deux notices portent le bandeau.
+>
+> ### Preuves de cette release
+>
+> `npm test` **217 ok, 0 ko** · `_primDetailDensite` 4/4 · `bulletin:visual` ✅ ·
+> `test:print:bulletin` une page jusqu'à 32 compétences · `test:print` 131/131 ·
+> `validate:migrations` ✅ · `build` + `build:lan` ✓ · impression réelle pilotée dans
+> l'édition LAN (Chrome/Playwright) : 8/8 bulletins sur une page en UA 1 et en Annuel
+> compacte, 98,2 % de remplissage.
+>
+> **Empreinte du défaut dans le bundle**, vérifiée sur les deux archives livrables : la
+> forme `(7,1.1,1)` (les appels `mkCell(7,1.1,1)`/`mkTH(7,1.1,1)` du gabarit détaillé)
+> apparaît **2 fois** dans le `Bulletins-*.js` de la 0.3.26 et **0 fois** dans celui de la
+> 0.3.27. `deploy-0.3.27.sh` en fait un contrôle.
+>
+> ### Trouvé en chemin, NON corrigé
+>
+> `server/officiel-seed.sql` ne contient **aucune ligne** de `prim_bareme_criteres` ni de
+> `prim_niveau_competences` (`scripts/build-officiel-seed.mjs` ne lit pas les trois
+> `supabase_prim_bareme_*.sql`). Sur une installation LAN **neuve**, toutes les notes du
+> primaire s'affichent « — ». Les écoles livrées par `make-seed-ecole.mjs` ne sont pas
+> touchées. Décision à prendre : cela modifie le seed embarqué.
 >
 > ## ⚠️ CORRECTION D'UNE ERREUR DE CE DOCUMENT (2026-10-27)
 >
@@ -1373,9 +1432,265 @@ est `[MANUEL]` (Docker/psql indisponibles ici) et **n'a pas tourné**.
 
 **Rien n'est commité. Rien n'est déployé. Aucun des quatre fichiers SQL n'est appliqué.**
 
-## 5. Travaux en cours — 69 fichiers non commités
+## 4 sexdecies. Le carnet d'une classe BILINGUE — deux blocs de programme (2026-10-29)
 
-38 fichiers modifiés (+1303 / −510) et 31 non suivis. Regroupement proposé pour des
+**La demande.** « C'est la variante bilingue que je vous ai signalée comme non faite. »
+Elle visait le septième des bulletins papier de THE GENIUS photographiés le 2026-10-29 :
+« Class 2/CP », une classe bilingue, qui **ne range pas** ses compétences sous les six
+familles du MINEDUB mais les coupe en **deux blocs de programme** —
+`English Total: 242` · `French Total: 260` · `Total 502 / 560 · Grade A`.
+
+**Ce qui est livré.** `src/core/primProgramme.js` (nouveau, pur) découpe les lignes en deux
+blocs de programme plus un bloc résiduel, dans la **même forme** que les six familles : le
+gabarit dessine le même bandeau, il n'y a pas de second bulletin.
+
+| Fichier | Rôle |
+|---|---|
+| `src/core/primProgramme.js` | **nouveau** — les deux troncs, l'attribution, les blocs, le tri |
+| `src/core/primCompactRows.js` | `agregerGroupe` extrait : une seule arithmétique pour familles **et** programmes |
+| `src/components/bulletins/BulletinPrimCompact.jsx` | prop `programmes` ; à `[]` rien ne change |
+| `src/pages/Bulletins.jsx` | appelle le moteur avec les **matières** et la liste **non traduite** |
+| `src/core/_primBilingue.test.mjs` | **nouveau** — 65 contrôles |
+
+**Le piège, trouvé par le banc et non par la relecture.** La première version classait
+chaque ligne d'après la **langue de son intitulé**. Montée sur l'édition LAN et ouverte
+dans Chrome, elle n'a produit **aucun bloc** : les compétences nationales sont stockées en
+français et **traduites à l'affichage**, donc sur un bulletin anglophone les onze
+s'écrivent en anglais et tout tombait du même côté. Le classement passe maintenant par la
+**matière qui a réclamé la compétence** — la règle que `refClassScope` applique déjà.
+Voir D29.
+
+**Aucun réglage, aucune migration, aucune colonne.** Une classe dont les lignes relèvent
+d'un seul tronc rend `[]` : le carnet garde ses six familles. C'est le même principe que
+`bilingualSubjects.isBilingualClass` — « la liste des matières EST la marque du
+bilinguisme ».
+
+**Mesures sur l'écran réel** (édition LAN montée, Chrome piloté, `beforeprint` déclenché,
+`preferCSSPageSize`) :
+
+| Classe de banc | Disposition | Blocs | Densité | Feuille | Pages |
+|---|---|---|---|---|---|
+| CP BIL BANC (19 matières, 2 troncs) | une ligne par épreuve | English 143,2 · French 173,1 · Autres 66 | 0 (plancher) | 1 084 px | **2** |
+| CP BIL BANC | critères en colonnes | les mêmes | 0,53 | 1 043 px | **1** ✅ |
+| CP BIL BANC | épreuves, **paysage** | les mêmes | 0 | 1 073 px | 2 |
+| CE1 MONO BANC (10 matières) | une ligne par épreuve | **six familles**, inchangé | 0 | 1 043 px | **1** ✅ |
+
+`143,2 + 173,1 + 66 = 382,3` — exactement le total général imprimé. L'addition que fait un
+parent se vérifie à l'œil ; c'est la raison d'être du bloc « Autres matières ».
+
+**Suite du dépôt : 220 ok, 0 ko.** `npm run bulletin:visual` : 8 élèves → 8 pages.
+Build `npm run build:lan` OK. Base de dev restaurée, banc démonté.
+
+**Ce qui reste ouvert.** Une classe bilingue complète ne tient pas sur une page en « une
+ligne par épreuve » (1 084 px pour 1 043 utiles, densité déjà à 0) — **une page en
+« Compacte »**. Et les compétences nationales qu'aucune matière ne réclame (1C, 3A, 4A sur
+le banc) tombent dans « Autres matières » : choix assumé, à soumettre au responsable.
+
+**Rien n'est commité. Rien n'est déployé.**
+
+## 4 septdecies. Le bas du carnet VARIE — proposé par le travail de l'élève (2026-10-29)
+
+**Demandé :** « transforme maintenant la saisi des notes », puis, pour « Appréciation /
+Avertissement conditionnel / Tableau d'honneur / Encouragement / Félicitations », « ça
+doit varier » — « **en fonction du travail de l'élève** ».
+
+**Trois défauts réels, trouvés avant d'écrire :**
+
+| Défaut | Constat |
+|---|---|
+| « Félicitations » invisible | Saisie au conseil, stockée en base (`student_absences.felicitation`), relue par `getAbsCond` — mais **aucune** des deux dispositions du carnet ne l'imprimait |
+| « Appréciation » identique pour tous | Elle valait `primCoteLabel(cote)` : même mot pour tous les élèves d'une même cote, quand le papier porte « Excellent » / « Very good ». `AppreciationEditor` existait, mais n'était affiché que pour les bulletins APC — jamais pour le carnet du primaire |
+| Rien ne liait le bas du carnet au travail | Le conseil cochait à l'aveugle |
+
+**Livré.** `src/core/conseilPropositions.js` (moteur pur) ramène la moyenne en pourcentage
+de son barème et propose les cinq champs. Les deux écrans de saisie affichent la
+proposition **à côté** du champ avec un bouton « Appliquer » — convention d'`AutoHint` :
+jamais d'écrasement silencieux. Les quatre seuils (50 / 60 / 70 / 80 %) reprennent chacun
+une borne que le produit utilise déjà, et une école peut les remplacer (`seuils`). Les
+deux gabarits du carnet impriment enfin les **quatre** distinctions. Détail et retour
+arrière : **D30** du journal.
+
+**Mesuré sur l'édition LAN montée, Chrome piloté** (un banc de composants ne prouverait
+rien ici) :
+
+| Écran | Avant | Après « Appliquer » |
+|---|---|---|
+| Carnet CP BIL BANC, `carnet_epreuves` | `Appreciation \| Achieved` · warning/honour/commendation/congratulations = no/no/no/no | `Appreciation \| Very Good` · no/**yes**/**yes**/no (79,9 % → sous les 80 %) |
+| Après rechargement | — | identique : **relu en base** |
+| Pagination | 1 046 px, 1 page | 1 046 px, **1 page** (`--nc-d 0`, fit 0,962) — D29/I29 intact |
+
+**Et ça varie** (11 élèves du banc bilingue) : 70 % → Good + honneur + encouragement ·
+79 % → Very Good · 80,3 % → Excellent + félicitations.
+**Conseil de classe, 6eme A** (5 élèves) : 83 % → Acquis + les trois distinctions · 71 % →
+Acquis + deux · 60 % → En cours d'acquisition + une · 52 % → aucune · 39 % → Insuffisant +
+avertissement 1. **Cinq élèves, cinq bas de bulletin différents.**
+
+**Le piège qui a coûté le plus.** `enGrade` lit un **pourcentage** et le carnet du
+primaire est sur 20 : sans la mise à l'échelle, 17,29/20 — le meilleur élève — ressortait
+« **Fail** ». Un test de non-régression garde la conversion.
+
+**Preuves :** `src/core/_conseilPropositions.test.mjs` (**60 contrôles**, tous verts) ·
+suite complète **221 ok / 0 ko** · `npm run bulletin:visual` **8 élèves → 8 pages** ·
+`npm run build:lan` OK · base de développement restaurée (`{classic, null}`, 0 classe
+BANC, 0 note, 0 `student_absences`), serveur de banc arrêté.
+
+**Aucune écriture en production, aucun commit, aucun déploiement.**
+
+**Choix assumé à soumettre.** Les seuils vivent dans le code (`SEUILS_CONSEIL`), pas dans
+un réglage d'école : ajouter une colonne demandait une migration des deux côtés pour une
+valeur qu'aucune école n'a encore réclamée. Le paramètre `seuils` est en place ; il suffira
+de le brancher sur un réglage le jour où une école en demande d'autres.
+
+## 4 octodecies. Les écrans des enseignants — saisir sans se heurter à « officiel » (2026-10-29)
+
+**Demandé :** « le ecran des enseignant ils doivent entrer les notes sans blocage de
+officiel ou quoi que ce soit », avec la phrase exacte que l'enseignant voit :
+
+> Aucune de vos matières ne se rattache à une compétence nationale (1A–6B) : Espagnol.
+> Demandez à l'administration de les renommer selon le référentiel, ou de vous affecter les
+> matières que vous enseignez réellement.
+
+**Reproduit avant de corriger**, sur l'édition LAN montée, avec son propre compte : école en
+mode « enseignant de matière » + bulletins officiels, classe de CE1 dont elle n'est pas
+titulaire, une seule matière affectée (« Espagnol »). L'écran ne portait que cette phrase —
+pas un élève, pas une case.
+
+**Deux causes, toutes deux dans l'écran, aucune dans la base.**
+
+| Cause | Détail |
+|---|---|
+| Une impasse fermée sur elle-même | Le filtre des classes exigeait une compétence DÉJÀ résolue. Sans classe retenue, `selectedClass` reste `null`, le rattrapage qui créerait la compétence ne part jamais, donc rien ne se résout jamais. |
+| Le droit lu sur la mauvaise table | La garde était `canManageClassSubjects` — policy de `subjects`, titulariat exigé. L'écriture visait `prim_competences`, dont la policy (comme `mat_domaines` et `apc_matieres`) autorise **tout membre de l'école**. L'écran était plus strict que la base, pour un refus RLS qui n'aurait jamais eu lieu. |
+
+**Livré.** `refLineScope` (`src/lib/teacherScope.js`) rend un **périmètre** au lieu d'un
+oui/non : tout pour l'administration, le délégué et le titulaire (inchangé) ; **ses propres
+matières** pour un enseignant de matière ; rien pour un censeur non délégué, un surveillant
+ou un compte sans fiche rattachée. Les trois actions du magasin l'acceptent, et l'arbitrage
+« la première matière qui réclame garde » reste calculé sur toute la classe — sinon l'ordre
+du bulletin dépendrait de qui ouvre l'écran le premier. Les trois écrans officiels
+(primaire, premier cycle, maternelle) passent par là, et les deux filtres de classe
+retiennent « j'y enseigne » plutôt que « ça se rattache ». Détail et retour arrière : **D31**
+du journal, **I30** du registre.
+
+**Mesuré sur le même décor, après correctif.**
+
+```
+Saisie primaire APC (par compétences)
+Classe      CE1 PROF BANC
+Compétence  ES — Espagnol          ← créée automatiquement
+Élève       Oral / Écrit / Pratique / Savoir-être / Total · Cote
+1 ELEVE PROF 01   2 ELEVE PROF 02   3 ELEVE PROF 03   4 ELEVE PROF 04
+```
+
+Elle pose le barème de sa colonne (`/20` : une compétence maison n'a aucun barème national,
+`prim_bareme_criteres` étant une table NATIONALE sans `school_id`), puis saisit — et les
+quatre notes arrivent en base :
+
+```
+ELEVE PROF 01  oral UA1  note=14 / 20   saisie par un enseignant
+ELEVE PROF 02  oral UA1  note= 8 / 20   saisie par un enseignant
+ELEVE PROF 03  oral UA1  note=17 / 20   saisie par un enseignant
+ELEVE PROF 04  oral UA1  note=11 / 20   saisie par un enseignant
+```
+
+**Second défaut, trouvé en diagnostiquant le premier.** Une note au-dessus du barème était
+refusée **en silence** : la cellule revenait à sa valeur d'avant sans un mot, ce qui se lit
+comme une note que l'application a perdue. Elle le dit maintenant, en nommant la raison et
+où la changer — mesuré : « 25 dépasse le barème de la colonne (/20). Changez le barème
+au-dessus de la colonne, ou corrigez la note. »
+
+**Preuves :** `src/lib/_refLineScope.test.mjs` (**27 contrôles**, tous verts) · suite
+complète **222 ok / 0 ko** · `npm run build:lan` OK · base de développement restaurée
+(`{principal, classic, null}`, 0 classe BANC, 0 compte de banc, 0 `prim_notes`, 0 compétence
+maison), serveur de banc arrêté.
+
+**Aucune écriture en production, aucun commit, aucun déploiement.**
+
+**Point à trancher.** Un **censeur non délégué** reste sans droit de rattrapage — c'est le
+comportement d'avant, volontairement inchangé. La policy de la base le lui donnerait ; dites
+si vous voulez qu'il l'ait aussi à l'écran.
+
+## 4 novodecies. Le barème est posé pour eux, et les épreuves inutilisées quittent l'écran (2026-10-29)
+
+**Demandé :** « met leur bareme mais ils peuvent modifier qund ils le veulent », puis
+« et desactive les critere quils nutilise pas » — avec, en pièce jointe, **sept bulletins
+réels de THE GENIUS** (2025/2026, SIL à CM1).
+
+**Ce que les sept bulletins établissent.** Le barème n'est pas une constante nationale, et
+l'école s'écarte du MINEDUB quand elle le juge bon :
+
+| Classe | Barèmes réels | Ce que dit le national |
+|---|---|---|
+| SIL | 1A 40 · 2A 30 · 3A/3B/4/5/5A/5B 20 · CHINOIS 20 | identique |
+| CE1 | A/B/C 40 · 2A/2B 30 · 5A 20 | 30/30/20 · 40/40 · 40 |
+| CM1 | 1B 50 · Dictée 40 · Problèmes 50 · Calcul rapide 20 | — (épreuves maison) |
+| CLASS V | Maths paper 1 70 · English 1/2 50 · ICT 20 · EPS 20 | — (épreuves maison) |
+
+**Le défaut, mesuré avant d'écrire.** `prim_bareme_criteres` est une table NATIONALE : clé
+(`niveau_id`, `competence_id`), aucun `school_id`. Une compétence ajoutée par l'école n'y a
+aucune ligne → ses quatre colonnes naissaient à zéro → **toutes ses cases désactivées** :
+
+```
+barèmes  : [0, 0, 0, 0]
+ELEVE PROF 01  [—, —, —, —]     les quatre cases inactives
+```
+
+Il fallait deviner qu'on tape d'abord un chiffre dans la petite case du barème, en en-tête.
+Et symétriquement, les compétences nationales affichaient leurs critères inutilisés en
+« à définir » — trois ou quatre colonnes grisées à enjamber, à chaque compétence, à chaque UA.
+
+**Livré.** `baremeOuverture` (`src/core/primColumnBareme.js`) : la colonne « Écrit » s'ouvre
+sur **ce que l'école emploie déjà** sur ce critère dans la classe, sinon le gabarit officiel
+le plus fréquent du niveau, sinon 20 — jamais une valeur sortie de nulle part. Elle s'écrit
+par `setBareme`, c'est-à-dire par le même chemin que la frappe de l'enseignant. Et **une
+colonne existe quand elle a un barème** : les autres quittent le tableau et se regroupent
+sous « Épreuve non utilisée ici : + Oral + Pratique + Savoir-être ». Détail, provenance de
+chaque seuil et retour arrière : **D32** ; l'incident qu'elle a elle-même causé : **I31**.
+
+**Mesuré, compte enseignant, édition LAN montée.**
+
+```
+1 arrivée        colonnes ["Élève","Écrit/"]  barèmes ["20"]  fermées ["+ Oral","+ Pratique","+ Savoir-être"]
+  saisie immédiate, rien à régler : 14 · 8 · 19 · 11   →  4 lignes prim_notes /20
+2 + Pratique     colonnes ["Élève","Écrit/","Pratique/"]  barèmes ["40","20"]   notes conservées
+3 Pratique → 0   la colonne se referme et retourne dans la liste
+4 rechargement   la fermeture TIENT — rien ne se rouvre tout seul, les notes sont là
+```
+
+Et le barème se modifie à tout instant, avec ses gardes :
+
+```
+Écrit 20 → 40    accepté, notes conservées (14/40, 8/40, 19/40, 11/40)
+Écrit    → 10    REFUSÉ : « 3 note(s) le dépassent (ELEVE PROF 01, 03, 04). Corrigez-les d'abord. »
+```
+
+**Le défaut que ce travail a lui-même créé, trouvé par la mesure.** L'effet d'ouverture
+partait au premier rendu, quand `primNotes` est encore vide parce que rien n'est chargé — pas
+parce que la colonne est vierge. `setBareme` réécrivait alors la colonne en conservant « la
+note actuelle », soit `null` : **les quatre notes effacées à la simple ouverture de l'écran.**
+D'où `primNotesPrets` dans le magasin. Le symptôme trompeur était le barème /10 accepté :
+`notesHorsBareme` marchait très bien, il ne voyait plus aucune note.
+
+**Les écrans frères n'ont pas ce piège** — vérifié, pas supposé : le premier cycle
+(`ApcCompetenceWorkspace`) rend `APC_DEFAULT_MAX` (/20) par défaut et jamais 0, et la
+maternelle (`MatObservationWorkspace`) n'a aucun barème (niveaux d'acquisition).
+
+**Preuves :** `src/core/_primBaremeOuverture.test.mjs` (**28 contrôles**, tous verts) · suite
+complète **223 ok / 0 ko** · `npm run build:lan` OK · base de développement restaurée
+(`{principal, classic, null}`, 0 classe BANC, 0 compte de banc, 0 `prim_notes`, 0 compétence
+maison, 0 classe sans année), serveur de banc arrêté.
+
+**Aucune écriture en production, aucun commit, aucun déploiement.**
+
+**Choix assumés, à confirmer.**
+- Seule « Écrit » s'ouvre d'office, parce que les sept bulletins n'évaluent les matières
+  ajoutées par l'école qu'en écrit. Si une école veut Oral d'office, c'est un clic par
+  compétence — dites si cela doit devenir un réglage.
+- À fréquence égale, le barème le **plus grand** gagne (il ne refuse aucune note existante).
+
+## 5. Travaux en cours — 60 fichiers non commités
+
+38 fichiers modifiés (+3433 / −695) et 24 non suivis. Regroupement proposé pour des
 commits séparés et relisibles :
 
 | Lot | Fichiers | État |

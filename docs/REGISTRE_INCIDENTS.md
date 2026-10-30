@@ -1518,3 +1518,361 @@ même. La reprise a couvert les neuf — mais en a cassé un, parce que *porter 
 ligne* suppose que le contexte est le même, et il ne l'était pas. Le réflexe à garder :
 après une passe répétitive, vérifier la **portée** de chaque site, pas seulement sa
 présence.
+
+---
+
+## I27 — Le bulletin primaire sortait sur deux pages dès qu'on imprimait un trimestre
+
+**Date** : 2026-10-28/29 · **Statut** : **corrigé, paquets 0.3.27 construits** · **Source** :
+le responsable, trois fois — « aucun changement, bulletin toujours sur 02 pages », puis
+« c'est une urgence, l'école doit imprimer ces bulletins cette semaine et ce problème
+date de 3 mois déjà », puis **« ne devine plus, ouvre Chrome avec Playwright et imprime
+un bulletin toi-même »**.
+
+### Pourquoi trois mois, et trois correctifs à côté
+
+Les trois tentatives précédentes ont corrigé le gabarit **compact**
+(`BulletinPrimCompact`) : le rembourrage `!important` de `@media print`, puis la réserve
+de 5 mm, puis le filigrane qui ôtait à la feuille sa qualité de `:last-child`. Les trois
+défauts étaient **réels et sont corrigés**. Aucun n'était celui de l'école.
+
+Le banc d'essai (`scripts/bulletin-prim-visual.mjs`) rendait le composant compact **et
+lui seul**. Il disait « ✅ une page » à chaque passe, pendant que l'école imprimait deux
+pages. Un banc qui ne rend qu'un gabarit ne peut pas voir qu'on en imprime un autre.
+
+### La cause, exactement
+
+`Bulletins.jsx` choisit la disposition : `primLayout = primLayoutPref === 'auto' ?
+(primSingleUA ? 'compact' : 'detail') : primLayoutPref`.
+
+« Auto » — le réglage par défaut, que l'école n'a jamais touché — ne retient la
+disposition compacte que pour une période d'**une seule unité d'apprentissage**. Dès
+qu'on imprime un **trimestre** (UA 1-3) ou l'**année**, c'est `BulletinPrimAnnualUA` qui
+rend. Et ce gabarit **n'avait jamais reçu le contrat de densité** : ni la classe
+`nc-densite`, ni une seule variable `--nc-*`.
+
+`ajusterDensite` ne trouvait donc **aucune feuille à mesurer**. Elle ne réduisait rien,
+et rendait un bilan parfaitement vert.
+
+### Comment on l'a enfin vu
+
+En montant l'**édition LAN complète** en local (port isolé, base temporaire, licence
+générée, école primaire APC semée par `/api/db`, barème BRIGHT CONTINENT chargé) et en
+pilotant **Chrome** avec Playwright sur l'écran réel. Point vérifié au passage et qui
+rend la mesure honnête : **`Page.printToPDF` déclenche réellement `beforeprint`** — le
+PDF obtenu est donc une vraie impression de l'application, ajustement compris.
+
+| Période / disposition | Pages | Ce que dit l'application |
+|---|---|---|
+| UA 1 (Auto → compacte) | 1 | densité 0,697 — remplissage 98,2 % |
+| Trimestre 1 (Auto → **détaillée**) | **3** | « aucune feuille `.bulletin-paper.nc-densite` » |
+| Annuel (Auto → **détaillée**) | **3** | idem |
+| Trimestre 1 forcé **compacte** | 1 | 98,2 % |
+
+C'est **l'avertissement ajouté dans `ajusterDensite`** — « le contrat de densité n'est
+pas posé sur ce modèle de bulletin » — qui a nommé la cause, mot pour mot. Il avait été
+écrit pour une panne qu'on imaginait ; il en a attrapé une autre.
+
+### Le correctif
+
+`BulletinPrimAnnualUA` porte le même contrat que le compact (`vars`) : plus aucune taille
+figée, tout dérive de `--nc-d`. Et dans `bulletinOfficialParts`, les trois dernières
+tailles en dur (nom de l'élève 13 pt, ligne classe 9 pt, numéro de page 8,5 pt) suivent
+la densité — **conditionné à `vars`**, donc les six autres modèles ne bougent pas d'un
+pixel.
+
+### Ce que le correctif NE fait PAS, et il faut le dire
+
+La disposition **« Détaillée par UA » reste sur deux pages**, et ce n'est pas un défaut :
+elle imprime **un tableau par compétence** — onze tableaux. Mesuré au plancher lisible
+(7 pt) : **1 827 px pour 1 043 px utiles**. Aucun réglage ne la fera tenir. Le gabarit
+descend désormais jusqu'au plancher (3 pages → 2) et **le dit** au lieu d'écraser le
+texte en silence.
+
+L'écran porte donc deux phrases nouvelles, vérifiées en direct dans l'application :
+- à côté d'« Auto » : « période multi-UA → vue détaillée **(2 pages par élève)** » ;
+- après impression : « Ce bulletin dépasse une page : la vue « Détaillée par UA »
+  imprime un tableau par compétence. **Choisissez « Compacte » pour tenir sur une page.** »
+
+**Pour imprimer une page par élève : disposition « Compacte ».** Elle porte les mêmes
+totaux de période, remplie à 98,2 %.
+
+### Preuve
+
+`src/components/bulletins/_primDetailDensite.test.mjs` — 4 contrôles, 0 échec : la feuille
+porte `nc-densite`, les tailles viennent des variables, **aucune taille de police figée ne
+subsiste**, et le gabarit n'invente aucune note. Le troisième contrôle a échoué à la
+première exécution et a trouvé les trois tailles oubliées dans `bulletinOfficialParts` —
+un détecteur qu'on n'a jamais vu détecter n'est pas un détecteur (I26).
+
+Suite complète : **217 ok, 0 ko** · `bulletin:visual` ✅ · `test:print:bulletin` une page
+jusqu'à 32 compétences · `test:print` 131/131 · `build` + `build:lan` ✓.
+
+### La leçon
+
+**Un banc qui rend le composant isolé ne prouve rien sur l'écran.** Il est resté vert
+trois mois sur un gabarit qui allait déjà bien, pendant que l'écran réel en choisissait
+un autre. Pour un défaut d'impression : monter l'édition LAN et piloter Chrome. Le coût
+est d'une heure ; il a été payé trois mois.
+
+### Un trou trouvé en chemin
+
+En semant l'école de test : `server/officiel-seed.sql` ne contient **aucune ligne** de
+`prim_bareme_criteres` ni de `prim_niveau_competences` — `scripts/build-officiel-seed.mjs`
+ne lit pas les trois `supabase_prim_bareme_*.sql`. Sur une installation LAN **neuve**,
+toutes les notes du primaire s'affichent « — ». Les écoles livrées par
+`make-seed-ecole.mjs` ne sont pas touchées (leur barème vient de leur base Cloud).
+**Non corrigé** : cela modifie le seed embarqué, décision à prendre.
+
+---
+
+## I28 — Deux `FAIL` au déploiement 0.3.27 que le paquet n'avait pas mérités
+
+**Terrain.** GENIUS, 29 octobre 2026, 08:58. `deploy-0.3.27.sh` installe, vérifie, et
+rend un verdict rouge : « 2 contrôle(s) en échec ».
+
+```
+FAIL  dist : le morceau Bulletins est introuvable
+FAIL  dist : le morceau Dashboard est introuvable
+```
+
+Service actif, `/api/version` → 0.3.27, base intacte (713|1353|929 avant **et** après),
+`integrity_check` vert, jeton et `school_id` inchangés. Tout le reste passe.
+
+### La cause : un `assets/` de trop, dans le contrôle
+
+Le script pose `DIST=/opt/notescam/app/dist/assets`, puis les quatre lignes ajoutées en
+0.3.26 et 0.3.27 cherchent dans `"$DIST"/assets/Bulletins-*.js` — soit
+`…/dist/assets/assets/`, un dossier qui n'existe pas. Le `ls` échoue, la branche `else`
+tombe, et le script annonce « introuvable » un morceau qui est là.
+
+**La sortie se contredit elle-même, et c'est la preuve.** Les deux lignes juste au-dessus
+du `FAIL` sont des `PASS` obtenus par `grep -rqsF … "$DIST"` — une recherche *récursive*
+sur le bon dossier. Or les deux chaînes qu'elles trouvent (« 2 pages par élève »,
+« imprime un tableau par compétence ») vivent **dans le morceau Bulletins**. Le script a
+donc lu le fichier deux lignes avant de le déclarer absent.
+
+### Ce que le paquet contenait vraiment
+
+Sur le `dist` de la même journée, aux vrais chemins : `Bulletins-*.js` et `Dashboard-*.js`
+présents, **zéro** occurrence de `(7,1.1,1)` (les tailles figées de I27) et **zéro**
+occurrence d'un `school` libre (I26). Les deux correctifs étaient bien livrés.
+
+### La parade
+
+Les six lignes fautives de `deploy-0.3.26.sh` et `deploy-0.3.27.sh` cherchent désormais
+dans `"$DIST"/`. Contrôle à repasser sur le poste, sans rien réinstaller :
+
+```sh
+DIST=/opt/notescam/app/dist/assets
+grep -ohE '\(7,1\.1,1\)' "$DIST"/Bulletins-*.js | grep -q . \
+  && echo "FAIL bulletin détaillé : tailles FIGÉES" \
+  || echo "PASS bulletin détaillé : suit la densité mesurée"
+grep -ohE '\([A-Za-z_$]*school\)' "$DIST"/Dashboard-*.js | grep -q . \
+  && echo "FAIL tableau de bord : « school » LIBRE" \
+  || echo "PASS tableau de bord : plus aucun « school » libre"
+```
+
+### La leçon
+
+**Un marqueur négatif doit prouver qu'il sait voir le fichier avant de conclure à son
+absence.** Ici « introuvable » couvrait deux cas très différents — le morceau manque, ou
+le chemin est faux — et le script a rendu le même rouge pour les deux. Un `ls` qui ne
+rend rien n'est pas un verdict sur le produit : c'est un verdict sur le chemin. Même
+leçon que I26, vue de l'autre bout : un détecteur qu'on n'a jamais vu détecter n'est pas
+un détecteur — et un détecteur qu'on n'a jamais vu *réussir* n'en est pas un non plus.
+
+## I29 — « Cette barre du bas n'est pas collée au reste du bulletin »
+
+**Ce que l'école voyait.** Une seconde page ne portant que la barre de signatures —
+« Visa du Parent / Tuteur · L'Enseignant(e) · Le Directeur / La Directrice ». Capture à
+l'appui, puis cette précision décisive : « n'importe quelle classe, que les matières
+soient beaucoup ou pas ».
+
+**La première hypothèse, et pourquoi elle était fausse.** La barre paraissait détachée.
+Mesurée sur l'écran réel, elle ne l'était pas :
+
+```
+bloc signatures : marge au-dessus 1 px
+écart entre le bas des signatures et le bas de la feuille : 0 px
+```
+
+Collée au millimètre. Elle n'était pas la cause : elle était le dernier wagon du train.
+
+**La cause, en deux morceaux.**
+
+*1. Le chrome de l'application s'imprimait.* Relevé en média `print`, sur le DOM vivant :
+
+```
+sheetTop : 32                      ← la feuille commence 32 px sous le haut
+parent   : DIV.p-4 pb-[calc(6rem+env(safe-area…))]  pad = 32px / 32px
+feuille  : 1 046 px   ·   hauteur utile d'une page : 1 062 px
+document : 1 110 px
+```
+
+La feuille **tenait** (1 046 < 1 062). Le conteneur qui aère l'écran et réserve la barre
+du bas sur mobile ajoutait 64 px autour d'elle. `main { padding: 0 !important }` existait
+depuis toujours — mais le rembourrage n'est pas sur `main`, il est sur un `DIV` à
+l'intérieur, que la règle n'atteignait pas. **Ces 64 px étaient volés à TOUS les modèles
+de bulletin**, et ils expliquent l'écart constant, jamais élucidé, entre une hauteur
+mesurée qui annonçait « ça tient » et un PDF qui sortait sur deux pages.
+
+*2. Le carnet n'avait qu'un seul filet.* `fitLiveSheets` réduit par `zoom` toutes les
+autres feuilles depuis I27. Le carnet, lui, passe par `ajusterDensite` : arrivé au
+plancher de lisibilité (corps à 7 pt), il renonçait et laissait déborder.
+
+**Le correctif.**
+
+| Fichier | Changement |
+|---|---|
+| `src/styles/bulletin.css` | `main :has(.bulletin-layout) { padding: 0 !important; margin: 0 !important }` |
+| `src/lib/print/fitDensity.js` | au plancher, applique `facteurFit` / `--nc-fit` — la réduction `zoom` des autres modèles, avec **son** plancher de lisibilité |
+
+Aucun mécanisme nouveau : le carnet rejoint celui qui existait.
+
+**Mesures, sur l'édition LAN montée et Chrome piloté** (`beforeprint` déclenché,
+`preferCSSPageSize`) :
+
+| Classe | Avant | Après |
+|---|---|---|
+| CP BIL (19 matières, 2 troncs) | 1 084 px · **2 pages** | zoom 0,962 · 1 046 px · **1 page** |
+| CE1 (10 matières) | 1 043 px · 1 page | 1 043 px · **1 page**, inchangé |
+
+Barre de signatures : **écart 0 px**, sur la page 1, dans les deux cas.
+
+**Ce qui est gardé.** Une feuille trop haute pour être réduite sans devenir illisible
+(sous `MIN_FIT_SCALE`, soit 0,86 — le CE1 BIL de 44 matières, 1 416 px) **n'est pas
+écrasée** : elle déborde, et l'écran le dit. Avertir plutôt qu'écraser.
+
+**Ce qui le verrouille.** Cinq contrôles dans `src/lib/print/_fitDensity.test.mjs` : le
+facteur rendu au-dessus du plancher, le refus en dessous, l'absence de réduction quand ça
+tient déjà, le branchement, et la règle CSS. Suite : 220 ok, 0 ko.
+
+## I30 — « Demandez à l'administration » : l'écran enfermait l'enseignant pour un droit que la base lui donnait
+
+**Ce que l'enseignant voyait.** Son écran de saisie, en entier :
+
+> Aucune de vos matières ne se rattache à une compétence nationale (1A–6B) :
+> Espagnol. Demandez à l'administration de les renommer selon le référentiel, ou
+> de vous affecter les matières que vous enseignez réellement.
+
+Pas un élève, pas une case, pas un sélecteur de classe. Rien à faire que partir.
+
+**Reproduit sur l'édition LAN montée** (2026-10-29) avec le décor minimal : école en mode
+« enseignant de matière » et bulletins officiels ; une classe de CE1 dont l'enseignante
+n'est pas titulaire ; une seule matière affectée, « Espagnol », absente des onze
+compétences nationales. La phrase est sortie mot pour mot.
+
+**DEUX causes, toutes deux dans l'écran, aucune dans la base.**
+
+1. **Une impasse fermée sur elle-même.** Le filtre des classes exigeait au moins une
+   compétence DÉJÀ résolue. Sans classe retenue, `selectedClass` reste `null` ; le
+   rattrapage qui aurait créé la compétence manquante ne part donc jamais ; donc aucune
+   compétence ne se résout ; donc la classe reste écartée. Le produit sait créer cette
+   ligne — il ne s'en donnait pas l'occasion.
+2. **Le droit lu sur la mauvaise table.** Le rattrapage était gardé par
+   `canManageClassSubjects`, qui est le miroir de la policy de `subjects` (titulariat
+   exigé). Mais il écrit `prim_competences`, et les trois tables de référentiel portent
+   la même règle :
+
+   ```sql
+   USING / WITH CHECK (school_id IS NOT NULL AND public.member_of_school(school_id))
+   ```
+
+   — tout membre de l'école écrit les lignes de son école. L'écran était donc **plus
+   strict que la base**, et le commentaire qui justifiait la garde (« une écriture refusée
+   par la RLS repartirait en boucle ») décrivait un refus qui n'aurait jamais eu lieu.
+
+**La parade.** `refLineScope` (`src/lib/teacherScope.js`) rend le périmètre au lieu d'un
+oui/non : tout pour l'administration, le délégué et le titulaire ; **ses propres matières**
+pour un enseignant de matière ; rien sinon. Les trois actions du magasin acceptent ce
+périmètre, et l'arbitrage « la première matière qui réclame garde la compétence » continue
+de se calculer sur TOUTE la classe — sinon l'ordre du bulletin dépendrait de qui a ouvert
+l'écran le premier. Les trois écrans officiels (primaire, premier cycle, maternelle)
+passent par là ; les deux filtres de classe retiennent désormais « j'y enseigne » et non
+« ça se rattache ».
+
+**Ce que ça donne, mesuré sur le même décor.** L'enseignante arrive sur « Saisie primaire
+APC », la compétence **« ES — Espagnol » a été créée automatiquement**, ses quatre élèves
+sont là. Elle pose le barème de sa colonne (une compétence maison n'a aucun barème
+national : `prim_bareme_criteres` est une table NATIONALE, sans `school_id`), puis saisit.
+14, 8, 17, 11 → quatre lignes `prim_notes`, `points_max = 20`, avec son identifiant
+d'enseignant.
+
+**Un piège de diagnostic, à noter.** Les cases de notes sont **désactivées** tant que le
+barème de la colonne vaut 0 — c'est voulu : une note qui n'entre dans aucun total serait
+pire qu'une case fermée. Mon premier banc avait tapé dans la colonne du **barème** en
+croyant saisir une note, ce qui a fixé la colonne à 14 et fait refuser un 17 ensuite. La
+leçon est la bonne : ce refus était **silencieux**.
+
+**Deuxième parade, du même coup.** Une note refusée le dit maintenant, en nommant la vraie
+raison : « 25 dépasse le barème de la colonne (/20). Changez le barème au-dessus de la
+colonne, ou corrigez la note. » La cellule revenait à sa valeur d'avant sans un mot, et ce
+retour en arrière se lit comme une note que l'application a perdue.
+
+**Garde-fou.** `src/lib/_refLineScope.test.mjs` — 27 contrôles, dont les cas « il ne doit
+PAS pouvoir » (censeur non délégué, surveillant, compte enseignant sans fiche rattachée) et
+le câblage des trois écrans. `src/core/_refClassScope.test.mjs` affirmait l'ancienne garde :
+son assertion a été retournée, avec sa raison, pour que la version trop stricte ne revienne
+pas.
+
+### Suite — les avis React Router vus en console (29 oct.)
+
+Deux avis `React Router Future Flag Warning` en console. **Ils ne sortent QUE sur le
+serveur de développement** : `grep -rl "Future Flag Warning" dist/` ne rend rien, la
+chaîne est retirée du bundle de production. Aucune école ne les a jamais vus.
+
+`v7_relativeSplatPath` est posé sur `<BrowserRouter>` (`src/App.jsx:311`). Neutre ici, et
+vérifié en navigateur plutôt que déduit (leçon du banc, I27) : nos deux routes splat
+renvoient vers des cibles **absolues**, et un A/B Playwright sur `/app/parent/nimporte-quoi`
+rend la **même** redirection, drapeau posé ou retiré. Sur `/` : 2 avis sans drapeau,
+1 avec. Suite complète : **223 ok, 0 ko**.
+
+`v7_startTransition` est **volontairement laissé de côté**. Les 20 pages sont en `lazy()`
+sous un seul `<Suspense fallback={<PageLoader />}>` : le drapeau remplacerait le
+PageLoader par l'écran précédent pendant le téléchargement d'un morceau. Sur un
+HP Compaq 8200, cliquer « Bulletins » semblerait ne rien faire.
+
+**Contrôle à ajouter au script de la 0.3.28** — pas à celui de la 0.3.27, dont le paquet
+livré ne porte pas encore le drapeau (y mettre ce contrôle recréerait le faux `FAIL`
+que cet incident décrit) :
+
+```sh
+# `v7_relativeSplatPath:!0` vient de notre App.jsx ; vendor-react porte `:!1`
+# (son défaut interne) — c'est bien `!0` qu'il faut chercher.
+grep -rqsF 'v7_relativeSplatPath:!0' "$DIST" \
+  && vert "  PASS  routage : le drapeau v7_relativeSplatPath est posé" \
+  || { rouge "  FAIL  dist : le drapeau de routage n'est pas dans le paquet"; ko=$((ko+1)); }
+```
+
+## I31 — Une ouverture d'écran qui efface les notes qu'elle vient de lire
+
+**Le défaut.** En posant le barème d'ouverture d'une compétence maison (D32), l'effet partait
+au PREMIER rendu. À cet instant `primNotes` est vide — non pas parce que la colonne est
+vierge, mais parce que la lecture n'est pas revenue. `setBareme` écrit alors une ligne par
+élève **en conservant « la note actuelle »**, qui vaut `null` dans une carte vide.
+
+**Mesuré.** Quatre notes en base avant ouverture, quatre notes effacées après :
+
+```
+avant    ELEVE PROF 01 ecrit 14 /20 · 02  8 /20 · 03 19 /20 · 04 11 /20
+après    ELEVE PROF 01 ecrit (vide) /20 · 02 (vide) · 03 (vide) · 04 (vide)
+```
+
+Le symptôme trompeur : un barème abaissé était ensuite ACCEPTÉ alors que des notes le
+dépassaient. `notesHorsBareme` fonctionnait très bien — il ne voyait plus aucune note.
+
+**La parade.** `primNotesPrets` dans le magasin, faux jusqu'à ce que la lecture serveur ait
+abouti (ou, hors ligne, le cache local ; et levé même si la lecture échoue, sinon un écran
+qui l'attend resterait muet après une panne réseau). L'effet d'ouverture le vérifie avant
+toute écriture.
+
+**La leçon, plus large que ce cas.** `primNotes = {}` ne veut pas dire « pas de notes » : il
+veut dire « je ne sais pas encore ». Tout écran qui ÉCRIT à partir de ce qu'il LIT doit
+attendre que la lecture ait abouti — un drapeau, pas une carte vide. Les écrans qui ne font
+que lire s'en passent : afficher « rien » une demi-seconde est sans conséquence, écrire
+« rien » est définitif.
+
+**Garde-fou.** `src/core/_primBaremeOuverture.test.mjs` — 28 contrôles, dont la distinction
+entre une colonne jamais ouverte (aucune ligne), une colonne ouverte (`points_max` posé) et
+une colonne refermée par l'école (`points_max` NULL), et le câblage des cinq rendus.

@@ -23,7 +23,7 @@ import { firstCycleClasseSlug, resolveClassEngine } from '../../core/engineResol
 // sur le catalogue francophone : ses noms de matières sont alors rendus en
 // anglais, comme sur son bulletin.
 import { apcMatiereLabel } from '../../core/referentielI18n';
-import { isSubjectScoped, myClassIds, canManageClassSubjects } from '../../lib/teacherScope';
+import { isSubjectScoped, myClassIds, canManageClassSubjects, refLineScope } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
 import {
   matiereIdsForTeacher, unresolvedSubjectsForTeacher,
@@ -319,13 +319,20 @@ export default function ApcCompetenceWorkspace() {
   // RLS repartirait en boucle dans la file hors-ligne.
   const materialiserManquantes = useSchoolStore((s) => s.materialiserMatieresManquantes);
   const rattrapees = useRef(new Set());
+  // Le droit se lit sur la table qu'on ÉCRIT : `apc_matieres` autorise tout
+  // membre de l'école à écrire les lignes de son école, là où
+  // `canManageClassSubjects` (policy de `subjects`) exige le titulariat. La
+  // garde d'avant était donc plus stricte que la base, et un enseignant de
+  // matière restait devant un écran vide. `refLineScope` restreint la création
+  // à ses propres matières. Cf. lib/teacherScope.js.
   useEffect(() => {
     if (!selectedClass || !referentiel || !aRattraper) return;
     const isDelegate = hasCapability(permissions, '/app/classes');
-    if (!canManageClassSubjects({ role, school, cls: selectedClass, teacherId, isDelegate })) return;
+    const scope = refLineScope({ role, school, cls: selectedClass, teacherId, isDelegate });
+    if (!scope) return;
     if (rattrapees.current.has(selectedClass.id)) return;
     rattrapees.current.add(selectedClass.id);
-    materialiserManquantes(selectedClass);
+    materialiserManquantes(selectedClass, scope);
   }, [selectedClass, referentiel, aRattraper, role, school, teacherId, permissions, materialiserManquantes]);
 
   // Mode 1 : ne garder que les matières couvertes par MES matières affectées.

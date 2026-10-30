@@ -150,6 +150,81 @@ export function unmatchedClassSubjects(kind, classSubjects, items, label) {
   });
 }
 
+/**
+ * PRIMAIRE — matières de la classe qui ont besoin de LEUR PROPRE compétence.
+ *
+ * ── LE DÉFAUT QUE CECI CORRIGE ─────────────────────────────────────────────
+ * Le rapprochement par mots-clés est VOLONTAIREMENT large : « Lecture » et
+ * « Grammaire » tombent toutes deux sur 1A, et c'est fidèle au référentiel —
+ * il n'existe qu'une compétence de français. Mais la même largeur fait tomber
+ * `Français`, `French` ET `French Language` sur 1A, et `Mathématiques` avec
+ * `Mathematics` sur 2A. Sur une classe BILINGUE, qui porte les deux programmes
+ * avec deux barèmes (/20 et /100), le second programme disparaît donc entièrement
+ * du bulletin et de la saisie — alors que l'écran de la classe promet le
+ * contraire : « Les compétences et les unités d'apprentissage de ces matières
+ * apparaissent alors à la saisie et sur le bulletin ».
+ *
+ * MESURÉ le 2026-10-29 sur CE2 BIL (37 matières cochées) : 9 compétences
+ * nationales atteintes, 3 matières sans compétence, et 25 matières noyées dans
+ * une fusion — dont 8 compétences mélangeant /20 et /100 dans une seule ligne.
+ *
+ * ── LA RÈGLE ───────────────────────────────────────────────────────────────
+ * La PREMIÈRE matière (dans l'ordre de la classe) qui réclame une compétence la
+ * garde : le squelette ministériel et son barème de niveau sont préservés.
+ * Chaque matière SUIVANTE qui réclamerait la même reçoit sa propre compétence
+ * maison — exactement le sort déjà réservé à une matière qui ne tombe sur rien
+ * (Chinois, Practical Work…), par le même chemin et le même écran.
+ *
+ * Idempotent par construction : une fois la compétence maison créée, elle PORTE
+ * le nom de la matière, et `competenceIdForSubject` teste le libellé (étape 2)
+ * AVANT les mots-clés (étape 3). La matière cesse donc d'être en collision au
+ * cycle suivant, et rien n'est créé deux fois.
+ *
+ * @param classSubjects lignes `subjects` de LA classe, dans l'ordre d'affichage
+ * @param competences   compétences du référentiel pour le niveau
+ * @returns les matières à matérialiser (jamais la première d'une compétence)
+ */
+export function primSubjectsNeedingOwnCompetence(classSubjects, competences) {
+  const liste = (competences || []).filter((c) => c && c.id != null);
+  const prises = new Set();
+  const besoin = [];
+  for (const s of (classSubjects || [])) {
+    if (!s || !s.name) continue;
+    const id = competenceIdForSubject(s, liste);
+    if (!id) { besoin.push(s); continue; }        // ne se rattache à rien
+    if (prises.has(id)) { besoin.push(s); continue; } // compétence déjà prise
+    prises.add(id);
+  }
+  return besoin;
+}
+
+/**
+ * MATERNELLE — même règle, sur les DOMAINES.
+ *
+ * La maternelle n'avait AUCUN rattrapage : une matière cochée qui ne tombait sur
+ * aucun domaine était seulement NOMMÉE dans un bandeau, et restait absente de la
+ * saisie comme du bulletin. Et `scopeOf` écarte les domaines non couverts dès
+ * qu'une seule matière est reconnue — donc deux matières sur le même domaine en
+ * faisaient disparaître une.
+ */
+export function matSubjectsNeedingOwnDomaine(classSubjects, domaines, label) {
+  const liste = (domaines || []).filter((d) => d && d.id != null);
+  const prises = new Set();
+  const besoin = [];
+  for (const s of (classSubjects || [])) {
+    if (!s || !s.name) continue;
+    const id = domaineIdForSubject(s, liste, label);
+    if (!id) { besoin.push(s); continue; }
+    if (prises.has(id)) { besoin.push(s); continue; }
+    prises.add(id);
+  }
+  return besoin;
+}
+
+// Le PREMIER CYCLE APC a déjà son point de décision unique, qui connaît en plus
+// les rattachements de niveau : `core/apcRattrapage.manquesPourClasse`. La même
+// règle y vit, et elle n'est pas dupliquée ici.
+
 
 /**
  * Matières APC du référentiel que la classe traite RÉELLEMENT.
@@ -236,11 +311,68 @@ export function primForClass(referentiel, niveauSlug, classSubjects, masques = [
     if (id) couvertes.add(id);
   }
 
+  const retenues = visibles.filter((c) => !c.school_id || couvertes.has(c.id));
   return {
-    competences: visibles.filter((c) => !c.school_id || couvertes.has(c.id)),
+    // Les compétences MAISON repartent avec leur FAMILLE (voir ci-dessous) :
+    // sans elle, le carnet les imprimait sous aucun regroupement.
+    competences: avecFamilleDeduite(retenues),
     exclus: [],
   };
 }
+
+/**
+ * LA FAMILLE D'UNE COMPÉTENCE MAISON, DÉDUITE DE CELLE QU'ELLE DOUBLE.
+ *
+ * ── LE DÉFAUT, RELEVÉ SUR LA VRAIE BASE LE 2026-10-29 ─────────────────────
+ *
+ * THE GENIUS porte 38 compétences d'école (`prim_competences.school_id` posé),
+ * nées du rattrapage « une matière cochée a sa ligne » : English, Mathematics,
+ * Science, Social Studies, French, Arts, Citizenship, Physical Education,
+ * Computer Studies, French Language, Music… Mesuré en base :
+ *
+ *     select count(*) from prim_competences where school_id = '6b68407b-…'
+ *       and domaine is not null;   →  0
+ *
+ * Or `groupesDe` range une ligne par le NUMÉRO de son code, sinon par son
+ * DOMAINE. Une maison n'a ni l'un (son code est « EN », « MA2 », « SC » — jamais
+ * un code du ministère) ni l'autre : elle restait donc HORS de tout
+ * regroupement. Sur le carnet de CE2 BIL, cela donne six bandeaux officiels
+ * suivis de trente lignes orphelines, alors que le carnet papier de l'école
+ * range chaque matière sous sa famille.
+ *
+ * ── D'OÙ VIENT LA FAMILLE, ET POURQUOI ELLE N'EST PAS INVENTÉE ────────────
+ *
+ * Une compétence maison existe précisément PARCE QUE son nom tombait déjà sur
+ * une compétence nationale (« English » sur 1B, « Mathematics » sur 2A) et que
+ * celle-ci était prise par une autre matière — c'est la règle du 2026-10-29.
+ * Sa famille est donc connue : c'est celle de la nationale qu'elle double. On la
+ * relit avec le MÊME rapprochement que celui qui l'a fait naître, restreint aux
+ * compétences nationales.
+ *
+ * Ce qui ne tombe sur rien (« Chinois ») reste sans famille, et donc hors
+ * regroupement. C'est voulu : mieux vaut une ligne visiblement à part qu'une
+ * matière rangée de force dans une famille qui n'est pas la sienne.
+ *
+ * ── POURQUOI À LA LECTURE, ET NON EN BASE ─────────────────────────────────
+ *
+ * Les 38 lignes existent déjà en production. Les corriger demanderait un UPDATE
+ * sur la base de l'école, que je n'ai pas l'autorisation de faire. Déduire à la
+ * lecture donne le même résultat, sans écriture, et vaut aussi pour les écoles
+ * qui créeront la leur demain. Un `domaine` RÉELLEMENT posé par l'école (écran
+ * des référentiels) fait toujours foi : on ne complète que les vides.
+ */
+export function avecFamilleDeduite(competences) {
+  const liste = (competences || []).filter((c) => c && c.id != null);
+  const nationales = liste.filter((c) => !c.school_id);
+  if (!nationales.length) return competences;
+  return (competences || []).map((c) => {
+    if (!c || !c.school_id || c.domaine) return c;
+    const natId = competenceIdForSubject({ name: c.intitule }, nationales);
+    const nat = natId ? nationales.find((n) => n.id === natId) : null;
+    return nat?.domaine ? { ...c, domaine: nat.domaine } : c;
+  });
+}
+
 
 /** Maternelle (PS/MS/GS). → { domaines, exclus } */
 export function matForClass(referentiel, classSubjects, masques = []) {

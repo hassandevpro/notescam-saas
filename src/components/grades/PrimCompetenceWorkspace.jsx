@@ -13,7 +13,7 @@
 //
 // Monté par Grades.jsx quand la classe est résolue 'apc_primaire'.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../../store/schoolStore';
 import { useAuthStore } from '../../store/authStore';
@@ -23,7 +23,10 @@ import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { celluleSuivante } from '../../lib/gridNavigation';
 import { toast } from '../../store/toastStore';
 import { nonEvalKey } from '../../lib/primService';
-import { isSubjectScoped, canManageClassSubjects } from '../../lib/teacherScope';
+import {
+  isSubjectScoped, canManageClassSubjects, refLineScope,
+  isFundamentalTitulaire, mySubjects,
+} from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
 import {
   competenceIdsForTeacher, unresolvedSubjectsForTeacher,
@@ -38,11 +41,11 @@ import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal, primCote,
   trimestreOfUA, PRIM_COTE_DEFAULT,
 } from '../../core/primEngine';
-import { baremeEnVigueur, notesHorsBareme, notesSaisies } from '../../core/primColumnBareme';
+import { baremeEnVigueur, notesHorsBareme, notesSaisies, baremeOuverture } from '../../core/primColumnBareme';
 // Le PÉRIMÈTRE de la classe — ses matières cochées dans « Modifier la classe ».
 // Le bulletin l'applique déjà (primForClass) : la saisie doit lister EXACTEMENT
 // les mêmes compétences, sinon on saisit des notes qui ne s'impriment jamais.
-import { primForClass, unmatchedClassSubjects, scopeOf } from '../../core/refClassScope';
+import { primForClass, unmatchedClassSubjects, primSubjectsNeedingOwnCompetence, scopeOf } from '../../core/refClassScope';
 // Les six familles du carnet, prises à la MÊME source que les bandeaux imprimés :
 // ce que l'école choisit ici est exactement ce qui s'imprimera.
 import { FAMILLES_PRIMAIRE, familleLabel } from '../../core/primCompactRows';
@@ -103,12 +106,17 @@ function BaremeCell({ value, disabled, onCommit }) {
 // l'intérêt du bouton. Il est rendu EN DUR à côté du champ plutôt qu'au survol :
 // un bouton qui n'apparaît qu'à la souris n'existe pas sur une tablette, et la
 // saisie se fait aussi sur tablette.
-function NoteCell({ value, statut, max, disabled, onCommit, onStatut, champRef, onNav }) {
+//
+// UNE NOTE REFUSÉE LE DIT. La cellule revenait en silence à sa valeur d'avant :
+// un 17 tapé dans une colonne sur 14 s'effaçait sans un mot, et l'enseignant lit
+// cela comme une saisie que l'application a perdue. On nomme donc la raison —
+// c'est le barème de la colonne, et il se change juste au-dessus.
+function NoteCell({ value, statut, max, disabled, onCommit, onStatut, onRefus, champRef, onNav }) {
   const [local, setLocal] = useState(value ?? '');
   useEffect(() => { setLocal(value ?? ''); }, [value]);
   const commit = () => {
     const v = validateGrade(local, max);
-    if (v === null) { setLocal(value ?? ''); return; }
+    if (v === null) { onRefus?.(local, max); setLocal(value ?? ''); return; }
     if (v !== (value ?? '')) onCommit(v);
   };
   // Quitter la cellule déclenche `onBlur`, donc la note est enregistrée AVANT
@@ -187,6 +195,7 @@ export default function PrimCompetenceWorkspace() {
   const students    = useSchoolStore((s) => s.students);
   const referentiel = useSchoolStore((s) => s.primReferentiel);
   const primNotes   = useSchoolStore((s) => s.primNotes);
+  const primNotesPrets = useSchoolStore((s) => s.primNotesPrets);
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
   const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
@@ -226,16 +235,27 @@ export default function PrimCompetenceWorkspace() {
     [classes, school],
   );
 
+  // ── LA CLASSE SE GARDE SUR « J'Y ENSEIGNE », PAS SUR « ÇA SE RATTACHE » ───
+  //
+  // Le filtre exigeait au moins UNE compétence déjà résolue. C'était une
+  // impasse fermée sur elle-même : sans classe retenue, `selectedClass` reste
+  // null, le rattrapage qui aurait créé la compétence manquante ne part jamais,
+  // donc aucune compétence ne se résout, donc la classe reste écartée. Une
+  // enseignante d'« Espagnol » en CE1 n'avait pas un élève à l'écran — juste
+  // « Demandez à l'administration ».
+  //
+  // On retient donc la classe dès qu'elle y enseigne (ou qu'elle en est la
+  // titulaire, comme la maternelle le fait déjà) ; le rattrapage s'occupe du
+  // reste, et le filtre sur les COMPÉTENCES reste en place plus bas — il n'y a
+  // pas d'élargissement de périmètre ici, seulement l'ouverture de la porte.
   const primClasses = useMemo(() => {
     let list = primClassesAll;
     if (isSubjectTeacher) {
-      const comps = referentiel?.competences || [];
-      list = list.filter(
-        (c) => competenceIdsForTeacher(subjects, teacherId, c.id, comps).size > 0,
-      );
+      list = list.filter((c) => isFundamentalTitulaire(c, teacherId)
+        || mySubjects(subjects, teacherId, c.id).length > 0);
     }
     return list.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
-  }, [primClassesAll, isSubjectTeacher, subjects, teacherId, referentiel]);
+  }, [primClassesAll, isSubjectTeacher, subjects, teacherId]);
   useEffect(() => {
     if (primClasses.length && !primClasses.some((c) => c.id === classId)) setClassId(primClasses[0].id);
   }, [primClasses, classId]);
@@ -322,14 +342,33 @@ export default function PrimCompetenceWorkspace() {
   // une écriture refusée par la RLS repartirait en boucle dans la file.
   const materialiserPrimManquantes = useSchoolStore((s) => s.materialiserCompetencesPrimManquantes);
   const rattrapees = useRef(new Set());
+  // Ce qui RESTE à matérialiser. `matieresHorsReferentiel` ne voit que les
+  // matières qui ne tombent sur RIEN ; il ne voyait donc pas celles dont la
+  // compétence est déjà prise par une autre matière de la classe — et sur une
+  // classe bilingue, c'est tout le second programme. Une classe qui n'a QUE des
+  // collisions ne déclenchait jamais le rattrapage.
+  const aMaterialiser = useMemo(
+    () => (referentiel && niveauSlug
+      ? primSubjectsNeedingOwnCompetence(classSubjects, competencesForNiveau(referentiel, niveauSlug)).length
+      : 0),
+    [referentiel, niveauSlug, classSubjects],
+  );
+  // LE DROIT SE LIT SUR LA TABLE QU'ON ÉCRIT. `canManageClassSubjects` est la
+  // policy de `subjects` (titulariat exigé) ; ici on écrit `prim_competences`,
+  // dont la policy autorise TOUT membre de l'école à écrire les lignes de son
+  // école. La garde d'avant était donc plus stricte que la base — et c'est elle
+  // qui enfermait l'enseignante de matière. `refLineScope` rend le périmètre :
+  // tout pour l'administration et la titulaire, ses propres matières pour un
+  // enseignant de matière, rien sinon.
   useEffect(() => {
-    if (!selectedClass || !referentiel || !niveauSlug || !matieresHorsReferentiel.length) return;
+    if (!selectedClass || !referentiel || !niveauSlug || !aMaterialiser) return;
     const isDelegate = hasCapability(permissions, '/app/classes');
-    if (!canManageClassSubjects({ role, school, cls: selectedClass, teacherId, isDelegate })) return;
+    const scope = refLineScope({ role, school, cls: selectedClass, teacherId, isDelegate });
+    if (!scope) return;
     if (rattrapees.current.has(selectedClass.id)) return;
     rattrapees.current.add(selectedClass.id);
-    materialiserPrimManquantes(selectedClass, niveauSlug);
-  }, [selectedClass, referentiel, niveauSlug, matieresHorsReferentiel.length, role, school, teacherId, permissions, materialiserPrimManquantes]);
+    materialiserPrimManquantes(selectedClass, niveauSlug, scope);
+  }, [selectedClass, referentiel, niveauSlug, aMaterialiser, role, school, teacherId, permissions, materialiserPrimManquantes]);
 
   // Combien de notes chaque compétence porte-t-elle, dans TOUTE l'école ?
   // `primNotes` les contient déjà (chargées par `loadPrim`) : aucun appel de
@@ -492,14 +531,14 @@ export default function PrimCompetenceWorkspace() {
   // l'école…).
   const celluleOuverte = (row, col) => {
     const stu = classStudents[row];
-    const cr = criteres[col];
+    const cr = criteresActifs[col];
     if (!stu || !cr) return false;
     return criteresForStudent(stu).some((x) => x.id === cr.id);
   };
   const naviguer = (row, col) => (key, caret) => {
     const cible = celluleSuivante(
       key,
-      { row, col, rows: classStudents.length, cols: criteres.length, actif: celluleOuverte },
+      { row, col, rows: classStudents.length, cols: criteresActifs.length, actif: celluleOuverte },
       caret,
     );
     const el = cible && cellules.current.get(`${cible.row}:${cible.col}`);
@@ -558,6 +597,26 @@ export default function PrimCompetenceWorkspace() {
   // (elles le portent), sinon celui que l'enseignant vient de poser, sinon le
   // barème officiel du référentiel. La même colonne peut donc valoir /10 sur une
   // UA et /20 sur une autre.
+  // Pourquoi la case est revenue en arrière. `validateGrade` refuse ce qui est
+  // négatif, non numérique, ou au-dessus du barème de la colonne — et la
+  // colonne d'une compétence AJOUTÉE PAR L'ÉCOLE n'a pas de barème national :
+  // c'est l'enseignant qui le pose, juste au-dessus de la case. Le dire est la
+  // seule façon que ce retour en arrière ne se lise pas comme une note perdue.
+  const noteRefusee = (saisi, max) => {
+    const n = Number(String(saisi).replace(',', '.'));
+    if (Number.isFinite(n) && Number.isFinite(Number(max)) && Number(max) > 0 && n > Number(max)) {
+      toast.error(t(
+        `${saisi} dépasse le barème de la colonne (/${max}). Changez le barème au-dessus de la colonne, ou corrigez la note.`,
+        `${saisi} is above this column's scale (/${max}). Change the scale above the column, or correct the mark.`,
+      ));
+      return;
+    }
+    toast.error(t(
+      'Note non enregistrée : seuls un nombre entre 0 et le barème, « ABS » ou une case vide sont acceptés.',
+      'Mark not saved: only a number between 0 and the scale, “ABS” or an empty cell are accepted.',
+    ));
+  };
+
   const baremeFor = (critereId) => baremeEnVigueur(
     classStudents.map((stu) => primNotes[primNkey(stu.id, competenceId, critereId, ua)]),
     criteres.find((c) => c.id === critereId)?.points_max,
@@ -659,6 +718,93 @@ export default function PrimCompetenceWorkspace() {
       });
     }
   };
+
+  // ── LE BARÈME D'OUVERTURE : POSÉ POUR EUX, MODIFIABLE PAR EUX ─────────────
+  //
+  // Une compétence ajoutée par l'école n'a aucune ligne dans la table NATIONALE
+  // `prim_bareme_criteres` : ses quatre colonnes naissaient à zéro, donc toutes
+  // cases désactivées, et l'enseignant devait deviner qu'il fallait d'abord
+  // taper un chiffre dans la petite case d'en-tête. On pose donc la colonne
+  // « Écrit » à ce que l'école fait déjà (voir `baremeOuverture`), et on le fait
+  // PAR `setBareme` — c'est-à-dire par le même chemin que si l'enseignant
+  // l'avait tapé : barème écrit pour toute la colonne, refus si une note le
+  // dépasse, et modifiable à tout instant par la même case d'en-tête, zéro
+  // compris pour la refermer.
+  //
+  // ON N'OUVRE QUE CE QUI N'A JAMAIS ÉTÉ TOUCHÉ. Une colonne refermée par
+  // l'école garde des lignes à `points_max` NULL ; une colonne jamais ouverte
+  // n'a aucune ligne du tout. C'est ce qui distingue « l'école n'en veut pas »
+  // de « personne n'a encore rien dit », et sans quoi le barème se reposerait
+  // tout seul après chaque fermeture.
+  const ouvertes = useRef(new Set());
+  const baremesEcoleFor = useCallback((critereId) => {
+    const miens = new Set(classStudents.map((s) => s.id));
+    const vus = [];
+    for (const r of Object.values(primNotes || {})) {
+      if (!r || r.critere_id !== critereId) continue;
+      if (r.competence_id === competenceId || !miens.has(r.eleve_id)) continue;
+      const m = Number(r.points_max);
+      if (Number.isFinite(m) && m > 0) vus.push(m);
+    }
+    return vus;
+  }, [primNotes, classStudents, competenceId]);
+
+  useEffect(() => {
+    // ATTENDRE QUE LES NOTES SOIENT ARRIVÉES. Sans ce verrou, l'effet partait au
+    // premier rendu, quand `primNotes` est encore vide parce que rien n'est
+    // chargé — pas parce que la colonne est vierge. `setBareme` réécrit alors
+    // TOUTE la colonne en conservant « la note actuelle », qui vaut `null` dans
+    // une carte vide : mesuré le 2026-10-29, les quatre notes déjà saisies ont
+    // été effacées à la simple ouverture de l'écran.
+    if (!primNotesPrets) return;
+    if (!competenceId || !niveauSlug || !referentiel || !classStudents.length) return;
+    const cle = `${classId}_${competenceId}_${ua}`;
+    if (ouvertes.current.has(cle)) return;
+    const aOuvrir = baremeOuverture({
+      critereIds: criteres.map((c) => c.id),
+      officielPour: (id) => criteres.find((c) => c.id === id)?.points_max,
+      baremesEcole: baremesEcoleFor,
+      baremeCriteres: referentiel.baremeCriteres,
+      niveauSlug,
+    });
+    const neufs = Object.entries(aOuvrir).filter(([critereId]) => !classStudents
+      .some((stu) => primNotes[primNkey(stu.id, competenceId, critereId, ua)]));
+    if (!neufs.length) return;
+    ouvertes.current.add(cle);
+    for (const [critereId, valeur] of neufs) setBareme(critereId, valeur);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primNotesPrets, classId, competenceId, ua, niveauSlug, referentiel, criteres, classStudents, baremesEcoleFor]);
+
+  // ── « DÉSACTIVE LES CRITÈRES QU'ILS N'UTILISENT PAS » ─────────────────────
+  //
+  // UNE COLONNE EXISTE QUAND ELLE A UN BARÈME. L'écran fabriquait les quatre
+  // critères du référentiel pour CHAQUE compétence, et affichait « à définir »
+  // sur celles dont personne ne voulait : « Pratique » sur 1A, 1B, 2A, et les
+  // trois colonnes inutiles de toute matière évaluée sur une seule épreuve.
+  // Quatre colonnes grisées à enjamber, à chaque compétence, à chaque UA.
+  //
+  // Le masquage d'école (`refMasques.prim_crit`) ne pouvait pas servir ici : il
+  // est GLOBAL à l'école, et GENIUS évalue « Pratique » en TIC mais pas en
+  // Dictée. La donnée, elle, porte déjà la bonne granularité — par compétence.
+  //
+  // Les colonnes fermées ne disparaissent pas pour autant : elles s'ouvrent
+  // d'un clic sous le tableau, au barème que l'école emploie déjà. Sans cette
+  // porte, « désactiver » deviendrait « supprimer ».
+  const criteresActifs = criteres.filter((c) => baremeFor(c.id) > 0);
+  const criteresFermes = criteres.filter((c) => baremeFor(c.id) <= 0);
+  // Ouvrir une colonne fermée : même barème de départ que « Écrit » à
+  // l'ouverture automatique — ce que l'école emploie déjà sur ce critère, sinon
+  // le gabarit officiel du niveau. L'enseignant le corrige ensuite s'il veut.
+  const ouvrirColonne = (critereId) => setBareme(
+    critereId,
+    baremeOuverture({
+      critereIds: [critereId, 'ecrit'],
+      officielPour: () => 0,
+      baremesEcole: () => baremesEcoleFor(critereId),
+      baremeCriteres: referentiel?.baremeCriteres,
+      niveauSlug,
+    }).ecrit || 20,
+  );
 
   function renderClassPicker() {
     return (
@@ -884,7 +1030,7 @@ export default function PrimCompetenceWorkspace() {
           filename={`notes_primaire_${selectedClass?.name || ''}_${(competences.find((c) => c.id === competenceId)?.code || 'competence')}_UA${ua}`}
           sheetName={`UA${ua}`}
           students={classStudents}
-          columns={criteres.map((c) => ({ id: c.id, label: `${c.nom} /${baremeFor(c.id)}` }))}
+          columns={criteresActifs.map((c) => ({ id: c.id, label: `${c.nom} /${baremeFor(c.id)}` }))}
           getCell={(sid, cid) => noteFor(sid, cid)}
           normalize={(raw, cid) => validateGrade(raw, baremeFor(cid))}
           onImport={(sid, cid, v) => savePrimNote({
@@ -959,19 +1105,16 @@ export default function PrimCompetenceWorkspace() {
             douze fois. Le total et la cote s'affichent sous les critères, là où
             on vient de les produire. */}
         <div className="md:hidden rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 mb-2 flex flex-wrap gap-x-4 gap-y-1">
-          {criteres.map((c) => (
+          {criteresActifs.map((c) => (
             <span key={c.id} className="text-xs text-gray-500 inline-flex items-center gap-1">
               {c.nom}
-              {c.aNoter && baremeFor(c.id) <= 0 && (
-                <span className="text-[10px] text-amber-600">{t('à définir', 'to set')}</span>
-              )}
               <BaremeCell value={baremeFor(c.id)} onCommit={(n) => setBareme(c.id, n)} />
             </span>
           ))}
         </div>
         <MobileEntryList
           students={classStudents}
-          columns={criteres.map((c) => ({ id: c.id, label: `${c.nom} · /${baremeFor(c.id)}` }))}
+          columns={criteresActifs.map((c) => ({ id: c.id, label: `${c.nom} · /${baremeFor(c.id)}` }))}
           subtitle={(stu) => {
             const { achieved, possible } = competenceTotal(stu);
             if (achieved == null) return null;
@@ -988,6 +1131,7 @@ export default function PrimCompetenceWorkspace() {
               statut={statutFor(stu.id, c.id)}
               onStatut={(s) => setStatut(stu.id, c.id, s)}
               max={baremeFor(c.id)}
+              onRefus={noteRefusee}
               disabled={!new Set(criteresForStudent(stu).map((x) => x.id)).has(c.id)}
               onCommit={(v) => savePrimNote({
                 eleveId: stu.id, competenceId, critereId: c.id, ua,
@@ -1003,16 +1147,10 @@ export default function PrimCompetenceWorkspace() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
-                {criteres.map((c) => (
+                {criteresActifs.map((c) => (
                   <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600">
                     <span className="block truncate">
                       {c.nom}
-                      {/* Critère officiel sans barème national : la colonne est
-                          visible, mais non saisissable tant que l'école n'a pas
-                          posé son chiffre — on ne note pas sur /0. */}
-                      {c.aNoter && baremeFor(c.id) <= 0 && (
-                        <span className="ml-1 text-[10px] font-normal text-amber-600">{t('à définir', 'to set')}</span>
-                      )}
                     </span>
                     {/* Barème de CETTE évaluation : celui du référentiel par
                         défaut, modifiable là où l'on saisit. */}
@@ -1037,13 +1175,14 @@ export default function PrimCompetenceWorkspace() {
                         <span className="ml-1.5 text-[10px] text-amber-600 font-normal">({t('inapte', 'unfit')})</span>
                       )}
                     </td>
-                    {criteres.map((c, ci) => (
+                    {criteresActifs.map((c, ci) => (
                       <td key={c.id} className="px-3 py-1.5">
                         <NoteCell
                           value={noteFor(stu.id, c.id)}
                           statut={statutFor(stu.id, c.id)}
                           onStatut={(s) => setStatut(stu.id, c.id, s)}
                           max={baremeFor(c.id)}
+                          onRefus={noteRefusee}
                           disabled={!studentCritereIds.has(c.id)}
                           champRef={poserCellule(ri, ci)}
                           onNav={naviguer(ri, ci)}
@@ -1068,6 +1207,30 @@ export default function PrimCompetenceWorkspace() {
             </tbody>
           </table>
         </div>
+
+        {/* LES COLONNES QUE CETTE COMPÉTENCE N'UTILISE PAS. Elles ont quitté le
+            tableau — quatre colonnes grisées à enjamber, à chaque compétence et
+            à chaque UA, pour une matière évaluée sur une seule épreuve. Elles
+            restent à UN CLIC : « désactiver » ne doit pas vouloir dire
+            « supprimer ». Le barème proposé est celui que l'école emploie déjà
+            sur ce critère, et il se corrige dans l'en-tête comme les autres. */}
+        {criteresFermes.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+            <span>{t('Épreuve non utilisée ici :', 'Not assessed here:')}</span>
+            {criteresFermes.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => ouvrirColonne(c.id)}
+                className="rounded-full border border-dashed border-gray-300 px-2 py-0.5 text-gray-600 hover:border-gray-400 hover:bg-gray-50"
+                title={t(`Ajouter la colonne « ${c.nom} » à cette compétence`,
+                  `Add the “${c.nom}” column to this competency`)}
+              >
+                + {c.nom}
+              </button>
+            ))}
+          </div>
+        )}
         </>
       )}
     </div>

@@ -129,3 +129,39 @@ export function canEditSubjectRow({ role, school, cls, teacherId, subject, isDel
   if (canManageClassSubjects({ role, school, cls, teacherId, isDelegate })) return true;
   return !!teacherId && subject?.teacher_id === teacherId;
 }
+
+// ── QUI PEUT NOMMER UNE LIGNE DE RÉFÉRENTIEL, ET POUR QUELLES MATIÈRES ───────
+//
+// Les trois écrans officiels (primaire, premier cycle, maternelle) rattrapent à
+// l'ouverture les matières qui ne tombent sur aucune ligne du référentiel : ils
+// créent une ligne MAISON qui porte le nom de la matière. Sans elle, la matière
+// n'a aucune colonne — donc aucune note saisissable.
+//
+// CE RATTRAPAGE ÉTAIT GARDÉ PAR `canManageClassSubjects`, QUI EST LA POLICY DE
+// LA MAUVAISE TABLE. Les tables de référentiel (`prim_competences`,
+// `mat_domaines`, `apc_matieres`) portent toutes la même règle :
+//     USING / WITH CHECK (school_id IS NOT NULL AND member_of_school(school_id))
+// — tout membre de l'école écrit les lignes de SON école. `subjects`, elle,
+// exige le titulariat. L'écran était donc PLUS STRICT que la base, et pour
+// rien : aucune écriture n'aurait été refusée, aucune file n'aurait bouclé.
+//
+// LE DÉFAUT MESURÉ (2026-10-29, édition LAN montée). École en mode « enseignant
+// de matière ». Une enseignante d'« Espagnol » en CE1 — matière qui ne tombe sur
+// aucune des onze compétences nationales — n'est pas titulaire de la classe. Le
+// rattrapage ne partait donc jamais, et son écran de saisie ne portait qu'une
+// phrase : « Aucune de vos matières ne se rattache à une compétence nationale
+// (1A–6B) : Espagnol. Demandez à l'administration de les renommer selon le
+// référentiel. » Pas un élève, pas une cellule — une impasse, pour un geste que
+// le produit sait faire seul et que la base l'autorisait à faire.
+//
+// LE PÉRIMÈTRE RESTE. Elle ne nomme que les lignes de SES matières ; celles d'un
+// collègue restent au titulaire ou à l'administration. D'où trois réponses :
+//   • `{}`                    — tout le périmètre de la classe (admin, délégué,
+//                               titulaire) : le comportement d'avant, inchangé ;
+//   • `{ onlyTeacherId }`     — ses propres matières seulement ;
+//   • `null`                  — rien à rattraper de son propre chef.
+export function refLineScope({ role, school, cls, teacherId, isDelegate = false }) {
+  if (canManageClassSubjects({ role, school, cls, teacherId, isDelegate })) return {};
+  if (role === 'teacher' && teacherId) return { onlyTeacherId: teacherId };
+  return null;
+}

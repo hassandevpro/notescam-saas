@@ -453,16 +453,25 @@ titre('Le rattrapage du primaire est bien CABLE a l ecran');
 // l appelait JAMAIS, parce qu il declenchait sur une liste qui ne contenait pas
 // le cas vise. Vu du dehors : « rien ne change ».
 //
-// La regle qu on fige : c est la liste des matieres SANS COMPETENCE qui
-// declenche, et c est elle que le rattrapage traite.
+// La regle qu on fige : l ecran declenche sur EXACTEMENT la liste que le
+// rattrapage traite. Les deux doivent bouger ensemble, ou jamais.
+//
+// 2026-10-29 — cette liste s est ELARGIE. Elle ne retenait que les matieres qui
+// ne tombent sur AUCUNE competence ; elle retient desormais aussi celles dont la
+// competence est DEJA PRISE par une autre matiere de la classe
+// (primSubjectsNeedingOwnCompetence). Sans cela, sur une classe bilingue,
+// `French` et `Mathematics` se fondaient dans `Français` et `Mathématiques`, et
+// tout le programme anglophone disparaissait du bulletin et de la saisie — 25
+// matieres sur 37 mesurees sur CE2 BIL. Une classe qui n avait QUE des
+// collisions ne declenchait meme jamais le rattrapage.
 {
   const ecran = readFileSync(new URL('../components/grades/PrimCompetenceWorkspace.jsx', import.meta.url), 'utf8');
   const magasin = readFileSync(new URL('../store/schoolStore.js', import.meta.url), 'utf8');
 
   ok(/materialiserCompetencesPrimManquantes/.test(magasin),
     'le magasin porte le rattrapage du primaire');
-  ok(/unmatchedClassSubjects\('prim'/.test(magasin),
-    'il part des matieres sans competence correspondante');
+  ok(/primSubjectsNeedingOwnCompetence\(/.test(magasin),
+    'il part des matieres qui ont besoin de LEUR PROPRE competence (sans competence, ou competence deja prise)');
   ok(/addRefLigne\('prim'/.test(magasin),
     'et cree une competence MAISON, par le meme chemin que « Modifier les competences »');
   // La table est GLOBALE (ni school_id, ni RLS par ecole) : une ecole n a pas a
@@ -473,10 +482,23 @@ titre('Le rattrapage du primaire est bien CABLE a l ecran');
 
   ok(/materialiserCompetencesPrimManquantes/.test(ecran),
     'l ecran appelle bien ce rattrapage');
-  ok(/if \(!selectedClass \|\| !referentiel \|\| !niveauSlug \|\| !matieresHorsReferentiel\.length\) return;/.test(ecran),
-    'et il declenche sur les matieres sans competence, pas sur autre chose');
-  ok(/canManageClassSubjects\(/.test(ecran),
-    'jamais sans le droit d ecrire le referentiel (sinon la file boucle sur un refus RLS)');
+  ok(/if \(!selectedClass \|\| !referentiel \|\| !niveauSlug \|\| !aMaterialiser\) return;/.test(ecran),
+    'et il declenche sur CETTE liste-la, pas sur une autre');
+  ok(/primSubjectsNeedingOwnCompetence\(/.test(ecran),
+    'calculee par la MEME fonction que le magasin — sinon les deux divergent en silence');
+  // LE DROIT SE LIT SUR LA TABLE QU'ON ÉCRIT, et ce n'était pas le cas.
+  // Cette ligne exigeait `canManageClassSubjects` — la policy de `subjects`,
+  // qui réclame le titulariat. Or le rattrapage écrit `prim_competences`, dont
+  // la policy autorise TOUT membre de l'école. L'écran était donc plus strict
+  // que la base, et c'est lui qui enfermait l'enseignante de matière devant
+  // « Demandez à l'administration » (mesuré le 2026-10-29 sur l'édition LAN).
+  // On exige maintenant `refLineScope`, qui rend le PÉRIMÈTRE : tout pour
+  // l'administration et la titulaire, ses propres matières pour un enseignant
+  // de matière, rien sinon. Détail : src/lib/_refLineScope.test.mjs.
+  ok(/refLineScope\(/.test(ecran),
+    'le droit vient de la policy du REFERENTIEL, pas de celle de subjects');
+  ok(!/if \(!canManageClassSubjects\(\{ role, school, cls: selectedClass, teacherId, isDelegate \}\)\) return;/.test(ecran),
+    'et la garde trop stricte ne doit pas revenir');
   ok(/rattrapees\.current\.has\(selectedClass\.id\)/.test(ecran),
     'et une seule fois par classe');
 }

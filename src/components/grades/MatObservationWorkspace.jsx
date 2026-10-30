@@ -23,7 +23,7 @@ import { isSubjectScoped } from '../../lib/teacherScope';
 // Le PÉRIMÈTRE de la classe — ses domaines cochés dans « Modifier la classe ».
 // Le bulletin l'applique déjà (matForClass) : la saisie doit lister EXACTEMENT
 // les mêmes domaines, sinon on observe des domaines qui ne s'impriment jamais.
-import { matForClass, unmatchedClassSubjects } from '../../core/refClassScope';
+import { matForClass, unmatchedClassSubjects, matSubjectsNeedingOwnDomaine } from '../../core/refClassScope';
 import { classSubjectsOf } from '../../core/subjectOrder';
 import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
@@ -33,7 +33,7 @@ import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import ReferentielEditor from './ReferentielEditor';
 import MobileEntryList from './MobileEntryList';
 import { withLibelles } from '../../lib/referentielEcole';
-import { canManageClassSubjects } from '../../lib/teacherScope';
+import { canManageClassSubjects, refLineScope, mySubjects } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
 
 // ── Cellule niveau d'acquisition (A / ECA / NA) ─────────────────────────────────
@@ -145,14 +145,18 @@ export default function MatObservationWorkspace() {
     [classes, school],
   );
 
+  // La classe se garde sur « j'y enseigne », pas sur « ça se rattache » — même
+  // impasse qu'au primaire : sans classe retenue, `selectedClass` reste null, le
+  // rattrapage qui créerait le domaine manquant ne part jamais, donc rien ne se
+  // rattache jamais. Le filtre sur les DOMAINES reste en place plus bas.
   const matClasses = useMemo(() => {
     let list = matClassesAll;
     if (subjectScoped) {
       list = list.filter((c) => isClassTitulaire(c, teacherId)
-        || domaineIdsForTeacher(subjects, teacherId, c.id, domainesAll).size > 0);
+        || mySubjects(subjects, teacherId, c.id).length > 0);
     }
     return list.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { numeric: true }));
-  }, [matClassesAll, subjectScoped, teacherId, subjects, domainesAll]);
+  }, [matClassesAll, subjectScoped, teacherId, subjects]);
   useEffect(() => {
     if (matClasses.length && !matClasses.some((c) => c.id === classId)) setClassId(matClasses[0].id);
   }, [matClasses, classId]);
@@ -213,6 +217,42 @@ export default function MatObservationWorkspace() {
     () => unmatchedClassSubjects('mat', classSubjects, domainesForMaternelle(referentiel)).map((s) => s.name),
     [classSubjects, referentiel],
   );
+
+  // ── CE QUE L'ÉCOLE A COCHÉ DOIT POUVOIR S'OBSERVER ──────────────────────
+  //
+  // Règle du responsable : « je ne veux pas voir une seule matière cochée dans
+  // une classe qui ne soit dans le bulletin ou à la saisie des notes ».
+  //
+  // La maternelle n'avait AUCUN rattrapage, là où le primaire et le premier
+  // cycle en ont un. Une matière cochée qui ne tombait sur aucun domaine était
+  // seulement NOMMÉE dans un bandeau et restait invisible ; et deux matières sur
+  // le même domaine en faisaient disparaître une. On crée donc le domaine
+  // MAISON correspondant, par le même chemin que « Modifier les domaines ».
+  const materialiserDomainesManquants = useSchoolStore((s) => s.materialiserDomainesMatManquants);
+  const aMaterialiser = useMemo(
+    () => matSubjectsNeedingOwnDomaine(classSubjects, domainesForMaternelle(referentiel)).length,
+    [classSubjects, referentiel],
+  );
+  const rattrapees = useRef(new Set());
+  // Le droit se lit sur la table qu'on ÉCRIT. `canManageDomaines` est le miroir
+  // de la policy de `subjects` (titulariat exigé) ; ici on écrit `mat_domaines`,
+  // dont la policy autorise tout membre de l'école. La RLS n'aurait donc rien
+  // refusé, et la garde enfermait l'enseignant de matière devant un écran vide.
+  // `refLineScope` restreint la création à ses propres matières.
+  // Mémoïsé : sans cela, l'objet changerait d'identité à chaque rendu et
+  // l'effet repartirait sans fin (la garde `rattrapees` l'empêcherait d'écrire,
+  // mais autant ne pas le réveiller pour rien).
+  const refScope = useMemo(
+    () => refLineScope({ role, school, cls: selectedClass, teacherId, isDelegate }),
+    [role, school, selectedClass, teacherId, isDelegate],
+  );
+  useEffect(() => {
+    if (!selectedClass || !referentiel || !aMaterialiser) return;
+    if (!refScope) return;
+    if (rattrapees.current.has(selectedClass.id)) return;
+    rattrapees.current.add(selectedClass.id);
+    materialiserDomainesManquants(selectedClass, refScope);
+  }, [selectedClass, referentiel, aMaterialiser, refScope, materialiserDomainesManquants]);
 
   const domaines = useMemo(() => {
     // Libellé officiel localisé, PUIS la surcharge de l'école si elle en a une.

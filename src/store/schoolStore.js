@@ -28,7 +28,11 @@ import { missingBilingualSubjects, missingFromSiblingClass } from '../core/bilin
 import { resolveClassEngine, firstCycleClasseSlug } from '../core/engineResolver';
 import { manquesPourClasse } from '../core/apcRattrapage';
 import { attendreValeur } from '../core/attenteValeur';
-import { unmatchedClassSubjects } from '../core/refClassScope';
+import { primSubjectsNeedingOwnCompetence, matSubjectsNeedingOwnDomaine } from '../core/refClassScope';
+import { domainesForMaternelle } from '../core/matEngine';
+// Même ordre que le bulletin et que l'écran de la classe : c'est lui qui décide
+// quelle matière GARDE la compétence nationale quand plusieurs la réclament.
+import { classSubjectsOf } from '../core/subjectOrder';
 import { competencesForNiveau } from '../core/primEngine';
 import { APC_TRIMESTRE_IDS } from '../core/apcPeriods';
 import { filterClassesByScope, isGlobalScope } from '../core/surveillantScope';
@@ -420,6 +424,14 @@ export const useSchoolStore = create((set, get) => ({
   refLibelles:     { mat: {}, apc: {}, prim: {} },
   primReferentiel: null,
   primNotes:       {},
+  // LES NOTES DU PRIMAIRE SONT-ELLES ARRIVEES ? Un ecran qui ECRIT a partir
+  // de ce qu il lit ne peut pas se contenter de `primNotes = {}` : au premier
+  // rendu, la carte est vide parce que rien n est encore charge, pas parce que
+  // la classe n a pas de notes. Mesure du 2026-10-29 : l ouverture automatique
+  // du bareme partait avant l arrivee des notes et reecrivait la colonne avec
+  // `note: null` — quatre notes effacees sans un mot. Faux jusqu a ce que la
+  // lecture serveur ait abouti (ou, hors ligne, le cache local).
+  primNotesPrets:  false,
   // Compétences qu'une classe n'a pas évaluées à une UA. Liste de clés
   // `classId|competenceId|ua` : elles s'impriment « - - - - » et ne comptent
   // dans aucun total. Vide = tout a été évalué, ce qui est le cas de départ.
@@ -1179,7 +1191,11 @@ export const useSchoolStore = create((set, get) => ({
   // le doublon qu'on passe la journée à retirer. Une matière nationale est
   // rattachée PAR SON IDENTIFIANT, et seules les compétences du niveau sont
   // créées, au nom de l'école.
-  materialiserMatieresManquantes: async (cls) => {
+  // `opts.onlyTeacherId` : ne créer / rattacher que pour les matières de CET
+  // enseignant (cf. `refLineScope`, lib/teacherScope.js). Le calcul porte sur
+  // toute la classe — c'est lui qui décide quelle matière garde la matière
+  // officielle, et cet arbitrage ne doit pas dépendre de qui ouvre l'écran.
+  materialiserMatieresManquantes: async (cls, opts = {}) => {
     const { subjects, apcReferentiel, schoolId } = get();
     const school = useAuthStore.getState().school;
     const rien = { created: 0, attached: 0 };
@@ -1189,7 +1205,10 @@ export const useSchoolStore = create((set, get) => ({
 
     const classeId = firstCycleClasseSlug(cls.level, cls.name);
     if (!classeId) return rien;
-    const deLaClasse = (subjects || []).filter((s) => s && s.class_id === cls.id && s.name);
+    // Ordre d'affichage : depuis que `manquesPourClasse` traite aussi les
+    // COLLISIONS, c'est lui qui décide quelle matière garde la matière
+    // officielle. Sans ordre stable, l'ordre d'arrivée en base déciderait.
+    const deLaClasse = classSubjectsOf(subjects, cls.id).filter((s) => s && s.name);
     if (!deLaClasse.length) return rien;
 
     // Ce que la classe peut RÉELLEMENT saisir : les matières rattachées à SON
@@ -1219,7 +1238,19 @@ export const useSchoolStore = create((set, get) => ({
     // propre garde (recherche par nom côté serveur, identifiant déterministe) :
     // ces deux protections sont indépendantes, et c'est voulu.
     await get().rechargerApcReferentiel();
-    const { creer, rattacher } = aFaire(get().apcReferentiel);
+    const brut = aFaire(get().apcReferentiel);
+    // Restriction au périmètre de l'enseignant, APRÈS l'arbitrage : `creer` se
+    // filtre sur `teacher_id`, et `rattacher` sur les noms de ses matières —
+    // c'est le nom qui est la clé de cette Map.
+    const creer = opts.onlyTeacherId
+      ? brut.creer.filter((s) => s.teacher_id === opts.onlyTeacherId)
+      : brut.creer;
+    const siens = opts.onlyTeacherId
+      ? new Set(deLaClasse.filter((s) => s.teacher_id === opts.onlyTeacherId).map((s) => s.name))
+      : null;
+    const rattacher = siens
+      ? new Map([...brut.rattacher].filter(([, nom]) => siens.has(nom)))
+      : brut.rattacher;
 
     let created = 0;
     for (const sub of creer) {
@@ -1264,15 +1295,31 @@ export const useSchoolStore = create((set, get) => ({
   // On ne touche à AUCUNE compétence nationale, et on n'écrit rien dans
   // `prim_niveau_competences` : cette table est GLOBALE, sans school_id, donc
   // une école n'a pas à y toucher.
-  materialiserCompetencesPrimManquantes: async (cls, niveauSlug) => {
+  // `opts.onlyTeacherId` : ne créer que les lignes des matières de CET
+  // enseignant. La règle « la première matière qui réclame garde » se calcule
+  // quand même sur TOUTE la classe — sinon l'ordre dépendrait de qui ouvre
+  // l'écran — et seule la création est restreinte. Cf. `refLineScope`
+  // (lib/teacherScope.js) : la policy des tables de référentiel autorise tout
+  // membre de l'école, le périmètre reste celui de ses propres matières.
+  materialiserCompetencesPrimManquantes: async (cls, niveauSlug, opts = {}) => {
     const { subjects, primReferentiel, schoolId } = get();
     if (!cls || !schoolId || !primReferentiel || !niveauSlug) return { created: 0 };
     if (!backendOnline()) return { created: 0, skipped: 'offline' };
 
     const duNiveau = competencesForNiveau(primReferentiel, niveauSlug);
     if (!duNiveau.length) return { created: 0 };
-    const deLaClasse = (subjects || []).filter((s) => s && s.class_id === cls.id && s.name);
-    const manquantes = unmatchedClassSubjects('prim', deLaClasse, duNiveau);
+    // Ordre d'affichage : la PREMIÈRE matière qui réclame une compétence la
+    // garde. Sans ordre stable, c'est l'ordre d'arrivée en base qui déciderait,
+    // et la classe verrait son bulletin changer sans raison visible.
+    const deLaClasse = classSubjectsOf(subjects, cls.id).filter((s) => s && s.name);
+    // Deux cas, le même remède : la matière ne se rattache à RIEN, ou sa
+    // compétence est DÉJÀ PRISE par une autre matière de la classe. Sans le
+    // second, le programme anglophone d'une classe bilingue se fondait dans le
+    // francophone et disparaissait du bulletin (cf. primSubjectsNeedingOwnCompetence).
+    const toutes = primSubjectsNeedingOwnCompetence(deLaClasse, duNiveau);
+    const manquantes = opts.onlyTeacherId
+      ? toutes.filter((s) => s.teacher_id === opts.onlyTeacherId)
+      : toutes;
     if (!manquantes.length) return { created: 0 };
 
     let created = 0;
@@ -1280,6 +1327,40 @@ export const useSchoolStore = create((set, get) => ({
       // `addRefLigne` porte déjà la garde anti-doublon : identifiant
       // déterministe dérivé de (école, nom), et refus si la ligne est là.
       const r = await get().addRefLigne('prim', sub.name);
+      if (!r.error) created += 1;
+    }
+    return { created };
+  },
+
+  // ── MATERNELLE — le même rattrapage, qui n'existait PAS ───────────────────
+  //
+  // La maternelle note des DOMAINES. Une matière cochée qui ne tombait sur aucun
+  // domaine était seulement NOMMÉE dans un bandeau (« corrigez le nom ») et
+  // restait absente de la saisie comme du bulletin ; et deux matières sur le même
+  // domaine en faisaient disparaître une, `scopeOf` n'en retenant qu'une.
+  //
+  // Même chemin que le primaire et que « Modifier les domaines » à la main :
+  // identifiant déterministe, idempotent, et JAMAIS sans le droit d'écrire le
+  // référentiel (une écriture refusée par la RLS repartirait en boucle).
+  // `opts.onlyTeacherId` : même règle que le primaire — le calcul porte sur
+  // toute la classe, la création sur ses seules matières.
+  materialiserDomainesMatManquants: async (cls, opts = {}) => {
+    const { subjects, matReferentiel, schoolId } = get();
+    if (!cls || !schoolId || !matReferentiel) return { created: 0 };
+    if (!backendOnline()) return { created: 0, skipped: 'offline' };
+
+    const domaines = domainesForMaternelle(matReferentiel);
+    if (!domaines.length) return { created: 0 };
+    const deLaClasse = classSubjectsOf(subjects, cls.id).filter((s) => s && s.name);
+    const tous = matSubjectsNeedingOwnDomaine(deLaClasse, domaines);
+    const manquants = opts.onlyTeacherId
+      ? tous.filter((s) => s.teacher_id === opts.onlyTeacherId)
+      : tous;
+    if (!manquants.length) return { created: 0 };
+
+    let created = 0;
+    for (const sub of manquants) {
+      const r = await get().addRefLigne('mat', sub.name);
       if (!r.error) created += 1;
     }
     return { created };
@@ -1443,7 +1524,9 @@ export const useSchoolStore = create((set, get) => ({
     set({ primNotes: notesMap });
     publishReferentiels(set, get, { primRefRaw: cachedRef || null });
 
-    if (!backendOnline()) return;
+    // Hors ligne, le cache local est tout ce qu'on aura : les notes sont
+    // « arrivées », au sens où plus rien ne viendra les compléter.
+    if (!backendOnline()) { set({ primNotesPrets: true }); return; }
     // Les masques de l'école voyagent AVEC le référentiel, comme `loadMat` le
     // fait déjà pour la maternelle. Sans cela, ils n'étaient chargés que par les
     // écrans qui les demandent explicitement : « Rapports », qui les lit sans
@@ -1477,6 +1560,10 @@ export const useSchoolStore = create((set, get) => ({
       await primNotesDB.putMany(records).catch(() => {});
       set({ primNotes: fresh });
     }
+    // `notes` à null = lecture en échec. On lève quand même le drapeau : un
+    // écran qui l'attend resterait muet indéfiniment après une panne réseau, ce
+    // qui est pire que de travailler sur le cache local.
+    set({ primNotesPrets: true });
   }),
 
   // Déclare (ou retire) une compétence NON ÉVALUÉE pour une classe à une UA.

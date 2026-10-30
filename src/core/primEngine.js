@@ -15,6 +15,9 @@
 
 // Barème de cote par défaut (repli si le référentiel n'en fournit pas). Seuils en %.
 import { etatDeNote, pointsDeNote } from './noteEtat.js';
+// Le barème d'une colonne se LIT sur ses notes. Même fonction que l'écran de
+// saisie, pour que les deux ne puissent pas afficher deux barèmes différents.
+import { baremeEnVigueur } from './primColumnBareme.js';
 
 export const PRIM_COTE_DEFAULT = [
   { cote: 'A+',  libelle: 'Très bien acquis',        seuil_min: 90, ordre: 1 },
@@ -95,6 +98,51 @@ export function criteresForCompetence(referentiel, niveauSlug, competenceId, apt
       ordre: b.ordre || 0,
     }))
     .sort((a, b) => a.ordre - b.ordre);
+}
+
+/**
+ * LES ÉPREUVES D'UNE COMPÉTENCE QUE LE RÉFÉRENTIEL NATIONAL NE CONNAÎT PAS.
+ *
+ * ── LE DÉFAUT, MESURÉ SUR LA BASE DE PRODUCTION LE 2026-10-29 ────────────
+ *
+ * `prim_bareme_criteres` est une table NATIONALE : clé (`niveau_id`,
+ * `competence_id`), pas de `school_id`, aucune école n'y écrit. Une compétence
+ * créée par l'école — « English », « Mathematics », « Chinois » — n'y a donc
+ * AUCUNE ligne :
+ *
+ *     select count(*) from prim_bareme_criteres where competence_id in
+ *       (select id from prim_competences where school_id = '6b68407b-…');  →  0
+ *
+ * L'ÉCRAN DE SAISIE s'en sortait déjà : il propose les quatre critères à
+ * « barème à définir », l'enseignant pose le chiffre, et celui-ci part avec la
+ * note (`prim_notes.points_max`). LE BULLETIN, lui, appelait
+ * `criteresForCompetence` et recevait une liste VIDE. Résultat : une note
+ * réellement saisie n'apparaissait sur aucun bulletin. Les 38 matières de
+ * THE GENIUS étaient donc saisissables et invisibles à l'impression — l'exact
+ * symétrique du défaut corrigé le matin même.
+ *
+ * ── LE BARÈME N'EST PAS INVENTÉ : IL EST RELU SUR LES NOTES ──────────────
+ *
+ * Même source et même fonction que l'écran de saisie (`baremeEnVigueur`). Une
+ * colonne où personne n'a rien saisi n'a pas de barème, donc pas de ligne : le
+ * bulletin n'annonce pas une épreuve qui n'a pas eu lieu. On ne déduit rien de
+ * `subjects.max` — le carnet papier de l'école montre des barèmes par ÉPREUVE
+ * (TIC : Pratique 10 puis Écrite 20), que le `max` d'une matière ne peut pas
+ * porter.
+ *
+ * @param criteres  les critères du référentiel (libellé et id réels)
+ * @param notesDe   (critereId) => [{ note, points_max }] — toutes les notes de
+ *                  cette colonne, élèves et UA confondus
+ */
+export function criteresDeSecours(criteres, notesDe) {
+  const out = [];
+  for (const c of criteres || []) {
+    if (!c || c.id == null) continue;
+    const max = baremeEnVigueur(typeof notesDe === 'function' ? notesDe(c.id) : [], 0);
+    if (!Number.isFinite(max) || max <= 0) continue;
+    out.push({ id: c.id, nom: c.nom || c.id, points_max: max, ordre: c.ordre ?? 99 });
+  }
+  return out.sort((a, b) => a.ordre - b.ordre);
 }
 
 // Normalise une note de critère en { note, max }, ou null si NON ÉVALUÉE.

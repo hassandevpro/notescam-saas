@@ -58,12 +58,31 @@ export function manquesPourClasse({ subjects, matieres, classeMatieres, classeId
     .filter((r) => r && r.classe_id === classeId)
     .map((r) => r.matiere_id));
 
+  // ── UNE MATIÈRE DÉJÀ PRISE N'EN LAISSE PAS PASSER UNE SECONDE ────────────
+  //
+  // Règle du responsable, 2026-10-29 : « je ne veux pas voir une seule matière
+  // cochée dans une classe qui ne soit dans le bulletin ou à la saisie ».
+  //
+  // Le rapprochement par alias est volontairement large. Sur une classe
+  // BILINGUE, `Français` et `French` désignent donc la MÊME matière officielle,
+  // et la seconde n'avait aucune colonne à elle : elle disparaissait de la
+  // saisie et du bulletin, sans message. La première qui réclame une matière la
+  // garde ; la suivante devient une matière maison, comme un nom inconnu.
+  const prises = new Set();
+
   for (const s of lignes) {
     // Les ALIAS font foi, exactement comme à l'affichage : « SVT » désigne
     // SVTEEHB, et ne doit pas donner lieu à une matière maison « SVT ».
     const ids = matiereIdsForSubject(s.name, toutes);
     if (!ids.size) { creer.push(s); continue; }
-    for (const id of ids) {
+    // Une ligne peut couvrir PLUSIEURS matières officielles : elle n'a besoin
+    // de la sienne que si TOUTES sont déjà prises — sinon il lui reste une
+    // colonne bien à elle, et en créer une de plus ferait le doublon qu'on
+    // s'interdit plus haut.
+    const libres = [...ids].filter((id) => !prises.has(id));
+    if (!libres.length) { creer.push(s); continue; }
+    for (const id of libres) prises.add(id);
+    for (const id of libres) {
       if (rattachees.has(id)) continue;
       const m = toutes.find((x) => x.id === id);
       // La Map dédoublonne d'office : deux lignes locales qui désignent la même

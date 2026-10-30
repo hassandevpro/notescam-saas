@@ -21,7 +21,7 @@
 // notes finiraient par donner deux cotes différentes pour le même élève — et
 // c'est le genre d'écart qu'une école découvre devant un parent.
 
-import { pointsOverall } from './primEngine.js';
+import { pointsOverall, primCote } from './primEngine.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
 
@@ -109,7 +109,7 @@ const DOMAINE_LIBELLE = {
     'USE BASIC NOTIONS IN MATHEMATICS, SCIENCE AND TECHNOLOGY'],
   vie_citoyennete: ['PRATIQUER LES VALEURS SOCIALES ET CITOYENNES',
     'PRACTISE SOCIAL AND CIVIC VALUES'],
-  autonomie: ["DÉMONTRER L'AUTONOMIE, L'ESPRIT D'INITIATIVE, DE CRÉATIVITÉ ET D'ENTREPRENARIAT",
+  autonomie: ["DÉMONTRER L'AUTONOMIE, L'ESPRIT D'INITIATIVE, DE CRÉATIVITÉ ET D'ENTREPRENEURIAT",
     'DEMONSTRATE AUTONOMY, INITIATIVE, CREATIVITY AND ENTREPRENEURSHIP'],
   tic: ["UTILISER LES CONCEPTS DE BASE ET LES OUTILS DE TECHNOLOGIES DE L'INFORMATION ET DE LA COMMUNICATION",
     'USE BASIC CONCEPTS AND TOOLS OF INFORMATION AND COMMUNICATION TECHNOLOGY'],
@@ -149,8 +149,14 @@ export function familleLabel(domaine, sys = 'FR') {
  *
  * @param rows lignes de `buildCompactRows`
  * @param sys  'FR' | 'EN' — langue des intitulés officiels
+ * @param coteBareme bandes de cotes de l'école. FOURNIE → chaque groupe porte
+ *        aussi sa COTE, comme le carnet imprimé de THE GENIUS, qui écrit
+ *        « Grade: A » au bout de chaque ligne de regroupement. ABSENTE — le cas
+ *        des deux appels existants — le champ vaut `null` et aucun gabarit ne
+ *        change. La cote n'est pas inventée : c'est le barème de l'école appliqué
+ *        au total du groupe, exactement comme pour une compétence.
  */
-export function groupesDe(rows, sys = 'FR') {
+export function groupesDe(rows, sys = 'FR', coteBareme = null) {
   // On regroupe par NUMÉRO d'abord, et par domaine seulement à défaut.
   //
   // L'inverse paraissait naturel — le domaine est la donnée officielle — mais
@@ -200,9 +206,6 @@ export function groupesDe(rows, sys = 'FR') {
   }
   return ordre.map((cle) => {
     const lignes = par.get(cle);
-    const notees = lignes.filter((r) => r.achieved != null);
-    const achieved = notees.length ? notees.reduce((a, r) => a + Number(r.achieved), 0) : null;
-    const possible = notees.length ? notees.reduce((a, r) => a + Number(r.possible || 0), 0) : null;
     // L'intitulé officiel vient du DOMAINE : on le prend sur la première ligne
     // du groupe qui en porte un. Une maison sans domaine hérite ainsi du titre
     // de la famille qu'elle rejoint, au lieu de le perdre.
@@ -217,11 +220,93 @@ export function groupesDe(rows, sys = 'FR') {
       // Un domaine inconnu du produit garde les codes de ses compétences comme
       // libellé : mieux qu'un titre inventé, et l'école voit quoi corriger.
       intitule: libelle ? (sys === 'EN' ? libelle[1] : libelle[0]) : lignes.map((r) => r.code).join(', '),
-      codes: lignes.map((r) => r.code),
-      achieved: achieved == null ? null : Math.round(achieved * 100) / 100,
-      possible: possible == null ? null : Math.round(possible * 100) / 100,
-      moyenne: (achieved == null || !possible) ? null : Math.round((achieved / possible) * 20 * 100) / 100,
+      ...agregerGroupe(lignes, coteBareme),
     };
+  });
+}
+
+/**
+ * TOTAL, MOYENNE ET COTE D'UN PAQUET DE LIGNES — le calcul d'un bandeau.
+ *
+ * Extrait de `groupesDe` parce qu'il sert maintenant à DEUX découpages : les
+ * six familles du MINEDUB, et les deux programmes d'une classe bilingue
+ * (`primProgramme.js`). Les écrire deux fois, c'était s'exposer à ce qu'un
+ * carnet bilingue et un carnet ordinaire finissent par arrondir différemment la
+ * même addition — et c'est le genre d'écart qui se découvre devant un parent.
+ *
+ * Les compétences NON ÉVALUÉES sortent du numérateur ET du dénominateur, comme
+ * partout ailleurs : un groupe à moitié enseigné n'est pas un groupe raté.
+ *
+ * @param lignes      lignes de `buildCompactRows`
+ * @param coteBareme  bandes de cotes de l'école ; ABSENTE → `cote: null`
+ */
+export function agregerGroupe(lignes, coteBareme = null) {
+  const liste = lignes || [];
+  const notees = liste.filter((r) => r.achieved != null);
+  const achieved = notees.length ? notees.reduce((a, r) => a + Number(r.achieved), 0) : null;
+  const possible = notees.length ? notees.reduce((a, r) => a + Number(r.possible || 0), 0) : null;
+  return {
+    codes: liste.map((r) => r.code),
+    achieved: achieved == null ? null : Math.round(achieved * 100) / 100,
+    possible: possible == null ? null : Math.round(possible * 100) / 100,
+    moyenne: (achieved == null || !possible) ? null : Math.round((achieved / possible) * 20 * 100) / 100,
+    // Même appel que pour une compétence : `primCote(obtenu, possible, barème)`.
+    // Pas de second calcul de pourcentage ici — c'est ce qui garantit qu'un
+    // groupe et une compétence au même ratio portent la même cote.
+    cote: (achieved == null || !possible || !coteBareme)
+      ? null
+      : (primCote(achieved, possible, coteBareme)?.cote || null),
+  };
+}
+
+/**
+ * UNE LIGNE PAR ÉPREUVE — la disposition du carnet PAPIER de THE GENIUS.
+ *
+ * ── CE QU'ELLE CHANGE, ET POURQUOI ────────────────────────────────────────
+ *
+ * Le carnet que l'école remet aux parents (8 bulletins photographiés, relevés
+ * le 2026-10-29 : SIL, CE1, CM1, CLASS I, CLASS III, CLASS V, Class 2/CP) ne
+ * met PAS les critères en colonnes. Il écrit une ligne par ÉPREUVE RÉELLEMENT
+ * PASSÉE, avec son barème et sa note :
+ *
+ *     COMPETENCES              | L.U.      | Bar. | Mark | Grade
+ *     5- TIC                   | Pratique  |  10  |  9   |  A
+ *                              | Écrite    |  20  | 18   |
+ *
+ * C'est la même donnée que la disposition par colonnes — les mêmes cellules
+ * `parCritere` — lue autrement. D'où une fonction de PRÉSENTATION et non un
+ * second calcul : si l'on relisait les notes ici, le même élève finirait par
+ * porter deux totaux différents selon la disposition choisie.
+ *
+ * Deux raisons tiennent à la lisibilité du papier :
+ *   · une classe BILINGUE coche jusqu'à 37 matières ; 37 lignes × 4 colonnes de
+ *     critères font 148 cases, dont la grande majorité vides ;
+ *   · le barème VARIE d'une épreuve à l'autre (Écrite sur 20 en 1A, sur 30 en
+ *     2A). En colonnes, chaque case doit porter « 18 /20 » ; en lignes, le
+ *     barème a sa propre colonne, et l'addition se vérifie à l'œil — ce que
+ *     l'école fait précisément avec ce carnet.
+ *
+ * Une compétence SANS aucune note garde sa ligne (`epreuves` vide) : c'est la
+ * règle du responsable — « je ne veux pas voir une seule matière cochée qui ne
+ * soit pas au bulletin ». Le gabarit y écrit « — », jamais 0.
+ *
+ * @param rows            lignes de `buildCompactRows`
+ * @param critereColumns  colonnes de `critereColumnsOf` — elles donnent l'ORDRE
+ *                        des épreuves, celui du référentiel, pas celui du hasard
+ * @returns les mêmes lignes, enrichies de `epreuves: [{ id, nom, note, max }]`
+ */
+export function lignesParEpreuve(rows, critereColumns) {
+  const cols = (critereColumns || []).filter((c) => c && c.id != null);
+  return (rows || []).map((r) => {
+    const epreuves = [];
+    for (const c of cols) {
+      const v = r?.parCritere?.[c.id];
+      // `note == null` = rien de saisi. On ne fabrique pas une ligne « — » par
+      // critère du référentiel : le carnet n'imprime que les épreuves passées.
+      if (!v || v.note == null) continue;
+      epreuves.push({ id: c.id, nom: c.nom, note: v.note, max: v.max });
+    }
+    return { ...r, epreuves };
   });
 }
 

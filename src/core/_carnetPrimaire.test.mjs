@@ -65,8 +65,15 @@ titre('Les deux dispositions reçoivent les blocs du carnet');
   // commentaires retirés : citer l'école modèle dans un commentaire est utile,
   // c'est la comparer dans une condition qui serait le défaut.
   const code = ecran.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  ok(/prim_bulletin_mode === 'carnet'/.test(ecran),
+  // Le réglage porte DEUX valeurs carnet depuis le 2026-10-29 : 'carnet'
+  // (critères en colonnes) et 'carnet_epreuves' (une ligne par épreuve, modèle
+  // du carnet papier). Les cinq blocs appartiennent aux deux, d'où le préfixe —
+  // une égalité stricte aurait éteint en silence le travail académique, les
+  // statistiques et la signature du parent sur le second.
+  ok(/prim_bulletin_mode \|\| ''\)\.startsWith\('carnet'\)/.test(ecran),
     'Bulletins.jsx : le carnet vient du réglage de l\'école');
+  ok(/prim_bulletin_mode === 'carnet_epreuves'/.test(ecran),
+    'Bulletins.jsx : la disposition par épreuve est ce même réglage, pas un second drapeau');
   ok(!/GENIUS/i.test(code),
     'Bulletins.jsx : aucun nom d\'école en dur dans le code');
 }

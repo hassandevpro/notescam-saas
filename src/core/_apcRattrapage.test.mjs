@@ -171,5 +171,36 @@ titre('L’écran déclenche sur le vrai manque, pas sur un sous-ensemble');
 }
 
 
+// ── COLLISION : deux matières cochées pour UNE matière officielle ───────────
+//
+// Règle du responsable, 2026-10-29 : « je ne veux pas voir une seule matière
+// cochée dans une classe qui ne soit dans le bulletin ou à la saisie ».
+// Le rapprochement par alias est large à dessein : sur une classe bilingue,
+// `Français` et `French` désignent la même matière officielle, et la seconde
+// n'avait aucune colonne à elle.
+titre('Une matière cochée dont la matière officielle est déjà prise');
+{
+  const r = manquesPourClasse({
+    subjects: [{ name: 'Français' }, { name: 'French' }, { name: 'Mathématiques' }],
+    matieres: MATIERES, classeMatieres: RATTACHEMENTS, classeId: '6e',
+  });
+  const aCreer = r.creer.map((s) => s.name);
+  ok(aCreer.includes('French'),
+    'la seconde reçoit sa propre matière maison', aCreer);
+  ok(!aCreer.includes('Français'),
+    'la première garde la matière officielle — aucun doublon du national', aCreer);
+  ok(!aCreer.includes('Mathématiques'),
+    'une matière sans collision n’est pas touchée', aCreer);
+}
+{
+  // Sans collision, RIEN ne change : c'est la garantie de non-régression pour
+  // toutes les écoles monolingues déjà en service.
+  const r = manquesPourClasse({
+    subjects: [{ name: 'Français' }, { name: 'Anglais' }, { name: 'EPS' }],
+    matieres: MATIERES, classeMatieres: RATTACHEMENTS, classeId: '6e',
+  });
+  ok(r.creer.length === 0, 'classe monolingue ordinaire : aucune création', r.creer.map((s) => s.name));
+}
+
 console.log(`\n${fail ? '❌' : '✅'} Rattrapage des matières de classe : ${pass} contrôle(s) ok, ${fail} ko`);
 process.exitCode = fail ? 1 : 0;

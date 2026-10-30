@@ -65,6 +65,38 @@
 > **La condition de distribution est donc levée** : un paquet LAN portant la colonne peut
 > partir. `deploy-0.3.27.sh` attend toujours `NOTESCAM_CLOUD_ACCENT_OK=1` — c'est
 > désormais justifié de le poser.
+
+### Mise en ligne du 2026-10-30 — FAITE ET VÉRIFIÉE
+
+`main` avancé de `adae61f` à **`8ac12e5`** (avance rapide, sans fusion), sur demande
+explicite du responsable. Déploiement Vercel `dpl_CusNdCmgY246nwDaYSwuo3r7ueGW`,
+cible **production**, état **READY**.
+
+**Vérifié sur le site réellement servi** (`https://notescam-saas.vercel.app`), et non sur
+l'état du dépôt : les chaînes que SEUL ce travail contient sont dans les bundles livrés.
+
+```
+assets/Grades-B9gMxyqK.js          « non utilisée ici »                      1
+                                   « dépasse le barème de la colonne »       1
+                                   « seuls un nombre entre 0 et le barème »  1
+assets/ConseilDeClasse-ZggQHH3g.js « D’après son travail »                   1
+```
+
+**Retour arrière** : `adae61f`, déploiement `dpl_GdFb5rFhWcevLRvrckY6jKt7RjiB` — Vercel le
+marque *rollback candidate*. Un clic au tableau de bord, ou
+`git push origin adae61f:main --force-with-lease`.
+
+L'ordre a été respecté : la migration Cloud **avant** le code, donc le Cloud connaissait
+`bulletin_accent` avant que l'application ne commence à l'envoyer.
+
+> ⚠ **`notescam.app` ne résout pas.** Vercel le liste comme domaine de production
+> `verified: true`, mais le TLD `.app` répond **NXDOMAIN** (vérifié auprès d'un résolveur
+> public, pas seulement en local : l'autorité `ns-tld1.charlestonroadregistry.com` ne
+> connaît pas le nom). Ce domaine ne sert donc personne. Défaut **antérieur** à cette mise
+> en ligne, pas causé par elle. Le domaine qui répond est `notescam-saas.vercel.app`
+> (HTTP 200) ; les adresses `*-hassandevpros-projects.vercel.app` renvoient 302 vers la
+> connexion Vercel, la protection SSO du projet étant active sauf domaines personnalisés.
+> **À trancher** : le nom de domaine a-t-il expiré, ou n'a-t-il jamais été publié ?
 >
 > ### Preuves de cette release
 >

@@ -42,10 +42,29 @@
 > colonnes** : si le Cloud ignore la colonne, il rejette la **ligne entière** (PGRST204) —
 > l'école perd la remontée de **tous** ses réglages, pas seulement la couleur.
 >
-> `supabase_bulletin_accent.sql` **doit avoir tourné au Cloud avant distribution**. Cette
-> autorisation n'a **pas** été donnée, et **je n'ai pas pu vérifier l'état du Cloud** : le
-> connecteur Supabase était hors service pendant la session. `deploy-0.3.27.sh` **refuse de
-> s'exécuter** sans `NOTESCAM_CLOUD_ACCENT_OK=1`, et les deux notices portent le bandeau.
+> `supabase_bulletin_accent.sql` **doit avoir tourné au Cloud avant distribution**.
+>
+> ✅ **APPLIQUÉE EN PRODUCTION LE 2026-10-30**, sur autorisation explicite et lancée par le
+> responsable lui-même :
+> `node scripts/apply-cloud-sql.mjs --apply supabase_bulletin_accent.sql`
+>
+> **Vérifié après coup, par lectures seules indépendantes de la sortie du script :**
+>
+> ```
+> colonne      présente — text, nullable=YES
+> contrainte   CHECK (bulletin_accent IS NULL OR bulletin_accent ~* '^#[0-9a-f]{6}$')
+> écoles       44 au total, 0 avec un accent choisi
+> garde-fou    « vert » refusé par la base (check_violation) — éprouvé puis annulé
+> après essai  0 accent(s) choisi(s) — rien n'a été écrit
+> ```
+>
+> `accents_choisis = 0` est le résultat attendu : personne n'a encore choisi, donc **aucun
+> bulletin ne change d'aspect**. La comparaison complète du schéma ne relève plus aucun
+> objet manquant en production.
+>
+> **La condition de distribution est donc levée** : un paquet LAN portant la colonne peut
+> partir. `deploy-0.3.27.sh` attend toujours `NOTESCAM_CLOUD_ACCENT_OK=1` — c'est
+> désormais justifié de le poser.
 >
 > ### Preuves de cette release
 >

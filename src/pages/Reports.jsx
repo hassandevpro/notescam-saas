@@ -893,7 +893,13 @@ export default function Reports() {
   const isGE            = resolveCountryCode(school) === 'guinea_eq';
   const gOpts           = gradingOpts(school, selectedClass?.cycle);
   const passThreshold   = isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
-  const maxScale        = bulletinScale(cls, sys, geGradeMax(school)).maxScale;
+  // `selectedClass`, PAS `cls` : ici le nom local de la classe choisie est
+  // `selectedClass` (cf. la ligne qui precede et `classEngine` juste apres).
+  // `cls` etait une VARIABLE LIBRE, heritee de la passe du 2026-10-26 qui a
+  // porte cette meme ligne dans neuf fichiers — la MEME passe qui avait laisse
+  // `school` libre dans AcademicBlocks (I29). Cet ecran tombait donc sur
+  // « cls is not defined » a chaque ouverture, pour TOUS les roles.
+  const maxScale        = bulletinScale(selectedClass, sys, geGradeMax(school)).maxScale;
   // Moteur de la classe : maternelle / primaire APC → périodes par trimestre.
   const classEngine     = selectedClass ? resolveClassEngine(school, selectedClass) : 'classic';
   const isFund          = classEngine === 'maternelle' || classEngine === 'apc_primaire';

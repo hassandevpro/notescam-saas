@@ -66,6 +66,65 @@
 > partir. `deploy-0.3.27.sh` attend toujours `NOTESCAM_CLOUD_ACCENT_OK=1` — c'est
 > désormais justifié de le poser.
 
+### À CONSIGNER EN I32 — « Le rapport ne s'ouvre pas » : la SECONDE variable libre de la passe du 26/10
+
+> ⚠ **Cette entrée est ici par défaut, pas par choix.** Elle appartient à
+> `docs/REGISTRE_INCIDENTS.md`, mais ce fichier porte au même moment le travail non
+> commité d'une autre session (une entrée numérotée I29, numéro déjà pris). Y écrire
+> aurait emporté son texte en cours. **À déplacer en I32 dès que cette session-là a
+> commité.**
+
+**Le défaut.** Signalé le 2026-10-30 : « le rapport ne s'ouvre pas ». L'écran
+**Rapports** tombait sur l'écran de panne — `cls is not defined` — **pour tous les
+rôles**, et **depuis la 0.3.26**.
+
+```
+ReferenceError: cls is not defined
+  at Ha (Reports-tPP_kFQD.js:266:7206)
+```
+
+**La cause.** `src/pages/Reports.jsx` l.896 appelait
+`bulletinScale(cls, sys, geGradeMax(school))` alors que, dans cet écran, la classe
+choisie s'appelle `selectedClass` — la ligne qui précède et `classEngine` juste après
+l'utilisent. `cls` y était une **variable libre**. Elle s'exécute dans le corps du
+composant, **sans condition** : l'écran tombait donc toujours.
+
+**Ce qui rend l'incident instructif.** La ligne vient de `e442496`, « la passe du
+2026-10-26 » — **la même** qui avait laissé `school` libre dans `AcademicBlocks` (page
+blanche, réparée en 0.3.26). Cette passe a laissé **deux** variables libres. Le test
+garde-fou écrit alors, `_variablesLibres.test.mjs`, n'en surveillait **qu'une**.
+
+**La parade, en deux temps.**
+
+1. `selectedClass` à la place de `cls`, avec la raison en commentaire.
+2. Le test surveille désormais **les deux noms**. Il a fallu lui apprendre les formes
+   de déclaration qu'il ne connaissait pas, parce que `school` n'est jamais un
+   paramètre de callback alors que `cls` l'est presque toujours : paramètre de
+   fonction fléchée (`(cls) =>`), accolade de destructuration non fermée sur la ligne
+   (`.map(({ cls, subs,`), et destructuration étalée sur plusieurs lignes. Sans ces
+   trois formes, il criait sur **six déclarations parfaitement valides** — et un test
+   qui crie pour rien finit ignoré. Le `=>` est **obligatoire** dans le motif des
+   fonctions fléchées : sans lui, `bulletinScale(cls,` passerait pour une déclaration
+   et le détecteur deviendrait aveugle à la faute même. Les deux auto-vérifications le
+   prouvent. **31 contrôles, 0 échec.**
+
+**Le marqueur de livraison, et il est fiable.** La minification renomme les variables
+*locales* ; un identifiant **libre**, elle ne peut pas le renommer — il doit rester
+lisible pour aller chercher un global. Le fautif apparaissait donc tel quel, passé en
+argument : `ct(cls,P,we(a))`. Les autres `cls` du morceau sont tous des **clés**
+d'objet (`{cls:e,…}`), que le motif `(cls,` ne touche pas. Mesuré sur les deux
+artefacts : le paquet d'avant en porte **exactement un**, celui d'après **aucun**, et
+aucun autre morceau du `dist` n'en porte. `deploy-0.3.28.sh` en fait un contrôle.
+
+**Vérifié après correction**, dans l'application montée (pas sur un banc) : l'écran
+s'ouvre, un rapport de classe s'affiche avec son barème (`FR /20`), son classement et
+ses résultats par matière, et l'onglet « Discipline » répond. **0 erreur en console.**
+
+> **L'édition Cloud porte le même défaut en production.** `Reports.jsx` est partagé, et
+> `main` est à `8ac12e5`, antérieur à cette correction. L'écran Rapports est donc mort
+> aussi sur `notescam-saas.vercel.app`. **Aucun déploiement n'a été fait** : il demande
+> une autorisation explicite pour ce déploiement-là.
+
 ### Mise en ligne du 2026-10-30 — FAITE ET VÉRIFIÉE
 
 `main` avancé de `adae61f` à **`8ac12e5`** (avance rapide, sans fusion), sur demande

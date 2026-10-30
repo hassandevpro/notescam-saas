@@ -1,0 +1,240 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+CONDITION PRÉALABLE — ELLE EST DÉJÀ REMPLIE.
+
+Cette version porte la colonne `bulletin_accent` sur la table `schools`,
+qui est SYNCHRONISÉE avec le Cloud. Si le Cloud ne connaissait pas cette
+colonne, il rejetterait la LIGNE ENTIÈRE : l'école cesserait de remonter
+TOUS ses réglages, pas seulement la couleur.
+
+`supabase_bulletin_accent.sql` A TOURNÉ AU CLOUD LE 30/10/2026, et elle
+a été vérifiée par lectures seules :
+
+    colonne      présente — text, nullable
+    contrainte   bulletin_accent IS NULL OU au format #rrggbb
+    écoles       44 au total, 0 avec une couleur choisie
+
+« 0 couleur choisie » est le résultat attendu : personne n'a encore
+choisi, donc AUCUN bulletin ne change d'aspect.
+
+VOUS N'AVEZ DONC RIEN À FAIRE AU CLOUD. Le script vous demandera quand
+même de confirmer cette condition — c'est voulu : votre confirmation est
+tracée dans le journal de déploiement, et c'est la seule trace qui dira,
+dans six mois, que la question avait été posée.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+========================================================================
+NotesCam 0.3.28 — Notice pour l'administrateur du serveur de l'école
+========================================================================
+
+Archive  : notescam-linux-x64-0.3.28.tar.gz
+Taille   : 53 604 556 octets
+SHA-256  : 0c5cc7116f95ffa064398895061200021e043db24210835584752e23b603d7a1
+
+Vérifiez l'empreinte avant d'installer, sur le serveur :
+
+    sha256sum notescam-linux-x64-0.3.28.tar.gz
+
+Si elle ne correspond pas à la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a été altéré ou tronqué pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    curl -s http://localhost:8080/api/version
+
+Cette mise à jour s'applique par-dessus la 0.3.6 ou toute version plus
+récente, sans étape intermédiaire. Elle contient TOUT ce que contenait
+la 0.3.27, y compris le bulletin primaire APC sur une page.
+
+Node embarqué : v24.22.2.
+
+
+>>> CE QUE CETTE VERSION CHANGE <<<
+------------------------------------
+
+ELLE DÉBLOQUE LA SAISIE DES NOTES PAR LES ENSEIGNANTS, AU PRIMAIRE.
+
+Vos enseignants voyaient ceci, et ne pouvaient rien saisir :
+
+    « Aucune de vos matières ne se rattache à une compétence nationale
+      (1A–6B) : Espagnol. Demandez à l'administration de les renommer
+      selon le référentiel, ou de vous affecter les matières que vous
+      enseignez réellement. »
+
+RIEN DE TOUT CELA N'ÉTAIT DANS VOTRE BASE, et vous n'aviez rien à y
+corriger. La base donnait le droit d'écrire ; c'est l'ÉCRAN qui le
+refusait, pour quatre raisons :
+
+  1. Une impasse refermée sur elle-même. Le filtre des classes exigeait
+     une compétence déjà résolue — donc aucune classe n'était retenue,
+     donc le rattrapage qui aurait créé cette compétence ne tournait
+     jamais.
+  2. Le droit lu sur la mauvaise table. La garde interrogeait la
+     politique de `subjects`, qui exige d'être titulaire de la classe,
+     alors que l'écriture vise `prim_competences`, dont la politique
+     ouvre à tout membre de l'école.
+  3. Une compétence ajoutée par l'école naissait avec un barème de 0 :
+     toutes les cases étaient désactivées.
+  4. Une colonne sans barème s'affichait quand même, en « à définir ».
+
+LE BARÈME EST DÉSORMAIS REPRIS DE VOTRE ÉCOLE, ET RESTE MODIFIABLE.
+
+À l'ouverture d'une compétence ajoutée par l'école, la colonne « Écrit »
+prend le barème que l'école emploie DÉJÀ sur ce critère dans cette
+classe. À défaut, le total national le plus fréquent du niveau. À
+défaut, 20.
+
+L'enseignant le change QUAND IL VEUT, en haut de la colonne. Mettre 0
+referme la colonne. Un barème plus bas que des notes déjà saisies est
+refusé, en nommant les élèves concernés.
+
+LES CRITÈRES QUE VOUS N'UTILISEZ PAS NE S'AFFICHENT PLUS. Ils ne sont
+pas supprimés : un bouton « + <nom> » sous le tableau les fait revenir,
+avec leur barème.
+
+CE QUI A ÉTÉ MESURÉ, sur un compte ENSEIGNANT, dans l'application montée
+(pas sur un banc de composants) :
+
+    arrivée         « Écrit/ » ouverte à 20 ; 3 colonnes refermées
+    + Pratique      la colonne revient, les notes sont conservées
+    Pratique → 0    elle se referme, et la fermeture TIENT au rechargement
+    Écrit 20 → 40   accepté
+    Écrit → 10      REFUSÉ : « 3 note(s) le dépassent (...) »
+    note 25 sur /20 REFUSÉE, et elle le DIT : « 25 dépasse le barème de
+                    la colonne (/20). Changez le barème au-dessus de la
+                    colonne, ou corrigez la note. »
+
+
+>>> ELLE RÉOUVRE AUSSI L'ÉCRAN « RAPPORTS » <<<
+------------------------------------------------
+
+L'ÉCRAN RAPPORTS NE S'OUVRAIT PLUS DEPUIS LA 0.3.26, POUR TOUS LES
+RÔLES. Il affichait l'écran de panne, avec ce détail :
+
+    cls is not defined
+
+Signalé le 30/10/2026 : « le rapport ne s'ouvre pas ». Reproduit en
+quelques minutes sur l'application montée, compte administrateur.
+
+LA CAUSE. `Reports.jsx` demandait le barème d'une classe nommée `cls`
+alors que, dans cet écran, la classe choisie s'appelle `selectedClass`.
+`cls` n'existait donc pas, et la ligne s'exécute SANS CONDITION dès que
+l'écran s'ouvre : il tombait toujours, pour tout le monde.
+
+CE QU'IL FAUT EN RETENIR, et ce n'est pas flatteur pour nous. La même
+passe de travail, le 26/10, avait laissé DEUX fautes de ce genre. La
+première a donné la page blanche réparée en 0.3.26. Un test a été ajouté
+alors pour l'empêcher de revenir — mais il ne surveillait que le premier
+nom. La seconde est restée trois jours. Le test surveille désormais les
+deux noms, et le script de déploiement en fait un contrôle à part
+entière.
+
+VÉRIFIÉ APRÈS CORRECTION, dans l'application : l'écran s'ouvre, la liste
+des classes s'affiche, un rapport de classe s'ouvre avec son barème, son
+classement et ses résultats par matière, et l'onglet « Discipline »
+fonctionne. Zéro erreur en console.
+
+
+>>> UN DÉFAUT INTRODUIT PUIS MESURÉ, QU'IL FAUT CONNAÎTRE <<<
+--------------------------------------------------------------
+
+La PREMIÈRE version de cette ouverture de barème EFFAÇAIT les notes
+qu'elle venait de lire. L'effet partait au tout premier affichage, quand
+la liste des notes est encore vide — non pas parce que la colonne est
+vierge, mais parce que LA LECTURE N'EST PAS ENCORE REVENUE. Le barème
+était alors réécrit « en conservant la note actuelle », c'est-à-dire
+rien.
+
+    avant   ÉLÈVE 01  14/20 · 02  8/20 · 03  19/20 · 04  11/20
+    après   ÉLÈVE 01  (vide) · 02 (vide) · 03 (vide) · 04 (vide)
+
+Ce défaut n'est PAS dans le paquet que vous recevez : la parade est
+posée, et le script de déploiement en fait son TOUT PREMIER contrôle. Si
+cette ligne affiche FAIL, n'installez pas et redemandez le paquet.
+
+Nous vous le disons parce qu'un effacement silencieux de notes est
+exactement ce qu'une école ne doit jamais découvrir par elle-même.
+
+
+ELLE PORTE AUSSI
+-----------------
+
+  · L'adresse et la clé Supabase ramenées à UNE seule source.
+  · Le dialogue « Modifier la classe » tient ses 37 matières.
+  · Le drapeau de routage `v7_relativeSplatPath`, qui fait taire deux
+    avis de console. Ces avis ne sortaient QUE sur un serveur de
+    développement : aucune école ne les a jamais vus.
+
+
+SCHÉMA ET SYNCHRONISATION
+--------------------------
+
+Aucune colonne nouvelle par rapport à la 0.3.27, et AUCUN curseur de
+synchronisation n'est remis à zéro : il n'y a PAS de long rattrapage à
+attendre, contrairement aux 0.3.16, 0.3.19 et 0.3.23.
+
+Si un long rattrapage démarre quand même après installation, ce n'est
+pas celle-ci qui l'a provoqué : c'est un reste d'une précédente, et il
+faut le laisser finir.
+
+
+INSTALLATION
+-------------
+
+1. Transférer les deux fichiers sur le serveur :
+
+       scp notescam-linux-x64-0.3.28.tar.gz deploy-0.3.28.sh ecole@serveur:~
+
+2. Vérifier l'empreinte, puis lancer le déploiement en confirmant la
+   condition préalable (elle est vraie, voir la tête de cette notice) :
+
+       sha256sum notescam-linux-x64-0.3.28.tar.gz
+       chmod +x deploy-0.3.28.sh
+       sudo NOTESCAM_CLOUD_ACCENT_OK=1 ./deploy-0.3.28.sh notescam-linux-x64-0.3.28.tar.gz
+
+   Le script arrête le service AVANT la copie, SAUVEGARDE la base
+   (VACUUM INTO) et VÉRIFIE la sauvegarde, installe, redémarre, puis
+   passe une trentaine de contrôles et affiche un VERDICT.
+
+   `install.sh` seul fonctionne aussi, mais il NE SAUVEGARDE PAS la
+   base. Préférez le script de déploiement.
+
+
+À VÉRIFIER DEPUIS UN POSTE DE L'ÉCOLE
+--------------------------------------
+
+Rechargez d'abord la page avec Ctrl+Shift+R.
+
+  1. curl -s http://localhost:8080/api/version  →  0.3.28
+
+  2. LE CONTRÔLE DE CETTE VERSION, et il demande un compte ENSEIGNANT —
+     pas le vôtre. Connectez-vous comme un enseignant du primaire, allez
+     dans Notes, choisissez sa classe : il doit voir ses élèves et
+     pouvoir saisir, SANS le message « Demandez à l'administration ».
+
+  3. Dans une compétence ajoutée par l'école, la colonne « Écrit » doit
+     déjà porter un barème. Changez-le : la modification est acceptée.
+     Mettez 0 : la colonne se referme et revient sous le tableau, en
+     « + Écrit ».
+
+  4. Saisissez une note PLUS GRANDE que le barème : elle doit être
+     refusée AVEC un message qui dit pourquoi.
+
+  5. L'ÉCRAN RAPPORTS. Menu « RAPPORTS » → « Rapports ». Il doit
+     s'ouvrir (il affichait l'écran de panne depuis la 0.3.26). Cliquez
+     une classe : son rapport détaillé doit s'afficher, avec le barème,
+     le classement et les résultats par matière. Essayez aussi l'onglet
+     « Discipline ».
+
+  6. Les bulletins (collège, lycée, maternelle, bilingue, primaire APC)
+     s'impriment EXACTEMENT comme en 0.3.27.
+
+
+EN CAS DE PROBLÈME
+-------------------
+
+Envoyez-nous :
+  · la sortie complète de `deploy-0.3.28.sh` (elle porte le VERDICT) ;
+  · s'il s'agit de la saisie, le NOM de l'enseignant, sa classe et la
+    matière concernée — c'est ce qui permet de rejouer son périmètre.
+
+Aucun diagnostic ne modifie la base.

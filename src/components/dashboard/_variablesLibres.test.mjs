@@ -97,8 +97,31 @@ function librePour(src, nom) {
       new RegExp(`^\\s*${nom}\\s*[,}:=]`).test(l)                       // prop sur sa ligne
       || new RegExp(`(const|let|var)\\s+\\{[^}]*\\b${nom}\\b`).test(l)  // const { school }
       || new RegExp(`(const|let|var)\\s+${nom}\\b`).test(l)             // const school
-      || new RegExp(`\\(\\s*\\{[^)]*\\b${nom}\\b[^)]*\\}`).test(l)      // ({ school, … })
+      // `({ school, … })` — l'accolade n'est PAS forcément fermée sur la même
+      // ligne : `.map(({ cls, subs, studs,` continue plus bas. Exiger le `}`
+      // faisait passer six déclarations RÉELLES pour des variables libres.
+      || new RegExp(`\\(\\s*\\{[^)]*\\b${nom}\\b`).test(l)
       || new RegExp(`function\\s+[A-Za-z0-9_$]*\\s*\\([^)]*\\b${nom}\\b`).test(l)
+      // PARAMÈTRE DE FONCTION FLÉCHÉE : `(cls) =>`, `(cls, i) =>`, `cls =>`.
+      // C'est la forme de loin la plus courante pour `cls` (`classes.map(…)`),
+      // et le détecteur ne la connaissait pas — il n'avait jamais eu à la
+      // connaître, `school` n'étant jamais un paramètre de callback.
+      //
+      // LE `=>` EST OBLIGATOIRE DANS LE MOTIF. Sans lui, `bulletinScale(cls,`
+      // passerait pour une déclaration et le détecteur deviendrait aveugle à
+      // la faute même qu'il est là pour voir. L'auto-vérification le prouve.
+      || new RegExp(`\\(\\s*${nom}\\s*(?:,[^)]*)?\\)\\s*=>`).test(l)
+      || new RegExp(`(^|[^A-Za-z0-9_$.])${nom}\\s*=>`).test(l)
+      // DESTRUCTURATION ÉTALÉE SUR PLUSIEURS LIGNES : une ligne qui n'est QUE
+      // des noms séparés par des virgules est la suite d'un `({` ouvert plus
+      // haut — `  school, cls, student, subjects, subjectGrades,` dans
+      // `BulletinClassic`. Le nom peut être N'IMPORTE OÙ dans cette liste, pas
+      // seulement en fin de ligne.
+      //
+      // Aucune parenthèse n'est admise dans le motif, et c'est ce qui le rend
+      // sûr : `bulletinScale(cls, sys, …)` en porte, donc il ne peut pas se
+      // faire prendre pour une déclaration.
+      || new RegExp(`^[A-Za-z0-9_$,\\s]*\\b${nom}\\b[A-Za-z0-9_$,\\s]*$`).test(l)
     ));
     if (!declare) trouves.push({ bloc: b.nom, ligne: b.debut + i + 1, texte: corps[i].trim().slice(0, 90) });
   }
@@ -171,6 +194,64 @@ titre('AUTO-VÉRIFICATION : le détecteur refuse bien le source fautif');
   ].join('\n');
   ok(librePour(innocent, 'school').length === 0,
      "il ne confond pas le mot « school » d'une traduction avec du code");
+}
+
+
+// ── « cls », LA SECONDE VARIABLE LIBRE DE LA MÊME PASSE ─────────────────────
+//
+// Le 2026-10-30, le responsable signale : « le rapport ne s'ouvre pas ». Mesuré
+// sur l'édition LAN montée, compte administrateur, /app/reports :
+//
+//     ReferenceError: cls is not defined
+//     at Ha (Reports-tPP_kFQD.js:266:7206)
+//
+// `Reports.jsx` l.896 appelait `bulletinScale(cls, sys, geGradeMax(school))`
+// alors que le nom local de la classe choisie y est `selectedClass`. La ligne
+// vient de `e442496`, « la passe du 2026-10-26 » — LA MÊME que celle qui a
+// laissé `school` libre dans AcademicBlocks. Elle a donc laissé DEUX variables
+// libres, et ce test n'en surveillait qu'UNE.
+//
+// L'écran Rapports était mort depuis la 0.3.26, pour TOUS les rôles : la ligne
+// s'exécute dans le corps du composant, sans condition. Personne ne l'avait vu
+// parce que les 224 tests ne rendent aucun composant, et que la passe précédente
+// avait été jugée refermée sur `school`.
+//
+// LA LEÇON, et c'est elle qui justifie ce bloc : un détecteur réglé sur UN nom
+// ne couvre pas une faute de COPIE, qui déplace un identifiant quelconque. On
+// surveille donc chaque nom que cette passe a promené.
+const NOMS_PROMENES = ['school', 'cls'];
+titre('Aucun écran ne lit « cls » sans le recevoir');
+for (const rel of ECRANS) {
+  const libres = librePour(readFileSync(join(SRC, rel), 'utf8'), 'cls');
+  ok(libres.length === 0, `${rel} — « cls » toujours dans sa portée`,
+     libres.length ? libres.map((x) => `${x.bloc}() l.${x.ligne} : ${x.texte}`) : undefined);
+}
+ok(NOMS_PROMENES.length === 2, 'les deux noms de la passe du 26/10 sont surveillés');
+
+titre('AUTO-VÉRIFICATION : le détecteur refuse le source fautif de Reports');
+{
+  // Le source tel qu'il était, réduit à l'essentiel.
+  const fautif = [
+    "export default function Reports() {",
+    "  const selectedClass = classes.find((c) => c.id === classId) || null;",
+    "  const sys = selectedClass?.system || 'FR';",
+    "  const maxScale = bulletinScale(cls, sys, geGradeMax(school)).maxScale;",
+    "  return maxScale;",
+    "}",
+  ].join('\n');
+  const vus = librePour(fautif, 'cls');
+  ok(vus.length === 1 && vus[0].bloc === 'Reports',
+     'le détecteur voit « cls » libre dans Reports', vus);
+
+  // Et il ne crie PAS là où `cls` est un paramètre — le cas NORMAL, de loin le
+  // plus fréquent : sans cette garantie, le test hurlerait sur tout le dépôt.
+  const innocent = [
+    "export function computeClassReport(cls, period, ctx) {",
+    "  return bulletinScale(cls, cls?.system, 20).maxScale;",
+    "}",
+  ].join('\n');
+  ok(librePour(innocent, 'cls').length === 0,
+     "il ne confond pas un paramètre `cls` avec une variable libre");
 }
 
 console.log(`\n=== ${pass} réussi(s), ${fail} échoué(s) ===`);

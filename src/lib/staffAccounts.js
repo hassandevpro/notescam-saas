@@ -6,13 +6,10 @@ import { createClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { mirrorPasswordToLan } from './cloudCredentialMirror';
 import { IS_LAN } from './edition';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, ANON_CLIENT_OPTIONS } from './supabaseEnv';
 
 // Client sans persistance de session — crée des comptes sans déconnecter l'admin.
-const anonClient = createClient(
-  import.meta.env.VITE_SUPABASE_URL || 'https://ltxopwoxvgslsgzixbpx.supabase.co',
-  import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0eG9wd294dmdzbHNneml4YnB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MDk5MDEsImV4cCI6MjA5NDE4NTkwMX0.Ti72TVBLtxET3Wmmg3-pzQ0bmXFtf0HvBf7Phl_Hb20',
-  { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
-);
+const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, ANON_CLIENT_OPTIONS);
 
 // Crée (ou réutilise) un compte auth et le lie à l'école avec le rôle donné.
 // Lève new Error('EMAIL_IN_USE') si l'email existe avec un autre mot de passe.

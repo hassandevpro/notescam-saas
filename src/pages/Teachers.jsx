@@ -22,13 +22,10 @@ import { resolveCountryCode } from '../countries';
 import { resizeImageToSquare } from '../lib/image';
 import { uploadStaffPhoto, uploadStaffDocument, parseDocs } from '../lib/staffService';
 import TeacherFileModal from '../components/TeacherFileModal';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, ANON_CLIENT_OPTIONS } from '../lib/supabaseEnv';
 
 // Client sans persistance de session — crée des comptes sans déconnecter l'admin
-const anonClient = createClient(
-  import.meta.env.VITE_SUPABASE_URL || 'https://ltxopwoxvgslsgzixbpx.supabase.co',
-  import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0eG9wd294dmdzbHNneml4YnB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MDk5MDEsImV4cCI6MjA5NDE4NTkwMX0.Ti72TVBLtxET3Wmmg3-pzQ0bmXFtf0HvBf7Phl_Hb20',
-  { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
-);
+const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, ANON_CLIENT_OPTIONS);
 
 // ── Helpers avatar ────────────────────────────────────────────────────────────
 

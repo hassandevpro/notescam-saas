@@ -43,7 +43,13 @@ export const STRICT_PERM = {
 // la Phase 3 a fermé côté base : tous les comptes délégués naissent `censeur`
 // (src/config/capabilities.js), donc `role IN ('admin','censeur')` accordait la
 // caisse à la secrétaire du Primaire comme au responsable informatique.
-export const FEE_PAGES = ['/app/fees', '/app/frais-catalogue'];
+//
+// `/app/cantine` y figure parce que le registre des services MONTRE L'ARGENT :
+// attendu, encaissé, impayé et quote-part, mois par mois. Le laisser hors de
+// cette liste l'ouvrirait, dans une école durcie, à un compte pédagogique qui
+// tape l'adresse — exactement la porte dérobée que la Phase 3 a refermée pour
+// `/app/approbations`.
+export const FEE_PAGES = ['/app/fees', '/app/frais-catalogue', '/app/cantine'];
 
 // Pages de BUDGET et de DÉPENSE. « Aucune personne ne voit les budgets à part le
 // service financier. » Même autorité que la caisse : c'est de l'argent.

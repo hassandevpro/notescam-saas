@@ -539,9 +539,21 @@ sauvegarde et restauration, super-admin.
 (`server/fileSync.js`, fonction edge `asset-sync`), import d'enseignants
 (`src/lib/teacherImport.js`), `sourceKey`, synchro des signalements.
 
-**Documenté sans code dédié** — cantine : `docs/MODULE_CANTINE.md` décrit un module à
-venir ; aujourd'hui « cantine » n'existe que comme catégorie dans les frais, budgets et
-dépenses. Ne pas le compter comme livré.
+**Écrit le 2026-10-31, pas encore déployé** — cantine, devenue le **registre des
+services** (`/app/cantine`), qui sert aussi au transport, aux tenues et à l'internat.
+Moteur `src/lib/cantineEngine.js` (36 contrôles), écran `src/pages/Cantine.jsx`, et
+`supabase_cantine_quote_part.sql` — **une colonne, `fee_catalog.quote_part`**. Aucune
+table nouvelle, aucun registre de synchronisation modifié.
+
+**La migration n'a PAS tourné**, ni au Cloud ni chez une école, et `fee_catalog` est
+synchronisée : distribuer un paquet LAN avant elle ferait rejeter les lignes de catalogue
+de l'école EN ENTIER (PGRST204), donc perdre la remontée de TOUS ses tarifs. **Le Cloud
+d'abord.** Tant que la migration n'est pas passée, ne pas le compter comme livré.
+
+Les trois questions qui bloquaient ce module sont tranchées (voir `docs/MODULE_CANTINE.md`
+§ 5 ter) : la cantine est **tenue par l'école**, le tarif est **15 000** (7 500 le
+demi-mois) et le demi-mois fait **demi-quote-part**. La quote-part reste un indicateur
+calculé à la lecture — l'écrire la compterait deux fois, elle est déjà dans les 15 000.
 
 ## 4. Travaux terminés dans la session du 2026-10-18
 

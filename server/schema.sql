@@ -877,6 +877,10 @@ CREATE TABLE IF NOT EXISTS fee_catalog (
   mandatory INTEGER NOT NULL DEFAULT 0, optional INTEGER NOT NULL DEFAULT 1,
   payment_type TEXT NOT NULL DEFAULT 'unique', start_date TEXT, end_date TEXT,
   active INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL DEFAULT 0, notes TEXT,
+  -- Part retenue par l'école sur ce service, par élève facturé et par période.
+  -- NULL = aucune. Indicateur CALCULÉ à la lecture, jamais une écriture : il est
+  -- déjà contenu dans ce que paie la famille. Cf. docs/MODULE_CANTINE.md § 4.
+  quote_part INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS student_fee_items (

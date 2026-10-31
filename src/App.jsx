@@ -59,6 +59,7 @@ const Fees           = lazy(() => import('./pages/Fees'));
 const Budgets        = lazy(() => import('./pages/Budgets'));
 const BudgetGlobal   = lazy(() => import('./pages/BudgetGlobal'));
 const FeeCatalog     = lazy(() => import('./pages/FeeCatalog'));
+const Cantine        = lazy(() => import('./pages/Cantine'));
 const Expenses       = lazy(() => import('./pages/Expenses'));
 const CashBook       = lazy(() => import('./pages/CashBook'));
 const RemoteApprovals = lazy(() => import('./pages/RemoteApprovals'));
@@ -344,6 +345,7 @@ export default function App() {
           <Route path="/app/reports"        element={<ProtectedRoute allow={[...ACADEMIC, 'surveillant']}><Reports /></ProtectedRoute>} />
           <Route path="/app/fees"            element={<ProtectedRoute allow={ACADEMIC}><Fees /></ProtectedRoute>} />
           <Route path="/app/frais-catalogue" element={<ProtectedRoute allow={ACADEMIC}><FeeCatalog /></ProtectedRoute>} />
+          <Route path="/app/cantine"         element={<ProtectedRoute allow={ACADEMIC}><Cantine /></ProtectedRoute>} />
           <Route path="/app/budgets"         element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><Budgets /></ProtectedRoute>} />
           <Route path="/app/budget-global"   element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><BudgetGlobal /></ProtectedRoute>} />
           <Route path="/app/depenses"        element={<ProtectedRoute allow={ADMIN_ONLY} budgetAccess><Expenses /></ProtectedRoute>} />

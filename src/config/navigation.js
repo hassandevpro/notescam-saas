@@ -122,6 +122,13 @@ export const NAV_GROUPS = [
       // Catalogue des frais : désormais un onglet DANS « Frais scolaires » (près
       // des Grilles tarifaires), plus une entrée de menu autonome. Route
       // /app/frais-catalogue conservée (liens profonds).
+      //
+      // Registre des services : la grille élèves × mois que l'école tenait sous
+      // Word pour la cantine (et tiendra pour le transport). Entrée AUTONOME, et
+      // non un onglet des frais : on l'ouvre pour suivre un service mois après
+      // mois, pas pour encaisser — ce sont deux gestes et deux moments.
+      { to: '/app/cantine', icon: 'fees', label: ['Registre des services', 'Service register', 'Registro de servicios'],
+        roles: ['admin', 'censeur'], feature: 'hasFees' },
       { to: '/app/budgets', icon: 'reports', label: ['Budgets', 'Budgets', 'Presupuestos'],
         roles: ['admin'], budgetAccess: true },
       { to: '/app/budget-global', icon: 'reports', label: ['Budget global & prévisions', 'Global budget & forecast', 'Presupuesto global'],

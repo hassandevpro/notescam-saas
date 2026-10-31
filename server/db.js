@@ -255,6 +255,20 @@ ensureColumn('fee_catalog', 'periodicity',     "periodicity TEXT NOT NULL DEFAUL
 ensureColumn('fee_catalog', 'billing_periods', "billing_periods TEXT NOT NULL DEFAULT '[]'");
 ensureColumn('fee_catalog', 'allow_partial',   'allow_partial INTEGER NOT NULL DEFAULT 1');
 ensureColumn('fee_catalog', 'allow_exemption', 'allow_exemption INTEGER NOT NULL DEFAULT 1');
+// QUOTE-PART du service : part retenue par l'école, par élève facturé et par
+// période (« Q P = 2 500 X nbre », devenu 3 500 en 2026-2027). Portée par la
+// ligne de catalogue, donc par l'ANNÉE : deux exercices coexistent sans reprise.
+// NULLABLE à dessein — NULL = aucune quote-part, et l'écran n'en affiche aucune.
+//
+// Elle stocke le TAUX, jamais un montant : la quote-part est un indicateur
+// recalculé à la lecture (`quotePartDuMois`), et l'écrire dans `fee_payments`,
+// `cash_movements` ou `budget_expenses` la compterait deux fois — elle est déjà
+// contenue dans les 15 000 encaissés. Voir docs/MODULE_CANTINE.md § 4.
+//
+// `fee_catalog` est synchronisée : le Cloud doit avoir la colonne AVANT qu'un
+// serveur LAN ne l'acquière, sinon PostgREST rejette la ligne ENTIÈRE (PGRST204)
+// et l'école cesse de remonter ses tarifs. Migration : supabase_cantine_quote_part.sql.
+ensureColumn('fee_catalog', 'quote_part',      'quote_part INTEGER');
 // Un paiement peut viser UNE période. Jumelle de student_fee_item_id : les trois
 // cas cohabitent (un mois précis, un service sans mois, la scolarité globale).
 ensureColumn('fee_payments', 'fee_schedule_item_id', 'fee_schedule_item_id TEXT');

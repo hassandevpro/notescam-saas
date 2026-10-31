@@ -120,10 +120,48 @@ aucun autre morceau du `dist` n'en porte. `deploy-0.3.28.sh` en fait un contrôl
 s'ouvre, un rapport de classe s'affiche avec son barème (`FR /20`), son classement et
 ses résultats par matière, et l'onglet « Discipline » répond. **0 erreur en console.**
 
-> **L'édition Cloud porte le même défaut en production.** `Reports.jsx` est partagé, et
-> `main` est à `8ac12e5`, antérieur à cette correction. L'écran Rapports est donc mort
-> aussi sur `notescam-saas.vercel.app`. **Aucun déploiement n'a été fait** : il demande
-> une autorisation explicite pour ce déploiement-là.
+> **L'édition Cloud portait le même défaut en production**, `Reports.jsx` étant partagé.
+> **C'est réparé en ligne depuis le 2026-10-31** : le responsable a dicté le `push` vers
+> `main`, qui est passé à `39b7058`. Voir « Mise en ligne du 2026-10-31 » juste en
+> dessous, avec la mesure prise sur le morceau réellement servi.
+
+### Mise en ligne du 2026-10-31 — FAITE ET VÉRIFIÉE
+
+`main` avancé de `8ac12e5` à **`39b7058`** (avance rapide, sans fusion), sur demande
+explicite du responsable, qui a dicté la commande lui-même :
+`git push origin caisse-journal-et-sync-0.3.15:main`.
+
+Elle emporte trois commits : `d0300a1` (consignation de la mise en ligne du 30/10),
+`c8fb5c1` (empreinte réelle dans la notice 0.3.27) et **`39b7058` — le correctif de
+l'écran « Rapports »**, qui était mort en production pour TOUS les rôles depuis la 0.3.26.
+
+**Vérifié sur le site réellement servi, dans le morceau concerné**, et non sur l'état du
+dépôt ni sur le tableau de bord — l'API Vercel a refusé la portée de l'équipe
+(403, le jeton doit être ré-autorisé), la mesure a donc été prise sur le HTTP :
+
+```
+index.html             assets/index-B_OHKYWG.js  →  index-BXbYVsst.js
+                       (le basculement s'est produit entre deux requêtes : preuve
+                        directe qu'un nouveau déploiement est devenu actif)
+assets/Reports-D2YPVG6t.js   70 204 octets, HTTP 200
+    « (cls, »                                            0 occurrence
+    appel au barème :  ct(I,P,we(a)).maxScale
+```
+
+`ct(I,…)` est la preuve POSITIVE, pas seulement l'absence du marqueur : la minification
+renomme un identifiant **déclaré** (`selectedClass` → `I`) mais ne peut PAS renommer une
+variable **libre**, qui doit rester littérale pour atteindre un global. Un `cls` libre
+serait donc encore lisible dans le morceau servi. Il n'y est plus.
+
+Les cinq actifs cités par `index.html` répondent 200 (`index`, la feuille de style et les
+trois paquets *vendor*) — aucun morceau manquant, qui ferait tomber l'application à vide.
+
+**Retour arrière** : `8ac12e5`, soit `git push origin 8ac12e5:main --force-with-lease`.
+À n'employer qu'en connaissance de cause : revenir dessus REMETTRAIT l'écran
+« Rapports » en panne, puisque c'est l'état d'où l'on vient.
+
+Aucune migration de schéma dans cette mise en ligne : rien à faire au Cloud, et l'ordre
+« base avant code » n'avait pas à être respecté puisqu'il n'y a pas de base à préparer.
 
 ### Mise en ligne du 2026-10-30 — FAITE ET VÉRIFIÉE
 

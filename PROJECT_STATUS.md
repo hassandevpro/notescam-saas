@@ -8,6 +8,10 @@
 > NON ENVOYÉ) · branche `caisse-journal-et-sync-0.3.15` ·
 > `package.json` = **0.3.29**
 >
+> **Mise en ligne du 2026-11-02** : `main` à **`b01dde8`**, le correctif des compétences
+> du primaire (I40) **vérifié sur le site servi** — § « Mise en ligne du 2026-11-02 ».
+> Le paquet LAN 0.3.29, lui, **reste non envoyé** : aucune école ne l'a reçu.
+>
 > ## 📦 0.3.29 — LA SYNCHRONISATION. PAQUET LINUX CONSTRUIT, NON ENVOYÉ (2026-11-02)
 >
 > **Côté Cloud, c'est fait et vérifié** (seule chose déployée à ce jour) :
@@ -173,6 +177,70 @@ ses résultats par matière, et l'onglet « Discipline » répond. **0 erreur en
 > **C'est réparé en ligne depuis le 2026-10-31** : le responsable a dicté le `push` vers
 > `main`, qui est passé à `39b7058`. Voir « Mise en ligne du 2026-10-31 » juste en
 > dessous, avec la mesure prise sur le morceau réellement servi.
+
+### Mise en ligne du 2026-11-02 — FAITE ET VÉRIFIÉE
+
+`main` avancé de `58b940b` à **`b01dde8`** (avance rapide, sans fusion), sur demande
+explicite du responsable (« commit et met en ligne ») :
+`git push origin caisse-journal-et-sync-0.3.15:main`.
+
+Elle emporte trois commits, dont **un seul touche le site** :
+
+| commit | effet en production |
+|---|---|
+| `b0c9160` | `packaging/linux/diagnostic-0.3.29.sh` — aucun effet sur le site |
+| **`a4ce485`** | **le correctif des compétences du primaire** (I40) |
+| `b01dde8` | `packaging/linux/corriger-bareme-form.sh` — aucun effet sur le site |
+
+**Aucune migration de schéma** : rien à préparer au Cloud, l'ordre « base avant code »
+ne s'applique pas. Les quatre migrations en attente d'autorisation (maternelle en UA,
+non-doublons, évaluations APC) ne sont pas commitées et ne sont donc **pas** parties.
+
+**Vérifié sur le site réellement servi, morceau par morceau** — l'API Vercel reste
+inaccessible (le connecteur n'est pas branché), la mesure est donc prise sur le HTTP.
+Le basculement a eu lieu entre deux sondages espacés de 15 s :
+
+```
+index.html   assets/index-DgkywnBp.js  →  assets/index-DS5GHZcA.js
+             (372 741 o → 372 825 o)
+```
+
+Les quatre correctifs, un par un. Les deux premiers ont un « avant » ET un « après »
+mesurés en production ; les deux suivants n'ont qu'un « après », le morceau
+`Grades-*` de l'ancien déploiement répondant 404 dès la bascule.
+
+| correctif | marqueur dans le morceau servi | avant | après |
+|---|---|---|---|
+| mot-clé anglais de 3A | `social values` dans `index-*.js` | **1** (le seul libellé de `referentielI18n`) | **2** |
+| le code en tête du nom fait foi | `const o=pt(i.code);if(o&&s[0]===o)return i.id` | **0** | **1** |
+| règle des orphelines | `return s.filter(P=>d.has(P.id)||!D.has(P.id))` dans `Grades-BHwmSZWa.js` | 404 | **1** |
+| `isSubjectScopedForClass` | `if(!vn(j,y,V,u))return s;` juste avant | 404 | **1** |
+
+Les deux derniers marqueurs sont **byte à byte identiques** à ceux du paquet bâti
+localement sur `b01dde8`, bloc entier compris. Et `if(!vn(j,y,V,u))` est une preuve
+POSITIVE, pas seulement l'absence de l'ancien code : la minification renomme un
+identifiant mais ne transforme pas une **variable nue** (`isSubjectTeacher`, l'ancien
+test) en **appel à quatre arguments**. L'ancienne garde ne peut donc pas être là.
+
+> ⚠ L'empreinte du morceau servi **diffère** de celle du paquet bâti localement
+> (`index-DS5GHZcA` contre `index-DecUGjRl`, 84 octets d'écart) : Vercel rebâtit
+> chez lui, et la preuve par identité d'empreinte ne tient pas. C'est pourquoi la
+> vérification porte sur le **contenu** et non sur le nom du fichier.
+
+Les cinq actifs cités par `index.html` répondent 200 (`index`, la feuille de style et
+les trois paquets *vendor*) — aucun morceau manquant, qui ferait tomber l'application
+à vide. `ParentGrades-DOZkmojx.js` répond 200 lui aussi : un premier relevé l'avait
+donné pour manquant, c'était un motif de recherche qui mordait sur son nom.
+
+**Retour arrière** : `58b940b`, soit `git push origin 58b940b:main --force-with-lease`.
+À n'employer qu'en connaissance de cause : revenir dessus remettrait 1A, 3B et 4A
+invisibles aux enseignantes du primaire.
+
+**Reste à trancher** : au primaire, 1A demeure invisible à l'enseignante dont la
+collègue détient le français. C'est le filtre « Mode 1 » tel qu'il existe, et non un
+effet de ce correctif. Deux options posées au responsable, sans réponse à ce jour :
+garder le filtre, ou ne pas filtrer du tout au primaire puisque le bulletin imprime
+les onze compétences de toute façon.
 
 ### Mise en ligne du 2026-10-31 — FAITE ET VÉRIFIÉE
 

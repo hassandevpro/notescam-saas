@@ -12,6 +12,7 @@ import { consolidate } from '../lib/groupStatsEngine';
 import { fetchGroupData } from '../lib/groupDashboardService';
 import { canSeeDashboard } from '../governance/governanceEngine';
 import { catalogOrDefault } from '../governance/defaultCatalog';
+import { InlineLoader } from '../components/AppLoader';
 
 const ALERT_COLOR = {
   critical: 'border-rose-400 bg-rose-50 text-rose-700',
@@ -68,7 +69,7 @@ export default function GroupDashboard() {
   const isGeneralDirection = canSeeDashboard(role, catalog, assignments, 'group');
 
   if (loading) {
-    return <Layout><div className="text-gray-400 text-sm py-20 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;
+    return <Layout><InlineLoader /></Layout>;
   }
   if (!stats) {
     return <Layout><div className="max-w-md mx-auto py-24 text-center text-gray-500">

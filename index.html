@@ -42,7 +42,19 @@
     <title>NotesCam — La gestion scolaire simple et fiable, même sans connexion</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Écran de démarrage statique : visible avant que le JavaScript ne soit
+           téléchargé (React le remplace au montage). En production, Vite place la
+           feuille CSS dans <head> : les classes .nc-loader* (index.css) sont donc
+           déjà disponibles. Même rendu que AppLoader.jsx — aucun saut visuel. -->
+      <div class="nc-loader nc-loader-full" role="status" aria-busy="true">
+        <div class="nc-loader-mark" style="width:56px;height:56px" aria-hidden="true">
+          <span class="nc-loader-ring"></span><span class="nc-loader-ring nc-loader-ring-2"></span><span class="nc-loader-logo">N</span>
+        </div>
+        <p class="nc-loader-msg">Chargement…</p>
+        <div class="nc-loader-bar" aria-hidden="true"><span></span></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

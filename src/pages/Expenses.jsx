@@ -37,6 +37,7 @@ import { catalogOrDefault } from '../governance/defaultCatalog';
 import { GOV_PERM } from '../governance/permissions';
 import { financeRemoteMode } from '../lib/budgetRemote';
 import { categoryLabel, subcategoryLabel } from '../lib/expenseCategories';
+import { InlineLoader } from '../components/AppLoader';
 
 const Badge = ({ ui, t }) => <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${ui.color}`}>{t(...ui.label)}</span>;
 
@@ -246,7 +247,7 @@ export default function Expenses() {
   const pendingCount = lineRequests.filter((r) => r.status === 'pending').length;
   const btn = 'px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors';
 
-  if (loading) return <Layout><div className="text-gray-400 text-sm py-24 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;
+  if (loading) return <Layout><InlineLoader /></Layout>;
 
   return (
     <Layout>

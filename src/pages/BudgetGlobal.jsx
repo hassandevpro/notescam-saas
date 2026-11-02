@@ -23,6 +23,7 @@ import { unitLabel } from '../components/budgets/BudgetHierarchyModals';
 import { RadialGauge, ProgressBar } from '../components/charts/Charts';
 import { coveredSectors } from '../governance/governanceEngine';
 import { catalogOrDefault } from '../governance/defaultCatalog';
+import { InlineLoader } from '../components/AppLoader';
 
 const SECTOR_ALIASES = { college: ['college', 'premier_cycle'], lycee: ['lycee', 'second_cycle'], premier_cycle: ['premier_cycle', 'college'], second_cycle: ['second_cycle', 'lycee'] };
 function unitCovered(covered, sectionKey) {
@@ -87,7 +88,7 @@ export default function BudgetGlobal() {
   const fc = useMemo(() => (g ? forecast({ engage: g.committed, depensesPrevues: g.ceiling, executionRate: g.taux }, pos.fraction) : null), [g, pos.fraction]);
   const ff = useMemo(() => feeForecast(fees, pos.fraction), [fees, pos.fraction]);
 
-  if (loading) return <Layout><div className="text-gray-400 text-sm py-24 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;
+  if (loading) return <Layout><InlineLoader /></Layout>;
 
   if (!annual || !model) return (
     <Layout><div className="max-w-md mx-auto py-24 text-center text-gray-500">

@@ -13,6 +13,7 @@ import {
 import { nextStatuses, severityRank } from '../lib/reportEngine';
 import { CATEGORY_LABELS, SEVERITY_UI, STATUS_UI, HISTORY_ACTION_LABELS } from '../components/reports/reportUi';
 import ReportFormModal from '../components/reports/ReportFormModal';
+import { InlineLoader } from '../components/AppLoader';
 
 export default function Signalements() {
   const t = useT();
@@ -108,7 +109,7 @@ export default function Signalements() {
         </div>
 
         {loading ? (
-          <div className="text-gray-400 text-sm py-16 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div>
+          <InlineLoader />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             {/* Liste */}

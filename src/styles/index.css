@@ -94,3 +94,55 @@ body {
   border-color: #d65a35;                       /* terracotta-500 */
   box-shadow: 0 0 0 2px rgb(214 90 53 / 0.20);
 }
+
+/* ── Chargement (AppLoader.jsx + écran statique d'index.html) ───────────────
+   Apparition retardée de 150 ms : pas de clignotement sur un chargement rapide.
+   Une seule feuille pour les deux : le rendu statique et le rendu React sont
+   identiques, donc aucun saut au passage de l'un à l'autre. */
+.nc-loader {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; min-height: 55vh; padding: 24px; text-align: center;
+  opacity: 0; animation: nc-fade-in .35s ease-out .15s forwards;
+}
+.nc-loader-full { min-height: 100vh; background: #f8fafc; }
+.nc-loader-inline { min-height: 0; padding: 40px 16px; }
+.nc-loader-mark { position: relative; display: grid; place-items: center; }
+.nc-loader-ring {
+  position: absolute; inset: 0; border-radius: 9999px;
+  border: 3px solid rgba(67, 56, 202, .15); border-top-color: #4338ca;
+  animation: nc-spin 1s cubic-bezier(.55, .2, .45, .8) infinite;
+}
+.nc-loader-ring-2 {
+  inset: 18%; border-width: 2.5px; border-top-color: #1d4ed8;
+  animation-duration: 1.6s; animation-direction: reverse;
+}
+.nc-loader-logo {
+  font: 800 1.15em/1 Inter, system-ui, sans-serif; color: #4338ca;
+  animation: nc-breathe 1.8s ease-in-out infinite;
+}
+.nc-loader-msg {
+  margin: 0; font: 500 .875rem/1.4 Inter, system-ui, sans-serif; color: #64748b;
+  max-width: 28ch; animation: nc-msg .5s ease-out;
+}
+.nc-loader-bar {
+  width: 160px; height: 4px; border-radius: 9999px; background: #e2e8f0; overflow: hidden;
+}
+.nc-loader-bar > span {
+  display: block; height: 100%; width: 40%; border-radius: inherit;
+  background: linear-gradient(90deg, #1d4ed8, #4338ca);
+  animation: nc-slide 1.3s ease-in-out infinite;
+}
+@keyframes nc-spin    { to { transform: rotate(360deg); } }
+@keyframes nc-slide   { 0% { transform: translateX(-110%); } 100% { transform: translateX(350%); } }
+@keyframes nc-breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.88); opacity: .7; } }
+@keyframes nc-fade-in { to { opacity: 1; } }
+@keyframes nc-msg     { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-color-scheme: dark) {
+  .nc-loader-full { background: #0f172a; }
+  .nc-loader-msg { color: #94a3b8; }
+  .nc-loader-bar { background: #1e293b; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nc-loader-ring, .nc-loader-ring-2, .nc-loader-logo, .nc-loader-bar > span { animation: none; }
+  .nc-loader-bar > span { width: 100%; opacity: .5; }
+}

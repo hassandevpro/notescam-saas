@@ -13,6 +13,7 @@ import HrRecordModal from '../components/hr/HrRecordModal';
 import { useConfirm } from '../components/ConfirmDialog';
 import { toast } from '../store/toastStore';
 import { printAssetSheet, printAssetRegister } from '../lib/assetDoc';
+import { InlineLoader } from '../components/AppLoader';
 
 const EMPTY = { breakdowns: [], repairs: [], expenses: [] };
 
@@ -144,7 +145,7 @@ export default function Assets() {
         </div>
 
         {loading ? (
-          <div className="text-gray-400 text-sm py-16 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div>
+          <InlineLoader />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             {/* Liste */}

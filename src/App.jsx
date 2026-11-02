@@ -1,4 +1,5 @@
 import { useEffect, useCallback, lazy, Suspense } from 'react';
+import AppLoader from './components/AppLoader';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AnalyticsRouteTracker from './components/AnalyticsRouteTracker';
 import { useAuthStore } from './store/authStore';
@@ -100,11 +101,7 @@ const ParentDocuments     = lazy(() => import('./pages/parent/ParentDocuments'))
 const ParentProfile       = lazy(() => import('./pages/parent/ParentProfile'));
 
 function PageLoader() {
-  return (
-    <div className="flex-1 flex items-center justify-center min-h-[60vh] text-gray-400 text-sm animate-pulse">
-      Chargement…
-    </div>
-  );
+  return <AppLoader />;
 }
 
 // ── Gardes de route par rôle ─────────────────────────────────────────────────

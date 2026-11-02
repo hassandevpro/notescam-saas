@@ -50,6 +50,15 @@ curl -s --max-time 5 http://localhost:8080/api/version \
   || echo "  (serveur injoignable sur le port 8080)"
 echo
 
+# Le disque AVANT tout le reste : une base qui ne peut plus ecrire arrete la
+# synchronisation pour une raison qui n a rien a voir avec le code, et le
+# message a l ecran ne le dira pas.
+echo
+echo "== Disque"
+df -h "$(dirname "$DB")" | tail -2
+echo "  fichiers de la base :"
+ls -lh "$DB"* 2>/dev/null | awk '{print "    " $5 "  " $9}'
+
 # Un repertoire temporaire, et non « mktemp » seul : node refuse de charger un
 # module ESM dont le fichier n a pas l extension .mjs
 # (ERR_UNKNOWN_FILE_EXTENSION ".i0sEra6Hs6").
@@ -106,14 +115,32 @@ if (file === null) {
 // seule cause qui produise durablement « ca ne remonte pas » : la file, elle,
 // se vide toute seule.
 if (quar > 0) {
-  alerte(quar + ' ligne(s) REFUSEES par le cloud — voir les motifs');
+  // ENTREES contre LIGNES. sync_outbox_quarantine n a pas d index unique sur
+  // (tablename, row_id) — contrairement a sync_outbox depuis I35. Et
+  // syncRepair.reconcile() reenfile toute ligne locale ABSENTE du Cloud. Une
+  // ligne que le Cloud refuse structurellement n y sera jamais : elle est donc
+  // reenfilee, repoussee, refusee, et remise en quarantaine A CHAQUE PASSE,
+  // avec une nouvelle entree a chaque fois. L ecart entre les deux chiffres
+  // ci-dessous mesure cette boucle.
+  const d = un('SELECT COUNT(DISTINCT tablename || char(31) || row_id) n'
+    + ' FROM sync_outbox_quarantine').n;
+  console.log('  dont LIGNES distinctes             : ' + d);
+  if (d > 0 && quar / d >= 3) {
+    alerte('boucle : ' + Math.round(quar / d) + ' entrees par ligne reelle'
+      + ' — la quarantaine se reempile a chaque passe de reparation');
+  }
+  alerte(d + ' ligne(s) REFUSEES par le cloud — voir les motifs');
+
   console.log('');
-  console.log('  Motifs de refus, les 10 plus frequents :');
-  const q = 'SELECT tablename, last_error, COUNT(*) n'
+  console.log('  Motifs de refus (lignes distinctes), les 10 premiers :');
+  const q = 'SELECT tablename, last_error,'
+    + ' COUNT(DISTINCT row_id) d, COUNT(*) n'
     + ' FROM sync_outbox_quarantine'
-    + ' GROUP BY tablename, last_error ORDER BY n DESC LIMIT 10';
+    + ' GROUP BY tablename, last_error ORDER BY d DESC LIMIT 10';
   for (const r of tous(q)) {
-    console.log('    ' + r.n + '  ' + r.tablename + '  -> ' + r.last_error);
+    console.log('    ' + r.d + ' lignes (' + r.n + ' entrees)  '
+      + r.tablename);
+    console.log('       -> ' + r.last_error);
   }
 }
 

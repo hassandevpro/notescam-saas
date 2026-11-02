@@ -43,9 +43,18 @@ export default function LineAllocationsModal({ line, schoolId, periods = [], uni
   const existingP = useMemo(() => new Map(linePeriods.filter((a) => a.budget_chapter_id === line.id).map((a) => [a.budget_period_id, a])), [linePeriods, line.id]);
   const existingS = useMemo(() => new Map(lineSectors.filter((a) => a.budget_chapter_id === line.id).map((a) => [a.school_unit_id, a])), [lineSectors, line.id]);
 
-  const [pPct, setPPct] = useState(() => Object.fromEntries(periods.map((p) => [p.id, existingP.get(p.id)?.pct ?? ''])));
-  const [sOn, setSOn] = useState(() => Object.fromEntries(units.map((u) => [u.id, existingS.has(u.id)])));
-  const [sPct, setSPct] = useState(() => Object.fromEntries(units.map((u) => [u.id, existingS.get(u.id)?.pct ?? ''])));
+  // D3 — en gouvernance distante, la répartition envoyée n'est pas encore appliquée :
+  // la fenêtre se rouvrait à 0 %. On la préremplit avec les valeurs de la demande en
+  // attente (payload.data du journal) ; elles priment sur ce qui est déjà enregistré,
+  // puisque la demande est plus récente.
+  const seed = pendingIntent?.data || null;
+  const seedP = new Map((seed?.periods || []).map((x) => [x.budget_period_id, x.pct]));
+  const seedS = new Map((seed?.sectors || []).map((x) => [x.school_unit_id, x.pct]));
+  const seeded = seedP.size > 0 || seedS.size > 0;
+
+  const [pPct, setPPct] = useState(() => Object.fromEntries(periods.map((p) => [p.id, seedP.get(p.id) ?? existingP.get(p.id)?.pct ?? ''])));
+  const [sOn, setSOn] = useState(() => Object.fromEntries(units.map((u) => [u.id, seedS.has(u.id) || existingS.has(u.id)])));
+  const [sPct, setSPct] = useState(() => Object.fromEntries(units.map((u) => [u.id, seedS.get(u.id) ?? existingS.get(u.id)?.pct ?? ''])));
   const [saving, setSaving] = useState(false);
 
   const sumP = periods.reduce((s, p) => s + (Number(pPct[p.id]) || 0), 0);
@@ -143,6 +152,13 @@ export default function LineAllocationsModal({ line, schoolId, periods = [], uni
                       'A breakdown request is already pending for this line',
                       'Ya hay una solicitud de reparto pendiente para esta línea')}
                 {pendingIntent.at ? ` · ${String(pendingIntent.at).slice(0, 16).replace('T', ' ')}` : ''}
+              </p>
+            )}
+            {pendingIntent && seeded && (
+              <p className="text-xs text-amber-900">
+                {t('Les valeurs ci-dessous sont celles de cette demande, en attente d’application.',
+                   'The values below are those of this request, pending application.',
+                   'Los valores siguientes son los de esta solicitud, pendiente de aplicación.')}
               </p>
             )}
           </div>

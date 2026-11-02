@@ -10,11 +10,13 @@
 // l'autorité (budgetGuard).
 
 // Aplatit l'arbre rubriques → lignes de `computeBudget(...).tree`.
-export function flattenLines(tree = [], parentLabel = null) {
+export function flattenLines(tree = [], parentLabel = null, parentId = null) {
   const out = [];
   for (const node of tree) {
-    if (node.isLine) out.push({ ...node, parentLabel });
-    if (node.children?.length) out.push(...flattenLines(node.children, node.isLine ? parentLabel : node.label));
+    if (node.isLine) out.push({ ...node, parentLabel, parentId });
+    if (node.children?.length) {
+      out.push(...(node.isLine ? flattenLines(node.children, parentLabel, parentId) : flattenLines(node.children, node.label, node.id)));
+    }
   }
   return out;
 }

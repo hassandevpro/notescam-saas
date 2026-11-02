@@ -36,7 +36,10 @@ import { hasPermission } from '../governance/governanceEngine';
 import { catalogOrDefault } from '../governance/defaultCatalog';
 import { GOV_PERM } from '../governance/permissions';
 import { InlineLoader } from '../components/AppLoader';
-import { summarizeBudget, topLines } from '../lib/budgetSummary';
+import { summarizeBudget, topLines, flattenLines } from '../lib/budgetSummary';
+import { countByState, blockerGroups, computeSteps, filterTree, hasActiveFilters, planBulkActivation } from '../lib/budgetLineView';
+import { BudgetSteps, BlockersCard, ReadyCard, ListToolbar } from '../components/budgets/BudgetListTools';
+import BulkActivateModal from '../components/budgets/BulkActivateModal';
 
 const Badge = ({ ui, t }) => <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ui.color}`}>{t(...ui.label)}</span>;
 
@@ -137,7 +140,7 @@ export default function Budgets() {
         // faisait passer une répartition en attente pour une saisie perdue.
         const { status, resolvedAt } = budgetOperationOutcome(evs, corr);
         return { id: e.id, corr, agg: p.aggregate_id || e.aggregate_id || null,
-          op: p.op, target: p.target, at: e.occurred_at, status, resolvedAt };
+          op: p.op, target: p.target, at: e.occurred_at, status, resolvedAt, data: p.data || null };
       }).slice(0, 20);
       setIntents(rows);
       setIntentsAt(Date.now());
@@ -190,15 +193,6 @@ export default function Budgets() {
   const summary = useMemo(() => summarizeBudget({ envelope, tree: model?.tree || [] }), [envelope, model]);
   const [showAllTop, setShowAllTop] = useState(false);
   const overTop = useMemo(() => topLines(summary, showAllTop ? 10 : 3), [summary, showAllTop]);
-  // Ancre vers la carte d'une ligne, avec un halo bref pour la repérer.
-  const goToLine = (id) => {
-    const el = document.getElementById('line-' + id);
-    if (!el) return;
-    const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    el.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'center' });
-    el.classList.add('ring-2', 'ring-rose-400');
-    setTimeout(() => el.classList.remove('ring-2', 'ring-rose-400'), 2500);
-  };
 
   const failToast = (e) => toast.error(e?.message || t('Échec de l’opération — vérifiez votre connexion.', 'Operation failed — check your connection.', 'Error — verifique su conexión.'));
 
@@ -244,11 +238,40 @@ export default function Budgets() {
     await afterWrite(res, t('Statut mis à jour', 'Status updated', 'Estado actualizado'));
   };
 
+  // Ce que la suppression emporte, d'après le schéma : les RÉPARTITIONS (période, secteur) et,
+  // pour une ligne active/clôturée, l'historique de ses réallocations sont supprimés ; les
+  // DÉPENSES sont CONSERVÉES mais détachées de la ligne (ON DELETE SET NULL) ; supprimer une
+  // rubrique supprime ses lignes. On le compte et on le dit, au lieu d'annoncer « ses dépenses ».
   const removeChapter = async (node, isLineNode) => {
-    const msg = isLineNode
-      ? t('Supprimer cette ligne, ses répartitions et ses dépenses ?', 'Delete this line, its breakdowns and expenses?', '¿Eliminar esta línea y su contenido?')
-      : t('Supprimer cette rubrique et ses lignes ?', 'Delete this category and its lines?', '¿Eliminar esta rúbrica y sus líneas?');
-    if (!(await confirm({ tone: 'danger', title: t('Supprimer', 'Delete', 'Eliminar'), message: msg, confirmLabel: t('Supprimer', 'Delete', 'Eliminar') }))) return;
+    const lineIds = new Set(isLineNode ? [node.id] : flattenLines(node.children || []).map((l) => l.id));
+    const nAlloc = linePeriods.filter((a) => lineIds.has(a.budget_chapter_id)).length + lineSectors.filter((a) => lineIds.has(a.budget_chapter_id)).length;
+    const exps = expenses.filter((e) => lineIds.has(e.budget_chapter_id));
+    const expTotal = exps.reduce((n, e) => n + (Number(e.amount) || 0), 0);
+    const hasFinalized = [...lineIds].some((id) => { const c = chapterById.get(id); return c && c.status !== 'draft'; });
+    const message = (
+      <span className="block space-y-2">
+        <span className="block">
+          {isLineNode
+            ? t(`Cette ligne a ${nAlloc} répartition(s), qui seront supprimées.`, `This line has ${nAlloc} breakdown(s), which will be deleted.`, `Esta línea tiene ${nAlloc} reparto(s), que se eliminarán.`)
+            : t(`Cette rubrique contient ${lineIds.size} ligne(s) et ${nAlloc} répartition(s), qui seront supprimées.`, `This category holds ${lineIds.size} line(s) and ${nAlloc} breakdown(s), which will be deleted.`, `Esta rúbrica contiene ${lineIds.size} línea(s) y ${nAlloc} reparto(s), que se eliminarán.`)}
+        </span>
+        {exps.length > 0 ? (
+          <span className="block font-semibold text-rose-700">
+            {t(`${exps.length} dépense(s) (${money(expTotal)}) resteront enregistrées mais ne seront plus rattachées à une ligne.`,
+               `${exps.length} expense(s) (${money(expTotal)}) will be kept but no longer attached to a line.`,
+               `${exps.length} gasto(s) (${money(expTotal)}) se conservarán pero sin línea asociada.`)}
+          </span>
+        ) : (
+          <span className="block">{t('Aucune dépense n’est rattachée.', 'No expense is attached.', 'Ningún gasto asociado.')}</span>
+        )}
+        {hasFinalized && (
+          <span className="block font-semibold text-rose-700">
+            {t('Ligne active ou clôturée : l’historique de ses réallocations sera aussi supprimé.', 'Active or closed line: its reallocation history will also be deleted.', 'Línea activa o cerrada: también se eliminará su historial de reasignaciones.')}
+          </span>
+        )}
+      </span>
+    );
+    if (!(await confirm({ tone: 'danger', title: isLineNode ? t('Supprimer la ligne', 'Delete line', 'Eliminar línea') : t('Supprimer la rubrique', 'Delete category', 'Eliminar rúbrica'), message, confirmLabel: t('Supprimer', 'Delete', 'Eliminar') }))) return;
     if (await deleteBudgetChapter(node.id)) { await load(); toast.success(t('Supprimé', 'Deleted', 'Eliminado')); }
     else failToast();
   };
@@ -263,6 +286,70 @@ export default function Budgets() {
 
   // Lignes ACTIVES (cibles de réallocation).
   const activeLines = useMemo(() => annualChapters.filter((c) => isLine(c) && c.status === 'active'), [annualChapters]);
+
+  // ── Liste : état des lignes, recherche, tri, filtres, rubriques repliables ──
+  const errsOf = useCallback((n) => ((n.status === 'draft' || n.status == null) && chapterById.get(n.id) ? lineActivation(chapterById.get(n.id)) : []), [chapterById, lineActivation]);
+  const allLines = useMemo(() => flattenLines(model?.tree || []), [model]);
+  const counts = useMemo(() => countByState(allLines, errsOf), [allLines, errsOf]);
+  const { groups: blockerList, todoCount } = useMemo(() => blockerGroups(allLines, errsOf), [allLines, errsOf]);
+  const steps = useMemo(() => computeSteps({ periodCount: periods.length, lineCount: counts.all, todoCount: counts.todo, readyCount: counts.ready, activeCount: counts.active }), [periods.length, counts]);
+  const [query, setQuery] = useState('');
+  const [stateFilter, setStateFilter] = useState('all');
+  const [blocker, setBlocker] = useState(null);
+  const [sort, setSort] = useState('order');
+  const filters = { query, state: stateFilter, blocker, sort };
+  const filtersActive = hasActiveFilters(filters);
+  const clearFilters = () => { setQuery(''); setStateFilter('all'); setBlocker(null); };
+  const visibleTree = useMemo(() => filterTree(model?.tree || [], filters, errsOf), [model, query, stateFilter, blocker, sort, errsOf]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Rubriques repliées : retenues par budget dans localStorage (indisponible → tout déplié).
+  const collapseKey = annual ? 'nc.budgets.collapsed.' + annual.id : null;
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  useEffect(() => {
+    if (!collapseKey) return;
+    try { const raw = localStorage.getItem(collapseKey); setCollapsed(new Set(raw ? JSON.parse(raw) : [])); }
+    catch { setCollapsed(new Set()); }
+  }, [collapseKey]);
+  const persistCollapsed = (next) => { try { if (collapseKey) localStorage.setItem(collapseKey, JSON.stringify([...next])); } catch { /* stockage indisponible : l'état reste en mémoire */ } };
+  const toggleCollapsed = (id) => setCollapsed((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); persistCollapsed(n); return n; });
+  const rubriqueIds = useMemo(() => (model?.tree || []).filter((n) => !n.isLine).map((n) => n.id), [model]);
+  const collapseAll = () => { const n = new Set(rubriqueIds); setCollapsed(n); persistCollapsed(n); };
+  const expandAll = () => { const n = new Set(); setCollapsed(n); persistCollapsed(n); };
+  // Pendant une recherche ou un filtre, rien n'est replié : on ne cache jamais une correspondance.
+  const isCollapsed = (id) => !filtersActive && collapsed.has(id);
+
+  // Ancre vers la carte d'une ligne : dé-filtre et déplie si besoin, puis halo bref.
+  const goToLine = (id) => {
+    const ln = allLines.find((l) => l.id === id);
+    if (filtersActive) clearFilters();
+    if (ln?.parentId && collapsed.has(ln.parentId)) { const n = new Set(collapsed); n.delete(ln.parentId); setCollapsed(n); persistCollapsed(n); }
+    setTimeout(() => {
+      const el = document.getElementById('line-' + id);
+      if (!el) return;
+      const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-rose-400');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-rose-400'), 2500);
+    }, 60);
+  };
+
+  // Demandes en attente d'application (gouvernance distante) → badge sur la ligne.
+  const pendingAgg = useMemo(() => new Set(intents.filter((i) => i.status === 'pending' && i.agg).map((i) => i.agg)), [intents]);
+
+  // Activation en lot : le plan rejoue le contrôle du moteur ligne après ligne.
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const bulkDirty = useRef(false);
+  const bulkPlan = useMemo(() => (bulkOpen && annual
+    ? planBulkActivation({
+      candidates: allLines.filter((l) => errsOf(l).length === 0 && l.status === 'draft').map((l) => chapterById.get(l.id)).filter(Boolean),
+      annual, chapters: annualChapters, idx,
+    })
+    : null), [bulkOpen, allLines, errsOf, chapterById, annual, annualChapters, idx]);
+  const activateOne = (raw) => upsertBudgetChapter({ ...raw, status: 'active' });
+  const closeBulk = () => {
+    setBulkOpen(false);
+    if (bulkDirty.current) { bulkDirty.current = false; load(); loadIntents(); }   // recharger APRÈS la fermeture : load() affiche le chargement plein page
+  };
 
   // — Opérations tracées V3 : proposition + décision, appliquées côté serveur —
   const submitRealloc = async ({ sourceChapterId, destChapterId, amount, reason }) => {
@@ -341,7 +428,7 @@ export default function Budgets() {
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-semibold text-amber-800">
-                🛰️ {t('Gouvernance à distance — les opérations sont appliquées par le serveur de l’école (LAN)', 'Remote governance — operations are applied by the school server (LAN)', 'Gobernanza remota — el servidor de la escuela (LAN) aplica las operaciones')}
+                🛰️ {t('Ici, vos modifications sont envoyées au poste de l’école, qui les applique. Elles peuvent mettre quelques minutes à apparaître.', 'Here, your changes are sent to the school workstation, which applies them. They can take a few minutes to appear.', 'Aquí, sus cambios se envían al puesto de la escuela, que los aplica. Pueden tardar unos minutos en aparecer.')}
               </p>
               <div className="flex items-center gap-2 shrink-0">
                 {intentsAt && !intentsBusy && (
@@ -393,6 +480,19 @@ export default function Budgets() {
           </div>
         ) : (
           <>
+            {/* D1 : sans droit de gérer, on le dit au lieu de masquer les actions en silence. */}
+            {!canManage && (
+              <div role="status" className="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                {t('Vous consultez ce budget en lecture seule. Pour le modifier, demandez le rôle correspondant à l’administrateur.', 'You are viewing this budget read-only. To change it, ask the administrator for the matching role.', 'Está viendo este presupuesto en solo lectura. Para modificarlo, pida el rol correspondiente al administrador.')}
+              </div>
+            )}
+
+            <BudgetSteps steps={steps} details={{
+              allocation: todoCount > 0 ? t(`${todoCount} à compléter`, `${todoCount} to complete`, `${todoCount} por completar`) : '',
+              activation: counts.ready > 0 ? t(`${counts.ready} prêtes`, `${counts.ready} ready`, `${counts.ready} listas`) : '',
+              expenses: summary.activeCount > 0 ? t(`${summary.activeCount} lignes actives`, `${summary.activeCount} active lines`, `${summary.activeCount} líneas activas`) : '',
+            }} />
+
             {/* Carte du budget annuel */}
             <div className={`bg-white rounded-2xl border p-5 mb-5 ${overAllocated ? 'border-rose-300' : 'border-gray-200'}`}>
               <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
@@ -472,6 +572,12 @@ export default function Budgets() {
               )}
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+              <BlockersCard todoCount={todoCount} groups={blockerList} activeBlocker={blocker}
+                onPick={(code) => { setBlocker(code); if (code) setStateFilter('all'); }} />
+              <ReadyCard readyCount={counts.ready} canApprove={canApprove} canManage={canManage} onOpen={() => setBulkOpen(true)} />
+            </div>
+
             {periods.length === 0 && (
               <div className="mb-4 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                 ⚠ {t('Configurez d’abord les périodes budgétaires de l’année (bouton « Périodes »).', 'Configure the year’s budget periods first (“Periods” button).', 'Configure primero los períodos (botón «Períodos»).')}
@@ -484,22 +590,38 @@ export default function Budgets() {
               {canManage && <button onClick={() => setModal({ type: 'rubrique' })} className="text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg">+ {t('Rubrique', 'Category', 'Rúbrica')}</button>}
             </div>
 
+            <ListToolbar query={query} onQuery={setQuery} sort={sort} onSort={setSort} state={stateFilter} onState={(v) => { setStateFilter(v); setBlocker(null); }}
+              counts={counts} onCollapseAll={collapseAll} onExpandAll={expandAll} />
+            {blocker && (
+              <p className="mb-2 text-xs text-gray-600">
+                {t('Filtre par motif :', 'Reason filter:', 'Filtro por motivo:')} <b>{t(...(LINE_ERROR_LABELS[blocker] || [blocker, blocker, blocker]))}</b>{' '}
+                <button type="button" onClick={() => setBlocker(null)} className="underline min-h-9 px-1">{t('Retirer', 'Remove', 'Quitar')}</button>
+              </p>
+            )}
+
             {model.tree.length === 0 ? (
               <div className="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
                 <p className="text-gray-500 text-sm">{t('Aucune rubrique. Créez une rubrique (ex. Fonctionnement) puis ses lignes.', 'No category. Create a category (e.g. Operations) then its lines.', 'Sin rúbricas.')}</p>
               </div>
+            ) : visibleTree.length === 0 ? (
+              <div className="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center" role="status">
+                <p className="text-gray-600 text-sm font-semibold">{t('Aucune ligne ne correspond.', 'No line matches.', 'Ninguna línea coincide.')}</p>
+                <button type="button" onClick={clearFilters} className={`${btn} mt-3 text-indigo-700 bg-indigo-50 hover:bg-indigo-100`}>{t('Effacer les filtres', 'Clear filters', 'Borrar filtros')}</button>
+              </div>
             ) : (
               <div className="space-y-3">
-                {model.tree.map((node) => node.isLine
+                {visibleTree.map((node) => node.isLine
                   ? <LineCard key={node.id} node={node} raw={chapterById.get(node.id)} money={money} t={t} canManage={canManage} canApprove={canApprove}
                       onAlloc={() => setModal({ type: 'alloc', node: chapterById.get(node.id) })} onEdit={() => setModal({ type: 'line', node: chapterById.get(node.id) })}
-                      onStatus={changeLineStatus} onRemove={() => removeChapter(node, true)} activation={lineActivation} btn={btn} onRealloc={onReallocFor} onRevise={onReviseFor} />
+                      onStatus={changeLineStatus} onRemove={() => removeChapter(node, true)} activation={lineActivation} btn={btn} onRealloc={onReallocFor} onRevise={onReviseFor}
+                      pending={pendingAgg.has(node.id)} />
                   : <RubriqueSection key={node.id} node={node} chapterById={chapterById} money={money} t={t} canManage={canManage} canApprove={canApprove}
                       onAddLine={() => setModal({ type: 'line', parent: chapterById.get(node.id) })}
                       onEditRubrique={() => setModal({ type: 'rubrique', node: chapterById.get(node.id) })}
                       onRemoveRubrique={() => removeChapter(node, false)}
                       onAlloc={(raw) => setModal({ type: 'alloc', node: raw })} onEditLine={(raw) => setModal({ type: 'line', node: raw, parent: chapterById.get(node.id) })}
-                      onStatus={changeLineStatus} onRemoveLine={(n) => removeChapter(n, true)} activation={lineActivation} btn={btn} onRealloc={onReallocFor} onRevise={onReviseFor} />
+                      onStatus={changeLineStatus} onRemoveLine={(n) => removeChapter(n, true)} activation={lineActivation} btn={btn} onRealloc={onReallocFor} onRevise={onReviseFor}
+                      collapsed={isCollapsed(node.id)} onToggle={() => toggleCollapsed(node.id)} pendingAgg={pendingAgg} />
                 )}
               </div>
             )}
@@ -531,6 +653,10 @@ export default function Budgets() {
         <LineAllocationsModal line={modal.node} schoolId={schoolId} periods={periods} units={units}
           linePeriods={linePeriods} lineSectors={lineSectors} intents={intents}
           onChange={load} onClose={() => setModal(null)} />
+      )}
+      {bulkOpen && bulkPlan && (
+        <BulkActivateModal plan={bulkPlan} remote={remoteMode} onActivate={activateOne}
+          onDone={() => { bulkDirty.current = true; }} onClose={closeBulk} />
       )}
       {confirmDialog}
     </Layout>
@@ -597,13 +723,21 @@ function OperationsPanel({ reallocations, revisions, chapterById, money, t, canD
 // Bouton icône : cible d'au moins 36 px (44 px au toucher), nom accessible obligatoire.
 const iconBtn = 'inline-flex items-center justify-center min-h-9 min-w-9 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg';
 
-function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, onAddLine, onEditRubrique, onRemoveRubrique, onAlloc, onEditLine, onStatus, onRemoveLine, activation, btn, onRealloc, onRevise }) {
+function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, onAddLine, onEditRubrique, onRemoveRubrique, onAlloc, onEditLine, onStatus, onRemoveLine, activation, btn, onRealloc, onRevise, collapsed = false, onToggle, pendingAgg }) {
   const c = node.consumption;
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
       <div className="px-5 py-3 flex items-center justify-between border-b border-gray-100 flex-wrap gap-2">
         <div className="min-w-0">
-          <h3 className="text-sm font-bold text-gray-800 truncate">{node.label}</h3>
+          <h3 className="text-sm font-bold text-gray-800">
+            <button type="button" onClick={onToggle} aria-expanded={!collapsed} aria-controls={`rub-${node.id}`}
+              className="flex items-center gap-2 text-left min-h-9 max-w-full">
+              <svg aria-hidden="true" className={`w-3.5 h-3.5 shrink-0 transition-transform ${collapsed ? '' : 'rotate-90'}`} viewBox="0 0 20 20" fill="currentColor"><path d="M7 4l6 6-6 6V4z" /></svg>
+              <span className="truncate">{node.label}</span>
+              <span className="text-xs font-normal text-gray-500 shrink-0">({node.children.length})</span>
+              {(pendingAgg?.has(node.id) || node.children.some((c) => pendingAgg?.has(c.id))) && <PendingBadge t={t} />}
+            </button>
+          </h3>
           <div className="text-xs text-gray-500 tabular-nums">
             {t('Prévu', 'Planned', 'Previsto')} {money(c.ceiling)} · {t('Engagé', 'Committed', 'Comprom.')} {money(c.committed)} · {t('Dispo', 'Avail.', 'Disp.')} <b className={c.available < 0 ? 'text-rose-600' : 'text-sky-700'}>{money(c.available)}</b>
           </div>
@@ -616,14 +750,14 @@ function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, o
           </div>
         )}
       </div>
-      {node.children.length === 0 ? (
+      {collapsed ? null : node.children.length === 0 ? (
         <p className="text-sm text-gray-400 py-6 text-center px-4">{t('Aucune ligne. Ajoutez une ligne (ex. Carburant).', 'No line. Add a line (e.g. Fuel).', 'Sin líneas.')}</p>
       ) : (
-        <div className="divide-y divide-gray-100">
+        <div id={`rub-${node.id}`} className="divide-y divide-gray-100">
           {node.children.map((ln) => (
             <LineCard key={ln.id} node={ln} raw={chapterById.get(ln.id)} money={money} t={t} canManage={canManage} canApprove={canApprove}
               onAlloc={() => onAlloc(chapterById.get(ln.id))} onEdit={() => onEditLine(chapterById.get(ln.id))}
-              onStatus={onStatus} onRemove={() => onRemoveLine(ln)} activation={activation} inRubrique btn={btn} onRealloc={onRealloc} onRevise={onRevise} />
+              onStatus={onStatus} onRemove={() => onRemoveLine(ln)} activation={activation} inRubrique btn={btn} onRealloc={onRealloc} onRevise={onRevise} pending={pendingAgg?.has(ln.id)} />
           ))}
         </div>
       )}
@@ -632,7 +766,7 @@ function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, o
 }
 
 // ── Carte d'une ligne budgétaire ─────────────────────────────────────────────
-function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit, onStatus, onRemove, activation, inRubrique, btn, onRealloc, onRevise }) {
+function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit, onStatus, onRemove, activation, inRubrique, btn, onRealloc, onRevise, pending }) {
   const c = node.consumption;
   const scopeUi = SCOPE_UI[node.scope] || SCOPE_UI.complex;
   const statusUi = STATUS_UI[node.status] || STATUS_UI.draft;
@@ -646,6 +780,7 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-gray-900 truncate">{node.label}</span>
             <Badge ui={statusUi} t={t} />
+            {pending && <PendingBadge t={t} />}
             <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${scopeUi.color}`}>{t(...scopeUi.label)}</span>
           </div>
           <div className="text-xs text-gray-500 mt-0.5 tabular-nums">
@@ -674,10 +809,12 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
           {node.status === 'draft' && (
             <>
               <button onClick={onAlloc} className={`${btn} text-indigo-700 bg-indigo-50 hover:bg-indigo-100`}>⚖ {t('Répartir', 'Break down', 'Repartir')}</button>
-              {canApprove && (
+              {canApprove ? (
                 <button onClick={() => onStatus(raw, 'active')} disabled={!canActivate}
                   title={canActivate ? '' : t('Complétez la répartition (Σ = 100 %) et respectez l’enveloppe.', 'Complete the breakdown (Σ = 100%) within the envelope.', 'Complete el reparto (Σ = 100%).')}
                   className={`${btn} text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40`}>✓ {t('Activer', 'Activate', 'Activar')}</button>
+              ) : (
+                <span className="text-xs text-gray-500 self-center">{t('Activation réservée à ceux qui peuvent approuver le budget.', 'Activation is reserved for people who can approve the budget.', 'Activación reservada a quien puede aprobar el presupuesto.')}</span>
               )}
               <button onClick={onEdit} className={`${btn} text-gray-600 bg-gray-100 hover:bg-gray-200`}>{t('Modifier', 'Edit', 'Editar')}</button>
               <button onClick={onRemove} className={`${btn} text-rose-600 bg-rose-50 hover:bg-rose-100`}>{t('Supprimer', 'Delete', 'Eliminar')}</button>
@@ -704,6 +841,15 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
   );
 }
 function canReopenLine(canApprove) { return canApprove; }
+
+// Demande envoyée au poste de l'école, pas encore appliquée (gouvernance distante).
+function PendingBadge({ t }) {
+  return (
+    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 shrink-0">
+      <span aria-hidden="true">⏳ </span>{t('En attente d’application', 'Pending', 'Pendiente')}
+    </span>
+  );
+}
 
 function PctChip({ label, pct }) {
   const complete = Math.abs((pct || 0) - 100) <= 0.01;

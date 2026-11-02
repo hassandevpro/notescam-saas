@@ -71,7 +71,15 @@ const KEYWORDS = {
     'chemistry', 'physics', 'biology', 'technology'],
   // « Moral Education » est une EXPRESSION de 3A : testée avant les mots
   // simples, elle passe donc devant « education civique » de 3B.
-  '3a': ['valeurs sociales', 'education sociale', 'vivre ensemble', 'moral education',
+  // ── « SOCIAL VALUES » MANQUAIT, ET 3A PARTAIT À LA MAUVAISE MATIÈRE ──────
+  // Relevé à BRIGHT CONTINENT le 2026-11-02 : la classe porte « Social Values »
+  // ET « Moral Education ». La passe anglaise du 2026-10-21 a équipé 1B, 1C, 2B,
+  // 3B, 5A et 6A — 3A était la seule à n'avoir reçu AUCUN nom anglais. Résultat :
+  // « Moral Education » (expression déjà présente) emportait 3A, et
+  // « Social Values », qui EST 3A mot pour mot, ne tombait sur rien. La matière
+  // restait hors périmètre et la compétence paraissait couverte.
+  '3a': ['valeurs sociales', 'social values', 'education sociale', 'vivre ensemble',
+    'moral education',
     'morale', 'moral'],
   '3b': ['histoire geographie', 'education civique', 'vie et citoyennete',
     'educacion para la ciudadania', 'ciencias sociales',
@@ -114,6 +122,24 @@ export function competenceIdForSubject(subject, competences) {
   // 2) La matière porte le nom, le code ou l'id d'une compétence.
   for (const c of competences || []) {
     if (norm(c.intitule) === name || norm(c.code) === name || norm(c.id) === name) return c.id;
+  }
+
+  // ── 2 bis) LE CODE EN TÊTE DU NOM FAIT FOI ────────────────────────────────
+  //
+  // Relevé à BRIGHT CONTINENT le 2026-11-02 : la classe porte une matière
+  // nommée « 4A Agro-pastoral / Technologie and Engineering ». L'école a écrit
+  // le code elle-même — c'est le signal le plus net qui soit — et il était
+  // ignoré, parce que l'égalité ci-dessus exige le code SEUL. Le nom retombait
+  // alors sur les mots-clés, où « technologie » le faisait atterrir sur 2B
+  // (examinée avant 4A), en collision avec « Science & Technology ». La
+  // compétence 4A n'était donc réclamée par AUCUNE matière, et disparaissait de
+  // l'écran de l'enseignante alors que l'admin la voyait.
+  //
+  // On ne regarde que le PREMIER mot : « 4a agro pastoral… » vaut 4A, mais une
+  // matière qui mentionnerait un code en passant n'est pas détournée.
+  for (const c of competences || []) {
+    const code = norm(c.code);
+    if (code && toks[0] === code) return c.id;
   }
 
   // 3) Mots-clés : expressions d'abord, mots simples ensuite.

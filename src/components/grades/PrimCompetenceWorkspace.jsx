@@ -24,12 +24,12 @@ import { celluleSuivante } from '../../lib/gridNavigation';
 import { toast } from '../../store/toastStore';
 import { nonEvalKey } from '../../lib/primService';
 import {
-  isSubjectScoped, canManageClassSubjects, refLineScope,
+  isSubjectScoped, isSubjectScopedForClass, canManageClassSubjects, refLineScope,
   isFundamentalTitulaire, mySubjects,
 } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
 import {
-  competenceIdsForTeacher, unresolvedSubjectsForTeacher,
+  competenceIdsForTeacher, unresolvedSubjectsForTeacher, competenceIdForSubject,
 } from '../../core/primCompetenceMatch';
 import { primNkey } from '../../lib/primService';
 import { resolveClassEngine, primaireNiveauSlug } from '../../core/engineResolver';
@@ -303,11 +303,53 @@ export default function PrimCompetenceWorkspace() {
         .map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) })),
       libelles,
     );
-    if (!isSubjectTeacher) return all;
-    // Mode 1 : ne garder que les compétences couvertes par mes matières.
+    // ── LA TITULAIRE DU PRIMAIRE ENSEIGNE TOUT ────────────────────────────
+    //
+    // LE DÉFAUT QUE CECI FERME, signalé le 2026-11-02 : « les enseignants ne
+    // voient pas exactement les mêmes compétences que l'admin ».
+    //
+    // La porte s'ouvrait et la pièce restait vide. Le sélecteur de CLASSES
+    // retient bien la titulaire (ligne ~257, `isFundamentalTitulaire`), mais ce
+    // filtre-ci, juste en dessous, la traitait encore en enseignante de
+    // matière : il ne gardait que les compétences rattachées à ses lignes
+    // `subjects.teacher_id`. Or une institutrice de SIL ou de Class 2 enseigne
+    // TOUTES les matières de sa classe, et c'est précisément pourquoi aucune ne
+    // lui est nominativement affectée — le cas NORMAL au fondamental. Elle
+    // voyait donc sa classe, puis un sous-ensemble arbitraire des compétences,
+    // là où l'admin et le BULLETIN en voient la liste complète. L'écart change
+    // d'une classe à l'autre, puisqu'il dépend des affectations de chacune.
+    //
+    // La règle existe déjà et est testée (lib/teacherScope.js) : la maternelle
+    // l'applique par `matDomaineMatch` (« le TITULAIRE garde les 8 domaines »),
+    // le poste de matière par `isFundamentalTitulaire`. Le primaire était le
+    // seul des trois à ne pas l'appliquer ICI. On appelle donc la fonction
+    // faite pour ça, au lieu du drapeau global : rien ne change pour une
+    // véritable enseignante de matière, tout rentre dans l'ordre pour la
+    // titulaire.
+    if (!isSubjectScopedForClass(role, school, selectedClass, teacherId)) return all;
+    // Mode 1 : ne garder que les compétences couvertes par mes matières…
     const mine = competenceIdsForTeacher(subjects, teacherId, classId, referentiel?.competences || []);
-    return all.filter((c) => mine.has(c.id));
-  }, [referentiel, niveauSlug, classSubjects, isSubjectTeacher, subjects, classId, teacherId, sys, masques, libelles]);
+    // ── … PLUS CELLES QUE PERSONNE NE RÉCLAME ─────────────────────────────
+    //
+    // Une compétence du niveau qu'AUCUNE matière de la classe ne couvre
+    // s'imprime quand même sur le bulletin officiel (le bulletin filtre sur les
+    // matières de la classe et les masques, jamais sur l'enseignant). La cacher
+    // à tout le monde revenait donc à imprimer une ligne que personne ne peut
+    // remplir. Constaté à BRIGHT CONTINENT le 2026-11-02 : « 3B — Pratiquer les
+    // valeurs citoyennes » n'était réclamée par aucune des onze matières de la
+    // classe, et ne s'offrait à aucune enseignante.
+    //
+    // Ce n'est pas un élargissement du Mode 1 : une compétence déjà prise par la
+    // matière d'une COLLÈGUE reste hors de portée — le français de la classe
+    // appartient à qui enseigne le français. Seules les orphelines s'ouvrent, et
+    // à celles qui enseignent déjà dans cette classe.
+    const reclamees = new Set();
+    for (const s of classSubjects) {
+      const id = competenceIdForSubject(s, referentiel?.competences || []);
+      if (id) reclamees.add(id);
+    }
+    return all.filter((c) => mine.has(c.id) || !reclamees.has(c.id));
+  }, [referentiel, niveauSlug, classSubjects, role, school, selectedClass, subjects, classId, teacherId, sys, masques, libelles]);
 
   // Compétences du niveau écartées par le périmètre de la classe : 0 quand le
   // garde-fou a joué. On l'annonce, sinon le filtre serait invisible.

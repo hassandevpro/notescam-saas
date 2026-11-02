@@ -2494,3 +2494,107 @@ c'est de la servir et de la regarder. Et la même sortie a mis au jour un détai
 qu'aucun test n'aurait formulé : trois lignes portaient des boutons d'action
 alors que le compteur n'en annonçait que deux — celles que le moteur avait déjà
 tranchées seul. Illisible pour qui arbitre, invisible pour qui code.
+
+
+## I40 — Trois compétences invisibles à l'enseignante, pour trois raisons différentes (2026-11-02)
+
+### Le signalement
+
+« Les enseignants ne voient pas exactement les mêmes compétences que l'admin,
+classe 2 comme exemple » — puis « et au niveau de classe c'est différent ».
+École : **BRIGHT CONTINENT**, classe **Class 2** (primaire anglophone, niveau CP).
+
+### Ce que les deux captures ont donné, et que rien d'autre n'aurait donné
+
+| | Compétences listées |
+|---|---|
+| Admin (PC) | 1A 1B 1C 2A 2B 3A **3B** **4A** 5A 6A 6B — **onze** |
+| Enseignante (téléphone) | 1B 1C 2A 2B 3A 5A 6A 6B — **huit** |
+
+Manquaient **1A, 3B et 4A**. Une troisième capture — l'écran « Modifier la
+classe » — a livré ce qui manquait pour comprendre : les onze matières cochées
+et, en face de chacune, son enseignante. Dix sur onze à **Edibe Elsie Salle**,
+le français seul à **Mlle Mbock Biast**.
+
+### Trois causes, pas une
+
+**1A** — le français de la classe appartient à une collègue. L'absence est
+**légitime**, et c'est la seule des trois qui le soit.
+
+**4A** — la classe porte une matière nommée « **4A** Agro-pastoral /
+Technologie and Engineering ». L'école a écrit le code elle-même, le signal le
+plus net qui soit, et `competenceIdForSubject` l'ignorait : son contrôle de code
+exige le code **seul** (`norm(c.code) === name`). Le nom retombait donc sur la
+table de mots-clés, où le mot « technologie » appartient à 2B — examinée avant
+4A — en collision avec « Science & Technology ». Résultat : la matière pointait
+sur 2B, et 4A n'était réclamée par personne.
+
+**3B** — deux défauts enchaînés. La passe « noms anglais » du 2026-10-21 avait
+équipé 1B, 1C, 2B, 3B, 5A et 6A ; **3A était la seule à n'avoir reçu aucun nom
+anglais**. « Social Values », qui EST 3A mot pour mot, ne tombait donc sur rien,
+tandis que « Moral Education » (expression déjà présente dans 3A) emportait 3A.
+3B restait sans matière — et une compétence que personne ne réclame **n'était
+offerte à personne**, alors qu'elle **s'imprime quand même sur le bulletin** :
+le bulletin filtre sur les matières de la classe et les masques, jamais sur
+l'enseignant. Une ligne imprimée que nul ne pouvait remplir.
+
+### Un quatrième défaut, latent, trouvé en chemin
+
+`PrimCompetenceWorkspace` était incohérent avec lui-même à cinquante lignes
+d'écart : le sélecteur de **classes** retenait la titulaire du fondamental
+(`isFundamentalTitulaire`), le filtre des **compétences** la traitait encore en
+enseignante de matière. Or une institutrice de SIL ou de Class 2 enseigne toutes
+les matières de sa classe, et c'est pour cela qu'aucune ne lui est affectée.
+La porte s'ouvrait, la pièce restait vide. Le commentaire d'en face disait la
+demi-mesure sans la voir : « le filtre sur les COMPÉTENCES reste en place plus
+bas […] seulement l'ouverture de la porte. »
+
+La règle existait pourtant, écrite et testée pour ce cas précis
+(`lib/teacherScope.js`, `isSubjectScopedForClass`) : la maternelle l'appliquait
+via `matDomaineMatch`, le poste de matière via `isFundamentalTitulaire`. Le
+primaire était le seul des trois à ne pas l'appliquer **ici**.
+
+### Les correctifs
+
+1. **Le code en tête du nom fait foi** — « 4A … » vaut 4A. Seul le premier mot
+   est regardé : une matière qui mentionne un code en passant n'est pas détournée.
+2. **« social values » entre dans les mots-clés de 3A.**
+3. **Une compétence qu'aucune matière de la classe ne réclame reste visible**
+   aux enseignantes de cette classe. Ce n'est pas un élargissement du Mode 1 :
+   une compétence déjà prise par la matière d'une collègue reste hors de portée.
+4. **`isSubjectScopedForClass`** remplace le drapeau global dans le filtre.
+
+### Preuve
+
+Édition LAN montée sur une copie jetable, « Class 2 » reconstituée **à
+l'identique** (les onze noms de matières et les deux enseignantes des captures),
+puis les deux écrans ouverts dans Chrome :
+
+| | avant | après |
+|---|---|---|
+| Admin | 11 | 11 |
+| Enseignante | **8** — manquantes 1A, 3B, 4A | **10** — manquante 1A seule |
+
+Le « avant » a été mesuré sur **la même base**, en retirant les deux fichiers
+corrigés (`git stash`) et en rebâtissant le paquet : 8, et les trois mêmes codes
+absents que sur la capture du responsable. `src/components/grades/_primCompetencesVisibles.test.mjs`
+— 31 contrôles. Suite complète : **248 ok, 0 ko**.
+
+### Les leçons
+
+**Le nom de la classe était l'indice décisif, et il est arrivé en dernier.**
+J'ai éliminé quatre hypothèses — masques, RLS, doublons, divergence LAN/Cloud —
+toutes mesurées, toutes sur le PREMIER CYCLE, avant de regarder à quoi « classe
+2 » correspond. `primaireNiveauSlug('Class 2')` rend `cp` : c'était le primaire,
+donc un autre écran, donc un autre filtre. Demander *quelle classe* avant
+*quelle cause* aurait coûté une question et économisé quatre mesures.
+
+**Une table de mots-clés se complète par morceaux, et le trou ne se voit pas.**
+La passe anglaise avait équipé six compétences sur onze. Rien ne signalait que
+3A n'en faisait pas partie : aucun test ne compare la couverture des langues
+entre compétences, et le défaut ne se manifeste que lorsqu'une école emploie
+précisément le nom manquant.
+
+**Une exception centralisée n'est appliquée que là où on l'appelle.** Le module
+qui la porte existait, était testé, et son en-tête décrivait déjà ce défaut
+« mesuré » sur d'autres écrans. Il restait un appelant qui ne l'appelait pas.

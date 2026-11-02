@@ -11,7 +11,7 @@ const field = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:
 const lbl = 'block text-xs font-semibold text-gray-500 mb-1';
 
 // Réallocation entre deux lignes actives du même budget annuel.
-export function LineReallocationModal({ lines = [], onSubmit, onClose }) {
+export function LineReallocationModal({ lines = [], lineLabel, onSubmit, onClose }) {
   const t = useT();
   const money = useMoney();
   const [sourceId, setSourceId] = useState('');
@@ -39,14 +39,14 @@ export function LineReallocationModal({ lines = [], onSubmit, onClose }) {
           <label className={lbl}>{t('Ligne source', 'Source line', 'Línea origen')}</label>
           <select className={field} value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
             <option value="">{t('— choisir —', '— choose —', '— elegir —')}</option>
-            {lines.map((l) => <option key={l.id} value={l.id}>{l.label} · {money(l.planned_amount)}</option>)}
+            {lines.map((l) => <option key={l.id} value={l.id}>{lineLabel ? lineLabel(l) : l.label} · {money(l.planned_amount)}</option>)}
           </select>
         </div>
         <div>
           <label className={lbl}>{t('Ligne destination', 'Destination line', 'Línea destino')}</label>
           <select className={field} value={destId} onChange={(e) => setDestId(e.target.value)}>
             <option value="">{t('— choisir —', '— choose —', '— elegir —')}</option>
-            {lines.filter((l) => l.id !== sourceId).map((l) => <option key={l.id} value={l.id}>{l.label} · {money(l.planned_amount)}</option>)}
+            {lines.filter((l) => l.id !== sourceId).map((l) => <option key={l.id} value={l.id}>{lineLabel ? lineLabel(l) : l.label} · {money(l.planned_amount)}</option>)}
           </select>
         </div>
         <div>

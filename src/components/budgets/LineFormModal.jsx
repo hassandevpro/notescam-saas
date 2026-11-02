@@ -68,7 +68,7 @@ export default function LineFormModal({ chapter, mode, parentLabel, frozen = fal
               {frozen && <p className="text-xs text-amber-600 mt-1">{t('Ligne active : montant non modifiable (réallocation/révision).', 'Active line: amount locked (reallocation/revision).', 'Línea activa: monto bloqueado.')}</p>}
             </div>
             <div>
-              <label className={lbl}>{t('Portée de la ligne', 'Line scope', 'Alcance de la línea')}</label>
+              <label className={lbl}>{t('Concerne', 'Applies to', 'Aplica a')}</label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {['complex', 'sectors'].map((s) => (
                   <button type="button" key={s} disabled={frozen} onClick={() => setScope(s)}

@@ -23,7 +23,8 @@ import {
 } from '../lib/budgetOpsService';
 import { financeRemoteMode } from '../lib/budgetRemote';
 import { fetchBudgetOperations, budgetOperationOutcome, visibleIntents } from '../lib/budgetOperationService';
-import { AnnualBudgetModal } from '../components/budgets/BudgetHierarchyModals';
+import { AnnualBudgetModal, unitLabel } from '../components/budgets/BudgetHierarchyModals';
+import { lineFullLabel } from '../lib/budgetLabels';
 import LineFormModal from '../components/budgets/LineFormModal';
 import LineAllocationsModal from '../components/budgets/LineAllocationsModal';
 import BudgetPeriodsModal from '../components/budgets/BudgetPeriodsModal';
@@ -38,7 +39,7 @@ import { GOV_PERM } from '../governance/permissions';
 import { InlineLoader } from '../components/AppLoader';
 import { summarizeBudget, topLines, flattenLines } from '../lib/budgetSummary';
 import { countByState, blockerGroups, computeSteps, filterTree, hasActiveFilters, planBulkActivation } from '../lib/budgetLineView';
-import { BudgetSteps, BlockersCard, ReadyCard, ListToolbar } from '../components/budgets/BudgetListTools';
+import { BudgetSteps, BlockersCard, ReadyCard, ListToolbar, HowItWorks } from '../components/budgets/BudgetListTools';
 import BulkActivateModal from '../components/budgets/BulkActivateModal';
 
 const Badge = ({ ui, t }) => <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ui.color}`}>{t(...ui.label)}</span>;
@@ -333,6 +334,15 @@ export default function Budgets() {
     }, 60);
   };
 
+  // « Rubrique › Ligne · Secteur » (C2) : treize libellés existent en double.
+  const unitNameById = useMemo(() => new Map(units.map((u) => [u.id, unitLabel(t, u)])), [units, t]);
+  const lineLabelOf = useCallback((l) => lineFullLabel(l, chapterById, {
+    sectorNames: lineSectors.filter((a) => a.budget_chapter_id === l.id).map((a) => unitNameById.get(a.school_unit_id)),
+  }), [chapterById, lineSectors, unitNameById]);
+  const otherLinesFor = (lineId) => annualChapters
+    .filter((c) => isLine(c) && c.id !== lineId && linePeriods.some((a) => a.budget_chapter_id === c.id))
+    .map((c) => ({ id: c.id, label: lineLabelOf(c) }));
+
   // Demandes en attente d'application (gouvernance distante) → badge sur la ligne.
   const pendingAgg = useMemo(() => new Set(intents.filter((i) => i.status === 'pending' && i.agg).map((i) => i.agg)), [intents]);
 
@@ -477,6 +487,7 @@ export default function Budgets() {
             <div className="text-3xl mb-2">🗂️</div>
             <p className="text-gray-600 font-semibold">{t('Aucun budget annuel pour cette année', 'No annual budget for this year', 'Ningún presupuesto anual este año')}</p>
             <p className="text-gray-500 text-sm mt-1">{t('Créez le budget annuel global du complexe pour commencer.', 'Create the global annual budget to start.', 'Cree el presupuesto anual global.')}</p>
+            <div className="mt-4 text-left max-w-xl mx-auto"><HowItWorks defaultOpen /></div>
           </div>
         ) : (
           <>
@@ -521,11 +532,12 @@ export default function Budgets() {
                   )}
                 </div>
               </div>
+              <div className="mb-3"><HowItWorks /></div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-                <Stat label={t('Enveloppe', 'Envelope', 'Envolvente')} value={money(envelope)} tone="text-gray-800" />
-                <Stat label={t('Réparti en lignes', 'Allocated to lines', 'En líneas')} value={money(summary.reparti)} tone={overAllocated ? 'text-rose-600' : 'text-indigo-700'} />
-                <Stat label={t('Activé', 'Activated', 'Activado')} value={money(summary.activeAmount)} tone="text-emerald-700" />
-                <Stat label={t('Dépensable maintenant', 'Spendable now', 'Gastable ahora')} value={money(summary.spendable)} tone="text-sky-700" />
+                <Stat label={t('Enveloppe', 'Envelope', 'Envolvente')} value={money(envelope)} tone="text-gray-800" hint={t('La somme à ne pas dépasser cette année.', 'The sum not to exceed this year.', 'La suma que no se debe superar este año.')} />
+                <Stat label={t('Réparti en lignes', 'Allocated to lines', 'En líneas')} value={money(summary.reparti)} tone={overAllocated ? 'text-rose-600' : 'text-indigo-700'} hint={t('Total des montants saisis dans les lignes.', 'Total of the amounts entered in the lines.', 'Total de los montos de las líneas.')} />
+                <Stat label={t('Activé', 'Activated', 'Activado')} value={money(summary.activeAmount)} tone="text-emerald-700" hint={t('Total des lignes ouvertes aux dépenses.', 'Total of the lines open to spending.', 'Total de las líneas abiertas al gasto.')} />
+                <Stat label={t('Dépensable maintenant', 'Spendable now', 'Gastable ahora')} value={money(summary.spendable)} tone="text-sky-700" hint={t('Ce qui reste sur les lignes activées.', 'What is left on the activated lines.', 'Lo que queda en las líneas activadas.')} />
               </div>
               {summary.activeCount === 0 && (
                 <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" role="status">
@@ -570,6 +582,13 @@ export default function Budgets() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Téléphone : le résumé reste visible pendant qu'on parcourt les lignes (sous l'en-tête fixe). */}
+            <div className="sm:hidden sticky top-14 z-30 mb-3 rounded-lg border border-gray-200 bg-white/95 backdrop-blur px-3 py-2 flex flex-wrap justify-between gap-x-3 gap-y-0.5 text-xs tabular-nums" aria-label={t('Résumé du budget', 'Budget summary', 'Resumen del presupuesto')}>
+              <span>{t('Réparti', 'Allocated', 'Repartido')} <b>{money(summary.reparti)}</b></span>
+              <span>{t('Activé', 'Activated', 'Activado')} <b>{money(summary.activeAmount)}</b></span>
+              <span>{t('Dépensable', 'Spendable', 'Gastable')} <b>{money(summary.spendable)}</b></span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
@@ -636,7 +655,7 @@ export default function Budgets() {
 
       {/* Modales */}
       {modal?.type === 'annual' && <AnnualBudgetModal budget={modal.node} year={year} onSave={saveAnnual} onClose={() => setModal(null)} />}
-      {opModal?.type === 'realloc' && <LineReallocationModal lines={activeLines} onSubmit={submitRealloc} onClose={() => setOpModal(null)} />}
+      {opModal?.type === 'realloc' && <LineReallocationModal lines={activeLines} lineLabel={lineLabelOf} onSubmit={submitRealloc} onClose={() => setOpModal(null)} />}
       {opModal?.type === 'revision' && annual && <AnnualRevisionModal annual={annual} onSubmit={submitRevision} onClose={() => setOpModal(null)} />}
       {decisionOp && (
         <OpDecisionModal title={decisionOp.kind === 'realloc' ? t('Décider la réallocation', 'Decide reallocation', 'Decidir reasignación') : t('Décider la révision', 'Decide revision', 'Decidir revisión')}
@@ -651,11 +670,11 @@ export default function Budgets() {
       )}
       {modal?.type === 'alloc' && modal.node && (
         <LineAllocationsModal line={modal.node} schoolId={schoolId} periods={periods} units={units}
-          linePeriods={linePeriods} lineSectors={lineSectors} intents={intents}
+          linePeriods={linePeriods} lineSectors={lineSectors} intents={intents} otherLines={otherLinesFor(modal.node.id)}
           onChange={load} onClose={() => setModal(null)} />
       )}
       {bulkOpen && bulkPlan && (
-        <BulkActivateModal plan={bulkPlan} remote={remoteMode} onActivate={activateOne}
+        <BulkActivateModal plan={bulkPlan} remote={remoteMode} labelOf={lineLabelOf} onActivate={activateOne}
           onDone={() => { bulkDirty.current = true; }} onClose={closeBulk} />
       )}
       {confirmDialog}
@@ -739,7 +758,7 @@ function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, o
             </button>
           </h3>
           <div className="text-xs text-gray-500 tabular-nums">
-            {t('Prévu', 'Planned', 'Previsto')} {money(c.ceiling)} · {t('Engagé', 'Committed', 'Comprom.')} {money(c.committed)} · {t('Dispo', 'Avail.', 'Disp.')} <b className={c.available < 0 ? 'text-rose-600' : 'text-sky-700'}>{money(c.available)}</b>
+            {t('Prévu', 'Planned', 'Previsto')} {money(c.ceiling)} · {t('Dépensé ou en cours de validation', 'Spent or pending approval', 'Gastado o en validación')} {money(c.committed)} · {t('Dispo', 'Avail.', 'Disp.')} <b className={c.available < 0 ? 'text-rose-600' : 'text-sky-700'}>{money(c.available)}</b>
           </div>
         </div>
         {canManage && (
@@ -772,6 +791,12 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
   const statusUi = STATUS_UI[node.status] || STATUS_UI.draft;
   const errs = node.status === 'draft' && raw ? activation(raw) : [];
   const canActivate = node.status === 'draft' && errs.length === 0;
+  const secondary = (
+    <>
+      <button type="button" onClick={onEdit} className={`${btn} text-gray-600 bg-gray-100 hover:bg-gray-200`}>{t('Modifier', 'Edit', 'Editar')}</button>
+      <button type="button" onClick={onRemove} className={`${btn} text-rose-600 bg-rose-50 hover:bg-rose-100`}>{t('Supprimer', 'Delete', 'Eliminar')}</button>
+    </>
+  );
   const Wrap = inRubrique ? 'div' : 'div';
   return (
     <Wrap id={`line-${node.id}`} className={`scroll-mt-24 transition-shadow ${inRubrique ? 'px-5 py-3' : 'bg-white rounded-2xl border border-gray-200 p-5'}`}>
@@ -784,23 +809,36 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
             <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${scopeUi.color}`}>{t(...scopeUi.label)}</span>
           </div>
           <div className="text-xs text-gray-500 mt-0.5 tabular-nums">
-            {t('Montant', 'Amount', 'Monto')} {money(c.ceiling)} · {t('Engagé', 'Committed', 'Comprom.')} {money(c.committed)} · {t('Dispo', 'Avail.', 'Disp.')} <b className={c.available < 0 ? 'text-rose-600' : 'text-sky-700'}>{money(c.available)}</b>
+            {t('Montant', 'Amount', 'Monto')} {money(c.ceiling)} · {t('Dépensé ou en cours de validation', 'Spent or pending approval', 'Gastado o en validación')} {money(c.committed)} · {t('Dispo', 'Avail.', 'Disp.')} <b className={c.available < 0 ? 'text-rose-600' : 'text-sky-700'}>{money(c.available)}</b>
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs">
-            <PctChip label={t('Périodes', 'Periods', 'Períodos')} pct={node.periodPct} />
-            {node.scope === 'sectors' && <PctChip label={t('Secteurs', 'Sectors', 'Sectores')} pct={node.sectorPct} />}
+            <PctChip label={t('Périodes', 'Periods', 'Períodos')} pct={node.periodPct} t={t} />
+            {node.scope === 'sectors' && <PctChip label={t('Secteurs', 'Sectors', 'Sectores')} pct={node.sectorPct} t={t} />}
           </div>
         </div>
-        <div className="w-40 shrink-0">
+        <div className="w-full sm:w-40 sm:shrink-0">
           <ProgressBar value={c.taux} danger={c.depassement} />
           <div className="text-xs text-gray-400 text-right mt-0.5 tabular-nums">{c.taux}%</div>
         </div>
       </div>
 
-      {/* Anomalies bloquant l'activation */}
+      {/* D4 — motifs de blocage JUSTE au-dessus des boutons, chacun avec son action directe. */}
       {node.status === 'draft' && errs.length > 0 && (
-        <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-          {t('À compléter avant activation', 'Complete before activation', 'Completar antes de activar')} : {errs.map((e) => t(...(LINE_ERROR_LABELS[e] || [e]))).join(' · ')}
+        <div className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <p className="font-semibold">{t('À compléter avant activation', 'Complete before activation', 'Completar antes de activar')} :</p>
+          <ul className="mt-1 space-y-1">
+            {errs.map((e) => {
+              const act = ERROR_ACTION[e];
+              return (
+                <li key={e} className="flex items-center justify-between gap-2 flex-wrap">
+                  <span>{t(...(LINE_ERROR_LABELS[e] || [e, e, e]))}</span>
+                  {canManage && act === 'alloc' && <button type="button" onClick={onAlloc} className="min-h-9 px-2 font-semibold underline">{t('Répartir', 'Break down', 'Repartir')} →</button>}
+                  {canManage && act === 'edit' && <button type="button" onClick={onEdit} className="min-h-9 px-2 font-semibold underline">{t('Modifier la ligne', 'Edit the line', 'Editar la línea')} →</button>}
+                  {act === 'revise' && onRevise && <button type="button" onClick={onRevise} className="min-h-9 px-2 font-semibold underline">{t('Réviser l’enveloppe', 'Revise the envelope', 'Revisar la envolvente')} →</button>}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 
@@ -816,8 +854,12 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
               ) : (
                 <span className="text-xs text-gray-500 self-center">{t('Activation réservée à ceux qui peuvent approuver le budget.', 'Activation is reserved for people who can approve the budget.', 'Activación reservada a quien puede aprobar el presupuesto.')}</span>
               )}
-              <button onClick={onEdit} className={`${btn} text-gray-600 bg-gray-100 hover:bg-gray-200`}>{t('Modifier', 'Edit', 'Editar')}</button>
-              <button onClick={onRemove} className={`${btn} text-rose-600 bg-rose-50 hover:bg-rose-100`}>{t('Supprimer', 'Delete', 'Eliminar')}</button>
+              {/* Actions secondaires : au clic dans un menu sur téléphone, visibles dès sm. */}
+              <div className="hidden sm:contents">{secondary}</div>
+              <details className="sm:hidden relative">
+                <summary className={`${btn} min-h-11 list-none cursor-pointer text-gray-600 bg-gray-100 hover:bg-gray-200 flex items-center`}>{t('Plus d’actions', 'More actions', 'Más acciones')}</summary>
+                <div className="absolute z-20 mt-1 flex flex-col gap-1 rounded-lg border border-gray-200 bg-white p-2 shadow-lg min-w-[10rem]">{secondary}</div>
+              </details>
             </>
           )}
           {node.status === 'active' && (
@@ -842,6 +884,14 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
 }
 function canReopenLine(canApprove) { return canApprove; }
 
+// Action directe proposée à côté de chaque motif de blocage (D4).
+const ERROR_ACTION = {
+  amount_missing: 'edit', sector_alloc_on_complex: 'edit',
+  period_alloc_missing: 'alloc', period_pct_not_100: 'alloc', period_pct_negative: 'alloc',
+  sector_alloc_missing: 'alloc', sector_pct_not_100: 'alloc', sector_pct_negative: 'alloc',
+  annual_cap_exceeded: 'revise',
+};
+
 // Demande envoyée au poste de l'école, pas encore appliquée (gouvernance distante).
 function PendingBadge({ t }) {
   return (
@@ -851,15 +901,20 @@ function PendingBadge({ t }) {
   );
 }
 
-function PctChip({ label, pct }) {
-  const complete = Math.abs((pct || 0) - 100) <= 0.01;
+function PctChip({ label, pct, t }) {
+  const v = Number(pct) || 0;
+  const complete = Math.abs(v - 100) <= 0.01;
+  const over = v > 100.01;
+  const left = Math.round((100 - v) * 100) / 100;
+  // Un symbole ET un mot en plus de la couleur : jamais l'état par la couleur seule.
   return (
-    <span className={`px-1.5 py-0.5 rounded ${complete ? 'bg-emerald-50 text-emerald-700' : (pct || 0) > 100 ? 'bg-rose-50 text-rose-700' : 'bg-gray-100 text-gray-500'}`}>
-      {label} {pct ?? 0}%
+    <span className={`px-1.5 py-0.5 rounded ${complete ? 'bg-emerald-50 text-emerald-800' : over ? 'bg-rose-50 text-rose-800' : 'bg-gray-100 text-gray-700'}`}>
+      <span aria-hidden="true">{complete ? '✓' : over ? '▲' : '…'} </span>{label} {v}%
+      {!complete && <> — {over ? t('dépassé', 'over', 'excedido') : t(`${left} % restent`, `${left}% left`, `${left} % restante`)}</>}
     </span>
   );
 }
 
-function Stat({ label, value, tone }) {
-  return <div><div className={`text-base font-bold ${tone}`}>{value}</div><div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label}</div></div>;
+function Stat({ label, value, tone, hint }) {
+  return <div><div className={`text-base font-bold ${tone}`}>{value}</div><div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</div>{hint && <div className="text-xs text-gray-500 mt-0.5">{hint}</div>}</div>;
 }

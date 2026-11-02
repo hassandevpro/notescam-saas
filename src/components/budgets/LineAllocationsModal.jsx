@@ -11,11 +11,12 @@ import { unitLabel } from './BudgetHierarchyModals';
 import { upsertLinePeriod, deleteLinePeriod, upsertLineSector, deleteLineSector } from '../../lib/budgetLineService';
 import { financeRemoteMode, emitBudgetIntent } from '../../lib/budgetRemote';
 import { toast } from '../../store/toastStore';
+import { equalShares, copyAllocation } from '../../lib/budgetLineView';
 
 const pctInput = 'w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right focus:ring-2 focus:ring-indigo-500 outline-none';
 const amt = (base, pct) => Math.round(((Number(base) || 0) * (Number(pct) || 0)) / 100);
 
-export default function LineAllocationsModal({ line, schoolId, periods = [], units = [], linePeriods = [], lineSectors = [], intents = [], onChange, onClose }) {
+export default function LineAllocationsModal({ line, schoolId, periods = [], units = [], linePeriods = [], lineSectors = [], intents = [], otherLines = [], onChange, onClose }) {
   const t = useT();
   const money = useMoney();
   const planned = Number(line?.planned_amount) || 0;
@@ -59,6 +60,42 @@ export default function LineAllocationsModal({ line, schoolId, periods = [], uni
 
   const sumP = periods.reduce((s, p) => s + (Number(pPct[p.id]) || 0), 0);
   const sumS = units.reduce((s, u) => s + (sOn[u.id] ? (Number(sPct[u.id]) || 0) : 0), 0);
+
+  // ── Raccourcis (B4) : ils PRÉREMPLISSENT seulement, rien n'est enregistré. ──
+  const [hint, setHint] = useState('');
+  const [copyFrom, setCopyFrom] = useState('');
+  const equalPeriods = () => {
+    const shares = equalShares(periods.length);
+    setPPct(Object.fromEntries(periods.map((p, i) => [p.id, shares[i]])));
+    setHint('');
+  };
+  const equalSectors = () => {
+    const on = units.filter((u) => sOn[u.id]);
+    if (on.length === 0) { setHint(t('Cochez d’abord les secteurs concernés.', 'Check the concerned sectors first.', 'Marque primero los sectores.')); return; }
+    const shares = equalShares(on.length);
+    setSPct((m) => ({ ...m, ...Object.fromEntries(on.map((u, i) => [u.id, shares[i]])) }));
+    setHint('');
+  };
+  const fullOn = (unitId) => {
+    setSOn(Object.fromEntries(units.map((u) => [u.id, u.id === unitId])));
+    setSPct(Object.fromEntries(units.map((u) => [u.id, u.id === unitId ? 100 : ''])));
+    setHint('');
+  };
+  const applyCopy = () => {
+    if (!copyFrom) return;
+    const c = copyAllocation(copyFrom, { linePeriods, lineSectors }, { periodIds: periods.map((p) => p.id), unitIds: units.map((u) => u.id), isSectors });
+    if (Object.keys(c.periods).length === 0 && Object.keys(c.sectors).length === 0) {
+      setHint(t('Cette ligne n’a pas de répartition à copier.', 'That line has no breakdown to copy.', 'Esa línea no tiene reparto que copiar.'));
+      return;
+    }
+    setPPct(Object.fromEntries(periods.map((p) => [p.id, c.periods[p.id] ?? ''])));
+    if (isSectors) {
+      setSOn(Object.fromEntries(units.map((u) => [u.id, c.sectors[u.id] != null])));
+      setSPct(Object.fromEntries(units.map((u) => [u.id, c.sectors[u.id] ?? ''])));
+    }
+    setHint(t('Valeurs copiées : vérifiez-les, puis enregistrez.', 'Values copied: check them, then save.', 'Valores copiados: revíselos y guarde.'));
+  };
+  const miniBtn = 'min-h-9 px-2.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg shrink-0';
 
   const save = async () => {
     if (saving) return;
@@ -164,11 +201,26 @@ export default function LineAllocationsModal({ line, schoolId, periods = [], uni
           </div>
         )}
 
+        {otherLines.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="alloc-copy" className="text-xs font-semibold text-gray-500">{t('Copier la répartition d’une autre ligne', 'Copy another line’s breakdown', 'Copiar el reparto de otra línea')}</label>
+            <select id="alloc-copy" value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)} className="flex-1 min-w-[12rem] border border-gray-300 rounded-lg px-2 py-1.5 text-sm min-h-9">
+              <option value="">{t('— choisir une ligne —', '— choose a line —', '— elegir línea —')}</option>
+              {otherLines.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+            </select>
+            <button type="button" onClick={applyCopy} disabled={!copyFrom} className={`${miniBtn} disabled:opacity-40`}>{t('Copier', 'Copy', 'Copiar')}</button>
+          </div>
+        )}
+        {hint && <p className="text-xs text-indigo-700" role="status">{hint}</p>}
+
         {/* Répartition temporelle */}
         <section>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-bold text-gray-800">{t('Répartition par période', 'Breakdown by period', 'Reparto por período')}</h3>
-            <SumBadge sum={sumP} />
+            <span className="flex items-center gap-2">
+              {periods.length > 1 && <button type="button" onClick={equalPeriods} className={miniBtn}>{t('Partage égal', 'Equal split', 'Reparto igual')}</button>}
+              <SumBadge sum={sumP} />
+            </span>
           </div>
           {periods.length === 0 ? (
             <p className="text-xs text-amber-600">{t('Configurez d’abord les périodes de l’année.', 'Configure the year’s periods first.', 'Configure primero los períodos.')}</p>
@@ -192,7 +244,10 @@ export default function LineAllocationsModal({ line, schoolId, periods = [], uni
           <section>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-bold text-gray-800">{t('Répartition par secteur concerné', 'Breakdown by concerned sector', 'Reparto por sector')}</h3>
+              <span className="flex items-center gap-2">
+              {units.length > 1 && <button type="button" onClick={equalSectors} className={miniBtn}>{t('Partage égal', 'Equal split', 'Reparto igual')}</button>}
               <SumBadge sum={sumS} />
+            </span>
             </div>
             {units.length === 0 ? (
               <p className="text-xs text-amber-600">{t('Aucune unité configurée (Paramètres → unités).', 'No unit configured (Settings → units).', 'Sin unidades.')}</p>
@@ -204,6 +259,7 @@ export default function LineAllocationsModal({ line, schoolId, periods = [], uni
                       <input type="checkbox" checked={!!sOn[u.id]} onChange={(e) => setSOn((m) => ({ ...m, [u.id]: e.target.checked }))} />
                       <span className="truncate">{unitLabel(t, u)}</span>
                     </label>
+                    <button type="button" onClick={() => fullOn(u.id)} className={miniBtn} title={t('100 % sur ce secteur seulement', '100% on this sector only', '100 % solo en este sector')}>100 %</button>
                     <span className="text-xs text-gray-400 tabular-nums w-28 text-right">{sOn[u.id] ? money(amt(planned, sPct[u.id])) : '—'}</span>
                     <input className={`${pctInput} disabled:opacity-40`} type="number" min="0" max="100" step="0.01" disabled={!sOn[u.id]}
                       value={sPct[u.id]} onChange={(e) => setSPct((m) => ({ ...m, [u.id]: e.target.value }))} placeholder="0" />

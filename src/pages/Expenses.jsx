@@ -14,6 +14,7 @@ import { fetchBudgetPeriods } from '../lib/budgetPeriodService';
 import { fetchLinePeriods, fetchLineSectors } from '../lib/budgetLineService';
 import { fetchSchoolUnits } from '../lib/schoolUnitService';
 import { fetchExpenses, upsertExpense, deleteExpense } from '../lib/expenseService';
+import { lineFullLabel } from '../lib/budgetLabels';
 import { fetchUnlockRequests, createUnlockRequest, decideUnlockRequest } from '../lib/unlockService';
 import { canTransition, isExpenseLocked, isCancellable, canHardDelete, EXPENSE_STATUSES, totalPaid } from '../lib/expenseEngine';
 import {
@@ -136,6 +137,10 @@ export default function Expenses() {
   const line = lines.find((l) => l.id === lineId) || null;
   const periodName = useMemo(() => new Map(periods.map((p) => [p.id, p.name])), [periods]);
   const unitName = useMemo(() => new Map(units.map((u) => [u.id, unitLabel(t, u)])), [units, t]);
+  // « Rubrique › Ligne · Secteur » : treize libellés existent en double dans un budget réel.
+  const lineLabel = useCallback((l) => lineFullLabel(l, rubricById, {
+    sectorNames: lineSectors.filter((a) => a.budget_chapter_id === l.id).map((a) => unitName.get(a.school_unit_id)),
+  }), [rubricById, lineSectors, unitName]);
   const sectorLabelOf = (e) => (e.school_unit_id ? (unitName.get(e.school_unit_id) || '—') : t('Complexe/Global', 'Complex/Global', 'Complejo/Global'));
   // Catégories : on stocke une clé, on affiche un libellé. Une valeur hors
   // référentiel (saisie libre, ou héritée d'avant la liste déroulante) s'affiche
@@ -268,7 +273,7 @@ export default function Expenses() {
           <div className="flex items-center gap-2 flex-wrap">
             {lines.length > 0 && (
               <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm" value={lineId} onChange={(e) => setLineId(e.target.value)}>
-                {lines.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+                {lines.map((l) => <option key={l.id} value={l.id}>{lineLabel(l)}</option>)}
               </select>
             )}
             {canManage && (
@@ -318,10 +323,17 @@ export default function Expenses() {
           </div>
         )}
 
+        {/* D1 : sans droit de saisie, on le dit au lieu de masquer le bouton en silence. */}
+        {annual && lines.length > 0 && !canPrepare && !remote && (
+          <div role="status" className="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            {t('Vous consultez les dépenses en lecture seule. Pour en saisir, demandez le rôle correspondant à l’administrateur.', 'You are viewing expenses read-only. To record some, ask the administrator for the matching role.', 'Está viendo los gastos en solo lectura. Para registrarlos, pida el rol correspondiente al administrador.')}
+          </div>
+        )}
+
         {!annual ? (
           <Empty t={t} msg={t('Créez d’abord le budget annuel et activez des lignes.', 'Create the annual budget and activate lines first.', 'Cree el presupuesto anual primero.')} />
         ) : lines.length === 0 ? (
-          <Empty t={t} msg={t('Aucune ligne budgétaire active. Activez une ligne dans Budgets pour imputer des dépenses.', 'No active budget line. Activate a line in Budgets.', 'Ninguna línea activa.')} />
+          <NoLineNotice t={t} remote={remote} canPrepare={canPrepare} canManage={canManage} />
         ) : !line ? (
           <Empty t={t} msg={t('Sélectionnez une ligne.', 'Select a line.', 'Seleccione una línea.')} />
         ) : (
@@ -466,7 +478,7 @@ export default function Expenses() {
       </div>
 
       {modal && line && (
-        <ExpenseFormModalV3 expense={modal.expense} lines={lines} periods={periods} units={units}
+        <ExpenseFormModalV3 expense={modal.expense} lines={lines} lineLabel={lineLabel} periods={periods} units={units}
           linePeriods={linePeriods} lineSectors={lineSectors} expenses={expenses} annual={annual} defaultLineId={lineId}
           onSave={saveExpense}
           onRequestUnlock={canRequestUnlock ? ({ chapter, shortfall }) => { setModal(null); setUnlockReq({ chapter, amount: shortfall }); } : undefined}
@@ -479,6 +491,23 @@ export default function Expenses() {
       {confirmDialog}
     </Layout>
   );
+}
+
+// B5 — page sans ligne active : trois situations, trois messages, le bon bouton.
+function NoLineNotice({ t, remote, canPrepare, canManage }) {
+  let msg;
+  let action = null;
+  if (remote) {
+    msg = t('Cette version est en lecture seule : saisissez les dépenses au poste de l’école.', 'This version is read-only: record expenses on the school workstation.', 'Esta versión es de solo lectura: registre los gastos en el puesto de la escuela.');
+  } else if (!canPrepare && !canManage) {
+    msg = t('Vous n’avez pas le droit de saisir des dépenses. Contactez l’administrateur.', 'You are not allowed to record expenses. Contact the administrator.', 'No tiene permiso para registrar gastos. Contacte al administrador.');
+  } else if (canManage) {
+    msg = t('Aucune ligne n’est active. Activez au moins une ligne dans Budgets pour saisir des dépenses.', 'No line is active. Activate at least one line in Budgets to record expenses.', 'Ninguna línea está activa. Active al menos una en Presupuestos.');
+    action = <Link to="/app/budgets" className="inline-block mt-3 px-3 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">{t('Ouvrir Budgets', 'Open Budgets', 'Abrir Presupuestos')}</Link>;
+  } else {
+    msg = t('Aucune ligne n’est active. Demandez à la personne qui approuve le budget d’en activer une.', 'No line is active. Ask the person who approves the budget to activate one.', 'Ninguna línea está activa. Pida a quien aprueba el presupuesto que active una.');
+  }
+  return <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center" role="status"><p className="text-gray-600 text-sm">{msg}</p>{action}</div>;
 }
 
 function Empty({ t, msg }) {

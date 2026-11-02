@@ -43,8 +43,8 @@ export const STATUS_UI = {
 
 // Portée d'une LIGNE budgétaire (modèle CIBLE v3).
 export const SCOPE_UI = {
-  complex: { label: ['Tout le complexe', 'Whole complex', 'Todo el complejo'], color: 'bg-indigo-50 text-indigo-700' },
-  sectors: { label: ['Secteurs choisis', 'Selected sectors', 'Sectores elegidos'], color: 'bg-violet-50 text-violet-700' },
+  complex: { label: ['Tout l’établissement', 'Whole school', 'Todo el centro'], color: 'bg-indigo-50 text-indigo-700' },
+  sectors: { label: ['Certaines sections', 'Some sections', 'Algunas secciones'], color: 'bg-violet-50 text-violet-700' },
 };
 
 // Statut DÉRIVÉ du budget annuel (calculé depuis ses lignes — budgetLinesEngine).

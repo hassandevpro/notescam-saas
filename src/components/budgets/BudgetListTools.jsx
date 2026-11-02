@@ -142,3 +142,26 @@ export function ListToolbar({ query, onQuery, sort, onSort, state, onState, coun
     </div>
   );
 }
+
+// « Comment ça marche » : les cinq étapes, repliable (élément natif <details> :
+// clavier et lecteurs d'écran gérés sans code).
+export function HowItWorks({ defaultOpen = false }) {
+  const t = useT();
+  const items = [
+    [t('Périodes', 'Periods', 'Períodos'), t('Définissez les périodes de l’année (trimestres, mois).', 'Define the periods of the year (terms, months).', 'Defina los períodos del año.')],
+    [t('Rubriques et lignes', 'Categories and lines', 'Rúbricas y líneas'), t('Créez des rubriques (par exemple Salaires), puis des lignes avec leur montant annuel.', 'Create categories (for example Salaries), then lines with their annual amount.', 'Cree rúbricas y líneas con su monto anual.')],
+    [t('Répartition', 'Breakdown', 'Reparto'), t('Répartissez chaque ligne par période, et par section si elle ne concerne qu’une partie de l’établissement. Chaque total doit faire 100 %.', 'Break each line down by period, and by section if it covers only part of the school. Each total must reach 100%.', 'Reparta cada línea por período y por sección. Cada total debe ser 100 %.')],
+    [t('Activation', 'Activation', 'Activación'), t('Activez les lignes complètes. Leur total ne peut pas dépasser l’enveloppe.', 'Activate the complete lines. Their total cannot exceed the envelope.', 'Active las líneas completas. Su total no puede superar la envolvente.')],
+    [t('Dépenses', 'Expenses', 'Gastos'), t('Une fois une ligne active, saisissez les dépenses dans l’écran Dépenses.', 'Once a line is active, record expenses in the Expenses screen.', 'Con una línea activa, registre los gastos en la pantalla Gastos.')],
+  ];
+  return (
+    <details open={defaultOpen} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+      <summary className="cursor-pointer font-semibold text-gray-700 min-h-9 flex items-center">
+        {t('Comment ça marche', 'How it works', 'Cómo funciona')}
+      </summary>
+      <ol className="mt-2 space-y-1.5 list-decimal pl-5 text-gray-600">
+        {items.map(([title, text]) => <li key={title}><b className="text-gray-800">{title}</b> : {text}</li>)}
+      </ol>
+    </details>
+  );
+}

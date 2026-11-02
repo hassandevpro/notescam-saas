@@ -118,7 +118,7 @@ export function planBulkActivation({ candidates = [], annual, chapters = [], idx
   for (const raw of candidates) {
     const current = chapters.map((c) => (takenIds.has(c.id) ? { ...c, status: 'active' } : c));
     const errs = activationErrors(raw, annual, current, idx);
-    if (errs.length) excluded.push({ id: raw.id, label: raw.label, errs });
+    if (errs.length) excluded.push({ id: raw.id, label: raw.label, parent_id: raw.parent_id, errs });
     else { accepted.push(raw); takenIds.add(raw.id); }
   }
   const total = accepted.reduce((s, l) => s + num(l.planned_amount), 0);
@@ -128,3 +128,28 @@ export function planBulkActivation({ candidates = [], annual, chapters = [], idx
 }
 
 export { flattenLines };
+
+// ── Raccourcis de répartition (B4) ───────────────────────────────────────────
+// Ils PRÉREMPLISSENT seulement : l'utilisateur vérifie et enregistre. Le logiciel
+// ne répartit jamais le reste automatiquement, c'est une règle de la fenêtre.
+
+// n parts égales sur 100, à deux décimales. Le dernier prend le reliquat, pour
+// que la somme fasse exactement 100 (33,33 + 33,33 + 33,34).
+export function equalShares(n) {
+  const k = Math.floor(Number(n)) || 0;
+  if (k <= 0) return [];
+  const base = Math.floor((100 / k) * 100) / 100;
+  const shares = Array.from({ length: k }, () => base);
+  shares[k - 1] = Math.round((100 - base * (k - 1)) * 100) / 100;
+  return shares;
+}
+
+// Répartition d'une autre ligne, ramenée aux périodes/secteurs de CELLE-CI.
+// Les secteurs ne se copient que vers une ligne « par secteurs » ; une période
+// ou un secteur inconnu de la ligne cible est ignoré.
+export function copyAllocation(fromId, { linePeriods = [], lineSectors = [] }, { periodIds = [], unitIds = [], isSectors = false } = {}) {
+  const pct = {}; const sectors = {};
+  for (const a of linePeriods) if (a.budget_chapter_id === fromId && periodIds.includes(a.budget_period_id)) pct[a.budget_period_id] = a.pct;
+  if (isSectors) for (const a of lineSectors) if (a.budget_chapter_id === fromId && unitIds.includes(a.school_unit_id)) sectors[a.school_unit_id] = a.pct;
+  return { periods: pct, sectors };
+}

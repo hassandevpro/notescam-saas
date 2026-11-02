@@ -9,7 +9,8 @@ import { useT } from '../../lib/i18n';
 import { useMoney } from '../../lib/useMoney';
 import { LINE_ERROR_LABELS } from './budgetUi';
 
-export default function BulkActivateModal({ plan, remote, onActivate, onDone, onClose }) {
+export default function BulkActivateModal({ plan, remote, onActivate, onDone, onClose, labelOf }) {
+  const nameOf = (l) => (labelOf ? labelOf(l) : l.label);
   const t = useT();
   const money = useMoney();
   const [running, setRunning] = useState(false);
@@ -64,7 +65,7 @@ export default function BulkActivateModal({ plan, remote, onActivate, onDone, on
               <ul className="max-h-48 overflow-auto text-sm divide-y divide-gray-100 border border-gray-100 rounded-lg">
                 {plan.accepted.map((l) => (
                   <li key={l.id} className="flex justify-between gap-3 px-3 py-1.5">
-                    <span className="min-w-0 truncate">{l.label}</span>
+                    <span className="min-w-0 truncate">{nameOf(l)}</span>
                     <span className="tabular-nums text-gray-600 shrink-0">{money(l.planned_amount)}</span>
                   </li>
                 ))}
@@ -77,7 +78,7 @@ export default function BulkActivateModal({ plan, remote, onActivate, onDone, on
                 <ul className="text-sm divide-y divide-rose-100 border border-rose-200 bg-rose-50 rounded-lg">
                   {plan.excluded.map((l) => (
                     <li key={l.id} className="px-3 py-1.5">
-                      <b>{l.label}</b> — {l.errs.map((e) => t(...(LINE_ERROR_LABELS[e] || [e, e, e]))).join(' · ')}
+                      <b>{nameOf(l)}</b> — {l.errs.map((e) => t(...(LINE_ERROR_LABELS[e] || [e, e, e]))).join(' · ')}
                     </li>
                   ))}
                 </ul>

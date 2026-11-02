@@ -19,7 +19,7 @@ const lbl = 'block text-xs font-semibold text-gray-500 mb-1';
 
 export default function ExpenseFormModalV3({
   expense, lines = [], periods = [], units = [], linePeriods = [], lineSectors = [],
-  expenses = [], annual, defaultLineId, onSave, onRequestUnlock, onClose,
+  expenses = [], annual, defaultLineId, onSave, onRequestUnlock, onClose, lineLabel,
 }) {
   const t = useT();
   const money = useMoney();
@@ -145,7 +145,7 @@ export default function ExpenseFormModalV3({
             <label className={lbl}>{t('Ligne budgétaire (obligatoire)', 'Budget line (required)', 'Línea (obligatoria)')}</label>
             <select className={field} value={lineId} onChange={(e) => setLineId(e.target.value)}>
               <option value="">{t('— choisir une ligne —', '— choose a line —', '— elegir línea —')}</option>
-              {lines.map((l) => <option key={l.id} value={l.id}>{l.label}</option>)}
+              {lines.map((l) => <option key={l.id} value={l.id}>{lineLabel ? lineLabel(l) : l.label}</option>)}
             </select>
           </div>
           <div>

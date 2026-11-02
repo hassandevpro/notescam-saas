@@ -35,8 +35,10 @@ import { toast } from '../store/toastStore';
 import { hasPermission } from '../governance/governanceEngine';
 import { catalogOrDefault } from '../governance/defaultCatalog';
 import { GOV_PERM } from '../governance/permissions';
+import { InlineLoader } from '../components/AppLoader';
+import { summarizeBudget, topLines } from '../lib/budgetSummary';
 
-const Badge = ({ ui, t }) => <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${ui.color}`}>{t(...ui.label)}</span>;
+const Badge = ({ ui, t }) => <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ui.color}`}>{t(...ui.label)}</span>;
 
 // H3b-4 — libellés des intentions budgétaires distantes (mode gouvernance distante).
 const OP_LABEL = {
@@ -48,7 +50,7 @@ const opLabel = (t, op) => t(...(OP_LABEL[op] || [op, op]));
 const intentStatusLabel = (t, s) => (s === 'applied'
   ? t('Appliquée', 'Applied', 'Aplicada')
   : s === 'rejected' ? t('Rejetée', 'Rejected', 'Rechazada') : t('En attente', 'Pending', 'Pendiente'));
-const intentStatusPill = (s) => `text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+const intentStatusPill = (s) => `text-xs font-semibold px-2 py-0.5 rounded-full ${
   s === 'applied' ? 'bg-emerald-100 text-emerald-700' : s === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`;
 
 export default function Budgets() {
@@ -184,6 +186,19 @@ export default function Budgets() {
   const chapterById = useMemo(() => new Map(annualChapters.map((c) => [c.id, c])), [annualChapters]);
   const linesSum = useMemo(() => annualChapters.filter(isLine).reduce((s, c) => s + (Number(c.planned_amount) || 0), 0), [annualChapters]);
   const envelope = Number(annual?.envelope_amount) || 0;
+  // Réparti / activé / dépensable : trois chiffres distincts (voir lib/budgetSummary).
+  const summary = useMemo(() => summarizeBudget({ envelope, tree: model?.tree || [] }), [envelope, model]);
+  const [showAllTop, setShowAllTop] = useState(false);
+  const overTop = useMemo(() => topLines(summary, showAllTop ? 10 : 3), [summary, showAllTop]);
+  // Ancre vers la carte d'une ligne, avec un halo bref pour la repérer.
+  const goToLine = (id) => {
+    const el = document.getElementById('line-' + id);
+    if (!el) return;
+    const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'center' });
+    el.classList.add('ring-2', 'ring-rose-400');
+    setTimeout(() => el.classList.remove('ring-2', 'ring-rose-400'), 2500);
+  };
 
   const failToast = (e) => toast.error(e?.message || t('Échec de l’opération — vérifiez votre connexion.', 'Operation failed — check your connection.', 'Error — verifique su conexión.'));
 
@@ -275,8 +290,12 @@ export default function Budgets() {
   };
 
   const btn = 'px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors';
+  // Enveloppe d'un budget en brouillon : modifiable directement ; sinon, révision tracée.
+  const reviseEnvelope = () => (model?.annual.status === 'draft' && canManage ? setModal({ type: 'annual', node: annual }) : setOpModal({ type: 'revision' }));
+  const onReallocFor = canReqRealloc && activeLines.length >= 2 ? () => setOpModal({ type: 'realloc' }) : undefined;
+  const onReviseFor = canReqRev ? () => setOpModal({ type: 'revision' }) : undefined;
 
-  if (loading) return <Layout><div className="text-gray-400 text-sm py-24 text-center animate-pulse">{t('Chargement…', 'Loading…', 'Cargando…')}</div></Layout>;
+  if (loading) return <Layout><InlineLoader /></Layout>;
   if (error) return (
     <Layout><div className="max-w-md mx-auto py-24 text-center text-gray-500">
       <div className="text-3xl mb-2">📡</div>
@@ -326,7 +345,7 @@ export default function Budgets() {
               </p>
               <div className="flex items-center gap-2 shrink-0">
                 {intentsAt && !intentsBusy && (
-                  <span className="text-[11px] text-amber-700/70 tabular-nums hidden sm:inline">
+                  <span className="text-xs text-amber-700/70 tabular-nums hidden sm:inline">
                     {t('à jour à', 'updated at', 'al día a las')} {new Date(intentsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 )}
@@ -379,7 +398,7 @@ export default function Budgets() {
               <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">{t('Budget annuel global', 'Global annual budget', 'Presupuesto anual global')}</span>
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{t('Budget annuel global', 'Global annual budget', 'Presupuesto anual global')}</span>
                     <Badge ui={annualStatusUi} t={t} />
                   </div>
                   <h2 className="font-bold text-gray-900 text-lg">{annual.label}</h2>
@@ -404,15 +423,53 @@ export default function Budgets() {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
                 <Stat label={t('Enveloppe', 'Envelope', 'Envolvente')} value={money(envelope)} tone="text-gray-800" />
-                <Stat label={t('Réparti en lignes', 'Allocated to lines', 'En líneas')} value={money(linesSum)} tone={overAllocated ? 'text-rose-600' : 'text-indigo-700'} />
-                <Stat label={t('Engagé', 'Committed', 'Comprometido')} value={money(model.annual.consumption.committed)} tone="text-amber-600" />
-                <Stat label={t('Disponible', 'Available', 'Disponible')} value={money(model.annual.consumption.available)} tone={model.annual.consumption.depassement ? 'text-rose-600' : 'text-sky-700'} />
+                <Stat label={t('Réparti en lignes', 'Allocated to lines', 'En líneas')} value={money(summary.reparti)} tone={overAllocated ? 'text-rose-600' : 'text-indigo-700'} />
+                <Stat label={t('Activé', 'Activated', 'Activado')} value={money(summary.activeAmount)} tone="text-emerald-700" />
+                <Stat label={t('Dépensable maintenant', 'Spendable now', 'Gastable ahora')} value={money(summary.spendable)} tone="text-sky-700" />
               </div>
-              <div className="mt-3"><ProgressBar value={envelope > 0 ? Math.round((linesSum / envelope) * 100) : 0} danger={overAllocated} /></div>
-              <p className={`text-xs mt-2 ${overAllocated ? 'text-rose-600 font-semibold' : 'text-gray-400'}`}>
-                {t('Réparti', 'Allocated', 'Repartido')} {money(linesSum)} / {money(envelope)}
-                {overAllocated ? ' — ' + t('les lignes actives ne peuvent dépasser l’enveloppe', 'active lines cannot exceed the envelope', 'las líneas activas no pueden superar') : ''}
+              {summary.activeCount === 0 && (
+                <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" role="status">
+                  {t('Rien n’est encore dépensable : activez au moins une ligne.', 'Nothing can be spent yet: activate at least one line.', 'Aún no se puede gastar: active al menos una línea.')}
+                </p>
+              )}
+              <div className="mt-3"><ProgressBar value={envelope > 0 ? Math.round((summary.reparti / envelope) * 100) : 0} danger={overAllocated} /></div>
+              <p className={`text-xs mt-2 ${overAllocated ? 'text-rose-700 font-semibold' : 'text-gray-500'}`}>
+                {t('Réparti', 'Allocated', 'Repartido')} {money(summary.reparti)} / {money(envelope)}
+                {' · '}{t('Dépensé ou en cours de validation', 'Spent or pending approval', 'Gastado o en validación')} {money(model.annual.consumption.committed)}
               </p>
+              {overAllocated && (
+                <div role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                  <p className="font-semibold">
+                    {t(`Les lignes totalisent ${money(summary.overBy)} de plus que l’enveloppe. Réduisez des lignes, ou révisez l’enveloppe.`,
+                       `The lines add up to ${money(summary.overBy)} more than the envelope. Reduce some lines, or revise the envelope.`,
+                       `Las líneas suman ${money(summary.overBy)} más que la envolvente. Reduzca líneas o revise la envolvente.`)}
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {overTop.map((l) => (
+                      <li key={l.id} className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="min-w-0">
+                          <b className="font-semibold">{l.label}</b>
+                          {l.parentLabel && <span className="text-rose-700/80"> · {l.parentLabel}</span>}
+                          <span className="tabular-nums"> — {money(l.amount)}</span>
+                        </span>
+                        <button type="button" onClick={() => goToLine(l.id)} className="text-xs font-semibold underline min-h-9 px-1">
+                          {t('Aller à la ligne', 'Go to line', 'Ir a la línea')}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setShowAllTop((v) => !v)} className={`${btn} text-rose-800 bg-white border border-rose-200 hover:bg-rose-100`}>
+                      {showAllTop ? t('Voir moins', 'Show fewer', 'Ver menos') : t('Voir les plus grosses lignes', 'See the largest lines', 'Ver las líneas más grandes')}
+                    </button>
+                    {((model.annual.status === 'draft' && canManage) || canReqRev) && (
+                      <button type="button" onClick={reviseEnvelope} className={`${btn} text-white bg-rose-600 hover:bg-rose-700`}>
+                        {t('Réviser l’enveloppe', 'Revise the envelope', 'Revisar la envolvente')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {periods.length === 0 && (
@@ -436,13 +493,13 @@ export default function Budgets() {
                 {model.tree.map((node) => node.isLine
                   ? <LineCard key={node.id} node={node} raw={chapterById.get(node.id)} money={money} t={t} canManage={canManage} canApprove={canApprove}
                       onAlloc={() => setModal({ type: 'alloc', node: chapterById.get(node.id) })} onEdit={() => setModal({ type: 'line', node: chapterById.get(node.id) })}
-                      onStatus={changeLineStatus} onRemove={() => removeChapter(node, true)} activation={lineActivation} btn={btn} />
+                      onStatus={changeLineStatus} onRemove={() => removeChapter(node, true)} activation={lineActivation} btn={btn} onRealloc={onReallocFor} onRevise={onReviseFor} />
                   : <RubriqueSection key={node.id} node={node} chapterById={chapterById} money={money} t={t} canManage={canManage} canApprove={canApprove}
                       onAddLine={() => setModal({ type: 'line', parent: chapterById.get(node.id) })}
                       onEditRubrique={() => setModal({ type: 'rubrique', node: chapterById.get(node.id) })}
                       onRemoveRubrique={() => removeChapter(node, false)}
                       onAlloc={(raw) => setModal({ type: 'alloc', node: raw })} onEditLine={(raw) => setModal({ type: 'line', node: raw, parent: chapterById.get(node.id) })}
-                      onStatus={changeLineStatus} onRemoveLine={(n) => removeChapter(n, true)} activation={lineActivation} btn={btn} />
+                      onStatus={changeLineStatus} onRemoveLine={(n) => removeChapter(n, true)} activation={lineActivation} btn={btn} onRealloc={onReallocFor} onRevise={onReviseFor} />
                 )}
               </div>
             )}
@@ -487,10 +544,10 @@ function OperationsPanel({ reallocations, revisions, chapterById, money, t, canD
   const OpStatus = ({ s }) => {
     const map = { pending: ['bg-amber-100 text-amber-700', t('En attente', 'Pending', 'Pendiente')], applied: ['bg-emerald-100 text-emerald-700', t('Appliquée', 'Applied', 'Aplicada')], refused: ['bg-rose-100 text-rose-700', t('Refusée', 'Refused', 'Rechazada')] };
     const [cls, txt] = map[s] || map.pending;
-    return <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cls}`}>{txt}</span>;
+    return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{txt}</span>;
   };
   const decided = (r) => (r.status === 'pending' ? '—' : (
-    <div className="text-[11px] text-gray-500"><div>{r.decided_by || '—'}{r.decided_at ? ` · ${String(r.decided_at).slice(0, 10)}` : ''}</div>{r.decision_note && <div className="italic text-gray-400">{r.decision_note}</div>}</div>
+    <div className="text-xs text-gray-500"><div>{r.decided_by || '—'}{r.decided_at ? ` · ${String(r.decided_at).slice(0, 10)}` : ''}</div>{r.decision_note && <div className="italic text-gray-400">{r.decision_note}</div>}</div>
   ));
   return (
     <div className="bg-white rounded-2xl border border-gray-200 mt-5 overflow-hidden">
@@ -515,7 +572,7 @@ function OperationsPanel({ reallocations, revisions, chapterById, money, t, canD
                 <td className="px-4 py-2 text-gray-600">{r.requester || '—'}{r.reason ? <div className="text-xs text-gray-400">{r.reason}</div> : null}</td>
                 <td className="px-4 py-2"><OpStatus s={r.status} /></td>
                 <td className="px-4 py-2">{decided(r)}</td>
-                <td className="px-4 py-2 text-right">{r.status === 'pending' && canDecRealloc && <button onClick={() => onDecide('realloc', r)} className="text-[11px] px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 font-semibold">{t('Décider', 'Decide', 'Decidir')}</button>}</td>
+                <td className="px-4 py-2 text-right">{r.status === 'pending' && canDecRealloc && <button onClick={() => onDecide('realloc', r)} className="text-xs px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 font-semibold">{t('Décider', 'Decide', 'Decidir')}</button>}</td>
               </tr>
             ))}
             {revisions.map((r) => (
@@ -526,7 +583,7 @@ function OperationsPanel({ reallocations, revisions, chapterById, money, t, canD
                 <td className="px-4 py-2 text-gray-600">{r.requester || '—'}{r.reason ? <div className="text-xs text-gray-400">{r.reason}</div> : null}</td>
                 <td className="px-4 py-2"><OpStatus s={r.status} /></td>
                 <td className="px-4 py-2">{decided(r)}</td>
-                <td className="px-4 py-2 text-right">{r.status === 'pending' && canDecRev && <button onClick={() => onDecide('revision', r)} className="text-[11px] px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 font-semibold">{t('Décider', 'Decide', 'Decidir')}</button>}</td>
+                <td className="px-4 py-2 text-right">{r.status === 'pending' && canDecRev && <button onClick={() => onDecide('revision', r)} className="text-xs px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 font-semibold">{t('Décider', 'Decide', 'Decidir')}</button>}</td>
               </tr>
             ))}
           </tbody>
@@ -537,7 +594,10 @@ function OperationsPanel({ reallocations, revisions, chapterById, money, t, canD
 }
 
 // ── Rubrique (agrégat) + ses lignes ──────────────────────────────────────────
-function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, onAddLine, onEditRubrique, onRemoveRubrique, onAlloc, onEditLine, onStatus, onRemoveLine, activation, btn }) {
+// Bouton icône : cible d'au moins 36 px (44 px au toucher), nom accessible obligatoire.
+const iconBtn = 'inline-flex items-center justify-center min-h-9 min-w-9 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg';
+
+function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, onAddLine, onEditRubrique, onRemoveRubrique, onAlloc, onEditLine, onStatus, onRemoveLine, activation, btn, onRealloc, onRevise }) {
   const c = node.consumption;
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -551,8 +611,8 @@ function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, o
         {canManage && (
           <div className="flex items-center gap-1.5">
             <button onClick={onAddLine} className="text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg">+ {t('Ligne', 'Line', 'Línea')}</button>
-            <button onClick={onEditRubrique} className="text-[11px] text-gray-400 hover:text-gray-700 px-1">✎</button>
-            <button onClick={onRemoveRubrique} className="text-[11px] text-rose-400 hover:text-rose-600 px-1">✕</button>
+            <button type="button" onClick={onEditRubrique} aria-label={t('Modifier la rubrique', 'Edit category', 'Editar rúbrica')} title={t('Modifier la rubrique', 'Edit category', 'Editar rúbrica')} className={iconBtn}><span aria-hidden="true">✎</span></button>
+            <button type="button" onClick={onRemoveRubrique} aria-label={t('Supprimer la rubrique', 'Delete category', 'Eliminar rúbrica')} title={t('Supprimer la rubrique', 'Delete category', 'Eliminar rúbrica')} className={`${iconBtn} text-rose-500 hover:text-rose-700`}><span aria-hidden="true">✕</span></button>
           </div>
         )}
       </div>
@@ -563,7 +623,7 @@ function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, o
           {node.children.map((ln) => (
             <LineCard key={ln.id} node={ln} raw={chapterById.get(ln.id)} money={money} t={t} canManage={canManage} canApprove={canApprove}
               onAlloc={() => onAlloc(chapterById.get(ln.id))} onEdit={() => onEditLine(chapterById.get(ln.id))}
-              onStatus={onStatus} onRemove={() => onRemoveLine(ln)} activation={activation} inRubrique btn={btn} />
+              onStatus={onStatus} onRemove={() => onRemoveLine(ln)} activation={activation} inRubrique btn={btn} onRealloc={onRealloc} onRevise={onRevise} />
           ))}
         </div>
       )}
@@ -572,7 +632,7 @@ function RubriqueSection({ node, chapterById, money, t, canManage, canApprove, o
 }
 
 // ── Carte d'une ligne budgétaire ─────────────────────────────────────────────
-function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit, onStatus, onRemove, activation, inRubrique, btn }) {
+function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit, onStatus, onRemove, activation, inRubrique, btn, onRealloc, onRevise }) {
   const c = node.consumption;
   const scopeUi = SCOPE_UI[node.scope] || SCOPE_UI.complex;
   const statusUi = STATUS_UI[node.status] || STATUS_UI.draft;
@@ -580,31 +640,31 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
   const canActivate = node.status === 'draft' && errs.length === 0;
   const Wrap = inRubrique ? 'div' : 'div';
   return (
-    <Wrap className={`${inRubrique ? 'px-5 py-3' : 'bg-white rounded-2xl border border-gray-200 p-5'}`}>
+    <Wrap id={`line-${node.id}`} className={`scroll-mt-24 transition-shadow ${inRubrique ? 'px-5 py-3' : 'bg-white rounded-2xl border border-gray-200 p-5'}`}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-gray-900 truncate">{node.label}</span>
             <Badge ui={statusUi} t={t} />
-            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${scopeUi.color}`}>{t(...scopeUi.label)}</span>
+            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${scopeUi.color}`}>{t(...scopeUi.label)}</span>
           </div>
           <div className="text-xs text-gray-500 mt-0.5 tabular-nums">
             {t('Montant', 'Amount', 'Monto')} {money(c.ceiling)} · {t('Engagé', 'Committed', 'Comprom.')} {money(c.committed)} · {t('Dispo', 'Avail.', 'Disp.')} <b className={c.available < 0 ? 'text-rose-600' : 'text-sky-700'}>{money(c.available)}</b>
           </div>
-          <div className="flex items-center gap-3 mt-1 text-[11px]">
+          <div className="flex items-center gap-3 mt-1 text-xs">
             <PctChip label={t('Périodes', 'Periods', 'Períodos')} pct={node.periodPct} />
             {node.scope === 'sectors' && <PctChip label={t('Secteurs', 'Sectors', 'Sectores')} pct={node.sectorPct} />}
           </div>
         </div>
         <div className="w-40 shrink-0">
           <ProgressBar value={c.taux} danger={c.depassement} />
-          <div className="text-[11px] text-gray-400 text-right mt-0.5 tabular-nums">{c.taux}%</div>
+          <div className="text-xs text-gray-400 text-right mt-0.5 tabular-nums">{c.taux}%</div>
         </div>
       </div>
 
       {/* Anomalies bloquant l'activation */}
       {node.status === 'draft' && errs.length > 0 && (
-        <div className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+        <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
           {t('À compléter avant activation', 'Complete before activation', 'Completar antes de activar')} : {errs.map((e) => t(...(LINE_ERROR_LABELS[e] || [e]))).join(' · ')}
         </div>
       )}
@@ -626,7 +686,13 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
           {node.status === 'active' && (
             <>
               <button onClick={() => onStatus(raw, 'closed')} className={`${btn} text-slate-700 bg-slate-100 hover:bg-slate-200`}>{t('Clôturer', 'Close', 'Cerrar')}</button>
-              <span className="text-[11px] text-gray-400 self-center">{t('Montant & répartition verrouillés (réallocation/révision en préparation)', 'Amount & breakdown locked (reallocation/revision coming)', 'Monto y reparto bloqueados')}</span>
+              <span className="text-xs text-gray-500 self-center flex items-center gap-1 flex-wrap">
+                {t('Montant et répartition verrouillés. Pour les changer :', 'Amount and breakdown are locked. To change them:', 'Monto y reparto bloqueados. Para cambiarlos:')}
+                {onRealloc && <button type="button" onClick={onRealloc} className="underline font-semibold text-purple-700 min-h-9 px-1">{t('Réallouer', 'Reallocate', 'Reasignar')}</button>}
+                {onRealloc && onRevise && t('ou', 'or', 'o')}
+                {onRevise && <button type="button" onClick={onRevise} className="underline font-semibold text-purple-700 min-h-9 px-1">{t('Réviser', 'Revise', 'Revisar')}</button>}
+                {!onRealloc && !onRevise && t('demandez à un responsable de réallouer ou de réviser.', 'ask a manager to reallocate or revise.', 'pida a un responsable reasignar o revisar.')}
+              </span>
             </>
           )}
           {node.status === 'closed' && canReopenLine(canApprove) && (
@@ -649,5 +715,5 @@ function PctChip({ label, pct }) {
 }
 
 function Stat({ label, value, tone }) {
-  return <div><div className={`text-base font-bold ${tone}`}>{value}</div><div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</div></div>;
+  return <div><div className={`text-base font-bold ${tone}`}>{value}</div><div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label}</div></div>;
 }

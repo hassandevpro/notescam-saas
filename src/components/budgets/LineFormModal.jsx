@@ -59,6 +59,12 @@ export default function LineFormModal({ chapter, mode, parentLabel, frozen = fal
               <label className={lbl}>{t('Montant annuel de la ligne', 'Line annual amount', 'Monto anual de la línea')}</label>
               <input className={field} type="number" min="0" step="1" value={amount} disabled={frozen}
                 placeholder="0" onChange={(e) => setAmount(e.target.value)} />
+              {/* Un brouillon à 0 reste enregistrable, mais le serveur refusera de l'activer. */}
+              {!frozen && amount !== '' && Number(amount) === 0 && (
+                <p className="text-xs text-amber-700 mt-1" role="status">
+                  {t('Une ligne à 0 ne pourra pas être activée.', 'A line at 0 cannot be activated.', 'Una línea en 0 no se puede activar.')}
+                </p>
+              )}
               {frozen && <p className="text-xs text-amber-600 mt-1">{t('Ligne active : montant non modifiable (réallocation/révision).', 'Active line: amount locked (reallocation/revision).', 'Línea activa: monto bloqueado.')}</p>}
             </div>
             <div>

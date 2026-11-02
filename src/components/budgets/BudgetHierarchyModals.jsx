@@ -6,15 +6,15 @@
 import { useState } from 'react';
 import Modal from '../Modal';
 import { useT } from '../../lib/i18n';
-import { UNIT_SECTION_LABELS } from './budgetUi';
+import { unitDisplayName } from './budgetUi';
 
 const field = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none';
 const lbl = 'block text-xs font-semibold text-gray-500 mb-1';
 
-// Nom lisible d'une unité (section_key traduit, sinon nom libre).
+// Nom lisible d'une unité, section comprise (voir unitDisplayName : deux unités
+// peuvent porter le même nom à l'écran).
 export function unitLabel(t, unit) {
-  if (!unit) return '';
-  return unit.name || (unit.section_key ? t(...(UNIT_SECTION_LABELS[unit.section_key] || [unit.section_key])) : '');
+  return unitDisplayName(t, unit);
 }
 
 // ── Budget ANNUEL GLOBAL ──────────────────────────────────────────────────────

@@ -67,3 +67,19 @@ export const LINE_ERROR_LABELS = {
   sector_alloc_on_complex: ['Secteurs sur une ligne « tout le complexe »', 'Sectors on a complex-wide line', 'Sectores en línea global'],
   annual_cap_exceeded:   ['Dépasse le budget annuel', 'Exceeds annual budget', 'Supera el presupuesto anual'],
 };
+
+// Nom d'une unité tel qu'on le CHOISIT à l'écran (répartition, sélecteurs de
+// dépense). Deux unités peuvent porter le même nom — chez un établissement
+// réel, la maternelle et le primaire s'appellent toutes deux « … SCHOOL » — et
+// l'utilisateur ne pouvait alors pas savoir laquelle cocher. On ajoute donc la
+// section quand elle existe, sauf si le nom la contient déjà.
+export function unitDisplayName(t, unit) {
+  if (!unit) return '';
+  const section = unit.section_key
+    ? t(...(UNIT_SECTION_LABELS[unit.section_key] || [unit.section_key, unit.section_key, unit.section_key]))
+    : '';
+  const name = (unit.name || '').trim();
+  if (!name) return section;
+  if (!section) return name;
+  return name.toLowerCase().includes(String(section).toLowerCase()) ? name : `${name} · ${section}`;
+}

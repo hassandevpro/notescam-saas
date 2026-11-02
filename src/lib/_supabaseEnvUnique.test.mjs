@@ -1,6 +1,6 @@
 // LA CLÉ ANONYME N'EST ÉCRITE QU'UNE FOIS, ET AUCUN CLIENT NE PART SANS ELLE.
 //
-// POURQUOI CES CONTRÔLES EXISTENT (I29). `createClient()` est appelé au
+// POURQUOI CES CONTRÔLES EXISTENT (I32). `createClient()` est appelé au
 // CHARGEMENT du module, et supabase-js lève `supabaseKey is required.` sur une
 // clé vide. Quand quatre modules recopient la même valeur de repli, il suffit
 // qu'une copie dérive vers `''` pour qu'ouvrir un écran — `/app/students` —
@@ -41,7 +41,7 @@ test('la clé anonyme n’est écrite QU’À UN SEUL endroit', () => {
     .map((f) => f.nom);
   assert.deepEqual(porteurs, [SOURCE_UNIQUE],
     `la clé est recopiée hors de ${SOURCE_UNIQUE} : ${porteurs.join(', ')}\n`
-    + 'Une copie qui dérive vers \'\' fait tomber l\'application au chargement (I29).');
+    + 'Une copie qui dérive vers \'\' fait tomber l\'application au chargement (I32).');
 });
 
 test('aucun createClient() ne reçoit une clé vide', () => {

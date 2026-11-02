@@ -247,8 +247,11 @@ const collecte = collectTeacherGrades({
     p1: { eleve_id: 'e1', competence_id: '1a', critere_id: 'oral', ua: 1, note: '8', points_max: 10 },
     p2: { eleve_id: 'e2', competence_id: '1a', critere_id: 'oral', ua: 1, note: '7', points_max: null },
   },
+  // L'unité de la maternelle est l'UA depuis le 2026-11-01, comme au primaire
+  // (core/uaMinedub.js). `trimestre_id` reste présent — il est DÉRIVÉ de l'UA —
+  // mais c'est `ua` qui identifie l'observation.
   matObservations: {
-    o1: { eleve_id: 'e1', domaine_id: 'd1', trimestre_id: 't1', niveau_acquis: 'A', observation: 'Très à l’aise' },
+    o1: { eleve_id: 'e1', domaine_id: 'd1', ua: 1, trimestre_id: 't1', niveau_acquis: 'A', observation: 'Très à l’aise' },
   },
   labels: { prim: { '1a': 'Lire' }, critere: { oral: 'Oral' } },
 });
@@ -298,7 +301,7 @@ const magasins = {
   gradeMap: { 'c1_e1_1': { m1: '14' } },
   apcNotes: { [noteNkey('e1', 'cmp-1', 'seq-1')]: { eleve_id: 'e1', competence_id: 'cmp-1', sequence_id: 'seq-1', note: '12', note_max: 20 } },
   primNotes: { [primNkey('e1', '1a', 'oral', 1)]: { eleve_id: 'e1', competence_id: '1a', critere_id: 'oral', ua: 1, note: '8', points_max: 10 } },
-  matObservations: { [obsNkey('e1', 'd1', 't1')]: { eleve_id: 'e1', domaine_id: 'd1', trimestre_id: 't1', niveau_acquis: 'A', observation: 'ok' } },
+  matObservations: { [obsNkey('e1', 'd1', 1)]: { eleve_id: 'e1', domaine_id: 'd1', ua: 1, trimestre_id: 't1', niveau_acquis: 'A', observation: 'ok' } },
 };
 
 const fichier = JSON.stringify(buildGradeBundle({
@@ -325,7 +328,7 @@ const cibleMemes = {
     classic: (classId, eleveId, seq, subjectId) => magasins.gradeMap[`${classId}_${eleveId}_${seq}`]?.[subjectId],
     apc: (eleveId, cid, sid) => magasins.apcNotes[noteNkey(eleveId, cid, sid)],
     prim: (eleveId, cid, crid, ua) => magasins.primNotes[primNkey(eleveId, cid, crid, ua)],
-    mat: (eleveId, did, tid) => magasins.matObservations[obsNkey(eleveId, did, tid)],
+    mat: (eleveId, did, ua) => magasins.matObservations[obsNkey(eleveId, did, ua)],
   },
 };
 const versMemes = planGradeImport(relu2, cibleMemes);

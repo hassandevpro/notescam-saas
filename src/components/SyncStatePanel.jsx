@@ -8,6 +8,7 @@
 // Un bouton permet en plus de FORCER un contrôle approfondi à la demande.
 import { useEffect, useRef, useState } from 'react';
 import { IS_LAN } from '../lib/edition';
+import { lanFetch } from '../lib/lanFetch';
 
 const nf = (n) => (n == null ? '—' : Number(n).toLocaleString('fr-FR'));
 const ms = (v) => (v == null ? '—' : v < 1000 ? `${v} ms` : `${(v / 1000).toFixed(1)} s`);
@@ -107,7 +108,7 @@ export default function SyncStatePanel() {
   const [err, setErr] = useState('');
   const timer = useRef(null);
 
-  const loadHealth = () => fetch('/api/sync/health').then((r) => r.json()).then((j) => setHealth(j.data)).catch(() => {});
+  const loadHealth = () => lanFetch('/api/sync/health').then(setHealth).catch(() => {});
 
   // Édition CLOUD : `/api/sync/health` n'existe pas. La règle de réécriture de
   // vercel.json renvoie index.html pour toute route inconnue, donc le sondage
@@ -126,10 +127,10 @@ export default function SyncStatePanel() {
   const run = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await fetch('/api/sync/verify');
-      const j = await r.json();
-      if (j.error) { setErr(j.error.message || 'Contrôle impossible.'); }
-      else { setForced(j.data); loadHealth(); }
+      // `lanFetch` lève sur erreur et rend directement le `data` : le test
+      // d'erreur est remonté dans le `catch`, qui le faisait déjà.
+      setForced(await lanFetch('/api/sync/verify'));
+      loadHealth();
     } catch (e) { setErr(e.message || 'Cloud injoignable.'); }
     finally { setBusy(false); }
   };

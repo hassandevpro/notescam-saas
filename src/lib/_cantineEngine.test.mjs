@@ -17,6 +17,7 @@
 //   • et, contrôle d'ensemble : rejouer le cahier 2025-2026 doit redonner les
 //     615 000 que l'école a écrits à la main.
 import {
+  pastilleCellule, motPeriode,
   TAUX_DEMI_MOIS, CONVENTIONS, TEXTE_CONVENTION,
   moisDuService, enteteMois, tarifPleinDe, celluleDuMois,
   grilleCantine, quotePartDuMois, etatMensuel, etatsMensuels, csvEtatsMensuels,
@@ -108,6 +109,26 @@ console.log('\n— « / » n’est pas un impayé —');
   ok(e.inscrits === 1 && e.nonInscrits === 2, 'un seul inscrit, deux non inscrits', e);
   ok(e.attendu === PLEIN && e.impaye === PLEIN,
     'l’attendu et l’impayé ne portent QUE l’inscrit', { attendu: e.attendu, impaye: e.impaye });
+}
+
+// ── 3 bis. Le matricule traverse la grille ──────────────────────────────────
+// L'écran se cherche au matricule autant qu'au nom : deux homonymes dans une
+// école ne se départagent que par lui. Si la grille ne le reportait pas, la
+// recherche trouverait l'élève dans la liste d'abonnement et PAS dans le
+// tableau — le genre d'incohérence qu'on ne remarque qu'une fois sur place.
+console.log('\n— Le matricule traverse la grille —');
+{
+  const grille = grilleCantine({
+    eleves: [
+      { id: 'e1', name: 'MBALLA Jean', className: 'CL3', matricule: 'MAT07' },
+      { id: 'e2', name: 'MBALLA Jean', className: 'CL4' },   // homonyme, sans matricule
+    ],
+    mois: ['2025-09'], tarifPlein: PLEIN,
+    echeances: [ech('e1', '2025-09', PLEIN, 'due'), ech('e2', '2025-09', PLEIN, 'due')],
+    paiements: [],
+  });
+  ok(grille[0].matricule === 'MAT07', 'le matricule est reporte sur la ligne');
+  ok(grille[1].matricule === '', 'un eleve sans matricule rend une chaine vide, jamais undefined');
 }
 
 // ── 4. Un abandon n’efface pas un impayé antérieur ──────────────────────────
@@ -280,6 +301,114 @@ console.log('\n— L’export remis à la comptabilité —');
   ok(csv.includes(';'), 'séparateur point-virgule : une colonne par champ, pas une seule');
   ok(csv.includes('2500'), 'la quote-part figure dans l’export');
   ok(csv.split('\r\n').filter(Boolean).length === 3, 'en-tête + un mois + total', csv.split('\r\n').length);
+}
+
+// ── 6. La pastille : un ton par case, sans lire de chiffre ─────────────────
+console.log('\n— 6. Pastille d’une case —');
+{
+  const p = (c) => pastilleCellule(c);
+  ok(p(null).ton === 'vide', 'pas de case -> vide, sans lever');
+  ok(p(undefined).ton === 'vide', 'undefined -> vide');
+  ok(p({ convention: 'non_inscrit' }).ton === 'vide', 'mois non souscrit -> vide');
+  ok(p({ convention: 'exempte', montantDu: 15000 }).ton === 'exempte', 'exempté a son propre ton');
+  ok(p({ convention: 'abandon', montantDu: 15000 }).ton === 'abandon', 'abandon aussi');
+
+  const solde = { convention: 'plein', statut: 'paid', montantDu: 15000, paye: 15000, reste: 0 };
+  ok(p(solde).ton === 'solde' && p(solde).valeur === null,
+    'soldé -> ton solde, et AUCUN chiffre : il n’y a plus rien à réclamer');
+
+  const partiel = { convention: 'plein', statut: 'partial', montantDu: 15000, paye: 4000, reste: 11000 };
+  ok(p(partiel).ton === 'partiel', 'partiel -> ton partiel');
+  ok(p(partiel).valeur === 11000,
+    'et il porte le RESTE, pas le montant dû : c’est le chiffre qu’on réclame', p(partiel).valeur);
+
+  const impaye = { convention: 'plein', statut: 'due', montantDu: 15000, paye: 0, reste: 15000 };
+  ok(p(impaye).ton === 'impaye' && p(impaye).valeur === 15000, 'impayé -> ton impayé et le reste');
+
+  // Un demi-mois est un plein mois à montant réduit : même lecture.
+  ok(p({ convention: 'demi', statut: 'due', montantDu: 7500, paye: 0, reste: 7500 }).ton === 'impaye',
+    'un demi-mois impayé se lit comme un impayé, pas comme un cas à part');
+
+  // Le piège : une échéance posée à zéro. Rouge, elle réclamerait une dette
+  // que personne ne doit.
+  ok(p({ convention: 'plein', statut: 'due', montantDu: 0, paye: 0, reste: 0 }).ton === 'vide',
+    'un mois facturé à ZÉRO n’est pas un impayé : il reste vide');
+
+  // Reste négatif (trop-perçu après contre-passation) : soldé, pas partiel.
+  ok(p({ convention: 'plein', statut: 'partial', montantDu: 15000, paye: 16000, reste: -1000 }).ton === 'solde',
+    'un reste négatif est soldé, jamais un impayé à chiffre négatif');
+}
+
+// ── §7. LE TARIF EST PROPRE À L'ÉLÈVE (défaut du 2026-10-31) ───────────────
+//
+// Le registre transport réel de THE GENIUS porte TREIZE tarifs mensuels, de
+// 5 000 à 15 000, selon la résidence. Le repère du demi-mois était le tarif du
+// SERVICE : un élève à 5 000 dans un service à 7 500 voyait chacun de ses mois
+// étiqueté « demi », et la quote-part ne le comptait que pour moitié. L'écart
+// n'est pas resté à l'écran — il entrait dans l'argent.
+console.log('\n— Le tarif propre à l’élève —');
+{
+  const pleine = { amount_due: 5000, status: 'due' };
+
+  // AVANT : le tarif du service servait de repère.
+  ok(celluleDuMois({ ligne: pleine, paye: 0, tarifPlein: 7500 }).convention === 'demi',
+    'sans tarif élève, le tarif du service reste le repère (écoles à tarif unique)');
+
+  // APRÈS : le tarif de l'élève gagne, et 5 000 est SON plein tarif.
+  ok(celluleDuMois({ ligne: pleine, paye: 0, tarifPlein: 7500, tarifEleve: 5000 }).convention === 'plein',
+    'avec son tarif, l’élève à 5 000 est au PLEIN tarif, pas à la moitié',
+    celluleDuMois({ ligne: pleine, paye: 0, tarifPlein: 7500, tarifEleve: 5000 }).convention);
+
+  // Et un vrai demi-mois reste un demi-mois.
+  ok(celluleDuMois({ ligne: { amount_due: 2500, status: 'due' }, tarifPlein: 7500, tarifEleve: 5000 }).convention === 'demi',
+    'un élève à 5 000 facturé 2 500 est bien à demi-tarif');
+
+  // Le tarif élève ne doit pas pouvoir être retourné contre l'élève.
+  ok(celluleDuMois({ ligne: pleine, tarifPlein: 7500, tarifEleve: 0 }).convention === 'demi',
+    'un tarif élève à zéro ne masque pas le repli');
+  ok(celluleDuMois({ ligne: pleine, tarifPlein: 0, tarifEleve: 0 }).convention === 'plein',
+    'aucun repère du tout → plein, jamais demi : on n’invente pas un demi-tarif');
+  ok(celluleDuMois({ ligne: pleine, tarifPlein: 7500, tarifEleve: -3000 }).convention === 'demi',
+    'un tarif élève négatif est ignoré, pas appliqué');
+
+  // LA QUOTE-PART, qui est de l'argent : treize tarifs, aucun demi.
+  const TARIFS = [5000, 6000, 7500, 8000, 8250, 8500, 9000, 9500, 10000, 11250, 12500, 13000, 15000];
+  const eleves = TARIFS.map((t, i) => ({ id: 'e' + i, name: 'E' + i }));
+  const echeances = TARIFS.map((t, i) => ({
+    id: 'l' + i, student_id: 'e' + i, period_key: '2026-10', amount_due: t, status: 'due',
+  }));
+  const tarifParEleve = Object.fromEntries(TARIFS.map((t, i) => ['e' + i, t]));
+
+  const avec = grilleCantine({ eleves, echeances, paiements: [], mois: ['2026-10'], tarifPlein: 7500, tarifParEleve });
+  const demisAvec = avec.filter((r) => r.cellules[0].convention === 'demi').length;
+  ok(demisAvec === 0, 'les treize tarifs réels donnent ZÉRO demi-mois', demisAvec);
+
+  const sans = grilleCantine({ eleves, echeances, paiements: [], mois: ['2026-10'], tarifPlein: 7500 });
+  const demisSans = sans.filter((r) => r.cellules[0].convention === 'demi').length;
+  ok(demisSans === 2, 'alors que sans eux, deux élèves étaient faussement à demi-tarif', demisSans);
+
+  const qpAvec = quotePartDuMois({ cellules: avec.map((r) => r.cellules[0]), quotePart: 10 });
+  const qpSans = quotePartDuMois({ cellules: sans.map((r) => r.cellules[0]), quotePart: 10 });
+  ok(qpAvec > qpSans, 'et la quote-part était SOUS-ÉVALUÉE : ' + qpSans + ' au lieu de ' + qpAvec);
+
+  // Le montant dû, lui, n'a jamais bougé : il vient de l'échéance.
+  ok(avec.reduce((s, r) => s + r.du, 0) === TARIFS.reduce((a, b) => a + b, 0),
+    'le total dû reste la somme des échéances, inchangée');
+}
+
+
+// ── §8. LE MOT JUSTE : un service trimestriel ne dit pas « mois » ──────────
+console.log('\n— Le vocabulaire de la période —');
+{
+  const T = (fr) => fr;
+  ok(motPeriode({ periodicity: 'mensuel' }, T).parPeriode === 'Grille mensuelle', 'mensuel → Grille mensuelle');
+  ok(motPeriode({ periodicity: 'trimestriel' }, T).parPeriode === 'Grille trimestrielle', 'trimestriel → Grille trimestrielle');
+  ok(motPeriode({ periodicity: 'trimestriel' }, T).aPayer === 'Trimestres à payer', 'et « Trimestres à payer » au guichet');
+  ok(motPeriode({ periodicity: 'TRIMESTRIEL' }, T).parX === 'Par trimestre', 'la casse n’empêche rien');
+  ok(motPeriode({ periodicity: 'annuel' }, T).le === 'Période', 'annuel → le mot neutre « Période »');
+  ok(motPeriode({ periodicity: 'bidon' }, T).parPeriode === 'Grille mensuelle', 'une périodicité inconnue retombe sur le mois');
+  ok(motPeriode(null, T).parPeriode === 'Grille mensuelle', 'aucun service → le mois, sans lever');
+  ok(motPeriode({}).le === 'Mois', 'sans fonction i18n, le français par défaut');
 }
 
 console.log(`\n${ko === 0 ? 'TOUT PASSE' : ko + ' ECHEC(S)'}`);

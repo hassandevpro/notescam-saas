@@ -17,6 +17,10 @@ import { tutelleBasic } from './tutelle';
 import { classesIdentity } from './schoolIdentity';
 import { headTeacherNames, headTeacherLabel, SEPARATEUR } from './headTeachers';
 import { classSectionKey } from '../core/engineResolver';
+// L'ORDRE DE RÉFÉRENCE des élèves d'une classe, et le numéro qui en découle.
+// Cette liste est la surface qui FAIT FOI pour le numéro d'ordre : les postes de
+// saisie affichent désormais le même, lu du même module.
+import { ordonnerEleves } from '../core/ordreClasse';
 import { resolveCountryCode } from '../countries';
 
 export function studentListHtml({
@@ -64,9 +68,13 @@ export function studentListHtml({
   const colCount   = 2 + (showMatricule ? 1 : 0) + (showGenre ? 1 : 0) + (showDateNaissance ? 1 : 0) + (showLieuNaissance ? 1 : 0) + (showContact ? 1 : 0);
   const studentWord = (n) => Lp(`élève${n !== 1 ? 's' : ''}`, `alumno${n !== 1 ? 's' : ''}`);
 
-  // Tri alphabétique systématique des élèves dans la liste imprimée.
-  const sortByName = (arr) =>
-    [...arr].sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+  // Tri alphabétique systématique des élèves dans la liste imprimée — délégué à
+  // `core/ordreClasse`, désormais SOURCE UNIQUE du numéro d'ordre. Le tri local
+  // qui vivait ici ignorait accents et casse mais ne départageait pas les
+  // homonymes : deux « MOHAMED ALI » sans matricule s'échangeaient leur numéro
+  // d'une impression à l'autre, et les postes de saisie triaient encore
+  // autrement (sans `sensitivity`), donc sous un autre ordre.
+  const sortByName = (arr) => ordonnerEleves(arr);
 
   // Grouper par classe si pas de filtre. Chaque groupe garde SA classe : sans elle,
   // impossible d'imprimer le titulaire (le nom du groupe ne suffit pas à le

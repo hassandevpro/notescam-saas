@@ -14,7 +14,7 @@
 // Convergence garantie par le LWW (updated_at → version → device_id) : les deux bases
 // tendent vers le même état, sans jamais perdre la donnée la plus récente.
 
-import { db, tx } from './db.js';
+import { db, tx, enqueueOutbox, sansEcho } from './db.js';
 import { EDGE_BASE } from './cloudEnv.js';
 import { serverToken, remoteWins, rawUpsert, syncOnce, adaptRemoteRow } from './cloudSync.js';
 import { recordSyncAudit } from './syncAudit.js';
@@ -46,7 +46,10 @@ async function defaultRepairEdge({ table, by, keys }) {
 }
 
 function enqueue(table, id) {
-  try { db.prepare('INSERT INTO sync_outbox (tablename, row_id, op, at) VALUES (?,?,?,?)').run(table, String(id), 'upsert', new Date().toISOString()); }
+  // Passe par `enqueueOutbox` comme les quatre autres appelants : avec l'index
+  // unique (tablename, row_id), un INSERT direct lèverait sur une ligne déjà en
+  // file — c'est-à-dire exactement le cas que la réparation vise.
+  try { enqueueOutbox(table, id, 'upsert'); }
   catch { /* best-effort */ }
 }
 const ts = (v) => Date.parse(v || 0) || 0;
@@ -55,7 +58,10 @@ const ts = (v) => Date.parse(v || 0) || 0;
 function localDelete(table, id) {
   const tracked = isTracked(table);
   const before = tracked ? snapshotRows(table, [id]) : null;
-  try { db.prepare(`DELETE FROM "${table}" WHERE id = ?`).run(id); } catch { /* FK : ignore */ }
+  // ANTI-ÉCHO : on RESPECTE une suppression déjà décidée par le Cloud. Sans
+  // la garde, le déclencheur de file enfilerait un `delete` à renvoyer au
+  // Cloud, qui l a déjà fait — et la réparation se remettrait du travail.
+  try { sansEcho(() => db.prepare(`DELETE FROM "${table}" WHERE id = ?`).run(id)); } catch { /* FK : ignore */ }
   if (tracked) maintainMerkle(table, before, new Map());
 }
 

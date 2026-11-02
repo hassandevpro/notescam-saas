@@ -16,7 +16,7 @@ import FeeDashboard from '../components/fees/FeeDashboard';
 import CashControlTab from '../components/fees/CashControlTab';
 import { studentFeeSituation, inscriptionApplies } from '../lib/feeEngine';
 import { fetchStudentFeeItems, fetchCatalog, upsertStudentFeeItem, deleteStudentFeeItem } from '../lib/feeCatalogService';
-import { studentTotals, studentTotalsNetOfGrid, optionalItemsFor, snapshotItem, paidForItem } from '../lib/feeCatalogEngine';
+import { studentTotals, studentTotalsNetOfGrid, optionalItemsFor, snapshotItem, paidForItem, estServiceHorsScolarite } from '../lib/feeCatalogEngine';
 import { classSectionKey } from '../core/engineResolver';
 import { uuid } from '../lib/uuid';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
@@ -116,6 +116,11 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
   });
   const catalogDue = catalogNet.due;
   const catalogIgnored = catalogNet.ignored;
+  // Services à abonnement (cantine, transport au mois) : ÉCARTÉS du dû de cet
+  // écran et renvoyés à leur propre registre. Leur `amount` est le prix d'UN
+  // mois, et leurs versements pendent aux échéances — les afficher ici donnait
+  // « dû 15 000 · Non payé » à un élève à jour de huit mois. Mesuré le 31/10.
+  const catalogServices = catalogNet.services;
   // Frais optionnels du catalogue : coché = déjà attribué à l'élève.
   const attachedByCatalogId = new Map(studentItems.map((i) => [i.fee_catalog_id, i]));
 
@@ -307,6 +312,36 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
               </div>
             )}
 
+            {/* Services, écartés de CET écran et nommés. Même règle que
+                ci-dessus : rien ne disparaît en silence. Ici le motif n'est pas
+                un doublon mais une FRONTIÈRE — cet écran ne porte que
+                l'académique, les services ont leur registre. */}
+            {catalogServices.length > 0 && (
+              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <span className="font-semibold">
+                  {t('Géré dans le Registre des services', 'Managed in the Service register', 'Gestionado en el Registro de servicios')}
+                </span>
+                {' — '}
+                {catalogServices.map((it) => `${it.name || it.category} (${money(it.amount)})`).join(', ')}
+                {'. '}
+                {t('Le dû et les versements d’un service se lisent dans « Registre des services », pas ici.',
+                   'A service’s amounts due and payments are read in “Service register”, not here.',
+                   'Lo debido y los pagos de un servicio se leen en «Registro de servicios».')}
+                {' '}
+                {/* Dit explicitement, parce que l'écran se contredirait sinon :
+                    « Payé 0 » au-dessus d'un historique qui montre trois
+                    versements. Les deux sont justes — le « Payé » ne compte que
+                    la scolarité, l'historique montre TOUT l'argent entré. On
+                    n'en cache aucun : un versement masqué est un versement que
+                    personne ne peut rapprocher. */}
+                <b>
+                  {t('Les versements de ce service figurent bien dans l’historique ci-dessous, mais pas dans le « Payé » de la scolarité.',
+                     'This service’s payments do appear in the history below, but not in the tuition “Paid” total.',
+                     'Los pagos de este servicio aparecen en el historial, pero no en el «Pagado» de escolaridad.')}
+                </b>
+              </div>
+            )}
+
             {/* Frais optionnels du catalogue : cliquer pour AJOUTER directement à
                 l'élève (ou retirer si non payé). Toujours affiché quand un catalogue
                 d'optionnels existe pour la classe de l'élève. */}
@@ -325,6 +360,33 @@ function PaymentPanel({ student, fee, payments, isAdmin, canCollect, onAddPaymen
                       const paidAmt = attached ? paidForItem(attached.id, payments) : 0;
                       const bal = attached ? Math.max(0, (Number(attached.amount) || 0) - paidAmt) : 0;
                       const fullyPaid = attached && bal <= 0;
+                      // SERVICE : ni encaissement ni retrait DEPUIS CET ÉCRAN,
+                      // et pour deux raisons distinctes.
+                      //
+                      // Encaisser ici rattacherait le versement à l'ABONNEMENT,
+                      // donc à aucune échéance : pour un service au mois,
+                      // l'argent n'apparaîtrait nulle part dans le registre, qui
+                      // raisonne par échéance. Et le montant proposé serait faux
+                      // — `bal` vaut le prix d'UNE période moins zéro, puisque
+                      // les versements réels pendent aux échéances que
+                      // `paidForItem` ne regarde pas.
+                      //
+                      // Retirer ici est pire : `fee_schedule_items` est en
+                      // ON DELETE CASCADE sur l'abonnement. Comme `paidAmt` vaut
+                      // 0 pour un service échelonné, le ✕ s'afficherait toujours,
+                      // et un clic emporterait des mois DÉJÀ PAYÉS. Les
+                      // versements, eux, survivraient en pointant des échéances
+                      // disparues.
+                      if (attached && estServiceHorsScolarite(attached)) {
+                        return (
+                          <span key={opt.id} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-amber-50 border border-amber-200 text-amber-800 font-semibold">
+                            ✓ {opt.name} · {money(opt.amount)}
+                            <a href="/app/cantine" className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700">
+                              {t('Registre', 'Register', 'Registro')} →
+                            </a>
+                          </span>
+                        );
+                      }
                       if (attached) {
                         return (
                           <span key={opt.id} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm bg-indigo-50 border border-indigo-200 text-indigo-700 font-semibold">

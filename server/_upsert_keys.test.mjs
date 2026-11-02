@@ -36,7 +36,11 @@ const { db } = await import('./db.js');
 const CLES = {
   grades:                   'class_id,student_id,subject_id,sequence',   // sync.js, schoolService.js, dataImport.js
   apc_notes:                'eleve_id,competence_id,sequence_id',        // apcService.js, sync.js
-  mat_observations:         'eleve_id,domaine_id,trimestre_id',          // matService.js, sync.js
+  // (élève, domaine, UA) et non plus (élève, domaine, trimestre) : un trimestre
+  // compte jusqu'à TROIS unités d'apprentissage, et sur l'ancienne clé la
+  // deuxième écrasait la première — l'incident prim_notes du 2026-09-28, rejoué
+  // en maternelle. Changé le 2026-11-01 avec le passage de la maternelle aux UA.
+  mat_observations:         'eleve_id,domaine_id,ua',                    // matService.js, sync.js
   prim_notes:               'eleve_id,competence_id,critere_id,ua',      // primService.js, sync.js
   student_absences:         'student_id,sequence',                       // schoolService.js
   fee_schedule_items:       'student_fee_item_id,period_key',            // feeScheduleService.js

@@ -4,7 +4,7 @@
 // Sécurité : table en liste blanche, identifiants quotés, valeurs toujours
 // passées en paramètres (jamais d'interpolation) -> pas d'injection SQL.
 
-import { db, ALLOWED_TABLES, quoteIdent, tableColumns, pickColumns, normalizeValue, tx, SYNCED_TABLES, deviceId } from './db.js';
+import { db, ALLOWED_TABLES, quoteIdent, tableColumns, pickColumns, normalizeValue, tx, SYNCED_TABLES, deviceId, enqueueOutbox } from './db.js';
 import { randomUUID } from 'node:crypto';
 import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
 import { emitApprovalRequestForOp } from './governanceApply.js';
@@ -23,8 +23,7 @@ function stampSync(table, rec) {
 // passer par ici (anti-écho) → seuls les vrais changements locaux sont empilés.
 function recordOutbox(table, id, op) {
   if (!SYNCED_TABLES.has(table) || id == null) return;
-  db.prepare('INSERT INTO sync_outbox (tablename, row_id, op, at) VALUES (?,?,?,?)')
-    .run(table, String(id), op, new Date().toISOString());
+  enqueueOutbox(table, id, op);
 }
 
 // Embeds supabase (`schools (*)`) -> clé FK sur la ligne parente.

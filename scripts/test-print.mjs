@@ -355,7 +355,12 @@ window.__ready = true;
       return { referentiel, apcNotes, student, matieres };
     };
 
-    for (const [nMat, nComp] of [[6, 2], [10, 3], [14, 4]]) {
+    // « APC 14×1 » : quatorze matières à UNE compétence, évaluée DEUX fois dans
+    // le trimestre. C'est le cas demandé le 2026-11-01, poussé à la taille d'un
+    // vrai bulletin : le bulletin porte alors, pour chaque matière, le détail
+    // « Éval. 1 : … · Éval. 2 : … ». Ce scénario existe pour que ce détail ne
+    // puisse pas, un jour, faire déborder la feuille sans que personne le voie.
+    for (const [nMat, nComp] of [[6, 2], [10, 3], [14, 4], [14, 1]]) {
       const { referentiel, apcNotes, student } = mkApc(nMat, nComp);
       const sheets = buildTrimesterSheets(referentiel, apcNotes, {
         classeSlug: CLASSE, trimestreId: 't1', student, school, sys: 'FR',

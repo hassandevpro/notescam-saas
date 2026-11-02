@@ -1,8 +1,21 @@
 // Écran de saisie MATERNELLE (moteur MINEDUB — domaines pédagogiques).
 //
-// L'enseignant choisit Classe + Trimestre. Le système charge AUTOMATIQUEMENT les
-// 8 domaines officiels (non modifiables). Pour chaque élève × domaine, on saisit
-// un NIVEAU D'ACQUISITION (A / ECA / NA) et une OBSERVATION pédagogique libre.
+// L'enseignant choisit Classe + Unité d'Apprentissage (UA 1-8/an). Le système
+// charge AUTOMATIQUEMENT les 8 domaines officiels (non modifiables). Pour chaque
+// élève × domaine, on saisit un NIVEAU D'ACQUISITION (A / ECA / NA) et une
+// OBSERVATION pédagogique libre.
+//
+// ── L'UA A REMPLACÉ LE TRIMESTRE (2026-11-01) ────────────────────────────────
+// L'écran proposait « Trimestre 1 / 2 / 3 ». Le carnet du fondamental découpe
+// l'année en huit unités d'apprentissage, et le PRIMAIRE les utilise depuis
+// l'origine ; la maternelle suit désormais le même rythme, avec le même
+// sélecteur, les mêmes libellés (« UA3 (Trim. 1) ») et le même regroupement
+// UA1-3 / UA4-6 / UA7-8 — demande du responsable, pour que les deux cycles du
+// fondamental se saisissent de la même façon.
+//
+// Les observations saisies du temps des trimestres sont rattachées à leur UA par
+// `scripts/migrer-maternelle-ua.mjs` (T1→UA1, T2→UA2) : l'ancienne période reste
+// conservée en base, le geste est réversible.
 //
 // Monté par Grades.jsx quand la classe est résolue 'maternelle'.
 
@@ -13,7 +26,7 @@ import { useUiStore } from '../../store/uiStore';
 import { useT } from '../../lib/i18n';
 import { obsNkey } from '../../lib/matService';
 import { resolveClassEngine, maternelleNiveauSlug } from '../../core/engineResolver';
-import { domainesForMaternelle, MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_CODES } from '../../core/matEngine';
+import { domainesForMaternelle, MAT_ACQUIS, MAT_ACQUIS_COLORS, MAT_ACQUIS_CODES, MAT_UAS, trimestreOfUA } from '../../core/matEngine';
 import { matDomaineLabel, matAcquisLabel, matAcquisCode, matAcquisFromInput } from '../../core/referentielI18n';
 import {
   domaineIdsForTeacher, unresolvedSubjectsForTeacher, isClassTitulaire,
@@ -25,6 +38,9 @@ import { isSubjectScoped } from '../../lib/teacherScope';
 // les mêmes domaines, sinon on observe des domaines qui ne s'impriment jamais.
 import { matForClass, unmatchedClassSubjects, matSubjectsNeedingOwnDomaine } from '../../core/refClassScope';
 import { classSubjectsOf } from '../../core/subjectOrder';
+// L'ordre de la liste de classe — et donc le numéro « N° » affiché en tête de
+// ligne, le même que sur la liste imprimée et les bulletins.
+import { elevesDeClasse } from '../../core/ordreClasse';
 import { useAuthStore } from '../../store/authStore';
 import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
@@ -101,6 +117,7 @@ export default function MatObservationWorkspace() {
   const students        = useSchoolStore((s) => s.students);
   const referentiel     = useSchoolStore((s) => s.matReferentiel);
   const observations    = useSchoolStore((s) => s.matObservations);
+  const obsSansUa       = useSchoolStore((s) => s.matObsSansUa);
   const masques         = useSchoolStore((s) => s.refMasques.mat);
   const libelles        = useSchoolStore((s) => s.refLibelles.mat);
   const loadMat         = useSchoolStore((s) => s.loadMat);
@@ -114,7 +131,7 @@ export default function MatObservationWorkspace() {
 
   const classId    = useUiStore((s) => s.gradesClassId);
   const setClassId = useUiStore((s) => s.setGradesClassId);
-  const [trimestre, setTrimestre] = useState(1);
+  const [ua, setUa] = useState(1);
   const [view, setView] = useState('niveaux'); // 'niveaux' | 'observations'
   // Le chargement du référentiel a-t-il ABOUTI (succès ou échec) ? Sans ce drapeau,
   // une école dont les domaines ne sont pas encore en base restait bloquée sur
@@ -127,7 +144,6 @@ export default function MatObservationWorkspace() {
     return () => { alive = false; };
   }, [loadMat]);
 
-  const trimestreId = `t${trimestre}`;
 
   // Les 8 domaines officiels, avant tout filtrage par enseignant. Les intitulés
   // du référentiel sont en français en base ; la localisation se fait plus bas,
@@ -285,16 +301,23 @@ export default function MatObservationWorkspace() {
     [subjectScoped, estTitulaire, subjects, teacherId, classId, domainesAll],
   );
 
-  const classStudents = useMemo(
-    () => students.filter((s) => s.class_id === classId).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
-    [students, classId],
-  );
+  // L'ordre de la LISTE DE CLASSE, et lui seul : c'est de lui que découle le
+  // numéro affiché en colonne « N° » (cf. core/ordreClasse).
+  const classStudents = useMemo(() => elevesDeClasse(students, classId), [students, classId]);
 
-  const recordFor = (eleveId, domaineId) => observations[obsNkey(eleveId, domaineId, trimestreId)] || null;
+  // Les observations de CETTE classe restées sans UA (saisies avant le passage
+  // aux UA). Comptées sur les élèves de la classe affichée : une autre classe
+  // déjà migrée ne doit pas en hériter le bandeau.
+  const obsSansUaClasse = useMemo(() => {
+    const ids = new Set(classStudents.map((s) => s.id));
+    return (obsSansUa || []).filter((o) => ids.has(o.eleve_id)).length;
+  }, [obsSansUa, classStudents]);
+
+  const recordFor = (eleveId, domaineId) => observations[obsNkey(eleveId, domaineId, ua)] || null;
   const saveCell = (eleveId, domaineId, patch) => {
     const rec = recordFor(eleveId, domaineId);
     saveObservation({
-      eleveId, domaineId, trimestreId,
+      eleveId, domaineId, ua,
       niveauAcquis: 'niveauAcquis' in patch ? patch.niveauAcquis : (rec?.niveau_acquis ?? ''),
       observation:  'observation'  in patch ? patch.observation  : (rec?.observation ?? ''),
     });
@@ -383,10 +406,28 @@ export default function MatObservationWorkspace() {
           {/* Les sigles sont DÉRIVÉS du système de la classe, jamais écrits en dur :
               une Nursery lisait « ECA » dans ce sous-titre et « IP » sur sa grille,
               deux mots pour la même cote à trois centimètres d'écart. */}
-          {t(`Domaines officiels MINEDUB — niveaux d’acquisition ${codesAffiches}, par trimestre.`,
-             `Official MINEDUB domains — acquisition levels ${codesAffiches}, per term.`)}
+          {t(`Domaines officiels MINEDUB — niveaux d’acquisition ${codesAffiches}, par unité d’apprentissage (UA1-8, regroupées en trimestres).`,
+             `Official MINEDUB domains — acquisition levels ${codesAffiches}, per learning unit (LU1-8, grouped into terms).`)}
         </p>
       </div>
+
+      {/* LES OBSERVATIONS D'AVANT LES UA — annoncées, jamais devinées.
+          Une observation saisie quand l'écran proposait « Trimestre 1/2/3 » n'a
+          pas d'UA. Elle n'apparaît donc dans aucune colonne de cette grille. Le
+          dire est le minimum : sans ce bandeau, l'enseignante ouvrait l'écran,
+          voyait ses cases vides et concluait que ses observations avaient été
+          perdues. Le rattachement est fait une fois, avec journal et retour
+          arrière, par scripts/migrer-maternelle-ua.mjs. */}
+      {obsSansUaClasse > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <strong>{obsSansUaClasse}</strong>{' '}
+          {t('observation(s) de cette classe sont encore rattachées à un trimestre, pas à une UA : elles ne s’affichent pas dans la grille ci-dessous et ne sont PAS perdues.',
+             'observation(s) in this class are still attached to a term, not a learning unit: they are not shown in the grid below and are NOT lost.')}
+          {' '}
+          {t('L’administration doit lancer le rattachement aux UA (migration) pour les faire réapparaître.',
+             'The administration must run the learning-unit migration to bring them back.')}
+        </div>
+      )}
 
       {matieresOrphelines.length > 0 && (
         <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
@@ -403,11 +444,16 @@ export default function MatObservationWorkspace() {
           <span className="block text-gray-500 mb-1">{t('Classe', 'Class')}</span>
           {renderClassPicker()}
         </label>
+        {/* MÊME SÉLECTEUR QUE LE PRIMAIRE, aux libellés près : « UA3 (Trim. 1) »
+            dit à la fois l'unité qu'on saisit et le trimestre où elle comptera,
+            pour qu'une enseignante n'ait pas à retenir le regroupement. */}
         <label className="text-sm min-w-0">
-          <span className="block text-gray-500 mb-1">{t('Trimestre', 'Term')}</span>
-          <select value={trimestre} onChange={(e) => setTrimestre(Number(e.target.value))}
+          <span className="block text-gray-500 mb-1">{t('Unité d’apprentissage', 'Learning unit')}</span>
+          <select value={ua} onChange={(e) => setUa(Number(e.target.value))}
             className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
-            {[1, 2, 3].map((n) => <option key={n} value={n}>{t('Trimestre', 'Term')} {n}</option>)}
+            {MAT_UAS.map((n) => (
+              <option key={n} value={n}>UA{n} ({t('Trim.', 'Term')} {trimestreOfUA(n)})</option>
+            ))}
           </select>
         </label>
         <div className="ml-auto inline-flex rounded-lg border border-gray-200 overflow-hidden text-sm">
@@ -492,8 +538,8 @@ export default function MatObservationWorkspace() {
 
       {classStudents.length > 0 && domaines.length > 0 && (
         <CompetenceGradeIO
-          filename={`${t('evaluation_maternelle', 'nursery_assessment')}_${selectedClass?.name || ''}_T${trimestre}`}
-          sheetName={`${t('Trimestre', 'Term')} ${trimestre}`}
+          filename={`${t('evaluation_maternelle', 'nursery_assessment')}_${selectedClass?.name || ''}_UA${ua}`}
+          sheetName={`UA${ua}`}
           students={classStudents}
           columns={domaines.map((d) => ({ id: d.id, label: d.intitule }))}
           getCell={(sid, did) => matAcquisCode(recordFor(sid, did)?.niveau_acquis || '', sys)}
@@ -540,7 +586,10 @@ export default function MatObservationWorkspace() {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
+                {/* N° DE LA LISTE DE CLASSE — même numéro qu'à la saisie du primaire,
+                    qu'à la liste imprimée et qu'au bulletin (core/ordreClasse). */}
+                <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2 w-10 text-center font-medium text-gray-400">{t('N°', 'No.')}</th>
+                <th className="sticky left-10 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
                 {domaines.map((d) => (
                   <th key={d.id} className="px-3 py-2 text-left font-medium text-gray-600 max-w-[16rem]" title={d.intitule}>
                     <span className="block text-[11px] text-gray-400">{d.code}</span>
@@ -550,9 +599,10 @@ export default function MatObservationWorkspace() {
               </tr>
             </thead>
             <tbody>
-              {classStudents.map((stu) => (
+              {classStudents.map((stu, ri) => (
                 <tr key={stu.id} className="border-t border-gray-100">
-                  <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{stu.name}</td>
+                  <td className="sticky left-0 z-10 bg-white px-2 py-1.5 w-10 text-center text-xs text-gray-400 tabular-nums">{ri + 1}</td>
+                  <td className="sticky left-10 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">{stu.name}</td>
                   {domaines.map((d) => {
                     const rec = recordFor(stu.id, d.id);
                     return (

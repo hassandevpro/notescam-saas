@@ -18,6 +18,12 @@
 // All tables need RLS: auth.uid() → school_users → school_id match.
 
 import { supabase } from './supabase';
+// La règle « que faire d'une colonne que le Cloud ne connaît pas » est pure et
+// testée à part : c'est elle qui empêche qu'un retard de migration coûte un
+// versement (cf. l'incident PGRST204 du 2026-10-31).
+import {
+  COLONNES_ABANDONNABLES, sansColonnes, decisionEcriture,
+} from './colonneAbsente';
 
 // PostgREST plafonne CHAQUE select à 1000 lignes par défaut. Les tables qui
 // dépassent ce seuil (grades, fee_payments, students d'un gros complexe…) étaient
@@ -568,10 +574,44 @@ export async function fetchFeePayments(schoolId, year) {
   }, 'fetchFeePayments');
 }
 
+// UN VERSEMENT NE SE PERD PAS PARCE QU'UNE MIGRATION EST EN RETARD.
+//
+// Incident du 2026-10-31 : « Could not find the 'method' column of
+// 'fee_payments' in the schema cache ». PostgREST n'ignore pas une colonne
+// inconnue, il refuse LA LIGNE ENTIÈRE (PGRST204). La caissière encaissait
+// 15 000, l'écran disait avoir enregistré, et rien n'arrivait au Cloud.
+//
+// On réessaie donc sans les colonnes d'ENRICHISSEMENT que le serveur ne connaît
+// pas encore — mode de paiement, payeur, référence. Le versement part avec son
+// montant, sa date, son élève et son échéance : la comptabilité est juste, et
+// seul le mode manque. La liste de ce qui peut être abandonné est fermée et
+// testée (`colonneAbsente.js`) : `amount` ou `student_id` absents font échouer
+// l'écriture, bruyamment, parce qu'une ligne sans montant serait pire que pas
+// de ligne.
+//
+// Ceci ne remplace pas la migration : l'avertissement en console est volontaire,
+// pour que le retard se voie. L'ordre du dépôt reste Cloud d'abord, paquet LAN
+// ensuite.
 export async function insertFeePayment(payment) {
-  const { data, error } = await supabase.from('fee_payments').insert(payment).select().single();
-  if (error) { console.error('insertFeePayment', error); return null; }
-  return data;
+  let abandons = [];
+  // Au plus autant d'essais que de colonnes abandonnables, plus l'essai initial.
+  for (let i = 0; i <= (COLONNES_ABANDONNABLES.fee_payments || []).length; i++) {
+    const corps = abandons.length ? sansColonnes(payment, abandons) : payment;
+    const { data, error } = await supabase.from('fee_payments').insert(corps).select().single();
+    if (!error) {
+      if (abandons.length) {
+        console.warn(
+          `insertFeePayment : versement enregistré SANS ${abandons.join(', ')} — `
+          + 'ces colonnes manquent au Cloud. Appliquer supabase_fee_payment_mode.sql.',
+        );
+      }
+      return data;
+    }
+    const d = decisionEcriture({ table: 'fee_payments', error, dejaAbandonnees: abandons });
+    if (d.action !== 'reessayer') { console.error('insertFeePayment', error); return null; }
+    abandons = d.abandons;
+  }
+  return null;
 }
 
 export async function deleteFeePayment(id) {

@@ -63,13 +63,21 @@ async function replayItem(item) {
       .upsert(row, { onConflict: 'eleve_id,competence_id,sequence_id' });
     if (error) throw error;
   } else if (table === 'mat_observations') {
-    // payload = record IDB { id, school_id, eleve_id, domaine_id, trimestre_id,
-    //   …, nkey }. `nkey` est local : on le retire et on upsert sur le triplet
-    //   officiel (anti-doublon, comme le chemin online direct — matService.js).
+    // payload = record IDB { id, school_id, eleve_id, domaine_id, ua,
+    //   trimestre_id, …, nkey }. `nkey` est local : on le retire et on upsert sur
+    //   le triplet officiel (anti-doublon, comme le chemin online direct —
+    //   matService.js).
+    //
+    // ⚠️ LE TRIPLET A CHANGÉ LE 2026-11-01 : l'identité d'une observation est
+    // (élève, domaine, UA), plus (élève, domaine, trimestre). Un trimestre
+    // compte jusqu'à trois UA — sur l'ancienne clé, la deuxième écrasait la
+    // première. Cette ligne doit rester d'accord avec `matService.js` ET avec
+    // la contrainte Postgres : un `onConflict` sans contrainte correspondante
+    // échoue (42P10) et la file hors-ligne se bloque sur place.
     const { nkey, ...row } = payload;
     const { error } = await supabase
       .from('mat_observations')
-      .upsert(row, { onConflict: 'eleve_id,domaine_id,trimestre_id' });
+      .upsert(row, { onConflict: 'eleve_id,domaine_id,ua' });
     if (error) throw error;
   } else if (table === 'prim_notes') {
     // payload = record IDB { id, school_id, eleve_id, competence_id, critere_id,
@@ -191,7 +199,8 @@ const BATCHABLE = {
     rows: (p) => { const { nkey, ...row } = p; return [row]; },
   },
   mat_observations: {
-    conflict: 'eleve_id,domaine_id,trimestre_id',
+    // (élève, domaine, UA) depuis le 2026-11-01 — cf. le commentaire ci-dessus.
+    conflict: 'eleve_id,domaine_id,ua',
     rows: (p) => { const { nkey, ...row } = p; return [row]; },
   },
   prim_notes: {

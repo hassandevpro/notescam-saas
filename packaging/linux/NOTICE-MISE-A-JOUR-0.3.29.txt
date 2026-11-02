@@ -1,0 +1,290 @@
+======================================================================
+NotesCam 0.3.29 — SERVEUR LINUX (THE GENIUS)
+LA SYNCHRONISATION : CE QUI NE REMONTAIT PAS, ET POURQUOI
+======================================================================
+
+PAQUET            notescam-linux-x64-0.3.29.tar.gz
+TAILLE            53 730 340 octets
+EMPREINTE SHA-256 32ba90b90bb224b4793af03d6f040631569b371ddb20a3448baa6329743481c5
+CONSTRUIT LE      2026-11-02 (estampille du paquet : edition "lan")
+SCRIPT            deploy-0.3.29.sh   (bash -n OK)
+
+L'empreinte ci-dessus est celle du paquet REELLEMENT construit, relevee
+apres la construction. Verifiez-la avant d'installer :
+
+    sha256sum notescam-linux-x64-0.3.29.tar.gz
+
+----------------------------------------------------------------------
+LA COMMANDE
+----------------------------------------------------------------------
+
+    sudo NOTESCAM_CLOUD_SYNC_0329_OK=1 ./deploy-0.3.29.sh \
+         notescam-linux-x64-0.3.29.tar.gz
+
+----------------------------------------------------------------------
+CONDITION PREALABLE : ELLE EST DEJA REMPLIE
+----------------------------------------------------------------------
+
+Vous n'avez RIEN a faire au Cloud. Les deux conditions ont ete faites et
+verifiees le 2026-11-01 :
+
+  1. supabase_sync_tables_manquantes.sql a tourne. Verification :
+
+         parent_student_links    3 colonnes de synchro    1 trigger
+         deleted_fee_payments    3 colonnes de synchro    1 trigger
+         discipline_statistics   3 colonnes de synchro    1 trigger
+
+  2. Les quatre Edge Functions ont ete redeployees, versions relevees
+     apres coup :
+
+         sync-push v11    sync-pull v14
+         sync-verify v5   sync-repair v6
+
+Le script vous demande quand meme de confirmer. Ce n'est pas une
+formalite oubliee : votre confirmation est tracee dans le journal de
+deploiement, et c'est la seule trace qui dira, dans six mois, que la
+question avait ete posee.
+
+----------------------------------------------------------------------
+LE PREMIER DEMARRAGE EST LONG. C'EST NORMAL.
+----------------------------------------------------------------------
+
+Comptez environ 90 SECONDES avant que le serveur reponde, au lieu de
+quelques secondes. Il dedoublonne la file de poussee.
+
+Le script attend jusqu'a 10 minutes et vous dit ou il en est. NE
+L'INTERROMPEZ PAS, et ne relancez pas le service a la main pendant ce
+temps : la migration est transactionnelle, mais une interruption vous
+ferait simplement tout recommencer.
+
+Ce temps n'est paye QU'UNE FOIS.
+
+======================================================================
+CE QUE CETTE VERSION CORRIGE
+======================================================================
+
+Quatre pannes distinctes, toutes sous le meme symptome :
+« mes modifications ne remontent pas ».
+
+----------------------------------------------------------------------
+1. LA FILE ETAIT ENGORGEE — 49 SEMAINES DE RETARD
+----------------------------------------------------------------------
+
+Mesure faite sur une copie de VOTRE base, le 2026-11-01 :
+
+        13 314 326 entrees en attente
+        pour quelques milliers de lignes reelles
+
+La file etait en ajout pur : chaque modification d'une ligne AJOUTAIT
+une entree sans remplacer la precedente. Un eleve modifie cent fois
+pesait cent entrees.
+
+Le moteur en pousse 500 par cycle, toutes les 5 minutes :
+
+        13 314 326 / 500 = 26 629 cycles
+        26 629 x 5 min   = 2 219 heures = 49 SEMAINES
+
+Chaque fois que quelqu'un cliquait « synchroniser », il ne poussait donc
+que les 500 entrees suivantes — pour l'essentiel des doublons perimes
+vieux de plusieurs mois. La synchronisation tournait, et ne faisait
+remonter presque rien. C'etait vrai, et ce n'etait pas une impression.
+
+APRES : une ligne en attente = une entree. Mesure sur la copie :
+13 314 326 -> 6 457 entrees en 88 secondes. Le rattrapage passe de
+2 219 heures a environ 65 minutes de serveur allume.
+
+----------------------------------------------------------------------
+2. TRENTE-DEUX ECRITURES N'ENTRAIENT PAS DANS LA FILE
+----------------------------------------------------------------------
+
+Une partie du serveur ecrivait en direct dans HUIT tables synchronisees
+— classes, matieres, etablissement, utilisateurs, enseignants, roles —
+sur 32 endroits, SANS rien mettre dans la file.
+
+Une classe creee, un enseignant renomme, un role attribue : rien
+n'entrait. Ces changements ne remontaient que si le controle d'integrite
+finissait par les remarquer. Tard, ou jamais.
+
+APRES : la capture est posee DANS LA BASE, par declencheur. Corriger les
+32 endroits aurait laisse le trou ouvert pour le 33e.
+
+----------------------------------------------------------------------
+3. LES FRERES ET SOEURS NE REMONTAIENT JAMAIS
+----------------------------------------------------------------------
+
+La table des liens parent/eleve n'etait inscrite dans AUCUNE des sept
+listes du contrat de synchronisation. Elle n'apparaissait nulle part :
+pas d'erreur, pas de test en echec, pas de message. Elle ne circulait
+simplement pas.
+
+APRES : elle est branchee des deux cotes. Les liens DEJA crees recoivent
+au premier demarrage un identifiant calcule a partir du parent et de
+l'eleve, puis partent en file.
+
+C'est la decision que vous avez prise le 2026-11-01 : LE LAN FAIT FOI.
+Si un meme lien existe des deux cotes avec des valeurs differentes,
+c'est celui de l'ecole qui gagne.
+
+----------------------------------------------------------------------
+4. DEUX PERSONNES, DEUX CHAMPS, UNE CORRECTION JETEE
+----------------------------------------------------------------------
+
+    9 h  — la secretaire corrige le MATRICULE d'un eleve, a l'ecole.
+    10 h — le censeur corrige le NOM du meme eleve, en ligne.
+
+La ligne venue du Cloud etait « plus recente » : elle ecrasait TOUTE la
+ligne. Le matricule corrige a 9 h disparaissait, sans un mot, sans
+trace. Inversez les heures, et c'est le nom qui disparait.
+
+Les deux personnes ne se genaient pas — elles avaient touche des champs
+DIFFERENTS — et pourtant une correction sur deux etait jetee.
+
+APRES : la fusion se fait CHAMP PAR CHAMP. Les deux corrections tiennent.
+
+Et quand les deux cotes ont vraiment touche le MEME champ :
+
+  · ce n'est plus l'horloge du PC qui tranche. Celle d'un poste d'ecole
+    peut avoir des mois d'ecart — une pile de carte mere vide suffit —
+    et ce poste gagnait, ou perdait, TOUS les desaccords. C'est un
+    compteur logique qui decide maintenant ;
+
+  · les donnees sensibles ne sont JAMAIS ecrasees en silence. Une note,
+    une periode verrouillee, un versement, une caisse comptee : la
+    valeur de l'ecole est conservee, et le desaccord est INSCRIT pour
+    que quelqu'un tranche ;
+
+  · les versements et reçus sont en AJOUT SEUL. Un montant deja encaisse
+    ne peut plus etre reecrit par le Cloud, quelle que soit sa version.
+    Le Cloud peut seulement REMPLIR un champ encore vide — le numero de
+    reçu attribue par le serveur en est le cas normal.
+
+----------------------------------------------------------------------
+5. ET L'ECRAN « SYNCHRONISATION » QUI NE VOYAIT RIEN
+----------------------------------------------------------------------
+
+A LIRE, MEME SI LE RESTE NE VOUS INTERESSE PAS.
+
+L'ecran « Synchronisation » interrogeait le serveur SANS son jeton
+d'administrateur. Le serveur refusait (403), et l'ecran avalait le refus
+sans rien dire. Il affichait donc, pour toujours :
+
+        Evenements en attente : —
+        En attente de la premiere synchronisation...
+        Aucune synchronisation enregistree pour l'instant.
+
+Si quelqu'un a ouvert cet ecran pour verifier que la synchronisation
+tournait, il y a vu la preuve apparente qu'elle ne tournait pas. Ce
+n'etait pas la synchronisation : c'etait L'ECRAN qui ne voyait rien.
+
+Corrige. Le meme ecran, sur la meme base, affiche desormais de vrais
+chiffres. Et un nouveau bloc : « Desaccords a trancher ».
+
+======================================================================
+LE NOUVEL ECRAN : « DESACCORDS A TRANCHER »
+======================================================================
+
+Menu « Synchronisation », reserve aux administrateurs.
+
+Il liste les donnees qui ont ete modifiees A L'ECOLE ET EN LIGNE sur le
+meme champ. Il dit « a l'ecole » et « en ligne » — jamais « local » et
+« distant », qui ne veulent rien dire pour une secretaire.
+
+    Vu le        Donnee                   A l'ecole  En ligne  Avant
+    02/11 08:09  Note — valeur de la note    14         09       12
+                                        [Garder l'ecole] [Prendre en ligne]
+
+  · « n en attente » = le logiciel a REFUSE de trancher. Il attend vous.
+  · un badge « auto » = le logiciel a tranche seul, sur un champ
+    ordinaire. Vous pouvez revenir dessus.
+  · « (vide) » = le champ est vide. Un numero jamais saisi et un numero
+    efface ne sont pas la meme chose, et l'ecran les distingue.
+  · « Avant » = la derniere valeur sur laquelle les deux cotes etaient
+    d'accord. C'est elle qui permet de savoir qui a change quoi.
+
+Votre decision REPART vers le Cloud dans les deux cas — y compris quand
+vous gardez la valeur de l'ecole. Sans cela, le Cloud renverrait sa
+version et le desaccord se rouvrirait a chaque cycle.
+
+Chaque arbitrage est journalise avec le compte qui l'a pris.
+
+S'il n'y a aucun desaccord, le bloc affiche « Aucun desaccord » en vert.
+C'est le bon resultat, pas une panne.
+
+======================================================================
+CE QUE CETTE VERSION NE CHANGE PAS
+======================================================================
+
+Bulletins, notes, versements, rapports, imports, emploi du temps :
+INCHANGES. Cette version ne touche qu'a la synchronisation et a son
+ecran. Les comptages metier sont verifies identiques avant et apres par
+le script lui-meme.
+
+======================================================================
+CE QUI RESTE OUVERT — A NE PAS CROIRE REGLE
+======================================================================
+
+  · DIX TABLES ne circulent toujours pas, dont six qui n'ont pas
+    d'identifiant de ligne du tout (cle composite). Elles sont INSCRITES
+    comme telles, avec leur blocage, et un test echoue si on en oublie
+    une nouvelle. Ce sont surtout des masques d'affichage de
+    referentiels et le rattachement matiere/classe du primaire APC.
+
+  · LE CLOUD, LUI, tranche encore a la ligne entiere. Nos fusions
+    passent parce qu'elles portent un compteur superieur, mais une
+    saisie faite sur le site entre notre descente et notre remontee peut
+    etre ecrasee. La fenetre est etroite ; elle n'est pas nulle.
+
+  · LE CYCLE RESTE PERIODIQUE (5 minutes). Il ne se declenche pas encore
+    des qu'une modification est faite.
+
+  · LES FICHIERS ET PIECES JOINTES ne sont pas synchronises
+    incrementalement.
+
+======================================================================
+A VERIFIER APRES L'INSTALLATION
+======================================================================
+
+Depuis un poste de l'ecole, apres Ctrl+Shift+R :
+
+  1. LE CONTROLE DE CETTE VERSION. Connectez-vous en ADMINISTRATEUR et
+     ouvrez « Synchronisation ». L'ecran doit afficher un NOMBRE dans
+     « Evenements en attente » et un etat.
+     S'il affiche encore des tirets et « En attente de la premiere
+     synchronisation... », le paquet n'est pas pris : refaites un
+     Ctrl+Shift+R, et si ca persiste, envoyez la sortie du script.
+
+  2. LES FRERES ET SOEURS — c'est le controle qui compte. Prenez un
+     eleve qui a un frere ou une soeur dans l'ecole. Verifiez le lien a
+     l'ecole. Attendez un cycle. Regardez EN LIGNE : le lien doit y etre.
+     C'est exactement ce qui ne marchait pas.
+
+  3. LA FUSION PAR CHAMP. Sur un eleve : corrigez son MATRICULE a
+     l'ecole, faites corriger son NOM en ligne. Apres un cycle, LES DEUX
+     corrections doivent etre la, des deux cotes.
+
+  4. Les notes, versements et bulletins deja saisis sont toujours la et
+     s'affichent comme avant.
+
+======================================================================
+SI QUELQUE CHOSE NE VA PAS — RETOUR ARRIERE
+======================================================================
+
+Le script fait une copie VERIFIEE de la base avant de toucher a quoi que
+ce soit, et il vous donne son chemin. Il verifie l'integrite de la copie
+ET l'egalite des comptages : si l'un des deux echoue, il s'arrete AVANT
+d'installer et l'application n'est pas touchee.
+
+    sudo systemctl stop notescam
+    sudo cp /var/lib/notescam/data/notescam.db.avant-0.3.29-<horodatage> \
+            /var/lib/notescam/data/notescam.db
+    sudo chown notescam:notescam /var/lib/notescam/data/notescam.db
+    (puis reinstallez le paquet precedent : 0.3.27)
+    sudo systemctl start notescam
+
+Le chemin exact de la copie est affiche par le script, et repete en cas
+d'echec.
+
+En cas de doute : N'ESSAYEZ RIEN D'AUTRE et envoyez la sortie COMPLETE
+du script.
+
+======================================================================

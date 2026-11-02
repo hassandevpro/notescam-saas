@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSchoolStore } from '../../store/schoolStore';
 import { useAuthStore } from '../../store/authStore';
 import { useUiStore } from '../../store/uiStore';
-import { useT } from '../../lib/i18n';
+import { useT, getLang } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { celluleSuivante } from '../../lib/gridNavigation';
 import { isSequenceLocked } from '../../lib/lockService';
@@ -34,6 +34,9 @@ import {
 import { apcMatieresForClass, unmatchedClassSubjects } from '../../core/refClassScope';
 import { manquesPourClasse } from '../../core/apcRattrapage';
 import { classSubjectsOf } from '../../core/subjectOrder';
+// L'ordre de la liste de classe — et donc le numéro « N° » affiché en tête de
+// ligne, le même que sur la liste imprimée et les bulletins.
+import { elevesDeClasse } from '../../core/ordreClasse';
 import ReferentielEditor from './ReferentielEditor';
 import { withLibelles } from '../../lib/referentielEcole';
 import MobileEntryList from './MobileEntryList';
@@ -47,8 +50,35 @@ import {
 import {
   apcSeqIdOfSeqNum, apcTrimestreOfSeqNum, apcSeqNumsForTrimestre, APC_TRIMESTRE_IDS,
 } from '../../core/apcPeriods';
+// PLUSIEURS ÉVALUATIONS D'UNE MÊME COMPÉTENCE DANS LE TRIMESTRE : le modèle en
+// portait déjà deux (une par séquence), l'écran n'en laissait saisir qu'une
+// depuis le 2026-10-03. Ce module rouvre la seconde sans ramener le sélecteur de
+// séquence — les séquences deviennent des colonnes « Éval. 1 », « Éval. 2 ».
+import {
+  colonnesEvaluations, nombreEvaluations, nombreEvaluationsParDefaut, capaciteEvaluations,
+  etatSaisie, indicateurSaisie, moyenneEvaluations,
+  configEvaluationsPour, ecrireConfigEvaluations,
+} from '../../core/apcEvaluations';
 
 const APC_MAX = APC_DEFAULT_MAX; // barème par défaut des notes APC (/20)
+
+// ── L'IDENTIFIANT D'UNE COLONNE D'ÉVALUATION ──────────────────────────────────
+// Une case de la grille est un couple (compétence, séquence) : la même
+// compétence évaluée deux fois dans le trimestre occupe deux cases. Les
+// composants de saisie, d'export et de navigation ne manipulent qu'un
+// identifiant de colonne — ce découpage ne remonte pas jusqu'à eux.
+//
+// Un identifiant de compétence NU reste accepté partout et désigne la première
+// séquence du trimestre : c'est là que la saisie écrit depuis le 2026-10-03, et
+// tout ce qui a été saisi avant s'y trouve.
+const SEP_EVAL = '@';
+const cleEval = (competenceId, sequenceId) => `${competenceId}${SEP_EVAL}${sequenceId}`;
+function decoupeEval(col, sequenceParDefaut) {
+  const s = String(col ?? '');
+  const i = s.lastIndexOf(SEP_EVAL);
+  if (i < 0) return { competenceId: s, seqId: sequenceParDefaut };
+  return { competenceId: s.slice(0, i), seqId: s.slice(i + 1) || sequenceParDefaut };
+}
 
 // ── Cellule note ──────────────────────────────────────────────────────────────
 // `max` = barème de CETTE évaluation (compétence × séquence). La saisie est
@@ -129,6 +159,8 @@ export default function ApcCompetenceWorkspace() {
   const permissions = useAuthStore((s) => s.permissions);
   const schoolId = school?.id;
   const role      = useAuthStore((s) => s.role);
+  // Écriture du réglage « nombre d'évaluations » de la matière (JSON sur l'école).
+  const updateSchool = useAuthStore((s) => s.updateSchool);
   const teacherId = useAuthStore((s) => s.teacherId);
   // Mode 1 « enseignant de matière » : l'enseignant ne voit QUE les matières qui
   // lui sont affectées — et donc que les classes où il en assure au moins une.
@@ -373,6 +405,41 @@ export default function ApcCompetenceWorkspace() {
     [competencesToutes, masques],
   );
 
+  // ── LES COLONNES D'ÉVALUATION DU TRIMESTRE ──────────────────────────────
+  //
+  // Une colonne = une case en base, c'est-à-dire un couple (compétence,
+  // séquence). L'identifiant de colonne les porte toutes deux : les composants
+  // de saisie, d'export et de navigation manipulent un id de colonne sans avoir
+  // à connaître ce découpage.
+  //
+  // Le nombre de colonnes est DÉDUIT du nombre de compétences (1 → 2, sinon une
+  // par compétence) et plafonné par la capacité réelle du trimestre
+  // (compétences × séquences). Une école peut le surcharger matière par matière
+  // (`schools.apc_evaluations`) ; sans configuration, la déduction s'applique.
+  const sequencesDuTrimestre = useMemo(
+    () => seqsDuTrimestre.map((n) => apcSeqIdOfSeqNum(referentiel, n) || `s${n}`),
+    [seqsDuTrimestre.join(','), referentiel],
+  );
+  const configEval = configEvaluationsPour(school?.apc_evaluations, classeSlug, matiereId);
+  const nbEvaluations = nombreEvaluations({
+    nbCompetences: competences.length,
+    nbSequences: sequencesDuTrimestre.length,
+    config: configEval,
+  });
+  const colonnes = useMemo(
+    () => colonnesEvaluations({
+      competences, sequences: sequencesDuTrimestre, nombre: nbEvaluations,
+    }).map((c) => ({ ...c, id: cleEval(c.competence.id, c.sequenceId) })),
+    [competences, sequencesDuTrimestre, nbEvaluations],
+  );
+  // Les compétences réellement couvertes par les colonnes affichées : une
+  // matière configurée avec moins d'évaluations que de compétences n'en montre
+  // qu'une partie, et la moyenne ne doit porter que sur celles-là.
+  const competencesAffichees = useMemo(
+    () => competences.filter((c) => colonnes.some((x) => x.competence.id === c.id)),
+    [competences, colonnes],
+  );
+
   useEffect(() => { loadRefMasques('apc'); }, [loadRefMasques]);
 
   const [refOpen, setRefOpen] = useState(false);
@@ -400,36 +467,47 @@ export default function ApcCompetenceWorkspace() {
     }
     : null;
 
-  const classStudents = useMemo(
-    () => students.filter((s) => s.class_id === classId)
-      .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
-    [students, classId],
-  );
+  // L'ordre de la LISTE DE CLASSE, et lui seul : c'est de lui que découle le
+  // numéro affiché en colonne « N° » (cf. core/ordreClasse).
+  const classStudents = useMemo(() => elevesDeClasse(students, classId), [students, classId]);
 
   // Notes déjà posées sur les AUTRES séquences du trimestre, du temps où l'écran
   // laissait choisir la séquence. Elles n'ont pas été touchées et restent
   // comptées dans la moyenne du trimestre : on le signale, plutôt que de les
   // laisser peser sans que personne ne les voie.
-  const notesAutresSeqs = useMemo(() => {
+  // Ce décompte ne porte PLUS sur « les autres séquences » : depuis que le
+  // trimestre affiche plusieurs évaluations, la seconde séquence est de nouveau
+  // éditable là où une colonne la désigne. Ce qui reste invisible, ce sont les
+  // cases QUE LES COLONNES AFFICHÉES NE COUVRENT PAS — et elles comptent
+  // toujours dans la moyenne du bulletin, qui agrège tout le trimestre.
+  const notesHorsColonnes = useMemo(() => {
     if (!competences.length || !classStudents.length) return 0;
-    const autres = seqsDuTrimestre.slice(1)
-      .map((n) => apcSeqIdOfSeqNum(referentiel, n) || `s${n}`);
+    const couvertes = new Set(colonnes.map((c) => `${c.competence.id}|${c.sequenceId}`));
     let n = 0;
     for (const stu of classStudents) {
       for (const c of competences) {
-        for (const sid of autres) {
+        for (const sid of sequencesDuTrimestre) {
+          if (couvertes.has(`${c.id}|${sid}`)) continue;
           const r = apcNotes[noteNkey(stu.id, c.id, sid)];
           if (r?.note != null && r.note !== '') n++;
         }
       }
     }
     return n;
-  }, [apcNotes, competences, classStudents, seqsDuTrimestre.join(','), referentiel]);
+  }, [apcNotes, competences, classStudents, colonnes, sequencesDuTrimestre]);
 
   const locked = schoolId && classId ? isSequenceLocked(schoolId, classId, sequence) : false;
 
-  // Lecture/écriture d'une cellule (note ou appréciation) en préservant l'autre champ.
-  const recordFor = (eleveId, competenceId) => apcNotes[noteNkey(eleveId, competenceId, sequenceId)] || null;
+  // Lecture/écriture d'une cellule (note ou appréciation) en préservant l'autre
+  // champ. `col` est un identifiant de COLONNE (compétence + séquence) : une
+  // compétence évaluée deux fois dans le trimestre a deux colonnes, donc deux
+  // cases distinctes en base. Un identifiant de compétence nu reste accepté et
+  // désigne la première séquence du trimestre — c'est là que la saisie écrit
+  // depuis le 2026-10-03.
+  const recordFor = (eleveId, col) => {
+    const { competenceId, seqId } = decoupeEval(col, sequenceId);
+    return apcNotes[noteNkey(eleveId, competenceId, seqId)] || null;
+  };
 
   // ── NAVIGATION AU CLAVIER ──────────────────────────────────────────────────
   // Même geste que dans la grille du primaire : les champs s'enregistrent ici
@@ -446,7 +524,7 @@ export default function ApcCompetenceWorkspace() {
   const naviguer = (row, col) => (key, caret) => {
     const cible = celluleSuivante(
       key,
-      { row, col, rows: classStudents.length, cols: competences.length, actif: () => !locked },
+      { row, col, rows: classStudents.length, cols: colonnes.length, actif: () => !locked },
       caret,
     );
     const el = cible && cellules.current.get(`${cible.row}:${cible.col}`);
@@ -456,24 +534,27 @@ export default function ApcCompetenceWorkspace() {
     return true;
   };
 
-  // Barème de l'évaluation (compétence × séquence) : relu de la première note
-  // déjà saisie dans la colonne, /20 par défaut. La même compétence peut donc
-  // être notée /3 sur une séquence et /20 sur une autre.
-  const baremeFor = (competenceId) => {
+  // Barème de l'évaluation : relu de la première note déjà saisie dans LA
+  // COLONNE, /20 par défaut. Chaque évaluation a son propre barème — la même
+  // compétence peut être notée /3 à la première évaluation et /20 à la seconde,
+  // et le bulletin sait moyenner deux barèmes différents (il passe alors par les
+  // proportions, cf. core/apcEvaluations.js).
+  const baremeFor = (col) => {
     for (const stu of classStudents) {
-      const r = recordFor(stu.id, competenceId);
+      const r = recordFor(stu.id, col);
       if (r?.note_max != null) return Number(r.note_max);
       if (r?.note != null && r.note !== '') return APC_DEFAULT_MAX; // note sans barème = historique /20
     }
-    return pendingBareme[competenceId] ?? APC_DEFAULT_MAX;
+    return pendingBareme[col] ?? APC_DEFAULT_MAX;
   };
 
-  const saveCell = (eleveId, competenceId, patch) => {
-    const rec = recordFor(eleveId, competenceId);
+  const saveCell = (eleveId, col, patch) => {
+    const rec = recordFor(eleveId, col);
+    const { competenceId, seqId } = decoupeEval(col, sequenceId);
     saveApcNote({
-      eleveId, competenceId, sequenceId,
+      eleveId, competenceId, sequenceId: seqId,
       note: 'note' in patch ? patch.note : (rec?.note ?? ''),
-      noteMax: 'noteMax' in patch ? patch.noteMax : baremeFor(competenceId),
+      noteMax: 'noteMax' in patch ? patch.noteMax : baremeFor(col),
       appreciation: 'appreciation' in patch ? patch.appreciation : (rec?.appreciation ?? ''),
     });
   };
@@ -481,15 +562,18 @@ export default function ApcCompetenceWorkspace() {
   // Changement du barème d'une colonne. REFUSÉ si une note déjà saisie le
   // dépasse : on ne transforme pas en silence un 14/20 en 14/3. L'enseignant
   // corrige d'abord les notes concernées.
-  const setBareme = (competenceId, nouveau) => {
+  // `col` est un identifiant de COLONNE, comme pour `baremeFor` et `saveCell` :
+  // le barème appartient à l'évaluation, pas à la compétence. Régler /3 sur
+  // « Éval. 1 » ne touche pas « Éval. 2 » de la même compétence.
+  const setBareme = (col, nouveau) => {
     const trop = classStudents.filter((stu) => {
-      const r = recordFor(stu.id, competenceId);
+      const r = recordFor(stu.id, col);
       const n = r?.note == null || r.note === '' ? null : Number(r.note);
       return n != null && !Number.isNaN(n) && n > nouveau;
     });
     if (trop.length) {
       setBaremeMsg({
-        competenceId,
+        competenceId: col,
         text: t(
           `Barème /${nouveau} refusé : ${trop.length} note(s) le dépassent (${trop.slice(0, 3).map((s) => s.name).join(', ')}${trop.length > 3 ? '…' : ''}). Corrigez-les d'abord.`,
           `Scale /${nouveau} refused: ${trop.length} grade(s) exceed it (${trop.slice(0, 3).map((s) => s.name).join(', ')}${trop.length > 3 ? '…' : ''}). Fix them first.`,
@@ -499,7 +583,7 @@ export default function ApcCompetenceWorkspace() {
     }
     setBaremeMsg(null);
     // Affichage immédiat seulement : ce n'est plus le seul domicile du barème.
-    setPendingBareme((p) => ({ ...p, [competenceId]: nouveau }));
+    setPendingBareme((p) => ({ ...p, [col]: nouveau }));
 
     // ÉCRIT POUR TOUTE LA COLONNE, pas seulement pour les élèves déjà notés.
     // Même défaut, même correctif que l'écran du primaire : sur une colonne
@@ -518,21 +602,36 @@ export default function ApcCompetenceWorkspace() {
     // vaut 20 — la valeur affichée est donc la bonne, par convention et non par
     // accident.
     for (const stu of classStudents) {
-      saveCell(stu.id, competenceId, { noteMax: nouveau });
+      saveCell(stu.id, col, { noteMax: nouveau });
     }
   };
 
   // Moyenne matière d'un élève (sur les compétences de la séquence). Chaque note
   // est fournie AVEC son barème : `matiereAverage` normalise avant d'agréger, de
   // sorte qu'un 2/3 et un 14/20 ne soient jamais additionnés tels quels.
+  // Moyenne de la matière pour un élève — LA MÊME QU'AU BULLETIN, et c'est tout
+  // l'enjeu : une compétence évaluée deux fois dans le trimestre compte pour la
+  // MOYENNE de ses deux évaluations, pas pour la dernière saisie. L'écran lit
+  // donc la règle partagée (`moyenneEvaluations`), puis combine les compétences
+  // par la règle de matière inchangée (`matiereAverage`).
   const studentAvg = (eleveId) => {
     const notes = {};
-    for (const c of competences) {
-      const v = noteScale(recordFor(eleveId, c.id));
+    for (const c of competencesAffichees) {
+      const v = moyenneEvaluations(
+        colonnes.filter((x) => x.competence.id === c.id).map((x) => recordFor(eleveId, x.id)),
+      );
       if (v !== null) notes[c.id] = v;
     }
-    return matiereAverage(notes, competences);
+    return matiereAverage(notes, competencesAffichees);
   };
+
+  // OÙ EN EST LA SAISIE pour cet élève : « 1 évaluation sur 2 saisie ». Une
+  // moyenne calculée sur la moitié des évaluations est une note PROVISOIRE, et
+  // l'afficher comme définitive annonce au parent un résultat qui va bouger.
+  const etatDe = (eleveId) => etatSaisie({
+    colonnes,
+    noteDe: (cid, sid) => recordFor(eleveId, cleEval(cid, sid)),
+  });
 
   // ── Rendus d'états vides ─────────────────────────────────────────────────────
   if (!referentiel) {
@@ -667,19 +766,59 @@ export default function ApcCompetenceWorkspace() {
       )}
 
       {/* Bandeau trimestre / héritage */}
-      <div className="text-xs text-gray-500">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
         {t('Coef matière', 'Subject coef')} {matiereCoef} · {' '}
-        {t('une note par compétence et par trimestre', 'one grade per competency and per term')}
+        {colonnes.length === 1
+          ? t('une évaluation dans le trimestre', 'one assessment in the term')
+          : t(`${colonnes.length} évaluations dans le trimestre, moyennées pour la note du trimestre`,
+            `${colonnes.length} assessments in the term, averaged into the term grade`)}
+
+        {/* LE NOMBRE D'ÉVALUATIONS, CONFIGURABLE PAR MATIÈRE. Déduit du nombre de
+            compétences (1 → 2, sinon une par compétence) ; ce sélecteur n'existe
+            que pour les exceptions, et il ne s'affiche qu'à la direction — un
+            enseignant qui le changerait en cours de trimestre déplacerait les
+            colonnes de tous ses collègues sur la même matière.
+
+            Le maximum est la CAPACITÉ réelle (compétences × séquences) : au-delà,
+            deux colonnes désigneraient la même case et la seconde écraserait la
+            première. */}
+        {(role === 'admin' || role === 'censeur') && competences.length > 0 && (
+          <label className="ml-auto flex items-center gap-1">
+            <span>{t('Évaluations', 'Assessments')}</span>
+            <select
+              value={nbEvaluations}
+              onChange={async (e) => {
+                const valeur = Number(e.target.value);
+                const json = ecrireConfigEvaluations(
+                  school?.apc_evaluations, classeSlug, matiereId, valeur,
+                  { nbCompetences: competences.length, nbSequences: sequencesDuTrimestre.length },
+                );
+                await updateSchool({ apc_evaluations: json });
+              }}
+              className="rounded border border-gray-200 px-1 py-0.5 text-xs"
+            >
+              {Array.from(
+                { length: Math.max(1, capaciteEvaluations(competences.length, sequencesDuTrimestre.length)) },
+                (_, i) => i + 1,
+              ).map((n) => (
+                <option key={n} value={n}>
+                  {n}{n === nombreEvaluationsParDefaut(competences.length, sequencesDuTrimestre.length)
+                    ? ` (${t('par défaut', 'default')})` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {locked && <span className="ml-2 text-amber-600 font-medium">· {t('Trimestre verrouillé (lecture seule)', 'Term locked (read-only)')}</span>}
       </div>
 
       {/* Notes héritées d'une autre séquence du même trimestre : elles comptent
           dans la moyenne, on ne les cache pas. */}
-      {notesAutresSeqs > 0 && (
+      {notesHorsColonnes > 0 && (
         <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
           {t(
-            `${notesAutresSeqs} note(s) de ce trimestre ont été saisies sur une autre séquence, du temps où l'écran le permettait. Elles sont conservées et comptent toujours dans la moyenne du trimestre, mais ne se modifient plus ici.`,
-            `${notesAutresSeqs} grade(s) for this term were entered on another sequence, back when the screen allowed it. They are kept and still count towards the term average, but can no longer be edited here.`,
+            `${notesHorsColonnes} note(s) de ce trimestre ne sont couvertes par aucune colonne affichée. Elles sont conservées et comptent toujours dans la moyenne du bulletin, qui agrège tout le trimestre, mais ne se modifient pas ici. Pour les rouvrir, augmentez le nombre d'évaluations de la matière.`,
+            `${notesHorsColonnes} grade(s) for this term are not covered by any displayed column. They are kept and still count towards the report-card average, which aggregates the whole term, but cannot be edited here. To reopen them, raise the subject's number of assessments.`,
           )}
         </div>
       )}
@@ -700,21 +839,29 @@ export default function ApcCompetenceWorkspace() {
       {/* Chaque en-tête de colonne exportée porte son barème : un classeur qui ne
           dit pas sur quoi l'on saisit revient rempli sur une échelle qu'on ne peut
           plus deviner. */}
-      {competences.length > 0 && classStudents.length > 0 && (
+      {colonnes.length > 0 && classStudents.length > 0 && (
         <CompetenceGradeIO
           filename={`notes_${(matieres.find((m) => m.id === matiereId)?.nom || 'matiere').replace(/[\\/:*?"<>|]/g, '-')}_${selectedClass?.name || ''}_${String(trimestreId || '').toUpperCase()}`}
           sheetName={`${t('Trimestre', 'Term')} ${String(trimestreId || 't1').replace('t', '')}`}
           students={classStudents}
-          columns={competences.map((c) => ({ id: c.id, label: `${c.intitule} /${baremeFor(c.id)}` }))}
+          columns={colonnes.map((col) => ({
+            id: col.id,
+            // L'en-tête exporté porte le NUMÉRO d'évaluation en plus de
+            // l'intitulé : sans lui, les deux colonnes d'une matière à une seule
+            // compétence seraient identiques dans le classeur, et le fichier
+            // reviendrait avec deux colonnes qu'on ne peut plus distinguer.
+            label: `${t('Éval.', 'Assess.')} ${col.rang} — ${col.competence.intitule} /${baremeFor(col.id)}`,
+          }))}
           getCell={(sid, cid) => { const r = recordFor(sid, cid); return r?.note != null ? String(r.note) : ''; }}
           computed={[
             { label: 'M/20', get: (sid) => studentAvg(sid) ?? '' },
-            { label: t('Cote', 'Grade'), get: (sid) => apcCote(studentAvg(sid)).code },
+            { label: t('Cote', 'Grade'), get: (sid) => (etatDe(sid).provisoire ? '' : apcCote(studentAvg(sid)).code) },
+            { label: t('Saisie', 'Entered'), get: (sid) => { const e = etatDe(sid); return `${e.saisies}/${e.attendues}`; } },
           ]}
           normalize={(raw, cid) => validateGrade(raw, baremeFor(cid))}
           onImport={(sid, cid, v) => saveCell(sid, cid, { note: v })}
           disabled={locked}
-          valueHint={competences.some((c) => baremeFor(c.id) !== APC_MAX)
+          valueHint={colonnes.some((col) => baremeFor(col.id) !== APC_MAX)
             ? t('barème indiqué dans chaque en-tête', 'scale shown in each header')
             : `/${APC_MAX}`}
         />
@@ -763,20 +910,24 @@ export default function ApcCompetenceWorkspace() {
             savoir sur quoi. Ici le libellé est entier, au-dessus du champ. */}
         <MobileEntryList
           students={classStudents}
-          columns={competences.map((c, i) => ({
-            id: c.id, code: `${t('Comp.', 'Comp.')} ${i + 1}`,
-            label: `${c.intitule} · /${baremeFor(c.id)}`,
+          columns={colonnes.map((col) => ({
+            id: col.id, code: `${t('Éval.', 'Assess.')} ${col.rang}`,
+            label: `${col.competence.intitule} · /${baremeFor(col.id)}`,
           }))}
           subtitle={(stu) => {
             const avg = studentAvg(stu.id);
-            return avg == null ? null : `${avg}/20 · ${apcCote(avg).code}`;
+            if (avg == null) return null;
+            const etat = etatDe(stu.id);
+            return etat.provisoire
+              ? `${avg}/20 · ${indicateurSaisie(etat, { en: getLang() === 'en' })}`
+              : `${avg}/20 · ${apcCote(avg).code}`;
           }}
-          isFilled={(stu, c) => recordFor(stu.id, c.id)?.note != null}
-          renderCell={(stu, c) => (
+          isFilled={(stu, col) => recordFor(stu.id, col.id)?.note != null}
+          renderCell={(stu, col) => (
             <NoteCell
-              value={recordFor(stu.id, c.id)?.note != null ? String(recordFor(stu.id, c.id).note) : ''}
-              max={baremeFor(c.id)} disabled={locked}
-              onCommit={(v) => saveCell(stu.id, c.id, { note: v })}
+              value={recordFor(stu.id, col.id)?.note != null ? String(recordFor(stu.id, col.id).note) : ''}
+              max={baremeFor(col.id)} disabled={locked}
+              onCommit={(v) => saveCell(stu.id, col.id, { note: v })}
             />
           )}
         />
@@ -786,18 +937,28 @@ export default function ApcCompetenceWorkspace() {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">
+                {/* N° DE LA LISTE DE CLASSE — même numéro que sur la liste imprimée
+                    et le bulletin (core/ordreClasse). */}
+                <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2 w-10 text-center font-medium text-gray-400">{t('N°', 'No.')}</th>
+                <th className="sticky left-10 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">
                   {t('Élève', 'Student')}
                 </th>
-                {competences.map((c) => (
-                  <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600 max-w-[16rem]" title={c.intitule}>
+                {/* UNE COLONNE PAR ÉVALUATION, numérotée, et portant le NOM DE LA
+                    COMPÉTENCE évaluée : « pour que l'enseignant n'ait pas besoin
+                    d'explication » (consigne du 2026-11-01). Une matière à une
+                    seule compétence a donc deux colonnes qui portent le même
+                    intitulé — c'est voulu, et c'est le numéro qui les sépare. */}
+                {colonnes.map((col) => (
+                  <th key={col.id} className="px-3 py-2 text-left font-medium text-gray-600 max-w-[16rem]" title={col.competence.intitule}>
                     <span className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-gray-400">{t('Comp.', 'Comp.')} {c.ordre}</span>
+                      <span className="text-[11px] font-semibold text-gray-500">
+                        {t('Éval.', 'Assess.')} {col.rang}
+                      </span>
                       {/* Barème de CETTE évaluation : /20 par défaut, modifiable. */}
-                      <BaremeCell value={baremeFor(c.id)} disabled={locked}
-                        onCommit={(n) => setBareme(c.id, n)} />
+                      <BaremeCell value={baremeFor(col.id)} disabled={locked}
+                        onCommit={(n) => setBareme(col.id, n)} />
                     </span>
-                    <span className="block truncate">{c.intitule}</span>
+                    <span className="block truncate font-normal text-gray-600">{col.competence.intitule}</span>
                   </th>
                 ))}
                 <th className="px-3 py-2 text-center font-medium text-gray-600">{t('M/20', 'M/20')}</th>
@@ -807,27 +968,47 @@ export default function ApcCompetenceWorkspace() {
             <tbody>
               {classStudents.map((stu, ri) => (
                 <tr key={stu.id} className="border-t border-gray-100">
-                  <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">
+                  <td className="sticky left-0 z-10 bg-white px-2 py-1.5 w-10 text-center text-xs text-gray-400 tabular-nums">{ri + 1}</td>
+                  <td className="sticky left-10 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">
                     {stu.name}
                   </td>
-                  {competences.map((c, ci) => {
-                    const rec = recordFor(stu.id, c.id);
+                  {colonnes.map((col, ci) => {
+                    const rec = recordFor(stu.id, col.id);
                     return (
-                      <td key={c.id} className="px-3 py-1.5">
+                      <td key={col.id} className="px-3 py-1.5">
                         <NoteCell value={rec?.note != null ? String(rec.note) : ''}
-                          max={baremeFor(c.id)} disabled={locked}
+                          max={baremeFor(col.id)} disabled={locked}
                           champRef={poserCellule(ri, ci)} onNav={naviguer(ri, ci)}
-                          onCommit={(v) => saveCell(stu.id, c.id, { note: v })} />
+                          onCommit={(v) => saveCell(stu.id, col.id, { note: v })} />
                       </td>
                     );
                   })}
                   {(() => {
                     const avg = studentAvg(stu.id);
                     const cote = apcCote(avg);
+                    const etat = etatDe(stu.id);
                     return (
                       <>
-                        <td className="px-3 py-1.5 text-center font-semibold text-gray-700">{avg ?? '—'}</td>
-                        <td className="px-3 py-1.5 text-center font-semibold" style={{ color: cote.col }}>{cote.code}</td>
+                        {/* LA NOTE PROVISOIRE est affichée, pas cachée — mais elle
+                            est dite provisoire. Une moyenne calculée sur une
+                            évaluation sur deux va bouger : l'annoncer comme
+                            définitive, c'est annoncer au parent un résultat faux. */}
+                        <td className="px-3 py-1.5 text-center">
+                          <span className={`font-semibold ${etat.provisoire ? 'text-amber-700' : 'text-gray-700'}`}>
+                            {avg ?? '—'}
+                          </span>
+                          {etat.provisoire && (
+                            <span className="mt-0.5 block text-[10px] font-medium leading-tight text-amber-600"
+                              title={t('La moyenne du trimestre sera recalculée quand toutes les évaluations seront saisies.',
+                                'The term average will be recomputed once every assessment is entered.')}
+                            >
+                              {indicateurSaisie(etat, { en: getLang() === 'en' })}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-1.5 text-center font-semibold" style={{ color: cote.col }}>
+                          {etat.provisoire ? '—' : cote.code}
+                        </td>
                       </>
                     );
                   })()}

@@ -1,19 +1,30 @@
 # Module CANTINE — audit et proposition
 
-> État : **ÉCRIT le 2026-10-31**, et **non déployé**. Le moteur, l'écran et la
-> migration existent dans le dépôt ; la migration **n'a PAS tourné**, ni au
-> Cloud ni chez une école, et aucune donnée n'a été écrite en production.
+> État : **ÉCRIT ET MIGRÉ le 2026-10-31.** Le moteur, l'écran et la migration
+> existent, et la migration **a tourné au Cloud** ce jour-là. Aucune donnée n'a
+> été écrite : la colonne est NULL dans les 43 lignes de catalogue existantes.
+>
+> ```
+> lignes_total | quote_parts_posees
+>           43 |                  0
+> ```
+>
+> C'est le contrôle du § 4 de la migration, et il prouve plus qu'il n'affiche :
+> le § 3 lève une exception si la colonne OU la contrainte manque, et le SELECT
+> vient après. L'avoir obtenu établit donc les deux.
 >
 > | Pièce | Fichier | État |
 > |---|---|---|
-> | Migration Cloud | `supabase_cantine_quote_part.sql` | écrite, **jamais exécutée** |
+> | Migration Cloud | `supabase_cantine_quote_part.sql` | **APPLIQUÉE AU CLOUD LE 2026-10-31** |
 > | Miroir LAN | `server/db.js`, `server/schema.sql` | `ensureColumn` posé, vérifié au démarrage |
 > | Moteur | `src/lib/cantineEngine.js` | écrit, **36 contrôles passent** |
 > | Écran | `src/pages/Cantine.jsx`, route `/app/cantine`, menu | écrit, ouvert et mesuré sur l'application montée |
 >
-> ⚠ **Le Cloud d'abord.** `fee_catalog` est synchronisée : voir l'avertissement
-> d'ordre en tête de la migration. Un paquet LAN distribué avant elle ferait
-> rejeter les lignes de catalogue de l'école EN ENTIER (PGRST204).
+> ✅ **La condition d'ordre est LEVÉE.** `fee_catalog` est synchronisée, et
+> `sync-push` filtre les tables, pas les colonnes : un paquet LAN portant
+> `quote_part` avant le Cloud aurait fait rejeter les lignes de catalogue EN
+> ENTIER (PGRST204), donc perdre la remontée de TOUS les tarifs de l'école. Le
+> Cloud l'ayant acquise le 2026-10-31, **un paquet LAN peut désormais la porter**.
 >
 > Source du besoin : `CANTINE.docx` (trois années : 2024/2025, 2025/2026, 2026/2027),
 > audité le 18/10/2026, relu colonne par colonne le 31/10/2026 (§ 5 ter).
@@ -137,6 +148,118 @@ Le solde de caisse continue de se lire comme aujourd'hui (`cashBookEngine`) :
 directement, elles relèvent de la caisse de scolarité (`fee_payments` +
 `cash_sessions`). Mélanger les deux serait exactement la double comptabilité que
 l'architecture écarte.
+
+### 4 ter. UN SERVICE AU MOIS NE PARAÎT PAS DANS « FRAIS SCOLAIRES »
+
+Règle posée par le responsable le 2026-10-31 : « la gestion des frais de la
+cantine se fait à part, en dehors des frais scolaires ; les frais scolaires de
+GENIUS n'incluent rien d'autre que pension et inscription. »
+
+Ce n'est pas qu'une question de rangement — **c'était un défaut mesuré**. Avec
+une ligne de catalogue `cantine` attribuée, l'écran Frais scolaires affichait,
+pour chaque abonné :
+
+```
++ 15 000 catalogue        Dû 15 000        Non payé
+```
+
+Deux fautes dans cette seule ligne :
+
+1. **le dû est faux** : `fee_catalog.amount` est le prix d'UNE période. Huit mois
+   étaient dus, l'écran en annonçait un ;
+2. **le payé est faux** : les versements d'un service pendent aux ÉCHÉANCES
+   (`fee_payments.fee_schedule_item_id`), que `paidForItem` ne regarde pas. Un
+   élève à jour de trois mois était présenté « Non payé ».
+
+Et deux portes ouvertes, pires que l'affichage :
+
+- le bouton **« Payer 15 000 »** du bloc des frais optionnels imputait le
+  versement à l'ABONNEMENT, donc à aucun mois : l'argent n'apparaissait nulle
+  part dans le registre ;
+- le **✕** de retrait s'affichait toujours (puisque `paidForItem` rendait 0), et
+  `fee_schedule_items` est en `ON DELETE CASCADE` sur l'abonnement : un clic
+  emportait des mois **déjà payés**, les versements survivant en pointant des
+  échéances disparues.
+
+**La règle appliquée** (`estServiceHorsScolarite` dans `feeCatalogEngine.js`) :
+famille `service` → écarté du dû de l'écran Frais scolaires, et renvoyé au
+Registre des services.
+
+J'avais d'abord restreint la règle aux services **périodiques**, en laissant au
+guichet ceux à versement unique — une tenue, une sortie — parce que leur montant
+y est juste. Le responsable a tranché le 2026-10-31 : « oui tous les services
+sortent ». La règle retenue est plus simple et c'est sa force : **« Frais
+scolaires » ne porte QUE de l'académique** — pension, inscription, APEE. Une
+seule phrase à tenir, aucun cas particulier à se rappeler, et rien qui dépende
+d'un `payment_type` qu'une saisie peut laisser à sa valeur par défaut.
+
+**Rien n'est caché.** L'écran NOMME ce qu'il écarte, comme il le fait déjà pour
+les doublons de grille : « Géré dans le Registre des services — Cantine
+(15 000) », et il prévient que les versements du service figurent bien dans
+l'historique mais pas dans le « Payé » de la scolarité. Les deux chiffres sont
+justes ; sans cette phrase l'écran se contredirait sous les yeux du caissier.
+
+### 4 quater. LE REGISTRE DOIT SE SUFFIRE — SINON LA RÈGLE EST UNE IMPASSE
+
+Sortir les services de « Frais scolaires » ne suffisait pas : il fallait encore
+pouvoir les CRÉER ailleurs. Le 2026-10-31, le responsable ouvre le registre sur
+son serveur de développement et envoie la capture. L'écran dit :
+
+> Aucun service à abonnement dans le catalogue de cette année. **Créez-en un dans
+> « Frais scolaires » → Catalogue.**
+
+Soit exactement l'écran dont les services doivent sortir. L'école ne pouvait pas
+créer sa cantine sans passer par la porte qu'on venait de fermer.
+
+**Trois manques, dont deux silencieux :**
+
+| Manque | Effet | Correctif |
+|---|---|---|
+| Aucune création de service hors de Frais scolaires | l'écran renvoyait à une impasse | formulaire **« + Nouveau service »** / **« Modifier »** dans le registre |
+| Aucun moyen d'abonner un élève depuis le registre | grille vide, sans recours | panneau **« Abonner des élèves »** (souscription + `generateSchedule`) |
+| `quote_part` n'était écrit **nulle part** | colonne posée en base le 31/10, lue par l'écran, impossible à remplir | ajouté au payload de `upsertCatalogItem` |
+
+**Et un quatrième, trouvé en chemin — hors cantine :** `upsertStudentFeeItem`
+ne transportait pas `started_at`. La colonne existe pourtant partout
+(`supabase_fee_service_start.sql`, `server/db.js:279`, `server/schema.sql`), et
+`FeeCatalog.jsx` la passait déjà — elle était jetée en silence. Conséquence :
+`generateSchedule` retombait sur la date d'inscription à l'ÉCOLE, et **un élève
+qui prend la cantine en février se voyait facturer depuis septembre**, des repas
+qu'il n'a pas pris. C'est la garantie B6 qui ne tenait pas.
+
+**Mesuré de bout en bout le 2026-10-31**, édition LAN montée, Chrome piloté :
+création d'un service (tarif 10 000, quote-part 2 000 — **la quote-part
+persiste**, ce qui n'était pas possible avant), abonnement de deux élèves,
+grille de dix mois, reste 100 000 ; et les deux mêmes élèves ne portent rien de
+ce service dans « Frais scolaires », seulement le renvoi. 0 erreur console.
+
+**Recherche par nom, matricule ou classe** (2026-10-31), à deux endroits, parce
+que ce sont deux gestes différents : chercher **qui abonner**, et chercher **qui
+est déjà dans la grille**. Même idiome que `Fees.jsx:932`, pour qu'une école qui
+tape « MAT07 » ici retrouve là-bas le même élève.
+
+Deux règles tenues, et toutes deux mesurées :
+
+- **les totaux ne bougent JAMAIS avec le filtre.** `etatsMensuels` travaille sur
+  la grille entière ; seules les lignes affichées sont filtrées. Un effectif ou
+  une quote-part calculés sur trois lignes filtrées seraient un chiffre faux
+  présenté comme un total — et c'est le chiffre que l'école recopie dans son
+  cahier. L'écran le dit en toutes lettres dès qu'une recherche est active :
+  « 1 / 6 élèves affichés — **les totaux ci-dessous portent sur tous les
+  élèves** ». Mesuré : avec un seul élève affiché, « Inscrits » reste à 42.
+- **la sélection survit à la recherche.** On coche Marie, on cherche « NGONO »,
+  on coche Paul, on abonne les deux. Un filtre qui viderait la sélection ferait
+  perdre le travail déjà fait. Mesuré : bouton « Abonner (2) » après filtrage.
+
+Le matricule est reporté par `grilleCantine` sur chaque ligne (`matricule: ''`
+quand l'élève n'en a pas, jamais `undefined`) : sans cela on aurait trouvé
+l'élève dans la liste d'abonnement et pas dans le tableau, une incohérence qu'on
+ne remarque qu'une fois sur place.
+
+**Décembre apparaît dans l'échéancier** et c'est voulu : `periodesParDefaut`
+pose septembre→juin, et le mois sans service se retire avec le statut
+`not_applicable` — la convention `/` du cahier (§ 4). Rien n'est deviné à la
+place de l'école.
 
 ## 4 bis. Spécification fonctionnelle
 
@@ -418,3 +541,190 @@ saisie, non parce que le doute est réel, mais parce qu'un montant faux dans un
 
 C'est le résultat le plus utile de cet audit : le besoin cantine ne demande pas
 un module parallèle, il demande **une colonne et un écran**.
+
+## 5. La page simplifiée — trois onglets, une action principale (2026-10-31)
+
+**Le constat du responsable, captures d'écran en main.** « La page affiche trop
+d'informations en même temps et devient difficile à utiliser pour une
+secrétaire. » Six lignes de totaux répétées sous la grille, des cases montrant
+un chiffre brut (`15000`) sans dire s'il était payé, une liste d'abonnés coupée
+à droite, six boutons au même niveau, et une largeur qui ne tenait sur aucun
+écran moyen.
+
+**Le principe retenu.** La secrétaire a trois gestes : trouver un élève,
+encaisser, imprimer. Tout le reste est secondaire et se demande.
+
+| Où c'était | Où c'est maintenant |
+|---|---|
+| Tarif plein et quote-part, affichés en permanence | menu `⋯ Plus`, et onglet Résumé |
+| Nouveau service · Modifier · Abonner · Export | menu `⋯ Plus` |
+| Trois champs de recherche à trois endroits | une seule barre, qui sert les trois onglets |
+| 6 lignes de totaux sous chaque grille | 1 ligne (impayé par mois) + un dépliant, et l'onglet Résumé |
+| `15000` dans la case | pastille ✔ / orange / rouge / —, le RESTE comme seul chiffre |
+| Colonnes Encaissé et Reste hors écran | fiche élève, à un clic sur le nom |
+
+**La pastille est une règle, pas une couleur.** `pastilleCellule` est pure et
+testée : elle traduit une case en un ton parmi six, et ne met un chiffre que
+pour un partiel ou un impayé — le reste, celui qu'on réclame. Un mois facturé à
+ZÉRO reste vide : le peindre en rouge réclamerait une dette que personne ne
+doit. Un reste négatif (trop-perçu après contre-passation) est soldé, jamais un
+impayé à chiffre négatif.
+
+**L'encaissement en trois étapes**, dans l'ordre du guichet : qui paie (recherche
+rapide, ou pré-rempli si l'on vient d'une ligne) · quels mois (cases à cocher,
+le plus ancien mois dû coché d'office) · combien (pré-rempli avec le total des
+mois cochés). Une phrase résume avant de valider — « 15 000 XAF pour Février
+2027 → il restera 45 000 XAF ». Référence et payeur passent sous « Plus
+d'options ».
+
+**Un défaut trouvé en chemin.** La fenêtre annonçait « 2027-01 » là où la fiche
+disait « Janvier 2027 » : en base, des lignes portent la CLÉ dans
+`period_label`, écrites par un chemin plus ancien. Elles existent déjà, donc la
+correction est à la LECTURE — `libelleEcheance` garde un libellé que l'école a
+choisi (« 2e trimestre (après Noël) ») et traduit celui qui n'est que la clé.
+
+**700 élèves sans librairie.** Le dépôt interdit d'introduire une technologie
+sans autorisation : la liste rend une tranche de 60 avec un bouton « afficher
+les N autres », et le compte total reste annoncé. Pas de virtualisation tierce.
+
+**Mesuré sous Chrome.** Aucun débordement horizontal à 1750 px ni à 375 px
+(`scrollWidth === innerWidth` dans les deux cas) ; les trois onglets présents ;
+tarif et totaux absents de l'écran de travail ; pastilles `—` / `✔` /
+`15 000 XAF` et aucun `15000` collé ; parcours complet en trois clics depuis le
+bouton principal, un reçu ouvert, 0 erreur console.
+
+## 6. Adapter NotesCam au registre réel de THE GENIUS (2026-10-31)
+
+**Consigne du responsable.** « Adapte NotesCam à ce fichier » — le classeur
+`TRANSPORT 2026.xlsx`, tenu par l'école depuis des années. On n'a pas demandé à
+l'école de ranger son fichier.
+
+### Ce que le fichier contient
+
+Une feuille, **trois tableaux empilés**, chacun avec ses colonnes, qui se
+recoupent au franc près avec les lignes TOTAUX de l'école :
+
+| tableau | lignes | attendu | encaissé | reste |
+|---|---|---|---|---|
+| registre (versements par trimestre) | 203 | 13 568 000 | 12 705 500 | 862 500 |
+| sortis (avec leur raison) | 19 | 1 384 000 | 693 500 | 690 500 |
+| relevé (élèves actifs presque soldés) | 11 | 960 000 | 765 500 | 172 000 |
+
+Après dédoublonnage : **211 élèves distincts**, dont 19 sortants.
+**14 268 000 attendus, 13 215 000 encaissés, 1 030 500 restants.**
+
+### Les trois adaptations du produit
+
+**1. LE TARIF EST PROPRE À L'ÉLÈVE — et c'était un défaut d'argent.**
+Le registre porte **treize tarifs mensuels** (5 000 → 15 000) selon la
+résidence : on ne fait pas payer le même prix à deux kilomètres et à douze. Or
+le repère du « demi-mois » était le tarif du SERVICE. Un élève à 5 000 dans un
+service affiché à 7 500 voyait chacun de ses mois étiqueté « demi », et
+`quotePartDuMois` ne le comptait que pour **moitié**. L'écart n'est pas resté à
+l'écran : il entrait dans la quote-part. Mesuré au banc sur les treize tarifs
+réels — 120 au lieu de 130. `celluleDuMois` prend désormais `tarifEleve`, qui
+gagne sur `tarifPlein` ; le tarif du service n'est plus qu'un repli, pour les
+quarante-trois écoles qui n'en pratiquent qu'un.
+
+**2. LE VOCABULAIRE SUIT LA PÉRIODICITÉ.** `fee_schedule_items.period_key`
+acceptait les trimestres depuis toujours (`'2026-10'` ou `'2026-T1'`) ; seuls
+les intitulés étaient bloqués sur le mois. `motPeriode(service, t)` rend le mot
+juste, et l'onglet, le guichet, l'imprimé et le classeur le suivent. Une
+caissière à qui l'on demande « quels mois ? » devant trois trimestres hésite, et
+une hésitation au guichet est une erreur d'imputation en puissance.
+
+**3. RIEN À MIGRER.** `student_fee_items.amount` est déjà le montant PAR ÉLÈVE,
+et `feeScheduleService` écrit `studentFeeItem.amount ?? catalogItem.amount` —
+le tarif propre primait déjà côté données. Aucune colonne ajoutée, donc aucune
+migration Cloud à passer avant un paquet LAN.
+
+### Le lecteur du classeur
+
+`registreServiceImport.js` est **pur et testé (52 cas)**, et il n'écrit rien.
+Il repère les tableaux lui-même — l'école renverra le fichier l'an prochain avec
+d'autres hauteurs de lignes — et il **signale sans jamais corriger**.
+
+Quatre défauts de mes propres versions, trouvés par le fichier réel :
+
+- la colonne « N° » volait la colonne des noms, parce que `no` est un préfixe de
+  `noms` : le troisième tableau, dont la cellule N° est vide, restait invisible ;
+- `/^totaux?$/` reconnaissait « TOTAUX » mais pas « TOTAL » : les deux lignes de
+  total devenaient des élèves, l'un avec un « tarif » de 117 000 par mois ;
+- **« a une colonne OBSERVATIONS donc liste des partants » est faux.** Le
+  classeur en a deux : l'un recense les sortis avec leur raison, l'autre est un
+  relevé d'élèves ACTIFS. Les confondre aurait abandonné **onze abonnements en
+  cours** — une erreur qui coûte de l'argent, pas de l'affichage. Le type se
+  décide maintenant sur le contenu : en-tête « OU RAISONS », ou un motif sur la
+  moitié des lignes au moins ;
+- `aoa = []` ne couvre pas `null`, et le lecteur levait.
+
+Et les accrocs du fichier de l'école, tous signalés, aucun corrigé : 22 doublons,
+9 montants annuels non multiples du tarif (des montants négociés), 1 reste
+incohérent (60 000 − 35 000 = 25 000, la feuille écrit 2 500), et **1 bloquant** —
+`FAMILLE FOMETEU (04)`, quatre enfants sur une seule ligne.
+
+### Ce qui reste à décider avant d'écrire
+
+**Les 528 versements n'ont aucune date.** Les colonnes trimestrielles donnent
+des montants, jamais un jour. Une date de versement inventée est une écriture de
+caisse inventée : le lecteur les rend sans date et le dit. Les 26 numéros de
+série Excel trouvés dans OBSERVATIONS sont rendus à part (`dateObservee`), parce
+qu'on ne sait pas ce qu'ils datent — un départ, un dernier versement, un rappel.
+
+## 7. Importer un registre Excel (2026-11-01)
+
+### Le chemin, et où il s'arrête
+
+`⋯ Plus` → **Importer un registre (Excel)**. Quatre écrans, une seule écriture :
+
+1. **Le fichier.** Les colonnes sont reconnues seules (nom, classe, tarif,
+   annuel, trimestres, observations), les lignes TOTAUX écartées. Aucun modèle à
+   remplir. Si le classeur a plusieurs feuilles, celle où le lecteur reconnaît
+   LE PLUS d'élèves est présélectionnée — les écoles laissent souvent une
+   feuille « Tarifs » devant la vraie (le classeur de THE GENIUS en a trois).
+2. **Ce qu'il dit.** Élèves lus, tarifs distincts, attendu, encaissé, et le
+   **recoupement sur les lignes TOTAUX de l'école** : seule preuve de lecture
+   indépendante, puisqu'elle vient du fichier. Sur le fichier réel : OUI.
+3. **Le plan.** Qui serait abonné, et surtout qui ne le serait pas, avec motif.
+   Cette liste s'exporte en Excel : c'est elle qu'on envoie à l'école.
+4. **L'écriture**, rapportée telle qu'elle s'est passée, échecs comptés un par un.
+
+### Ce que l'import n'écrit pas, et pourquoi
+
+**Ni échéance ni versement.**
+
+Les versements : le classeur ne porte aucune date. `cashSessionEngine.sessionEntries`
+filtre sur `date` ET `recorded_by` — un versement repris au nom d'un caissier
+entrerait dans SON arrêté, qui réclamerait des millions en espèces dans le
+tiroir. Reprendre un historique est une opération distincte, qui se décide avec
+l'école (`registreServicePlan.js`, portée `historique`).
+
+Les échéances : une échéance est une créance. Le montant annuel du fichier vaut
+huit mois chez eux, qui ne tombent pas en trois trimestres entiers. Un découpage
+inventé afficherait des trop-perçus et des impayés qui n'existent pas. L'import
+pose l'**abonnement** avec son tarif propre ; l'école coche ensuite les mois à
+facturer, et c'est `createScheduleMonths` qui les pose — celui qui sait déjà
+refuser un mois antérieur au début du service.
+
+### La règle qui empêche de facturer deux fois
+
+`upsertStudentFeeItem` tire un identifiant neuf à chaque appel. Réimporter un
+fichier corrigé — ce que l'école fera — créerait un SECOND abonnement au même
+enfant. `trancherEcriture()` (moteur, banc dédié) l'interdit, et le dit : un
+élève déjà abonné figure dans les rejets, parce qu'un rejet silencieux est un
+élève que personne ne cherche. Son `resume.boucle` vérifie que **écrit + rejeté
+= lignes du fichier** : rien ne disparaît entre les deux.
+
+### Mesure de bout en bout sur le fichier réel
+
+```
+1. FICHIER   feuilles=3  retenue=« Feuil1 » (211 élèves)
+2. LECTURE   élèves=211  tarifs=13  anomalies=33  totaux de l'école recoupés=OUI
+3. PLAN 1er import  à écrire=  0  rejets=211  compte refermé=OUI
+3. PLAN 2e import   à écrire=  0  rejets=211  déjà abonnés=0  compte refermé=OUI
+4. ÉCRITURE  échéances=0  versements=0  → aucune créance, aucune date inventée
+```
+
+`à écrire = 0` est la vérité du banc, pas un défaut : la base de test n'a que 15
+élèves (Lycée Test), donc les 190 noms de THE GENIUS sont « introuvables en
+base ». Le rapprochement attend **une copie de leur base réelle**.

@@ -55,11 +55,12 @@ export function primCote(avg, gradeMax = PRIM_GRADE_MAX, bareme = PRIM_COTE_DEFA
 
 // UA (Unité d'Apprentissage, 1-8/an) → trimestre (1-3). Fixe, identique à tous les
 // niveaux du carnet officiel (UA1-3 = 1er trimestre, UA4-6 = 2e, UA7-8 = 3e).
-export const UA_PAR_TRIMESTRE = { 1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8] };
-export function trimestreOfUA(ua) {
-  const n = Number(ua);
-  return n <= 3 ? 1 : n <= 6 ? 2 : 3;
-}
+//
+// DÉFINI DANS `core/uaMinedub.js` depuis que la MATERNELLE adopte le même
+// découpage (2026-11-01) : un calendrier national recopié dans deux moteurs
+// finit par diverger dans l'un des deux. Ré-exporté ici sous ses noms
+// historiques — aucun appelant n'a changé.
+export { UA_PAR_TRIMESTRE, trimestreOfUA } from './uaMinedub.js';
 
 // Barème (points) des critères d'UNE sous-compétence, pour un niveau donné. Pour la
 // compétence '6a' (sport), le profil dépend de l'aptitude de l'élève ('apte' par

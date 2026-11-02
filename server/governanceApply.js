@@ -19,7 +19,7 @@
 // (policyEngine.governanceChannel(policy,'finance')==='cloud'). Défaut = INERTE.
 
 import { randomUUID } from 'node:crypto';
-import { db, deviceId, tx } from './db.js';
+import { db, deviceId, tx, enqueueOutbox } from './db.js';
 import { isCloudSyncEnabled } from './syncFlag.js';
 import { governanceChannel } from '../src/lib/policyEngine.js';
 import { hasPermission, canValidateAmount } from '../src/governance/governanceEngine.js';
@@ -106,8 +106,7 @@ function writeExpenseStatus(expense, toStatus) {
   const version = (expense.version || 0) + 1;
   db.prepare('UPDATE budget_expenses SET status = ?, updated_at = ?, version = ?, device_id = ? WHERE id = ?')
     .run(toStatus, now, version, deviceId(), expense.id);
-  db.prepare('INSERT INTO sync_outbox (tablename, row_id, op, at) VALUES (?,?,?,?)')
-    .run('budget_expenses', String(expense.id), 'upsert', now);
+  enqueueOutbox('budget_expenses', expense.id, 'upsert');
   return version;
 }
 

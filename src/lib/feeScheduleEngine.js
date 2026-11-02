@@ -205,6 +205,41 @@ export function echeancierPour(item, { academicYear, startedAt, enrolledAt, amou
     }));
 }
 
+/**
+ * Parmi les périodes DEMANDÉES, celles qu'on a le droit de facturer.
+ *
+ * Pourquoi cette règle est ici et non dans la couche d'écriture : c'est une
+ * règle, et ce fichier est l'endroit des règles. Laissée dans le service, elle
+ * n'aurait pas de banc — or elle décide de ce qu'un parent devra payer.
+ *
+ * Deux refus possibles, et ils ne se confondent pas :
+ *   • la période n'existe pas pour ce frais (mois hors année scolaire, clé
+ *     fantaisiste venue d'une URL ou d'un import) ;
+ *   • la période est ANTÉRIEURE au début du service : un élève qui prend la
+ *     cantine en février ne doit pas septembre, et laisser l'interface seule
+ *     garantir cela reviendrait à confier une règle financière à une case à
+ *     cocher.
+ *
+ * Les refusés sont RENDUS, jamais avalés : un mois demandé qui n'apparaît pas
+ * doit pouvoir s'expliquer à la secrétaire qui l'a coché.
+ *
+ * @returns {{retenus: Array, ignores: string[]}} `retenus` porte les lignes
+ *          prêtes ({period_key, period_label, amount_due}), dans l'ordre
+ *          chronologique du frais — pas dans celui où on les a demandées.
+ */
+export function moisFacturables(item, opts = {}, periodKeys = []) {
+  const legitimes = echeancierPour(item, opts);
+  const index = new Map(legitimes.map((e) => [e.period_key, e]));
+  const voulus = [...new Set((Array.isArray(periodKeys) ? periodKeys : []).filter(Boolean))];
+  return {
+    // On repart de `legitimes` et non de `voulus` : l'ordre chronologique est
+    // celui du frais. Deux mois créés à l'envers se liraient à l'envers dans
+    // toute vue qui fait confiance à l'ordre d'insertion.
+    retenus: legitimes.filter((e) => voulus.includes(e.period_key)),
+    ignores: voulus.filter((k) => !index.has(k)),
+  };
+}
+
 // PREMIÈRE période réellement applicable à une souscription, ou null si le
 // service commence après la dernière période facturée (souscription tardive sur
 // un service déjà terminé). Sert à expliquer à l’école ce qu’elle vient de créer.
@@ -380,4 +415,29 @@ export function peutChangerStatut({
     return { ok: false, raison: 'periode_payee' };
   }
   return { ok: true, raison: null };
+}
+/**
+ * LE LIBELLÉ D'UNE ÉCHÉANCE, TEL QU'ON DOIT L'AFFICHER.
+ *
+ * Défaut constaté le 2026-10-31 : la fenêtre d'encaissement annonçait
+ * « 2027-01 » là où la fiche affichait « Janvier 2027 ». En base, deux
+ * populations cohabitent — des lignes dont `period_label` porte un vrai
+ * libellé, et des lignes où il porte la CLÉ, écrites par un chemin plus ancien.
+ * Elles sont déjà là : corriger l'écriture ne les rattraperait pas.
+ *
+ * La règle est donc à la LECTURE, et elle est volontairement prudente : on
+ * garde `period_label` quand l'école y a mis quelque chose de significatif —
+ * elle a le droit de nommer un trimestre « 2e trimestre (après Noël) » — et on
+ * ne le garde PAS quand il n'est que la clé recopiée, puisque ce n'est pas un
+ * libellé mais une absence de libellé. Dans ce cas on rend `libellePeriode`,
+ * qui sait traduire, alors qu'une clé figée en base ne sait pas.
+ *
+ * @param {object} ligne   une ligne `fee_schedule_items` ({ period_key, period_label })
+ * @param {string} langue  'fr' | 'en' | 'es'
+ */
+export function libelleEcheance(ligne, langue = 'fr') {
+  const cle = ligne?.period_key;
+  const pose = ligne?.period_label == null ? '' : String(ligne.period_label).trim();
+  if (pose && pose !== String(cle ?? '')) return pose;
+  return libellePeriode(cle, langue);
 }

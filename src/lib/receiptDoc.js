@@ -25,6 +25,7 @@
 import { resolveCountryCode } from '../countries/index.js';
 import { getSchoolTheme } from './schoolTheme.js';
 import { formatMoney, currencyCode } from './currency.js';
+import { montantEnLettres } from './montantEnLettres.js';
 
 // N° de reçu : AAAAMMJJ-MATRICULE(6)-SUFFIXE.
 //
@@ -82,10 +83,12 @@ function receiptI18n(school, lang, currency) {
 // simple, qui n'a pas de second exemplaire à distinguer).
 function receiptParts({
   school, student, className, versement, newTotal, fraisAnnuels,
-  date, mode, cashierName, lang, currency, designation,
+  date, mode, cashierName, lang, currency, designation, periods,
   payment, duplicate, reprintBy,
 }, copyLabel) {
-  const { isGE, isEn, t, locale, money } = receiptI18n(school, lang, currency);
+  // `cur` : le CODE de devise résolu (XAF, EUR…), pas le libellé affiché. Le
+  // montant en toutes lettres en a besoin pour accorder « francs CFA ».
+  const { isGE, isEn, t, locale, money, cur } = receiptI18n(school, lang, currency);
 
   const total  = Number(fraisAnnuels || 0);
   const paid    = Number(newTotal || 0);
@@ -269,11 +272,22 @@ function receiptParts({
           </thead>
           <tbody>
             <tr>
-              <td>${designation ? esc(designation) : t('Frais de scolarité', 'Tuition fees', 'Cuota escolar')}</td>
+              <td>${designation ? esc(designation) : t('Frais de scolarité', 'Tuition fees', 'Cuota escolar')}
+                ${periods ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${esc(periods)}</div>` : ''}
+              </td>
               <td class="amt">${money(versement)}</td>
             </tr>
           </tbody>
         </table>
+        <!-- LE MONTANT EN TOUTES LETTRES. Les chiffres se retouchent : « 15 000 »
+             devient « 75 000 » d'un trait de stylo sur un talon papier. La lettre,
+             non. C'est pour cela que toute quittance double le chiffre, et c'est
+             pour cela que les deux sortent ici du MÊME calcul, jamais d'une
+             seconde saisie. -->
+        <div style="margin:4px 0 6px;font-size:10px;font-style:italic;color:#334155">
+          ${t('Arrêté la présente quittance à la somme de', 'Receipt issued for the sum of', 'Recibo emitido por la suma de')} :
+          <b style="font-style:normal">${esc(montantEnLettres(versement, { devise: cur, langue: isEn ? 'en' : isGE ? 'es' : 'fr' }))}</b>
+        </div>
         <div class="totals">
           <div class="t-row"><span class="t-l">${t('Total des frais', 'Total fees', 'Total')}</span><span class="t-v">${money(total)}</span></div>
           <div class="t-row"><span class="t-l">${t('Déjà versé', 'Total paid', 'Pagado')}</span><span class="t-v" style="color:#16a34a">${money(paid)}</span></div>
@@ -405,7 +419,7 @@ ${PRINT_SCRIPT}
 // Mêmes options que buildReceiptHtml(). Fonction PURE (testable, sans DOM).
 export function buildTicketHtml({
   school, student, className, versement, newTotal, fraisAnnuels,
-  date, mode, cashierName, lang, currency, designation,
+  date, mode, cashierName, lang, currency, designation, periods,
   payment, duplicate, reprintBy,
 }) {
   const { isGE, isEn, t, locale, money } = receiptI18n(school, lang, currency);

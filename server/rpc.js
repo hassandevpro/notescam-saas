@@ -4,6 +4,8 @@
 
 import { db, getSchool, tx, ALLOWED_TABLES, quoteIdent } from './db.js';
 import { randomUUID } from 'node:crypto';
+// Identifiants DÉTERMINÉS pour les deux tables à clé naturelle unique.
+import { idCompteParent, idLienParentEleve } from './parentIds.js';
 import { hashPassword } from './security.js';
 import { createRevision, decideRevision, createLineReallocation, decideLineReallocation } from './budgetOps.js';
 import { isParentAccount, allowsStudent, loadScope, SCHOOL_CREATION_LOCKED } from './scopeGuard.js';
@@ -780,7 +782,10 @@ const handlers = {
         new Date().toISOString(), p.p_user_id);
       return existing.id;
     }
-    const id = randomUUID();
+    // ID DÉTERMINÉ : la table porte UNIQUE(user_id). Deux ids aléatoires pour
+    // le même parent — un en LAN hors ligne, un au Cloud — feraient buter le
+    // push sur la contrainte, pour la TABLE ENTIÈRE. Voir server/parentIds.js.
+    const id = idCompteParent(p.p_user_id);
     db.prepare(
       `INSERT INTO parent_accounts (id, user_id, full_name, phone, email, active)
        VALUES (?,?,?,?,?,1)`,
@@ -812,7 +817,8 @@ const handlers = {
       ).run(p.p_relationship || 'tuteur', p.p_is_primary ? 1 : 0, existing.id);
       return existing.id;
     }
-    const id = randomUUID();
+    // ID DÉTERMINÉ : UNIQUE(parent_user_id, student_id). Même raison.
+    const id = idLienParentEleve(p.p_parent_user_id, p.p_student_id);
     db.prepare(
       `INSERT INTO parent_student_links
               (id, parent_user_id, school_id, student_id, relationship, is_primary, active, created_by)

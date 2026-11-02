@@ -50,7 +50,7 @@ import {
 } from '../core/primEngine';
 import { nonEvalKey } from '../lib/primService';
 import { MARQUE_ABSENT, MARQUE_NON_EVALUEE } from '../core/noteEtat';
-import { domainesForMaternelle } from '../core/matEngine';
+import { domainesForMaternelle, uasDuTrimestre, syntheseTrimestre } from '../core/matEngine';
 import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineMatch';
 // Périmètre RÉEL de la classe dans le référentiel national : une matière
 // décochée dans l'écran Classes ne doit pas s'imprimer sur le bulletin officiel.
@@ -2398,7 +2398,11 @@ export default function Bulletins() {
 
   // ── MATERNELLE (PS/MS/GS) — données du bulletin officiel (aperçu écran) ──────
   useEffect(() => { if (isMat) { loadMat(); loadRefMasques('mat'); } }, [isMat, loadMat, loadRefMasques]);
-  const matTrimId = `t${period.seqs?.[0] || 1}`;
+  // LES UA DU TRIMESTRE CHOISI (UA1-3, UA4-6, UA7-8). Le bulletin de maternelle
+  // reste TRIMESTRIEL — c'est le document officiel — mais il montre désormais
+  // chaque UA de la période puis la synthèse, depuis que la saisie se fait par
+  // UA (2026-11-01, même rythme que le primaire).
+  const matUas = useMemo(() => uasDuTrimestre(period.seqs?.[0] || 1), [period]);
   // Domaines officiels, puis la surcharge de l'école (ligne `subjects` portant
   // `mat_domaine_id`) : le bulletin imprime le mot que l'enseignante lit a l'ecran.
   // Deux surcharges se cumulent — la ligne `subjects` (historique) puis la table
@@ -2427,13 +2431,28 @@ export default function Bulletins() {
     for (const s of classStudents) {
       out[s.id] = {
         rows: matDomaines.map((d) => {
-          const r = matObservations[obsNkey(s.id, d.id, matTrimId)];
-          return { code: d.code, intitule: d._override ? d.intitule : matDomaineLabel(d, sys), niveau: r?.niveau_acquis || '', observation: r?.observation || '' };
+          // Une observation par UA de la période — jusqu'à trois pour un même
+          // domaine, là où le modèle par trimestre n'en permettait qu'une.
+          const parUaRecords = matUas
+            .map((u) => ({ ua: u, rec: matObservations[obsNkey(s.id, d.id, u)] }))
+            .filter((x) => x.rec);
+          const parUa = {};
+          for (const { ua, rec } of parUaRecords) parUa[ua] = rec.niveau_acquis || '';
+          // Synthèse de la période : cote dominante des UA cotées, et le
+          // commentaire de l'UA la plus avancée qui en porte un.
+          const s2 = syntheseTrimestre(parUaRecords.map(({ ua, rec }) => ({ ...rec, ua })));
+          return {
+            code: d.code,
+            intitule: d._override ? d.intitule : matDomaineLabel(d, sys),
+            parUa,
+            niveau: s2.niveau || '',
+            observation: s2.observation || '',
+          };
         }),
       };
     }
     return out;
-  }, [isMat, matReferentiel, matDomaines, classStudents, matObservations, matTrimId, sys]);
+  }, [isMat, matReferentiel, matDomaines, classStudents, matObservations, matUas, sys]);
 
   const matTitle = (() => {
     const n = period.seqs?.[0] || 1;
@@ -3153,7 +3172,7 @@ export default function Bulletins() {
           school={school} sys={sys} title={matTitle}
           student={student} classLabel={selectedClass?.name || ''}
           effectif={classStudents.length} profPrincipal={apcProfPrincipal}
-          rows={d.rows}
+          uas={matUas} rows={d.rows}
           decision={period?.seqs?.length >= 3 ? apcDecisionLabel(student.id) : ''}
         />
       </WatermarkWrap>

@@ -4,7 +4,9 @@
 // Version, Temps, Lignes, Tables, État, Hash + « Voir le rapport ». Réutilise
 // SyncStatePanel (santé + rapport auto + bouton Forcer un contrôle / Réparer).
 import { useEffect, useState } from 'react';
+import { lanFetch } from '../lib/lanFetch';
 import SyncStatePanel from '../components/SyncStatePanel';
+import SyncConflictsPanel from '../components/SyncConflictsPanel';
 
 const KIND = {
   sync: { label: 'Synchronisation', badge: 'bg-blue-100 text-blue-700' },
@@ -52,7 +54,9 @@ function ReportModal({ entry, onClose }) {
 export default function SyncHistory() {
   const [rows, setRows] = useState([]);
   const [sel, setSel] = useState(null);
-  const load = () => fetch('/api/sync/audit?limit=200').then((r) => r.json()).then((j) => setRows(j.data || [])).catch(() => {});
+  // Passait par un fetch NU : 403 avale par le .catch, journal vide pour
+  // toujours (cf. src/lib/lanFetch.js). Trouve le 02/11/2026.
+  const load = () => lanFetch('/api/sync/audit?limit=200').then((d) => setRows(d || [])).catch(() => {});
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, []);
 
   return (
@@ -62,6 +66,13 @@ export default function SyncHistory() {
 
       <div className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
         <SyncStatePanel />
+      </div>
+
+      {/* Les desaccords AVANT le journal : ce qui attend une decision humaine
+          passe devant ce qui est deja fait. Un arbitrage en attente sur une note
+          bloque un bulletin ; une ligne de journal ne bloque rien. */}
+      <div className="mb-6">
+        <SyncConflictsPanel />
       </div>
 
       <div className="rounded-2xl border border-gray-200 bg-white p-2 shadow-sm">

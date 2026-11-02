@@ -74,7 +74,34 @@ function MatiereChunk({ chunk, cell, trailing, sys }) {
                 <span style={{ color: '#666' }}>{m.enseignant || L(sys, 'M/Mme', 'Mr/Mrs', 'Sr/Sra')}</span>
               </td>
             )}
-            <td style={cell}>{c.intitule}</td>
+            {/* LE DÉTAIL DES ÉVALUATIONS, à la suite de l'intitulé et en petit :
+                « (Éval. 1 : 12 · Éval. 2 : 16) », la colonne N portant leur
+                moyenne (14). Aucune colonne n'est ajoutée au tableau.
+
+                RÉSERVÉ AUX MATIÈRES DE 1 OU 2 COMPÉTENCES, et c’est une mesure,
+                pas une préférence : au-delà, le détail ajoute assez de lignes
+                pour faire passer le bulletin de 3 pages à 4 (`npm run
+                test:print`, scénario « APC 14×4 »). C’est exactement le cas
+                demandé le 2026-11-01, et il tient à pleine taille — scénario
+                « APC 14×1 », ajouté au banc pour le prouver.
+
+                CE RENDU DOIT RESTER IDENTIQUE à celui du document imprimé
+                (`lib/apcBulletinDoc.js`, `evalDetailHtml`) : l’écran et le PDF
+                sont deux rendus des MÊMES données, et un parent qui lit l’un
+                puis l'autre ne doit pas y trouver deux bulletins. */}
+            <td style={cell}>
+              {c.intitule}
+              {c.evaluations?.length > 1 && c.nbCompetencesMatiere <= 2 && (
+                <span style={{ color: '#666', fontSize: '.9em', whiteSpace: 'nowrap' }}>
+                  {' ('}
+                  {c.evaluations
+                    .map((e) => `${L(sys, 'Éval.', 'Assess.', 'Eval.')} ${e.rang} : ${
+                      e.max == null || e.max === 20 ? fix2(e.note) : `${fix2(e.note)}/${fix2(e.max)}`}`)
+                    .join(' \u00b7 ')}
+                  {')'}
+                </span>
+              )}
+            </td>
             {/* Barème réel de l'évaluation : la valeur seule quand c'est /20,
                 sinon « 2/3 » — un « N/20 » au-dessus d'un 2/3 mentirait. */}
             <td style={{ ...cell, textAlign: 'center' }}>

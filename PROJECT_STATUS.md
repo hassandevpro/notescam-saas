@@ -4,10 +4,59 @@
 > actualiser à la fin. Toute ligne ici doit être vérifiable par une commande ou un
 > fichier : si une information ne peut pas être prouvée, elle est marquée « à vérifier ».
 >
+> Dernière mise à jour : **2026-11-02** (release **0.3.29** : paquet Linux construit,
+> NON ENVOYÉ) · branche `caisse-journal-et-sync-0.3.15` ·
+> `package.json` = **0.3.29**
+>
+> ## 📦 0.3.29 — LA SYNCHRONISATION. PAQUET LINUX CONSTRUIT, NON ENVOYÉ (2026-11-02)
+>
+> **Côté Cloud, c'est fait et vérifié** (seule chose déployée à ce jour) :
+> `supabase_sync_tables_manquantes.sql` exécutée par le responsable le 2026-11-01
+> (3 colonnes + 1 trigger sur les 3 tables) et les quatre Edge Functions redéployées
+> — `sync-push v11 · sync-pull v14 · sync-verify v5 · sync-repair v6`, versions
+> relevées après coup.
+>
+> **Côté LAN, rien n'est livré.** L'artefact est sur le poste de build :
+>
+> | | |
+> |---|---|
+> | Paquet | `packaging/linux/Output/notescam-linux-x64-0.3.29.tar.gz` |
+> | Taille | 53 730 340 octets |
+> | SHA-256 | `32ba90b90bb224b4793af03d6f040631569b371ddb20a3448baa6329743481c5` |
+> | Script | `packaging/linux/deploy-0.3.29.sh` (`bash -n` OK) |
+> | Notice | `packaging/linux/NOTICE-MISE-A-JOUR-0.3.29.txt` |
+> | Suite | **247 ok, 0 ko** |
+>
+> Les quatre marqueurs d'écran du script ont été vérifiés **contre le paquet réellement
+> construit**, pas contre l'arbre de travail. L'écran est dans `SyncHistory-TvDGRi7p.js`
+> (chargement différé) ; `edition.json` porte `"edition": "lan"`.
+>
+> **0.3.28 n'a jamais été envoyé** et reste construit tel quel. On ne l'a pas réécrit :
+> deux artefacts différents sous le même nom est le piège de `c8fb5c1`.
+>
+> **Ce que 0.3.29 corrige** : I35 (file engorgée — 13 314 326 → 6 457 en 88 s, soit
+> 2 219 h → 65 min), I36 (32 écritures hors file + fratrie jamais synchronisée),
+> I37 (fusion par champ, horloge logique, données sensibles jamais écrasées en
+> silence), I39 (l'écran de synchro recevait 403 et l'avalait — il affichait « En
+> attente de la première synchronisation… » pour toujours).
+>
+> **Ce qui reste ouvert** : 10 tables ne circulent pas (dont 6 sans colonne `id`) ·
+> le Cloud tranche encore à la ligne entière · cycle encore périodique (5 min) ·
+> fichiers non synchronisés. Détail au §7 de `docs/SYNCHRONISATION.md`.
+>
+> **Rien n'est commité** — le travail est dans l'arbre de travail.
+>
+> ---
+>
 > Dernière mise à jour : **2026-10-29** (release **0.3.27** : les deux paquets sont
 > construits — § ci-dessous) · branche `caisse-journal-et-sync-0.3.15`, dernier push sur
 > `main` le 2026-10-22 (`270432e`), déploiement Vercel **READY** ·
 > `package.json` = **0.3.27**
+>
+> **Ajout du 2026-11-01** : les quatre points demandés ce jour sont au § 4 vicies
+> (maternelle en UA, plusieurs évaluations par trimestre au premier cycle, colonne « N° »
+> du primaire, détection des doublons d'élèves). **Trois migrations écrites, aucune
+> appliquée**, et quatre questions en attente — § 8.
 >
 > ## 📦 0.3.27 — LES DEUX PAQUETS SONT CONSTRUITS, NON ENVOYÉS (2026-10-29)
 >
@@ -545,10 +594,58 @@ Moteur `src/lib/cantineEngine.js` (36 contrôles), écran `src/pages/Cantine.jsx
 `supabase_cantine_quote_part.sql` — **une colonne, `fee_catalog.quote_part`**. Aucune
 table nouvelle, aucun registre de synchronisation modifié.
 
-**La migration n'a PAS tourné**, ni au Cloud ni chez une école, et `fee_catalog` est
-synchronisée : distribuer un paquet LAN avant elle ferait rejeter les lignes de catalogue
-de l'école EN ENTIER (PGRST204), donc perdre la remontée de TOUS ses tarifs. **Le Cloud
-d'abord.** Tant que la migration n'est pas passée, ne pas le compter comme livré.
+**La migration a tourné au Cloud le 2026-10-31**, contrôle du § 4 à l'appui :
+
+```
+lignes_total | quote_parts_posees
+          43 |                  0
+```
+
+Ce contrôle prouve la colonne ET la contrainte : le § 3 de la migration lève une
+exception si l'une manque, et le `SELECT` vient après. `quote_parts_posees = 0` est le
+résultat voulu — aucune des 43 lignes de catalogue ne change d'aspect.
+
+**La condition d'ordre est donc levée** : `fee_catalog` est synchronisée et `sync-push`
+filtre les tables, pas les colonnes ; le Cloud ayant acquis `quote_part` le premier, **un
+paquet LAN peut désormais la porter** sans faire rejeter les lignes de catalogue en entier
+(PGRST204). Reste à construire ce paquet, et à ce jour **aucune école ne porte l'écran**.
+
+> **À creuser — 43 lignes de catalogue pour 44 écoles.** C'est le `lignes_total` du
+> contrôle ci-dessus, toutes écoles confondues, et c'est très peu : en moyenne une ligne
+> par établissement. Or le catalogue de frais est la SEULE porte d'entrée des recettes de
+> transport, de tenues et de cantine. Si la répartition est aussi creuse qu'elle en a
+> l'air, cela confirme le diagnostic posé sur la mise en demeure de GENIUS : ces modules
+> ne sont pas absents, ils ne sont **pas paramétrés** — et le guide intégré n'en dit pas
+> un mot (0 occurrence de « budget », « caisse » ou « recette » dans `Help.jsx`).
+> **La répartition par école reste à mesurer** : 43 lignes pourraient aussi tenir dans un
+> seul établissement, ce qui serait plus grave encore.
+
+**Le registre se suffit désormais à lui-même** (2026-10-31). Il renvoyait à « Frais
+scolaires » → Catalogue pour créer un service — l'écran dont les services doivent
+justement sortir : une impasse, constatée sur capture. Il porte maintenant la création
+et la modification du service (nom, tarif, **quote-part**) et l'abonnement des élèves
+avec génération de l'échéancier. Deux écritures étaient mortes en silence et sont
+réparées : `quote_part` n'était transporté par aucun upsert, et `started_at` était jeté
+par `upsertStudentFeeItem` — ce dernier **hors cantine** : un élève entré en cours
+d'année était facturé depuis septembre (garantie B6). Mesuré de bout en bout sur
+l'édition LAN. Détail : `docs/MODULE_CANTINE.md` § 4 quater.
+
+**Recherche par nom, matricule ou classe** dans le registre, à deux endroits : qui
+abonner, et qui est déjà dans la grille. Deux garanties mesurées — les totaux portent
+toujours sur TOUS les élèves (un effectif filtré serait un faux total recopié dans le
+cahier de l'école, et l'écran le dit à l'utilisateur), et la sélection d'abonnement
+survit au filtre.
+
+**Aucun service ne paraît plus dans « Frais scolaires »** (règle du responsable,
+2026-10-31 : « les frais scolaires de GENIUS n'incluent rien d'autre que pension et
+inscription », puis « oui tous les services sortent » — y compris ceux à versement
+unique). Ce n'était pas qu'un rangement : avec une ligne `cantine` attribuée,
+l'écran annonçait « Dû 15 000 · Non payé » à un élève à jour de trois mois — le dû est le
+prix d'UN mois, et les versements pendent aux échéances que `paidForItem` ne regarde pas.
+Deux portes étaient ouvertes en plus : un bouton « Payer » qui imputait à l'abonnement
+(argent invisible du registre) et un ✕ qui supprimait l'abonnement, donc ses échéances en
+cascade, **mois déjà payés compris**. `estServiceHorsScolarite` les écarte, et l'écran NOMME
+ce qu'il écarte. Détail et mesures : `docs/MODULE_CANTINE.md` § 4 ter.
 
 Les trois questions qui bloquaient ce module sont tranchées (voir `docs/MODULE_CANTINE.md`
 § 5 ter) : la cantine est **tenue par l'école**, le tarif est **15 000** (7 500 le
@@ -1848,6 +1945,111 @@ maison, 0 classe sans année), serveur de banc arrêté.
   compétence — dites si cela doit devenir un réglage.
 - À fréquence égale, le barème le **plus grand** gagne (il ne refuse aucune note existante).
 
+## 4 vicies. Les quatre points du 2026-11-01 — maternelle en UA, évaluations du premier cycle, N° du primaire, doublons d'élèves
+
+**Consigne.** Quatre demandes du responsable, avec une règle générale : explorer d'abord
+l'existant et **réutiliser** ce qui est déjà en place, aucune perte de note déjà saisie,
+migrations réversibles, et toute table ou colonne nouvelle **déclarée dans la
+synchronisation LAN↔Cloud**.
+
+**Ce qui est livré dans l'arbre de travail, et prouvé.**
+
+| Point | État | Preuve |
+|---|---|---|
+| **3. Colonne « N° » au primaire** | livré | `src/core/ordreClasse.js` + test ; colonne figée, présente à l'export, uniforme entre cycles |
+| **4. Doublons d'élèves** | livré | `src/core/_doublonsEleves.test.mjs` — **98 contrôles**, dont 700 élèves en 297 ms |
+| **1. Maternelle en UA** | code livré, **migration des données NON appliquée** | `scripts/_migrerMaternelleUa.test.mjs` — **43 contrôles** sur base temporaire portant les contraintes d'après migration |
+| **2. Plusieurs évaluations par trimestre** | livré | `src/core/_apcEvaluations.test.mjs` + `src/components/grades/_apcEvaluationsEcran.test.mjs` |
+
+Décisions correspondantes : **D36** (maternelle), **D37** (doublons), **D38** (évaluations).
+
+### Ce que le responsable doit regarder à l'écran
+
+Les deux premiers ont été ouverts et photographiés (voir « Vérifié SUR L'ÉCRAN »
+ci-dessous) ; ils restent à juger sur une VRAIE école, avec de vrais libellés.
+
+1. **Un bulletin de maternelle** — UA1 | UA2 | UA3 | Synthèse, pour les 8 domaines.
+2. **Un bulletin de matière à UNE compétence** au premier cycle — « (Éval. 1 : 12 ·
+   Éval. 2 : 16) » à la suite de l'intitulé, et **14** dans la colonne N.
+3. **Un scan de doublons sur la base réelle.** Mesuré en lecture seule le 2026-11-01 :
+   THE GENIUS (713 élèves) → **0 paire**. LA RÉUSSITE (657 élèves) → **aucune date de
+   naissance en base**, donc 3 260 paires « à vérifier » : l'écran l'annonce désormais.
+
+### ⛔ Trois migrations écrites, AUCUNE appliquée — l'ordre n'est pas négociable
+
+| Fichier | Ce qu'elle fait | Pourquoi l'ordre compte |
+|---|---|---|
+| `supabase_mat_observations_ua.sql` | colonne `ua` + nouvelle contrainte unique sur `mat_observations` | un `onConflict` sans contrainte correspondante échoue en **42P10** et **bloque la file hors-ligne sur place** |
+| `supabase_eleves_non_doublons.sql` | colonne `students.non_doublons` | `sync-push` filtre les **tables**, pas les colonnes : une colonne inconnue du Cloud fait rejeter **toute la ligne** (PGRST204, incident du 2026-10-26) |
+| `supabase_apc_evaluations.sql` | colonne `schools.apc_evaluations` | même mécanisme, sur `schools` : l'école perdrait la remontée de **tous** ses réglages |
+
+Dans tous les cas : **SQL Cloud d'abord, application ensuite**. Et pour la maternelle, un
+quatrième temps — **chaque école doit tourner sur un paquet qui connaît la colonne `ua`**
+avant que les données soient migrées, sinon son édition LAN reçoit le `trimestre_id`
+recalculé et rejette silencieusement la seconde ligne.
+
+### Ce qui reste en attente d'une réponse du responsable
+
+1. **Quelle école** pour la migration maternelle — THE GENIUS (il faudrait sa base LAN) ou
+   BRIGHT CONTINENT ?
+2. **Les notes de T3.** Aucune règle n'a été donnée, donc rien n'est transféré. Compté au
+   Cloud : **0 observation réelle en T3**. La question reste ouverte pour les bases LAN.
+3. **Validation du rapport à blanc** avant toute application (`--dry-run`, CSV).
+4. **Les verrous de période vivent dans `localStorage`**, par poste — ni en base, ni
+   synchronisés. Une trace d'audit (`ua_migre_le`, `ua_migre_par`) est donc tout ce qui
+   peut être garanti : à confirmer que cela suffit.
+5. **La synthèse de trimestre en maternelle quand les trois UA se contredisent** — voir
+   « Une question de fond » ci-dessous. Aujourd'hui A / ECA / NA donne « A ».
+
+### Vérifié SUR L'ÉCRAN, pas seulement au banc
+
+Édition LAN montée sur une **copie jetable** de la base de développement, pilotée dans
+Chrome. Un banc de composants ne prouve pas qu’un écran s’affiche : celui-ci a été ouvert.
+
+* **Grille du premier cycle** (6e, Mathématiques, trimestre 1 — une seule compétence) :
+  deux colonnes « Éval. 1 » et « Éval. 2 », chacune portant l’intitulé de la compétence.
+  Éval. 1 = 12 seule → la ligne affiche **« 12 · 1 évaluation sur 2 saisie »** et la cote
+  reste à « — ». Éval. 2 = 16 → **14**, cote **CBA**. Le réglage « Évaluations » ramené à
+  1 retire une colonne et l’écran annonce alors : *« 1 note de ce trimestre n’est couverte
+  par aucune colonne affichée… »*
+* **Bulletin APC, trimestre 1** : « …et aux cercles. **(Éval. 1 : 12 · Éval. 2 : 16)** »,
+  N/20 = **14**, M/20 = **14**, cote CBA. Aucune colonne ajoutée au tableau.
+* **Écran de maternelle** : le sélecteur de période est passé aux **UA1…UA8**, libellées
+  « UA1 (Trim. 1) » … « UA8 (Trim. 3) » — « Trimestre 1/2/3 » a disparu de la saisie.
+* **Bulletin de maternelle, trimestre 1** : colonnes **UA1 | UA2 | UA3 | Synthèse |
+  Observations**, pour les 8 domaines MINEDUB.
+* Les trois colonnes nouvelles (`mat_observations.ua`, `schools.apc_evaluations`,
+  `students.non_doublons`) ont bien été créées **au démarrage du serveur LAN**, avec
+  `ancienne_periode`, `ua_migre_le` et `ua_migre_par`.
+
+> ⚠️ **CE QUE CET ÉCRAN IMPLIQUE POUR LA LIVRAISON.** La saisie maternelle ne connaît plus
+> que les UA. Une école qui recevrait le paquet **avant** que ses données soient migrées
+> verrait ses observations existantes **disparaître de l’écran de saisie** (elles sont
+> rangées sous `trimestre_id` et sans `ua`) — rien n’est perdu en base, mais l’enseignant
+> ne les retrouve plus. L’ordre « paquet installé, PUIS migration » du § ci-dessus n’est
+> donc pas une précaution : c’est la condition pour que personne ne voie son travail
+> s’évaporer.
+
+### Une question de fond, que seul le responsable peut trancher
+
+**La synthèse de trimestre d’un domaine de maternelle, quand les trois UA se contredisent.**
+Un domaine coté **A en UA1, ECA en UA2, NA en UA3** sort en **« A »** au bulletin. Ce n’est
+pas un choix nouveau : la synthèse réutilise `dominantAcquis`, déjà en place, qui départage
+une égalité dans l’ordre A → ECA → NA, c’est-à-dire au plus favorable. Sur trois UA toutes
+différentes, « le plus favorable » l’emporte donc toujours. Deux autres règles sont
+défendables et faciles à poser : **la dernière UA cotée** (la progression de l’enfant) ou
+**ECA en cas d’égalité** (ni acquis, ni non acquis). Vu à l’écran le 2026-11-01, capture à
+l’appui.
+### Deux constats de passage, qui ne viennent pas de ce travail
+
+* **`npm run validate` : 10/12** (profil « petite » — « LAN → Cloud (push) » et « conflit
+  LWW »). Établi par élimination, pas supposé : un arbre de travail à `HEAD` donne
+  **12/12**, puis l'ajout des seules modifications de ce travail donne encore **12/12**.
+  Les deux échecs viennent du travail de synchronisation **non commité** de l'autre
+  session (`server/cloudSync.js`, `syncMerge.js`, fonctions Edge).
+* **LA RÉUSSITE n'a aucune date de naissance** pour ses 657 élèves. Ce n'est pas un défaut
+  du moteur de doublons : sans date, aucune fiche ne peut sortir mieux que « à vérifier ».
+
 ## 5. Travaux en cours — 60 fichiers non commités
 
 38 fichiers modifiés (+3433 / −695) et 24 non suivis. Regroupement proposé pour des
@@ -1904,6 +2106,14 @@ des déclarations. Le garde-fou reste inscrit dans `exportCsv.js` (près de
 | R7 | Les 8 parcours critiques sont déclarés mais **non écrits** (`test.fixme`) : il manque une école de semence et un compte de test sur la base jetable. Les briques existent (`seed:ecole`, `seed-college-la-retraite`, `reset-password-cli`) | `npm run test:e2e` |
 
 ## 8. Prochaine action exacte
+
+**EN TÊTE, le 2026-11-01 — quatre réponses attendues avant que quoi que ce soit soit
+appliqué** (§ 4 vicies) : l'école cible de la migration maternelle, la règle pour les notes
+de **T3** (aucune n'a été donnée — rien n'est transféré), la validation du **rapport à
+blanc**, et la confirmation qu'une trace d'audit suffit puisque les verrous de période
+vivent dans `localStorage`. Les trois migrations SQL de ce travail sont **écrites et non
+appliquées** : `supabase_mat_observations_ua.sql`, `supabase_eleves_non_doublons.sql`,
+`supabase_apc_evaluations.sql`.
 
 **Poser à l'école les trois questions du § 4 quaterdecies**, dans cet ordre d'urgence :
 
@@ -1998,3 +2208,127 @@ npm run test:e2e          → 3 passés (fumée), 21 ignorés (parcours en test.
 | CI GitHub Actions | **fait**, premier run à vérifier |
 | E2E Playwright | **amorcé** : fumée au vert, parcours à écrire (R7) |
 | Beads | **bloqué côté installation** : Go absent du poste, et le paquet npm `beads` est `zenozeng/beads`, sans rapport. Le vrai outil est le module Go `github.com/steveyegge/beads` (v0.21.1), qui s'installe par un script distant exécuté en shell — à lancer par le responsable, pas par l'agent |
+
+## Écran Classes — un réglage affiché est un réglage qui agit (2026-10-31)
+
+Quatre remarques du responsable sur le même écran, toutes justes et toutes la
+même : le barème, le coef, le « FR /20 · EN /100 » et les six boutons de barème
+à la création étaient proposés à des classes **où ils ne commandent rien**. En
+maternelle, au primaire et au premier cycle la note vient des **critères du
+référentiel** ; le coefficient, de la **compétence**. Le calcul était juste —
+`primEngine.js` l'écrivait déjà : « on ne déduit rien de `subjects.max` ». C'est
+l'écran qui mentait. Désormais il dit « par critère » et renvoie à la tête de
+colonne de l'écran de saisie. Détail dans **D33**.
+
+Deux défauts trouvés en chemin, hors demande : une classe de primaire
+s'annonçait « **Classique** » (pas de cas `apc_primaire` dans `templateLabel`), et
+la case **« Classe bilingue »** de la création était enfermée dans « Réglages
+avancés », repliés et annoncés « rarement nécessaire » — jamais vue, d'où des
+classes bilingues nées monolingues. Elle est remontée dans le corps du
+formulaire, et le bloc de rattrapage a quitté l'écran de modification.
+
+**Créer un classement** se fait maintenant sur place (« + Nouveau classement… »).
+L'école donne un nom et la famille dont le classement hérite son comportement —
+car un classement décide du **groupe imprimé** du bulletin, pas d'une couleur.
+Stocké dans `subjects.category` au format `x:<famille>:<Nom>` : **aucune table,
+aucune colonne**, donc aucune migration Cloud à faire passer avant un paquet LAN.
+
+**Portes** : `npm test` 227 ok / 0 ko · builds LAN et Cloud OK ·
+`validate:migrations` 0 avertissement · écran piloté sous Chrome, 0 erreur.
+
+**Rien n'est commité, rien n'est poussé.** Le paquet **0.3.29** attend toujours
+l'autorisation, et `supabase_fee_payment_mode.sql` n'est pas appliqué.
+
+### Registre des services — page simplifiée (2026-10-31)
+
+**Fait, mesuré sous Chrome.** Une action principale `+ Encaisser un paiement`,
+le reste sous `⋯ Plus` ; une barre de recherche pour les trois onglets ; trois
+onglets (Élèves abonnés / Grille mensuelle / Résumé) ; pastilles au lieu des
+montants bruts ; une ligne de totaux visible, le reste replié ; encaissement en
+trois clics avec le prochain mois dû coché d'office et une phrase de résumé.
+Aucun débordement horizontal à 1750 px ni à 375 px. `228 ok, 0 ko`, les deux
+builds passent. Détail dans `docs/MODULE_CANTINE.md` §5, décisions en D34.
+
+**Corrigé en chemin.** Les mois s'affichaient « 2027-01 » dans la fenêtre
+d'encaissement (`libelleEcheance`, D34 §4). Et PGRST204 en production : la
+migration `supabase_fee_payment_mode.sql` n'était pas appliquée alors que le
+client envoyait déjà `method` — incident I34, migration passée par le
+responsable (`colonnes_posees = 3`).
+
+**PROCHAINE ACTION EXACTE.**
+1. **Vérifier que la file hors-ligne s'est vidée** : relancer la requête de
+   contrôle ; `versements_avec_mode` doit être passé au-dessus de 0. S'il reste
+   à 0 après une session de l'app, c'est la file qu'il faut regarder — **sans la
+   réinitialiser**.
+2. **Rien n'est commité** : tout est dans l'arbre de travail de
+   `caisse-journal-et-sync-0.3.15`.
+3. **En attente d'autorisation** : appliquer §2–§4 de
+   `supabase_service_schedule_a_la_carte.sql` (la §1 dry-run a répondu
+   `1 élève · 10 mois · 150 000` chez THE GENIUS) ; puis construire le paquet
+   LAN **0.3.29**.
+
+**Données de banc laissées en place** (règle : on ne supprime pas une donnée
+financière) : service « Transport (essai registre) », et les versements de
+mesure sur ABEGA Loic et ATANGANA Marie (15 000 sur Janvier 2027).
+
+### Reprise du registre transport de THE GENIUS (2026-11-01)
+
+**Consigne.** « Adapte NotesCam à ce fichier », puis « met seulement pour cette
+année, laisse le reste ».
+
+**Ce qui est construit, pur et testé (118 cas), et qui n'écrit rien.**
+`registreServiceImport.js` lit le classeur (3 tableaux repérés seuls, recoupés
+au franc près sur les lignes TOTAUX de l'école) · `registreServicePlan.js`
+planifie · `rapprochementEleves.js` relie les noms aux élèves de la base et
+REFUSE de parier sur un homonyme.
+
+**Le plan « année en cours » (2026-2027), mesuré sur le fichier réel :**
+190 abonnements avec leur tarif propre et leur résidence · **0 échéance, 0
+versement** — rien n'est réclamé à aucun parent, et aucune date n'est inventée ·
+21 écartés : 19 sortants (non réabonnés, motif conservé) + 2 anomalies
+bloquantes.
+
+**LE FICHIER EST L'ANNÉE 2025-2026, pas l'année en cours.** Ses douze seules
+vraies dates courent du 2025-09-22 au 2026-02-04. L'écrire dans 2026-2027 aurait
+fait devoir de l'argent à 211 élèves et gonflé les recettes de treize millions.
+
+**PROCHAINE ACTION EXACTE — un seul blocage.**
+Le rapprochement contre le banc donne **190 absents sur 190** : le banc n'a que
+15 élèves (Lycée Test). **Il faut une copie de la base réelle de THE GENIUS.**
+Avec elle : `rapprocherPlan` sort les lignes prêtes et la courte liste des
+rejets à envoyer à l'école. Rien ne sera écrit sans autorisation pour cette
+écriture-là.
+
+**À demander à l'école — trois lignes, pas un questionnaire.**
+1. les quatre prénoms de `FAMILLE FOMETEU (04)` ;
+2. `OUMAR BEN OUSMANOU` : reste 2 500 ou 25 000 ? (60 000 − 35 000 = 25 000) ;
+3. l'accord sur la convention de reprise, si l'on reprend un jour l'historique.
+
+### Effacer les essais cantine/transport (2026-11-01) — BLOQUÉ sur une permission
+
+**Demandé.** « Efface les tests que j'ai faits pour cantine et transport », sur
+la base **en ligne**, en suppression **réelle**.
+
+**Livré et prouvé.** `scripts/nettoyer-essais-services.mjs` — `--liste` montre
+chaque service avec abonnements, échéances, versements et montants ; `--services
+<id>,<id> --confirmer` supprime dans l'ordre que le schéma impose, puis
+**vérifie** qu'il ne reste rien d'orphelin. Sans `--confirmer`, simulation.
+Ordre figé par `scripts/_nettoyageOrdre.test.mjs` (17 cas). Voir D35.
+
+**BLOCAGE.** `--liste` sur la base en ligne est **refusé par le classificateur
+([Production Reads])**, et le MCP Supabase répond 404. `.env.local` ne porte que
+`SUPABASE_ACCESS_TOKEN` (API de gestion) — pas d'URL ni de clé de données.
+
+**PROCHAINE ACTION EXACTE — à vous.** Lancer dans le terminal :
+
+```
+node scripts/nettoyer-essais-services.mjs --liste --annee 2026-2027
+```
+
+(l'URL et la clé anonyme ont des valeurs de repli dans `src/lib/supabaseEnv.js` ;
+si RLS bloque la lecture, exporter `SUPABASE_SERVICE_ROLE_KEY` d'abord). Puis me
+donner les identifiants des services à effacer — ou les passer vous-même à
+`--services … --confirmer`.
+
+**Rappel.** Les reçus numérotés laisseront un trou dans la séquence. Dès que les
+numéros réels sont connus, je les porte au registre des incidents.

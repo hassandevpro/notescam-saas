@@ -196,16 +196,64 @@ export function gridDuplicates(studentItems = [], gridAmounts = {}) {
 }
 
 /**
+ * Un SERVICE À ABONNEMENT, facturé période par période — cantine, transport,
+ * internat au mois. Il ne relève pas des « frais scolaires » :
+ *
+ *  • son `amount` est le prix d'UNE période, pas le dû de l'année. L'afficher
+ *    comme un dû annoncerait « dû 15 000 » quand huit mois sont dus — c'est le
+ *    défaut que `statementByFamily` signale déjà dans son commentaire ;
+ *  • ses versements sont rattachés aux ÉCHÉANCES (`fee_schedule_item_id`), donc
+ *    `paidForItem` les ignore et l'élève paraît « Non payé » alors qu'il a payé ;
+ *  • et l'école le gère à part : « les frais scolaires de GENIUS n'incluent rien
+ *    d'autre que pension et inscription » (responsable, 31/10/2026).
+ *
+ * Ils ont leur écran : le Registre des services (`/app/cantine`), qui raisonne
+ * par mois et sait lire les échéances.
+ *
+ * TOUS LES SERVICES SORTENT, y compris ceux à versement unique — une tenue, une
+ * sortie pédagogique. Décision du responsable, 2026-10-31 : « oui tous les
+ * services sortent ». J'avais d'abord laissé les versements uniques au guichet
+ * parce que leur montant y est juste ; la règle retenue est plus simple et c'est
+ * sa force : **« Frais scolaires » ne contient QUE de l'académique** — pension,
+ * inscription, APEE. Une seule phrase à tenir, aucun cas particulier à se
+ * rappeler, et rien qui dépende d'un `payment_type` qu'une saisie peut laisser
+ * à sa valeur par défaut.
+ */
+export function estServiceHorsScolarite(item) {
+  if (!item) return false;
+  return feeFamily(item.category) === 'service';
+}
+
+/**
  * Dû du catalogue NET de ce que la grille couvre déjà. C'est ce montant, et non
  * `studentTotals().due`, qui doit entrer dans le « Dû » d'un élève.
  *
- * @returns {{ due, paid, balance, mandatoryDue, optionalDue, ignored, ignoredDue }}
+ * Les services à abonnement en sont également ÉCARTÉS, et rendus dans `services`
+ * — jamais tus. Un montant écarté en silence est un montant que personne ne peut
+ * vérifier ; c'est la même règle que pour `ignored`.
+ *
+ * @returns {{ due, paid, balance, mandatoryDue, optionalDue,
+ *             ignored, ignoredDue, services, servicesDue }}
  */
 export function studentTotalsNetOfGrid(studentItems = [], payments = [], gridAmounts = {}) {
   const { ignored, ignoredDue } = gridDuplicates(studentItems, gridAmounts);
   const exclus = new Set(ignored.map((si) => si.id));
-  const gardes = (studentItems || []).filter((si) => !exclus.has(si?.id));
-  return { ...studentTotals(gardes, payments), ignored, ignoredDue };
+  const restants = (studentItems || []).filter((si) => !exclus.has(si?.id));
+
+  const services = activeItems(restants).filter(estServiceHorsScolarite);
+  const idsService = new Set(services.map((si) => si.id));
+  const gardes = restants.filter((si) => !idsService.has(si?.id));
+
+  return {
+    ...studentTotals(gardes, payments),
+    ignored, ignoredDue,
+    services,
+    // La somme des `amount` écartés — pour un service au mois c'est le prix
+    // d'UNE période, pas le dû de l'année. Ce total sert à NOMMER ce qui est
+    // écarté, jamais à réclamer : le dû réel se lit dans le Registre des
+    // services, seul endroit qui connaisse l'échéancier.
+    servicesDue: services.reduce((s, si) => s + (Number(si.amount) || 0), 0),
+  };
 }
 
 // Totaux d'un élève (obligatoire vs optionnel).
@@ -231,4 +279,55 @@ export function revenueByFeeType(studentItems = [], payments = []) {
     map[cat] = (map[cat] || 0) + (Number(p.amount) || 0);
   }
   return Object.entries(map).map(([category, collected]) => ({ category, collected })).sort((a, b) => b.collected - a.collected);
+}
+
+// ── SUPPRIMER UN SERVICE : LA DÉCISION, SÉPARÉE DE L'ACTION ────────────────
+//
+// `supprimerService()` parle à la base ; la RÈGLE, elle, vit ici, où un banc
+// peut l'atteindre sans traîner le client de base derrière lui. C'est la règle
+// qui protège la recette, et elle tient en une phrase : on ne supprime pas un
+// service sur lequel de l'argent dort.
+//
+// Pourquoi elle est indispensable : `supabase_fee_integrity.sql` révoque le
+// DELETE sur `fee_payments` — l'app n'a PAS le droit d'effacer un encaissement,
+// par décision anti-fraude. Et `fee_payments.student_fee_item_id` est en
+// `ON DELETE SET NULL`. Supprimer les abonnements d'un service qui porte de
+// l'argent ne supprimerait donc pas l'argent : il passerait à NULL. Résultat,
+// le pire des deux mondes — une recette invisible à l'écran, toujours comptée
+// en balance, et plus rattachée à rien qui l'explique.
+//
+// La somme est ALGÉBRIQUE : une recette déjà contre-passée pèse zéro. Un service
+// soldé par contre-passation n'est donc pas bloqué par le souvenir d'un
+// encaissement annulé — ce serait punir l'école d'avoir fait les choses dans
+// l'ordre.
+export const REFUS_SUPPRESSION = Object.freeze({
+  AUCUN_SERVICE: 'aucun_service',
+  ARGENT: 'argent_encaisse',
+  LIGNES_SOLDEES: 'versements_soldes_restants',
+});
+
+/**
+ * @param {{ versements?: Array, montant?: number }} dep  dépendances lues
+ * @param {{ forcer?: boolean }} [opts]
+ * @returns {{ ok: boolean, refus?: string, montant?: number, versements?: number }}
+ */
+export function decisionSuppression(dep, { forcer = false } = {}) {
+  if (!dep) return { ok: false, refus: REFUS_SUPPRESSION.AUCUN_SERVICE };
+  const versements = (dep.versements || []).length;
+  const montant = Number(dep.montant) || 0;
+
+  // 1. De l'argent vif : refus net, et le montant est dit. Aucun forçage ne
+  //    lève ce refus — ce n'est pas une préférence d'écran, c'est le droit que
+  //    l'application n'a pas.
+  if (montant !== 0) {
+    return { ok: false, refus: REFUS_SUPPRESSION.ARGENT, montant, versements };
+  }
+  // 2. Somme nulle, mais des LIGNES subsistent. Elles survivront à la
+  //    suppression du service, car l'app ne peut pas les effacer. On passe
+  //    seulement sur une demande explicite, pour que personne ne croie la base
+  //    vierge ensuite et ne s'étonne de les retrouver.
+  if (versements > 0 && !forcer) {
+    return { ok: false, refus: REFUS_SUPPRESSION.LIGNES_SOLDEES, montant: 0, versements };
+  }
+  return { ok: true, montant, versements };
 }

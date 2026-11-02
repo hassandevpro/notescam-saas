@@ -1,11 +1,21 @@
 // Bulletin MATERNELLE officiel (MINEDUB) — aperçu écran imprimable.
 //
 // Tableau des 8 domaines pédagogiques : niveau d'acquisition (A / ECA / NA) +
-// observation pédagogique, par trimestre. Aucune note, aucune moyenne, aucun rang.
+// observation pédagogique. Aucune note, aucune moyenne, aucun rang.
 // En-tête / identité / signatures mutualisés (layout APC standard).
 //
+// ── LES UA DU TRIMESTRE, PUIS LA SYNTHÈSE (2026-11-01) ───────────────────────
+// La maternelle cote désormais par unité d'apprentissage, comme le primaire : un
+// trimestre en compte trois (deux pour le troisième). Le bulletin trimestriel
+// montre donc UNE COLONNE PAR UA du trimestre, puis la synthèse de la période —
+// « présenter les UA et la synthèse par trimestre », demande du responsable.
+//
+// La synthèse est la cote DOMINANTE des UA cotées (core/matEngine ·
+// syntheseTrimestre), jamais une moyenne : A/ECA/NA ne s'additionnent pas.
+//
 // Rendu piloté par PROPS :
-//   rows = [{ code, intitule, niveau ('A'|'ECA'|'NA'|''), observation }]
+//   uas  = [1, 2, 3] — les UA de la période (vide ⇒ ancienne mise en page)
+//   rows = [{ code, intitule, parUa: { 1: 'A', … }, niveau (synthèse), observation }]
 
 import {
   mkCell, mkTH, L,
@@ -52,9 +62,25 @@ const MAT_TH_TXT = '#6d28d9';
 
 export default function BulletinMatOfficial({
   school, sys = 'FR', title, student, classLabel, effectif, profPrincipal = '',
-  rows = [], appreciation = '', decision = '',
+  uas = [], rows = [], appreciation = '', decision = '',
 }) {
   const cell = mkCell(10);
+  // Les colonnes d'UA ne s'affichent que si la période en fournit. Sans elles,
+  // la mise en page reste EXACTEMENT celle d'avant (un bulletin déjà imprimé
+  // garde son aspect) : c'est le même gabarit, pas un second.
+  const colUas = Array.isArray(uas) ? uas.filter((n) => Number.isFinite(Number(n))) : [];
+  const parUA = colUas.length > 0;
+  // Largeurs : les UA prennent la place rendue par la colonne « Niveau » et par
+  // le libellé du domaine, l'observation reste large (c'est elle qu'on lit).
+  const wDomaine = parUA ? `${38 - colUas.length * 3}%` : '38%';
+  const wUa      = `${Math.max(7, Math.round(21 / Math.max(1, colUas.length)))}%`;
+  const wNiveau  = parUA ? '11%' : '16%';
+  const wObs     = parUA ? '30%' : '40%';
+  const nbCols   = 4 + colUas.length;
+  // Cote rendue : smiley + sigle du système de la classe, comme la légende.
+  const coteCell = (code) => (code
+    ? <strong style={{ color: MAT_COLORS[code] }} title={matLevelLabel(code, sys)}>{MAT_EMOJI[code]} {matAcquisCode(code, sys)}</strong>
+    : '');
   const th   = { ...mkTH(11), background: MAT_TH_BG, color: MAT_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 
   // Fondamental MINEDUB : enseignant(e) titulaire + directeur/directrice (jamais
@@ -73,14 +99,21 @@ export default function BulletinMatOfficial({
         <thead>
           <tr>
             <th style={{ ...th, width: '6%' }}>N°</th>
-            <th style={{ ...th, width: '38%', textAlign: 'left' }}>{L(sys, 'DOMAINES PÉDAGOGIQUES', 'LEARNING AREAS', 'ÁMBITOS PEDAGÓGICOS')}</th>
-            <th style={{ ...th, width: '16%' }}>{L(sys, 'Niveau', 'Level', 'Nivel')}</th>
-            <th style={{ ...th, width: '40%', textAlign: 'left' }}>{L(sys, 'Observations', 'Observations', 'Observaciones')}</th>
+            <th style={{ ...th, width: wDomaine, textAlign: 'left' }}>{L(sys, 'DOMAINES PÉDAGOGIQUES', 'LEARNING AREAS', 'ÁMBITOS PEDAGÓGICOS')}</th>
+            {colUas.map((n) => (
+              <th key={n} style={{ ...th, width: wUa }}>{L(sys, `UA${n}`, `LU${n}`, `UA${n}`)}</th>
+            ))}
+            <th style={{ ...th, width: wNiveau }}>
+              {parUA
+                ? L(sys, 'Synthèse', 'Summary', 'Síntesis')
+                : L(sys, 'Niveau', 'Level', 'Nivel')}
+            </th>
+            <th style={{ ...th, width: wObs, textAlign: 'left' }}>{L(sys, 'Observations', 'Observations', 'Observaciones')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 && (
-            <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>
+            <tr><td colSpan={nbCols} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>
               {L(sys, 'Aucun domaine évalué pour cette période.', 'No learning area assessed for this period.', 'Ningún ámbito evaluado en este periodo.')}
             </td></tr>
           )}
@@ -88,9 +121,10 @@ export default function BulletinMatOfficial({
             <tr key={r.code}>
               <td style={{ ...cell, textAlign: 'center' }}>{r.code}</td>
               <td style={cell}><span style={{ marginRight: 5 }} aria-hidden>{domaineIcon(r.intitule)}</span>{r.intitule}</td>
-              <td style={{ ...cell, textAlign: 'center' }}>
-                {r.niveau ? <strong style={{ color: MAT_COLORS[r.niveau] }} title={matLevelLabel(r.niveau, sys)}>{MAT_EMOJI[r.niveau]} {matAcquisCode(r.niveau, sys)}</strong> : ''}
-              </td>
+              {colUas.map((n) => (
+                <td key={n} style={{ ...cell, textAlign: 'center' }}>{coteCell(r.parUa?.[n] || '')}</td>
+              ))}
+              <td style={{ ...cell, textAlign: 'center' }}>{coteCell(r.niveau || '')}</td>
               <td style={cell}>{r.observation || ''}</td>
             </tr>
           ))}

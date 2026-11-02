@@ -12,6 +12,7 @@ import GradeImportPanel from './GradeImportPanel';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import { isFundamentalTitulaire } from '../../lib/teacherScope';
 import { bySubjectOrder } from '../../core/subjectOrder';
+import { elevesDeClasse } from '../../core/ordreClasse';
 
 // Ordre pédagogique des classes pour le rail (maternelle → Terminale, FR + EN).
 // Heuristique sur le nom : tout nom non reconnu retombe après, trié par libellé.
@@ -112,10 +113,9 @@ export default function SubjectTeacherWorkspace() {
     }
   }, [mySubjects, subjectId, setSubjectId]);
 
-  const classStudents = useMemo(() =>
-    students.filter((s) => s.class_id === classId).sort((a, b) => a.name.localeCompare(b.name)),
-    [students, classId]
-  );
+  // L'ordre de la LISTE DE CLASSE, et lui seul : c'est de lui que découle le
+  // numéro affiché en colonne « N° » (cf. core/ordreClasse).
+  const classStudents = useMemo(() => elevesDeClasse(students, classId), [students, classId]);
 
   // Périodes selon le contexte (mêmes règles que l'écran admin).
   const periods = useMemo(() => {

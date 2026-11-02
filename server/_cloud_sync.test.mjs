@@ -12,7 +12,7 @@ const dir = mkdtempSync(join(tmpdir(), 'nc-sync-'));
 process.env.NOTESCAM_DATA_DIR = dir;
 process.env.VITE_SUPABASE_URL = 'https://test.supabase.co';
 
-const { db } = await import('./db.js');
+const { db, sansEcho } = await import('./db.js');
 const { runQuery } = await import('./query.js');
 const { syncOnce, remoteWins } = await import('./cloudSync.js');
 
@@ -20,12 +20,20 @@ let pass = 0, fail = 0;
 const ok = (c, label, got) => { if (c) { console.log(`✅ ${label}`); pass++; } else { console.log(`❌ ${label} (obtenu: ${JSON.stringify(got)})`); fail++; } };
 const OLD = '2025-01-01T00:00:00.000Z', MID = '2025-06-01T00:00:00.000Z', NEW = '2025-12-01T00:00:00.000Z';
 
-// --- Seed local (direct = sans outbox) --------------------------------
-db.prepare('INSERT INTO schools (id, name) VALUES (?,?)').run('sch1', 'École');
-db.prepare('INSERT INTO classes (id, school_id, name) VALUES (?,?,?)').run('clsX', 'sch1', 'Classe X');
-db.prepare('INSERT INTO students (id, school_id, class_id, name, updated_at) VALUES (?,?,?,?,?)').run('stuOld', 'sch1', 'clsX', 'Ancien local', OLD);
-db.prepare('INSERT INTO students (id, school_id, class_id, name, updated_at) VALUES (?,?,?,?,?)').run('stuLocal', 'sch1', 'clsX', 'Récent local', NEW);
-db.prepare('INSERT INTO students (id, school_id, class_id, name, updated_at) VALUES (?,?,?,?,?)').run('stuDel', 'sch1', 'clsX', 'À supprimer', OLD);
+// --- Seed local : ÉTAT DÉJÀ CONNU DES DEUX CÔTÉS, donc hors file ----------
+// Depuis le 01/11/2026, un déclencheur capture toute écriture sur une table
+// synchronisée : une écriture directe N'EST PLUS « sans outbox ». C'est le
+// correctif des 32 écritures de rpc.js qui ne remontaient jamais.
+// Ce seed-ci représente de l'état PRÉEXISTANT, pas un changement local —
+// `sansEcho()` le dit explicitement, et c'est ce que le test veut mesurer :
+// seul le changement fait JUSTE APRÈS doit être poussé.
+sansEcho(() => {
+  db.prepare('INSERT INTO schools (id, name) VALUES (?,?)').run('sch1', 'École');
+  db.prepare('INSERT INTO classes (id, school_id, name) VALUES (?,?,?)').run('clsX', 'sch1', 'Classe X');
+  db.prepare('INSERT INTO students (id, school_id, class_id, name, updated_at) VALUES (?,?,?,?,?)').run('stuOld', 'sch1', 'clsX', 'Ancien local', OLD);
+  db.prepare('INSERT INTO students (id, school_id, class_id, name, updated_at) VALUES (?,?,?,?,?)').run('stuLocal', 'sch1', 'clsX', 'Récent local', NEW);
+  db.prepare('INSERT INTO students (id, school_id, class_id, name, updated_at) VALUES (?,?,?,?,?)').run('stuDel', 'sch1', 'clsX', 'À supprimer', OLD);
+});
 
 // --- Changement LOCAL via runQuery (alimente l'outbox → doit être poussé) ---
 runQuery({ table: 'classes', action: 'upsert', onConflict: 'id', values: { id: 'cls1', school_id: 'sch1', name: '6e A' } });

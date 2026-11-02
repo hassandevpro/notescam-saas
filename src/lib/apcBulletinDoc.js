@@ -20,6 +20,7 @@ import {
   generalAverage, apcCoteFromScale, apcBulletinCols, coefFor, APC_COTE_CODES,
   noteScale, APC_DEFAULT_MAX,
 } from '../core/apcEngine.js';
+import { moyenneEvaluations } from '../core/apcEvaluations.js';
 import { gradeScaleBand, scaleMention } from '../core/bulletinEngine.js';
 import { apcMatiereLabel } from '../core/referentielI18n.js';
 
@@ -77,26 +78,23 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
     ? seqIds
     : sequencesOfTrimestre(referentiel.sequences, trimestreId).map((s) => s.id);
 
-  // Note de la période d'une compétence. Une compétence n'est évaluée qu'UNE
-  // fois par séquence (clé `apc_notes_uniq`) : on a donc au plus une évaluation
-  // par séquence du trimestre, chacune avec son propre barème.
-  //   • barèmes IDENTIQUES → moyenne des valeurs brutes, barème conservé :
-  //     l'échelle réelle survit jusqu'au bulletin (« 2/3 » reste « 2/3 ») ;
-  //   • barèmes DIFFÉRENTS → moyenne des PROPORTIONS, exprimée sur /20.
-  //     Moyenner 2/3 et 14/20 en brut n'aurait aucun sens.
+  // Note de la période d'une compétence : la moyenne de ses évaluations du
+  // trimestre — une par séquence au plus (clé `apc_notes_uniq`), chacune avec
+  // son propre barème.
+  //
+  // LA RÈGLE EST PARTAGÉE, elle n'est plus recopiée ici. Elle vit dans
+  // `core/apcEvaluations.js` (`moyenneEvaluations`) depuis que l'écran de saisie
+  // en a besoin lui aussi, pour afficher la note provisoire d'une compétence
+  // évaluée une fois sur deux. Deux copies d'une règle de moyenne finissent par
+  // donner deux moyennes — et c'est le bulletin qui a raison devant le parent.
+  //
+  // Rappel de ce qu'elle fait : barèmes identiques → moyenne brute, barème
+  // conservé (« 2/3 » reste « 2/3 ») ; barèmes différents → moyenne des
+  // proportions, exprimée sur /20.
   // Renvoie { note, max } ou null si la compétence n'est pas évaluée.
-  const compNote = (competenceId) => {
-    const evals = seqs
-      .map((sid) => noteScale(apcNotes[noteNkey(student.id, competenceId, sid)]))
-      .filter((v) => v !== null);
-    if (!evals.length) return null;
-    const r2 = (x) => Math.round(x * 100) / 100;
-    if (evals.every((v) => v.max === evals[0].max)) {
-      return { note: r2(evals.reduce((a, v) => a + v.note, 0) / evals.length), max: evals[0].max };
-    }
-    const prop = evals.reduce((a, v) => a + v.note / v.max, 0) / evals.length;
-    return { note: r2(prop * APC_DEFAULT_MAX), max: APC_DEFAULT_MAX };
-  };
+  const compNote = (competenceId) => moyenneEvaluations(
+    seqs.map((sid) => apcNotes[noteNkey(student.id, competenceId, sid)]),
+  );
 
   const matieres = [];
   for (const m of referentiel.matieres) {
@@ -106,7 +104,28 @@ export function assemblePeriod(referentiel, apcNotes, { classeSlug, trimestreId,
     const compRows = comps.map((c) => {
       const v = compNote(c.id);                       // { note, max } | null
       if (v != null) notesByComp[c.id] = v;           // matiereAverage normalise
-      return { intitule: c.intitule, note: v?.note ?? null, max: v?.max ?? null };
+      // LE DÉTAIL DES ÉVALUATIONS, demandé le 2026-11-01 : « pour une matière à
+      // une compétence, afficher les deux notes et leur moyenne (Éval. 1 |
+      // Éval. 2 | Moyenne) en gardant la mise en page actuelle ». La moyenne
+      // reste donc dans la colonne N, et les notes qui la composent s'écrivent
+      // sous l'intitulé de la compétence : aucune colonne n'est ajoutée au
+      // tableau, dont la largeur est déjà contrainte par le format A4.
+      //
+      // Renseigné SEULEMENT quand la compétence a plusieurs évaluations : sur une
+      // matière à trois compétences notées une fois chacune, répéter la note sous
+      // son propre intitulé n'apprendrait rien et mangerait une ligne.
+      const evaluations = seqs
+        .map((sid, i) => ({ rang: i + 1, v: noteScale(apcNotes[noteNkey(student.id, c.id, sid)]) }))
+        .filter((x) => x.v !== null)
+        .map((x) => ({ rang: x.rang, note: x.v.note, max: x.v.max }));
+      return {
+        intitule: c.intitule, note: v?.note ?? null, max: v?.max ?? null,
+        evaluations: evaluations.length > 1 ? evaluations : null,
+        // Porté jusqu'au rendu : c'est le nombre de compétences de la MATIÈRE
+        // qui décide si le détail des évaluations tient sur la page (cf.
+        // `evalDetailHtml`), pas la compétence prise isolément.
+        nbCompetencesMatiere: comps.length,
+      };
     });
     // La moyenne se calcule sur TOUTES les compétences du trimestre (celles sans
     // note étant ignorées) : elle est donc identique avec ou sans le filtre.
@@ -248,6 +267,45 @@ const compNoteCell = (c) => {
   return m === APC_DEFAULT_MAX ? fix2(c.note) : `${fix2(c.note)}/${fix2(m)}`;
 };
 
+// LE DÉTAIL D'UNE COMPÉTENCE ÉVALUÉE PLUSIEURS FOIS DANS LE TRIMESTRE.
+// « 12 · 16 » au-dessus de leur moyenne, DANS LA COLONNE N. Le parent voit donc
+// les deux notes et la note qui en découle, et l'enseignant reconnaît l'ordre
+// des colonnes de sa grille de saisie (Éval. 1, puis Éval. 2).
+//
+// POURQUOI DANS CETTE COLONNE, ET PAS SOUS L'INTITULÉ — c'est une contrainte
+// mesurée, pas une préférence. Placé sous l'intitulé, le détail ajoutait UNE
+// LIGNE PAR COMPÉTENCE : le banc d'impression (`npm run test:print`, scénario
+// « APC 14×4 ») est passé de 3 pages à 4, en rompant le contrat « une feuille =
+// une page » tenu depuis I27/D28. La hauteur de la ligne est imposée par
+// l'intitulé de la compétence, qui tient sur plusieurs lignes : écrire le détail
+// dans la colonne N consomme une hauteur DÉJÀ PAYÉE. Vérifié : 3 pages → 3.
+//
+// Chaque note garde SON barème quand il n'est pas le barème par défaut : une
+// évaluation sur 3 et une sur 20 se moyennent par leurs proportions (cf.
+// core/apcEvaluations.js), et afficher « 2 · 14 » sans dénominateur laisserait
+// croire à une erreur.
+const evalDetailHtml = (c, sys) => {
+  if (!c.evaluations || c.evaluations.length < 2) return '';
+  // LE BUDGET D'UNE PAGE A4, mesuré et non supposé. Chaque détail ajoute une
+  // ligne : sur une matière à 4 compétences toutes évaluées deux fois, le banc
+  // d'impression passe de 3 pages à 4 (`npm run test:print`, « APC 14×4 ») et
+  // rompt le contrat « une feuille = une page » tenu depuis I27/D28.
+  //
+  // Le détail est donc réservé aux matières de 1 ou 2 compétences — c'est
+  // EXACTEMENT le cas demandé le 2026-11-01 (« pour une matière à une
+  // compétence, afficher les deux notes et leur moyenne »), et il tient : 14
+  // matières à une compétence évaluée deux fois restent sur le même nombre de
+  // pages (scénario « APC 14×1 », ajouté au banc pour le prouver).
+  //
+  // Au-delà, la note de la compétence reste la moyenne de ses évaluations — le
+  // calcul ne change pas — et le détail se lit sur l'écran de saisie.
+  if (c.nbCompetencesMatiere > 2) return '';
+  const une = (e) => `${L(sys, 'Éval.', 'Assess.')} ${e.rang} : ${
+    e.max === APC_DEFAULT_MAX ? fix2(e.note) : `${fix2(e.note)}/${fix2(e.max)}`}`;
+  return ` <span style="color:#666;font-size:.9em;white-space:nowrap">(${
+    esc(c.evaluations.map(une).join(' · '))})</span>`;
+};
+
 // Lignes d'une matière (compétences en sous-lignes ; M/20, coef, etc. fusionnés).
 function matiereRowsHtml(m, cols, sys) {
   const rs = m.competences.length || 1;
@@ -263,7 +321,7 @@ function matiereRowsHtml(m, cols, sys) {
     const trailCells = (tr.length ? tr.map(trailContent) : ['']).map(span).join('');
     return `<tr>
       ${first ? `<td rowspan="${rs}" style="${C}"><strong>${esc(m.nom)}</strong><br/><span style="color:#666">${esc(m.enseignant || L(sys, 'M/Mme', 'Mr/Mrs'))}</span></td>` : ''}
-      <td style="${C}">${esc(c.intitule)}</td>
+      <td style="${C}">${esc(c.intitule)}${evalDetailHtml(c, sys)}</td>
       <td style="${C};text-align:center">${compNoteCell(c)}</td>
       ${span(`<strong>${fix2(m.moyenne)}</strong>`)}
       ${span(String(m.coef))}

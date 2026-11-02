@@ -50,6 +50,9 @@ import { primForClass, unmatchedClassSubjects, primSubjectsNeedingOwnCompetence,
 // ce que l'école choisit ici est exactement ce qui s'imprimera.
 import { FAMILLES_PRIMAIRE, familleLabel } from '../../core/primCompactRows';
 import { classSubjectsOf } from '../../core/subjectOrder';
+// L'ordre de la liste de classe — et donc le numéro « N° » affiché en tête de
+// ligne, le même que sur la liste imprimée et les bulletins.
+import { elevesDeClasse } from '../../core/ordreClasse';
 import ReferentielEditor from './ReferentielEditor';
 import { withLibelles } from '../../lib/referentielEcole';
 import MobileEntryList from './MobileEntryList';
@@ -453,10 +456,9 @@ export default function PrimCompetenceWorkspace() {
     if (competences.length && !competences.some((c) => c.id === competenceId)) setCompetenceId(competences[0].id);
   }, [competences, competenceId]);
 
-  const classStudents = useMemo(
-    () => students.filter((s) => s.class_id === classId).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
-    [students, classId],
-  );
+  // L'ordre de la LISTE DE CLASSE, et lui seul : c'est de lui que découle le
+  // numéro affiché en colonne « N° » (cf. core/ordreClasse).
+  const classStudents = useMemo(() => elevesDeClasse(students, classId), [students, classId]);
 
   // Colonnes de critères pour la compétence sélectionnée. Pour '6a' (sport), le
   // barème dépend de l'aptitude — on affiche l'UNION apte/inapte (la colonne
@@ -1146,7 +1148,11 @@ export default function PrimCompetenceWorkspace() {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
+                {/* N° DE LA LISTE DE CLASSE — figé avec le nom, parce qu'il est appelé
+                    à l'oral et reporté à la main sur les documents. Il vient de
+                    `core/ordreClasse`, le même ordre que la liste imprimée. */}
+                <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2 w-10 text-center font-medium text-gray-400">{t('N°', 'No.')}</th>
+                <th className="sticky left-10 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
                 {criteresActifs.map((c) => (
                   <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600">
                     <span className="block truncate">
@@ -1169,7 +1175,8 @@ export default function PrimCompetenceWorkspace() {
                 const cote = achieved != null ? primCote(achieved, possible, bareme) : null;
                 return (
                   <tr key={stu.id} className="border-t border-gray-100">
-                    <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">
+                    <td className="sticky left-0 z-10 bg-white px-2 py-1.5 w-10 text-center text-xs text-gray-400 tabular-nums">{ri + 1}</td>
+                    <td className="sticky left-10 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">
                       {stu.name}
                       {competenceId === '6a' && stu.sport_aptitude === 'inapte' && (
                         <span className="ml-1.5 text-[10px] text-amber-600 font-normal">({t('inapte', 'unfit')})</span>

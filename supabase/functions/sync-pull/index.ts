@@ -24,6 +24,11 @@ const json = (s: number, b: unknown) => new Response(JSON.stringify(b), { status
 async function sha256(s: string) { const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join(''); }
 
 const TABLES = [
+  // Liens familiaux (01/11/2026). Absents de toutes les listes jusqu'ici :
+  // les freres et soeurs saisis a l'ecole ne remontaient jamais, sans un mot.
+  // Leur id est DETERMINE par la cle naturelle (server/parentIds.js), sinon
+  // UNIQUE(parent_user_id, student_id) ferait refuser le lot entier.
+  'parent_student_links',
   'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',

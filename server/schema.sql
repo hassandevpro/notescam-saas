@@ -177,6 +177,10 @@ CREATE TABLE IF NOT EXISTS students (
   archived_by_name TEXT,
   archive_reason   TEXT,
   sport_aptitude TEXT NOT NULL DEFAULT 'apte', -- carnet MINEDUB primaire : 'apte' | 'inapte' (compétence 6A)
+  -- Paires déclarées « ce n'est pas un doublon » par la secrétaire : tableau
+  -- d'identifiants d'élèves en JSON, écrit des deux côtés de la paire. Sans
+  -- cette mémoire, la même alerte revient à chaque écran et finit ignorée.
+  non_doublons   TEXT,
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -289,6 +293,13 @@ CREATE TABLE IF NOT EXISTS fee_payments (
   -- été encaissée puis effacée du système. Attribué par le serveur, jamais par
   -- le client (cf. allocateReceiptNo dans query.js).
   receipt_no    INTEGER,
+  -- COMMENT l'argent est entré. Sans eux, la note libre servait de fourre-tout
+  -- (« MoMo 677… », « virement BICEC », « papa de Marie » mélangés) et aucun
+  -- arrêté ne pouvait séparer les espèces du Mobile Money. NULL = mode inconnu,
+  -- jamais « espèces » par défaut : un défaut inventé fausserait l'arrêté.
+  method        TEXT,
+  payer_name    TEXT,
+  reference     TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 -- ⚠ AUCUN INDEX ICI sur une colonne ajoutée par `ensureColumn` (receipt_no,
@@ -1502,7 +1513,16 @@ CREATE TABLE IF NOT EXISTS mat_observations (
   school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
   eleve_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
   domaine_id    TEXT NOT NULL REFERENCES mat_domaines(id),
+  -- Le trimestre est DÉRIVÉ de l'UA (ua<=3 -> t1, <=6 -> t2, sinon t3) et écrit
+  -- par `matService.buildObsRecord` : la colonne reste NOT NULL et porte sa clé
+  -- étrangère, mais plus personne ne la saisit — une incohérence UA/trimestre
+  -- est donc impossible. Même procédé que `prim_notes` juste en dessous.
   trimestre_id  TEXT NOT NULL REFERENCES apc_trimestres(id),
+  -- `ua` (Unité d'Apprentissage, 1-8) est l'unité d'observation depuis le
+  -- 2026-11-01 : la maternelle suit le rythme du carnet du fondamental, comme le
+  -- primaire. Un domaine est donc coté une fois PAR UA, soit jusqu'à trois fois
+  -- par trimestre.
+  ua            INTEGER CHECK (ua IS NULL OR ua BETWEEN 1 AND 8),
   -- Cote A/ECA/NA. NULLABLE : l'écran de saisie laisse écrire l'observation AVANT
   -- de coter (commenter puis évaluer est l'ordre naturel du travail), et les
   -- lecteurs tolèrent déjà l'absence de cote — cf.
@@ -1515,7 +1535,17 @@ CREATE TABLE IF NOT EXISTS mat_observations (
   updated_at    TEXT,
   version       INTEGER NOT NULL DEFAULT 1,
   device_id     TEXT,
-  CONSTRAINT mat_observations_uniq UNIQUE (eleve_id, domaine_id, trimestre_id)
+  -- HISTORIQUE DU RATTACHEMENT AUX UA — ce qui rend la migration réversible :
+  -- la période d'origine de l'observation, quand et par qui elle a été
+  -- rattachée. Renseignées par `scripts/migrer-maternelle-ua.mjs`, vides pour
+  -- toute observation saisie directement sur une UA.
+  ancienne_periode TEXT,
+  ua_migre_le      TEXT,
+  ua_migre_par     TEXT,
+  -- L'identité est (élève, domaine, UA). L'ancienne clé portait le trimestre :
+  -- elle n'autorisait qu'UNE observation par trimestre et refusait donc la
+  -- deuxième UA de la période (cf. la reconstruction dans server/db.js).
+  CONSTRAINT mat_observations_uniq_ua UNIQUE (eleve_id, domaine_id, ua)
 );
 CREATE INDEX IF NOT EXISTS idx_mat_obs_school  ON mat_observations(school_id);
 CREATE INDEX IF NOT EXISTS idx_mat_obs_student ON mat_observations(eleve_id);

@@ -156,7 +156,7 @@ export default function GradeBundleIO() {
           st.gradeMap[`${classId}_${eleveId}_${sequence}`]?.[subjectId],
         apc: (eleveId, competenceId, sequenceId) => st.apcNotes[noteNkey(eleveId, competenceId, sequenceId)],
         prim: (eleveId, competenceId, critereId, ua) => st.primNotes[primNkey(eleveId, competenceId, critereId, ua)],
-        mat: (eleveId, domaineId, trimestreId) => st.matObservations[obsNkey(eleveId, domaineId, trimestreId)],
+        mat: (eleveId, domaineId, ua) => st.matObservations[obsNkey(eleveId, domaineId, ua)],
       },
     });
     if (!p.ok) { setErreur(p.erreur); return; }
@@ -183,7 +183,7 @@ export default function GradeBundleIO() {
         } else if (e.kind === 'prim') {
           await savePrimNote({ eleveId: e.eleveId, competenceId: e.competenceId, critereId: e.critereId, ua: e.ua, note: e.note, pointsMax: e.pointsMax });
         } else if (e.kind === 'mat') {
-          await saveMatObservation({ eleveId: e.eleveId, domaineId: e.domaineId, trimestreId: e.trimestreId, niveauAcquis: e.niveauAcquis, observation: e.observation });
+          await saveMatObservation({ eleveId: e.eleveId, domaineId: e.domaineId, ua: e.ua, niveauAcquis: e.niveauAcquis, observation: e.observation });
         }
         ecrites++;
       }
@@ -206,6 +206,10 @@ export default function GradeBundleIO() {
     eleve_ambigu: t('deux élèves du même nom (non tranché)', 'two students with the same name (not resolved)'),
     matiere_inconnue: t('matière absente de la classe', 'subject not in the class'),
     note_invalide: t('note hors barème', 'grade out of range'),
+    // Un lot exporté par un poste encore en version « par trimestre » : le
+    // rattachement aux UA ne se devine pas (cf. lib/gradeBundle).
+    mat_sans_ua: t('observation de maternelle sans UA (lot d’une version antérieure)',
+                   'nursery observation without a learning unit (bundle from an older version)'),
   };
 
   return (

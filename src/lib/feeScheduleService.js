@@ -18,7 +18,7 @@
 // importante de ce fichier : l'école a le dernier mot sur ce qu'elle a décidé.
 import { supabase } from './supabase';
 import { uuid } from './uuid';
-import { echeancierPour, statutEcheance, paidForSchedule, peutChangerStatut } from './feeScheduleEngine';
+import { echeancierPour, statutEcheance, paidForSchedule, peutChangerStatut, moisFacturables } from './feeScheduleEngine';
 import { logAction } from './historyService';
 import { emitFinanceEvent } from '../domains/finance/emit';
 import { AGGREGATE, EVT } from '../domains/finance/events';
@@ -102,6 +102,81 @@ export async function generateSchedule({ schoolId, catalogItem, studentFeeItem, 
     .from('fee_schedule_items').upsert(lignes, { onConflict: 'student_fee_item_id,period_key' });
   if (errIns) { console.error('generateSchedule (écriture)', errIns); return 0; }
   return lignes.length;
+}
+
+/**
+ * Créer les échéances des SEULS mois demandés.
+ *
+ * POURQUOI À CÔTÉ DE `generateSchedule` ET NON À SA PLACE. `generateSchedule`
+ * pose l'échéancier COMPLET d'un frais périodique : c'est le bon comportement
+ * pour une scolarité échelonnée, dont les dix tranches sont dues dès
+ * l'inscription, et plusieurs écoles en dépendent. Un SERVICE ne marche pas
+ * ainsi : le registre de l'école montre des effectifs qui vont de 22 à 37 d'un
+ * mois à l'autre. Facturer l'année entière à l'abonnement dirait 37 partout et
+ * créerait une dette que personne n'a contractée.
+ *
+ * Ici, rien n'est deviné : la secrétaire coche les mois, et eux seuls existent.
+ * Un mois sans échéance n'est ni dû, ni impayé, ni zéro — il n'est pas.
+ *
+ * TROIS GARDE-FOUS :
+ *   • aucun mois hors de l'année du service (`periodesDuFrais` fait foi) ;
+ *   • aucun mois antérieur au début du service — un élève arrivé en février ne
+ *     doit pas septembre, et laisser l'interface seule garantir cela serait
+ *     confier une règle financière à une case à cocher ;
+ *   • aucun doublon : `onConflict` sur (souscription, période), et les mois
+ *     déjà présents sont relus d'abord. Rejouer la même demande ne crée rien.
+ *
+ * @returns {{crees: number, ignores: string[]}} `ignores` = les clés refusées,
+ *          jamais tues : un mois demandé qui n'apparaît pas doit s'expliquer.
+ */
+export async function createScheduleMonths({
+  schoolId, catalogItem, studentFeeItem, periodKeys = [], enrolledAt = null, langue = 'fr',
+}) {
+  if (!schoolId || !catalogItem || !studentFeeItem?.id) return { crees: 0, ignores: [] };
+  const voulus = [...new Set((periodKeys || []).filter(Boolean))];
+  if (!voulus.length) return { crees: 0, ignores: [] };
+
+  const annee = studentFeeItem.academic_year || catalogItem.academic_year;
+  // La règle (quels mois sont facturables) vit dans le moteur, où elle a un
+  // banc ; ici, uniquement la lecture et l'écriture.
+  const { retenus, ignores } = moisFacturables(catalogItem, {
+    academicYear: annee,
+    startedAt: studentFeeItem.started_at || null,
+    enrolledAt,
+    amount: studentFeeItem.amount ?? catalogItem.amount,
+    langue,
+  }, voulus);
+  if (!retenus.length) return { crees: 0, ignores };
+
+  const { data: existantes, error } = await supabase
+    .from('fee_schedule_items').select('period_key')
+    .eq('student_fee_item_id', studentFeeItem.id);
+  if (error) { console.error('createScheduleMonths (lecture)', error); return { crees: 0, ignores }; }
+  const deja = new Set((existantes || []).map((r) => r.period_key));
+
+  const manquants = retenus.filter((e) => !deja.has(e.period_key));
+  if (!manquants.length) return { crees: 0, ignores };
+
+  const maintenant = new Date().toISOString();
+  const lignes = manquants.map((e) => {
+    return {
+      id: uuid(),
+      school_id: schoolId,
+      student_id: studentFeeItem.student_id,
+      student_fee_item_id: studentFeeItem.id,
+      academic_year: annee || null,
+      period_key: e.period_key,
+      period_label: e.period_label,
+      amount_due: e.amount_due,
+      status: 'due',
+      created_at: maintenant, updated_at: maintenant, version: 1,
+    };
+  });
+
+  const { error: errIns } = await supabase
+    .from('fee_schedule_items').upsert(lignes, { onConflict: 'student_fee_item_id,period_key' });
+  if (errIns) { console.error('createScheduleMonths (écriture)', errIns); return { crees: 0, ignores }; }
+  return { crees: lignes.length, ignores };
 }
 
 // Somme versée sur une échéance précise. Même principe que `paidForItem` : le

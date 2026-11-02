@@ -14,6 +14,10 @@ import { useState, useRef, useMemo } from 'react';
 import { useT } from '../../lib/i18n';
 import { downloadExcel, readSheetAoa, EXCEL_ACCEPT } from '../../lib/exportCsv';
 import { gradeCell } from '../../lib/gradeEntry';
+// Où se trouve la colonne du NOM dans la feuille lue : la première colonne
+// depuis que l'export porte le « N° » de la liste de classe, la zéroième dans
+// les classeurs des versions précédentes. Les deux doivent entrer.
+import { indexColonneEleve } from '../../lib/colonneEleve';
 
 // Normalisation robuste (casse + accents + espaces) pour apparier noms d'élèves
 // et intitulés de colonnes entre le fichier et le référentiel.
@@ -26,7 +30,8 @@ const SKIP_HEADER = /^(m\s*\/?\s*20|moy|moyenne|cote|note|average|mean|grade)$/i
 export default function CompetenceGradeIO({
   filename,               // base du nom de fichier (sans extension)
   sheetName,              // nom de la feuille Excel
-  students,               // [{ id, name }]
+  students,               // [{ id, name }] — DÉJÀ dans l'ordre de la liste de classe
+  numeroDe,               // (studentId) => numéro de la liste de classe | undefined
   columns,                // [{ id, label }] compétences/domaines
   getCell,                // (studentId, columnId) => valeur stockée (string) | ''
   computed = [],          // [{ label, get(studentId) }] colonnes de synthèse (export seul)
@@ -45,10 +50,14 @@ export default function CompetenceGradeIO({
   // ── Export ──────────────────────────────────────────────────────────────────
   const handleExport = () => {
     if (!students.length || !columns.length) return;
-    const header = [t('Élève', 'Student'), ...columns.map((c) => c.label), ...computed.map((c) => c.label)];
+    // Le N° de la liste de classe ouvre la feuille : c'est le repère que
+    // l'enseignant a sous les yeux à l'écran, et celui qu'il relit sur la liste
+    // imprimée. `indexColonneEleve` le reconnaît au retour (import).
+    const header = [t('N°', 'No.'), t('Élève', 'Student'), ...columns.map((c) => c.label), ...computed.map((c) => c.label)];
     const rows = [
       header,
-      ...students.map((s) => [
+      ...students.map((s, i) => [
+        numeroDe?.(s.id) ?? i + 1,
         s.name,
         ...columns.map((c) => gradeCell(getCell(s.id, c.id))),
         ...computed.map((c) => gradeCell(c.get(s.id))),
@@ -65,11 +74,15 @@ export default function CompetenceGradeIO({
     if (error) { setPreview({ error }); return; }
 
     const fileHeader = raw[0];
+    // La colonne du NOM, puis les colonnes de données qui la suivent. Lue de
+    // l'en-tête et jamais supposée : un classeur exporté avant la colonne « N° »
+    // porte le nom en 0, un classeur exporté depuis le porte en 1.
+    const nomIdx = indexColonneEleve(fileHeader);
     // Correspondance en-tête → colonne (par intitulé, insensible casse/accents).
     let colMap = columns
       .map((c) => {
-        const idx = fileHeader.findIndex((h, j) => j >= 1 && norm(h) === norm(c.label));
-        return idx >= 1 ? { colId: c.id, label: c.label, fileIdx: idx } : null;
+        const idx = fileHeader.findIndex((h, j) => j > nomIdx && norm(h) === norm(c.label));
+        return idx > nomIdx ? { colId: c.id, label: c.label, fileIdx: idx } : null;
       })
       .filter(Boolean);
 
@@ -77,7 +90,7 @@ export default function CompetenceGradeIO({
     // colonnes de données (hors synthèse) coïncide → on mappe par position.
     if (colMap.length === 0) {
       const dataIdx = [];
-      for (let j = 1; j < fileHeader.length; j++) {
+      for (let j = nomIdx + 1; j < fileHeader.length; j++) {
         if (!SKIP_HEADER.test(String(fileHeader[j]).trim())) dataIdx.push(j);
       }
       if (dataIdx.length >= columns.length) {
@@ -87,7 +100,7 @@ export default function CompetenceGradeIO({
 
     const studentMap = new Map(students.map((s) => [norm(s.name), s]));
     const rowsOut = raw.slice(1).map((cells) => {
-      const name    = String(cells[0] || '').trim();
+      const name    = String(cells[nomIdx] || '').trim();
       const student = studentMap.get(norm(name));
       const entries = {};
       for (const { colId, fileIdx } of colMap) {
@@ -154,7 +167,9 @@ export default function CompetenceGradeIO({
                 {t('Sélectionnez un fichier exporté depuis cet écran.', 'Select a file exported from this screen.', 'Seleccione un archivo exportado desde esta pantalla.')}
               </p>
               <p className="text-xs text-gray-400 mb-4">
-                {t('Colonne 1 = Élève, puis une colonne par compétence', 'Column 1 = Student, then one column per competency', 'Columna 1 = Alumno, luego una por competencia')}
+                {t('N° · Élève, puis une colonne par compétence (un fichier sans colonne N° est accepté)',
+                   'No. · Student, then one column per competency (a file without the No. column is accepted)',
+                   'N.º · Alumno, luego una por competencia (se acepta un archivo sin la columna N.º)')}
                 {valueHint ? ` (${valueHint})` : ''}.
               </p>
               <button onClick={() => fileRef.current?.click()} className="btn-primary">{t('Choisir un fichier', 'Choose a file', 'Elegir archivo')}</button>

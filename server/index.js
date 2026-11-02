@@ -568,6 +568,35 @@ app.get('/api/sync/audit', async (req, reply) => {
   } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
 });
 
+// ── LES CONFLITS DE SYNCHRONISATION, ET LEUR ARBITRAGE ─────────────────────
+// Le moteur de fusion refuse d'écraser une note, une période verrouillée ou un
+// encaissement en silence : il garde le local et inscrit le désaccord. Ces deux
+// routes sont ce qui rend ce refus utile — sans elles, le conflit est inscrit
+// et personne ne le voit : le même oubli, mieux rangé.
+app.get('/api/sync/conflicts', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  try {
+    const { listerConflits, compterConflits } = await import('./syncConflits.js');
+    return { data: { conflits: listerConflits({ limite: req.query?.limit, tous: req.query?.tous === '1' }),
+      compte: compterConflits() }, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
+// Trancher. Journalisé dans l'audit de synchro : une décision humaine sur une
+// note ou un encaissement doit laisser une trace de QUI l'a prise — c'est la
+// même exigence que pour la contre-passation d'un versement.
+app.post('/api/sync/conflicts/resolve', async (req, reply) => {
+  const userId = requireLocalAdmin(req, reply); if (!userId) return;
+  try {
+    const { resoudreConflit } = await import('./syncConflits.js');
+    const { recordSyncAudit } = await import('./syncAudit.js');
+    const res = resoudreConflit(req.body?.id, req.body?.choix, { acteur: userId });
+    recordSyncAudit({ kind: 'conflict-resolve', ok: true, actor: userId, ip: req.ip,
+      detail: { id: req.body?.id, choix: res.applique, table: res.table, row_id: res.row_id, col: res.col } });
+    return { data: res, error: null };
+  } catch (e) { return reply.code(400).send({ error: { message: e.message } }); }
+});
+
 // Tableau de bord de SANTÉ : métriques + événements en attente + temps moyen de
 // réplication + détection des synchronisations bloquées. Bon marché (lecture seule).
 app.get('/api/sync/health', async (req, reply) => {

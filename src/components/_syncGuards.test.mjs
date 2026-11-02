@@ -132,7 +132,12 @@ for (const { file, route, interval } of PANELS) {
 // n'est jamais rendu en cloud puisque le composant renvoie null.
 {
   const src = read('SyncStatePanel.jsx');
-  const occurrences = (src.match(/fetch\('\/api\//g) || []).length;
+  // `lanFetch` compte AUSSI : depuis le 02/11/2026 les appels passent par
+  // src/lib/lanFetch.js, qui joint le jeton de session. Sans lui, ces deux
+  // routes rendaient 403 et le panneau restait muet pour toujours — le motif
+  // d'origine (`fetch('/api/`) ne voyait plus rien, alors que l'intention de
+  // ce contrôle — deux appels, health et verify — n'a pas changé.
+  const occurrences = (src.match(/\b(?:lanFetch|fetch)\('\/api\//g) || []).length;
   ok(occurrences === 2, `SyncStatePanel : 2 appels /api/ attendus (health + verify), ${occurrences} trouvés`);
   ok(src.indexOf("if (!IS_LAN) return null;") < src.indexOf('<div className="mt-4'),
     'SyncStatePanel : le garde de rendu précède tout le balisage');

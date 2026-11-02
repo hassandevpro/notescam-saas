@@ -13,6 +13,7 @@ import { fetchReferentiel, refreshApcReferentiel, apcFingerprint, fetchApcNotes,
 import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
+import { estUAValide } from '../core/uaMinedub';
 import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey,
   fetchPrimNonEvaluees, nonEvalKey, setPrimNonEvaluee as pousserNonEvaluee } from '../lib/primService';
@@ -76,7 +77,7 @@ import { backendOnline } from '../lib/edition';
 import { uuid } from '../lib/uuid';
 import { getNextLevel, computeNextYear, isRepeater, lastSequenceFor } from '../lib/yearEngine';
 import { promotionAlreadyDone } from '../lib/promotionGuard';
-import { peutCreerEleve } from '../lib/studentDuplicate';
+import { peutCreerEleve, marquerNonDoublon } from '../lib/studentDuplicate';
 import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 
@@ -382,6 +383,33 @@ const _normMatiere = (nom) => String(nom || '').toLowerCase().normalize('NFD')
   .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
 const idMatiereClasse = (classId, nom) => uuidMaison('subject', classId, _normMatiere(nom));
 
+// ── LES OBSERVATIONS DE MATERNELLE, INDEXÉES PAR UA ────────────────────────
+// Depuis le 2026-11-01 l'identité d'une observation est (élève, domaine, UA) et
+// non plus (élève, domaine, trimestre). Une ligne SAISIE AVANT ce changement n'a
+// pas d'UA : elle n'a donc pas de place dans la grille, et on ne lui en invente
+// PAS une.
+//
+// Pourquoi on ne la devine pas : le rattachement des anciennes périodes aux UA
+// est une décision du responsable (T1→UA1, T2→UA2, le cas du T3 restant en
+// attente de sa réponse), il s'accompagne d'un traitement des conflits et d'un
+// journal d'audit, et il est fait UNE fois par `scripts/migrer-maternelle-ua.mjs`.
+// Les deviner ici les afficherait sans trace, sans arbitrage et sans retour
+// arrière — et sous un rattachement que l'écran ne saurait plus distinguer d'un
+// vrai.
+//
+// Elles sont donc mises de côté (`matObsSansUa`) et l'écran de saisie les
+// ANNONCE, avec leur nombre. Rien n'est perdu, rien n'est montré sous une UA qui
+// n'est pas la sienne, et personne ne croit à une grille vide.
+function indexerObsParUa(rows) {
+  const parUa = {}, sansUa = [];
+  for (const o of rows || []) {
+    if (!o) continue;
+    if (estUAValide(o.ua)) parUa[o.nkey || obsNkey(o.eleve_id, o.domaine_id, o.ua)] = o;
+    else sansUa.push(o);
+  }
+  return { parUa, sansUa };
+}
+
 export const useSchoolStore = create((set, get) => ({
   schoolId:   null,
   activeYear: null,
@@ -416,6 +444,11 @@ export const useSchoolStore = create((set, get) => ({
   // demande par les écrans de saisie. `matObservations`/`primNotes` = { [nkey]: record }.
   matReferentiel:  null,
   matObservations: {},
+  // Les observations encore rattachées à un TRIMESTRE et non à une UA (saisies
+  // avant le 2026-11-01). Elles ne s'affichent nulle part dans la grille : elles
+  // attendent `scripts/migrer-maternelle-ua.mjs`, et l'écran de saisie en annonce
+  // le nombre pour que personne ne les croie perdues.
+  matObsSansUa: [],
   // Ce que CETTE ecole a masque dans chaque referentiel national (ids). Masquer
   // ne supprime rien : le national reste intact pour les 43 autres etablissements.
   refMasques:      { mat: [], apc: [], prim: [], prim_crit: [] },
@@ -906,9 +939,9 @@ export const useSchoolStore = create((set, get) => ({
       matRefDB.get().catch(() => null),
       matObsDB.getAll().catch(() => []),
     ]);
-    const obsMap = {};
-    for (const o of (idbObs || []).filter((o) => o.school_id === schoolId)) obsMap[o.nkey] = o;
-    set({ matReferentiel: cachedRef || null, matObservations: obsMap });
+    const { parUa: obsMap, sansUa: obsSansUa } = indexerObsParUa(
+      (idbObs || []).filter((o) => o.school_id === schoolId));
+    set({ matReferentiel: cachedRef || null, matObservations: obsMap, matObsSansUa: obsSansUa });
 
     if (!backendOnline()) return;
     const [refRes, obs] = await Promise.all([
@@ -922,11 +955,12 @@ export const useSchoolStore = create((set, get) => ({
       set({ matReferentiel: blob });
     }
     if (obs) {
-      const fresh = {};
-      const records = obs.map((o) => ({ ...o, nkey: obsNkey(o.eleve_id, o.domaine_id, o.trimestre_id) }));
-      for (const o of records) fresh[o.nkey] = o;
+      // La nkey est reconstruite à la lecture (elle n'est pas stockée au Cloud) :
+      // l'UA en est la troisième composante depuis le 2026-11-01.
+      const records = obs.map((o) => ({ ...o, nkey: obsNkey(o.eleve_id, o.domaine_id, o.ua) }));
+      const { parUa, sansUa } = indexerObsParUa(records);
       await matObsDB.putMany(records).catch(() => {});
-      set({ matObservations: fresh });
+      set({ matObservations: parUa, matObsSansUa: sansUa });
     }
   }),
 
@@ -1486,18 +1520,21 @@ export const useSchoolStore = create((set, get) => ({
     return { data: true };
   },
 
-  saveMatObservation: async ({ eleveId, domaineId, trimestreId, niveauAcquis, observation }) => {
+  // `ua` (1-8) et non plus `trimestreId` : la maternelle cote par unité
+  // d'apprentissage depuis le 2026-11-01, comme le primaire. Le trimestre est
+  // dérivé dans `buildObsRecord`.
+  saveMatObservation: async ({ eleveId, domaineId, ua, niveauAcquis, observation }) => {
     const { schoolId, matObservations } = get();
     if (!schoolId) return;
     const teacherId = useAuthStore.getState().teacherId || null;
-    const nkey = obsNkey(eleveId, domaineId, trimestreId);
+    const nkey = obsNkey(eleveId, domaineId, ua);
     // L'état mémoire peut être désynchronisé d'IDB (rechargement partiel, onglet
     // resté ouvert pendant un changement de schéma…) : sans ce filet, un id neuf
     // serait généré pour un nkey déjà présent en IDB → rejet silencieux par
     // l'index unique 'by_nkey' (la note « disparaît » sans erreur visible).
     const existing = matObservations[nkey] || (await matObsDB.getByNkey(nkey).catch(() => []))[0];
     const record = buildObsRecord({
-      id: existing?.id, schoolId, eleveId, domaineId, trimestreId,
+      id: existing?.id, schoolId, eleveId, domaineId, ua,
       enseignantId: teacherId, niveauAcquis, observation,
     });
     await matObsDB.put(record);
@@ -2455,8 +2492,13 @@ export const useSchoolStore = create((set, get) => ({
 
   // --- Students ---
 
-  addStudent: async (studentData) => {
+  addStudent: async (donnees) => {
     const { schoolId, students, archivedStudents } = get();
+    // `doublonConfirme` est une réponse d'ÉCRAN, pas une colonne. Elle est
+    // retirée ici et nulle part ailleurs : `sanitizeStudent` recopie tout ce
+    // qu'on lui donne, et une colonne inconnue du Cloud fait rejeter TOUTE la
+    // ligne (PGRST204) — donc l'inscription entière.
+    const { doublonConfirme, ...studentData } = donnees || {};
     // ── LE MÊME ENFANT NE NAÎT PAS DEUX FOIS ────────────────────────────────
     // L'écran de saisie prévenait déjà ; l'IMPORT DE FICHIER, lui, appelait
     // `addStudent` ligne par ligne sans le moindre contrôle (cf. ImportPanel).
@@ -2466,7 +2508,11 @@ export const useSchoolStore = create((set, get) => ({
     // (même nom + même naissance, ou matricule déjà pris) et laisse passer les
     // cas douteux, que l'écran fait confirmer. Les archivés comptent : c'est en
     // réinscrivant quelqu'un qu'on croyait supprimé que le doublon apparaît.
-    const verdict = peutCreerEleve(studentData, [...students, ...(archivedStudents || [])]);
+    // `doublonConfirme` : la secrétaire a déjà vu l'alerte à l'écran et répondu
+    // « ce ne sont pas les mêmes ». Le redemander ici bloquerait ce qu'elle vient
+    // d'autoriser — « alerte, jamais blocage » (consigne du 2026-11-01).
+    const verdict = peutCreerEleve(studentData, [...students, ...(archivedStudents || [])],
+      { doublonConfirme: !!doublonConfirme });
     if (!verdict.ok) return { error: 'doublon', reason: verdict.raison, existing: verdict.existant };
     const { userId, fullName } = useAuthStore.getState();
     const record = {
@@ -2504,6 +2550,24 @@ export const useSchoolStore = create((set, get) => ({
       }
     }
     return record;
+  },
+
+  // « CE N'EST PAS UN DOUBLON » — la décision de la secrétaire, mémorisée des
+  // DEUX côtés de la paire (cf. core/doublonsEleves.js). Sans elle, la même
+  // alerte revient à chaque écran et finit ignorée.
+  //
+  // Les archivés comptent : c'est en réinscrivant quelqu'un qu'on croyait
+  // supprimé que le doublon apparaît, donc c'est aussi là qu'on tranche.
+  marquerPaireNonDoublon: async (idA, idB) => {
+    const { students, archivedStudents, updateStudent } = get();
+    const registre = [...students, ...(archivedStudents || [])];
+    const a = registre.find((s) => s.id === idA);
+    const b = registre.find((s) => s.id === idB);
+    if (!a || !b) return { ok: false };
+    for (const patch of marquerNonDoublon(a, b)) {
+      await updateStudent(patch.id, { non_doublons: patch.non_doublons });
+    }
+    return { ok: true };
   },
 
   updateStudent: async (id, data) => {
@@ -3050,7 +3114,14 @@ export const useSchoolStore = create((set, get) => ({
     return record;
   },
 
-  addPayment: async (studentId, { amount, date, note, student_fee_item_id = null, fee_schedule_item_id = null }) => {
+  addPayment: async (studentId, {
+    amount, date, note, student_fee_item_id = null, fee_schedule_item_id = null,
+    // COMMENT l'argent est entré. Jusqu'ici tout finissait dans `note` : « MoMo
+    // 677… », « virement BICEC » et « papa de Marie » mélangés, ni cherchables
+    // ni totalisables. Un arrêté qui sépare les espèces du Mobile Money ne peut
+    // pas se lire dans une note libre.
+    method = null, payer_name = null, reference = null,
+  }) => {
     const { schoolId, activeYear, fees, feePayments } = get();
     const { userId, fullName } = useAuthStore.getState();
     const parsedAmount = parseInt(amount, 10) || 0;
@@ -3081,6 +3152,12 @@ export const useSchoolStore = create((set, get) => ({
       // elles restent contre-passables une par une, comme lorsque la famille
       // annule février seul.
       fee_schedule_item_id: fee_schedule_item_id || null,
+      // NULL et non « espèces » par défaut : un mode inventé fausserait tout
+      // arrêté de caisse qui distingue les modes, et le NULL dit la vérité —
+      // ce versement a été saisi par un écran qui ne demandait pas le mode.
+      method:     method || null,
+      payer_name: payer_name || null,
+      reference:  reference || null,
       created_at:    new Date().toISOString(),
     };
 

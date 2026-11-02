@@ -3,6 +3,7 @@
 // design : naturellement sérialisé, ce qui convient à une école.
 
 import { DatabaseSync } from 'node:sqlite';
+import { idCompteParent, idLienParentEleve } from './parentIds.js';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -290,6 +291,15 @@ ensureColumn('fee_payments', 'reversal_of', 'reversal_of TEXT');
 ensureColumn('fee_payments', 'void_reason', 'void_reason TEXT');
 // Numéro séquentiel du reçu : un trou dans la série = une recette escamotée.
 ensureColumn('fee_payments', 'receipt_no', 'receipt_no INTEGER');
+// COMMENT l'argent est entré. La note libre servait de fourre-tout : « MoMo
+// 677… », « virement BICEC » et « papa de Marie » y tenaient ensemble, ni
+// cherchables ni totalisables. Un arrêté de caisse qui sépare les espèces du
+// Mobile Money ne peut pas se lire dans une note. Le Cloud doit avoir ces
+// colonnes AVANT qu'un poste LAN n'en émette (cf. supabase_fee_payment_mode.sql
+// et le rejet PGRST204, qui refuse la LIGNE ENTIÈRE, pas le seul champ inconnu).
+ensureColumn('fee_payments', 'method',     'method TEXT');
+ensureColumn('fee_payments', 'payer_name', 'payer_name TEXT');
+ensureColumn('fee_payments', 'reference',  'reference TEXT');
 // Index créé ICI et non dans schema.sql : ce dernier s'exécute AVANT les
 // ensureColumn, donc sur une base déjà installée l'index porterait sur une
 // colonne inexistante et db.exec ferait échouer TOUT le démarrage du serveur.
@@ -548,6 +558,126 @@ ensureColumn('schools', 'bulletin_accent', 'bulletin_accent TEXT');
     if (fk && fk.foreign_keys) db.exec('PRAGMA foreign_keys = ON');
   }
 })();
+// ── LA MATERNELLE COTE PAR UNITÉ D'APPRENTISSAGE, PLUS PAR TRIMESTRE ────────
+//
+// Demande du responsable (2026-11-01) : « la maternelle doit utiliser les mêmes
+// critères que le primaire : UA1 à UA8 », regroupées UA1-3 / UA4-6 / UA7-8.
+// L'identité d'une observation devient donc (élève, domaine, UA).
+//
+// TROIS CHOSES À FAIRE, et la deuxième est la raison d'être de ce bloc :
+//
+//  1. la colonne `ua`, et les trois colonnes d'HISTORIQUE qui rendent le
+//     rattachement réversible (`ancienne_periode`, `ua_migre_le`,
+//     `ua_migre_par`) — exigées par la procédure de migration : « conservation
+//     de la valeur et de l'ancienne période […] pour pouvoir revenir en
+//     arrière » ;
+//
+//  2. RETIRER l'ancienne contrainte `UNIQUE (eleve_id, domaine_id,
+//     trimestre_id)`. Sans cela, un domaine ne pourrait être coté qu'UNE fois
+//     par trimestre — or un trimestre compte jusqu'à trois UA. La deuxième
+//     observation du trimestre serait refusée par la base, et le client, qui
+//     écrit en upsert sur (élève, domaine, UA), se verrait répondre « ON
+//     CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint » :
+//     la saisie repartirait en file à chaque cycle, indéfiniment. C'est
+//     exactement le défaut vécu sur `prim_notes` le 28/09/2026 (voir plus
+//     haut) — on ne le refait pas une seconde fois ;
+//
+//  3. garder `trimestre_id` NOT NULL et renseigné, avec le trimestre DÉRIVÉ de
+//     l'UA. La colonne porte une clé étrangère vers `apc_trimestres`, qui ne
+//     compte que trois lignes : on ne peut ni y écrire « ua5 » ni la vider. Et
+//     tout lecteur par trimestre continue de fonctionner.
+//
+// SQLite ne sait pas retirer une contrainte par ALTER : il faut reconstruire.
+// La détection porte sur le SCHÉMA RÉEL (les index uniques), pas sur un drapeau
+// de version — l'opération est idempotente et ne coûte rien à une base à jour.
+ensureColumn('mat_observations', 'ua', 'ua INTEGER');
+// L'ancienne période de l'observation, conservée par la migration : c'est elle
+// qui permet de revenir en arrière, et de prouver d'où vient chaque ligne.
+ensureColumn('mat_observations', 'ancienne_periode', 'ancienne_periode TEXT');
+ensureColumn('mat_observations', 'ua_migre_le',      'ua_migre_le TEXT');
+ensureColumn('mat_observations', 'ua_migre_par',     'ua_migre_par TEXT');
+(() => {
+  const colonnes = db.prepare('PRAGMA table_info("mat_observations")').all();
+  if (!colonnes.length) return;                 // table absente : schema.sql la pose déjà juste
+  const noms = new Set(colonnes.map((c) => c.name));
+  if (!noms.has('ua')) return;                  // `ensureColumn` ci-dessus a échoué : ne rien casser
+
+  const VOULUE = ['eleve_id', 'domaine_id', 'ua'].join(',');
+  const indexUniques = db.prepare('PRAGMA index_list("mat_observations")').all().filter((i) => i.unique);
+  const dejaBonne = indexUniques.some((i) => db.prepare(`PRAGMA index_info(${quoteIdent(i.name)})`).all()
+    .map((c) => c.name).join(',') === VOULUE);
+  if (dejaBonne) return;
+
+  // Colonnes conservées : celles que la base porte VRAIMENT. Rien n'est jeté —
+  // `trimestre_id` reste, et les colonnes d'historique partent avec.
+  const garde = ['id', 'school_id', 'eleve_id', 'domaine_id', 'trimestre_id', 'ua',
+    'niveau_acquis', 'observation', 'enseignant_id', 'date_saisie', 'updated_at',
+    'version', 'device_id', 'ancienne_periode', 'ua_migre_le', 'ua_migre_par']
+    .filter((c) => noms.has(c));
+  const liste = garde.map(quoteIdent).join(', ');
+
+  // Doublons sur la NOUVELLE clé : impossibles sous l'ancienne contrainte tant
+  // que `ua` est vide (elle vaut alors NULL partout, et NULL n'entre pas dans un
+  // index unique SQLite), mais une reprise de données peut en produire. On garde
+  // la plus récente et on DIT combien ont été écartées — un silence ici ferait
+  // disparaître du travail sans trace.
+  const recence = ['updated_at', 'date_saisie'].filter((c) => noms.has(c))
+    .map((c) => `COALESCE(o2.${c}, '')`);
+  const ordre = [...recence, 'o2.id'].map((e) => `${e} DESC`).join(', ');
+  const plusRecente = `
+    SELECT o2.id FROM mat_observations o2
+     WHERE o2.eleve_id = o.eleve_id AND o2.domaine_id = o.domaine_id AND o2.ua = o.ua
+     ORDER BY ${ordre} LIMIT 1`;
+  const doublons = db.prepare(
+    `SELECT count(*) AS c FROM mat_observations o WHERE o.ua IS NOT NULL AND o.id <> (${plusRecente})`,
+  ).get().c;
+
+  const fk = db.prepare('PRAGMA foreign_keys').get();
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE mat_observations_ua (
+        id            TEXT PRIMARY KEY,
+        school_id     TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+        eleve_id      TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        domaine_id    TEXT NOT NULL REFERENCES mat_domaines(id),
+        trimestre_id  TEXT NOT NULL REFERENCES apc_trimestres(id),
+        ua            INTEGER CHECK (ua IS NULL OR ua BETWEEN 1 AND 8),
+        niveau_acquis TEXT CHECK (niveau_acquis IS NULL OR niveau_acquis IN ('A', 'ECA', 'NA')),
+        observation   TEXT,
+        enseignant_id TEXT,
+        date_saisie   TEXT,
+        updated_at    TEXT,
+        version       INTEGER NOT NULL DEFAULT 1,
+        device_id     TEXT,
+        ancienne_periode TEXT,
+        ua_migre_le      TEXT,
+        ua_migre_par     TEXT,
+        CONSTRAINT mat_observations_uniq_ua UNIQUE (eleve_id, domaine_id, ua)
+      );
+      INSERT INTO mat_observations_ua (${liste})
+        SELECT ${liste} FROM mat_observations o
+         WHERE o.ua IS NULL OR o.id = (${plusRecente});
+      DROP TABLE mat_observations;
+      ALTER TABLE mat_observations_ua RENAME TO mat_observations;
+      CREATE INDEX IF NOT EXISTS idx_mat_obs_school  ON mat_observations(school_id);
+      CREATE INDEX IF NOT EXISTS idx_mat_obs_student ON mat_observations(eleve_id);
+      COMMIT;
+    `);
+    console.log('[db] mat_observations reconstruite : la clé de saisie est l’unité d’apprentissage (UA), '
+      + 'un domaine peut être coté à chaque UA du trimestre.');
+    if (doublons) console.warn(`[db] mat_observations : ${doublons} ligne(s) en double sur (élève, domaine, UA) — la plus récente a été gardée.`);
+  } catch (e) {
+    try { db.exec('ROLLBACK'); } catch { /* rien à annuler */ }
+    // Surtout ne pas masquer : tant que la reconstruction échoue, la maternelle
+    // saisit dans le vide et sa file de synchro grossit sans que rien ne le dise.
+    console.error('[db] reconstruction UA de mat_observations ÉCHOUÉE —', e.message);
+  } finally {
+    if (fk && fk.foreign_keys) db.exec('PRAGMA foreign_keys = ON');
+  }
+})();
+
 // Priorité d'une notification (normal|important|urgent) — décide côté Cloud si
 // le canal SMS est autorisé (coût maîtrisé). Doit exister en LAN pour que les
 // SMS déclenchés depuis le serveur LAN (server/notify.js) gardent leur priorité
@@ -614,6 +744,27 @@ ensureColumn('students', 'tuteur',          'tuteur TEXT');
 // référentiel bloquerait une inscription.
 ensureColumn('students', 'quartier',        'quartier TEXT');
 ensureColumn('students', 'ecole_origine',   'ecole_origine TEXT');
+
+// « CE N'EST PAS UN DOUBLON » — LA DÉCISION DE LA SECRÉTAIRE, MÉMORISÉE
+//
+// Tableau d'identifiants d'élèves en JSON (`["id1","id2"]`). La détection de
+// doublons alerte, sans jamais bloquer : la secrétaire est la seule à savoir si
+// deux fiches très proches sont deux enfants. Sa décision est écrite ici, DES
+// DEUX CÔTÉS de la paire, sinon la même alerte revient à chaque ouverture
+// d'écran et à chaque scan — et une alerte qu'on a appris à ignorer ne protège
+// plus rien.
+//
+// Une COLONNE de `students` plutôt qu'une table : `students` est déjà
+// synchronisée, donc la décision suit l'école sur le LAN comme en ligne sans un
+// branchement de plus, et elle disparaît avec la fiche. Ce que ça coûte : deux
+// secrétaires qui tranchent la même paire hors ligne s'écrasent l'une l'autre
+// (dernier écrit gagne, comme le reste de la fiche) et l'alerte revient une
+// fois. Aucune donnée scolaire n'est en jeu.
+//
+// ⛔ `supabase_eleves_non_doublons.sql` doit être appliqué AVANT que cette
+// version n'arrive aux postes : `students` est poussée colonne par colonne, et
+// une colonne inconnue du Cloud fait rejeter TOUTE la ligne (PGRST204).
+ensureColumn('students', 'non_doublons',    'non_doublons TEXT');
 
 // Registre matricule : entrée et sortie de l'établissement — cf.
 // supabase_student_registre_matricule.sql pour le détail du pourquoi.
@@ -878,6 +1029,12 @@ ensureColumn('budget_chapters', 'level', 'level TEXT'); // hiérarchie budget : 
 // choix « Officiel Cameroun » n'était jamais persisté (avalé par pickColumns).
 ensureColumn('schools',  'bulletin_engine', "bulletin_engine TEXT NOT NULL DEFAULT 'classic'");
 ensureColumn('schools',  'apc_bulletin_cols', 'apc_bulletin_cols TEXT'); // colonnes du bulletin APC premier cycle (JSON)
+// Nombre d'évaluations par matière au premier cycle (JSON : { "<classe>|<matière>": 3 }).
+// Liste d'EXCEPTIONS : vide par défaut, le nombre étant déduit du nombre de
+// compétences (1 → 2 évaluations, sinon une par compétence — cf.
+// core/apcEvaluations.js). Rangé ici comme `apc_bulletin_cols` et
+// `validation_rules` : une préférence d'école ne vaut pas une table nouvelle.
+ensureColumn('schools',  'apc_evaluations', 'apc_evaluations TEXT');
 ensureColumn('schools',  'establishment_no', 'establishment_no TEXT'); // N° officiel établissement (en-tête bulletin)
 ensureColumn('schools',  'bulletin_font',    'bulletin_font TEXT');    // police choisie pour le bulletin
 // Relevés de notes — signatures + noms des 2 autorités additionnelles (le chef
@@ -1057,6 +1214,13 @@ try {
 // Tables dont les changements sont répliqués vers/depuis le cloud. Chacune
 // reçoit updated_at / version / device_id pour la résolution LWW + l'outbox.
 export const SYNCED_TABLES = new Set([
+  // Liens familiaux. Branchés le 01/11/2026 : ils n'étaient dans AUCUNE des
+  // sept listes, et les frères et sœurs saisis à l'école ne remontaient jamais
+  // — sans erreur, sans test, sans écran. Leur id est DÉTERMINÉ par la clé
+  // naturelle (server/parentIds.js) : avec un id aléatoire, le même lien créé
+  // des deux côtés heurte UNIQUE(parent_user_id, student_id) et fait refuser
+  // le lot entier.
+  'parent_student_links',
   'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'class_fee_grids',
@@ -1242,6 +1406,373 @@ db.exec(`
     quarantined_at TEXT NOT NULL
   );
 `);
+
+// ── UNE LIGNE EN ATTENTE = UNE ENTRÉE DE FILE, ET NON DEUX MILLE ───────────
+//
+// LE DÉFAUT, MESURÉ À THE GENIUS LE 29/10/2026 :
+//
+//     entrées ............. 13 314 326
+//     pointeurs distincts . 6 457          → 2 062 entrées par ligne utile
+//
+// `sync_outbox` était un journal en AJOUT PUR : aucune contrainte d'unicité sur
+// (tablename, row_id), et quatre endroits y inséraient sans jamais regarder si
+// la ligne y était déjà. Chaque réécriture d'une même ligne empilait une entrée
+// de plus, pour toujours.
+//
+// POURQUOI C'EST FATAL, ET PAS SEULEMENT SALE. `push()` lit un lot BORNÉ
+// (`BATCH = 500`) toutes les cinq minutes, en FIFO sur `id`, et purge par
+// `id <= maxId`. Ce sont donc 500 ENTRÉES qui partent par cycle — pas 500
+// lignes. Le calcul :
+//
+//     13 314 326 ÷ 500           = 26 629 cycles
+//     × 5 min                    = 2 219 heures de serveur ALLUMÉ
+//     ÷ 45 h par semaine         ≈ 49 semaines
+//
+// Une note saisie le matin était en position 13 000 000 : elle serait partie
+// dans onze mois. Ce n'était pas une synchro « peu fiable », c'était une
+// synchro À L'ARRÊT — et chaque demande de « synchronisation manuelle » ne
+// poussait que les 500 entrées suivantes, d'où l'impression qu'il fallait la
+// redemander sans fin.
+//
+// LA CORRECTION EN DEUX TEMPS. (1) L'index unique ci-dessous rend l'état
+// impossible à reproduire. (2) `enqueueOutbox()` remplace l'entrée existante au
+// lieu de l'empiler.
+//
+// POURQUOI SUPPRIMER PUIS RÉINSÉRER, ET NON `ON CONFLICT DO UPDATE`. Parce que
+// `push()` purge par `id <= maxId` APRÈS avoir lu son lot. Une mise à jour EN
+// PLACE garderait l'ancien `id` : une écriture survenant pendant la poussée
+// retomberait sous `maxId` et serait purgée SANS AVOIR ÉTÉ POUSSÉE — une perte
+// de données silencieuse, exactement ce qu'on vient de corriger ailleurs. En
+// réinsérant, l'entrée reçoit un `id` neuf, supérieur à `maxId` : la purge ne
+// la voit pas, et elle part au cycle suivant. L'invariant dont `push()` dépend
+// — « une écriture postérieure à la lecture du lot a un id plus grand » — est
+// ainsi préservé.
+//
+// `attempts` et `last_error` ne sont PAS repris : un état neuf mérite une
+// tentative neuve. L'historique des échecs reste dans la quarantaine.
+function dedoublonnerOutbox() {
+  const avant = db.prepare('SELECT COUNT(*) n FROM sync_outbox').get().n;
+  if (!avant) { db.exec(IDX_OUTBOX_UNIQUE); return; }
+  // Déjà dédoublonnée (index présent) : rien à faire, et surtout pas de scan.
+  const dejaFait = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_sync_outbox_cle'",
+  ).get();
+  if (dejaFait) return;
+  // GARDE : la reconstruction recrée la table avec une liste de colonnes ÉCRITE
+  // EN DUR. Si une colonne a été ajoutée depuis sans que ce bloc le sache, la
+  // reconstruire la ferait disparaître en silence — on refuse plutôt de migrer.
+  // La file reste alors engorgée, ce qui est visible et réparable ; une colonne
+  // effacée sans bruit ne l'est pas.
+  const COLONNES = ['id', 'tablename', 'row_id', 'op', 'at', 'attempts', 'last_error'];
+  const vues = db.prepare('PRAGMA table_info(sync_outbox)').all().map((c) => c.name);
+  const inconnues = vues.filter((c) => !COLONNES.includes(c));
+  if (inconnues.length) {
+    console.warn(`[db] file de poussée NON dédoublonnée : colonne(s) inattendue(s) `
+      + `« ${inconnues.join(', ')} ». Mettre à jour COLONNES dans dedoublonnerOutbox().`);
+    return;
+  }
+  const t0 = Date.now();
+  console.warn(`[db] file de poussée : ${avant} entrées à dédoublonner, patientez…`);
+  tx(() => {
+    // Index de travail : il sert au GROUP BY ci-dessous, qui devient un simple
+    // parcours d'index au lieu d'un tri de 13 millions de lignes.
+    db.exec('CREATE INDEX IF NOT EXISTS idx_outbox_tmp ON sync_outbox (tablename, row_id, id)');
+    // ON RECONSTRUIT LA TABLE, ON NE SUPPRIME PAS LIGNE À LIGNE.
+    //
+    // MESURÉ sur une file reconstituée au volume exact de THE GENIUS
+    // (13 314 326 entrées / 6 457 pointeurs) : un `DELETE ... WHERE EXISTS`
+    // corrélé n'avait toujours pas rendu la main après DIX MINUTES — le
+    // serveur de l'école serait resté bloqué au démarrage. La reconstruction
+    // ci-dessous fait le même travail en 88 secondes, parce qu'elle écrit
+    // 6 457 lignes au lieu d'en effacer 13 307 869.
+    //
+    // On garde, pour chaque (table, ligne), l'entrée la PLUS RÉCENTE : c'est
+    // elle qui porte l'état à pousser. Les précédentes décrivent un état déjà
+    // remplacé — les envoyer referait 2 061 fois le même travail.
+    //
+    // Les `id` d'origine sont CONSERVÉS : l'ordre FIFO de la file est celui de
+    // l'ancienneté des changements, et le perdre ferait repasser devant des
+    // modifications récentes au détriment de celles qui attendent depuis des
+    // semaines. Conserver le `id` maximum réaligne aussi la séquence
+    // AUTOINCREMENT, donc l'invariant « une écriture postérieure a un id plus
+    // grand » dont dépend la purge de `push()`.
+    db.exec(`CREATE TABLE sync_outbox_dedup (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, tablename TEXT NOT NULL, row_id TEXT NOT NULL,
+      op TEXT NOT NULL, at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT)`);
+    db.exec(`INSERT INTO sync_outbox_dedup (id, tablename, row_id, op, at, attempts, last_error)
+             SELECT id, tablename, row_id, op, at, attempts, last_error FROM sync_outbox
+              WHERE id IN (SELECT MAX(id) FROM sync_outbox GROUP BY tablename, row_id)`);
+    db.exec('DROP TABLE sync_outbox');
+    db.exec('ALTER TABLE sync_outbox_dedup RENAME TO sync_outbox');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_sync_outbox_at ON sync_outbox (id)');
+    db.exec(IDX_OUTBOX_UNIQUE);
+  });
+  const apres = db.prepare('SELECT COUNT(*) n FROM sync_outbox').get().n;
+  if (apres !== avant) {
+    console.warn(`[db] file de poussée dédoublonnée : ${avant} → ${apres} entrées `
+      + `(${avant - apres} doublons retirés, ${Date.now() - t0} ms).`);
+    console.warn('[db] une ligne en attente = une entrée : la file ne peut plus s’engorger.');
+  }
+}
+const IDX_OUTBOX_UNIQUE =
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_outbox_cle ON sync_outbox (tablename, row_id)';
+dedoublonnerOutbox();
+
+// Met une ligne en file de poussée. UN SEUL point d'entrée : les quatre
+// endroits qui inséraient directement pouvaient (et devaient) diverger.
+export function enqueueOutbox(table, id, op) {
+  if (id == null) return;
+  const stmtDel = db.prepare('DELETE FROM sync_outbox WHERE tablename = ? AND row_id = ?');
+  const stmtIns = db.prepare('INSERT INTO sync_outbox (tablename, row_id, op, at) VALUES (?,?,?,?)');
+  stmtDel.run(table, String(id));
+  stmtIns.run(table, String(id), op, new Date().toISOString());
+}
+
+// ── L'ÉTAT SUR LEQUEL LES DEUX CÔTÉS ÉTAIENT D'ACCORD ──────────────────────
+//
+// POURQUOI CETTE TABLE EXISTE. Avec seulement la ligne locale et la ligne
+// distante, on ne peut PAS savoir qui a changé quoi : `local.phone = '677…'`
+// et `distant.phone = '699…'` se ressemblent, qu'il s'agisse d'une correction
+// faite à l'école ou d'une correction faite en ligne. Il manque un troisième
+// terme : la dernière valeur que les deux côtés ont vue ensemble.
+//
+// C'est ce que garde `sync_shadow`, et c'est ce qui permet la fusion PAR CHAMP
+// (cf. server/syncMerge.js) au lieu de l'écrasement de la ligne entière, qui
+// jetait silencieusement la correction de l'un des deux.
+//
+// QUAND ELLE SE POSE — exactement aux deux instants où un accord a lieu :
+//   · quand on APPLIQUE une ligne venue du Cloud (le Cloud a cet état) ;
+//   · quand le Cloud ACCEPTE une ligne qu'on a poussée (il l'a maintenant).
+// Nulle part ailleurs. Une écriture locale ordinaire ne touche pas l'ombre :
+// c'est précisément l'écart entre l'ombre et le local qui porte l'information
+// « l'école a modifié ce champ ».
+//
+// CE QUE ÇA COÛTE. Une ligne de JSON par ligne synchronisée. À l'échelle de
+// THE GENIUS — 713 élèves, 1353 notes — c'est quelques mégaoctets. La base
+// pesait 1,5 Go dont la quasi-totalité était la file engorgée (I35) ; l'ombre
+// est sans commune mesure avec ce qu'on vient de libérer.
+db.exec(`CREATE TABLE IF NOT EXISTS sync_shadow (
+  tablename TEXT NOT NULL,
+  row_id    TEXT NOT NULL,
+  row_json  TEXT NOT NULL,
+  at        TEXT NOT NULL,
+  PRIMARY KEY (tablename, row_id)
+)`);
+
+// ── LES CONFLITS, ET POURQUOI ILS SONT ÉCRITS ──────────────────────────────
+//
+// « Jamais d'écrasement silencieux. » Le mot qui compte est SILENCIEUX. Deux
+// cas tombent ici :
+//
+//   · `retenu` renseigné : le moteur a tranché tout seul (champ ordinaire
+//     disputé des deux côtés). La valeur écartée reste lisible — avant, elle
+//     était simplement perdue.
+//   · `retenu` à NULL : le moteur a REFUSÉ de trancher (champ sensible, ou
+//     table en ajout seul). Le local est conservé et l'arbitrage attend un
+//     humain. C'est le cas des notes, des périodes verrouillées, des
+//     versements et de la caisse comptée.
+//
+// `resolved_at` reste NULL tant que personne n'a tranché : c'est ce que
+// l'écran de supervision compte pour afficher « 3 conflits à arbitrer ».
+db.exec(`CREATE TABLE IF NOT EXISTS sync_conflicts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  tablename   TEXT NOT NULL,
+  row_id      TEXT NOT NULL,
+  col         TEXT NOT NULL,
+  val_local   TEXT,
+  val_distant TEXT,
+  val_base    TEXT,
+  retenu      TEXT,
+  motif       TEXT,
+  at          TEXT NOT NULL,
+  resolved_at TEXT
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_conflits_ouverts ON sync_conflicts (resolved_at, at)');
+
+export function lireOmbre(table, id) {
+  const r = db.prepare('SELECT row_json FROM sync_shadow WHERE tablename = ? AND row_id = ?')
+    .get(table, String(id));
+  if (!r) return null;
+  try { return JSON.parse(r.row_json); } catch { return null; }
+}
+
+// `poserOmbre` est appelée dans la transaction du pull/push, donc souvent :
+// on écrit la ligne telle qu'elle a été échangée, sans la relire.
+export function poserOmbre(table, id, row) {
+  if (id == null || !row) return;
+  db.prepare(`INSERT INTO sync_shadow (tablename, row_id, row_json, at) VALUES (?,?,?,?)
+              ON CONFLICT(tablename, row_id) DO UPDATE SET row_json = excluded.row_json, at = excluded.at`)
+    .run(table, String(id), JSON.stringify(row), new Date().toISOString());
+}
+
+export function retirerOmbre(table, id) {
+  if (id == null) return;
+  db.prepare('DELETE FROM sync_shadow WHERE tablename = ? AND row_id = ?').run(table, String(id));
+}
+
+// Un conflit par champ et par ligne : si le même champ se redispute au cycle
+// suivant, on met à jour celui qui est ouvert au lieu d'en empiler un second —
+// sinon l'écran de supervision afficherait « 400 conflits » pour une seule
+// case de note que deux postes se renvoient.
+export function enregistrerConflit(table, id, c) {
+  const texte = (v) => (v === null || v === undefined ? null : String(v));
+  const ouvert = db.prepare(`SELECT id FROM sync_conflicts
+     WHERE tablename = ? AND row_id = ? AND col = ? AND resolved_at IS NULL`)
+    .get(table, String(id), c.col);
+  if (ouvert) {
+    db.prepare(`UPDATE sync_conflicts SET val_local = ?, val_distant = ?, val_base = ?,
+                 retenu = ?, motif = ?, at = ? WHERE id = ?`)
+      .run(texte(c.local), texte(c.distant), texte(c.base), c.retenu ?? null,
+        c.motif ?? null, new Date().toISOString(), ouvert.id);
+    return;
+  }
+  db.prepare(`INSERT INTO sync_conflicts
+      (tablename, row_id, col, val_local, val_distant, val_base, retenu, motif, at)
+      VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run(table, String(id), c.col, texte(c.local), texte(c.distant), texte(c.base),
+      c.retenu ?? null, c.motif ?? null, new Date().toISOString());
+}
+
+// Ce que l'écran de supervision affiche : ce qui attend un humain.
+export function conflitsOuverts(limite = 200) {
+  return db.prepare(`SELECT * FROM sync_conflicts WHERE resolved_at IS NULL
+                      ORDER BY at DESC LIMIT ?`).all(limite);
+}
+
+
+// ── AUCUNE ÉCRITURE NE PEUT PLUS CONTOURNER LA FILE ────────────────────────
+//
+// LE DÉFAUT, MESURÉ LE 01/11/2026. `recordOutbox()` n'est appelé que par
+// `query.js`. Or `server/rpc.js` écrit EN DIRECT, par `db.prepare(...).run()`,
+// dans HUIT tables synchronisées — classes, subjects, schools, school_users,
+// teachers, governance_roles, user_governance_roles, governance_role_history —
+// sur 32 emplacements, et n'enfile RIEN. Une classe créée par RPC, un
+// enseignant renommé, un rôle de gouvernance attribué : rien de tout cela
+// n'entrait dans la file. Ces changements ne remontaient au Cloud que si
+// l'audit Merkle finissait par les remarquer — c'est-à-dire tard, ou jamais.
+//
+// C'est la deuxième cause structurelle du symptôme « mes modifications ne
+// remontent pas », distincte de l'engorgement : l'une retardait la file,
+// l'autre n'y mettait rien.
+//
+// POURQUOI DES DÉCLENCHEURS, ET NON 32 CORRECTIONS. Corriger les 32 sites
+// laisserait le trou ouvert pour le 33e. Le déclencheur capture l'écriture
+// là où elle a lieu — en base — quel que soit le chemin de code, y compris
+// ceux qui n'existent pas encore.
+//
+// CE QUI REND CECI SÛR AUJOURD'HUI, ET NE L'ÉTAIT PAS HIER : l'index unique
+// posé plus haut. Un déclencheur qui enfile en double serait catastrophique
+// sur une file en ajout pur — c'est précisément ce qui l'a engorgée. Avec une
+// entrée par ligne, enfiler deux fois est sans effet.
+//
+// L'ANTI-ÉCHO. La synchronisation écrit elle aussi en base quand elle applique
+// une ligne distante ; sans garde, le déclencheur la renverrait aussitôt au
+// Cloud — une boucle. `sansEcho()` lève un drapeau que les déclencheurs
+// consultent. Le drapeau vit dans une TABLE et non dans une variable JS,
+// parce que c'est SQLite qui l'évalue, pas Node.
+db.exec(`CREATE TABLE IF NOT EXISTS sync_echo_guard (actif INTEGER NOT NULL DEFAULT 0)`);
+if (!db.prepare('SELECT COUNT(*) n FROM sync_echo_guard').get().n) {
+  db.prepare('INSERT INTO sync_echo_guard (actif) VALUES (0)').run();
+}
+
+// Exécute `fn` SANS que ses écritures n'alimentent la file. Réservé au code qui
+// applique une décision DÉJÀ prise par le Cloud (`rawUpsert`, suppression
+// répliquée) : renvoyer ces lignes serait un écho, pas un changement.
+export function sansEcho(fn) {
+  db.prepare('UPDATE sync_echo_guard SET actif = 1').run();
+  try { return fn(); }
+  finally { db.prepare('UPDATE sync_echo_guard SET actif = 0').run(); }
+}
+
+function poserDeclencheursOutbox() {
+  let posés = 0, ignorées = [];
+  for (const t of SYNCED_TABLES) {
+    let cols;
+    try { cols = db.prepare(`PRAGMA table_info(${quoteIdent(t)})`).all().map((c) => c.name); }
+    catch { continue; }
+    // Une table sans `id` ne peut pas être désignée dans la file (`row_id`),
+    // ni appliquée par `rawUpsert`. On l'ignore EN LE DISANT.
+    if (!cols.length || !cols.includes('id')) { if (cols?.length) ignorées.push(t); continue; }
+    const q = quoteIdent(t);
+    for (const [suffixe, evenement, ligne, op] of [
+      ['ins', 'INSERT', 'NEW', 'upsert'],
+      ['upd', 'UPDATE', 'NEW', 'upsert'],
+      ['del', 'DELETE', 'OLD', 'delete'],
+    ]) {
+      db.exec(`DROP TRIGGER IF EXISTS trg_outbox_${t}_${suffixe}`);
+      db.exec(`
+        CREATE TRIGGER trg_outbox_${t}_${suffixe} AFTER ${evenement} ON ${q}
+        WHEN (SELECT actif FROM sync_echo_guard) = 0 AND ${ligne}.id IS NOT NULL
+        BEGIN
+          DELETE FROM sync_outbox WHERE tablename = '${t}' AND row_id = CAST(${ligne}.id AS TEXT);
+          INSERT INTO sync_outbox (tablename, row_id, op, at)
+            VALUES ('${t}', CAST(${ligne}.id AS TEXT), '${op}', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+        END`);
+    }
+    posés++;
+  }
+  if (ignorées.length) {
+    console.warn(`[db] file : ${ignorées.length} table(s) synchronisée(s) sans colonne « id », `
+      + `non capturée(s) par déclencheur : ${ignorées.join(', ')}`);
+  }
+  return posés;
+}
+poserDeclencheursOutbox();
+
+// ── RÉCONCILIATION DES IDS PARENTS : LE LAN FAIT FOI ───────────────────────
+//
+// DÉCIDÉ PAR LE RESPONSABLE LE 01/11/2026. Les liens parent/élève déjà créés
+// portent des ids ALÉATOIRES, différents de part et d'autre pour un même
+// couple (parent, élève). Avant de brancher ces tables à la synchronisation, il
+// faut que les deux côtés nomment la même ligne du même nom — sinon le premier
+// push bute sur UNIQUE(parent_user_id, student_id) et refuse le lot.
+//
+// Cette migration réécrit les ids LOCAUX en ids DÉTERMINÉS (cf. parentIds.js).
+// Elle tourne hors écho : ce n'est pas un changement métier, c'est un
+// renommage. Les lignes sont ensuite enfilées explicitement, parce qu'elles
+// doivent bien monter — c'est tout l'objet de l'opération.
+//
+// IDEMPOTENTE : une ligne dont l'id est déjà le bon n'est pas touchée. Les
+// `revoked_*` et `active` sont conservés tels quels — on renomme, on ne
+// ressuscite rien.
+function reconcilierIdsParents() {
+  const tables = [
+    { nom: 'parent_accounts',      cle: (r) => idCompteParent(r.user_id) },
+    { nom: 'parent_student_links', cle: (r) => idLienParentEleve(r.parent_user_id, r.student_id) },
+  ];
+  for (const { nom, cle } of tables) {
+    let lignes;
+    try { lignes = db.prepare(`SELECT * FROM ${quoteIdent(nom)}`).all(); }
+    catch { continue; }                                   // table absente de CE schéma
+    const aRenommer = lignes.map((r) => ({ r, neuf: cle(r) })).filter(({ r, neuf }) => r.id !== neuf);
+    if (!aRenommer.length) continue;
+    try {
+      tx(() => {
+        sansEcho(() => {
+          for (const { r, neuf } of aRenommer) {
+            // Un id déterminé déjà présent = la même ligne, rencontrée deux
+            // fois (doublon local hérité). On garde celle qui porte déjà le
+            // bon nom et on efface l'autre : le couple est unique par nature.
+            const occupe = db.prepare(`SELECT 1 FROM ${quoteIdent(nom)} WHERE id = ?`).get(neuf);
+            if (occupe) db.prepare(`DELETE FROM ${quoteIdent(nom)} WHERE id = ?`).run(r.id);
+            else db.prepare(`UPDATE ${quoteIdent(nom)} SET id = ? WHERE id = ?`).run(neuf, r.id);
+          }
+        });
+        // Enfilées APRÈS, hors `sansEcho` : ces lignes doivent monter au Cloud,
+        // qui porte encore l'ancien id. C'est la décision « le LAN fait foi ».
+        for (const { r, neuf } of aRenommer) {
+          enqueueOutbox(nom, db.prepare(`SELECT 1 FROM ${quoteIdent(nom)} WHERE id = ?`).get(neuf)
+            ? neuf : r.id, 'upsert');
+        }
+      });
+      console.warn(`[db] ${nom} : ${aRenommer.length} identifiant(s) réconcilié(s) `
+        + '(déterminés par la clé naturelle, le LAN fait foi).');
+    } catch (e) {
+      console.warn(`[db] ${nom} : réconciliation des identifiants impossible — ${e.message}`);
+    }
+  }
+}
+reconcilierIdsParents();
 
 const UPDATED_AT_SENTINELLE = '2000-01-01T00:00:00.000Z';
 function backfillUpdatedAt() {

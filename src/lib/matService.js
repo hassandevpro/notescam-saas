@@ -5,17 +5,24 @@
 //     Chargé en bloc et mis en cache IDB (`matRefDB`).
 //   • Transactionnel (par école) : mat_observations.
 //
-// Identité d'une observation = (eleve_id, domaine_id, trimestre_id). Côté client
-// on dérive `nkey = ${eleve_id}_${domaine_id}_${trimestre_id}`. L'écriture cloud
-// upsert sur ce triplet (anti-doublon).
+// Identité d'une observation = (eleve_id, domaine_id, ua). Côté client on dérive
+// `nkey = ${eleve_id}_${domaine_id}_${ua}`. L'écriture cloud upsert sur ce
+// triplet (anti-doublon).
+//
+// L'UA (1-8) a remplacé le trimestre le 2026-11-01, comme au primaire. La
+// colonne `trimestre_id` reste RENSEIGNÉE, avec le trimestre DÉRIVÉ de l'UA :
+// elle est NOT NULL et porte une clé étrangère vers `apc_trimestres`, qui ne
+// compte que trois lignes — on ne peut donc ni y écrire « ua5 » ni la laisser
+// vide. Exactement ce que fait déjà `primService.buildPrimNote`.
 
 import { supabase } from './supabase';
 import { refreshReferentiel, countFingerprint } from './referentielFingerprint';
 import { uuid } from './uuid';
-import { obsNkey } from '../core/matEngine';
+import { obsNkey, trimestreIdOfUA } from '../core/matEngine';
 
-// Définie dans le moteur pur (core/matEngine) : une seule source pour la clé.
-export { obsNkey };
+// Définies dans le moteur pur (core/matEngine) : une seule source pour la clé et
+// pour le découpage en UA.
+export { obsNkey, trimestreIdOfUA };
 
 // --- Référentiel --------------------------------------------------------------
 export async function fetchMatReferentiel() {
@@ -58,13 +65,16 @@ export async function fetchMatObservations(schoolId) {
 }
 
 // Record canonique d'une observation (colonnes cloud + nkey local).
-export function buildObsRecord({ id, schoolId, eleveId, domaineId, trimestreId, enseignantId, niveauAcquis, observation }) {
+export function buildObsRecord({ id, schoolId, eleveId, domaineId, ua, enseignantId, niveauAcquis, observation }) {
   return {
     id: id || uuid(),
     school_id: schoolId,
     eleve_id: eleveId,
     domaine_id: domaineId,
-    trimestre_id: trimestreId,
+    ua: Number(ua),
+    // DÉRIVÉ de l'UA, jamais ressaisi : une incohérence UA/trimestre est ainsi
+    // impossible à écrire.
+    trimestre_id: trimestreIdOfUA(ua),
     enseignant_id: enseignantId || null,
     niveau_acquis: niveauAcquis || null,
     observation: observation || null,
@@ -74,7 +84,7 @@ export function buildObsRecord({ id, schoolId, eleveId, domaineId, trimestreId, 
     // les 544 lignes `mat_observations` du Cloud l'avaient toutes à NULL. Voir
     // le commentaire complet dans apcService.buildNoteRecord.
     updated_at: new Date().toISOString(),
-    nkey: obsNkey(eleveId, domaineId, trimestreId),
+    nkey: obsNkey(eleveId, domaineId, ua),
   };
 }
 
@@ -82,7 +92,7 @@ export async function upsertMatObservation(record) {
   const { nkey, ...row } = record;
   const { error } = await supabase
     .from('mat_observations')
-    .upsert(row, { onConflict: 'eleve_id,domaine_id,trimestre_id' });
+    .upsert(row, { onConflict: 'eleve_id,domaine_id,ua' });
   if (error) { console.error('upsertMatObservation', error); return false; }
   return true;
 }

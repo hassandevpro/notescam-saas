@@ -7,8 +7,8 @@ import { downloadExcel, parseSpreadsheet, downloadStudentTemplate, EXCEL_ACCEPT 
 import { studentListHtml } from '../lib/studentListDoc';
 import { uploadStudentPhoto, deleteStudentPhoto } from '../lib/schoolService';
 import { resizeImageToSquare } from '../lib/image';
-import { duplicateWarning } from '../lib/studentIdentity';
-import { checkDuplicate, DUP } from '../lib/studentDuplicate';
+import { doublonsPourCandidat, lignesExport } from '../core/doublonsEleves';
+import { AlerteDoublon, ScanDoublons } from '../components/students/DoublonsPanel';
 import { cashDeletionWarning } from '../lib/studentRetention';
 import { useMoney } from '../lib/useMoney';
 import Layout from '../components/Layout';
@@ -879,6 +879,7 @@ export default function Students() {
   const deleteStudent       = useSchoolStore((s) => s.deleteStudent);
   const archiveStudent      = useSchoolStore((s) => s.archiveStudent);
   const bulkAssignToClass   = useSchoolStore((s) => s.bulkAssignToClass);
+  const marquerPaireNonDoublon = useSchoolStore((s) => s.marquerPaireNonDoublon);
   const addClass            = useSchoolStore((s) => s.addClass);
   const country             = useCountry();
   const role                = useAuthStore((s) => s.role);
@@ -939,6 +940,12 @@ export default function Students() {
   const [showImport,     setShowImport]    = useState(false);
   const [editing,        setEditing]       = useState(null);
   const [confirmDel,     setConfirmDel]    = useState(null);
+  // DOUBLONS : l'alerte de saisie met l'enregistrement en attente (elle porte le
+  // formulaire et la photo pour les reprendre tels quels), et le scan balaie
+  // toute la base. Deux états distincts : on peut être alerté sans avoir
+  // demandé de scan, et l'inverse.
+  const [alerteDoublon, setAlerteDoublon] = useState(null);
+  const [scanDoublons,  setScanDoublons]  = useState(false);
   const [selectedIds,    setSelectedIds]   = useState(new Set());
   const [showBulkAssign, setShowBulkAssign]= useState(false);
   const [showPrintOpts, setShowPrintOpts]  = useState(false);
@@ -1155,75 +1162,57 @@ export default function Students() {
     downloadExcel(`eleves_${cls}_${new Date().toISOString().slice(0, 10)}.xlsx`, rows, t('Élèves', 'Students'));
   };
 
+  // ── DOUBLON : ALERTER, JAMAIS BLOQUER ────────────────────────────────────
+  //
+  // Un même enfant inscrit deux fois produit deux dossiers, deux dûs et deux
+  // fois le même versement : l'effectif et la caisse deviennent faux (cas vécu
+  // le 26/08/2026). On compare aussi aux élèves ARCHIVÉS — réinscrire
+  // quelqu'un qu'on croyait supprimé est précisément la façon dont le doublon
+  // apparaît.
+  //
+  // CE QUI A CHANGÉ LE 2026-11-01, sur consigne du responsable : plus aucun
+  // refus à l'écran. L'ancien code refusait net « même nom + même date de
+  // naissance » — sauf qu'il lisait `birth_date`, une colonne qui n'existe pas,
+  // donc en pratique il refusait « même nom », et deux vrais homonymes ne
+  // pouvaient pas être inscrits. Désormais : une alerte qui dit POURQUOI, trois
+  // sorties, et la réponse est mémorisée (cf. core/doublonsEleves.js).
+  //
+  // La saisie est ARRÊTÉE le temps de l'alerte, puis reprise telle quelle :
+  // `enregistrer` reçoit le même `form` et la même photo, pour que répondre
+  // « ce n'est pas un doublon » ne fasse pas perdre ce qui vient d'être tapé.
   const handleSave = async (form, photo) => {
-    // 0) DOUBLON : un même enfant inscrit deux fois produit deux dossiers, deux
-    //    dûs et deux fois le même versement — l'effectif et la caisse deviennent
-    //    faux (cas vécu). On compare aussi aux élèves ARCHIVÉS : réinscrire
-    //    quelqu'un qu'on croyait supprimé est précisément la façon dont le
-    //    doublon apparaît. Avertissement, jamais blocage : l'homonymie existe.
-    // DOUBLON — deux niveaux (cf. lib/studentDuplicate.js) :
-    //   BLOCK : même nom ET même date de naissance, ou matricule déjà pris.
-    //           C'est la même personne : on REFUSE, il n'y a rien à confirmer.
-    //   WARN  : même naissance et même contact, ou nom qui n'est qu'une variante
-    //           (« … JUNIOR »). Très probablement le même enfant — mais des
-    //           jumeaux partagent naissance et téléphone du parent, donc on
-    //           demande confirmation au lieu de rendre leur inscription impossible.
     const registre = [...students, ...archivedStudents];
-    const dup = checkDuplicate({ ...form, id: editing?.id ?? null }, registre);
-    const etatDe = (s) => (s.archived_at
-      ? t('archivé', 'archived', 'archivado')
-      : classes.find((c) => c.id === s.class_id)?.name || t('sans classe', 'no class', 'sin clase'));
-    const listeDe = (matches) => matches.map((m) => `• ${m.student.name} (${etatDe(m.student)})`).join('\n');
-
-    if (dup.level === DUP.BLOCK) {
-      window.alert([
-        dup.reason,
-        '',
-        listeDe(dup.matches),
-        '',
-        t('Ouvrez la fiche existante au lieu d’en créer une seconde.',
-          'Open the existing record instead of creating a second one.',
-          'Abra la ficha existente en lugar de crear otra.'),
-      ].join('\n'));
+    const dup = doublonsPourCandidat({ ...form, id: editing?.id ?? null }, registre);
+    if (dup.candidats.length) {
+      setAlerteDoublon({ form, photo, candidats: dup.candidats });
       return;
     }
+    await enregistrer(form, photo);
+  };
 
-    if (dup.level === DUP.WARN) {
-      const msg = [
-        dup.reason,
-        '',
-        listeDe(dup.matches),
-        '',
-        t('Enregistrer quand même ? (Annulez si c’est le même enfant.)',
-          'Save anyway? (Cancel if this is the same child.)',
-          '¿Guardar de todos modos? (Cancele si es el mismo niño.)'),
-      ].join('\n');
-      if (!window.confirm(msg)) return;
-    } else {
-      // Homonymie simple (même nom, naissance différente ou inconnue) : le
-      // rappel historique, qui reste un avertissement — deux enfants peuvent
-      // légitimement porter le même nom.
-      const avertissement = duplicateWarning(form.name, registre, {
-        excludeId: editing?.id ?? null,
-        classNameOf: (id) => classes.find((c) => c.id === id)?.name || null,
-        t,
-      });
-      if (avertissement && !window.confirm(avertissement)) return;
-    }
-
-    // 1) Crée/met à jour l'élève d'abord (il faut un id pour nommer la photo).
+  // L'enregistrement lui-même, séparé pour que l'alerte puisse le reprendre.
+  // `confirme` : la secrétaire a répondu « ce n'est pas un doublon ». On le dit
+  // au store, sinon son garde d'import refuserait ce qu'elle vient d'autoriser.
+  const enregistrer = async (form, photo, { confirme = null } = {}) => {
     let studentId;
     if (editing) { await updateStudent(editing.id, form); studentId = editing.id; }
     else {
-      const rec = await addStudent(form);
-      // Le store refuse l'identité certaine, même si l'écran l'a déjà filtrée
-      // plus haut : deux gardes valent mieux qu'un silence. Sans ce contrôle,
-      // un refus fermerait le formulaire sans rien créer ni rien dire.
+      const rec = await addStudent(confirme?.length ? { ...form, doublonConfirme: true } : form);
+      // Le store refuse l'identité certaine (même matricule, ou nom + date +
+      // lieu identiques) même si l'écran a déjà filtré : deux gardes valent
+      // mieux qu'un silence. Sans ce contrôle, un refus fermerait le formulaire
+      // sans rien créer ni rien dire.
       if (rec?.error === 'doublon') {
         window.alert(rec.reason || t('Cet élève est déjà inscrit.', 'This student is already enrolled.'));
         return;
       }
       studentId = rec?.id;
+    }
+
+    // La décision « ce n'est pas un doublon » s'écrit APRÈS la création : elle
+    // désigne une paire, et la fiche n'avait pas d'identifiant avant.
+    if (studentId && confirme?.length) {
+      for (const c of confirme) await marquerPaireNonDoublon(studentId, c.eleve.id);
     }
 
     // 2) Photo : upload du nouveau fichier, ou retrait de la photo existante.
@@ -1300,6 +1289,17 @@ export default function Students() {
           </div>
           <div className="flex gap-2 flex-wrap">
               {canEdit && <button onClick={openImport} className="btn-secondary">{t('Importer', 'Import')}</button>}
+              {/* Le scan de TOUTE la base, toutes classes confondues. Le
+                  garde-fou du quotidien est l'alerte de saisie ; ceci est
+                  l'outil de ménage, à passer une fois par rentrée. */}
+              {canEdit && (
+                <button onClick={() => setScanDoublons(true)} className="btn-secondary"
+                  title={t('Cherche les élèves inscrits deux fois, dans toutes les classes',
+                    'Look for students enrolled twice, across all classes')}
+                >
+                  {t('Doublons', 'Duplicates')}
+                </button>
+              )}
               {/* N'apparaît QUE s'il y a quelque chose à rattraper : un bouton
                   permanent inviterait à cliquer sans raison, et laisserait
                   croire qu'il reste des élèves sans numéro. */}
@@ -1493,6 +1493,47 @@ export default function Students() {
               </Modal>
             )}
 
+
+            {/* ── DOUBLONS ─────────────────────────────────────────────────
+                L'alerte de saisie : elle tient l'enregistrement en suspens, et
+                le reprend tel quel si la secrétaire répond « ce n'est pas un
+                doublon ». Elle n'empêche jamais d'enregistrer. */}
+            {alerteDoublon && (
+              <AlerteDoublon
+                candidats={alerteDoublon.candidats}
+                nom={alerteDoublon.form?.name}
+                classes={classes}
+                onAnnuler={() => setAlerteDoublon(null)}
+                onOuvrir={(eleve) => {
+                  // Ouvrir la fiche existante ferme le formulaire en cours :
+                  // c'est le geste de quelqu'un qui vient de comprendre que
+                  // l'élève est déjà là. On ne crée rien.
+                  setAlerteDoublon(null);
+                  setShowForm(false);
+                  setEditing(eleve);
+                }}
+                onConfirmer={async () => {
+                  const { form, photo, candidats } = alerteDoublon;
+                  setAlerteDoublon(null);
+                  await enregistrer(form, photo, { confirme: candidats });
+                }}
+              />
+            )}
+
+            {scanDoublons && (
+              <ScanDoublons
+                eleves={[...students, ...archivedStudents]}
+                classes={classes}
+                onFermer={() => setScanDoublons(false)}
+                onOuvrir={(eleve) => { setScanDoublons(false); setEditing(eleve); }}
+                onNonDoublon={(paire) => marquerPaireNonDoublon(paire.a.id, paire.b.id)}
+                onExporter={(resultat) => downloadExcel(
+                  `doublons_${new Date().toISOString().slice(0, 10)}.xlsx`,
+                  lignesExport(resultat, { classes, t }),
+                  t('Doublons', 'Duplicates'),
+                )}
+              />
+            )}
             {showCards && (
               <Suspense fallback={null}>
                 <IdCardModal

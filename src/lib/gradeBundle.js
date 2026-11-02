@@ -21,7 +21,7 @@
 //   classic → grades           : (classe, élève, séquence) → { matière: note }
 //   apc     → apc_notes        : (élève, compétence, séquence)
 //   prim    → prim_notes       : (élève, compétence, critère, UA)
-//   mat     → mat_observations : (élève, domaine, trimestre)
+//   mat     → mat_observations : (élève, domaine, UA)
 //
 // RIEN N'EST ÉCRASÉ. Une note déjà en base qui diffère de celle du fichier est
 // un CONFLIT : la base garde sa valeur et le conflit est listé. Deux enseignants
@@ -29,6 +29,7 @@
 // un vieux fichier réimporté par erreur ne ramène pas d'anciennes notes.
 // ════════════════════════════════════════════════════════════════════════════
 import { validateGrade } from './gradeEntry';
+import { estUAValide } from '../core/uaMinedub.js';
 
 export const BUNDLE_FORMAT = 'notescam-notes/v1';
 
@@ -149,10 +150,13 @@ export function collectTeacherGrades({
     }
     for (const r of Object.values(matObservations || {})) {
       if (!idsEleves.has(r?.eleve_id) || estVide(r.niveau_acquis)) continue;
-      const k = `${r.domaine_id}|${r.trimestre_id}`;
+      // Rattachement par UA (1-8) depuis le 2026-11-01 — comme le primaire
+      // juste au-dessus. `trimestre_id` reste du voyage pour qu'un poste encore
+      // en version précédente puisse lire le lot : il n'y est plus l'identité.
+      const k = `${r.domaine_id}|${r.ua}`;
       if (!groupes.mat.has(k)) {
         groupes.mat.set(k, {
-          domaine_id: r.domaine_id, trimestre_id: r.trimestre_id,
+          domaine_id: r.domaine_id, ua: r.ua, trimestre_id: r.trimestre_id,
           domaine_label: labels.mat?.[r.domaine_id] || '', observations: {},
         });
       }
@@ -217,7 +221,7 @@ export function parseGradeBundle(texte) {
 //   existant : { classic(classId, eleveId, sequence, subjectId),
 //                apc(eleveId, competenceId, sequenceId),
 //                prim(eleveId, competenceId, critereId, ua),
-//                mat(eleveId, domaineId, trimestreId) }
+//                mat(eleveId, domaineId, ua) }
 //   chaque fonction renvoie la valeur en base, ou null/undefined si absente.
 //
 // Renvoie { ok, erreur, ecritures, conflits, identiques, ignores, resume }.
@@ -389,26 +393,39 @@ export function planGradeImport(bundle, cible = {}) {
       }
     }
 
-    // ── Maternelle (domaine × trimestre) ──────────────────────────────────
+    // ── Maternelle (domaine × UA) ─────────────────────────────────────────
     // Le niveau d'acquisition (A/ECA/NA) tranche le conflit ; l'observation
     // écrite l'accompagne et ne se compare pas mot à mot.
+    //
+    // UN LOT PRODUIT PAR UNE VERSION ANTÉRIEURE ne porte pas d'UA, mais un
+    // trimestre. On ne le devine pas : le rattachement des anciennes périodes
+    // aux UA est une décision du responsable, prise une fois, par la migration
+    // (scripts/migrer-maternelle-ua.mjs), avec journal et retour arrière. Un tel
+    // bloc est donc REFUSÉ et compté — jamais écrit sous une UA supposée.
     for (const bloc of cls.mat || []) {
+      if (!estUAValide(bloc.ua)) {
+        noter('mat_sans_ua', {
+          classe: cls.name, colonne: bloc.domaine_label || bloc.domaine_id,
+          periode: bloc.trimestre_id || '—',
+        });
+        continue;
+      }
       for (const [eleveId, v] of Object.entries(bloc.observations || {})) {
         const eleve = resoudre(eleveId);
         if (!eleve) continue;
         const niveau = v && typeof v === 'object' ? v.niveau_acquis : v;
         const texte = v && typeof v === 'object' ? v.observation : '';
-        const actuel = ex.mat?.(eleve.id, bloc.domaine_id, bloc.trimestre_id);
+        const actuel = ex.mat?.(eleve.id, bloc.domaine_id, bloc.ua);
         arbitrer(
           actuel?.niveau_acquis ?? actuel, niveau,
           {
             kind: 'mat', classe: classeCible.name,
             colonne: bloc.domaine_label || bloc.domaine_id,
-            periode: bloc.trimestre_id, eleve: eleve.name,
+            periode: `UA ${bloc.ua}`, eleve: eleve.name,
           },
           {
             kind: 'mat', eleveId: eleve.id, domaineId: bloc.domaine_id,
-            trimestreId: bloc.trimestre_id, niveauAcquis: niveau, observation: texte,
+            ua: bloc.ua, niveauAcquis: niveau, observation: texte,
           },
         );
       }

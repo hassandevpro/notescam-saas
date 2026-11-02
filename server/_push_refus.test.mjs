@@ -26,8 +26,9 @@ const nowIso = () => new Date().toISOString();
 const addEleve = (id) => {
   db.prepare('INSERT INTO students (id, school_id, class_id, name, updated_at) VALUES (?,?,?,?,?)')
     .run(id, 'sch1', 'cA', id, nowIso());
-  db.prepare('INSERT INTO sync_outbox (tablename, row_id, op, at) VALUES (?,?,?,?)')
-    .run('students', id, 'upsert', nowIso());
+  // Plus d'enfilage à la main : depuis le 01/11/2026, un déclencheur capture
+  // TOUTE écriture sur une table synchronisée (cf. _sync_capture_ecritures).
+  // L'insérer une seconde fois heurterait l'index unique de la file.
 };
 addEleve('e-ok');       // accepté
 addEleve('e-refuse');   // refusé par le Cloud (classe absente là-bas)

@@ -106,9 +106,25 @@ export function tarifPleinDe(item) {
  *                             états, une absence d'échéance non.
  * @param {number} paye        somme imputée à CETTE échéance (contre-passations
  *                             comprises, avec leur signe négatif).
- * @param {number} tarifPlein  `fee_catalog.amount` de l'année.
+ * @param {number} tarifPlein  `fee_catalog.amount` de l'année — le tarif du
+ *                             SERVICE, qui ne vaut que pour les écoles à tarif
+ *                             unique.
+ * @param {number} tarifEleve  le tarif propre à CET élève
+ *                             (`student_fee_items.amount`), quand l'école en
+ *                             pratique un. Il gagne sur `tarifPlein`.
+ *
+ * POURQUOI DEUX TARIFS, ET NON UN (défaut trouvé le 2026-10-31).
+ * Le registre transport réel de THE GENIUS porte TREIZE tarifs mensuels, de
+ * 5 000 à 15 000, selon la résidence de l'élève — et c'est la règle, pas
+ * l'exception : on ne fait pas payer le même prix à deux kilomètres et à douze.
+ * Or le repère du « demi-mois » était le tarif du SERVICE. Un élève à 5 000
+ * dans un service affiché à 7 500 voyait donc chacun de ses mois étiqueté
+ * « demi », et `quotePartDuMois` ne le comptait que pour MOITIÉ : l'écart ne
+ * restait pas à l'écran, il entrait dans l'argent. Le repère juste est le plein
+ * tarif de l'élève ; le tarif du service ne sert plus que de repli, pour les
+ * écoles qui n'en pratiquent qu'un.
  */
-export function celluleDuMois({ ligne = null, paye = 0, tarifPlein = 0 } = {}) {
+export function celluleDuMois({ ligne = null, paye = 0, tarifPlein = 0, tarifEleve = 0 } = {}) {
   if (!ligne) {
     return {
       convention: 'non_inscrit', statut: 'not_applicable',
@@ -134,8 +150,11 @@ export function celluleDuMois({ ligne = null, paye = 0, tarifPlein = 0 } = {}) {
       texte: TEXTE_CONVENTION.non_inscrit };
   }
 
-  // Facturé : plein mois, ou demi-mois si l'échéance porte MOINS que le tarif.
-  const demi = tarifPlein > 0 && montantDu > 0 && montantDu < tarifPlein;
+  // Facturé : plein mois, ou demi-mois si l'échéance porte MOINS que le plein
+  // tarif DE CET ÉLÈVE. Son tarif propre gagne ; celui du service ne sert que
+  // de repli.
+  const repere = tarifEleve > 0 ? Math.floor(tarifEleve) : tarifPlein;
+  const demi = repere > 0 && montantDu > 0 && montantDu < repere;
   return {
     convention: demi ? 'demi' : 'plein',
     statut,                                  // due | partial | paid
@@ -161,9 +180,15 @@ function payeDe(ligne, paiements) {
  * @param {Array}  p.echeances   lignes `fee_schedule_items` du service
  * @param {Array}  p.paiements   lignes `fee_payments` (portant `fee_schedule_item_id`)
  * @param {Array}  p.mois        clés de période, dans l'ordre
- * @param {number} p.tarifPlein
+ * @param {number} p.tarifPlein  tarif du service (repli)
+ * @param {object} [p.tarifParEleve] { [student_id]: tarif propre } — le tarif
+ *                 que l'école pratique POUR CET ÉLÈVE. Treize valeurs
+ *                 différentes au transport de THE GENIUS ; voir `celluleDuMois`.
  */
-export function grilleCantine({ eleves = [], echeances = [], paiements = [], mois = [], tarifPlein = 0 } = {}) {
+export function grilleCantine({
+  eleves = [], echeances = [], paiements = [], mois = [], tarifPlein = 0,
+  tarifParEleve = null,
+} = {}) {
   // Index (élève, mois) → échéance. Une seule passe : la grille d'une école de
   // soixante élèves sur neuf mois, c'est déjà cinq cents cases.
   const parEleveEtMois = new Map();
@@ -172,15 +197,20 @@ export function grilleCantine({ eleves = [], echeances = [], paiements = [], moi
   }
 
   return eleves.map((e) => {
+    const tarifEleve = tarifParEleve
+      ? Math.max(0, Math.floor(Number(tarifParEleve[e.id] ?? 0) || 0)) : 0;
     const cellules = mois.map((cle) => {
       const ligne = parEleveEtMois.get(`${e.id}|${cle}`) || null;
-      const c = celluleDuMois({ ligne, paye: payeDe(ligne, paiements), tarifPlein });
+      const c = celluleDuMois({ ligne, paye: payeDe(ligne, paiements), tarifPlein, tarifEleve });
       return { period_key: cle, echeance_id: ligne?.id ?? null, ...c };
     });
     const du    = cellules.reduce((s, c) => s + (c.convention === 'plein' || c.convention === 'demi' ? c.montantDu : 0), 0);
     const paye  = cellules.reduce((s, c) => s + c.paye, 0);
     return {
       student_id: e.id, name: e.name ?? '', className: e.className ?? '',
+      // Reporté tel quel : la grille se cherche au matricule autant qu'au nom,
+      // et deux homonymes dans une école ne se départagent que par lui.
+      matricule: e.matricule ?? '',
       cellules, du, paye, reste: Math.max(0, du - paye),
     };
   });
@@ -288,4 +318,88 @@ export function csvEtatsMensuels({ parMois = [], total = null, devise = 'XAF' } 
       total.attendu, total.encaisse, total.impaye, total.quotePart, '']));
   }
   return '﻿' + lignes.join('\r\n') + '\r\n';
+}
+
+// ── LA PASTILLE D'UNE CASE — ce qu'on doit voir SANS lire de chiffre ────────
+//
+// Constat du responsable (2026-10-31, captures d'écran) : « chaque cellule de
+// mois affiche seulement un chiffre brut (15000), sans dire s'il est payé,
+// partiel ou impayé ». Un tableau de dix colonnes de montants bruts ne répond
+// pas à la question qu'on se pose au guichet — « cet élève est-il à jour ? » —
+// il la rend plus difficile : il faut comparer de tête chaque montant à ce qui
+// a été versé, et rien à l'écran ne dit ce qui l'a été.
+//
+// Cette fonction traduit donc une case en UN SEUL ton, lisible d'un coup d'œil.
+// Elle est ici et non dans l'écran parce que c'est une lecture de l'état
+// financier d'un mois, pas une question de couleur : les six tons recouvrent
+// exactement les statuts que la base connaît, et le jour où un septième
+// apparaîtra, c'est ce banc qui le dira.
+//
+// `valeur` est le RESTE pour un partiel — le seul chiffre que la maquette garde
+// dans la case, parce que c'est celui qu'on réclame. Ailleurs elle est nulle :
+// le montant complet reste accessible en infobulle et dans la fiche.
+export function pastilleCellule(cellule) {
+  if (!cellule) return { ton: 'vide', valeur: null };
+  const { convention, statut, reste, montantDu, paye } = cellule;
+
+  if (convention === 'non_inscrit') return { ton: 'vide', valeur: null };
+  if (convention === 'exempte')     return { ton: 'exempte', valeur: null };
+  if (convention === 'abandon')     return { ton: 'abandon', valeur: null };
+
+  // Un mois facturé à zéro n'est ni dû ni impayé : le peindre en rouge
+  // réclamerait une dette qui n'existe pas.
+  if (!(Number(montantDu) > 0)) return { ton: 'vide', valeur: null };
+
+  if (statut === 'paid' || Number(reste) <= 0) return { ton: 'solde', valeur: null };
+  if (Number(paye) > 0) return { ton: 'partiel', valeur: Number(reste) };
+  return { ton: 'impaye', valeur: Number(reste) };
+}
+
+/**
+ * LE MOT JUSTE POUR LA PÉRIODE D'UN SERVICE.
+ *
+ * Le registre a été écrit pour la cantine, qui se règle au mois — d'où « Grille
+ * mensuelle », « Mois à payer », « Mois créés » partout dans l'écran. Mais le
+ * transport de THE GENIUS se règle au TRIMESTRE, et `fee_schedule_items`
+ * l'accepte depuis toujours (`period_key` vaut '2026-10' ou '2026-T1'). Seul le
+ * vocabulaire de l'écran était bloqué sur le mois.
+ *
+ * Un libellé faux n'est pas qu'inélégant : une caissière à qui l'on demande
+ * « quels mois ? » devant trois trimestres hésite, et une hésitation au guichet
+ * est une erreur d'imputation en puissance.
+ *
+ * Rend les deux formes dont l'interface a besoin, dans la langue de l'école.
+ * `periodicity` inconnue → le mois, qui est le cas de quarante-trois écoles sur
+ * quarante-quatre.
+ */
+export function motPeriode(service, t = (fr) => fr) {
+  const p = String(service?.periodicity || '').toLowerCase();
+  if (p === 'trimestriel') {
+    return {
+      un: t('trimestre', 'term', 'trimestre'),
+      le: t('Trimestre', 'Term', 'Trimestre'),
+      les: t('Trimestres', 'Terms', 'Trimestres'),
+      parPeriode: t('Grille trimestrielle', 'Term grid', 'Cuadrícula trimestral'),
+      aPayer: t('Trimestres à payer', 'Terms to pay', 'Trimestres a pagar'),
+      parX: t('Par trimestre', 'By term', 'Por trimestre'),
+    };
+  }
+  if (p === 'annuel' || p === 'unique') {
+    return {
+      un: t('période', 'period', 'periodo'),
+      le: t('Période', 'Period', 'Periodo'),
+      les: t('Périodes', 'Periods', 'Periodos'),
+      parPeriode: t('Grille des périodes', 'Period grid', 'Cuadrícula de periodos'),
+      aPayer: t('Périodes à payer', 'Periods to pay', 'Periodos a pagar'),
+      parX: t('Par période', 'By period', 'Por periodo'),
+    };
+  }
+  return {
+    un: t('mois', 'month', 'mes'),
+    le: t('Mois', 'Month', 'Mes'),
+    les: t('Mois', 'Months', 'Meses'),
+    parPeriode: t('Grille mensuelle', 'Monthly grid', 'Cuadrícula mensual'),
+    aPayer: t('Mois à payer', 'Months to pay', 'Meses a pagar'),
+    parX: t('Par mois', 'By month', 'Por mes'),
+  };
 }

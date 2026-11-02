@@ -20,6 +20,9 @@ import { resolveClassEngine, defaultRoutingClass, SECTIONS, classSectionKey } fr
 import { hasCapability } from '../config/capabilities';
 import { toast } from '../store/toastStore';
 import { classSubjectsOf, withoutCompositeParents } from '../core/subjectOrder';
+// L'ordre de la liste de classe — et donc le numéro « N° » affiché en tête de
+// ligne, le même que sur la liste imprimée et les bulletins.
+import { elevesDeClasse } from '../core/ordreClasse';
 
 const TERMS_EN = [
   { value: 1, label: 'Term 1' },
@@ -680,10 +683,9 @@ function PrincipalGrades() {
     return withoutCompositeParents(list);
   }, [subjects, classes, classId, isSubjectTeacher, teacherId]);
 
-  const classStudents = useMemo(() =>
-    students.filter((s) => s.class_id === classId).sort((a, b) => a.name.localeCompare(b.name)),
-    [students, classId]
-  );
+  // L'ordre de la LISTE DE CLASSE, et lui seul : c'est de lui que découle le
+  // numéro affiché en colonne « N° » (cf. core/ordreClasse).
+  const classStudents = useMemo(() => elevesDeClasse(students, classId), [students, classId]);
 
   const prevClassIdRef = useRef(null);
   useEffect(() => {

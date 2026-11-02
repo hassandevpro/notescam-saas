@@ -38,6 +38,7 @@
 // est donc conservé mot pour mot, et seul `espanol` / `esp` y est ajouté.
 
 import { CATEGORY_BY_ID } from '../config/timetableConfig.js';
+import { familleDe } from './classementMaison.js';
 
 // Les cinq groupes du bulletin classique / APC, dans leur ordre d'impression.
 // Libellés bilingues « FR / EN » : l'appelant n'affiche que la moitié qui
@@ -109,7 +110,11 @@ const GROUPE_PAR_CLASSEMENT = {
  * @param {object} subject ligne `subjects` ({ name, category })
  */
 export function subjectGroupKey(subject) {
-  const choisi = subject?.category;
+  // Un classement MAISON s'imprime dans le groupe de sa famille d'ancrage.
+  // C'est tout l'objet de l'ancrage : sans lui, « Langues orientales » ne
+  // serait qu'une étiquette et la matière retomberait dans AUTRES MATIÈRES —
+  // le défaut même que ce module ferme.
+  const choisi = familleDe(subject?.category);
   if (choisi && CATEGORY_BY_ID[choisi]) {
     if (choisi === 'litteraire') {
       const parNom = subjectGroupFromName(subject?.name);

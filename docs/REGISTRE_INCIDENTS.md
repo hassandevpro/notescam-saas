@@ -1876,3 +1876,621 @@ que lire s'en passent : afficher « rien » une demi-seconde est sans conséquen
 **Garde-fou.** `src/core/_primBaremeOuverture.test.mjs` — 28 contrôles, dont la distinction
 entre une colonne jamais ouverte (aucune ligne), une colonne ouverte (`points_max` posé) et
 une colonne refermée par l'école (`points_max` NULL), et le câblage des cinq rendus.
+
+---
+
+## I32 — `supabaseKey is required.` : une copie sur quatre avait dérivé vers `''`
+
+**Terrain.** 29 octobre 2026, 21:50. Ouvrir `/app/students` fait tomber l'application
+entière. `AppErrorBoundary` rend le rapport de panne (c'est I25 qui fonctionne — au lieu
+d'une page blanche muette, une adresse, une erreur et une pile copiables) :
+
+```
+Adresse : /app/students
+Erreur  : supabaseKey is required.
+    at createClient (@supabase_supabase-js.js:20619:10)
+    at src/lib/parentAccounts.js:17:20
+```
+
+### La cause : la quatrième copie
+
+L'adresse et la clé anonyme du Cloud étaient recopiées dans **quatre** modules :
+`supabase.js`, `staffAccounts.js`, `Teachers.jsx` et `parentAccounts.js`. Trois
+portaient la clé de repli. La quatrième — `parentAccounts.js` — portait `''`.
+
+Deux détails rendent ça fatal plutôt que gênant :
+
+1. `createClient()` est appelé **au chargement du module**, pas à l'usage. Il n'y a
+   aucun écran, aucun clic, aucune fonction à atteindre : importer le fichier suffit.
+2. supabase-js **lève** sur une clé vide au lieu de la tolérer.
+
+Donc : ouvrir l'écran Élèves → charger `Students.jsx` → charger `parentAccounts.js` →
+l'application tombe, avant la moindre ligne de code métier.
+
+**Pourquoi personne ne l'avait vu.** Il faut réunir trois conditions : édition **cloud**
+(en LAN, `vite.config.js` redirige `@supabase/supabase-js` vers `localClient.js`, qui ne
+regarde pas la clé), un `.env.local` **sans** `VITE_SUPABASE_ANON_KEY`, et l'écran
+**Élèves**. Les écoles ne sont donc pas touchées. Un poste de développement, si.
+
+### La parade
+
+`src/lib/supabaseEnv.js` : les deux constantes et les options du client anonyme, écrites
+**une seule fois**. Les quatre modules les importent. Le serveur avait déjà ce motif
+(`server/cloudEnv.js`) — le client ne l'avait pas.
+
+Le nom ne se termine pas par `/supabase`, sinon l'alias LAN de `vite.config.js`
+(`/^.*\/supabase$/` → `localClient.js`) l'avalerait et les constantes seraient
+introuvables hors ligne.
+
+### Preuve
+
+`src/lib/_supabaseEnvUnique.test.mjs` — trois contrôles statiques, **et les trois ont été
+vus échouer** sur le défaut réintroduit, un par un (I26 : un détecteur qu'on n'a jamais
+vu détecter n'est pas un détecteur) :
+
+| contrôle | défaut réintroduit | ce qu'il dit |
+|---|---|---|
+| clé écrite à un seul endroit | clé recopiée | `recopiée hors de lib/supabaseEnv.js : lib/parentAccounts.js` |
+| aucun `createClient()` à clé vide | `''` remis | `clé vide passée à createClient() dans : lib/parentAccounts.js` |
+| les appelants lisent la source unique | import retiré | `appelle createClient() sans importer supabaseEnv.js` |
+
+Et la panne elle-même, reproduite puis éteinte dans un vrai navigateur (Playwright,
+import du module servi par Vite, `.env.local` inchangé) : clé vide → `ECHEC
+supabaseKey is required.`, source unique → `CHARGE`, six exports.
+
+Suite complète : **224 ok, 0 ko** · `build` ✓ · `build:lan` ✓.
+
+### La leçon
+
+**Une constante recopiée n'est pas une constante : c'est quatre variables qui se
+ressemblent aujourd'hui.** Le défaut n'est pas la valeur vide, c'est la duplication qui
+rendait la valeur vide invisible — trois copies justes la couvraient. Et un
+`createClient()` au niveau module transforme une faute de frappe en panne totale d'un
+écran : ce qui s'exécute à l'import doit être ce qui ne peut pas échouer.
+
+## I34 — PGRST204 : un versement refusé en entier parce qu'une colonne manquait au Cloud
+
+**Quand.** 2026-10-31, signalé par le responsable depuis l'écran d'encaissement.
+
+**Ce qui s'affichait.**
+
+```
+fee_payments · insert
+Could not find the 'method' column of 'fee_payments' in the schema cache
+```
+
+**La cause, et elle était prévisible.** `supabase_fee_payment_mode.sql` ajoute
+`method`, `payer_name` et `reference` à `fee_payments`. Le fichier était écrit
+mais **pas appliqué**, et l'écran envoyait déjà les trois colonnes. PostgREST
+n'ignore pas une colonne inconnue : il refuse **la ligne entière**. C'est la
+règle du dépôt — Cloud d'abord, paquet LAN ensuite — et elle a été enfreinte
+dans l'autre sens : le client est parti avant la base.
+
+**Ce que ça coûtait.** La caissière encaissait, l'écran disait avoir enregistré,
+et rien n'arrivait au Cloud. Un défaut d'affichage se rattrape ; une recette
+perdue se constate le jour où le parent dit « j'ai déjà payé ».
+
+**Pourquoi rien n'a été perdu, en fait.** `addPayment` écrit D'ABORD dans la base
+locale, puis pousse, et `if (!saved) queueOffline(...)` remet en file ce que le
+Cloud refuse. Les versements étaient donc en local et en file d'attente. La file
+n'a pas été réinitialisée (règle absolue) : elle est repartie seule dès la
+migration appliquée.
+
+**La parade appliquée.** Deux choses, et pas une seule :
+
+1. **La migration a été passée au Cloud** par le responsable. Sa requête de
+   contrôle le confirme : `colonnes_posees = 3`, `versements_total = 2711`,
+   `versements_avec_mode = 0` — aucun versement ne portait encore de mode, ce
+   qui recoupe le fait que les insertions refusées n'avaient rien écrit.
+2. **`insertFeePayment` réessaie sans les colonnes d'enrichissement** que le
+   serveur ne connaît pas (`colonneAbsente.js`, pur et testé). Le versement part
+   avec son montant, sa date, son élève et son échéance ; seul le mode manque, et
+   un avertissement console le dit. La liste de ce qui peut être abandonné est
+   **fermée** : `amount` ou `student_id` absents font échouer l'écriture
+   bruyamment, parce qu'une ligne sans montant serait pire que pas de ligne.
+
+**La leçon, à relire avant la prochaine colonne.** Écrire la migration ne suffit
+pas ; il faut l'APPLIQUER avant de livrer le client qui s'en sert. Et une
+écriture financière ne doit jamais pouvoir être refusée en bloc pour une colonne
+accessoire.
+
+---
+
+## I35 — La file de poussée mettait onze mois à s'écouler
+
+**Terrain.** THE GENIUS, mesuré au déploiement 0.3.27 le 29/10/2026 :
+
+```
+entrées ............. 13 314 326
+pointeurs distincts . 6 457
+```
+
+Soit **2 062 entrées pour une seule ligne utile**. Le responsable signalait depuis des
+semaines que « les notes ne remontent pas » et qu'il fallait « redemander une
+synchronisation » — sans que personne fasse le calcul.
+
+### Le calcul, justement
+
+`push()` lit un lot borné (`cloudSync.js` → `BATCH = 500`) toutes les cinq minutes, en
+FIFO sur `id`, et purge par `id <= maxId`. Ce sont donc **500 ENTRÉES** qui partent par
+cycle, pas 500 lignes.
+
+```
+13 314 326 ÷ 500           = 26 629 cycles
+× 5 min                    = 2 219 heures de serveur ALLUMÉ
+÷ 45 h par semaine         ≈ 49 semaines
+```
+
+Une note saisie le matin était en position 13 000 000 : elle serait partie dans **onze
+mois**. Ce n'était pas une synchronisation « peu fiable », c'était une synchronisation
+**à l'arrêt** — et chaque « synchro manuelle » demandée ne poussait que les 500 entrées
+suivantes, d'où le sentiment qu'il fallait la redemander sans fin.
+
+### La cause
+
+`sync_outbox` était un journal en **ajout pur** : aucune contrainte d'unicité sur
+`(tablename, row_id)`. **Cinq** endroits y inséraient sans jamais regarder si la ligne y
+était déjà — `query.js`, `notify.js` (×2), `governanceApply.js`, et `syncRepair.js`, ce
+dernier oublié par l'audit initial et retrouvé seulement parce que l'index unique l'a
+fait lever.
+
+### La correction
+
+1. **Index UNIQUE** sur `(tablename, row_id)` : l'état devient impossible à reproduire.
+2. **`enqueueOutbox()`**, point d'entrée unique, qui REMPLACE l'entrée au lieu de l'empiler.
+3. **Migration au démarrage** qui dégonfle une base déjà engorgée.
+
+**Pourquoi supprimer puis réinsérer, et non `ON CONFLICT DO UPDATE`.** Parce que `push()`
+purge par `id <= maxId` APRÈS avoir lu son lot. Une mise à jour EN PLACE garderait
+l'ancien `id` : une écriture survenant pendant la poussée retomberait sous `maxId` et
+serait **purgée sans avoir été poussée**. En réinsérant, l'entrée reçoit un `id` neuf,
+supérieur à `maxId`. L'invariant dont dépend la purge est préservé — et c'est le
+contrôle n° 3 du test.
+
+### Ce que la mesure a corrigé dans la correction
+
+La première version de la migration utilisait un `DELETE ... WHERE EXISTS` corrélé. Sur
+une file reconstituée **au volume exact de THE GENIUS**, elle n'avait toujours pas rendu
+la main après **dix minutes** : le serveur de l'école serait resté bloqué au démarrage.
+
+Réécrite en reconstruction de table — on écrit 6 457 lignes au lieu d'en effacer
+13 307 869 :
+
+```
+dedoublonnage : 13 314 326 -> 6 457 entrees
+                index 66.3 s · copie 71.9 s · TOTAL 88.4 s
+cycles de 5 min : AVANT 26 629 -> APRES 13
+serveur allume  : AVANT 2219 h (~49 semaines) -> APRES 65 min
+```
+
+**Onze mois deviennent une heure.** Sans la mesure, on livrait un correctif qui gelait le
+démarrage — exactement la leçon de I27 : le banc ne remplace pas la vraie grandeur.
+
+### Preuve
+
+`server/_sync_outbox_dedup.test.mjs` — 10 contrôles, dont la migration jouée dans un
+processus séparé sur une base engorgée (10 001 entrées → 50), la conservation du DERNIER
+état (un `delete` final survit à 200 `upsert`), et l'invariant d'`id` croissant.
+
+Suite complète : **234 ok, 0 ko**.
+
+### La leçon
+
+**Une file d'attente sans clé d'unicité n'est pas une file : c'est un journal.** Le
+défaut n'était pas dans la synchronisation — chaque pièce fonctionnait. Il était dans une
+contrainte absente, à un endroit où personne ne regardait, et il a fallu une division
+pour le voir. Quand un utilisateur dit « il faut toujours redemander », il décrit un
+débit, pas une panne : **mesurer le débit avant de chercher la panne.**
+
+---
+
+## I36 — 32 écritures qui ne passaient jamais par la file, et les liens de fratrie
+
+**Terrain.** Le responsable : « j'ajoute des frères et sœurs en LAN, ils n'apparaissent
+jamais en ligne ». Deux causes distinctes, trouvées en voulant brancher la table.
+
+### Cause 1 — la table n'était dans AUCUNE des sept listes
+
+`parent_student_links` n'était ni dans `SYNCED_TABLES`, ni dans les exclusions. Le
+contrat (`_sync_contract.test.mjs`) recoupe sept listes, mais il **part de
+`SYNCED_TABLES`** : une table absente n'est réclamée par aucune comparaison. Elle
+n'apparaît nulle part, le test passe, et elle ne circule pas. Sur 121 tables, **34**
+étaient dans ce cas.
+
+La parade est le cliquet de `_sync_couverture.test.mjs` : il part du SCHÉMA, et exige
+que chaque table soit répliquée, locale avec motif, ou inscrite à brancher.
+
+### Cause 2 — `rpc.js` écrivait sans rien enfiler
+
+`recordOutbox()` n'était appelé que par `query.js`. Or `server/rpc.js` écrit EN DIRECT,
+par `db.prepare(...).run()`, dans **huit** tables synchronisées — classes, subjects,
+schools, school_users, teachers, et les trois tables de gouvernance — sur **32
+emplacements**, et n'enfilait **rien**.
+
+Une classe créée par RPC, un enseignant renommé, un rôle attribué : rien n'entrait dans
+la file. Ces changements ne remontaient que si l'audit Merkle finissait par les
+remarquer — tard, ou jamais. **C'est la deuxième cause structurelle de « mes
+modifications ne remontent pas », distincte de l'engorgement (I35) : l'une retardait la
+file, l'autre n'y mettait rien.**
+
+**La correction est un déclencheur SQLite, pas 32 corrections.** Corriger les 32 appels
+laisserait le trou ouvert pour le 33e. Le déclencheur capture l'écriture là où elle a
+lieu — en base — quel que soit le chemin de code, y compris ceux qui n'existent pas
+encore.
+
+**Ce qui rend ceci sûr aujourd'hui et ne l'était pas hier : l'index unique de I35.** Un
+déclencheur qui enfile en double serait catastrophique sur une file en ajout pur — c'est
+exactement ce qui l'avait engorgée. Avec une entrée par ligne, enfiler deux fois est sans
+effet. I35 était le prérequis de I36 sans qu'on l'ait prévu.
+
+**L'anti-écho.** La synchronisation écrit aussi en base quand elle applique une ligne
+distante ; sans garde, le déclencheur la renverrait au Cloud — une boucle. `sansEcho()`
+lève un drapeau que les déclencheurs consultent, dans une TABLE et non une variable JS,
+parce que c'est SQLite qui l'évalue. Trois chemins le posent : `rawUpsert`, la
+suppression de tombstone (`cloudSync.js`) et la suppression réparée (`syncRepair.js`).
+**Le deuxième a été oublié d'abord, et c'est `_cloud_sync.test.mjs` qui l'a trouvé** :
+une suppression venue du Cloud repartait vers le Cloud.
+
+### L'identifiant déterminé, et la décision de l'école
+
+`parent_student_links` porte `UNIQUE(parent_user_id, student_id)` des deux côtés. Avec un
+id aléatoire, le même lien créé à l'école hors ligne ET en ligne donne deux lignes de
+même clé naturelle : le push bute sur la contrainte et refuse le lot — le piège déjà
+documenté pour `fee_payments.receipt_no`. L'id est donc dérivé de la clé naturelle
+(`server/parentIds.js`, UUID v5).
+
+Les liens DÉJÀ créés portaient des ids aléatoires divergents. **Le responsable a tranché
+le 01/11/2026 : le LAN fait foi.** `reconcilierIdsParents()` renomme les ids locaux au
+démarrage, hors écho, puis les enfile — ils doivent monter.
+
+### Ce que les tests ont trouvé, et que l'analyse avait manqué
+
+`parent_accounts` est **ressortie** des sept listes. `_sync_rattrapage.test.mjs` a buté
+sur `no such column: school_id` : le moteur partitionne tout par école
+(`WHERE school_id = ?`, sauf `schools`), et cette table n'en a pas — **délibérément**,
+car l'y rattacher ouvrirait l'établissement entier via les policies. C'est le LIEN qui
+porte `school_id` et la fratrie ; c'est lui qui voyage. Le compte parent naît au Cloud et
+descend par le pont d'identifiants.
+
+### Preuve
+
+`server/_sync_capture_ecritures.test.mjs` — 9 contrôles : INSERT/UPDATE/DELETE directs
+capturés, l'anti-écho vérifié dans les deux sens, le drapeau qui se relève même sur
+exception, et 50 écritures de la même ligne qui laissent UNE entrée.
+
+Suite complète : **235 ok, 0 ko**. Deux tests existants ont dû changer — ils remplissaient
+la file à la main, ce que le moteur fait désormais.
+
+### La leçon
+
+**Un garde-fou posé sur un chemin de code ne garde que ce chemin.** `recordOutbox` était
+correct depuis le premier jour ; il était simplement au mauvais étage. Tant que la règle
+« toute écriture entre dans la file » vivait dans une fonction qu'il fallait penser à
+appeler, elle était une convention — pas une règle. Descendue dans la base, elle en
+devient une.
+
+## I35 — Un outil de suppression qui annonce « rien à supprimer » alors qu'il ne voit rien (2026-11-01)
+
+**Symptôme.** `scripts/nettoyer-essais-services.mjs --liste --annee 2026-2027`
+affiche **« Aucun service dans ces catégories. »** sur la base de production, qui
+en contient. Aucune erreur, aucun avertissement, code de sortie 0.
+
+**Cause.** Le script tournait avec la clé **anonyme**. La RLS de `fee_catalog`,
+`student_fee_items` et `fee_payments` filtre sur
+`school_id IN (SELECT school_id FROM school_users WHERE user_id = auth.uid())`.
+Sans session, `auth.uid()` est NULL, aucune ligne ne passe, et **PostgREST
+répond une liste vide sans la moindre erreur**. Vérifié en sondant :
+`schools`, `students`, `fee_catalog`, `student_fee_items`, `fee_payments` →
+**0 ligne visible partout**, alors que les deux premières en ont forcément.
+
+**Pourquoi c'est grave sur CET outil.** Confondre « rien à supprimer » avec « je
+ne vois rien » conduit à conclure que le nettoyage est déjà fait. Sur un
+inventaire de recettes, c'est la pire conclusion possible : on arrête de
+chercher l'argent qu'on croyait avoir effacé.
+
+**Parade, posée le jour même.** `exigeDeVoir()` sonde `schools` avant tout
+rapport. Table vide = le script n'est pas aveugle par accident, il **refuse de
+parler**, dit l'utilisateur authentifié (ou son absence), explique la RLS, et
+sort en **code 2** — distinct du code 1 d'un échec. Un vide constaté APRÈS cette
+sonde est un vrai vide, et le message le prouve en citant le nombre d'écoles
+visibles.
+
+**Deuxième défaut, trouvé en corrigeant le premier.** `process.exit(2)` appelé
+pendant que le client Supabase a des handles ouverts fait lever une assertion à
+libuv (`!(handle->flags & UV_HANDLE_CLOSING)`) et **le code de sortie devient
+127** — qu'un appelant lit comme « commande introuvable ». Toutes les sorties
+situées après une requête passent désormais par `process.exitCode` + `return`.
+Les deux `process.exit()` restants sont antérieurs à `createClient`.
+
+**Règle à retenir.** Sous RLS, une lecture vide n'est pas une information : c'est
+l'absence d'information. Tout outil qui conclut depuis un ensemble vide doit
+d'abord prouver qu'il voit quelque chose.
+
+## I36 — Vidage des essais cantine/transport de THE GENIUS (2026-11-01) — FAIT
+
+**Demandé.** « Efface les tests que j'ai faits pour cantine et transport », puis,
+après présentation du tri par école : « Genius mais uniquement les essais de
+transport et cantine, laisser vides ».
+
+**Fait, en production, sur autorisation explicite.**
+
+```
+École : THE GENIUS INTERNATIONAL SCHOOL & COLLEGE (6b68407b-…)
+  « Cantine »   e575b6be-…   CONSERVÉ (tarif 15 000)
+  « Transport » a4c71729-…   CONSERVÉ (tarif 10 000)
+  3 abonnements, 12 échéances, 12 versements = 160 000  → supprimés
+  reçus n° 956 à 967
+```
+
+**Deux écoles portent « GENIUS » dans leur nom** — `The Genius International
+School` (9de939d0-…) et `THE GENIUS INTERNATIONAL SCHOOL & COLLEGE`
+(6b68407b-…). Une première sonde par `/genius/i` a pris la mauvaise et renvoyé
+0 versement. **L'école se déduit désormais de l'identifiant du SERVICE, jamais
+d'une recherche par nom.** Le script refuse par ailleurs un lot mélangeant
+plusieurs écoles.
+
+**Le trou dans la séquence n'a pas eu lieu.** Les 12 reçus visés étaient les
+PLUS HAUTS de l'année (la queue, pas le milieu). `allocateReceiptNo` attribue
+`MAX(receipt_no)+1` : après vidage, le plus haut est 955 et le prochain reçu
+reprendra à **956**. Vérifié : 908 reçus, du n°1 au n°955.
+
+**La trace.** Les 12 versements sont dans `deleted_fee_payments` (la table que le
+schéma destine à « justifier un exercice »), montant conservé, numéro de reçu
+conservé, `deleted_by_name` = « nettoyage d'essais — vidage des services
+Cantine, Transport », toutes datées. Sauvegarde JSON complète écrite hors du
+dépôt avant le premier DELETE ; le script refuse de confirmer sans `--sauvegarde`.
+
+**Ce qui N'EST PAS de cette opération, vérifié avant de conclure :**
+
+- **904 versements « sans rattachement »** : ce sont les paiements de SCOLARITÉ,
+  qui ne passent pas par les services — le cas « paiement global de la scolarité
+  (héritage) » de `supabase_fee_schedule.sql`. Tous ont un reçu < 956.
+  Arithmétique de contrôle : 920 numérotés avant − 12 = 908 observés. **Aucun
+  orphelin créé.**
+- **16 autres lignes dans `deleted_fee_payments`** (reçus 11, 23, 27, 28, 71,
+  72, 85, 97, 132, 191, 199, 208, 220, 229, 238, 287), la plus récente du
+  2026-10-08, sans motif : suppressions d'ÉLÈVES antérieures, déjà tracées par
+  `traceStudentCashBeforeDeletion`. Elles expliquent les trous existants de la
+  séquence.
+
+**Non touché, sur décision du responsable** : MAARIF (4 services, 200 000),
+Collège La retraite (« enu », 4 000), BRIGHT CONTINENT (Tenue, 25 abonnés,
+105 000), LA RÉUSSITE (4 services vides).
+
+**Clé service-role** : fournie en clair dans la conversation pour cette
+opération, utilisée uniquement par variable d'environnement, jamais écrite dans
+un fichier du dépôt. **À faire tourner** (Supabase → Settings → API → Rotate).
+
+---
+
+## I37 — Deux personnes, deux champs, une correction jetée
+
+**Terrain.** Le symptôme ne se raconte pas comme une panne : « parfois je
+ressaisis la même chose deux fois ». Personne n'ouvre un ticket pour ça.
+
+**Le scénario, mesuré le 01/11/2026.**
+
+> 9 h — la secrétaire corrige le MATRICULE de Marie, à l'école, hors ligne.
+> 10 h — le censeur corrige le NOM de Marie, en ligne.
+> → la ligne distante est « plus récente » : `rawUpsert` écrasait TOUTES les
+> colonnes. Le matricule corrigé à 9 h était perdu, sans un mot, sans trace.
+
+Inversez les heures et c'est le nom qui disparaît. Les deux personnes ne se
+gênaient pas — champs DIFFÉRENTS — et pourtant une correction sur deux était
+jetée. Le départage se faisait à la **ligne entière** : `remoteWins()` comparait
+deux horodatages, puis `ON CONFLICT(id) DO UPDATE SET` réécrivait tout.
+
+### Pourquoi on ne pouvait pas faire mieux avant
+
+Comparer deux versions ne suffit pas. Avec `local.matricule = '699…'` et
+`distant.matricule = '677…'`, rien ne dit **qui** a changé **quoi**. Il manquait
+un troisième terme : l'état sur lequel les deux côtés étaient d'accord la
+dernière fois.
+
+C'est `sync_shadow`. Elle se pose aux **deux** seuls instants où un accord a
+lieu : quand on applique une ligne tirée, et quand le Cloud accepte une ligne
+poussée. Une écriture locale ordinaire n'y touche pas — c'est précisément
+l'écart entre l'ombre et le local qui porte l'information « l'école a modifié ce
+champ ».
+
+Coût : une ligne de JSON par ligne synchronisée. Sans commune mesure avec les
+13,3 millions d'entrées de file qu'on venait de libérer (I35).
+
+### Trois erreurs de conception, trouvées par les tests
+
+**1. L'ajout seul ne protégeait rien.** Le refus d'écraser une écriture
+comptable était placé dans le traitement des conflits à deux côtés. Or un
+montant modifié au Cloud SEUL ne passe par aucun conflit : il tombait dans « le
+Cloud seul a touché ce champ » et écrasait l'encaissement. Le test l'a montré :
+**50 000 devenait 90 000**. La règle n'est pas « on départage les disputes »,
+c'est « une écriture comptable ne change pas » — le contrôle doit donc venir
+AVANT, et sans condition de conflit.
+
+**2. La liste de protection visait six colonnes inexistantes.** Première
+version de `syncSensible.js` : `amount`, `amount_due`, `discount`, `starts_on`,
+`ends_on`, `promotion_decision`. Aucune n'existe — les vrais noms sont
+`frais_annuels`, `frais_payes`, `teaching_start`… Une liste de protection qui
+vise à côté ne protège rien, et comme elle est muette, **elle fait croire que
+c'est fait**. Le contrôle 18 vérifie désormais chaque nom contre `schema.sql`.
+
+**3. Sans ombre, la fusion fabriquait un faux.** Avec une base vide, tout champ
+qui diffère paraît « touché des deux côtés » : la fonction rendait un départage
+de ligne entière déguisé en fusion par champ. Elle rend maintenant `null`, et
+l'appelant retombe explicitement sur `remoteWins()`. Échouer franchement vaut
+mieux qu'avoir presque raison.
+
+### L'horloge
+
+Le départage d'un vrai conflit se fait par `version` — un compteur monotone,
+donc une horloge **logique** — et non par horodatage. Raison de terrain :
+l'horloge d'un poste d'école peut avoir des mois d'écart, une pile de carte mère
+vide suffit. Un poste réglé en 2019 gagnerait, ou perdrait, TOUS les conflits.
+Le `device_id` tranche en dernier pour que le résultat soit le MÊME sur les deux
+nœuds : un départage non déterministe ferait diverger les bases, ce qui est pire
+qu'un mauvais choix.
+
+La ligne fusionnée porte `max(local, distant) + 1`. Sans cela, le Cloud la
+reverrait comme périmée et la réécraserait au cycle suivant : la fusion serait
+défaite à chaque tour — une boucle de perte, pire qu'une perte sèche parce
+qu'elle se répare et se recasse sans que personne ne voie rien.
+
+### Preuve
+
+- `_sync_fusion.test.mjs` — 25 contrôles. Trois défauts réintroduits un par un
+  (colonne fantôme, `grades` retirée de la protection, `fee_payments` retirée de
+  l'ajout seul) : les détecteurs échouent, et le défaut B affiche la note
+  écrasée à `09` en clair.
+- `_sync_fusion_bout_en_bout.test.mjs` — 15 contrôles, deux nœuds simulés, le
+  scénario de l'école joué en entier. Fusion débranchée : **7 échecs**, dont le
+  matricule revenu à `677000000` — la perte, lisible.
+
+Suite complète : **237 ok, 0 ko**.
+
+### Ce que ça ne corrige pas
+
+Le Cloud, lui, départage encore à la ligne entière : `sync-push` applique sa
+propre LWW. Nos lignes fusionnées passent parce qu'elles portent une version
+supérieure, mais une modification faite dans l'interface web entre notre tirage
+et notre poussée peut être écrasée. La fenêtre est étroite ; elle n'est pas
+nulle. Et `sync_conflicts` se remplit sans qu'aucun écran ne l'affiche : **un
+conflit qui ne s'affiche nulle part reste un écrasement silencieux, mieux
+rangé.**
+
+### La leçon
+
+Celle de I36 disait qu'un garde-fou posé sur un chemin de code ne garde que ce
+chemin. Celle-ci est voisine : **une règle de protection doit être vérifiée
+contre le schéma, pas seulement écrite.** Les six colonnes fantômes étaient
+rédigées avec soin, commentées, revues — et ne protégeaient rien du tout. Ce qui
+les a trouvées n'est pas une relecture, c'est un test qui compare la liste au
+`CREATE TABLE`.
+
+---
+
+## I38 — La détection de doublons lisait une colonne qui n'existe pas (2026-11-01)
+
+**Symptôme.** Aucune alerte de doublon ne s'appuyait sur la date de naissance. En
+production, deux fiches au même nom déclenchaient la même alerte qu'elles soient nées le
+même jour ou à dix ans d'écart, et deux homonymes sans rapport étaient signalés comme
+doublons.
+
+**Cause.** `src/lib/studentDuplicate.js` lisait `eleve.birth_date`. La colonne s'appelle
+`date_naissance` — `birth_date` n'existe **nulle part** dans le schéma. La lecture rendait
+donc `undefined` pour tout le monde, et le comparateur retombait sur le seul critère qui
+restait : le nom.
+
+**Pourquoi les tests ne l'ont pas vu.** `_studentDuplicate.test.mjs` construisait ses
+propres élèves avec `birth_date:`. Jeu d'essai et code partageaient la même erreur : le
+test prouvait que le code lisait le champ que le test écrivait, pas celui que la base
+porte. Il passait, vert, depuis sa création.
+
+**Ce qui a été corrigé.** Le moteur est réécrit dans `src/core/doublonsEleves.js` et lit
+`date_naissance` / `lieu_naissance` (cf. D37). Surtout, quatre contrôles ouvrent maintenant
+le banc et **lisent le schéma lui-même** :
+
+* `date_naissance` est bien une colonne de `students` dans `server/schema.sql` ;
+* `birth_date` n'y apparaît pas ;
+* le code non commenté du moteur mentionne `date_naissance`, et **jamais** `birth_date`.
+
+**La leçon, et elle dépasse ce défaut.** Un test qui fabrique ses propres données ne peut
+pas prouver qu'il lit les bonnes. Quand un module dépend d'un **nom de colonne**, le banc
+doit confronter le code au **schéma**, pas à un jeu d'essai écrit par la même main.
+
+**Portée réelle, mesurée en lecture seule.** THE GENIUS (713 élèves, école de production) :
+**0 paire de doublons** — le défaut n'a donc produit aucune alerte parasite durable là où
+ça comptait. MAARIF (école d'essai) : 3 paires fortes, dont deux partageant un matricule.
+
+---
+
+## I39 — L'écran « Synchronisation » ne voyait rien, et ne le disait pas
+
+**Trouvé le 02/11/2026**, en pilotant un vrai navigateur sur l'édition LAN
+servie — pas en lisant le code, pas en lançant les tests, pas en regardant un
+build passer.
+
+### Ce qui se passait
+
+Les routes `/api/sync/*` sont protégées par `requireLocalAdmin`, qui lit le
+jeton dans l'en-tête `Authorization`. Or `SyncStatePanel` et `SyncHistory`
+appelaient :
+
+```js
+fetch('/api/sync/health')          // aucun en-tête
+fetch('/api/sync/audit?limit=200') // aucun en-tête
+```
+
+Les deux recevaient **403**. Et comme les deux terminaient par
+`.catch(() => {})`, le 403 disparaissait sans un mot. L'écran affichait, pour
+toujours :
+
+> 📡 Santé de synchronisation — Événements en attente : —
+> En attente de la première synchronisation…
+> Aucune synchronisation enregistrée pour l'instant.
+
+**À l'école, ça se lit exactement comme « la synchronisation ne marche pas ».**
+Un responsable qui ouvre cet écran pour vérifier y voit la preuve apparente que
+rien ne tourne. C'est peut-être une part de ce qu'on nous décrivait.
+
+Après correction, le même écran, sur la même base : **« Événements en attente :
+16 · État ● OK »**.
+
+### Pourquoi ni les tests ni le build ne l'ont vu
+
+- Le **build passe** : le code est syntaxiquement juste et s'empaquette.
+- Les **tests statiques passaient** : `_syncGuards.test.mjs` comptait bien deux
+  appels `/api/` dans `SyncStatePanel`. Il vérifiait qu'ils EXISTENT, pas
+  qu'ils ABOUTISSENT.
+- Aucune **erreur console** : le 403 était avalé par le `.catch`.
+
+Il n'y avait donc rien à voir, nulle part, sauf en ouvrant la page.
+
+### Le code juste existait déjà, au mauvais endroit
+
+`src/lib/backupService.js` portait un `lanToken()` / `lanFetch()` parfaitement
+corrects — en **privé**, inaccessibles aux autres écrans. C'est la leçon de I32
+mot pour mot : *la panne vient de la duplication, pas de la valeur*. Trois
+copies d'une idée, dont deux incomplètes.
+
+**Parade** : `src/lib/lanFetch.js`, source unique, qui joint le jeton et **lève**
+sur erreur. Un appel qui échoue en silence est précisément ce qui a rendu cet
+écran muet. `SyncStatePanel`, `SyncHistory` et le nouveau panneau de conflits y
+passent tous.
+
+> Ne pas nommer ce fichier `.../supabase.js` ni rien qui s'y termine : en
+> édition LAN, Vite remplace `/^.*\/supabase$/` par `localClient.js`, et le
+> module disparaîtrait du paquet.
+
+### Ce qui a été livré en même temps
+
+L'écran d'arbitrage des conflits (`SyncConflictsPanel`), qui ferme le manque
+assumé au §7 de `docs/SYNCHRONISATION.md` : « un conflit qui ne s'affiche nulle
+part reste un écrasement silencieux, mieux rangé ». Il affiche « à l'école » et
+« en ligne » — jamais « local » et « distant », qui ne veulent rien dire pour
+une secrétaire — et il permet de **trancher**, dans les deux sens.
+
+Trancher **repousse la ligne dans les deux cas**, y compris quand on garde la
+valeur de l'école où il n'y a rien à écrire en base : sans cela le Cloud
+renverrait sa version et le conflit se rouvrirait à chaque cycle. Un arbitrage
+qui ne se propage pas n'est pas un arbitrage, c'est un post-it.
+
+`tablename` et `col` viennent d'une **ligne de base** et entrent dans du SQL
+interpolé — une table et une colonne ne se paramètrent pas. Deux garde-fous
+(table synchronisée, colonne connue) sont vérifiés avant toute écriture ; retirés,
+le test montre la tentative d'injection atteindre SQL
+(`NOT NULL constraint failed: grades.school_id`).
+
+### Preuve
+
+`server/_sync_conflits.test.mjs` — 17 contrôles, dont les deux garde-fous vus
+échouer une fois retirés. Vérification navigateur : les dix éléments de l'écran
+présents, clic réel sur « Garder l'école », compteur passé de 2 à 1, aucune
+erreur console. Suite complète : **247 ok, 0 ko**.
+
+### La leçon
+
+**Un écran n'est vérifié que par un écran.** Le build, les tests statiques et la
+relecture ont tous laissé passer une page entièrement muette. Ce qui l'a trouvée,
+c'est de la servir et de la regarder. Et la même sortie a mis au jour un détail
+qu'aucun test n'aurait formulé : trois lignes portaient des boutons d'action
+alors que le compteur n'en annonçait que deux — celles que le moteur avait déjà
+tranchées seul. Illisible pour qui arbitre, invisible pour qui code.

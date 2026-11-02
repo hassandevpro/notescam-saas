@@ -15,6 +15,7 @@ import { COUNTRIES } from '../countries';
 import { CATEGORIES, DEFAULT_CATEGORY } from '../config/timetableConfig';
 import { inferCategory } from '../lib/timetableEngine';
 import { resolveClassEngine } from '../core/engineResolver';
+import ChoixClassement from '../components/classes/ChoixClassement';
 import { parseClassName } from '../core/classNameParser';
 import { headTeacherText } from '../lib/headTeachers';
 import { classSubjectsOf } from '../core/subjectOrder';
@@ -24,8 +25,8 @@ import { classSubjectsOf } from '../core/subjectOrder';
 // anglophones ne pouvaient pas s'y afficher (le périmètre du référentiel se
 // déduit des lignes `subjects` — cf. core/refClassScope.js).
 import {
-  isBilingualClass, mergeBilingualCatalog, missingBilingualSubjects,
-  siblingClassCandidates, defaultSiblingClass, mergeFromSiblingClass, missingFromSiblingClass,
+  isBilingualClass, mergeBilingualCatalog,
+  siblingClassCandidates, defaultSiblingClass, mergeFromSiblingClass,
 } from '../core/bilingualSubjects';
 
 const SYSTEMS = ['FR', 'EN'];
@@ -237,18 +238,39 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
 
   const teacherName   = teachers.find((tc) => tc.id === teacherId)?.name;
   const sysLabel      = isGE ? 'ES' : eff.system;
+
+  // CETTE CLASSE SERA-T-ELLE NOTÉE PAR CRITÈRES ?
+  //
+  // « met le formulaire de création de classe à jour : en créant une classe
+  // class 1 ou les autres classes du primaire qui utilisent les critères, on
+  // n'a pas besoin de FR/20 ou EN/100 » — responsable, 2026-10-31.
+  //
+  // En maternelle, au primaire et au premier cycle, la note est portée par les
+  // CRITÈRES du référentiel, un barème par épreuve. Le barème de la classe
+  // (`grade_max`) n'entre dans aucun de ces calculs. L'annoncer en pastille et
+  // le faire choisir dans les réglages ferait croire à un réglage qui n'existe
+  // pas — la même erreur que le `/ Max` de l'écran de modification.
+  const baremeParCritere = ['maternelle', 'apc_primaire', 'apc'].includes(classEngine);
+
   // Le barème ne se déduit PAS de la langue (D21). On n'affiche donc un chiffre
   // que si la classe en porte un : « EN /— » ne disait rien à personne, et un
   // barème deviné aurait menti. Hors Guinée Éq., où il vient du réglage d'école.
   const scaleLabel    = isGE
     ? `/${country?.geMax || 10}`
-    : (Number(eff.grade_max) > 0 ? `/${Number(eff.grade_max)}` : '');
+    : (!baremeParCritere && Number(eff.grade_max) > 0 ? `/${Number(eff.grade_max)}` : '');
   const cycleLabel    = CYCLES.find((c) => c.value === eff.cycle)?.label || eff.cycle;
+  // LE GABARIT, NOMMÉ POUR CE QU'IL EST. Les deux moteurs du fondamental
+  // n'avaient pas de cas ici : une classe de primaire résolue en `apc_primaire`
+  // s'annonçait donc « Classique », c'est-à-dire l'inverse de ce qu'elle est.
   const templateLabel = classEngine === 'sc'
     ? `${t('Second Cycle', 'Upper sec.')}${eff.serie ? ` · ${eff.serie.toUpperCase()}` : ` · ${t('série ?', 'stream ?')}`}`
     : classEngine === 'apc'
       ? t('APC (compétences)', 'APC (competencies)')
-      : t('Classique', 'Classic');
+      : classEngine === 'apc_primaire'
+        ? t('Primaire (critères)', 'Primary (criteria)')
+        : classEngine === 'maternelle'
+          ? t('Maternelle (critères)', 'Nursery (criteria)')
+          : t('Classique', 'Classic');
 
   const Chip = ({ children, tone = 'slate' }) => (
     <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border ${
@@ -346,6 +368,48 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
             </div>
           </div>
 
+          {/* ── CLASSE BILINGUE — ICI, ET PAS DANS LES RÉGLAGES AVANCÉS ──────
+              « Ajoute bilingue au moment de la création de la classe »,
+              responsable, 2026-10-31. La case EXISTAIT déjà à la création, mais
+              enfermée dans « Réglages avancés » : replié par défaut, et annoncé
+              « auto — rarement nécessaire ». Personne ne le dépliait, donc
+              personne ne la voyait. Les classes bilingues naissaient
+              monolingues, et il fallait rattraper après coup depuis l'écran de
+              modification — d'où le bloc de rattrapage qui encombrait celui-ci.
+
+              C'est pourtant la décision la plus structurante du formulaire :
+              elle fixe quelles matières la classe porte, donc quelles
+              compétences et unités d'apprentissage apparaîtront à la saisie, et
+              dans quels groupes le bulletin imprimera. Elle est donc dans le
+              corps du formulaire, visible sans rien déplier.
+
+              La garde !isGE est conservée : la Guinée équatoriale n'a pas de
+              sous-système anglophone à poser en regard. */}
+          {!isGE && (
+            <div className="mt-5">
+              <label className="flex items-start gap-2.5 cursor-pointer rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2.5">
+                <input type="checkbox" className="accent-indigo-600 w-4 h-4 mt-0.5 cursor-pointer"
+                  checked={bilingue} onChange={(e) => setBilingue(e.target.checked)} />
+                <span>
+                  <span className="text-xs font-semibold text-indigo-900">
+                    {t('Classe bilingue — poser les deux programmes', 'Bilingual class — set up both programmes')}
+                  </span>
+                  {/* La parenthèse « (/20 francophone, /100 anglophone) » n'a de
+                      sens que si le barème est porté par la matière. Sur une
+                      classe à critères, elle annonçait deux nombres qui
+                      n'arriveront jamais. */}
+                  <span className="block text-[11px] text-indigo-700/80 mt-0.5">
+                    {baremeParCritere
+                      ? t('Les matières de l’autre sous-système sont ajoutées en plus. Leurs compétences et unités d’apprentissage apparaissent alors à la saisie, avec les barèmes de leurs critères. Tout reste décochable ensuite.',
+                          'The other sub-system’s subjects are added as well. Their competencies and learning units then show up in grade entry, with their criteria scales. Everything stays removable afterwards.')
+                      : t('Les matières de l’autre sous-système sont ajoutées en plus, avec leur barème (/20 francophone, /100 anglophone). Leurs compétences et unités d’apprentissage apparaissent alors à la saisie. Tout reste décochable ensuite.',
+                          'The other sub-system’s subjects are added as well, with their own scale (/20 French, /100 English). Their competencies and learning units then show up in grade entry. Everything stays removable afterwards.')}
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
+
           {/* RÉGLAGES AVANCÉS (auto) — repliés, corrigent l'inférence si besoin */}
           <div className="mt-5 border-t border-slate-100 pt-3">
             <button type="button" onClick={() => setAdvanced((v) => !v)}
@@ -403,23 +467,20 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
                         ))}
                       </div>
                     </div>
-                    <div className="sm:col-span-2">
-                      <label className="flex items-start gap-2.5 cursor-pointer rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2.5">
-                        <input type="checkbox" className="accent-indigo-600 w-4 h-4 mt-0.5 cursor-pointer"
-                          checked={bilingue} onChange={(e) => setBilingue(e.target.checked)} />
-                        <span>
-                          <span className="text-xs font-semibold text-indigo-900">
-                            {t('Classe bilingue — poser les deux programmes', 'Bilingual class — set up both programmes')}
-                          </span>
-                          <span className="block text-[11px] text-indigo-700/80 mt-0.5">
-                            {t('Les matières de l’autre sous-système sont ajoutées en plus, avec leur barème (/20 francophone, /100 anglophone). Leurs compétences et unités d’apprentissage apparaissent alors à la saisie. Tout reste décochable ensuite.',
-                               'The other sub-system’s subjects are added as well, with their own scale (/20 French, /100 English). Their competencies and learning units then show up in grade entry. Everything stays removable afterwards.')}
-                          </span>
-                        </span>
-                      </label>
-                    </div>
+                    {/* LE BARÈME NE SE RÈGLE PAS ICI POUR UNE CLASSE À CRITÈRES.
+                        Proposer /10 /20 /30 /40 /50 /100 à une Class 1 donnerait
+                        six boutons sans effet : le calcul lit les barèmes des
+                        critères du référentiel, épreuve par épreuve. On dit donc
+                        où il se règle, plutôt que de laisser choisir dans le
+                        vide. */}
                     <div>
                       <label className="form-label">{t('Barème', 'Scale', 'Escala')}</label>
+                      {baremeParCritere ? (
+                        <p className="text-[11px] leading-tight text-slate-500">
+                          {t('Porté par les critères du référentiel, un barème par épreuve. Il se règle à la saisie des notes, en tête de chaque colonne.',
+                             'Carried by the syllabus criteria, one scale per test. Set it at grade entry, at the top of each column.')}
+                        </p>
+                      ) : (
                       <div className="flex flex-wrap gap-1.5">
                         {GRADE_SCALE_PRESETS.map((n) => (
                           <button key={n} type="button" onClick={() => { setCustomScale(false); setOverride('grade_max', n); }} aria-pressed={!customScale && eff.grade_max === n}
@@ -432,6 +493,7 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
                             onChange={(e) => setOverride('grade_max', Number(e.target.value) || '')} />
                         )}
                       </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -467,6 +529,99 @@ function ClassCreateModal({ onSave, onSaveAnother, onClose, defaultYear, teacher
 // « auto » (valeur vide → `null`) rend la décision au référentiel de la série.
 // Un ordre posé à la main n'est JAMAIS réécrit par lui : l'enrichissement du
 // bulletin ne touche que les matières dont `sc_groupe_ordre` est vide.
+// LA CELLULE « COEF » D'UNE MATIÈRE.
+//
+// Remarque du responsable, 2026-10-31 : « le primaire n'a souvent pas de coef
+// mais je vois sur la modification de classe ». Même nature que le barème : au
+// PRIMAIRE et en MATERNELLE, le coefficient qui compte est celui de la
+// COMPÉTENCE du référentiel (`primEngine` : « moyenne des compétences pondérée
+// par coefficient », lu sur `competence.coefficient` / `niveauComp`), et en
+// maternelle il vaut 1 en dur (`matEngine`). `subjects.coef` n'entre dans
+// aucun de ces deux calculs.
+//
+// LE PREMIER CYCLE EST LAISSÉ TEL QUEL, et c'est volontaire : son bulletin
+// officiel imprime bien une colonne « Coef » et une colonne « M×coef »
+// (`BulletinApcOfficial`). Masquer le coef là-bas retirerait un réglage qui sert.
+function CelluleCoef({ sub, parReferentiel, onChange, t }) {
+  if (parReferentiel) {
+    return (
+      <div
+        className="text-center text-xs text-gray-400 cursor-help"
+        title={t(
+          'Dans ce système, le coefficient est celui de la compétence du référentiel, pas celui de la matière. Le modifier ici n’aurait aucun effet sur la moyenne.',
+          'In this system the coefficient comes from the syllabus competence, not from the subject. Changing it here would not affect the average.',
+        )}
+      >
+        —
+      </div>
+    );
+  }
+  return (
+    <input
+      type="number" min="1" max="20" step="1"
+      className="w-full text-center text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400/30 bg-white"
+      defaultValue={sub.coef}
+      onBlur={(e) => {
+        const v = Math.max(1, Math.min(20, Number(e.target.value) || 1));
+        e.target.value = v;
+        if (v !== sub.coef) onChange(sub.id, { coef: v });
+      }}
+    />
+  );
+}
+
+// LA CELLULE « / MAX » D'UNE MATIÈRE.
+//
+// Deux mondes, et il faut le dire plutôt que de l'uniformiser :
+//
+//   • Systèmes CLASSIQUE et SECOND CYCLE — la note est portée par la matière.
+//     Le barème est ici, modifiable ici, et il commande le calcul : la moyenne
+//     ramène chaque note sur ce barème (`bulletinEngine.js`, `s.max`).
+//
+//   • MATERNELLE, PRIMAIRE, PREMIER CYCLE — la note est portée par les CRITÈRES
+//     du référentiel. Le carnet de l'école porte un barème par ÉPREUVE (« TIC :
+//     Pratique 10 puis Écrite 20 ») qu'un seul nombre sur la matière ne peut pas
+//     représenter ; le calcul ne lit donc pas `subjects.max`, et c'est voulu.
+//     On ne propose pas une case qui n'aurait pas d'effet : on dit où le barème
+//     se règle vraiment — la petite case en tête de colonne, à la saisie des
+//     notes, une colonne par critère.
+//
+// `sub.max` continue d'être écrit par la création de classe pour rester cohérent
+// avec les autres classes de l'école ; on l'affiche donc, grisé, pour que
+// personne ne croie la valeur perdue.
+function CelluleBareme({ sub, parCritere, onChange, t }) {
+  if (parCritere) {
+    return (
+      <div
+        className="text-center text-xs text-gray-400 leading-tight cursor-help"
+        title={t(
+          'Dans ce système, le barème est porté par les critères du référentiel, une colonne par épreuve. Il se règle à la saisie des notes, dans la petite case en tête de chaque colonne.',
+          'In this system the scale belongs to the syllabus criteria, one column per test. Set it in the grade entry screen, in the small box at the top of each column.',
+        )}
+      >
+        <span className="block font-medium text-gray-500">
+          {t('par critère', 'per criterion')}
+        </span>
+        <span className="block text-[10px]">
+          {t('réglé à la saisie', 'set at grade entry')}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <input
+      type="number" min="1" max="200" step="1"
+      className="w-full text-center text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400/30 bg-white"
+      defaultValue={sub.max}
+      onBlur={(e) => {
+        const v = Math.max(1, Number(e.target.value) || 20);
+        e.target.value = v;
+        if (v !== sub.max) onChange(sub.id, { max: v });
+      }}
+    />
+  );
+}
+
 function GroupeSc({ sub, onChange, t }) {
   return (
     <select
@@ -575,14 +730,6 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const baremeDeLaMatiere = (name, cote) => infoMatiere.get(String(name).toLowerCase())?.max
     ?? (cote === 'EN' || (cls.system || 'FR') === 'EN' ? 100 : 20);
 
-  // Ce qui manque à cette classe pour porter vraiment les deux programmes.
-  const ajoutsBilingues = useMemo(() => {
-    if (!bilingue) return [];
-    return jumelle
-      ? missingFromSiblingClass({ cls, classSubjects, sibling: jumelle, siblingSubjects: jumelleSubjects, makeId: () => '' })
-      : missingBilingualSubjects({ cls, existing: classSubjects, makeId: () => '' });
-  }, [bilingue, cls, classSubjects, jumelle, jumelleSubjects]);
-  const [ajoutEnCours, setAjoutEnCours] = useState(false);
   const studentCount  = students.filter((s) => s.class_id === cls.id).length;
   const teacherCount  = new Set(classSubjects.filter((s) => s.teacher_id).map((s) => s.teacher_id)).size;
   // Aucun lien enseignant du tout : ni titulaire, ni matière affectée à quiconque.
@@ -628,7 +775,28 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   // LAN : server/db.js) mais aucun écran ne la réglait. C'est ce levier.
   //
   // Réservé au second cycle : ailleurs, les groupes ne veulent rien dire.
-  const isSecondCycle = resolveClassEngine(school, cls) === 'sc';
+  const moteurClasse  = resolveClassEngine(school, cls);
+  const isSecondCycle = moteurClasse === 'sc';
+
+  // LE BARÈME DE CETTE CLASSE EST-IL PORTÉ PAR LA MATIÈRE, OU PAR LES CRITÈRES ?
+  //
+  // Défaut signalé par le responsable le 2026-10-31 : « quand ce sont les
+  // matières qui ont des critères, le barème ne détermine pas comme les matières
+  // classiques ». C'est exact, et c'est VOULU côté calcul : en maternelle, au
+  // primaire et au premier cycle, le carnet de l'école porte un barème par
+  // ÉPREUVE — « TIC : Pratique 10 puis Écrite 20 » — qu'un seul nombre sur la
+  // matière ne peut pas représenter. `primEngine.js` et `bilingualSubjects.js`
+  // l'écrivent tous deux : « on ne déduit rien de subjects.max ».
+  //
+  // Le défaut était donc dans CET ÉCRAN, qui offrait une case `/ Max` modifiable
+  // là où elle ne commande rien. On tapait 100, on enregistrait, et la saisie
+  // continuait sur /20 sans un mot. Une case qui accepte une valeur sans effet
+  // est pire qu'une case absente : elle fait croire que le réglage est fait.
+  const baremeParCritere = ['maternelle', 'apc_primaire', 'apc'].includes(moteurClasse);
+
+  // Le COEF, lui, ne disparaît qu'en maternelle et au primaire : le premier
+  // cycle imprime « Coef » et « M×coef » sur son bulletin officiel.
+  const coefParReferentiel = ['maternelle', 'apc_primaire'].includes(moteurClasse);
   const COLS = isSecondCycle
     ? 'grid-cols-[24px_1fr_72px_72px_148px_120px_180px]'
     : 'grid-cols-[24px_1fr_72px_72px_148px_180px]';
@@ -642,19 +810,6 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
       await deleteSubject(existing.id);
     } else {
       await addSubject({ name, coef: 1, max: baremeDeLaMatiere(name), class_id: cls.id, teacher_id: null });
-    }
-  };
-
-  // Ajoute d'un geste le programme qui manque, sans toucher aux matières en
-  // place : `missingBilingualSubjects` écarte tout libellé déjà porté, donc
-  // aucune note existante n'est menacée, et rejouer le geste ne double rien.
-  const ajouterProgrammeManquant = async () => {
-    if (!ajoutsBilingues.length) return;
-    setAjoutEnCours(true);
-    try {
-      await completerClasseBilingue(cls, { sibling: jumelle });
-    } finally {
-      setAjoutEnCours(false);
     }
   };
 
@@ -796,82 +951,35 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
               {t('Matières', 'Subjects')}
             </p>
             <p className="text-xs text-gray-400 mb-3">
+              {/* LA LÉGENDE DOIT DIRE CE QUE L'ÉCRAN FAIT VRAIMENT.
+                  Elle promettait « modifiez le coefficient et le barème
+                  directement » à toutes les classes. Sur une classe au barème
+                  par critère, les deux cases ne commandent rien et ne sont plus
+                  modifiables : la légende annonçait donc un réglage absent. */}
               {isMaternelle
                 ? t('Ajoutez vos domaines de compétences personnalisés.', 'Add your custom competency domains.')
-                : t('Cochez pour activer · modifiez le coefficient et le barème directement', 'Check to activate · edit coefficient and max score directly')}
+                : coefParReferentiel
+                  ? t('Cochez pour activer. Le coefficient et le barème viennent du référentiel : ils se règlent à la saisie des notes, critère par critère.',
+                      'Check to activate. Coefficient and scale come from the syllabus: set them at grade entry, criterion by criterion.')
+                  : baremeParCritere
+                    ? t('Cochez pour activer · modifiez le coefficient directement. Le barème, lui, vient des critères du référentiel.',
+                        'Check to activate · edit the coefficient directly. The scale comes from the syllabus criteria.')
+                    : t('Cochez pour activer · modifiez le coefficient et le barème directement', 'Check to activate · edit coefficient and max score directly')}
             </p>
 
-            {/* ── CLASSE BILINGUE ───────────────────────────────────────────
-                Ce n'est pas un réglage de plus : c'est ce qui fait entrer les
-                compétences et les unités d'apprentissage de l'autre programme
-                à la saisie. Le texte le dit, sinon la case paraît cosmétique. */}
-            {!isMaternelle && (
-              <div className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="accent-indigo-600 w-4 h-4 mt-0.5 cursor-pointer"
-                    checked={bilingue}
-                    onChange={(e) => setBilingue(e.target.checked)}
-                  />
-                  <span>
-                    <span className="text-sm font-semibold text-indigo-900">
-                      {t('Classe bilingue — les deux programmes', 'Bilingual class — both programmes')}
-                    </span>
-                    <span className="block text-[11px] text-indigo-700/80 mt-0.5">
-                      {t('Propose aussi les matières de l’autre sous-système, chacune avec son barème (/20 francophone, /100 anglophone). Les compétences et les unités d’apprentissage de ces matières apparaissent alors à la saisie et sur le bulletin.',
-                         'Also offers the other sub-system’s subjects, each with its own scale (/20 French, /100 English). Their competencies and learning units then show up in grade entry and on the report card.')}
-                    </span>
-                  </span>
-                </label>
-                {bilingue && (
-                  <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-7">
-                    {/* LA CLASSE SOURCE, nommée. L’école doit lire d’où viennent
-                        les matières qu’elle s’apprête à poser sur ses élèves. Le
-                        niveau équivalent est proposé d’abord (Class 3 pour une
-                        CE1), mais rien n’empêche d’apparier autrement. */}
-                    <label className="flex items-center gap-2 text-[11px] text-indigo-900">
-                      {t('Fusionner avec', 'Merge with')}
-                      <select
-                        className="text-xs border border-indigo-200 rounded-lg px-2 py-1.5 bg-white text-gray-700"
-                        value={jumelleId}
-                        onChange={(e) => setJumelleId(e.target.value)}
-                      >
-                        <option value="">
-                          — {t('tronc commun du niveau', 'level default set')} —
-                        </option>
-                        {jumelles.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                            {c.equivalent ? ' · ' + t('niveau équivalent', 'matching level') : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      onClick={ajouterProgrammeManquant}
-                      disabled={!ajoutsBilingues.length || ajoutEnCours}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors"
-                    >
-                      {ajoutEnCours
-                        ? t('Ajout en cours…', 'Adding…')
-                        : !ajoutsBilingues.length
-                          ? t('Les deux programmes sont déjà là', 'Both programmes are already here')
-                          : jumelle
-                            ? t(`Ajouter les ${ajoutsBilingues.length} matières de ${jumelle.name}`,
-                                `Add the ${ajoutsBilingues.length} subjects from ${jumelle.name}`)
-                            : t(`Ajouter les ${ajoutsBilingues.length} matières manquantes`,
-                                `Add the ${ajoutsBilingues.length} missing subjects`)}
-                    </button>
-                    <span className="text-[11px] text-indigo-700/80">
-                      {t('Décochez pour retirer une matière. Une matière qui n’est à aucun référentiel s’ajoute en bas du tableau, avec son propre barème.',
-                         'Uncheck to remove a subject. A subject in no syllabus can be added at the bottom of the table, with its own scale.')}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* LE BLOC DE RATTRAPAGE BILINGUE A ÉTÉ RETIRÉ D'ICI.
+                « ceci ne sert à rien, enlève à écran » puis « bilingue au
+                moment de la création de la classe » — responsable, 2026-10-31.
+
+                Il existait parce que la case bilingue était invisible à la
+                création, enfermée dans les réglages avancés : il fallait donc
+                pouvoir rattraper ensuite. La case est maintenant dans le corps
+                du formulaire de création, et ce rattrapage n'a plus d'objet.
+
+                Rien n'est perdu : la liste des matières reste entièrement
+                modifiable juste en dessous, case par case, et l'état bilingue
+                d'une classe se DÉDUIT de cette liste (isBilingualClass) — il
+                n'a jamais été une colonne qu'il aurait fallu pouvoir régler. */}
             <div className="border border-gray-200 rounded-xl overflow-hidden">
               {/* En-tête tableau */}
               <div className={`grid ${COLS} gap-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wider`}>
@@ -918,38 +1026,18 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     </span>
                     {checked ? (
                       <>
-                        <input
-                          type="number" min="1" max="20" step="1"
-                          className="w-full text-center text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400/30 bg-white"
-                          defaultValue={existing.coef}
-                          onBlur={(e) => {
-                            const v = Math.max(1, Math.min(20, Number(e.target.value) || 1));
-                            e.target.value = v;
-                            if (v !== existing.coef) updateSubject(existing.id, { coef: v });
-                          }}
+                        <CelluleCoef sub={existing} parReferentiel={coefParReferentiel} onChange={updateSubject} t={t} />
+                        <CelluleBareme
+                          sub={existing} parCritere={baremeParCritere}
+                          onChange={updateSubject} t={t}
                         />
-                        <input
-                          type="number" min="1" max="200" step="1"
-                          className="w-full text-center text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400/30 bg-white"
-                          defaultValue={existing.max}
-                          onBlur={(e) => {
-                            const v = Math.max(1, Number(e.target.value) || 20);
-                            e.target.value = v;
-                            if (v !== existing.max) updateSubject(existing.id, { max: v });
-                          }}
+                        <ChoixClassement
+                          value={existing.category}
+                          onChange={(v) => updateSubject(existing.id, { category: v })}
+                          subjects={subjects}
+                          autoLabel={`${t('auto', 'auto')} (${t(...inferCategory(existing.name).label)})`}
+                          t={t}
                         />
-                        <select
-                          className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
-                          value={existing.category || ''}
-                          onChange={(e) => updateSubject(existing.id, { category: e.target.value || null })}
-                        >
-                          <option value="">
-                            {t('auto', 'auto')} ({t(...inferCategory(existing.name).label)})
-                          </option>
-                          {[...CATEGORIES, DEFAULT_CATEGORY].map((c) => (
-                            <option key={c.id} value={c.id}>{t(...c.label)}</option>
-                          ))}
-                        </select>
                         {isSecondCycle && <GroupeSc sub={existing} onChange={updateSubject} t={t} />}
                         <select
                           className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
@@ -990,46 +1078,21 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                       onChange={() => deleteSubject(sub.id)}
                     />
                     <span className="text-sm font-medium text-gray-900 truncate">{sub.name}</span>
-                    <input
-                      type="number" min="1" max="20" step="1"
-                      className="w-full text-center text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400/30 bg-white"
-                      defaultValue={sub.coef}
-                      onBlur={(e) => {
-                        const v = Math.max(1, Math.min(20, Number(e.target.value) || 1));
-                        e.target.value = v;
-                        if (v !== sub.coef) updateSubject(sub.id, { coef: v });
-                      }}
-                    />
-                    <input
-                      type="number" min="1" max="200" step="1"
-                      className="w-full text-center text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400/30 bg-white"
-                      defaultValue={sub.max}
-                      onBlur={(e) => {
-                        const v = Math.max(1, Number(e.target.value) || 20);
-                        e.target.value = v;
-                        if (v !== sub.max) updateSubject(sub.id, { max: v });
-                      }}
-                    />
+                    <CelluleCoef sub={sub} parReferentiel={coefParReferentiel} onChange={updateSubject} t={t} />
+                    <CelluleBareme sub={sub} parCritere={baremeParCritere} onChange={updateSubject} t={t} />
                     {/* CLASSEMENT de la matière. Tant qu'il est vide, le produit
                         déduit la famille du NOM — c'est ce qui faisait tomber
                         « LMC », « EFPS » ou « Travaux Pratiques » dans « Autre »,
                         sans recours. L'option « auto » affiche donc entre
                         parenthèses ce que la déduction donnerait, pour que le
                         choix soit éclairé plutôt que deviné. */}
-                    <select
-                      className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
-                      value={sub.category || ''}
-                      onChange={(e) => updateSubject(sub.id, { category: e.target.value || null })}
-                      title={t('Famille de la matière — sert aux couleurs de l’emploi du temps et au regroupement.',
-                               'Subject family — drives timetable colours and grouping.')}
-                    >
-                      <option value="">
-                        {t('auto', 'auto')} ({t(...inferCategory(sub.name).label)})
-                      </option>
-                      {[...CATEGORIES, DEFAULT_CATEGORY].map((c) => (
-                        <option key={c.id} value={c.id}>{t(...c.label)}</option>
-                      ))}
-                    </select>
+                    <ChoixClassement
+                      value={sub.category}
+                      onChange={(v) => updateSubject(sub.id, { category: v })}
+                      subjects={subjects}
+                      autoLabel={`${t('auto', 'auto')} (${t(...inferCategory(sub.name).label)})`}
+                      t={t}
+                    />
                     {isSecondCycle && <GroupeSc sub={sub} onChange={updateSubject} t={t} />}
                     <select
                       className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
@@ -1076,10 +1139,26 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     className="w-full text-xs border border-brand-200 rounded-lg px-1 py-1.5 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
                     value={customSubject.cote}
                     onChange={(e) => setCustomSubject((prev) => ({ ...prev, cote: e.target.value }))}
-                    aria-label={t('Programme et barème', 'Programme and scale')}
+                    aria-label={baremeParCritere
+                      ? t('Programme', 'Programme')
+                      : t('Programme et barème', 'Programme and scale')}
+                    title={baremeParCritere
+                      ? t('Le programme auquel la matière appartient. Le barème, lui, est porté par les critères du référentiel et se règle à la saisie des notes.',
+                          'The programme the subject belongs to. The scale itself comes from the syllabus criteria and is set at grade entry.')
+                      : undefined}
                   >
-                    <option value="FR">FR /20</option>
-                    <option value="EN">EN /100</option>
+                    {/* LE PROGRAMME COMPTE TOUJOURS ; LE BARÈME, PAS ICI.
+                        Remarque du responsable, 2026-10-31 : « en créant une
+                        matière il y a toujours FR/20 EN/100 ». Sur une classe au
+                        barème par critère — et une CE1 bilingue en est une — ces
+                        « /20 » et « /100 » annoncent un réglage qui ne commande
+                        rien : le calcul lit les critères du référentiel, pas
+                        `subjects.max`. Le côté FR/EN, lui, reste décisif : c'est
+                        lui qui dit de quel programme la matière relève, et c'est
+                        la puce affichée sur chaque ligne. On garde donc le choix
+                        et on retire les deux nombres trompeurs. */}
+                    <option value="FR">{baremeParCritere ? 'FR' : 'FR /20'}</option>
+                    <option value="EN">{baremeParCritere ? 'EN' : 'EN /100'}</option>
                   </select>
                 ) : (
                   <div className="text-center text-xs text-gray-300">{t('auto', 'auto', 'auto')}</div>
@@ -1091,18 +1170,13 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     déduction par le nom donnerait, et se met à jour pendant la
                     frappe — l'école voit donc tout de suite si elle doit
                     trancher elle-même. */}
-                <select
-                  className="w-full text-xs border border-brand-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
-                  value={customSubject.category || ''}
-                  onChange={(e) => setCustomSubject((prev) => ({ ...prev, category: e.target.value }))}
-                >
-                  <option value="">
-                    {t('auto', 'auto')} ({t(...inferCategory(customSubject.name).label)})
-                  </option>
-                  {[...CATEGORIES, DEFAULT_CATEGORY].map((c) => (
-                    <option key={c.id} value={c.id}>{t(...c.label)}</option>
-                  ))}
-                </select>
+                <ChoixClassement
+                  value={customSubject.category}
+                  onChange={(v) => setCustomSubject((prev) => ({ ...prev, category: v || '' }))}
+                  subjects={subjects}
+                  autoLabel={`${t('auto', 'auto')} (${t(...inferCategory(customSubject.name).label)})`}
+                  t={t} dense
+                />
                 {/* Le GROUPE ne se choisit pas à la création : le référentiel de
                     la série l'essaie d'abord sur le nom, et l'école ne tranche
                     que s'il n'y arrive pas — sur la ligne, juste au-dessus. */}

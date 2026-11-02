@@ -27,6 +27,7 @@ import {
 
 // MÊME périmètre que sync-pull : les 54 tables répliquées Cloud → LAN.
 export const VERIFY_TABLES = [
+  'parent_student_links',
   'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   'budgets', 'budget_chapters', 'budget_expenses', 'budget_unlock_requests',

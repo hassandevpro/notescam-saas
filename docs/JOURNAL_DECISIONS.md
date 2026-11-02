@@ -1504,3 +1504,333 @@ lecture doit attendre ce drapeau.
 `criteres` à la place de `criteresActifs` : les colonnes vides réapparaissent en « à définir »
 et les compétences maison renaissent à zéro. `primNotesPrets` peut rester — il ne coûte rien
 et protège toute écriture dérivée d'une lecture.
+
+## D33
+
+**2026-10-31 — Un écran ne propose pas un réglage qui ne commande rien ; et un
+classement que l'école crée doit dire où ses matières s'impriment.**
+
+**Ce qui a été constaté.** Quatre remarques du responsable, le même jour, sur le
+même écran — modification de classe, une CE1 bilingue de 44 matières :
+
+- « quand ce sont les matières qui ont des critères, le barème ne détermine pas
+  comme les matières classiques change » ;
+- « le primaire n'a souvent pas de coef mais je vois sur la modification de
+  classe » ;
+- « en créant une matière il y a toujours FR/20 EN/100 » ;
+- « en créant une classe class 1 ou les autres classes du primaire qui utilisent
+  les critères, on n'a pas besoin de FR/20 ou EN/100 ».
+
+Les quatre disent une seule chose, et elle est juste. En maternelle, au primaire
+et au premier cycle, la note est portée par les **critères du référentiel** — un
+barème par épreuve, « TIC : Pratique 10 puis Écrite 20 ». Le coefficient, lui,
+est celui de la **compétence**. Deux commentaires du code l'écrivaient déjà :
+`primEngine.js` — « on ne déduit rien de `subjects.max` » — et
+`bilingualSubjects.js` — « en APC, `subjects.max` ne sert pas au calcul ».
+
+**Le calcul était donc juste ; l'écran mentait.** Il offrait une case Coef, une
+case `/ Max`, un choix « FR /20 · EN /100 » et six boutons de barème à la
+création. On tapait 100, on enregistrait, et la saisie continuait sur le barème
+du critère sans un mot. Une case qui accepte une valeur sans effet est pire
+qu'une case absente : elle fait croire que le réglage est fait.
+
+**La règle posée.** Là où un réglage ne commande rien, l'écran ne le propose
+pas : il dit **où il se règle vraiment**. `CelluleBareme` et `CelluleCoef`
+rendent « par critère » / « — » avec une bulle qui renvoie à la tête de colonne
+de l'écran de saisie ; la légende du tableau, la pastille de création et le
+sélecteur « Barème » suivent le moteur résolu. Rien n'est masqué au second cycle
+ni au classique, où `grade_max` et `subjects.max` pilotent bien la moyenne
+(`bulletinEngine.js`), ni au premier cycle pour le coef, dont le bulletin
+officiel imprime les colonnes « Coef » et « M×coef ».
+
+**Deux défauts trouvés en chemin, hors demande.** `templateLabel` n'avait pas de
+cas pour `apc_primaire` ni `maternelle` : une classe de primaire s'annonçait
+« Classique », l'inverse de ce qu'elle est. Et la case **« Classe bilingue »**
+existait à la création mais enfermée dans « Réglages avancés », replié par défaut
+et annoncé « rarement nécessaire » — donc jamais vue, d'où des classes bilingues
+nées monolingues et un bloc de rattrapage qui encombrait l'écran de
+modification. La case est remontée dans le corps du formulaire ; le rattrapage
+est retiré, avec son handler et son mémo.
+
+**Le classement maison — et pourquoi aucune table.** « Permet qu'on crée un
+classement directement dans modification de classe ». Un classement n'est pas
+une étiquette : `subjectGroup.js` le traduit en l'un des **cinq groupes imprimés**
+du bulletin, `timetableEngine.js` en tire une couleur. Un classement qui ne
+dirait rien de sa famille retomberait sur l'heuristique du nom — le défaut même
+que `subjectGroup.js` a fermé (« je crée une matière Espagnol, je choisis
+Langue, et sur le bulletin elle est dans AUTRES MATIÈRES »). L'école donne donc
+deux choses : le nom qu'elle veut lire, et la famille dont le classement hérite
+le comportement.
+
+Le classement vit dans `subjects.category`, encodé `x:<famille>:<Nom>` —
+**aucune table, aucune colonne**. Décisif ici : une colonne nouvelle devrait
+partir au Cloud AVANT tout paquet LAN, sinon la poussée rejette la ligne
+ENTIÈRE (PGRST204), et les écoles ne reçoivent aucune mise à jour automatique.
+Pour un confort d'écran, ce prix serait disproportionné. La liste proposée se
+**déduit** des matières (`classementsEnUsage`), toutes classes confondues.
+
+Contrepartie assumée : le nom vit dans la clé, donc renommer réécrit les
+matières qui le portent (`retouchesRenommage`), et un classement que plus aucune
+matière ne porte disparaît de la liste. C'est cohérent avec ce qu'il est — un
+classement existe parce que des matières y sont rangées.
+
+**Preuves.** `npm test` 227 ok / 0 ko ; builds LAN et Cloud OK ;
+`validate:migrations` 0 avertissement. Écran piloté sous Chrome : CE1 en moteur
+primaire affiche « par critère » et plus aucune case de barème, 6eme A garde ses
+trois cases ; « Class 1 » montre « EN » sans /100 et la pastille « Primaire
+(critères) », et sur une école `classic` la même saisie retrouve « EN /100 » et
+ses six boutons ; classement « Langues orientales » créé à l'écran, clé
+`x:langues:Langues orientales` écrite, et `subjectGroupKey` le range dans
+LANGUES. 30 cas purs sur `classementMaison`, 12 sur `moisFacturables`.
+
+**Comment revenir en arrière.** Rendre à `CelluleBareme` / `CelluleCoef` leur
+`input` inconditionnel et retirer `baremeParCritere` / `coefParReferentiel` :
+l'écran redevient uniforme, et de nouveau trompeur. Pour le classement maison,
+retirer `familleDe` de `subjectGroup.js` et `timetableEngine.js` et remettre
+`CATEGORY_BY_ID[choisi]` : les clés `x:…` redeviennent inconnues et les matières
+retombent sur l'heuristique du nom — aucune donnée n'est perdue, les clés restent
+en base.
+
+## D34 — La pastille remplace le chiffre, et le libellé se décide à la lecture
+
+**Date.** 2026-10-31. **Demande.** « Simplifier la page Registre des services »,
+sept sections de consignes, captures d'écran à l'appui.
+
+**Décision 1 — une case de grille porte un ÉTAT, pas un montant.**
+`pastilleCellule` (pur, testé) traduit une case en un ton parmi six et ne met un
+chiffre que lorsqu'il y a quelque chose à réclamer. Alternative écartée :
+garder le montant et le colorer. Elle perdait l'essentiel — `15 000` ne dit pas
+si c'est dû, payé ou facturé ; et douze colonnes de montants ne tiennent sur
+aucun écran. Conséquence assumée : pour lire les montants il faut cocher
+« Afficher les montants », ou ouvrir la fiche.
+
+**Décision 2 — les totaux suivent le filtre, et le disent.**
+Sur demande explicite du responsable. Un total général affiché sous une liste
+filtrée est le chiffre que l'école recopie dans son cahier, en croyant qu'il
+porte sur tout le service. Un bandeau annonce donc la sélection partielle.
+
+**Décision 3 — pas de virtualisation tierce.**
+`AGENTS.md` interdit d'introduire une technologie sans autorisation. La liste
+rend une tranche de 60 et propose « afficher les N autres », en annonçant
+toujours le compte total. Moins savant, zéro dépendance, et honnête.
+
+**Décision 4 — le libellé d'une échéance se décide à la LECTURE.**
+Deux populations cohabitent en base : `period_label` porte soit un vrai
+libellé, soit la clé recopiée (`2027-01`). Corriger l'écriture ne rattraperait
+pas les lignes déjà posées, et un `UPDATE` de rattrapage toucherait des données
+financières pour un défaut d'affichage. `libelleEcheance` garde donc ce que
+l'école a choisi (« 2e trimestre (après Noël) ») et traduit ce qui n'est que la
+clé. Dix cas au banc.
+
+**Décision 5 — une écriture financière ne meurt pas sur une colonne accessoire.**
+Voir I34. `insertFeePayment` réessaie sans les colonnes d'enrichissement que le
+Cloud ne connaît pas, avec une liste **fermée** : `amount` et `student_id` ne
+sont jamais abandonnables, parce qu'une ligne sans montant serait pire qu'une
+erreur. Contrepartie : un versement peut arriver sans son mode, et la console le
+dit.
+
+## D35 — Supprimer un service se fait dans UN ordre, et pas un autre (2026-11-01)
+
+**Contexte.** Le responsable demande d'effacer ses essais de cantine et de
+transport sur la base en ligne, et choisit la suppression réelle plutôt que la
+contre-passation.
+
+**Ce que le schéma impose** (lu, pas supposé) :
+
+```
+student_fee_items.fee_catalog_id        → SET NULL
+fee_schedule_items.student_fee_item_id  → CASCADE
+fee_payments.fee_schedule_item_id       → SET NULL
+fee_payments.student_fee_item_id        → SET NULL
+fee_payments.reversal_of                → RESTRICT
+```
+
+**Décision : contre-passations, puis versements, puis abonnements, puis le
+service.** Mesuré sur une copie du banc, et figé dans
+`scripts/_nettoyageOrdre.test.mjs`.
+
+**Pourquoi pas l'ordre intuitif.** Supprimer le service d'abord ne supprime que
+le service : l'abonnement survit avec `fee_catalog_id` à NULL, l'échéance
+survit, et **l'argent reste dans la base**. L'écran Cantine filtre sur le
+service : ces lignes disparaissent de l'affichage tout en continuant de compter
+en balance. L'école croit avoir nettoyé. Mesuré sur copie : service supprimé →
+9 abonnements et 67 échéances survivants, 277 500 toujours présents.
+
+**Deux pièges de plus, trouvés au banc.**
+
+1. Un versement peut viser la PÉRIODE (`fee_schedule_item_id`) **ou** le service
+   sans préciser de mois (`student_fee_item_id`) — les deux cas cohabitent par
+   décision explicite de `supabase_fee_schedule.sql`. N'interroger qu'un seul
+   rattachement laisse de l'argent derrière : 1 versement trouvé au lieu de 3.
+2. Le verrou `RESTRICT` fait échouer **même un `DELETE` global** : l'ordre n'est
+   pas une précaution pour les gros lots, c'est la condition pour que la
+   suppression aboutisse, même sur trois lignes.
+
+**Ce qui n'est pas automatisé, et ne le sera pas.** Le script ne devine jamais
+quel service est un essai : un essai et un vrai encaissement sont identiques
+dans la base. `--liste` montre les montants, le responsable désigne les
+identifiants, et sans `--confirmer` le script ne fait que décrire.
+
+**Le prix de cette suppression.** `receipt_no` est séquentiel par (école, année)
+et sert à détecter une recette escamotée — le schéma l'écrit. Supprimer un
+versement numéroté laisse un trou définitif qui ressemblera, au contrôle, à de
+l'argent effacé. Le script énumère les numéros qui vont manquer avant d'agir,
+pour que la trace soit portée au registre des incidents.
+
+---
+
+## D36 — La maternelle passe aux UA du primaire, et les notes déjà saisies migrent sous conditions (2026-11-01)
+
+**Où** : `src/core/uaMinedub.js`, `src/core/matEngine.js`, `scripts/migrer-maternelle-ua.mjs`,
+`supabase_mat_observations_ua.sql` (**non appliquée**)
+
+**Décision.** La maternelle abandonne « Trimestre 1/2/3 » pour les **UA1–UA8 du primaire**,
+regroupées T1=UA1-3, T2=UA4-6, T3=UA7-8. L'identité d'une observation devient
+`(eleve_id, domaine_id, ua)`, et non plus `(eleve_id, domaine_id, trimestre_id)`.
+
+**Raison.** Le regroupement était déjà écrit, éprouvé et imprimé pour le primaire
+(`uaMinedub.js`). La maternelle réclamait le même découpage : le réécrire aurait créé une
+seconde source de vérité pour un découpage officiel qui n'en admet qu'une. `matEngine`
+**réexporte** donc les constantes du primaire au lieu de les recopier — un test vérifie
+l'identité des objets, pas seulement l'égalité de leur contenu.
+
+**Conséquence.** Trois choses deviennent interdites.
+
+1. Une observation sans `ua` est désormais refusée par le paquet de notes (`mat_sans_ua`) :
+   tout code qui en fabriquait doit être corrigé, pas contourné.
+2. La file hors-ligne et la poussée doivent viser `eleve_id,domaine_id,ua`. Un `onConflict`
+   qui ne correspond à aucune contrainte Postgres échoue en **42P10** et **bloque la file
+   sur place** — c'est l'incident `prim_notes` du 2026-09-28, reproduit à l'identique.
+3. L'ordre de déploiement n'est pas négociable : SQL Cloud → application Cloud → **paquet
+   installé dans chaque école** → migration des données. Une édition LAN qui ignore la
+   colonne `ua` reçoit le `trimestre_id` recalculé et rejette silencieusement la seconde
+   ligne, son ancienne contrainte unique ne distinguant pas deux UA d'un même trimestre.
+
+**Les notes déjà saisies.** T1→UA1 et T2→UA2, décidés par le responsable. **T3 n'a pas de
+règle** : le script les compte, les liste et **ne les transfère pas**. Il n'écrase jamais une
+note existante sur l'UA cible — il signale le conflit et s'arrête sur ce cas. Les colonnes
+`ancienne_periode`, `ua_migre_le`, `ua_migre_par` rendent le retour arrière exact.
+
+**Retour arrière.** `node scripts/migrer-maternelle-ua.mjs --retour-arriere --confirmer`
+restitue période, UA et cote à l'identique (`version` continue de croître, pour que la
+synchronisation voie bien un changement). Éprouvé sur base temporaire portant les
+contraintes d'après migration : 43 contrôles.
+
+---
+
+## D37 — Un doublon d'élève se juge sur la date ET le lieu de naissance, jamais sur le nom seul (2026-11-01)
+
+**Où** : `src/core/doublonsEleves.js`, `src/lib/studentDuplicate.js` (adaptateur),
+`src/components/students/DoublonsPanel.jsx`, `supabase_eleves_non_doublons.sql` (**non appliquée**)
+
+**Décision.** La détection repose sur `date_naissance` **et** `lieu_naissance`, la proximité
+du nom n'étant qu'un **prérequis**. Trois niveaux : fort, à vérifier, aucun. Les renforts
+(téléphone du parent, noms des parents, adresse, matricule) **ne créent jamais** une alerte
+forte à eux seuls.
+
+**Raison, et le défaut qu'elle corrige.** L'ancien code lisait `birth_date` — **une colonne
+qui n'existe pas** : le schéma dit `date_naissance`. Le test en place ne l'avait pas vu
+parce que ses propres jeux d'essai employaient le mauvais champ. La détection ne regardait
+donc, en production, que le nom. Des tests lisent maintenant le **schéma lui-même** et
+refusent le retour de `birth_date`.
+
+**Ce que cela interdit.** Une fratrie et des jumeaux partagent date, lieu, adresse et
+parents : seul le prénom les sépare. Rendre les renforts suffisants rendrait toute fratrie
+« doublon fort ». Les jumeaux sortent donc en `aucun`, avec un drapeau `fratrie` et une
+liste à part. Le prix est assumé : deux vrais homonymes nés le même jour au même endroit
+sortent en « à vérifier », et c'est la secrétaire qui tranche.
+
+**Jamais bloquant.** La création passe toujours ; la réponse « ce n'est pas un doublon » est
+**mémorisée** sur les deux fiches (`students.non_doublons`). Seule reste refusée la **même
+saisie** (même matricule, ou nom identique + même date + lieu compatible) — un double clic
+d'import, pas un élève.
+
+**Performance.** Aucune comparaison deux à deux : regroupement par date, par téléphone et
+par **paires** de préfixes de mots du nom. Mesuré sur 700 élèves réalistes : 12 350
+comparaisons, 297 ms, 0 faux positif. Pire cas mesuré (300 noms identiques) : 956 ms.
+
+**Mesure sur la base réelle (lecture seule, 2026-11-01).** THE GENIUS, 713 élèves : **0
+paire**, 0 matricule en double. LA RÉUSSITE, 657 élèves : **aucune date de naissance en
+base**, donc 3 260 paires « à vérifier » — l'écran de scan annonce désormais combien de
+fiches sont sans date ou sans lieu, parce que ces fiches ne peuvent, par construction, pas
+sortir mieux que « à vérifier ».
+
+**Retour arrière.** `studentDuplicate.js` reste l'adaptateur : rebrancher l'ancien moteur
+revient à y changer trois `export`. La colonne `non_doublons` est additive et son absence ne
+casse rien (lecture tolérante).
+
+---
+
+## D38 — Au premier cycle, une compétence peut être évaluée plusieurs fois dans le trimestre (2026-11-01)
+
+**Où** : `src/core/apcEvaluations.js`, `src/components/grades/ApcCompetenceWorkspace.jsx`,
+`src/lib/apcBulletinDoc.js`, `supabase_apc_evaluations.sql` (**non appliquée**)
+
+**Décision.** La grille de saisie du premier cycle n'affiche plus une colonne par
+compétence, mais **une colonne par évaluation**, numérotée « Éval. 1 », « Éval. 2 »… et
+portant le nom de la compétence évaluée. Le nombre d'évaluations est **déduit** du nombre de
+compétences (1 → 2, sinon une par compétence) et **surchargeable par matière**
+(`schools.apc_evaluations`).
+
+**Raison, et pourquoi ce n'est pas un retour en arrière.** La décision du 2026-10-03
+(commit `1f3d066`) a fait de **Trimestre** le sélecteur principal, en notant que « le modèle
+reste capable d'en porter plusieurs ». Elle visait à supprimer le **sélecteur de séquence**,
+pas la seconde évaluation. Le sélecteur de séquence ne revient pas : les séquences du
+trimestre deviennent des **colonnes**, et un test refuse la réapparition du sélecteur.
+
+**La règle de moyenne n'existe plus qu'une fois.** Elle était écrite dans le bulletin ; elle
+vit maintenant dans `core/apcEvaluations.js` (`moyenneEvaluations`), appelée par l'écran
+**et** par le bulletin. Deux copies d'une règle de moyenne finissent par donner deux
+moyennes — et devant le parent, c'est le bulletin qui a raison. Barèmes identiques → moyenne
+brute, barème conservé ; barèmes différents → moyenne des proportions sur /20. Le calcul de
+matière (`matiereAverage`) n'est pas touché, conformément à la consigne.
+
+**Note provisoire.** Une moyenne calculée sur une évaluation sur deux est **affichée**, en
+ambre, avec « 1 évaluation sur 2 saisie » — et **la cote n'est pas annoncée** tant que la
+saisie est incomplète : une cote est un jugement, elle attend la note définitive. Le
+classeur exporté porte une colonne « Saisie » (`1/2`), sans quoi l'information mourrait à
+l'export.
+
+**Ce que cela interdit.**
+
+1. Dépasser la **capacité** du trimestre (compétences × séquences) : au-delà, deux colonnes
+   désigneraient la même case et la seconde écraserait la première. Le sélecteur est borné.
+2. Exporter deux colonnes au même en-tête : l'en-tête porte le numéro d'évaluation, sinon un
+   classeur de matière à une compétence revient avec deux colonnes indiscernables.
+3. Laisser un enseignant changer le nombre d'évaluations : il déplacerait les colonnes de
+   tous ses collègues sur la même matière. Réservé à la direction.
+
+**Au bulletin.** Pour une compétence évaluée plusieurs fois : « (Éval. 1 : 12 · Éval. 2 :
+16) » à la suite de l'intitulé, en petit, la colonne N portant leur moyenne (14). **Aucune
+colonne n'est ajoutée** au tableau — sa largeur est déjà contrainte par l'A4.
+
+**Et le détail s'arrête à 2 compétences par matière — c'est une MESURE, pas une
+préférence.** Posé sous l'intitulé, il ajoutait une ligne par compétence : le banc
+d'impression (`npm run test:print`, scénario « APC 14×4 ») est passé de **3 pages à 4**,
+rompant le contrat « une feuille = une page » tenu depuis I27/D28. Trois dispositions ont
+été mesurées, pas supposées :
+
+| Disposition | « APC 14×4 » | Verdict |
+|---|---|---|
+| sous l'intitulé, sur sa propre ligne | 3 → **4** | refusée |
+| dans la colonne N, au-dessus de la moyenne | 3 → 3 | refusée À L'ŒIL : la colonne est étroite, « 12 · 16 » s'y coupait en deux et donnait trois nombres empilés qu'on ne sait plus lire |
+| **à la suite de l'intitulé, matières de 1-2 compétences** | 3 → 3 | **retenue** |
+
+Un scénario **« APC 14×1 »** a été ajouté au banc pour prouver que le cas demandé tient à
+pleine taille : quatorze matières à une compétence évaluée deux fois, donc quatorze détails
+sur la même feuille — **2 pages → 2**. Au-delà de 2 compétences, la note de la compétence
+reste la moyenne de ses évaluations (le calcul ne change pas) et le détail se lit sur
+l'écran de saisie.
+
+**L'écran et le papier portent le même détail, sous la même condition.**
+`BulletinApcOfficial.jsx` (aperçu) et `apcBulletinDoc.js` (impression) sont deux rendus des
+mêmes données : un test refuse qu'ils divergent. Un parent qui lit l'aperçu puis le PDF ne
+doit pas y trouver deux bulletins.
+
+**Déjà conforme, vérifié et non modifié.** `src/lib/classReportEngine.js` moyennait déjà
+toutes les séquences du trimestre par compétence : classement et statistiques de classe
+utilisaient donc la note de trimestre avant ce travail.
+
+**Retour arrière.** Revenir à une colonne par compétence = forcer `nombre` à
+`competences.length` dans `colonnesEvaluations`. Les notes de seconde séquence restent en
+base et continuent de compter au bulletin ; l'écran les dénombre et le dit.

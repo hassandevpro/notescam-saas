@@ -14,7 +14,7 @@
 // métier, et toute erreur est avalée (journalisée). C'est la garantie de l'invariant #6.
 
 import { randomUUID } from 'node:crypto';
-import { db, deviceId } from './db.js';
+import { db, deviceId, enqueueOutbox } from './db.js';
 
 const CHANNELS = ['internal', 'email', 'sms', 'whatsapp'];
 
@@ -26,8 +26,7 @@ function insertInternal(schoolId, recipient, msg, now) {
       VALUES (?,?,?,?,?,?,?,?,0,?,?,1,?)`)
     .run(id, schoolId, recipient?.id || null, recipient?.role || null,
          msg.type, msg.title, msg.body || null, msg.link || null, now, now, deviceId());
-  db.prepare('INSERT INTO sync_outbox (tablename, row_id, op, at) VALUES (?,?,?,?)')
-    .run('notifications', id, 'upsert', now);
+  enqueueOutbox('notifications', id, 'upsert');
   return id;
 }
 
@@ -47,8 +46,7 @@ function queueExternal(schoolId, channel, recipient, msg, notifId, now, priority
       VALUES (?,?,?,?,?, 'pending', 0, ?, ?, ?, 1, ?, ?)`)
     .run(id, schoolId, notifId, channel, address,
          JSON.stringify({ title: msg.title, body: msg.body || '' }), now, now, deviceId(), priority || 'normal');
-  db.prepare('INSERT INTO sync_outbox (tablename, row_id, op, at) VALUES (?,?,?,?)')
-    .run('notification_outbox', id, 'upsert', now);
+  enqueueOutbox('notification_outbox', id, 'upsert');
 }
 
 // Émet une notification serveur (best-effort, ne lève jamais).

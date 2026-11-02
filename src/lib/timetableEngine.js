@@ -14,6 +14,7 @@
 // texte traduit).
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { familleDe } from '../core/classementMaison.js';
 import {
   CATEGORIES,
   DEFAULT_CATEGORY,
@@ -84,7 +85,12 @@ export function inferCategory(name) {
  * @param {string} [libelle] libellé libre du créneau, quand il n'y a pas de matière
  */
 export function categoryForSubject(subject, libelle = null) {
-  const choisie = subject?.category;
+  // Un classement que l'ÉCOLE a créé hérite la couleur de sa famille
+  // d'ancrage : « Langues orientales » prend le bleu des langues. Sans ce
+  // passage par `familleDe`, sa clé serait inconnue de `CATEGORY_BY_ID` et la
+  // matière retomberait sur la déduction par le nom — donc sur « Autre » dès
+  // que la table de mots-clés ne reconnaît pas ce nom.
+  const choisie = familleDe(subject?.category);
   if (choisie && CATEGORY_BY_ID[choisie]) return CATEGORY_BY_ID[choisie];
   return inferCategory(subject?.name || libelle);
 }

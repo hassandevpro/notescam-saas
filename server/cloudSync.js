@@ -14,7 +14,9 @@
 
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId, tx } from './db.js';
+import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId, tx, sansEcho,
+  lireOmbre, poserOmbre, retirerOmbre, enregistrerConflit, enqueueOutbox } from './db.js';
+import { fusionner } from './syncMerge.js';
 import { EDGE_BASE } from './cloudEnv.js';
 import { isCloudSyncEnabled } from './syncFlag.js';
 import { markSyncStart, markSyncSuccess, markSyncError, markVerification } from './syncHealth.js';
@@ -40,6 +42,7 @@ const PUSH_MAX_ATTEMPTS = Number(process.env.NOTESCAM_PUSH_MAX_ATTEMPTS || 8);
 
 // Ordre FK pour appliquer les lignes distantes (parents avant enfants).
 const PULL_ORDER = [
+  'parent_student_links',
   'schools', 'school_units', 'school_users', 'academic_periods', 'classes', 'subjects',
   'students', 'teachers', 'staff', 'grades', 'student_fees', 'fee_payments',
   // Module Budgets — hiérarchie annual→period→sector puis chapitres/dépenses/
@@ -139,7 +142,10 @@ export function rawUpsert(table, row, { quiet = false } = {}) {
   // la contribution de l'ancienne ligne locale, ajouter celle de la ligne distante.
   const tracked = isTracked(table);
   const before = tracked ? snapshotRows(table, [rec.id]) : null;
-  try { db.prepare(sql).run(...keys.map((c) => rec[c])); }
+  // ANTI-ÉCHO : cette écriture APPLIQUE une décision du Cloud. Les
+  // déclencheurs de file doivent l ignorer, sinon elle repart aussitôt
+  // vers le Cloud — une boucle sans fin (cf. sansEcho dans db.js).
+  try { sansEcho(() => db.prepare(sql).run(...keys.map((c) => rec[c]))); }
   catch (e) {
     lastUpsertError = e.message;
     if (!quiet) console.warn(`[sync] upsert ${table} ignoré: ${e.message}`);
@@ -315,6 +321,10 @@ async function pull(edge, dryRun) {
   const j = await edge('sync-pull', { since: cursor('pull_at'), tomb_since: cursor('tomb_at') });
   const rows = j?.rows || {};
   const plan = { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] };
+  // Fusions par champ et conflits du cycle : remontés dans le résultat pour
+  // que la supervision les affiche. Un conflit qui ne se compte pas nulle
+  // part redevient un écrasement silencieux, juste mieux rangé.
+  let fusions = 0, conflitsVus = 0;
   const policy = currentPolicy();
 
   // Application d'un lot de pull. En dry-run : ne fait QUE construire le plan (aucune
@@ -337,15 +347,58 @@ async function pull(edge, dryRun) {
       let deferred = 0, cause = null;
       for (const row of batch) {
         if (!row?.id) continue;
+        const distant = adaptRemoteRow(table, row);
         const local = db.prepare(`SELECT * FROM "${table}" WHERE id = ?`).get(row.id);
+        const ombre = local ? lireOmbre(table, row.id) : null;
+
+        // ── FUSION PAR CHAMP, quand on a de quoi la faire ──────────────────
+        // L'ombre est l'état sur lequel les deux côtés étaient d'accord la
+        // dernière fois. Avec elle, on sait QUEL CÔTÉ a touché QUEL CHAMP, et
+        // on ne jette plus la correction de l'un pour garder celle de l'autre
+        // (cf. server/syncMerge.js). Sans elle — ligne jamais échangée — on
+        // retombe sur le départage à la ligne entière, juste en dessous.
+        // `fusionner` rend `null` si l'ombre est inutilisable : on retombe
+        // alors sur le départage à la ligne entière, juste en dessous, au lieu
+        // de fusionner sur une base qui n'en est pas une.
+        const f = local && ombre
+          ? fusionner({ table, local, distant, ombre, colonnes: tableColumns(table) })
+          : null;
+        if (f) {
+          plan.apply.push({ table, id: row.id, fusion: true, champsLocaux: f.resteALocal });
+          if (dryRun) continue;
+          if (!rawUpsert(table, f.rec, { quiet: true })) {
+            recordPullRetry(table, row);
+            deferred++; cause = cause || lastUpsertError;
+            continue;
+          }
+          // L'ombre devient ce que le CLOUD a — pas la ligne fusionnée. Le
+          // Cloud ne connaît pas encore notre fusion ; prétendre le contraire
+          // ferait passer nos champs locaux pour « accordés », et ils
+          // seraient écrasés au cycle suivant sans conflit détecté.
+          poserOmbre(table, row.id, distant);
+          for (const c of f.conflits) enregistrerConflit(table, row.id, c);
+          for (const g of f.garde) enregistrerConflit(table, row.id, { ...g, retenu: null });
+          // La ligne écrite contient des champs que le Cloud n'a pas : il faut
+          // la REPOUSSER, sinon la correction de l'école resterait à l'école —
+          // ce qui est exactement le symptôme qu'on corrige.
+          if (f.resteALocal) enqueueOutbox(table, row.id, 'upsert');
+          fusions++;
+          conflitsVus += f.conflits.length + f.garde.length;
+          continue;
+        }
+
         if (local && !remoteWins(local, row)) { plan.keepLocal.push({ table, id: row.id }); continue; }
         plan.apply.push({ table, id: row.id });
         // Échec d'upsert (FK/dérive) → NE PAS perdre : mise en file de rejeu (le
         // curseur avance quand même, mais la ligne sera ré-appliquée aux cycles suivants).
-        if (!dryRun && !rawUpsert(table, adaptRemoteRow(table, row), { quiet: true })) {
+        if (!dryRun && !rawUpsert(table, distant, { quiet: true })) {
           recordPullRetry(table, row);
           deferred++; cause = cause || lastUpsertError;
+          continue;
         }
+        // Première rencontre de cette ligne : on pose l'ombre, et la fusion
+        // par champ sera possible dès le prochain conflit.
+        if (!dryRun) poserOmbre(table, row.id, distant);
       }
       // UN message par table et par cycle, qui dit ce qui se passe RÉELLEMENT : la
       // ligne est en attente, pas perdue. Cas courant et attendu : `school_users`
@@ -366,7 +419,14 @@ async function pull(edge, dryRun) {
         if (!dryRun) {
           const trackedT = isTracked(t.tablename);
           const beforeT = trackedT ? snapshotRows(t.tablename, [t.row_id]) : null;
-          try { db.prepare(`DELETE FROM "${t.tablename}" WHERE id = ?`).run(t.row_id); } catch { /* FK : ignore */ }
+          // ANTI-ÉCHO : cette suppression APPLIQUE un tombstone du Cloud. Sans
+          // la garde, le déclencheur de file enfilerait un « delete » à
+          // renvoyer au Cloud, qui vient précisément de nous l'envoyer.
+          try { sansEcho(() => db.prepare(`DELETE FROM "${t.tablename}" WHERE id = ?`).run(t.row_id)); } catch { /* FK : ignore */ }
+          // La ligne n'existe plus : son ombre non plus. La laisser ferait
+          // croire, si la ligne revenait, qu'on a déjà un accord sur un
+          // contenu que plus personne ne porte.
+          retirerOmbre(t.tablename, t.row_id);
           if (trackedT) maintainMerkle(t.tablename, beforeT, new Map());
         }
       } else {
@@ -381,7 +441,8 @@ async function pull(edge, dryRun) {
   if (dryRun) applyBatch();  // aucune écriture : construit seulement le plan
   else tx(applyBatch);       // ATOMIQUE : lignes + tombstones + curseurs (tout ou rien)
 
-  return { pulled: Object.values(rows).reduce((a, r) => a + r.length, 0), deleted: plan.remove.length, plan };
+  return { pulled: Object.values(rows).reduce((a, r) => a + r.length, 0),
+    deleted: plan.remove.length, fusions, conflits: conflitsVus, plan };
 }
 
 // --- Push : local → cloud --------------------------------------------
@@ -499,6 +560,18 @@ async function push(edge, dryRun) {
       console.warn(`[sync] ${refuses.length} ligne(s) REFUSÉE(S) par le Cloud, conservées en file : `
         + [...parMotif].map(([m, n]) => `${n}× ${m}`).join(' · '));
     }
+    // ── L OMBRE SE POSE SUR CE QUE LE CLOUD VIENT D ACCEPTER ──────────────
+    // C est le second des deux seuls instants où un accord a lieu (l autre est
+    // l application d une ligne tirée). Sans cette pose, une ligne créée à
+    // l école et montée au Cloud n aurait JAMAIS de base : toute modification
+    // ultérieure des deux côtés retomberait sur le départage à la ligne
+    // entière, et la fusion par champ ne servirait que pour les lignes nées
+    // au Cloud. Les lignes refusées sont exclues : le Cloud ne les a pas.
+    for (const c of changes) {
+      if (cles.has(`${c.table}|${c.row.id}`)) continue;
+      if (c.op === 'delete') retirerOmbre(c.table, c.row.id);
+      else poserOmbre(c.table, c.row.id, c.row);
+    }
     // Purge les entrées réellement traitées (les nouvelles, id > maxId, restent).
     const gardees = entries.filter((e) => cles.has(`${e.tablename}|${e.row_id}`)).map((e) => e.id);
     db.prepare(`DELETE FROM sync_outbox WHERE id <= ?${gardees.length ? ` AND id NOT IN (${gardees.map(() => '?').join(',')})` : ''}`)
@@ -565,6 +638,9 @@ export async function syncOnce({ edge = edgeFetch, dryRun = false } = {}) {
   const res = {
     dryRun, at: new Date().toISOString(),
     pulled: p.pulled, deleted: p.deleted, pushed: q.pushed,
+    // Ce que la supervision doit pouvoir lire : combien de lignes ont été
+    // FUSIONNÉES champ par champ, et combien de conflits cela a produit.
+    fusions: p.fusions || 0, conflits: p.conflits || 0,
     pullPlan: p.plan, pushPlan: q.planned, pullError, rebuildRequired,
   };
   if (dryRun) journalDryRun(res);

@@ -17,7 +17,7 @@ import { peutCreerEleve, checkDuplicate, DUP } from './studentDuplicate.js';
 let pass = 0, fail = 0;
 const ok = (c, label, got) => { c ? (console.log(`✅ ${label}`), pass++) : (console.log(`❌ ${label} (obtenu: ${JSON.stringify(got)})`), fail++); };
 
-const ELEVE = { name: 'MANGA Éric', birth_date: '2014-03-12', class_id: 'cls-6e', parent_phone: '690 00 03 00' };
+const ELEVE = { name: 'MANGA Éric', date_naissance: '2014-03-12', class_id: 'cls-6e', parent_phone: '690 00 03 00' };
 
 // ── 1) L'ANCIEN ÉCHEC : six passages d'import, six dossiers ─────────────────
 // On rejoue la boucle d'import telle qu'elle était, SANS garde.
@@ -45,13 +45,19 @@ const registre = [{ ...ELEVE, id: 'u1' }];
 
 // Un homonyme avec une autre date de naissance : deux enfants peuvent porter le
 // même nom. Refuser serait pire que le doublon.
-ok(peutCreerEleve({ name: 'MANGA Éric', birth_date: '2015-07-01' }, registre).ok,
+ok(peutCreerEleve({ name: 'MANGA Éric', date_naissance: '2015-07-01' }, registre).ok,
   'un homonyme né un autre jour reste inscriptible');
 
 // Des jumeaux : même naissance, même téléphone du parent, prénoms différents.
-// Le moteur les classe WARN — l'écran demande confirmation, le garde laisse passer.
-const jumelle = { name: 'MANGA Sandrine', birth_date: '2014-03-12', parent_phone: '690 00 03 00' };
-ok(checkDuplicate(jumelle, registre).level === DUP.WARN, 'une jumelle est un cas douteux (WARN)');
+//
+// Le moteur ne dit PLUS RIEN sur eux, et c'est la consigne du 2026-11-01 :
+// « deux élèves avec la même date de naissance, le même lieu, la même adresse
+// et les mêmes parents mais des prénoms différents ne doivent PAS déclencher
+// une alerte ». La proximité des NOMS est donc un préalable à toute alerte, et
+// non un indice de plus : c'est le seul critère qui sépare un jumeau d'un
+// doublon, puisque tout le reste de leur fiche est identique.
+const jumelle = { name: 'MANGA Sandrine', date_naissance: '2014-03-12', parent_phone: '690 00 03 00' };
+ok(checkDuplicate(jumelle, registre).level === DUP.NONE, 'une jumelle ne declenche AUCUNE alerte (le prenom diffère)');
 ok(peutCreerEleve(jumelle, registre).ok, 'et elle reste inscriptible : le garde ne bloque que la certitude');
 
 // Une RÉÉCRITURE de la même ligne (restauration depuis la corbeille, rejeu de la
@@ -66,7 +72,7 @@ ok(/déjà inscrit/i.test(refus.raison || ''), 'et la raison est dicible à l’
 ok(refus.existant?.id === 'u1', 'le dossier existant est désigné, pour pouvoir l’ouvrir', refus.existant?.id);
 
 const memeMatricule = peutCreerEleve(
-  { name: 'AUTRE Enfant', birth_date: '2013-01-01', matricule: 'ELV-2025-0097', id: 'u3' },
+  { name: 'AUTRE Enfant', date_naissance: '2013-01-01', matricule: 'ELV-2025-0097', id: 'u3' },
   [{ ...ELEVE, id: 'u1', matricule: 'ELV-2025-0097' }],
 );
 ok(!memeMatricule.ok, 'un matricule déjà attribué est refusé', memeMatricule);

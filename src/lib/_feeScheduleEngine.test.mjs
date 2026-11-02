@@ -14,6 +14,8 @@ import {
   anneesDe, periodesParDefaut, periodesDuFrais, echeancierPour,
   statutEcheance, totauxEcheancier, libellePeriode,
   soldeEcheance, repartitionVersement, paidForSchedule,
+  moisFacturables,
+  libelleEcheance,
   peutChangerStatut, ventilationEcheancier, STATUTS_DECIDES, STATUTS_POSABLES,
   debutServiceEffectif, premierePeriodeApplicable,
 } from './feeScheduleEngine.js';
@@ -407,5 +409,89 @@ ok(debutServiceEffectif({}) === null, '110. sans rien du tout, aucune restrictio
 ok(clesDe({ startedAt: '2025-11-15', enrolledAt: '2025-09-01' }).length === 3,
   '111. RÈGLE 4 — un élève scolarisé en septembre qui prend la cantine en novembre ne doit pas septembre',
   clesDe({ startedAt: '2025-11-15', enrolledAt: '2025-09-01' }));
+
+// ── MOIS FACTURABLES : l'abonnement à la carte ──────────────────────────────
+// Abonner posait l'année entière — dix mois dus d'office. Le registre réel de
+// l'école dit le contraire : ses effectifs vont de 22 à 37 selon le mois. Une
+// dette que personne n'a contractée est pire qu'une donnée manquante : elle se
+// réclame au parent, et au guichet on la croit.
+console.log('\n— Mois facturables (abonnement à la carte) —');
+{
+  const cantine = {
+    id: 'c1', category: 'cantine', amount: 15000,
+    periodicity: 'mensuel', academic_year: '2025-2026',
+  };
+  const opts = { academicYear: '2025-2026' };
+
+  const un = moisFacturables(cantine, opts, ['2025-10']);
+  ok(un.retenus.length === 1 && un.retenus[0].period_key === '2025-10',
+    'un seul mois demande -> un seul mois retenu', un.retenus.map((e) => e.period_key));
+  ok(un.retenus[0].amount_due === 15000, 'et il porte le tarif du service', un.retenus[0].amount_due);
+  ok(un.ignores.length === 0, 'rien d ecarte');
+
+  const trois = moisFacturables(cantine, opts, ['2025-12', '2025-10', '2025-11']);
+  ok(trois.retenus.map((e) => e.period_key).join(',') === '2025-10,2025-11,2025-12',
+    'l ordre rendu est CHRONOLOGIQUE, pas celui des cases cochees',
+    trois.retenus.map((e) => e.period_key));
+
+  const doublons = moisFacturables(cantine, opts, ['2025-10', '2025-10', '2025-10']);
+  ok(doublons.retenus.length === 1, 'le meme mois coche trois fois ne vaut qu une echeance');
+
+  const fantaisie = moisFacturables(cantine, opts, ['2025-10', '2099-01', '', null, 'octobre']);
+  ok(fantaisie.retenus.length === 1, 'les cles hors annee sont ecartees');
+  ok(fantaisie.ignores.join(',') === '2099-01,octobre',
+    'et RENDUES, jamais avalees : un mois coche qui n apparait pas doit s expliquer',
+    fantaisie.ignores);
+
+  // La borne de début de service est une règle FINANCIÈRE : elle ne peut pas
+  // dépendre d'une case à cocher. Un élève entré en février ne doit pas
+  // septembre, même si la secrétaire coche septembre.
+  const tardif = moisFacturables(cantine, { ...opts, startedAt: '2026-02-10' },
+    ['2025-09', '2025-10', '2026-02', '2026-03']);
+  ok(tardif.retenus.map((e) => e.period_key).join(',') === '2026-02,2026-03',
+    'un eleve entre en fevrier ne doit pas septembre, meme coche',
+    tardif.retenus.map((e) => e.period_key));
+  ok(tardif.ignores.join(',') === '2025-09,2025-10',
+    'et les mois refuses sont nommes');
+
+  ok(moisFacturables(cantine, opts, []).retenus.length === 0, 'aucun mois coche -> rien');
+  ok(moisFacturables(cantine, opts, null).retenus.length === 0, 'null -> rien, sans lever');
+  ok(moisFacturables(null, opts, ['2025-10']).retenus.length === 0, 'frais absent -> rien, sans lever');
+
+  // Un frais à versement unique n'a pas de mois : on ne doit pas pouvoir lui en
+  // inventer un en passant une clé mensuelle.
+  const unique = { id: 'u1', category: 'tenue', amount: 12000, periodicity: 'unique', academic_year: '2025-2026' };
+  const u = moisFacturables(unique, opts, ['2025-10']);
+  ok(u.retenus.length === 0 && u.ignores.join(',') === '2025-10',
+    'un frais a versement unique n a pas de mois : la cle est refusee, pas inventee');
+}
+
+// ── LE LIBELLÉ AFFICHÉ : jamais une clé brute sous les yeux d'un parent ─────
+console.log('\n— Libellé d’une échéance —');
+{
+  const L = (l, lg) => libelleEcheance(l, lg);
+  ok(L({ period_key: '2027-01', period_label: 'Janvier 2027' }) === 'Janvier 2027',
+    'un vrai libellé est respecté');
+  // LE DÉFAUT DU 2026-10-31 : period_label recopiait la clé.
+  ok(L({ period_key: '2027-01', period_label: '2027-01' }) === 'Janvier 2027',
+    'un libellé qui n’est QUE la clé est traduit, pas affiché tel quel',
+    L({ period_key: '2027-01', period_label: '2027-01' }));
+  ok(L({ period_key: '2027-01', period_label: '  2027-01  ' }) === 'Janvier 2027',
+    'même avec des espaces autour');
+  ok(L({ period_key: '2027-01', period_label: '' }) === 'Janvier 2027', 'libellé vide -> traduit');
+  ok(L({ period_key: '2027-01', period_label: null }) === 'Janvier 2027', 'libellé nul -> traduit');
+  ok(L({ period_key: '2027-01' }) === 'Janvier 2027', 'libellé absent -> traduit');
+  // L'ÉCOLE A LE DROIT DE NOMMER SES PÉRIODES : on ne lui reprend pas.
+  ok(L({ period_key: '2026-T2', period_label: '2e trimestre (après Noël)' }) === '2e trimestre (après Noël)',
+    'un libellé que l’école a choisi est conservé, même pour un trimestre');
+  ok(L({ period_key: '2027-01', period_label: 'Janvier 2027' }, 'en') === 'Janvier 2027',
+    'un libellé posé gagne sur la langue demandée — c’est un choix de l’école, pas une traduction');
+  ok(L({ period_key: '2027-01', period_label: '2027-01' }, 'en') === 'January 2027',
+    'mais une clé recopiée se traduit dans la langue demandée',
+    L({ period_key: '2027-01', period_label: '2027-01' }, 'en'));
+  ok(L(null) === '' && L(undefined) === '', 'pas de ligne -> chaîne vide, sans lever');
+  ok(L({}) === '', 'ligne vide -> chaîne vide');
+}
+
 console.log(ko === 0 ? '\n✅ Tous les tests passent' : `\n❌ ÉCHEC : ${ko}`);
 process.exitCode = ko === 0 ? 0 : 1;

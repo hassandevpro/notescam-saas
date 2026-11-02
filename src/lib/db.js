@@ -250,7 +250,12 @@ export async function initDB() {
         db.createObjectStore('prim_ref', { keyPath: 'id' });
       }
       // Observations maternelle. keyPath 'id' (uuid) ; `nkey` =
-      // `${eleve_id}_${domaine_id}_${trimestre_id}` (retrouve/écrase une obs.).
+      // `${eleve_id}_${domaine_id}_${ua}` (retrouve/écrase une obs.).
+      //
+      // L'UA a remplacé le trimestre le 2026-11-01. La forme de la `nkey` change
+      // donc, mais PAS la clé primaire (`id`) : une observation migrée revient du
+      // Cloud avec le même `id` et remplace la ligne locale en place — l'index
+      // unique `by_nkey` ne voit jamais deux lignes pour la même observation.
       if (!db.objectStoreNames.contains('mat_obs')) {
         const s = db.createObjectStore('mat_obs', { keyPath: 'id' });
         s.createIndex('by_school',  'school_id');

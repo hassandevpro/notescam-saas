@@ -1,5 +1,78 @@
 # PROJECT_STATUS — NotesCam
 
+> ## 🔑 MISE EN LIGNE DU 2026-11-03 (3) — `main` à `4cd746a`, synchronisation
+>
+> **Demande** : « deploie la sync aussi ». Quatre actes distincts, dont **trois seulement
+> sont faits** — le quatrième ne peut pas l'être d'ici.
+>
+> ### 1. Migration Postgres — appliquée et vérifiée EN BASE
+>
+> `supabase_sync_etat_lan.sql`, additive et idempotente. Vérifiée par lecture, pas sur la
+>  foi du message d'application :
+>
+> | Objet | Constat |
+> |---|---|
+> | colonnes `lan_*` sur `sync_client_state` | **7** présentes |
+> | `sync_etat_ecole(p_school uuid)` | présente, `security_definer = true` |
+> | droits EXECUTE | `service_role`, `authenticated`, `postgres` — **`anon` absent** |
+> | sonde PostgREST avec clé anon | `42501 permission denied` (elle EXISTE et refuse) |
+> | témoin `inexistante_temoin` | `PGRST202` (introuvable) |
+>
+> La sonde porte un témoin : sans lui, `PGRST202` ne prouverait rien.
+> **Retour arrière** : `DROP FUNCTION public.sync_etat_ecole(uuid)` + `DROP COLUMN` des
+> sept `lan_*` (bloc écrit en tête du fichier).
+>
+> ### 2. Fonction Edge `sync-pull` — **v14 → v15**
+>
+> ⚠️ **Elle emportait du code jamais déployé.** La v14 live datait du **2026-11-01 08:11**,
+> alors que `58b940b` a modifié ce fichier le **2026-11-02 11:00** : `parent_student_links`
+> ajouté à la liste de descente — les frères et sœurs saisis à l'école ne descendaient
+> jamais. Cinq lignes, aucune logique touchée, mais il faut le savoir.
+>
+> | Contrôle | Résultat |
+> |---|---|
+> | version | 14 → **15**, 2026-11-03 08:10:49 UTC |
+> | `verify_jwt` | déjà déclaré `false` dans `config.toml` — posture inchangée |
+> | corps de la fonction | répond toujours `401 {"error":"bad_token"}` (auth applicative) |
+> | **GENIUS après la bascule** | tirage à **08:10:50.466**, soit **1,5 s après**, puis encore à 08:42:34 |
+>
+> GENIUS tire chaque minute : c'est l'école qui risquait quelque chose, et elle n'a pas
+> manqué un cycle. **Retour arrière** : source v14 conservée
+> (`scratchpad/rollback/sync-pull-v14-index.ts`, 185 lignes, `git show 58b940b^`).
+>
+> ### 3. Front + serveur — poussés, vérifiés sur le site SERVI
+>
+> `5270002..4cd746a`, **22 fichiers**. `server/rpc.js` est sorti du lot : ma version du
+> handler `admin_set_teacher_password` était **identique** à celle poussée entre-temps, git
+> l'a dédupliquée.
+>
+> | Morceau | Marqueur | Compte |
+> |---|---|---|
+> | feuille de style | `index-DCUR9ZaC.css` | empreinte identique au build local |
+> | `Layout-DnXQBdHZ.js` (56 174 o) | `sync_etat_ecole` · `p_school` · `lan_pending` · « Serveur de l'école vu… » | 1 · 1 · 1 · 1 |
+>
+> **Retour arrière** : `git push origin 5270002:main --force-with-lease`.
+>
+> ### 4. ❌ CE QUI N'EST PAS FAIT — et ne peut pas l'être d'ici
+>
+> **Aucun paquet LAN n'a été reconstruit.** Les écoles n'envoient donc pas encore `etat`, et
+> les sept colonnes `lan_*` sont **NULL partout**, GENIUS compris — constaté, pas supposé.
+> Le badge reste utile malgré ça (`statutCloud` dégrade proprement vers « serveur de l'école
+> vu il y a X »), mais la file bouchée, la quarantaine et les conflits ne seront visibles en
+> ligne qu'après une livraison **main à main** : GENIUS sous Linux (tar.gz), les autres sous
+> Windows, aucune mise à jour automatique.
+>
+> ### Le gate de la maison était rouge — et pas à cause de ce lot
+>
+> `npm run validate` disait **BUILD BLOQUÉ** (10/12). Un arbre sur `origin/main` **nu**
+> échouait les deux mêmes scénarios : `LAN → Cloud (push)` et `conflit LWW`. Deux
+> assertions périmées, dont une qui exigeait l'écrasement silencieux d'une note. Détail et
+> raisons dans **D47**. Après correction : **11/11 critiques, 13/13 scénarios, BUILD
+> AUTORISÉ**, et `262 ok / 0 ko` sur l'arbre de livraison rebasé.
+>
+> ⚠️ **À FAIRE PAR LE RESPONSABLE** : le jeton `sbp_…` collé dans la conversation ouvre
+> l'administration COMPLÈTE du compte Supabase. **Le révoquer et en générer un autre.**
+
 > ## 🔑 MISE EN LIGNE DU 2026-11-03 (2) — `main` à `fc039c3`, mot de passe enseignant
 >
 > **Signalé** : « pas de changement pour la modification du mot de passe enseignant ».

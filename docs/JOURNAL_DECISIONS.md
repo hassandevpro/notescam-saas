@@ -2199,3 +2199,67 @@ source unique, et `scBulletinPdf.js` portait le même bogue sous la forme
 **Preuves.** `npm run test:print:apc` (vrai PDF, pages comptées par pdf.js) et
 `npm run test:print:apc:plafond`. Captures avant/après dans
 `.print-tests/comparaison/`.
+
+
+## D47 — Le gate de synchro etait rouge parce qu'il mesurait un contrat abandonne (2026-11-03)
+
+**Ce qui bloquait.** `npm run validate` repondait **BUILD BLOQUE** : profil « petite ecole »,
+10/12 scenarios. Deux tombaient, et c'etaient les deux qui comptent — `LAN -> Cloud (push)`
+et `conflit LWW`. Impossible de deployer la synchro par-dessus.
+
+**Premiere chose faite : savoir qui casse.** Un second arbre de travail sur `origin/main`
+NU a rejoue le meme banc. Il echouait **exactement les deux memes scenarios**. Le lot de
+synchro n'y etait pour rien : le gate etait deja rouge dans le code en production, et
+personne ne le savait parce que le rouge etait devenu le bruit de fond.
+
+**(a) `LAN -> Cloud (push)` butait sur la PROFONDEUR DE FILE.** L'instrumentation a montre
+`outbox_restant = 24 119` apres le premier cycle, et un Cloud simule ne contenant que
+`schools, classes, subjects, students` — c'est-a-dire exactement la TETE de la file.
+L'amorcage du profil enfile 24 000 notes ; `BATCH` vaut 500 ; la note testee etait la
+DERNIERE enfilee. Il aurait fallu une cinquantaine de cycles. Le scenario ne mesurait pas
+le chemin de poussee, il mesurait une file trop longue.
+
+Le scenario compte desormais les cycles jusqu'a la remontee : **50 cycles pour 24 619
+entrees**. Ce nombre n'est pas un detail de test — c'est la latence qu'une ecole subit
+apres un import massif, et elle est maintenant ecrite noir sur blanc.
+
+**(b) `conflit LWW` exigeait l'ECRASEMENT SILENCIEUX D'UNE NOTE.** Le plan de descente
+disait `{ id: 'g_1', fusion: true, champsLocaux: true }` avec `conflits: 1`. La ligne
+distante GAGNAIT bien le departage ; c'est la fusion **champ par champ** contre une ombre
+(`server/syncMerge.js`) qui gardait la valeur locale, parce que `grades.value` est declare
+**SENSIBLE** dans `server/syncSensible.js` :
+
+> « Une note est le travail d'un eleve. Deux enseignants qui saisissent la meme case avec
+> deux valeurs differentes, c'est une question a poser, pas un departage a faire. »
+
+L'assertion datait du departage a la LIGNE ENTIERE. Elle exigeait donc precisement ce que
+le moteur refuse depuis, et **elle verrouillait l'ancien comportement** : tant qu'elle
+restait, un retour au LWW naif aurait rendu le gate vert. C'est elle qui etait perimee, pas
+le code. Meme mecanique que le `fontPt >= 10` de D46, qui verrouillait le bulletin a deux
+pages.
+
+**Le scenario verifie maintenant les trois effets reels**, et un cas « champ ordinaire » a
+ete AJOUTE pour que le departage deterministe qui subsiste reste couvert :
+
+| Effet | Verifie par |
+|---|---|
+| la note locale n'est pas ecrasee | `value = 'localOld'` |
+| le conflit est visible et non tranche | `sync_conflicts.retenu IS NULL` |
+| la valeur de l'ecole remonte quand meme | elle est au Cloud a la fin du cycle |
+| un champ ORDINAIRE, lui, se departage | la version distante superieure gagne |
+
+**Un detail qui a corrige l'assertion elle-meme.** La premiere version cherchait la ligne
+reenfilee dans `sync_outbox` et ne la trouvait pas. Le pull precede le push DANS LE MEME
+CYCLE : la ligne reenfilee par la fusion etait partie aussitot. Constater son depart vaut
+mieux que constater son attente.
+
+**Pourquoi des horodatages futurs et croissants** (2029 -> 2032) plutot que remettre le
+curseur a zero : le re-tirage integral faisait redescendre 24 000 notes et noyait le
+scenario mesure. Seule la ligne visee redescend.
+
+**Resultat.** 11/11 critiques, 13/13 scenarios, **BUILD AUTORISE**. Le moteur n'a pas ete
+touche — seules les assertions l'ont ete.
+
+**Lecon.** Un gate rouge qu'on contourne est pire qu'un gate absent : il cesse d'etre lu.
+Et avant d'accuser son propre travail, comparer sur un arbre nu coute cinq minutes et
+repond a la seule question qui ordonne la suite.

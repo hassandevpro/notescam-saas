@@ -5,9 +5,11 @@ ET LE CONTROLE DU BAREME DE FORM1 ET FORM2
 ======================================================================
 
 PAQUET            notescam-linux-x64-0.3.30.tar.gz
-TAILLE            53 780 849 octets
-EMPREINTE SHA-256 0e446f07505733d7eb6d27782e2ca7ba2ab719b98251d758958d87997816d70a
-CONSTRUIT LE      2026-11-03 (edition "lan", Node v24.22.0 comme sur le serveur)
+TAILLE            53 806 867 octets
+EMPREINTE SHA-256 b2cfec6b53a6432b1c833c4b5b8aec6c5460d90847a3b54a9c78408af991072a
+CONSTRUIT LE      2026-11-03 13:58 (edition "lan", Node v24.22.0 comme sur le serveur)
+                  depuis 41e31da, apres les quatre lots Budgets, le mot de passe
+                  enseignant, le bulletin de sequence sur une page et la synchro.
 SCRIPT            deploy-0.3.30.sh   (bash -n OK)
 
 L'empreinte ci-dessus est celle du paquet REELLEMENT construit. Verifiez-la
@@ -92,6 +94,31 @@ garde-fou : les bulletins deja imprimes sont faux, la correction les repare.
 
 Apres correction : ouvrez un bulletin de FORM1 et comparez une note imprimee a
 la note saisie. Elles doivent etre IDENTIQUES.
+
+----------------------------------------------------------------------
+DEUX CHOSES DE PLUS DANS CE PAQUET
+----------------------------------------------------------------------
+
+LE BULLETIN DE SEQUENCE TIENT SUR UNE PAGE. Il sortait sur deux pages des
+onze matieres. La cause n etait pas la taille de la police : la colonne des
+competences declarait 42 % de la largeur et n en recevait que 26 %, faute de
+largeurs de colonnes imposees. Chaque intitule passait donc a quatre lignes.
+Mesure : jusqu a 34 lignes de competences tiennent maintenant sur une page A4,
+contre 28 avant. Au-dela, le bulletin sort sur deux pages propres plutot que
+de devenir illisible. Le nombre de moyennes affichees a aussi ete corrige.
+
+L ETAT DE LA SYNCHRO REMONTE AU CLOUD. Jusqu ici l administrateur en ligne ne
+voyait que la date du dernier tirage : « vert » tant que l ecole se connectait,
+meme avec une file bouchee. Ce paquet fait remonter, a chaque cycle, le nombre
+de lignes en attente, le nombre en QUARANTAINE, le nombre de conflits a
+arbitrer et la derniere erreur. Les 221 lignes en quarantaine mentionnees plus
+bas deviendront donc visibles en ligne — visibles, pas resolues : le travail
+de reinjection reste a faire.
+
+Cote Cloud, rien a preparer : les deux migrations que cette version suppose
+sont deja appliquees et verifiees en base (supabase_admin_teacher_password.sql
+le 2026-11-02, supabase_sync_etat_lan.sql le 2026-11-03), et la fonction
+sync-pull est en version 15.
 
 ----------------------------------------------------------------------
 CE QUE CETTE MISE A JOUR NE REGLE PAS

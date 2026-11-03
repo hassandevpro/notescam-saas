@@ -1,0 +1,180 @@
+========================================================================
+NotesCam 0.3.30 (Windows) - Notice pour le responsable informatique
+LA PAGE BUDGETS REFAITE, LE MOT DE PASSE ENSEIGNANT,
+LE BULLETIN DE SEQUENCE SUR UNE PAGE, ET LA SYNCHRO QUI SE VOIT
+========================================================================
+
+Installeur : NotesCam-Setup-0.3.30.exe
+Taille     : 31 030 810 octets
+SHA-256    : 78703e10c85e25fe552cdec6f179471b3c5f56bb093d5951ef385197f60630da
+
+Verifiez l'empreinte avant d'installer, sur le poste serveur :
+
+    Get-FileHash .\NotesCam-Setup-0.3.30.exe -Algorithm SHA256
+
+Si elle ne correspond pas a la ligne ci-dessus, N'INSTALLEZ PAS : le
+fichier a ete altere ou tronque pendant le transfert. Redemandez-le.
+
+Pour savoir quelle version tourne chez vous actuellement :
+
+    http://localhost:8080/api/version
+
+Cette mise a jour s'applique par-dessus la 0.3.6 ou toute version plus
+recente, sans etape intermediaire. Elle contient TOUT ce que contenaient
+les 0.3.28 et 0.3.29.
+
+Construit le 2026-11-03 a 13:57, edition "lan", depuis 41e31da.
+Node embarque : v24.22.2.
+
+
+>>> CONDITION PREALABLE : RIEN A FAIRE, C'EST DEJA FAIT <<<
+-----------------------------------------------------------
+
+Cette version suppose deux objets cote Cloud. Les DEUX sont deja en
+place et ont ete verifies en base, vous n'avez aucun fichier SQL a
+faire tourner :
+
+    supabase_admin_teacher_password.sql   applique le 2026-11-02
+    supabase_sync_etat_lan.sql            applique le 2026-11-03
+
+La fonction Cloud "sync-pull" est en version 15, celle qui sait lire
+l'etat envoye par le serveur de l'ecole.
+
+Aucune colonne n'est ajoutee a une table SYNCHRONISEE : contrairement a
+la 0.3.27, il n'y a donc aucun risque que le Cloud rejette les lignes de
+l'ecole faute de connaitre un nouveau champ.
+
+Pour une ecole NON APPAIREE au Cloud (LAN seul), la question ne se pose
+pas du tout : tout ce qui suit fonctionne sans Internet.
+
+
+>>> APRES L'INSTALLATION, REDEMARREZ. CE N'EST PAS OPTIONNEL <<<
+----------------------------------------------------------------
+
+L'installeur remplace les fichiers ; le serveur, lui, continue de
+tourner avec l'ancien code charge en memoire. Et comme les tables
+neuves sont posees AU DEMARRAGE, une ecole qui installe sans redemarrer
+conclut que la mise a jour n'a rien change. C'est exactement ce qui est
+arrive le 18/10/2026.
+
+Double-cliquez, dans le dossier d'installation :
+
+    REDEMARRER-APRES-MAJ.cmd
+
+Il arrete le service, SAUVEGARDE la base et verifie la sauvegarde,
+redemarre, puis controle. Il s'arrete sans rien casser si la sauvegarde
+ne se verifie pas.
+
+Pour controler ensuite que ce poste a bien recu la correction - en
+lisant la BASE, pas un numero de version affiche quelque part :
+
+    verifier-correctifs.cmd
+
+
+>>> CE QUE CETTE VERSION CHANGE <<<
+------------------------------------
+
+1. LA PAGE BUDGETS EST REFAITE, EN QUATRE LOTS.
+
+   Elle etait impraticable des que l'etablissement depassait la
+   soixantaine de lignes budgetaires. La refonte porte sur l'etat du
+   budget rendu lisible, la page tenable avec 60 lignes et plus, la
+   fluidite, l'accessibilite et le vocabulaire.
+
+   Un detail qui faisait perdre du temps a tout le monde : la carte
+   "lignes a activer" restait vide sans dire pourquoi. Elle explique
+   maintenant la raison de son silence.
+
+2. L'ADMINISTRATEUR PEUT REDEFINIR LE MOT DE PASSE D'UN ENSEIGNANT.
+
+   Un enseignant qui perd son mot de passe n'avait aucun recours : en
+   LAN il n'y a ni e-mail ni lien de reinitialisation. L'administrateur
+   le redefinit desormais depuis l'ecran Enseignants.
+
+   L'ANCIEN MOT DE PASSE NE PEUT PAS ETRE RELU - il n'est pas stocke en
+   clair. On en pose un nouveau, et on le communique a l'enseignant.
+
+   RESERVE HONNETE : le miroir Cloud vers LAN de ce mot de passe est
+   "au mieux". Une ecole hors ligne au moment du changement gardera
+   l'ancien mot de passe local jusqu'au prochain passage de synchro.
+
+3. LE BULLETIN DE SEQUENCE TIENT SUR UNE PAGE.
+
+   Il sortait sur DEUX pages des onze matieres.
+
+   LA CAUSE N'ETAIT PAS LA TAILLE DE LA POLICE, contrairement a ce que
+   tout le monde supposait. La colonne des competences DECLARAIT 42 % de
+   la largeur et n'en recevait que 26 % : sans largeurs de colonnes
+   imposees, le navigateur ne lit ces pourcentages que comme des
+   souhaits et redistribue selon le contenu. Les deux en-tetes les plus
+   longs prenaient la place du texte - dont "Appreciations et Visa",
+   pour une colonne VIDE qui s'octroyait 114 pixels. Chaque intitule de
+   competence passait donc a quatre lignes, et une ligne de matiere
+   faisait 72 pixels au lieu de 37.
+
+   MESURE, pas estimee : jusqu'a 34 lignes de competences tiennent
+   maintenant sur une page A4 portrait, contre 28 avant. Au-dela, le
+   bulletin sort sur DEUX pages propres - un bulletin de 56 lignes
+   demanderait 2,25 mm par ligne quand la plus petite ligne lisible en
+   fait 5,0 : c'est physiquement impossible, et deux pages nettes
+   valent mieux qu'une page illisible.
+
+   Au passage : le nombre de moyennes annonce etait faux (il comptait
+   tous les eleves au lieu de ceux qui ont la moyenne), et la mention
+   "M/Mme" ne s'imprime plus quand aucun enseignant n'est renseigne.
+
+4. L'ETAT DE LA SYNCHRO REMONTE ENFIN AU CLOUD.
+
+   Jusqu'ici, l'administrateur en ligne ne voyait qu'une seule chose :
+   la date du dernier tirage. L'ecole paraissait donc "verte" tant
+   qu'elle se connectait, meme avec une file de poussee bouchee.
+
+   Ce paquet fait remonter a chaque cycle le nombre de lignes en
+   attente, le nombre en QUARANTAINE, le nombre de conflits a arbitrer,
+   la derniere erreur et la version installee. C'est le serveur de
+   l'ecole qui envoie ces chiffres : ils n'apparaissent donc en ligne
+   QU'APRES cette installation, et seulement pour les ecoles appairees.
+
+   Deux garde-fous qui comptent pour vos donnees, deja presents mais
+   qu'il vaut la peine de connaitre :
+
+   - UNE NOTE N'EST JAMAIS ECRASEE EN SILENCE. Si l'ecole et le Cloud
+     ont saisi la meme case avec deux valeurs differentes, la valeur de
+     L'ECOLE est conservee, le conflit est inscrit pour arbitrage, et
+     la valeur de l'ecole remonte au Cloud. Une note est le travail
+     d'un eleve : c'est une question a poser, pas un departage a faire
+     selon l'ordre d'arrivee des paquets reseau.
+
+   - LA FILE SE DEBOUCHE TOUTE SEULE. Une entree refusee par le Cloud
+     ne bloque plus indefiniment tout ce qui est derriere : au bout de
+     plusieurs tentatives, la tete de file part en quarantaine et la
+     file redemarre. Rien n'est perdu - la ligne reste en base, et le
+     controle d'integrite la renfile quand il la declare manquante.
+
+5. ECRAN DE DEMARRAGE ET ANIMATION DE CHARGEMENT COMMUNE.
+
+   Cosmetique, mais visible : plus d'ecran blanc pendant le chargement.
+
+
+>>> CE QUE CETTE MISE A JOUR NE REGLE PAS <<<
+---------------------------------------------
+
+- Les lignes deja en QUARANTAINE ne sont pas reinjectees par cette
+  mise a jour. Elles deviennent VISIBLES en ligne, ce qui est la
+  condition pour s'en occuper, mais la reinjection reste un travail
+  separe.
+
+- La mise a jour n'est PAS automatique. Ce fichier .exe doit etre
+  porte sur chaque poste serveur d'ecole.
+
+
+>>> RETOUR ARRIERE <<<
+-----------------------
+
+REDEMARRER-APRES-MAJ.cmd sauvegarde la base AVANT de redemarrer, dans
+le dossier de donnees :
+
+    C:\ProgramData\NotesCam\data
+
+Pour revenir a la version precedente : arreter le service, remettre
+cette copie en place, puis reinstaller NotesCam-Setup-0.3.29.exe.

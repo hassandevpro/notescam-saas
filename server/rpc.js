@@ -270,6 +270,29 @@ const handlers = {
     return null;
   },
 
+  // L'admin redéfinit le mot de passe d'un ENSEIGNANT de son école (perdu).
+  // Parité avec le cloud (supabase_admin_teacher_password.sql) : même cible
+  // (teachers.id), mêmes refus, renvoie l'e-mail.
+  admin_set_teacher_password(p, ctx) {
+    const schoolId = requireAdmin(ctx);
+    const t = db.prepare(
+      `SELECT auth_user_id FROM teachers WHERE id = ? AND school_id = ?`
+    ).get(p.p_teacher_id, schoolId);
+    if (!t?.auth_user_id) throw new Error('Compte introuvable');
+    const isTeacherHere = db.prepare(
+      `SELECT 1 FROM school_users WHERE user_id = ? AND school_id = ? AND role = 'teacher'`
+    ).get(t.auth_user_id, schoolId);
+    const hasOtherRole = db.prepare(
+      `SELECT 1 FROM school_users WHERE user_id = ? AND role <> 'teacher'`
+    ).get(t.auth_user_id);
+    if (!isTeacherHere || hasOtherRole) throw new Error('Rôle non autorisé');
+    if (!p.p_new_password || String(p.p_new_password).length < 8)
+      throw new Error('Mot de passe trop court (8 caractères min.)');
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+      .run(hashPassword(p.p_new_password), t.auth_user_id);
+    return db.prepare('SELECT email FROM users WHERE id = ?').get(t.auth_user_id)?.email ?? null;
+  },
+
   // Gouvernance : attribuer/mettre à jour un rôle (avec secteur/dates/statut).
   admin_assign_governance_role(p, ctx) {
     const schoolId = requireAdmin(ctx);

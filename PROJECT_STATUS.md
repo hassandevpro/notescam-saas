@@ -1,5 +1,64 @@
 # PROJECT_STATUS — NotesCam
 
+> ## 🚀 MISE EN LIGNE DU 2026-11-03 — `main` à `ee900f0`
+>
+> **Poussé** : `git push origin HEAD:main` → `8553c8f..ee900f0`, sur autorisation
+> explicite demandée pour ce déploiement-là.
+>
+> **Ce qui est parti — et SEULEMENT ça.** 34 fichiers, le lot « bulletin » isolé dans un
+> arbre de travail neuf créé depuis `origin/main`, pas depuis la branche. Mise en page du
+> bulletin de séquence sur UNE page, `profilClasse` (nombre de moyennes), suppression du
+> placeholder « M/Mme », UA1 nommée et tirée comme une UA, observation générale dans la
+> page Notes, orientations par cycle, et la feuille de notes à remplir à la main (D41).
+>
+> **Ce qui est RESTÉ sur le poste, volontairement** : le moteur de synchronisation
+> (`cloudSync`, `eventSync`, `fileSync`, `rpc`, `syncHealth`, `syncRepair`, `syncVerify`,
+> plus `edgeReseau.js` et `syncEtat.js`), l'Edge Function `supabase/functions/sync-pull`,
+> les pages `Grades` / `Reports` / `Teachers` / `ConseilDeClasse`, et les **5 commits
+> Budgets** (lots 1-4 + AppLoader) de la branche `caisse-journal-et-sync-0.3.15`.
+>
+> **L'isolement a servi à quelque chose** : le build a échoué sur
+> `Could not resolve "./FeuilleNotesButton"`. Le lot bulletin dépendait de la feuille de
+> notes, non commitée elle non plus. Poussé depuis la branche, on n'aurait rien vu — et on
+> aurait emporté la synchro avec. Cinq fichiers ajoutés, build vert.
+>
+> **Tests du candidat exact** : 252 ok, 1 ko — `server/_license_machine.test.mjs`, qui
+> réclame `packaging/license/private-key.pem`, **gitignoré donc absent d'un arbre neuf**.
+> Clé recopiée, test relancé : **13 réussis, 0 échoué**. Rien d'autre.
+>
+> **Vérifié sur le site RÉELLEMENT SERVI** (l'API Vercel reste inaccessible) :
+>
+> | Marqueur | Avant | Après |
+> |---|---|---|
+> | feuille de style servie | `index-CFDF1IpF.css` | `index-njwyKY50.css` |
+> | `.apc-sheet .apc-clamp2` (hors `@media print`) | absent | **présent** |
+> | filigrane `opacity:.06` / ancien `.07` | `.07` | **`.06`**, `.07` absent |
+> | `tableLayout:"fixed"` | 0 | **5** |
+> | `M/Mme` et `Mr/Mrs` | présents | **0** |
+> | `Appréciations et Visa` → `Appréc. / Visa` | ancien | **nouveau**, ancien à 0 |
+> | `apc-clamp2` dans le JS | 0 | **2** (composant + jumeau PDF) |
+>
+> La feuille `index-njwyKY50.css` servie porte **la même empreinte** que celle bâtie
+> localement depuis `ee900f0` : c'est bien ce commit qui est en ligne. Le nom du morceau JS
+> diffère (`index-DKyn3_gq` contre `index-B3L8bSF4`) parce que le paquet embarque les
+> variables d'environnement Vercel, pas celles de `.env.local` — écart déjà constaté le
+> 2026-11-02.
+>
+> Deux libellés anciens subsistent dans le JS servi, et c'est VOULU :
+> « MATIÈRES ET NOM DE L'ENSEIGNANT » (×2) vient de `BulletinApcAnnual.jsx` et
+> `BulletinScOfficial.jsx`, « [Min–Max] » (×1) de `BulletinScOfficial.jsx`. Le bulletin
+> **annuel** et celui du **second cycle** n'étaient pas dans la demande.
+>
+> **Retour arrière** : `git push origin 8553c8f:main --force-with-lease`.
+>
+> **Les éditions LAN ne reçoivent rien** : aucune mise à jour automatique, aucun paquet
+> reconstruit. GENIUS (Linux, tar.gz) et les écoles Windows restent sur leur version.
+>
+> **Non validé par le responsable au moment de la poussée** : les écrans de la session
+> (observation générale dans la page Notes, titre et contenu UA1, sélecteurs d'orientation
+> maternelle et secondaire). Il a demandé la mise en ligne en le sachant, pour juger sur
+> la production.
+
 > **Source unique de l'état du projet.** À relire au début de chaque session, et à
 > actualiser à la fin. Toute ligne ici doit être vérifiable par une commande ou un
 > fichier : si une information ne peut pas être prouvée, elle est marquée « à vérifier ».

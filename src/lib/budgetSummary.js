@@ -52,3 +52,21 @@ export function topLines(summary, n = 3) {
     .sort((a, b) => b.amount - a.amount || a.i - b.i)
     .slice(0, n);
 }
+
+// Géométrie d'une barre « valeur / enveloppe » — pure, pour que le repère à 100 %
+// et la part en dépassement se dessinent à l'échelle. Si la valeur dépasse
+// l'enveloppe, l'échelle s'étire jusqu'à la valeur : le repère de l'enveloppe recule
+// et la part en trop est dessinée à part (hachurée, avec un libellé à l'écran).
+export function barGeometry(value, envelope) {
+  const v = Math.max(0, num(value));
+  const e = Math.max(0, num(envelope));
+  const max = Math.max(v, e);
+  if (max <= 0) return { fillPct: 0, overPct: 0, markerPct: 100, rate: 0, over: 0 };
+  return {
+    fillPct: (Math.min(v, e) / max) * 100,
+    overPct: (Math.max(0, v - e) / max) * 100,
+    markerPct: (e / max) * 100,
+    rate: e > 0 ? Math.round((v / e) * 100) : 0,
+    over: Math.max(0, v - e),
+  };
+}

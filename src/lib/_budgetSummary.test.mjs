@@ -57,3 +57,24 @@ test('entrées absentes : zéros, pas d’exception', () => {
   const s = summarizeBudget();
   assert.equal(s.reparti, 0); assert.equal(s.overBy, 0); assert.deepEqual(topLines(s), []);
 });
+
+import { barGeometry } from './budgetSummary.js';
+
+test('barre : sous l’enveloppe, pas de dépassement, repère à 100 %', () => {
+  const g = barGeometry(40, 100);
+  assert.equal(g.fillPct, 40); assert.equal(g.overPct, 0); assert.equal(g.markerPct, 100); assert.equal(g.rate, 40);
+});
+
+test('barre : en dépassement, l’échelle s’étire et le repère recule', () => {
+  const g = barGeometry(161006000, 121098000);
+  assert.equal(Math.round(g.rate), 133);
+  assert.equal(g.over, 39908000);
+  assert.ok(Math.abs(g.fillPct + g.overPct - 100) < 1e-9);
+  assert.ok(Math.abs(g.markerPct - g.fillPct) < 1e-9);   // le repère est à la fin de la part « dans l’enveloppe »
+  assert.ok(g.overPct > 0 && g.markerPct < 100);
+});
+
+test('barre : valeurs nulles ou négatives sans exception', () => {
+  assert.deepEqual(barGeometry(0, 0), { fillPct: 0, overPct: 0, markerPct: 100, rate: 0, over: 0 });
+  assert.equal(barGeometry(-5, 100).fillPct, 0);
+});

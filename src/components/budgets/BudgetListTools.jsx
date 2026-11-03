@@ -3,6 +3,7 @@
 // calculs viennent de lib/budgetLineView (pur, testé).
 import { useT } from '../../lib/i18n';
 import { LINE_ERROR_LABELS } from './budgetUi';
+import { barGeometry } from '../../lib/budgetSummary';
 
 const STEP_LABELS = {
   periods:    ['Périodes', 'Periods', 'Períodos'],
@@ -163,5 +164,47 @@ export function HowItWorks({ defaultOpen = false }) {
         {items.map(([title, text]) => <li key={title}><b className="text-gray-800">{title}</b> : {text}</li>)}
       </ol>
     </details>
+  );
+}
+
+// Deux barres légendées (A2) : « Réparti » et « Dépensé ou en cours de validation ».
+// Repère vertical à 100 % de l'enveloppe ; la part en trop est hachurée ET nommée
+// (jamais la couleur seule). Géométrie : lib/budgetSummary.barGeometry (testée).
+function Bar({ label, value, envelope, money, t }) {
+  const g = barGeometry(value, envelope);
+  const over = g.over > 0;
+  const text = over
+    ? t(`${g.rate} % de l’enveloppe — dépassement de ${money(g.over)}`, `${g.rate}% of the envelope — over by ${money(g.over)}`, `${g.rate} % de la envolvente — exceso de ${money(g.over)}`)
+    : t(`${g.rate} % de l’enveloppe`, `${g.rate}% of the envelope`, `${g.rate} % de la envolvente`);
+  return (
+    <div>
+      <div className="flex justify-between gap-2 text-xs mb-1">
+        <span className="font-semibold text-gray-700">{label}</span>
+        <span className={`tabular-nums ${over ? 'font-semibold text-rose-700' : 'text-gray-500'}`}>{money(value)} · {text}</span>
+      </div>
+      <div className="relative h-3 rounded-full bg-gray-100 overflow-hidden" role="img" aria-label={`${label} : ${text}`}>
+        <div className="absolute inset-y-0 left-0 bg-indigo-500" style={{ width: `${g.fillPct}%` }} />
+        {over && (
+          <div className="absolute inset-y-0" style={{ left: `${g.fillPct}%`, width: `${g.overPct}%`,
+            backgroundImage: 'repeating-linear-gradient(45deg, #e11d48 0 4px, #fecdd3 4px 8px)' }} />
+        )}
+        {/* Repère : 100 % de l'enveloppe */}
+        <div className="absolute inset-y-0 w-0.5 bg-gray-800" style={{ left: `calc(${g.markerPct}% - 1px)` }} />
+      </div>
+    </div>
+  );
+}
+
+export function BudgetBars({ reparti, committed, envelope, money }) {
+  const t = useT();
+  return (
+    <div className="mt-3 space-y-3">
+      <Bar label={t('Réparti', 'Allocated', 'Repartido')} value={reparti} envelope={envelope} money={money} t={t} />
+      <Bar label={t('Dépensé ou en cours de validation', 'Spent or pending approval', 'Gastado o en validación')} value={committed} envelope={envelope} money={money} t={t} />
+      <p className="text-xs text-gray-500">
+        <span aria-hidden="true" className="inline-block w-0.5 h-3 bg-gray-800 align-middle mr-1" />
+        {t('Le trait noir marque 100 % de l’enveloppe.', 'The black mark is 100% of the envelope.', 'La marca negra es el 100 % de la envolvente.')}
+      </p>
+    </div>
   );
 }

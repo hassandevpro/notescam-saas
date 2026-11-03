@@ -87,3 +87,39 @@ test('en gouvernance distante : le bouton parle de demandes, pas d’activations
   assert.match(out, /Envoyer 2 demandes d’activation/);
   assert.match(out, /envoyée comme une demande au poste de l’école/);
 });
+
+const { BudgetBars, HowItWorks } = await import('./BudgetListTools.jsx');
+const { default: Icon } = await import('./budgetIcons.jsx');
+const money = (n) => `${n} XAF`;
+
+test('barres : deux barres légendées, repère à 100 %, dépassement nommé en toutes lettres', () => {
+  const out = html(h(BudgetBars, { reparti: 161006000, committed: 4575510, envelope: 121098000, money }));
+  assert.match(out, /Réparti/);
+  assert.match(out, /Dépensé ou en cours de validation/);
+  assert.match(out, /133 % de l’enveloppe — dépassement de 39908000 XAF/);   // le dépassement est écrit, pas seulement hachuré
+  assert.match(out, /repeating-linear-gradient/);
+  assert.match(out, /Le trait noir marque 100 %/);
+  assert.equal((out.match(/role="img"/g) || []).length, 2);
+});
+
+test('barres : sous l’enveloppe, aucune part hachurée', () => {
+  const out = html(h(BudgetBars, { reparti: 50, committed: 10, envelope: 100, money }));
+  assert.doesNotMatch(out, /repeating-linear-gradient/);
+  assert.match(out, /50 % de l’enveloppe/);
+});
+
+test('« Comment ça marche » : cinq étapes, repliable (details natif)', () => {
+  const out = html(h(HowItWorks, {}));
+  assert.match(out, /<details/);
+  assert.equal((out.match(/<li>/g) || []).length, 5);
+  assert.doesNotMatch(out, /<details open/);
+  assert.match(html(h(HowItWorks, { defaultOpen: true })), /<details open/);
+});
+
+test('icônes : SVG décoratifs, jamais d’emoji', () => {
+  for (const name of ['book', 'calendar', 'satellite', 'swap', 'revise', 'scale', 'signal', 'folder']) {
+    const out = html(h(Icon, { name }));
+    assert.match(out, /^<svg aria-hidden="true"/, name);
+    assert.match(out, /<(path|circle|rect)/, name);
+  }
+});

@@ -64,10 +64,14 @@ export function formatMoney(amount, code = DEFAULT_CURRENCY) {
 // devise — utile quand le symbole est affiché à part (en-têtes de colonnes…).
 export function formatAmount(amount, code = DEFAULT_CURRENCY) {
   const c = getCurrency(code);
+  // Intl groupe les milliers avec U+202F (espace fine insécable en fr-FR). Beaucoup de
+  // polices n'ont pas ce glyphe ou le rendent à largeur nulle selon la taille : « 121 098 000 »
+  // s'affichait « 121098000 » dans un gros chiffre gras. U+00A0 (espace insécable) est
+  // supporté partout et ne se coupe pas en fin de ligne non plus.
   return new Intl.NumberFormat(c.locale, {
     minimumFractionDigits: c.decimals,
     maximumFractionDigits: c.decimals,
-  }).format(Number(amount || 0));
+  }).format(Number(amount || 0)).replace(/ /g, ' ');
 }
 
 // Symbole/étiquette courte d'une devise (ex. en-tête « Montant (XAF) »).

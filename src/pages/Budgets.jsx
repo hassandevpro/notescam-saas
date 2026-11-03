@@ -25,6 +25,7 @@ import { financeRemoteMode } from '../lib/budgetRemote';
 import { fetchBudgetOperations, budgetOperationOutcome, visibleIntents } from '../lib/budgetOperationService';
 import { AnnualBudgetModal, unitLabel } from '../components/budgets/BudgetHierarchyModals';
 import { lineFullLabel } from '../lib/budgetLabels';
+import Icon from '../components/budgets/budgetIcons';
 import LineFormModal from '../components/budgets/LineFormModal';
 import LineAllocationsModal from '../components/budgets/LineAllocationsModal';
 import BudgetPeriodsModal from '../components/budgets/BudgetPeriodsModal';
@@ -39,7 +40,7 @@ import { GOV_PERM } from '../governance/permissions';
 import { InlineLoader } from '../components/AppLoader';
 import { summarizeBudget, topLines, flattenLines } from '../lib/budgetSummary';
 import { countByState, blockerGroups, computeSteps, filterTree, hasActiveFilters, planBulkActivation } from '../lib/budgetLineView';
-import { BudgetSteps, BlockersCard, ReadyCard, ListToolbar, HowItWorks } from '../components/budgets/BudgetListTools';
+import { BudgetSteps, BlockersCard, ReadyCard, ListToolbar, HowItWorks, BudgetBars } from '../components/budgets/BudgetListTools';
 import BulkActivateModal from '../components/budgets/BulkActivateModal';
 
 const Badge = ({ ui, t }) => <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ui.color}`}>{t(...ui.label)}</span>;
@@ -395,7 +396,7 @@ export default function Budgets() {
   if (loading) return <Layout><InlineLoader /></Layout>;
   if (error) return (
     <Layout><div className="max-w-md mx-auto py-24 text-center text-gray-500">
-      <div className="text-3xl mb-2">📡</div>
+      <div className="mb-2 flex justify-center text-gray-400"><Icon name="signal" className="w-9 h-9" /></div>
       <p className="font-semibold text-gray-700">{t('Données indisponibles', 'Data unavailable', 'Datos no disponibles')}</p>
       <button onClick={load} className={`${btn} mt-4 text-white bg-indigo-600 hover:bg-indigo-700`}>{t('Réessayer', 'Retry', 'Reintentar')}</button>
     </div></Layout>
@@ -418,11 +419,11 @@ export default function Budgets() {
                 en LAN hors ligne. Accessible à TOUS, pas seulement à qui gère. */}
             <button className={`${btn} text-gray-700 bg-gray-100 hover:bg-gray-200`} onClick={downloadManual}
               title={t('Télécharger le manuel d’emploi (PDF)', 'Download the user manual (PDF)', 'Descargar el manual (PDF)')}>
-              📘 {t('Manuel', 'Manual', 'Manual')}
+              <Icon name="book" /> {t('Manuel', 'Manual', 'Manual')}
             </button>
             {annual && (
               <button className={`${btn} text-indigo-700 bg-indigo-50 hover:bg-indigo-100`} onClick={() => setModal({ type: 'periods' })}>
-                📅 {t('Périodes', 'Periods', 'Períodos')} {periods.length ? `(${periods.length})` : ''}
+                <Icon name="calendar" /> {t('Périodes', 'Periods', 'Períodos')} {periods.length ? `(${periods.length})` : ''}
               </button>
             )}
             {!annual && canManage && (
@@ -438,7 +439,7 @@ export default function Budgets() {
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-semibold text-amber-800">
-                🛰️ {t('Ici, vos modifications sont envoyées au poste de l’école, qui les applique. Elles peuvent mettre quelques minutes à apparaître.', 'Here, your changes are sent to the school workstation, which applies them. They can take a few minutes to appear.', 'Aquí, sus cambios se envían al puesto de la escuela, que los aplica. Pueden tardar unos minutos en aparecer.')}
+                <Icon name="satellite" /> {t('Ici, vos modifications sont envoyées au poste de l’école, qui les applique. Elles peuvent mettre quelques minutes à apparaître.', 'Here, your changes are sent to the school workstation, which applies them. They can take a few minutes to appear.', 'Aquí, sus cambios se envían al puesto de la escuela, que los aplica. Pueden tardar unos minutos en aparecer.')}
               </p>
               <div className="flex items-center gap-2 shrink-0">
                 {intentsAt && !intentsBusy && (
@@ -484,7 +485,7 @@ export default function Budgets() {
 
         {!annual ? (
           <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-            <div className="text-3xl mb-2">🗂️</div>
+            <div className="mb-2 flex justify-center text-gray-400"><Icon name="folder" className="w-9 h-9" /></div>
             <p className="text-gray-600 font-semibold">{t('Aucun budget annuel pour cette année', 'No annual budget for this year', 'Ningún presupuesto anual este año')}</p>
             <p className="text-gray-500 text-sm mt-1">{t('Créez le budget annuel global du complexe pour commencer.', 'Create the global annual budget to start.', 'Cree el presupuesto anual global.')}</p>
             <div className="mt-4 text-left max-w-xl mx-auto"><HowItWorks defaultOpen /></div>
@@ -516,10 +517,10 @@ export default function Budgets() {
                 </div>
                 <div className="flex flex-wrap gap-1.5 justify-end">
                   {canReqRealloc && activeLines.length >= 2 && (
-                    <button className={`${btn} text-purple-700 bg-purple-50 hover:bg-purple-100`} onClick={() => setOpModal({ type: 'realloc' })}>↔ {t('Réallouer', 'Reallocate', 'Reasignar')}</button>
+                    <button className={`${btn} text-purple-700 bg-purple-50 hover:bg-purple-100`} onClick={() => setOpModal({ type: 'realloc' })}><Icon name="swap" /> {t('Réallouer', 'Reallocate', 'Reasignar')}</button>
                   )}
                   {canReqRev && (
-                    <button className={`${btn} text-purple-700 bg-purple-50 hover:bg-purple-100`} onClick={() => setOpModal({ type: 'revision' })}>↕ {t('Réviser l’annuel', 'Revise annual', 'Revisar anual')}</button>
+                    <button className={`${btn} text-purple-700 bg-purple-50 hover:bg-purple-100`} onClick={() => setOpModal({ type: 'revision' })}><Icon name="revise" /> {t('Réviser l’annuel', 'Revise annual', 'Revisar anual')}</button>
                   )}
                   {canManage && model.annual.status === 'draft' && (
                     <button className={`${btn} text-gray-600 bg-gray-100 hover:bg-gray-200`} onClick={() => setModal({ type: 'annual', node: annual })}>{t('Modifier', 'Edit', 'Editar')}</button>
@@ -544,7 +545,7 @@ export default function Budgets() {
                   {t('Rien n’est encore dépensable : activez au moins une ligne.', 'Nothing can be spent yet: activate at least one line.', 'Aún no se puede gastar: active al menos una línea.')}
                 </p>
               )}
-              <div className="mt-3"><ProgressBar value={envelope > 0 ? Math.round((summary.reparti / envelope) * 100) : 0} danger={overAllocated} /></div>
+              <BudgetBars reparti={summary.reparti} committed={model.annual.consumption.committed} envelope={envelope} money={money} />
               <p className={`text-xs mt-2 ${overAllocated ? 'text-rose-700 font-semibold' : 'text-gray-500'}`}>
                 {t('Réparti', 'Allocated', 'Repartido')} {money(summary.reparti)} / {money(envelope)}
                 {' · '}{t('Dépensé ou en cours de validation', 'Spent or pending approval', 'Gastado o en validación')} {money(model.annual.consumption.committed)}
@@ -711,7 +712,7 @@ function OperationsPanel({ reallocations, revisions, chapterById, money, t, canD
           <tbody>
             {reallocations.map((r) => (
               <tr key={r.id} className="border-t border-gray-100">
-                <td className="px-5 py-2 font-medium text-gray-800">↔ {t('Réallocation', 'Reallocation', 'Reasignación')}</td>
+                <td className="px-5 py-2 font-medium text-gray-800"><Icon name="swap" /> {t('Réallocation', 'Reallocation', 'Reasignación')}</td>
                 <td className="px-4 py-2 text-gray-600">{label(r.source_chapter_id)} → {label(r.dest_chapter_id)} · <b>{money(r.amount)}</b></td>
                 <td className="px-4 py-2 text-gray-500 tabular-nums">{r.status === 'applied' ? `${money(r.source_before)}→${money(r.source_after)} / ${money(r.dest_before)}→${money(r.dest_after)}` : '—'}</td>
                 <td className="px-4 py-2 text-gray-600">{r.requester || '—'}{r.reason ? <div className="text-xs text-gray-400">{r.reason}</div> : null}</td>
@@ -722,7 +723,7 @@ function OperationsPanel({ reallocations, revisions, chapterById, money, t, canD
             ))}
             {revisions.map((r) => (
               <tr key={r.id} className="border-t border-gray-100">
-                <td className="px-5 py-2 font-medium text-gray-800">↕ {t('Révision annuelle', 'Annual revision', 'Revisión anual')}</td>
+                <td className="px-5 py-2 font-medium text-gray-800"><Icon name="revise" /> {t('Révision annuelle', 'Annual revision', 'Revisión anual')}</td>
                 <td className="px-4 py-2 text-gray-600 tabular-nums">{money(r.old_amount)} → <b>{money(r.new_amount)}</b> <span className={`${r.new_amount - r.old_amount < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>({r.new_amount - r.old_amount >= 0 ? '+' : ''}{money(r.new_amount - r.old_amount)})</span></td>
                 <td className="px-4 py-2 text-gray-500 tabular-nums">{t('Initial', 'Initial', 'Inicial')} {money(r.initial_amount)}</td>
                 <td className="px-4 py-2 text-gray-600">{r.requester || '—'}{r.reason ? <div className="text-xs text-gray-400">{r.reason}</div> : null}</td>
@@ -846,7 +847,7 @@ function LineCard({ node, raw, money, t, canManage, canApprove, onAlloc, onEdit,
         <div className="flex flex-wrap gap-1.5 mt-2.5">
           {node.status === 'draft' && (
             <>
-              <button onClick={onAlloc} className={`${btn} text-indigo-700 bg-indigo-50 hover:bg-indigo-100`}>⚖ {t('Répartir', 'Break down', 'Repartir')}</button>
+              <button onClick={onAlloc} className={`${btn} text-indigo-700 bg-indigo-50 hover:bg-indigo-100`}><Icon name="scale" /> {t('Répartir', 'Break down', 'Repartir')}</button>
               {canApprove ? (
                 <button onClick={() => onStatus(raw, 'active')} disabled={!canActivate}
                   title={canActivate ? '' : t('Complétez la répartition (Σ = 100 %) et respectez l’enveloppe.', 'Complete the breakdown (Σ = 100%) within the envelope.', 'Complete el reparto (Σ = 100%).')}
@@ -916,5 +917,5 @@ function PctChip({ label, pct, t }) {
 }
 
 function Stat({ label, value, tone, hint }) {
-  return <div><div className={`text-base font-bold ${tone}`}>{value}</div><div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</div>{hint && <div className="text-xs text-gray-500 mt-0.5">{hint}</div>}</div>;
+  return <div><div className={`text-base font-bold tabular-nums ${tone}`}>{value}</div><div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</div>{hint && <div className="text-xs text-gray-500 mt-0.5">{hint}</div>}</div>;
 }

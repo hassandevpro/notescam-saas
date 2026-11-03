@@ -91,7 +91,9 @@ function effectContaining(src, needle) {
 // ── Les trois panneaux : même garde, même forme ─────────────────────────────
 const PANELS = [
   { file: 'SyncStatePanel.jsx', route: '/api/sync/health',   interval: '10000' },
-  { file: 'SyncBadge.jsx',      route: '/api/sync/health',   interval: '10000' },
+  // Le 02/11/2026 le voyant passe de `/api/sync/health` (route admin, appelée par un
+  // `fetch` nu → 403 avalé → voyant masqué) à `/api/hybrid/status` via lanFetch.
+  { file: 'SyncBadge.jsx',      route: '/api/hybrid/status', interval: '10000' },
   { file: 'HybridModeCard.jsx', route: '/api/hybrid/status', interval: '8000' },
 ];
 
@@ -141,6 +143,36 @@ for (const { file, route, interval } of PANELS) {
   ok(occurrences === 2, `SyncStatePanel : 2 appels /api/ attendus (health + verify), ${occurrences} trouvés`);
   ok(src.indexOf("if (!IS_LAN) return null;") < src.indexOf('<div className="mt-4'),
     'SyncStatePanel : le garde de rendu précède tout le balisage');
+}
+
+// ── Le voyant LAN ne refait pas l'erreur d'I39 ──────────────────────────────
+{
+  const src = read('SyncBadge.jsx');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  ok(!/(?<![A-Za-z])fetch\('\/api\//.test(code),
+    'SyncBadge : aucun `fetch(\'/api/…\')` nu — le jeton passe par lanFetch (I39 : 403 avalé, voyant masqué)');
+  ok(/lanFetch\('\/api\/hybrid\/status'\)/.test(code), 'SyncBadge sonde /api/hybrid/status par lanFetch');
+  ok(/statutLan\(/.test(code), 'SyncBadge applique la règle commune (src/lib/syncStatus.js)');
+  ok(/catch\([^)]*\)\s*=>\s*setVerdict\(\{\s*niveau: NIVEAUX\.ECHEC/.test(code),
+    'SyncBadge : un serveur qui ne répond pas s\'affiche en ÉCHEC, jamais en OK ni en silence');
+}
+
+// ── Le voyant Cloud : même règle, jamais de requête en LAN ──────────────────
+{
+  const src = read('CloudSyncBadge.jsx');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const effect = effectContaining(code, 'setInterval');
+  ok(effect != null, 'CloudSyncBadge : l’effet de sondage est identifiable');
+  ok(effect != null && effect.search(/if \(IS_LAN[^)]*\) return/) !== -1
+     && effect.search(/if \(IS_LAN[^)]*\) return/) < effect.indexOf('setInterval'),
+    'CloudSyncBadge : l’effet est gardé par « if (IS_LAN …) return » AVANT le sondage — aucune requête en LAN');
+  ok(/if \(IS_LAN[^)]*\) return null;/.test(code), 'CloudSyncBadge : ne rend rien en édition LAN');
+  ok(!/\bfetch\(/.test(code) && !/\/api\//.test(code), 'CloudSyncBadge : aucune route /api/ (c’est Supabase, pas le serveur de l’école)');
+  ok(/rpc\('sync_etat_ecole'/.test(code), 'CloudSyncBadge lit la fonction sync_etat_ecole');
+  ok(/statutCloud\(/.test(code), 'CloudSyncBadge applique la règle commune');
+  ok(/if \(error\) \{ setVerdict\(null\)/.test(code), 'CloudSyncBadge : fonction absente ou refusée → on se tait (pas de faux rouge)');
+  ok(/\}, \[[^\]]*\]\)/.test(effect || ''), 'CloudSyncBadge : l’effet a une liste de dépendances');
+  ok(/return \(\) => clearInterval\(/.test(effect || ''), 'CloudSyncBadge : l’intervalle est nettoyé au démontage');
 }
 
 console.log(failed ? '\n❌ Des tests ont échoué' : '\n✅ Tous les tests passent');

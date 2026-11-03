@@ -1,21 +1,39 @@
 // src/components/SyncBadge.jsx
-// Indicateur de SANTÉ DE PARITÉ Cloud ↔ LAN, visible partout (header). Distinct de
-// SyncIndicator (file d'écriture hors-ligne du navigateur). Reflète le dernier contrôle
-// d'intégrité publié par le serveur :
-//   🟢 Cloud = LAN  ·  🟡 Synchronisation…  ·  🔴 Désynchronisation
-// Clic → page « Synchronisation » (rapport détaillé). LAN + admin uniquement.
+// Voyant de synchronisation de l'ADMINISTRATEUR, dans l'en-tête — édition LAN.
+//   ✓ Sync OK  ·  ⏳ En attente  ·  ✕ Échec
+// Clic → détail, puis page « Synchronisation » (journal, désaccords à trancher).
+//
+// La règle de décision est dans src/lib/syncStatus.js (pure, testée) ; l'affichage
+// dans SyncVoyant.jsx. Ce fichier ne fait que SONDER le serveur de l'école.
+// Pendant en édition Cloud : CloudSyncBadge.jsx.
+//
+// Ce que ce voyant ne savait pas dire avant le 02/11/2026, et que la règle commune
+// dit désormais : des lignes qui attendent d'être envoyées, des lignes que le Cloud
+// refuse (mises de côté), Internet coupé depuis longtemps, un désaccord à trancher.
+// L'ancienne version ne regardait que la parité Cloud = LAN du dernier contrôle.
+//
+// LE SONDAGE PASSE PAR lanFetch, et c'est obligatoire. L'ancienne version appelait
+// `/api/sync/health` avec un `fetch` nu : route réservée à l'administrateur local,
+// donc 403, avalé par un `.catch` — le voyant restait masqué sans une erreur. C'est
+// le défaut I39, corrigé ailleurs et resté ici.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { IS_LAN } from '../lib/edition';
+import { lanFetch } from '../lib/lanFetch';
 import { useAuthStore } from '../store/authStore';
+import { statutLan, NIVEAUX } from '../lib/syncStatus';
+import SyncVoyant from './SyncVoyant';
 
 export default function SyncBadge() {
   const role = useAuthStore((s) => s.role);
-  const [h, setH] = useState(null);
+  const [verdict, setVerdict] = useState(null);
   const timer = useRef(null);
   const navigate = useNavigate();
 
-  const load = () => fetch('/api/sync/health').then((r) => r.json()).then((j) => setH(j.data)).catch(() => setH(null));
+  const load = () => lanFetch('/api/hybrid/status')
+    .then((st) => setVerdict(statutLan(st)))
+    // Le serveur de l'école ne répond pas : on ne SAIT rien — on ne dit surtout pas « OK ».
+    .catch(() => setVerdict({ niveau: NIVEAUX.ECHEC, libelle: 'Le serveur de l’école ne répond pas', details: [] }));
   useEffect(() => {
     if (!IS_LAN || role !== 'admin') return;
     load();
@@ -23,23 +41,16 @@ export default function SyncBadge() {
     return () => clearInterval(timer.current);
   }, [role]);
 
-  if (!IS_LAN || role !== 'admin' || !h || !h.enabled) return null;
-
-  // Détermine l'état affiché.
-  let dot, label, cls;
-  if (h.lastVerifyOk === false || h.stuck) { dot = '🔴'; label = 'Désynchronisation'; cls = 'text-red-700 bg-red-50'; }
-  else if (h.inFlight || h.lastVerifyOk == null) { dot = '🟡'; label = 'Synchronisation…'; cls = 'text-amber-800 bg-amber-50'; }
-  else { dot = '🟢'; label = 'Cloud = LAN'; cls = 'text-green-700 bg-green-50'; }
+  if (!IS_LAN || role !== 'admin' || !verdict) return null;
+  // École non reliée au Cloud : rien à surveiller, un voyant gris permanent serait du bruit.
+  if (verdict.niveau === NIVEAUX.INACTIF && verdict.libelle === 'Non relié au Cloud') return null;
 
   return (
-    <button
-      onClick={() => navigate('/app/synchronisation')}
-      title="Ouvrir le rapport de synchronisation"
-      className={`hidden sm:flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${cls}`}
-    >
-      <span aria-hidden>{dot}</span>
-      <span>{label}</span>
-      {h.pendingEvents > 0 && <span className="text-[10px] font-normal opacity-70">· {h.pendingEvents} en attente</span>}
-    </button>
+    <SyncVoyant
+      verdict={verdict}
+      origine="école"
+      actionLabel="Détail, journal et désaccords →"
+      onAction={() => navigate('/app/synchronisation')}
+    />
   );
 }

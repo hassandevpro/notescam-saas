@@ -10,6 +10,7 @@ import Sidebar from './nav/Sidebar';
 import MobileNav from './nav/MobileNav';
 import NotificationBell from './NotificationBell';
 import SyncBadge from './SyncBadge';
+import CloudSyncBadge from './CloudSyncBadge';
 import UserMenu from './UserMenu';
 import LanguageMenu from './LanguageMenu';
 import { localeForLang, useT } from '../lib/i18n';
@@ -401,6 +402,7 @@ export default function Layout({ children, bleed = false }) {
           <HeaderClock />
           <LanguageMenu />
           {!isArchive && <SyncBadge />}
+          {!isArchive && <CloudSyncBadge />}
           {!isArchive && <SyncIndicator />}
           {!isArchive && <NotificationBell />}
           <div className="w-px h-6 bg-slate-200 mx-0.5 hidden sm:block" />

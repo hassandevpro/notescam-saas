@@ -133,6 +133,11 @@ qui rallume son serveur un dimanche soir doit rattraper.
 Le cycle tire **puis** pousse : une fusion est donc enfilée, poussée et la file
 purgée **dans le même tour**.
 
+> **Cadence (02/11/2026, code écrit, NON déployé)** — voir §10. Le tirage tourne
+> toutes les **30 s** (et non 5 min), un envoi part **3 s** après une écriture locale,
+> le tirage boucle tant que le Cloud dit `done: false`, et chaque appel est borné à
+> 30 s. Le contrôle d'intégrité et les fichiers gardent leur rythme de 5 min.
+
 ## 6. Les sept listes, et le cliquet
 
 Une table synchronisée doit figurer dans **sept** endroits : `SYNCED_TABLES`
@@ -167,7 +172,11 @@ Aujourd'hui : **67 répliquées · 44 locales · 10 à brancher**.
   elle part à la synchronisation suivante, pas dans la seconde.
   *(L'écran, lui, existe depuis le 02/11/2026 : « Désaccords à trancher », dans
   `/app/synchronisation`. Voir §9 et I39.)*
-- **Pas de déclenchement événementiel** : le cycle reste périodique (5 min).
+- ~~**Pas de déclenchement événementiel** : le cycle reste périodique (5 min).~~
+  *Levé dans le code le 02/11/2026 (§10) ; vrai tant que ce code n'est pas livré.*
+  **Reste vrai** : le Cloud ne peut pas appeler une école (routeur), donc le sens
+  Cloud → école reste un **sondage** — au plus l'intervalle (30 s) après la saisie,
+  jamais instantané.
 - **Les fichiers et pièces jointes** ne sont pas synchronisés incrémentalement.
 
 ## 8. Les tests à ne pas casser
@@ -220,3 +229,54 @@ même exigence que pour la contre-passation d'un versement.
 > **403**, et un `.catch(() => {})` le rend invisible : c'est exactement ce qui
 > a rendu cet écran entièrement muet pendant des mois (I39). Ne rajoutez pas un
 > `fetch` nu ici.
+
+## 10. Cadence, délai réseau et voyant (02/11/2026 — **écrit, non déployé**)
+
+Objectif demandé : synchro LAN ↔ Cloud en moins de 30 s dans les deux sens.
+
+| Mécanisme | Où | Réglage (défaut) |
+|---|---|---|
+| Envoi **3 s** après la dernière écriture locale, plafonné à 15 s si la saisie continue | `cloudSync.js` (`declencherEnvoi`) | `NOTESCAM_SYNC_DEBOUNCE_MS` (3 000) · `…_DEBOUNCE_MAX_MS` (15 000) |
+| Tirage périodique | `cloudSync.js` (`planifierPeriodique`) | `NOTESCAM_SYNC_INTERVAL_MS` (**30 000**) |
+| Tirage **en boucle** tant que `done === false` | `cloudSync.js` (`pull`) | `NOTESCAM_PULL_MAX_PAGES` (25) |
+| Délai de **30 s** par appel, corps compris | `edgeReseau.js` | `NOTESCAM_EDGE_TIMEOUT_MS` (30 000) · fichiers 120 000 |
+| Un seul cycle à la fois, recul ×2 après échec (plafond 5 min) | `cloudSync.js` | `NOTESCAM_SYNC_BACKOFF_MAX_MS` |
+| Contrôle d'intégrité + fichiers **gardent 5 min** | `cloudSync.js` | `NOTESCAM_VERIFY_EVERY_MS` (300 000) |
+
+**Comment on voit une écriture.** Le déclencheur SQLite (I36) enfile toute écriture,
+quel que soit son chemin. On surveille donc la **base**, pas le code : le compteur
+`sqlite_sequence` de `sync_outbox`, lu chaque seconde. `AUTOINCREMENT` le rend
+strictement croissant, y compris quand la file se vide et après la reconstruction de
+table d'I35 (qui le conserve). Brancher un appel dans chaque écriture ressusciterait la
+convention qu'I36 a supprimée.
+
+**Ce que 30 s garantit, et ne garantit pas.** École → Cloud : ≈ 3 s + durée d'un cycle.
+Cloud → école : **au plus l'intervalle** (30 s) + durée du cycle, en moyenne 15 s. « Moins
+de 30 s » est donc tenu *en moyenne*, pas au pire cas : le garantir exigerait un intervalle
+≤ ~20 s, soit 5 328 appels/jour/école au lieu de 3 888. Seul un canal poussé par le
+Cloud (Realtime) donnerait de l'instantané — non retenu : nouvelle technologie, à décider.
+
+**Un lien coupé n'est pas la faute de la ligne.** Une erreur `reseau` (timeout, connexion
+refusée) ne compte **pas** dans les tentatives de la file. Sans cela, à 30 s de cadence,
+huit échecs tiennent dans quatre minutes de Wi-Fi coupé et la tête de file saine partait
+en quarantaine. Seules les réponses du Cloud (HTTP, refus) comptent.
+
+**Le voyant** (`SyncBadge` côté école, `CloudSyncBadge` côté Cloud, règle commune
+`src/lib/syncStatus.js`) : ✓ OK · ⏳ En attente · ✕ Échec. Côté Cloud, l'école *dit* son
+état dans le corps de `sync-pull` (`etat`) ; la fonction l'écrit dans
+`sync_client_state` (colonnes `lan_*`, `supabase_sync_etat_lan.sql`) et la lit
+`sync_etat_ecole(p_school)`, réservée à l'administrateur de l'école. **Écriture séparée à
+erreur ignorée** : la fonction peut être déployée avant ou après la migration sans casser
+le tirage.
+
+**À livrer, dans cet ordre, chacun sur autorisation explicite :**
+1. `supabase_sync_etat_lan.sql` (additive, idempotente) ;
+2. `supabase functions deploy sync-pull` (porte aussi `done: remaining > 0`) ;
+3. le paquet LAN (Linux pour GENIUS, Windows pour les autres).
+Tant que 2 n'est pas fait, un LAN neuf marche mais coûte un appel de plus par changement
+(`done` n'est vrai que sur page vide) ; tant que 1 n'est pas fait, le voyant Cloud se tait.
+
+**Mutations vues échouer (I26)** : boucle de tirage supprimée · plafond de pages retiré ·
+page vide qui ne stoppe plus · délai réseau retiré · délai du corps retiré · un échec
+réseau compté contre la ligne · cycles qui se chevauchent · contrôle à chaque cycle · recul
+retiré · plafond du débounce retiré · guetteur d'écritures retiré · rattrapage supprimé.

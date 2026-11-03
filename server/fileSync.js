@@ -43,6 +43,7 @@ import { join, sep } from 'node:path';
 import { db, FILES_DIR } from './db.js';
 import { markFileSync } from './syncHealth.js';
 import { EDGE_BASE } from './cloudEnv.js';
+import { fetchJsonBorne, fetchBorne, DELAI_FICHIER_MS } from './edgeReseau.js';
 import { serverToken } from './cloudSync.js';
 import { ASSET_BUCKET, listBucketFiles, referencesOf, compareInventories } from './fileInventory.js';
 
@@ -53,23 +54,22 @@ const TAILLE_MAX = Number(process.env.NOTESCAM_FICHIER_MAX_OCTETS || 10 * 1024 *
 async function edgeParDefaut(body) {
   const token = serverToken();
   if (!token) throw new Error('no_server_token');
-  const res = await fetch(`${EDGE_BASE}/asset-sync`, {
+  const { res, j } = await fetchJsonBorne(`${EDGE_BASE}/asset-sync`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
-  const j = await res.json().catch(() => null);
+  }, 'asset-sync');
   if (!res.ok || !j) throw new Error(`asset-sync ${body.action}: ${j?.error || `HTTP ${res.status}`}`);
   return j;
 }
 
 // Téléversement effectif vers l'URL signée (injectable pour les tests).
 async function televerseParDefaut(signedUrl, contenu, typeMime) {
-  const res = await fetch(signedUrl, {
+  const res = await fetchBorne(signedUrl, {
     method: 'PUT',
     headers: { 'Content-Type': typeMime, 'x-upsert': 'true' },
     body: contenu,
-  });
+  }, 'televersement', DELAI_FICHIER_MS);
   if (!res.ok) throw new Error(`televersement: HTTP ${res.status}`);
 }
 

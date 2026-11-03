@@ -161,9 +161,27 @@ if (RUN_SCEN) {
   const cloud = makeCloud();
 
   // (a) LAN → Cloud : un changement local est poussé.
+  // POURQUOI UNE BOUCLE, ET NON UN SEUL CYCLE. L'amorçage du profil enfile 24 000
+  // notes dans `sync_outbox`, et un cycle n'en emporte que BATCH (500) : la note
+  // ajoutée ici est la DERNIÈRE de la file. Un `syncOnce` unique ne pouvait donc pas
+  // la faire remonter — le scénario échouait sur la profondeur de la file, pas sur le
+  // chemin de poussée, et ce faux rouge masquait le gate entier.
+  //
+  // On vide la file en COMPTANT les cycles au lieu de contourner le problème : ce
+  // nombre est exactement la latence qu'une école subit après un import massif, et il
+  // mérite d'être mesuré. La borne existe pour qu'une file qui se regarnirait
+  // indéfiniment échoue au lieu de tourner sans fin.
   runQuery({ table: 'grades', action: 'upsert', onConflict: 'id', values: { id: 'gPush', school_id: 'sch1', class_id: classIds[0], student_id: studentIds[0].id, subject_id: subjByClass[classIds[0]][0], sequence: SEQUENCES + 10, value: '13' } });
-  await syncOnce({ edge: cloud.edge });
-  okScen('LAN → Cloud (push)', cloud.store.grades?.get('gPush')?.value === '13');
+  const filAvant = db.prepare('SELECT count(*) n FROM sync_outbox').get().n;
+  const MAX_CYCLES = 200;
+  let cyclesPush = 0;
+  while (cyclesPush < MAX_CYCLES) {
+    await syncOnce({ edge: cloud.edge });
+    cyclesPush++;
+    if (cloud.store.grades?.get('gPush')?.value === '13') break;
+  }
+  okScen('LAN → Cloud (push)', cloud.store.grades?.get('gPush')?.value === '13',
+    `${cyclesPush} cycle(s) pour ${filAvant} entrées de file`);
 
   // (b) COUPURE réseau : le cycle échoue, le curseur N'AVANCE PAS.
   const curBefore = db.prepare("SELECT value FROM sync_cursor WHERE name='pull_at'").get()?.value || null;
@@ -178,13 +196,56 @@ if (RUN_SCEN) {
   await syncOnce({ edge: cloud.edge });
   okScen('reprise après coupure : note distante intégrée', !!db.prepare("SELECT 1 FROM grades WHERE id='gRemote'").get());
 
-  // (d) CONFLIT simultané (LWW) : distant plus récent gagne.
+  // (d) CONFLIT sur une NOTE : gardée en local, JAMAIS écrasée en silence.
+  //
+  // CE SCÉNARIO A CHANGÉ DE CONTRAT, ET C'ÉTAIT VOULU. Il affirmait « la version
+  // distante la plus récente gagne » — un départage à la LIGNE ENTIÈRE. La fusion se
+  // fait désormais CHAMP PAR CHAMP contre une ombre (server/syncMerge.js), et
+  // `grades.value` est déclaré SENSIBLE (server/syncSensible.js) : « deux enseignants
+  // qui saisissent la même case avec deux valeurs différentes, c'est une question à
+  // poser, pas un départage à faire ». Le local est gardé, le conflit est inscrit dans
+  // `sync_conflicts` avec `retenu = NULL` (arbitrage requis), et la ligne est
+  // RÉENFILÉE pour que la valeur de l'école remonte quand même.
+  //
+  // L'ancienne assertion exigeait donc qu'une note soit écrasée par l'ordre d'arrivée
+  // des paquets réseau — exactement ce que le moteur refuse. Elle échouait à bon
+  // droit : c'est elle qui était périmée, pas le code. On vérifie les TROIS effets.
+  //
+  // Les horodatages sont dans le futur et CROISSANTS, au lieu de remettre le curseur à
+  // zéro : seule la ligne visée redescend, et un re-tirage intégral de 24 000 notes
+  // n'est pas confondu avec le scénario qu'on mesure.
   const gid = 'g_1';
-  db.prepare("UPDATE grades SET value='localOld', updated_at='2020-01-01T00:00:00.000Z' WHERE id=?").run(gid);
-  cloud.seed('grades', { ...db.prepare('SELECT * FROM grades WHERE id=?').get(gid), value: 'cloudNew', updated_at: '2030-01-01T00:00:00.000Z', version: 99 });
-  db.prepare("DELETE FROM sync_cursor WHERE name='pull_at'").run(); // re-tirer
+  cloud.seed('grades', { ...db.prepare('SELECT * FROM grades WHERE id=?').get(gid), updated_at: '2029-01-01T00:00:00.000Z' });
+  await syncOnce({ edge: cloud.edge }); // 1er passage : l'ombre est posée
+  db.prepare("UPDATE grades SET value='localOld' WHERE id=?").run(gid);
+  const gBase = db.prepare('SELECT * FROM grades WHERE id=?').get(gid);
+  cloud.seed('grades', { ...gBase, value: 'cloudNew', updated_at: '2030-01-01T00:00:00.000Z', version: (gBase.version || 0) + 5 });
   await syncOnce({ edge: cloud.edge });
-  okScen('conflit LWW : version distante récente gagne', db.prepare('SELECT value FROM grades WHERE id=?').get(gid)?.value === 'cloudNew');
+  const note = db.prepare('SELECT value FROM grades WHERE id=?').get(gid)?.value;
+  const trace = db.prepare(`SELECT retenu FROM sync_conflicts
+      WHERE tablename='grades' AND row_id=? AND col='value' AND resolved_at IS NULL`).get(gid);
+  // La valeur de l'école doit avoir REJOINT LE CLOUD. On ne cherche pas la ligne dans
+  // `sync_outbox` : le pull précède le push DANS LE MÊME CYCLE, donc la ligne réenfilée
+  // par la fusion est partie aussitôt et la file est déjà vide. Constater son départ
+  // vaut mieux que constater son attente — c'est le fait qui compte pour l'école.
+  const auCloud = cloud.store.grades?.get(gid)?.value;
+  okScen('note disputée : local gardé, conflit tracé, valeur de l’école remontée',
+    note === 'localOld' && !!trace && trace.retenu === null && auCloud === 'localOld',
+    `note=${note} retenu=${trace ? String(trace.retenu) : 'aucun conflit'} cloud=${auCloud}`);
+
+  // (d bis) CHAMP ORDINAIRE disputé : le départage déterministe s'applique. C'est la
+  // version LOGIQUE qui tranche, pas l'horloge du poste — une pile de carte mère vide
+  // suffit à décaler un PC d'école de plusieurs mois, et c'est arrivé.
+  const sid = studentIds[0].id;
+  cloud.seed('students', { ...db.prepare('SELECT * FROM students WHERE id=?').get(sid), updated_at: '2031-01-01T00:00:00.000Z' });
+  await syncOnce({ edge: cloud.edge }); // 1er passage : l'ombre est posée
+  db.prepare("UPDATE students SET name='Nom local' WHERE id=?").run(sid);
+  const sBase = db.prepare('SELECT * FROM students WHERE id=?').get(sid);
+  cloud.seed('students', { ...sBase, name: 'Nom distant', updated_at: '2032-01-01T00:00:00.000Z', version: (sBase.version || 0) + 5 });
+  await syncOnce({ edge: cloud.edge });
+  const nomRetenu = db.prepare('SELECT name FROM students WHERE id=?').get(sid)?.name;
+  okScen('champ ordinaire disputé : version distante supérieure gagne',
+    nomRetenu === 'Nom distant', `nom=${nomRetenu}`);
 
   // (e) CHANGEMENT DE CLASSE : la note bouge de classe → Merkle cohérent (incr ≡ backfill).
   const gmove = 'g_2';

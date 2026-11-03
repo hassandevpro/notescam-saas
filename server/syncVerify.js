@@ -18,6 +18,7 @@
 import { createHash } from 'node:crypto';
 import { db, tableColumns, SYNCED_TABLES } from './db.js';
 import { EDGE_BASE } from './cloudEnv.js';
+import { fetchJsonBorne } from './edgeReseau.js';
 import { serverToken } from './cloudSync.js';
 import { shouldPush, shouldPull } from '../src/lib/policyEngine.js';
 import {
@@ -87,12 +88,11 @@ function localPlain(table) {
 async function defaultEdge(reqBody) {
   const token = serverToken();
   if (!token) throw new Error('no_server_token');
-  const res = await fetch(`${EDGE_BASE}/sync-verify`, {
+  const { res, j } = await fetchJsonBorne(`${EDGE_BASE}/sync-verify`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(reqBody || {}),
-  });
-  const j = await res.json().catch(() => null);
+  }, 'sync-verify');
   if (!res.ok || !j) throw new Error(`sync-verify: HTTP ${res.status}`);
   return j;
 }

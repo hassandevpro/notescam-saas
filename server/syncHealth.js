@@ -9,6 +9,7 @@
 // n'influence jamais le métier, ne lève jamais.
 
 let state = {
+  startedAt: new Date().toISOString(), // démarrage du processus : référence du « sans succès depuis » tant qu'aucun cycle n'a abouti
   inFlight: false,        // un cycle de synchro est en cours
   lastAttemptAt: null,    // ISO — début du dernier cycle
   lastSuccessAt: null,    // ISO — dernier cycle réussi (pull+push OK)

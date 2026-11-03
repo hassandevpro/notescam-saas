@@ -18,6 +18,8 @@ import { db, DATA_DIR, SYNCED_TABLES, tableColumns, normalizeValue, deviceId, tx
   lireOmbre, poserOmbre, retirerOmbre, enregistrerConflit, enqueueOutbox } from './db.js';
 import { fusionner } from './syncMerge.js';
 import { EDGE_BASE } from './cloudEnv.js';
+import { fetchJsonBorne } from './edgeReseau.js';
+import { etatPourCloud } from './syncEtat.js';
 import { isCloudSyncEnabled } from './syncFlag.js';
 import { markSyncStart, markSyncSuccess, markSyncError, markVerification } from './syncHealth.js';
 import { recordSyncAudit } from './syncAudit.js';
@@ -159,12 +161,12 @@ export function rawUpsert(table, row, { quiet = false } = {}) {
 async function edgeFetch(path, body) {
   const token = serverToken();
   if (!token) throw new Error('no_server_token');
-  const res = await fetch(`${EDGE_BASE}/${path}`, {
+  // Borné à DELAI_EDGE_MS (cf. edgeReseau.js) : un lien à moitié coupé ne suspend plus le cycle.
+  const { res, j } = await fetchJsonBorne(`${EDGE_BASE}/${path}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
-  const j = await res.json().catch(() => null);
+  }, path);
   if (!res.ok || !j) {
     // On attache le CORPS parsé à l'erreur : sans ça, un refus métier explicite du
     // Cloud (ex. `rebuild_required`) se réduit à un « HTTP 409 » opaque et l'admin
@@ -316,9 +318,48 @@ export function resetPullCursorIfPullOrderGrew() {
 // --- Pull : cloud → local --------------------------------------------
 // En `dryRun`, l'appel sync-pull (lecture seule côté cloud) est fait pour
 // calculer les décisions LWW, mais RIEN n'est écrit ni les curseurs avancés.
+//
+// Le Cloud borne chaque réponse (MAX_ROWS = 2 000 lignes) et le dit par `done`.
+// `pull()` rappelle donc `pullPage()` TANT QUE `done === false`, au lieu de ne
+// prendre qu'une page par cycle : un retard de 10 000 lignes (école éteinte une
+// semaine, appairage) se rattrape en un cycle et non en cinq cycles de 5 minutes.
+// Chaque page est sa propre transaction (lignes + curseurs) : une coupure au milieu
+// laisse les pages déjà appliquées en place, et le cycle suivant reprend à la
+// suivante.
+const PULL_MAX_PAGES = Number(process.env.NOTESCAM_PULL_MAX_PAGES || 25);
+
 async function pull(edge, dryRun) {
   if (!dryRun) resetPullCursorIfPullOrderGrew();
-  const j = await edge('sync-pull', { since: cursor('pull_at'), tomb_since: cursor('tomb_at') });
+  const total = {
+    pulled: 0, deleted: 0, fusions: 0, conflits: 0, pages: 0, tronque: false,
+    plan: { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] },
+  };
+  for (let page = 1; page <= PULL_MAX_PAGES; page++) {
+    const avant = cursor('pull_at');
+    const r = await pullPage(edge, dryRun);
+    total.pages++;
+    total.pulled += r.pulled; total.deleted += r.deleted;
+    total.fusions += r.fusions; total.conflits += r.conflits;
+    for (const k of Object.keys(total.plan)) total.plan[k].push(...r.plan[k]);
+    // En dry-run le curseur n'avance pas : rappeler redemanderait la MÊME page.
+    if (dryRun) break;
+    // Arrêt : le Cloud dit « terminé » — ou ne le dit pas (ancienne fonction,
+    // doublure de test) : `done` absent vaut une page, comme avant.
+    if (r.done !== false) break;
+    // Garde-fous contre une boucle sans fin : une page vide, ou un curseur qui
+    // n'a pas bougé, signifie que redemander ne rapportera rien de neuf.
+    if (r.pulled === 0 || cursor('pull_at') === avant) break;
+    if (page === PULL_MAX_PAGES) total.tronque = true;   // le cycle suivant reprend
+  }
+  if (total.tronque) console.warn(`[sync] tirage limité à ${PULL_MAX_PAGES} pages ce cycle — le reste au suivant.`);
+  return total;
+}
+
+async function pullPage(edge, dryRun) {
+  // `etat` : ce que l'école sait de sa propre synchro (file, refus, désaccords, erreur).
+  // Le Cloud le range pour l'administrateur en ligne, qui ne peut pas interroger un
+  // serveur d'école. Ignoré par une fonction Cloud qui ne le connaît pas encore.
+  const j = await edge('sync-pull', { since: cursor('pull_at'), tomb_since: cursor('tomb_at'), etat: etatPourCloud() });
   const rows = j?.rows || {};
   const plan = { apply: [], keepLocal: [], remove: [], keepLocalVsDelete: [] };
   // Fusions par champ et conflits du cycle : remontés dans le résultat pour
@@ -442,7 +483,7 @@ async function pull(edge, dryRun) {
   else tx(applyBatch);       // ATOMIQUE : lignes + tombstones + curseurs (tout ou rien)
 
   return { pulled: Object.values(rows).reduce((a, r) => a + r.length, 0),
-    deleted: plan.remove.length, fusions, conflits: conflitsVus, plan };
+    deleted: plan.remove.length, fusions, conflits: conflitsVus, plan, done: j?.done };
 }
 
 // --- Push : local → cloud --------------------------------------------
@@ -489,6 +530,13 @@ async function push(edge, dryRun) {
   try {
     res = await edge('sync-push', { changes });
   } catch (err) {
+    // UN LIEN COUPÉ N'EST PAS LA FAUTE DE LA LIGNE. Un délai dépassé ou une
+    // connexion refusée (`err.reseau`, cf. edgeReseau.js) ne dit rien sur la
+    // donnée : la compter ferait mettre en quarantaine, au bout de PUSH_MAX_ATTEMPTS
+    // coupures, une tête de file parfaitement saine. Avec un cycle toutes les 30 s
+    // au lieu de 5 min, huit échecs tiennent dans quatre minutes de panne Wi-Fi.
+    // Seules les réponses du Cloud (HTTP 4xx/5xx, refus) comptent.
+    if (err?.reseau) throw err;
     const ids = entries.map((e) => e.id);
     const quand = new Date().toISOString();
     const msg = String(err?.message || err).slice(0, 500);
@@ -699,48 +747,178 @@ async function repliquerFichiersSiPossible() {
   } catch (e) { console.warn('[fichiers] réplication indisponible:', e.message); return null; }
 }
 
-async function runScheduledSync() {
+// `verifier` : ce cycle porte-t-il aussi le contrôle d'intégrité et les fichiers ?
+// Le planificateur le décide (cf. VERIFIER_TOUS_LES_MS) : à 30 s de cadence, un
+// `sync-verify` par cycle multiplierait par dix des appels qui ne servent qu'à
+// confirmer que rien n'a divergé.
+async function runScheduledSync({ verifier = true } = {}) {
   markSyncStart();
   const t0 = Date.now();
   try {
     const r = await syncOnce();
     markSyncSuccess(r);
-    // RAPPORT DE SYNCHRO AUTOMATIQUE après CHAQUE cycle : compare Cloud ↔ LAN et
-    // publie le rapport (métriques + empreinte globale + verdict) pour l'UI, sans
-    // action de l'admin. Léger (`promote:false`) : lecture O(1) de l'arbre de Merkle
-    // maintenu + descente seulement sur divergence → aucun rescan global. Best-effort :
-    // ne transforme jamais une synchro réussie en erreur.
-    const report = await verifierEtReparer();
+    // RAPPORT DE SYNCHRO AUTOMATIQUE : compare Cloud ↔ LAN et publie le rapport
+    // (métriques + empreinte globale + verdict) pour l'UI, sans action de l'admin.
+    // Léger (`promote:false`) : lecture O(1) de l'arbre de Merkle maintenu + descente
+    // seulement sur divergence → aucun rescan global. Best-effort : ne transforme
+    // jamais une synchro réussie en erreur.
+    const report = verifier ? await verifierEtReparer() : null;
     // RÉPLICATION DES FICHIERS (photos, logos, cachets). Après les données : un
     // fichier n'a d'intérêt que si la ligne qui le référence est arrivée. Borné à
-    // quelques fichiers par cycle et strictement best-effort — une panne de
-    // téléversement ne doit jamais faire échouer la synchro des données.
-    await repliquerFichiersSiPossible();
-    // Une seule entrée d'audit ENRICHIE par cycle (état de parité + empreinte + rapport).
-    recordSyncAudit({
-      kind: 'sync', pushed: r.pushed, pulled: r.pulled, deleted: r.deleted,
-      duration_ms: Date.now() - t0, ok: report ? report.ok : true,
-      rows: (r.pushed || 0) + (r.pulled || 0), tables: report?.summary?.total ?? null,
-      hash: report?.globalChecksum?.lan ?? null, report: report || null,
-    });
+    // quelques fichiers par cycle et strictement best-effort.
+    if (verifier) await repliquerFichiersSiPossible();
+    // Une entrée d'audit par cycle QUI A UNE RAISON D'EXISTER : un contrôle, ou des
+    // lignes échangées. Un cycle de 30 s qui ne change rien n'inscrit rien — sans
+    // cela la table d'audit se remplirait de 2 880 lignes vides par jour.
+    if (verifier || r.pushed || r.pulled || r.deleted) {
+      recordSyncAudit({
+        kind: 'sync', pushed: r.pushed, pulled: r.pulled, deleted: r.deleted,
+        duration_ms: Date.now() - t0, ok: report ? report.ok : true,
+        rows: (r.pushed || 0) + (r.pulled || 0), tables: report?.summary?.total ?? null,
+        hash: report?.globalChecksum?.lan ?? null, report: report || null,
+      });
+    }
     return r;
   } catch (e) {
     markSyncError(e);
-    // LA RÉPARATION TOURNE AUSSI QUAND LA POUSSÉE A ÉCHOUÉ. C'est le correctif
-    // du blocage circulaire : avant, un échec sautait ce bloc, donc les lignes
-    // manquantes n'étaient jamais réenfilées et la divergence durait pour
-    // toujours. C'est précisément quand la synchro va mal qu'il faut réparer.
-    const report = await verifierEtReparer();
+    // LA RÉPARATION TOURNE AUSSI QUAND LA POUSSÉE A ÉCHOUÉ (correctif du blocage
+    // circulaire : sans elle, les lignes manquantes n'étaient jamais réenfilées).
+    // Elle suit le même rythme que le contrôle, pas celui du cycle.
+    const report = verifier ? await verifierEtReparer() : null;
     recordSyncAudit({ kind: 'error', duration_ms: Date.now() - t0, ok: false, detail: { message: e.message }, report: report || null });
     throw e;
   }
 }
 
-let _timer = null;
-export function scheduleCloudSync(intervalMs = 5 * 60 * 1000) {
+// ── PLANIFICATEUR ────────────────────────────────────────────────────────────
+//
+// Trois déclencheurs, UN SEUL cycle à la fois :
+//
+//   1. périodique  — toutes les INTERVALLE_SYNC_MS (30 s). C'est lui qui fait
+//                    DESCENDRE ce que l'on a saisi en ligne : le Cloud ne peut pas
+//                    appeler une école derrière son routeur.
+//   2. écriture    — l'envoi part DEBOUNCE_MS (3 s) après la dernière écriture
+//                    locale, sans attendre le périodique. Un plafond (DEBOUNCE_MAX_MS)
+//                    empêche une saisie continue de repousser l'envoi à l'infini.
+//   3. rattrapage  — si une écriture arrive PENDANT un cycle, un cycle suit.
+//
+// COMMENT ON VOIT UNE ÉCRITURE. Le déclencheur SQLite (I36) enfile toute écriture,
+// quel que soit le chemin de code qui l'a produite : query.js, rpc.js, et ceux qui
+// n'existent pas encore. On surveille donc la base, pas le code : un compteur
+// `sqlite_sequence` de sync_outbox, lu chaque seconde (lecture d'une ligne, sans
+// coût). AUTOINCREMENT le rend strictement croissant — y compris quand la file se
+// vide, et y compris après la reconstruction de table de la migration I35, qui
+// conserve l'AUTOINCREMENT. Brancher un appel dans chaque écriture ressusciterait
+// exactement la convention que I36 a supprimée.
+//
+// LE RECUL. Après un échec, le prochain essai attend INTERVALLE × 2^n (plafonné à
+// BACKOFF_MAX_MS, soit l'ancienne cadence de 5 min) : une école hors ligne ne
+// martèle pas le Cloud toutes les 30 s, et la reprise est automatique au premier
+// succès. Un déclenchement par écriture respecte lui aussi ce recul.
+const INTERVALLE_SYNC_MS = Number(process.env.NOTESCAM_SYNC_INTERVAL_MS || 30_000);
+const DEBOUNCE_MS = Number(process.env.NOTESCAM_SYNC_DEBOUNCE_MS || 3_000);
+const DEBOUNCE_MAX_MS = Number(process.env.NOTESCAM_SYNC_DEBOUNCE_MAX_MS || 15_000);
+const VERIFIER_TOUS_LES_MS = Number(process.env.NOTESCAM_VERIFY_EVERY_MS || 5 * 60_000);
+const BACKOFF_MAX_MS = Number(process.env.NOTESCAM_SYNC_BACKOFF_MAX_MS || 5 * 60_000);
+
+let _plan = null;
+
+function sequenceOutbox() {
+  try { return db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'sync_outbox'").get()?.seq ?? 0; }
+  catch { return 0; }
+}
+function fileNonVide() {
+  try { return !!db.prepare('SELECT 1 FROM sync_outbox LIMIT 1').get(); } catch { return true; }
+}
+
+function planifierPeriodique(p) {
+  clearTimeout(p.timerPeriodique);
+  if (p.arrete) return;
+  const attente = p.echecs
+    ? Math.min(p.cfg.intervalMs * 2 ** p.echecs, p.cfg.backoffMaxMs)
+    : p.cfg.intervalMs;
+  // Le recul vaut aussi pour les déclenchements par écriture.
+  p.prochainPermisA = p.echecs ? Date.now() + attente : 0;
+  p.timerPeriodique = setTimeout(() => { lancerCycle(p, 'periodique'); }, attente);
+  p.timerPeriodique.unref?.();
+}
+
+async function lancerCycle(p, raison) {
+  if (p.arrete) return;
+  if (p.enCours) { p.rattrapage = true; return; }       // jamais deux cycles en même temps
+  // Un envoi demandé par une écriture que le périodique a déjà emportée : rien à faire.
+  if (raison === 'ecriture' && !fileNonVide()) return;
+  clearTimeout(p.timerEcriture); p.timerEcriture = null; p.premiereEcritureA = null;
+  p.enCours = true;
+  const verifier = Date.now() - p.derniereVerifA >= p.cfg.verifyEveryMs;
+  if (verifier) p.derniereVerifA = Date.now();
+  try {
+    await runScheduledSync({ verifier });
+    p.echecs = 0;
+  } catch (e) {
+    p.echecs = Math.min(p.echecs + 1, 10);
+    console.error(`[sync] échec (${raison}, ${p.echecs} de suite) : ${e.message}`);
+  } finally {
+    p.enCours = false;
+    planifierPeriodique(p);
+    if (p.rattrapage) { p.rattrapage = false; if (fileNonVide()) declencherEnvoi(p); }
+  }
+}
+
+// Une écriture locale vient d'être vue : programmer un cycle dans DEBOUNCE_MS,
+// sans dépasser DEBOUNCE_MAX_MS depuis la PREMIÈRE écriture de la rafale.
+function declencherEnvoi(p) {
+  if (p.arrete) return;
+  if (p.enCours) { p.rattrapage = true; return; }
+  const now = Date.now();
+  if (p.premiereEcritureA == null) p.premiereEcritureA = now;
+  clearTimeout(p.timerEcriture);
+  const calme = Math.min(p.cfg.debounceMs, Math.max(0, p.premiereEcritureA + p.cfg.debounceMaxMs - now));
+  const delai = Math.max(calme, p.prochainPermisA - now);
+  p.timerEcriture = setTimeout(() => { lancerCycle(p, 'ecriture'); }, delai);
+  p.timerEcriture.unref?.();
+}
+
+export function scheduleCloudSync(intervalMs = INTERVALLE_SYNC_MS, opts = {}) {
   if (!isCloudSyncEnabled() || !serverToken()) return false;
-  runScheduledSync().catch((e) => console.error('[sync] échec initial:', e.message));
-  _timer = setInterval(() => { runScheduledSync().catch((e) => console.error('[sync] échec:', e.message)); }, intervalMs);
-  _timer.unref?.();
+  if (_plan && !_plan.arrete) return true;               // déjà en route : jamais deux planificateurs
+  const p = _plan = {
+    cfg: {
+      intervalMs,
+      debounceMs: opts.debounceMs ?? DEBOUNCE_MS,
+      debounceMaxMs: opts.debounceMaxMs ?? DEBOUNCE_MAX_MS,
+      verifyEveryMs: opts.verifyEveryMs ?? VERIFIER_TOUS_LES_MS,
+      backoffMaxMs: opts.backoffMaxMs ?? BACKOFF_MAX_MS,
+      surveillanceMs: opts.surveillanceMs ?? 1000,
+    },
+    enCours: false, rattrapage: false, arrete: false,
+    echecs: 0, prochainPermisA: 0, derniereVerifA: 0, premiereEcritureA: null,
+    timerPeriodique: null, timerEcriture: null, surveillance: null,
+    sequenceVue: sequenceOutbox(),
+  };
+  // Premier cycle immédiat (comme avant), puis le rythme normal.
+  lancerCycle(p, 'demarrage');
+  p.surveillance = setInterval(() => {
+    const s = sequenceOutbox();
+    if (s > p.sequenceVue) { p.sequenceVue = s; declencherEnvoi(p); }
+  }, p.cfg.surveillanceMs);
+  p.surveillance.unref?.();
+  return true;
+}
+
+// Arrête le planificateur (tests, désactivation du mode hybride). Un cycle déjà
+// parti va au bout : on n'interrompt pas une transaction de tirage.
+export function arreterCloudSync() {
+  if (!_plan) return;
+  _plan.arrete = true;
+  clearTimeout(_plan.timerPeriodique); clearTimeout(_plan.timerEcriture); clearInterval(_plan.surveillance);
+  _plan = null;
+}
+
+// Demande un cycle d'envoi maintenant-ish (debounce appliqué). Pour les routes qui
+// veulent « synchroniser dès que possible » sans attendre la minute.
+export function declencherSynchro() {
+  if (!_plan) return false;
+  declencherEnvoi(_plan);
   return true;
 }

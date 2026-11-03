@@ -16,6 +16,7 @@
 
 import { db, tx, enqueueOutbox, sansEcho } from './db.js';
 import { EDGE_BASE } from './cloudEnv.js';
+import { fetchJsonBorne } from './edgeReseau.js';
 import { serverToken, remoteWins, rawUpsert, syncOnce, adaptRemoteRow } from './cloudSync.js';
 import { recordSyncAudit } from './syncAudit.js';
 import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
@@ -26,12 +27,11 @@ const BATCH = 5000;
 async function defaultRepairEdge({ table, by, keys }) {
   const token = serverToken();
   if (!token) throw new Error('no_server_token');
-  const res = await fetch(`${EDGE_BASE}/sync-repair`, {
+  const { res, j } = await fetchJsonBorne(`${EDGE_BASE}/sync-repair`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ table, by, keys }),
-  });
-  const j = await res.json().catch(() => null);
+  }, 'sync-repair');
   if (!res.ok || !j) {
     // Le CORPS porte le motif réel (`bad_table`, `bad_by`, ou le message Postgres :
     // table `sync_tombstones` absente du projet cloud, id non-UUID dans le lot…).

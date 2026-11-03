@@ -24,6 +24,7 @@
 import { db } from './db.js';
 import { serverToken } from './cloudSync.js';
 import { EDGE_BASE } from './cloudEnv.js';
+import { fetchJsonBorne } from './edgeReseau.js';
 import { isCloudSyncEnabled } from './syncFlag.js';
 import { markSyncError } from './syncHealth.js';
 
@@ -46,12 +47,11 @@ function setCursor(name, value) {
 async function edgeFetch(path, body) {
   const token = serverToken();
   if (!token) throw new Error('no_server_token');
-  const res = await fetch(`${EDGE_BASE}/${path}`, {
+  const { res, j } = await fetchJsonBorne(`${EDGE_BASE}/${path}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
-  const j = await res.json().catch(() => null);
+  }, path);
   if (!res.ok || !j) throw new Error(`${path}: HTTP ${res.status}`);
   return j;
 }

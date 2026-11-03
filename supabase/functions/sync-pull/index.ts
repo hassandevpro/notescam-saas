@@ -162,6 +162,28 @@ Deno.serve(async (req) => {
     last_pull_at: new Date().toISOString(),
   }, { onConflict: 'school_id' });
 
+  // ÉTAT DÉCLARÉ PAR LE LAN (file d'envoi, refus, désaccords, dernière erreur).
+  // Sert au voyant de l'administrateur EN LIGNE, qui ne peut pas interroger un
+  // serveur d'école. Écriture SÉPARÉE et à erreur ignorée, volontairement : tant
+  // que supabase_sync_etat_lan.sql n'a pas tourné, ces colonnes n'existent pas, et
+  // les mettre dans l'upsert ci-dessus ferait échouer tout tirage. Dans cet ordre-ci
+  // (fonction avant migration, ou l'inverse) la synchro ne peut donc pas casser.
+  const etat = (body as { etat?: Record<string, unknown> })?.etat;
+  if (etat && typeof etat === 'object') {
+    const entier = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Math.trunc(Number(v))) : 0);
+    const texte = (v: unknown, n: number) => (typeof v === 'string' && v ? v.slice(0, n) : null);
+    const date = (v: unknown) => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : null);
+    await admin.from('sync_client_state').update({
+      lan_pending: entier(etat.pending),
+      lan_quarantined: entier(etat.quarantined),
+      lan_conflicts: entier(etat.conflicts),
+      lan_last_error: texte(etat.lastError, 200),
+      lan_last_error_kind: texte(etat.lastErrorKind, 20),
+      lan_last_success_at: date(etat.lastSuccessAt),
+      lan_version: texte(etat.version, 20),
+    }).eq('school_id', schoolId);   // erreur volontairement ignorée (voir ci-dessus)
+  }
+
   const tombstones: unknown[] = [];
   let tombCursor = tomb_since || '';
   for (let from = 0; ; from += PAGE) {
@@ -178,13 +200,21 @@ Deno.serve(async (req) => {
     if (!data || data.length < PAGE) break;
   }
 
-  // Curseur v2 OPAQUE. `done` = plus aucune ligne (le client peut aussi s'arrêter sur
-  // rows vides). On renvoie TOUJOURS un curseur exploitable (jamais null si progrès).
+  // Curseur v2 OPAQUE. On renvoie TOUJOURS un curseur exploitable (jamais null si progrès).
+  //
+  // `done` = « il ne reste rien à tirer ». Le client (server/cloudSync.js, pull())
+  // rappelle tant que `done` est faux. Il valait avant `!anyReturned`, donc vrai
+  // seulement sur une page VIDE : chaque changement coûtait un appel de plus, pour
+  // apprendre qu'il n'y avait rien derrière. Or le budget MAX_ROWS est partagé entre
+  // les tables, chacune interrogée avec `limit(remaining)` : s'il reste du budget
+  // à la fin, AUCUNE table n'a été tronquée, donc tout est drainé. Seul un budget
+  // épuisé (remaining === 0) laisse peut-être des lignes — et alors on rappelle.
+  // Un client qui ne lit pas `done` (anciennes versions) n'est pas concerné.
   return json(200, {
     rows,
     tombstones,
     cursor: JSON.stringify({ v: 2, pos }),
     tomb_cursor: tombCursor || null,
-    done: !anyReturned,
+    done: remaining > 0,
   });
 });

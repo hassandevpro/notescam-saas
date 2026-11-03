@@ -54,7 +54,11 @@ test('activation en lot : bouton pour qui approuve, phrase pour les autres', () 
   assert.match(manage, /réservée aux personnes qui peuvent approuver/);
   const readOnly = html(h(ReadyCard, { readyCount: 41, canApprove: false, canManage: false, onOpen: () => {} }));
   assert.match(readOnly, /lecture seule/);
-  assert.match(html(h(ReadyCard, { readyCount: 0, canApprove: true, canManage: true, onOpen: () => {} })), /Aucune ligne prête/);
+  const none = (o) => html(h(ReadyCard, { readyCount: 0, canApprove: true, canManage: true, onOpen: () => {}, ...o }));
+  assert.match(none({ activeCount: 61, todoCount: 0 }), /Toutes les lignes complètes sont déjà activées/);
+  assert.match(none({ activeCount: 61, todoCount: 3 }), /61 ligne\(s\) déjà activée\(s\)/);
+  assert.match(none({ activeCount: 0, todoCount: 3 }), /Aucune ligne n’est encore complète/);
+  assert.doesNotMatch(none({}), /<button/);
 });
 
 test('barre : champ étiqueté, tri, filtres avec compteurs', () => {

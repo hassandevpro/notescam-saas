@@ -595,7 +595,7 @@ export default function Budgets() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
               <BlockersCard todoCount={todoCount} groups={blockerList} activeBlocker={blocker}
                 onPick={(code) => { setBlocker(code); if (code) setStateFilter('all'); }} />
-              <ReadyCard readyCount={counts.ready} canApprove={canApprove} canManage={canManage} onOpen={() => setBulkOpen(true)} />
+              <ReadyCard readyCount={counts.ready} activeCount={counts.active} todoCount={counts.todo} canApprove={canApprove} canManage={canManage} onOpen={() => setBulkOpen(true)} />
             </div>
 
             {periods.length === 0 && (

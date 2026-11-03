@@ -78,15 +78,26 @@ export function BlockersCard({ todoCount, groups, activeBlocker, onPick }) {
 }
 
 // Carte « N lignes prêtes » + activation en lot (réservée à qui peut approuver).
-export function ReadyCard({ readyCount, canApprove, canManage, onOpen }) {
+export function ReadyCard({ readyCount, canApprove, canManage, onOpen, activeCount = 0, todoCount = 0 }) {
   const t = useT();
   return (
     <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 min-w-0">
       <h3 className="text-sm font-bold text-emerald-900">
         {readyCount === 0
-          ? t('Aucune ligne prête à activer', 'No line ready to activate', 'Ninguna línea lista')
+          ? t('Aucune ligne à activer pour l’instant', 'No line to activate right now', 'Ninguna línea por activar por ahora')
           : t(`${readyCount} ligne${readyCount > 1 ? 's' : ''} prête${readyCount > 1 ? 's' : ''} à activer`, `${readyCount} line${readyCount > 1 ? 's' : ''} ready to activate`, `${readyCount} línea${readyCount > 1 ? 's' : ''} lista${readyCount > 1 ? 's' : ''}`)}
       </h3>
+      {readyCount === 0 && (
+        <p className="mt-1 text-xs text-emerald-900">
+          {activeCount > 0 && todoCount === 0
+            ? t('Toutes les lignes complètes sont déjà activées.', 'All complete lines are already activated.', 'Todas las líneas completas ya están activadas.')
+            : activeCount > 0
+              ? t(`${activeCount} ligne(s) déjà activée(s). Les lignes restantes sont à compléter (carte ci-contre).`, `${activeCount} line(s) already activated. The remaining lines need completing (card beside).`, `${activeCount} línea(s) ya activada(s). Las demás deben completarse.`)
+              : todoCount > 0
+                ? t('Aucune ligne n’est encore complète : terminez d’abord celles de la carte ci-contre.', 'No line is complete yet: finish the ones in the card beside first.', 'Ninguna línea está completa: termine primero las de la otra tarjeta.')
+                : t('Créez des lignes pour commencer.', 'Create lines to get started.', 'Cree líneas para empezar.')}
+        </p>
+      )}
       {readyCount > 0 && canApprove && (
         <button type="button" onClick={onOpen}
           className="mt-2 min-h-9 px-3 py-1.5 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg">

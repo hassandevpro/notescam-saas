@@ -1,0 +1,116 @@
+======================================================================
+NotesCam 0.3.30 — SERVEUR LINUX (THE GENIUS)
+LA PAGE BUDGETS REFAITE, LE MOT DE PASSE ENSEIGNANT,
+ET LE CONTROLE DU BAREME DE FORM1 ET FORM2
+======================================================================
+
+PAQUET            notescam-linux-x64-0.3.30.tar.gz
+TAILLE            53 780 849 octets
+EMPREINTE SHA-256 0e446f07505733d7eb6d27782e2ca7ba2ab719b98251d758958d87997816d70a
+CONSTRUIT LE      2026-11-03 (edition "lan", Node v24.22.0 comme sur le serveur)
+SCRIPT            deploy-0.3.30.sh   (bash -n OK)
+
+L'empreinte ci-dessus est celle du paquet REELLEMENT construit. Verifiez-la
+avant d'installer :
+
+    sha256sum notescam-linux-x64-0.3.30.tar.gz
+
+----------------------------------------------------------------------
+CE QU'IL FAUT AVOIR DANS LE MEME DOSSIER
+----------------------------------------------------------------------
+
+    notescam-linux-x64-0.3.30.tar.gz
+    deploy-0.3.30.sh
+    corriger-bareme-form.sh
+    diagnostic-0.3.29.sh            (pour le controle apres coup)
+
+----------------------------------------------------------------------
+LA COMMANDE
+----------------------------------------------------------------------
+
+    cd ~/Telechargements
+    sudo ./deploy-0.3.30.sh notescam-linux-x64-0.3.30.tar.gz
+
+Le script sauvegarde la base (copie verifiee), installe, redemarre, puis
+controle. Il s'arrete SANS rien installer si la sauvegarde ne se verifie pas.
+Duree attendue : quelques minutes.
+
+----------------------------------------------------------------------
+CE QUI CHANGE POUR L'ECOLE
+----------------------------------------------------------------------
+
+ BUDGETS
+  - Quatre chiffres lisibles : Enveloppe, Reparti, Active, Depensable
+    maintenant. Fini le « Disponible » qui annoncait de l'argent que l'on ne
+    pouvait pas depenser.
+  - Un depassement de l'enveloppe nomme les lignes qui le causent.
+  - Les rubriques se replient ; on cherche et on filtre les lignes.
+  - « Activer les N lignes pretes » : un apercu, une confirmation, au lieu
+    d'un clic par ligne.
+  - Les deux unites qui s'appellent « THE GENIUS INTERNATIONAL SCHOOL » se
+    distinguent maintenant par leur section (Maternelle / Primaire).
+ DEPENSES
+  - Une page sans ligne active dit pourquoi, et le bon bouton.
+ ENSEIGNANTS
+  - L'administrateur redefinit le mot de passe d'un enseignant qui l'a perdu.
+ AFFICHAGE
+  - Animation de chargement ; montants lisibles (121 098 000 et non
+    121098000) dans toutes les polices.
+ BULLETINS
+  - Le bulletin de sequence tient sur une page.
+
+Aucune migration de schema. Aucune donnee modifiee par l'installation.
+
+----------------------------------------------------------------------
+LE BAREME DE FORM1 ET FORM2 — A FAIRE APRES L'INSTALLATION
+----------------------------------------------------------------------
+
+Le diagnostic du 02/11 signalait FORM1 et FORM2 au bareme 100 alors que les
+notes sont sur 20 : le bulletin multiplierait chaque note par 5 (un 13 serait
+imprime 65). Les matieres sont toutes a 20 ; seule la classe est fausse.
+
+deploy-0.3.30.sh MESURE ce defaut a l'etape 7 (simulation, RIEN n'est ecrit).
+Il ne le corrige pas seul : c'est une ecriture en base de production, a
+decider par vous. Pour corriger :
+
+    sudo ./corriger-bareme-form.sh              # montre, n'ecrit pas
+    sudo ./corriger-bareme-form.sh --appliquer  # sauvegarde, corrige, verifie
+
+L'outil :
+  - ne vise pas FORM1 / FORM2 par leur nom : il corrige toute classe dont
+    AUCUNE note n'atteint la moitie du bareme declare ;
+  - sauvegarde la base AVANT d'ecrire, et verifie la copie ;
+  - imprime les commandes de RETOUR ARRIERE avant de modifier ;
+  - n'ecrit que trois colonnes de la classe (grade_max, updated_at, version),
+    jamais une note ;
+  - verifie que la correction est enfilee pour remonter au site en ligne.
+
+Alternative plus prudente : par l'application, Classes -> FORM1 -> Modifier la
+classe -> bareme 20. Elle est refusee si une sequence est verrouillee : il faut
+deverrouiller, corriger, reverrouiller. Le script, lui, ne passe pas par ce
+garde-fou : les bulletins deja imprimes sont faux, la correction les repare.
+
+Apres correction : ouvrez un bulletin de FORM1 et comparez une note imprimee a
+la note saisie. Elles doivent etre IDENTIQUES.
+
+----------------------------------------------------------------------
+CE QUE CETTE MISE A JOUR NE REGLE PAS
+----------------------------------------------------------------------
+
+  - La QUARANTAINE de synchronisation (221 lignes refusees par le Cloud,
+    surtout des affectations de classe) : elle est connue et fait l'objet
+    d'un travail separe.
+  - La base occupe 3,9 Go dont 3,887 Go de pages libres : un VACUUM la
+    ramenerait a quelques centaines de Mo. Ce n'est pas urgent (disque a 19 %)
+    et cela demande l'arret du service : non fait ici.
+  - Le budget 2026-2027 : si le serveur n'a pas encore recu les lignes
+    activees depuis le Cloud, il les recevra au prochain cycle de synchro.
+
+----------------------------------------------------------------------
+RETOUR ARRIERE
+----------------------------------------------------------------------
+
+La base d'avant installation est conservee :
+    /var/lib/notescam/data/notescam.db.avant-0.3.30-AAAAMMJJHHMMSS
+Pour revenir : arreter le service, remettre cette copie en place, reinstaller
+le paquet 0.3.29 avec deploy-0.3.29.sh.

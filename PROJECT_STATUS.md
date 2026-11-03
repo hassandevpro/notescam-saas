@@ -1,5 +1,53 @@
 # PROJECT_STATUS — NotesCam
 
+> ## 🔑 MISE EN LIGNE DU 2026-11-03 (2) — `main` à `fc039c3`, mot de passe enseignant
+>
+> **Signalé** : « pas de changement pour la modification du mot de passe enseignant ».
+> C'était exact — l'écran n'était jamais parti en ligne.
+>
+> **LA FONCTION DE BASE, ELLE, ÉTAIT DÉJÀ EN PRODUCTION** depuis le 2026-11-02. Vérifié
+> par sonde, clé anon publique, sans effet de bord :
+>
+> | Appel | Réponse | Lecture |
+> |---|---|---|
+> | `admin_set_staff_password` (témoin, ancienne) | `P0001 "Non autorisé"` | existe |
+> | `admin_set_teacher_password` (cible) | `P0001 "Non autorisé"` | **existe** |
+>
+> « Non autorisé » vient du **corps** de la fonction : `auth.uid()` est nul pour un
+> appelant anonyme. Une fonction ABSENTE répond `PGRST202`, pas `P0001` — c'est cette
+> différence qui prouve l'existence.
+>
+> ⚠️ **PIÈGE À NE PAS REFAIRE.** Une première sonde lancée **sans paramètres** renvoyait
+> `PGRST202` pour les DEUX fonctions, y compris le témoin qui existe depuis longtemps.
+> Elle ne prouvait rien : PostgREST apparie sur la **signature**. Toujours sonder avec les
+> vrais arguments, et toujours avec un témoin connu.
+>
+> **Poussé** : `a305624..fc039c3`, 3 fichiers — `src/lib/staffAccounts.js`,
+> `src/pages/Teachers.jsx`, et `supabase_admin_teacher_password.sql` qui entre au dépôt
+> pour l'historique des migrations **sans être rejoué** (déjà appliqué).
+>
+> **Un droit est resserré, et ce n'est pas le mot de passe** : le bouton « Accès » sur un
+> enseignant AYANT DÉJÀ un compte passe de `canManageTeachers` à `isAdmin`. Censeur et
+> surveillant ne le verront plus pour ces enseignants-là ; créer un accès à un enseignant
+> qui n'en a pas leur reste ouvert. Validé explicitement avant la poussée.
+>
+> **Tests du candidat exact** : **253 ok, 0 ko**.
+>
+> **Vérifié sur le site RÉELLEMENT SERVI** :
+>
+> | Morceau | Marqueur | Compte |
+> |---|---|---|
+> | feuille de style | `index-njwyKY50.css` → `index-DRVDvmE1.css` | empreinte identique au build local |
+> | `staffAccounts-BycumihM.js` | `admin_set_teacher_password` · `p_teacher_id` | 1 · 1 |
+> | `Teachers-BSi-xWcY.js` | « Réinitialiser le mot de passe » · « L'ancien mot de passe ne peut pas être relu » | 1 · 1 |
+>
+> **Retour arrière** : `git push origin a305624:main --force-with-lease`.
+>
+> **Les éditions LAN ne reçoivent rien.** Le miroir Cloud → LAN du mot de passe est
+> best-effort : une école hors ligne gardera l'ancien hash local jusqu'au prochain
+> passage. `server/rpc.js` porte bien le handler `admin_set_teacher_password` pour la
+> parité, mais il est **resté sur le poste** — aucun paquet LAN n'a été reconstruit.
+
 > ## 🚀 MISE EN LIGNE DU 2026-11-03 — `main` à `ee900f0`
 >
 > **Poussé** : `git push origin HEAD:main` → `8553c8f..ee900f0`, sur autorisation

@@ -114,6 +114,26 @@ export async function setStaffScope(schoolUserId, { sections = [], cycles = [], 
   return { error };
 }
 
+// L'admin redéfinit le mot de passe d'un ENSEIGNANT de son école (perdu).
+// RPC admin_set_teacher_password (supabase_admin_teacher_password.sql / rpc.js).
+export async function setTeacherPassword(teacher, newPassword) {
+  const { data: targetEmail, error } = await supabase.rpc('admin_set_teacher_password', {
+    p_teacher_id:   teacher.id,
+    p_new_password: newPassword,
+  });
+  if (error) return { error };
+  if (IS_LAN) return { error: null };   // le serveur local vient d'écrire le hash
+  try {   // miroir Cloud → LAN, best-effort comme setStaffPassword
+    if (teacher.auth_user_id) {
+      await mirrorPasswordToLan(newPassword, {
+        user: { id: teacher.auth_user_id, email: targetEmail || null },
+        schoolId: teacher.school_id,
+      });
+    }
+  } catch { /* miroir best-effort */ }
+  return { error: null };
+}
+
 // L'admin redéfinit le mot de passe d'un compte de direction (censeur/surveillant)
 // de SON école. RPC SECURITY DEFINER (cloud) / handler local (LAN).
 export async function setStaffPassword(schoolUserId, newPassword) {

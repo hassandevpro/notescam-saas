@@ -22,6 +22,7 @@ import { resolveCountryCode } from '../countries';
 import { resizeImageToSquare } from '../lib/image';
 import { uploadStaffPhoto, uploadStaffDocument, parseDocs } from '../lib/staffService';
 import TeacherFileModal from '../components/TeacherFileModal';
+import { setTeacherPassword } from '../lib/staffAccounts';
 import { SUPABASE_URL, SUPABASE_ANON_KEY, ANON_CLIENT_OPTIONS } from '../lib/supabaseEnv';
 
 // Client sans persistance de session — crée des comptes sans déconnecter l'admin
@@ -333,6 +334,72 @@ function CreateAccessModal({ teacher, school, onClose }) {
           <div className="flex gap-3 pt-1">
             <button type="submit" disabled={status === 'loading'} className="btn-primary flex-1">
               {status === 'loading' ? t('Création…', 'Creating…') : t('Créer le compte', 'Create account')}
+            </button>
+            <button type="button" onClick={onClose} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+// ── Modal mot de passe perdu : l'admin en définit un nouveau ──────────────────
+
+function ResetPasswordModal({ teacher, school, onClose }) {
+  const t = useT();
+  const [password, setPassword] = useState('');
+  const [status,   setStatus]   = useState(null); // null | 'loading' | 'success' | 'error'
+  const [msg,      setMsg]      = useState('');
+
+  const handleReset = async (e) => {
+    e.preventDefault();
+    setStatus('loading'); setMsg('');
+    const { error } = await setTeacherPassword({ ...teacher, school_id: teacher.school_id || school?.id }, password);
+    if (error) { setMsg(error.message || t('Erreur', 'Error')); setStatus('error'); }
+    else setStatus('success');
+  };
+
+  return (
+    <Modal title={t('Réinitialiser le mot de passe', 'Reset password')} onClose={onClose} size="sm">
+      {status === 'success' ? (
+        <div className="text-center py-2">
+          <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3 text-emerald-600 text-2xl">✓</div>
+          <p className="text-gray-800 font-semibold mb-1">{t('Mot de passe mis à jour.', 'Password updated.')}</p>
+          <p className="text-sm text-gray-500 mb-4">{t('Transmettez-le à', 'Share it with')} <strong>{teacher.name}</strong> :</p>
+          <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 font-mono text-sm text-left space-y-2 mb-4">
+            {teacher.email && (
+              <div className="flex justify-between gap-4">
+                <span className="text-gray-400">Email</span>
+                <span className="font-semibold text-gray-900 truncate">{teacher.email}</span>
+              </div>
+            )}
+            <div className="flex justify-between gap-4">
+              <span className="text-gray-400">{t('Mot de passe', 'Password')}</span>
+              <span className="font-semibold text-gray-900">{password}</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="btn-primary" style={{ width: 'auto', paddingInline: '2rem' }}>{t('Fermer', 'Close')}</button>
+        </div>
+      ) : (
+        <form onSubmit={handleReset} className="space-y-4">
+          <p className="text-sm text-gray-500">
+            {t('Nouveau mot de passe pour', 'New password for')} <span className="font-semibold text-gray-700">{teacher.name}</span>
+          </p>
+          <div>
+            <label className="form-label">{t('Nouveau mot de passe *', 'New password *')}</label>
+            <input
+              type="text" required minLength={8} className="form-input font-mono"
+              placeholder={t('Min. 8 caractères', 'Min. 8 characters')}
+              value={password} onChange={(e) => setPassword(e.target.value)}
+            />
+            <p className="text-xs text-gray-400 mt-1">{t("L'ancien mot de passe ne peut pas être relu ; celui-ci le remplace.", 'The old password cannot be read; this one replaces it.')}</p>
+          </div>
+          {status === 'error' && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{msg}</div>
+          )}
+          <div className="flex gap-3 pt-1">
+            <button type="submit" disabled={status === 'loading' || password.length < 8} className="btn-primary flex-1">
+              {status === 'loading' ? t('Enregistrement…', 'Saving…') : t('Réinitialiser', 'Reset')}
             </button>
             <button type="button" onClick={onClose} className="btn-secondary">{t('Annuler', 'Cancel')}</button>
           </div>
@@ -833,6 +900,8 @@ export function TeachersPanel() {
   // Gestion complète du corps enseignant (accès de connexion, droit de bulletins) :
   // l'admin, ou tout compte délégué à qui la page Enseignants a été confiée.
   const canManageTeachers = role === 'admin' || hasCapability(permissions, '/app/teachers');
+  // Réinitialiser un mot de passe : réservé à l'administrateur (la RPC le refuse aussi).
+  const isAdmin = role === 'admin';
 
   const [search,        setSearch]        = useState('');
   const [showForm,      setShowForm]      = useState(false);
@@ -1180,7 +1249,7 @@ export function TeachersPanel() {
                   <div className="flex gap-1.5 mt-4 pt-3 border-t border-slate-50">
                     <button onClick={() => setFileForId(teacher.id)} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{t('Dossier', 'File', 'Expediente')}</button>
                     <button onClick={() => { setEditing(teacher); setShowForm(true); }} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{t('Modifier', 'Edit', 'Editar')}</button>
-                    {canManageTeachers && <button onClick={() => setAccessModal(teacher)} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{teacher.auth_user_id ? t('Accès', 'Access', 'Acceso') : t('Créer accès', 'Create access', 'Crear acceso')}</button>}
+                    {(teacher.auth_user_id ? isAdmin : canManageTeachers) && <button onClick={() => setAccessModal(teacher)} className="flex-1 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 px-2 py-2 rounded-lg transition-colors">{teacher.auth_user_id ? t('Accès', 'Access', 'Acceso') : t('Créer accès', 'Create access', 'Crear acceso')}</button>}
                   </div>
                 </div>
               );
@@ -1323,6 +1392,15 @@ export function TeachersPanel() {
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                               {t('Actif', 'Active')}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => setAccessModal(teacher)}
+                                  title={t('Mot de passe perdu ? Le réinitialiser', 'Lost password? Reset it')}
+                                  className="ml-1 underline decoration-dotted hover:text-emerald-900"
+                                >
+                                  {t('Mot de passe', 'Password')}
+                                </button>
+                              )}
                             </span>
                           ) : (
                             <button
@@ -1405,13 +1483,19 @@ export function TeachersPanel() {
           />
         )}
 
-        {accessModal && (
+        {accessModal && (accessModal.auth_user_id ? (!isAdmin ? null :
+          <ResetPasswordModal
+            teacher={accessModal}
+            school={school}
+            onClose={() => setAccessModal(null)}
+          />
+        ) : (
           <CreateAccessModal
             teacher={accessModal}
             school={school}
             onClose={() => setAccessModal(null)}
           />
-        )}
+        ))}
 
         {fileFor && !showForm && !editing && (
           <TeacherFileModal

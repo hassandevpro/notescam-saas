@@ -306,3 +306,53 @@ export const buildApcRanks = (students, avgById, excl = {}) => {
 // sans dépendre de la couche Supabase ; `lib/apcService` la réexporte.
 export const noteNkey = (eleveId, competenceId, sequenceId) =>
   `${eleveId}_${competenceId}_${sequenceId}`;
+
+// ── PROFIL DE LA CLASSE — « Nombre de moyennes » veut dire : combien ONT LA MOYENNE ──
+//
+// Corrigé le 2026-11-02, signalé par le responsable sur une 3EME ESP de 6 élèves :
+// le bulletin affichait « Nombre de moyennes : 6 » alors que trois élèves
+// seulement avaient 10 ou plus. Les deux implémentations disaient la même
+// chose, l'une par distraction, l'autre par aveu :
+//
+//   • `Bulletins.jsx`  : `count: avgs.length`                   → l'effectif noté
+//   • `scBulletinPdf`  : `count: st.above + (st.total - above)` → l'effectif, écrit long
+//
+// « Nombre de moyennes » est la formule des bulletins camerounais pour
+// « combien d'élèves ont la moyenne ». Un chiffre égal à l'effectif ne renseigne
+// rien, et placé juste au-dessus d'un taux de réussite de 50 % il le CONTREDIT :
+// un parent lit 6 moyennes sur 6 élèves, puis 50 % de réussite.
+//
+// Le seuil est 10/20 — celui de `apcCote` et du taux de réussite, pas un
+// réglage de plus.
+export const SEUIL_MOYENNE = 10;
+
+/**
+ * @param moyennes  les moyennes générales des élèves de la classe (null/absent ignoré)
+ * @param effectif  l'effectif de la classe ; à défaut, le nombre de moyennes connues
+ * @returns {{ min, max, avg, count, rate, notes, effectif }} ou `null` si aucune moyenne
+ *
+ * `count`  : élèves ayant AU MOINS 10 — ce que « Nombre de moyennes » désigne.
+ * `rate`   : count / effectif, en pourcentage entier.
+ * `notes`  : combien d'élèves ont une moyenne du tout (≠ effectif si des notes
+ *            manquent) — l'ancien `count`, gardé pour ne rien perdre.
+ */
+export function profilClasse(moyennes, effectif = null) {
+  const avgs = (moyennes || []).filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
+  if (!avgs.length) return null;
+  const sum   = avgs.reduce((a, b) => a + b, 0);
+  const count = avgs.filter((a) => a >= SEUIL_MOYENNE).length;
+  // L'effectif fait foi quand on le connaît : un élève sans note compte dans le
+  // dénominateur du taux de réussite, sinon une classe à moitié corrigée
+  // afficherait 100 %.
+  const base  = Number.isFinite(Number(effectif)) && Number(effectif) > 0
+    ? Number(effectif) : avgs.length;
+  return {
+    min: Math.min(...avgs),
+    max: Math.max(...avgs),
+    avg: Math.round((sum / avgs.length) * 100) / 100,
+    count,
+    rate: Math.round((count / base) * 100),
+    notes: avgs.length,
+    effectif: base,
+  };
+}

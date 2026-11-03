@@ -18,18 +18,42 @@ import { APC_COTE_CODES, APC_COTE_COLORS, apcBulletinCols } from '../../core/apc
 
 // Colonnes fixes (toujours affichées) + colonnes de fin optionnelles pilotées par
 // les bascules de l'établissement (COTE / [Min–Max] / Appréciation).
+// ── LARGEURS : ELLES NE VALAIENT RIEN TANT QUE LE TABLEAU N'ÉTAIT PAS FIXE ───
+//
+// Mesuré le 2026-11-02 (scripts/apc-blocs-mesure.mjs) : la colonne COMPÉTENCES
+// déclarait 42 % et recevait 186 px sur 720, soit 26 %. Sans
+// `table-layout: fixed`, un navigateur ne lit ces pourcentages que comme des
+// SOUHAITS : il redistribue selon le contenu, et les deux en-têtes les plus
+// longs — « MATIÈRES ET NOM DE L'ENSEIGNANT » et « Appréciations et Visa »,
+// cette dernière pour une colonne VIDE qui s'octroyait 114 px — prenaient la
+// place du texte des compétences. Celui-ci passait donc à QUATRE lignes, et une
+// ligne de matière faisait 72 px au lieu de 37. Sur onze matières, c'est
+// 385 px perdus — plus que le débordement lui-même. Voilà la 2e page.
+//
+// Le tableau est maintenant FIXE (cf. `tableLayout` plus bas) et les largeurs
+// sont donc tenues. Elles ont été rééquilibrées en conséquence : en mode fixe,
+// 4 % (29 px) ne logent pas « 9.00–16.00 » et 5 % ne logent pas une
+// appréciation — ces deux colonnes se replieraient ligne après ligne.
 const FIXED_COLS = (sys) => [
-  { key: 'mat',  w: '19%', label: L(sys, "MATIÈRES ET NOM DE L'ENSEIGNANT", "SUBJECTS & TEACHER'S NAME", 'ASIGNATURAS Y DOCENTE'), left: true },
-  { key: 'comp', w: '42%', label: L(sys, 'COMPÉTENCES ÉVALUÉES', 'COMPETENCIES ASSESSED', 'COMPETENCIAS EVALUADAS'), left: true },
-  { key: 'n',    w: '6%',  label: 'N/20' },
-  { key: 'm',    w: '6%',  label: 'M/20' },
-  { key: 'coef', w: '5%',  label: 'Coef' },
-  { key: 'mc',   w: '7%',  label: 'M×coef' },
+  { key: 'mat',  w: '17%', label: L(sys, 'MATIÈRES / ENSEIGNANT', 'SUBJECT / TEACHER', 'ASIGNATURA / DOCENTE'), left: true },
+  // 35 % : deux points rendus à « M×coef » et « Min–Max », dont les en-têtes
+  // sortaient tronqués (« M×coe », « Min–Ma ») sur la capture du 2026-11-02.
+  // La compétence, elle, est bornée à deux lignes : deux points de moins ne
+  // lui coûtent pas un mot, ils lui coûtent une césure.
+  { key: 'comp', w: '35%', label: L(sys, 'COMPÉTENCES ÉVALUÉES', 'COMPETENCIES ASSESSED', 'COMPETENCIAS EVALUADAS'), left: true },
+  { key: 'n',    w: '6%',  label: 'N/20',   nowrap: true },
+  { key: 'm',    w: '6%',  label: 'M/20',   nowrap: true },
+  { key: 'coef', w: '5%',  label: 'Coef',   nowrap: true },
+  { key: 'mc',   w: '8%',  label: 'M×coef', nowrap: true },
 ];
 const TRAILING_DEF = (sys) => [
-  { key: 'cote', opt: 'cote',         w: '6%', label: L(sys, 'COTE', 'GRADE', 'NOTA') },
-  { key: 'mm',   opt: 'minmax',       w: '4%', label: '[Min–Max]' },
-  { key: 'app',  opt: 'appreciation', w: '5%', label: L(sys, 'Appréciations et Visa', 'Remarks & Signature', 'Apreciación y Visa') },
+  { key: 'cote', opt: 'cote',         w: '6%', label: L(sys, 'COTE', 'GRADE', 'NOTA'), nowrap: true },
+  // SANS LES CROCHETS. Mesuré sur la capture du 2026-11-02 : « [Min–Max] »
+  // en nowrap fait 64 px pour une colonne de 57, et l'excédent se peignait
+  // PAR-DESSUS la colonne voisine — « COTE [Min–Max]Appréc. » illisible. Les
+  // crochets n'apportent rien que la ligne de tableau ne dise déjà.
+  { key: 'mm',   opt: 'minmax',       w: '9%', label: 'Min–Max', nowrap: true },
+  { key: 'app',  opt: 'appreciation', w: '8%', label: L(sys, 'Appréc. / Visa', 'Remarks / Visa', 'Apreciación / Visa') },
 ];
 // Colonnes de fin visibles selon les bascules — au moins une (héberge « MOYENNE »).
 const visibleTrailing = (cols, sys) => {
@@ -42,7 +66,11 @@ function TableHead({ th, cols }) {
     <thead>
       <tr>
         {cols.map((c) => (
-          <th key={c.key} style={{ ...th, width: c.w, ...(c.left ? { textAlign: 'left' } : null) }}>{c.label}</th>
+          // `overflow: hidden` AVEC le nowrap, toujours : sans lui, un en-tête
+          // trop long pour sa colonne ne se coupe pas, il DÉBORDE sur la
+          // colonne d'à côté et les deux deviennent illisibles. Mieux vaut un
+          // libellé tronqué qu'un en-tête superposé.
+          <th key={c.key} style={{ ...th, width: c.w, ...(c.left ? { textAlign: 'left' } : null), ...(c.nowrap ? { whiteSpace: 'nowrap', overflow: 'hidden' } : null) }}>{c.label}</th>
         ))}
       </tr>
     </thead>
@@ -70,8 +98,16 @@ function MatiereChunk({ chunk, cell, trailing, sys }) {
           <tr key={i}>
             {first && (
               <td rowSpan={rs} style={cell}>
-                <strong>{m.nom}{chunk.contFromPrev ? L(sys, ' (suite)', ' (cont.)', ' (cont.)') : ''}</strong><br />
-                <span style={{ color: '#666' }}>{m.enseignant || L(sys, 'M/Mme', 'Mr/Mrs', 'Sr/Sra')}</span>
+                {/* LE CLAMP VIT DANS UN <div>, JAMAIS SUR LE <td>.
+                    `display: -webkit-box` sur une cellule lui retire son
+                    `display: table-cell` et demolit la table entiere : les
+                    largeurs fixes ne s appliquent plus et la ligne se disloque. */}
+                <div className="apc-clamp2">
+                  <strong>{m.nom}{chunk.contFromPrev ? L(sys, ' (suite)', ' (cont.)', ' (cont.)') : ''}</strong><br />
+                  {/* Pas de « M/Mme » quand l'école n'a pas saisi l'enseignant :
+                      un bulletin officiel n'annonce pas un nom qu'il n'a pas. */}
+                  {m.enseignant ? <span style={{ color: '#666' }}>{m.enseignant}</span> : null}
+                </div>
               </td>
             )}
             {/* LE DÉTAIL DES ÉVALUATIONS, à la suite de l'intitulé et en petit :
@@ -89,18 +125,25 @@ function MatiereChunk({ chunk, cell, trailing, sys }) {
                 (`lib/apcBulletinDoc.js`, `evalDetailHtml`) : l’écran et le PDF
                 sont deux rendus des MÊMES données, et un parent qui lit l’un
                 puis l'autre ne doit pas y trouver deux bulletins. */}
-            <td style={cell}>
-              {c.intitule}
-              {c.evaluations?.length > 1 && c.nbCompetencesMatiere <= 2 && (
-                <span style={{ color: '#666', fontSize: '.9em', whiteSpace: 'nowrap' }}>
-                  {' ('}
-                  {c.evaluations
-                    .map((e) => `${L(sys, 'Éval.', 'Assess.', 'Eval.')} ${e.rang} : ${
-                      e.max == null || e.max === 20 ? fix2(e.note) : `${fix2(e.note)}/${fix2(e.max)}`}`)
-                    .join(' \u00b7 ')}
-                  {')'}
-                </span>
-              )}
+            {/* DEUX LIGNES AU PLUS, avec points de suspension (demande du
+                2026-11-02). Un intitule officiel de competence fait couramment
+                80 caracteres ; au-dela de deux lignes il fait exploser la
+                hauteur du tableau. Le texte ENTIER reste accessible : attribut
+                title ici, et en clair sur l ecran de saisie. */}
+            <td style={cell} title={c.intitule}>
+              <div className="apc-clamp2">
+                {c.intitule}
+                {c.evaluations?.length > 1 && c.nbCompetencesMatiere <= 2 && (
+                  <span style={{ color: '#666', fontSize: '.9em', whiteSpace: 'nowrap' }}>
+                    {' ('}
+                    {c.evaluations
+                      .map((e) => `${L(sys, 'Éval.', 'Assess.', 'Eval.')} ${e.rang} : ${
+                        e.max == null || e.max === 20 ? fix2(e.note) : `${fix2(e.note)}/${fix2(e.max)}`}`)
+                      .join(' \u00b7 ')}
+                    {')'}
+                  </span>
+                )}
+              </div>
             </td>
             {/* Barème réel de l'évaluation : la valeur seule quand c'est /20,
                 sinon « 2/3 » — un « N/20 » au-dessus d'un 2/3 mentirait. */}
@@ -187,7 +230,10 @@ function FooterBlocks({ data, classStats, rang, effectif, cell, head, sys, appre
       <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
         <tbody>
           <tr>
-            <td style={{ ...cell, height: 32, verticalAlign: 'top' }}>
+            {/* 12 mm (45 px) : la case où le titulaire écrit à la main. Elle
+                COÛTE de la hauteur, et c'est assumé — demandée à 12 mm le
+                2026-11-02. Une case de deux lignes ne reçoit pas une phrase. */}
+            <td style={{ ...cell, height: 45, verticalAlign: 'top' }}>
               <div style={{ fontWeight: 'bold' }}>{L(sys, "Appréciation du travail de l'élève (points forts et points à améliorer)", "Remarks on the student's work (strengths and areas to improve)", 'Apreciación del trabajo del alumno (puntos fuertes y a mejorar)')}</div>
               {appreciation ? <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{appreciation}</div> : null}
             </td>
@@ -207,6 +253,10 @@ export default function BulletinApcOfficial({
   const cell = mkCell(fontPt, lineH, cellPadV);
   const th   = mkTH(apcHeaderPt(fontPt), lineH, cellPadV);   // en-tête de colonnes +1pt (11–12pt)
   const idProps = { student, classLabel, effectif, profPrincipal, sys };
+  // Un bulletin d'UNE page se rend en mode compact : c'est la condition pour
+  // qu'il tienne. Dès qu'il en faut deux, la place existe et on rend au
+  // gabarit normal — plus lisible, et c'est le réglage d'origine.
+  const compact = totalPages === 1;
   // Colonnes de fin selon les bascules de l'établissement.
   const trailing = visibleTrailing(apcBulletinCols(school), sys);
   // En-tête « N/20 » tant que toutes les compétences notées le sont sur /20 —
@@ -222,17 +272,30 @@ export default function BulletinApcOfficial({
   return (
     <>
       {pages.map((chunks, i) => (
-        <OfficialSheet key={i} school={school} pt={fontPt} pageNo={i + 1} total={totalPages} sys={sys}>
+        /* `total={0}` quand il n'y a qu'une page : `PageNumber` ne rend alors
+           rien. « Page 1 sur 1 » n'apprend rien à personne et coûte 21 px plus
+           un filet — demandé supprimé le 2026-11-02. Dès qu'il y a deux pages il
+           revient : là, il dit au parent qu'il lui manque une feuille. */
+        <OfficialSheet key={i} school={school} pt={fontPt} pageNo={i + 1}
+          total={totalPages > 1 ? totalPages : 0} sys={sys} dense={totalPages === 1}>
           {i === 0 ? (
             <>
-              <OfficialHeader school={school} sys={sys} title={title} />
-              <OfficialIdentity {...idProps} />
+              {/* MODE COMPACT SUR UNE PAGE. `dense` existait déjà sur l'en-tête,
+                  le bandeau titre et les signatures, et donne exactement les
+                  cotes demandées le 2026-11-02 : en-tête 28 mm (logo 38 px,
+                  corps 8 pt), bandeau titre 7 mm (11 pt, rembourrage 2 px),
+                  signatures 18 mm (cadre 58 px). Il n'était simplement jamais
+                  branché ici. L'identité reçoit sa variante deux lignes. */}
+              <OfficialHeader school={school} sys={sys} title={title} dense={compact} />
+              <OfficialIdentity {...idProps} dense={compact} />
             </>
           ) : (
             <ContinuationHeader title={title} student={student} classLabel={classLabel} sys={sys} />
           )}
 
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          {/* table-layout FIXE — SANS LUI LES LARGEURS CI-DESSUS SONT IGNORÉES
+              (voir le commentaire de FIXED_COLS : 42 % rendus en 26 %). */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <TableHead th={th} cols={allCols} />
             {chunks.map((chunk, j) => <MatiereChunk key={j} chunk={chunk} cell={cell} trailing={trailing} sys={sys} />)}
             {i === footerPageIndex && <TotalRow data={data} cell={cell} empty={data.matieres.length === 0} colCount={allCols.length} trailCount={trailing.length} sys={sys} />}
@@ -241,7 +304,7 @@ export default function BulletinApcOfficial({
           {i === footerPageIndex && (
             <FooterBlocks data={data} classStats={classStats} rang={rang} effectif={effectif} cell={cell} head={th} sys={sys} appreciation={appreciation} />
           )}
-          {i === footerPageIndex && <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />}
+          {i === footerPageIndex && <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} dense={compact} />}
         </OfficialSheet>
       ))}
     </>

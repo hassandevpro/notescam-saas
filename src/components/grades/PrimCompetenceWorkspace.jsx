@@ -60,6 +60,8 @@ import SectionSelect from './SectionSelect';
 import CompetenceGradeIO from './CompetenceGradeIO';
 import GradeBundleIO from './GradeBundleIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
+import FeuilleNotesButton from './FeuilleNotesButton';
+import ObservationGlobaleForm from './ObservationGlobaleForm';
 
 // ── Barème d'une colonne (une évaluation) ────────────────────────────────────
 // Le barème appartient à l'ÉVALUATION, pas au critère : l'Oral peut être noté /10
@@ -850,6 +852,72 @@ export default function PrimCompetenceWorkspace() {
     }).ecrit || 20,
   );
 
+  // ── LA FEUILLE DE NOTES PAPIER — TOUTES LES COMPÉTENCES D'UN COUP ────────
+  //
+  // L'écran de saisie montre UNE compétence à la fois : c'est le bon geste
+  // devant un clavier. Sur le papier, non — la feuille photographiée le
+  // 2026-11-01 porte les onze compétences côte à côte, chacune avec ses
+  // épreuves (Oral, Écrit, Pratique, Savoir-être) et son total. C'est elle que
+  // l'enseignant pose à côté des copies. On la reconstitue donc ENTIÈRE, et
+  // `core/feuilleNotes` la découpe en pages A4 paysage sans jamais couper une
+  // compétence en deux.
+  //
+  // On ne retient QUE les colonnes qui ont un barème (> 0) : ce sont celles qui
+  // existent, exactement comme à l'écran (`criteresActifs`). Imprimer une
+  // colonne fermée demanderait une note qui ne compte nulle part.
+  //
+  // Le barème de '6a' dépend de l'aptitude sportive de l'élève ; la feuille
+  // imprime celui de l'élève APTE, le cas général. L'inaptitude se traite à
+  // l'écran, où elle grise la case de l'élève concerné.
+  const feuilleGroupes = useMemo(() => {
+    if (!referentiel || !niveauSlug) return [];
+    const out = [];
+    for (const comp of competences) {
+      const colonnes = [];
+      for (const cr of criteresForCompetence(referentiel, niveauSlug, comp.id, 'apte', masquesCrit)) {
+        const bareme = baremeEnVigueur(
+          classStudents.map((stu) => primNotes[primNkey(stu.id, comp.id, cr.id, ua)]),
+          cr.points_max,
+          pendingBareme[`${comp.id}_${cr.id}`],
+        );
+        if (!(bareme > 0)) continue;
+        colonnes.push({ id: `${comp.id}|${cr.id}`, label: primCritereLabel(cr, sys), bareme });
+      }
+      if (!colonnes.length) continue;
+      // Le total de la compétence : colonne CALCULÉE, donc imprimée vide et
+      // grisée — elle s'additionne une fois les épreuves notées.
+      colonnes.push({ id: `${comp.id}|__total`, label: t('Total', 'Total'), calculee: true });
+      // L'intitulé officiel fait une phrase : tronqué, sinon l'en-tête de
+      // groupe prend quatre lignes et mange autant d'élèves par page.
+      const nom = comp.intitule || '';
+      out.push({
+        id: comp.id,
+        label: `${comp.code || comp.id} — ${nom.length > 46 ? `${nom.slice(0, 46)}…` : nom}`,
+        colonnes,
+      });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [referentiel, niveauSlug, competences, masquesCrit, classStudents, primNotes, pendingBareme, ua, sys, t]);
+
+  const feuilleEleves = useMemo(
+    () => classStudents.map((s, i) => ({ id: s.id, numero: i + 1, nom: s.name })),
+    [classStudents],
+  );
+
+  // Une absence JUSTIFIÉE s'imprime « ABS » : sur la version relue, une case
+  // vide et une absence ne veulent pas dire la même chose.
+  const feuilleValeur = useCallback((eleveId, colonneId) => {
+    const sep = String(colonneId).indexOf('|');
+    if (sep < 0) return '';
+    const compId = String(colonneId).slice(0, sep);
+    const critId = String(colonneId).slice(sep + 1);
+    if (critId.startsWith('__')) return '';
+    const r = primNotes[primNkey(eleveId, compId, critId, ua)];
+    if (r?.statut === 'absent') return 'ABS';
+    return r?.note != null ? String(r.note) : '';
+  }, [primNotes, ua]);
+
   function renderClassPicker() {
     return (
       <select value={classId || ''} onChange={(e) => setClassId(e.target.value)}
@@ -1011,6 +1079,21 @@ export default function PrimCompetenceWorkspace() {
             {competences.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.intitule}</option>)}
           </select>
         </label>
+        {/* La grille PAPIER de l'UA : toutes les compétences, vierge pour
+            corriger au stylo ou avec les notes déjà saisies pour relire. Elle
+            ne suit PAS la compétence sélectionnée — c'est toute l'UA. */}
+        <div className="col-span-2 sm:col-span-1 sm:self-end sm:pb-1">
+          <FeuilleNotesButton
+            school={school}
+            sys={sys}
+            classe={selectedClass?.name}
+            periode={`UA${ua} (${t('Trim.', 'Term')} ${trimestreOfUA(ua)})`}
+            portee={{ libelle: t('Compétences', 'Competencies'), valeur: String(feuilleGroupes.length) }}
+            groupes={feuilleGroupes}
+            eleves={feuilleEleves}
+            valeur={feuilleValeur}
+          />
+        </div>
       </div>
 
       {/* Le sélecteur ci-dessus liste les compétences de LA CLASSE, pas tout le
@@ -1062,6 +1145,20 @@ export default function PrimCompetenceWorkspace() {
           {baremeMsg.text}
         </div>
       )}
+
+      {/* L'APPRÉCIATION D'ENSEMBLE du carnet. Le carnet la LISAIT déjà
+          (`primAppreciationSaisie`), mais il fallait ouvrir l'écran des bulletins
+          et dérouler élève par élève pour l'écrire ; sans saisie, il retombait
+          sur le libellé de la cote, donc le même texte pour deux élèves de même
+          cote. Ici, toute la classe est à l'écran. Replié par défaut.
+          Un enseignant de matière non titulaire ne la porte pas. */}
+      <ObservationGlobaleForm
+        classId={classId}
+        students={classStudents}
+        trimestre={trimestreOfUA(ua)}
+        ua={ua}
+        lectureSeule={isSubjectTeacher && !isFundamentalTitulaire(selectedClass, teacherId)}
+      />
 
       {/* Échange de notes entre postes : export global de TOUTES ses notes
           (toutes classes, tous moteurs) et, pour un admin, import du fichier

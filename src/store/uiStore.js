@@ -57,12 +57,26 @@ export const useUiStore = create((set) => ({
   // demanderait une colonne `schools` et une migration de plus.
   primLayout:         'auto',
   primOrientation:    'portrait',
+  // Bulletin MATERNELLE : même mécanisme, défaut INVERSE.
+  //   matOrientation  'portrait' | 'landscape'
+  // Le paysage est le défaut parce que le document est large (huit domaines,
+  // leurs cotes par UA, une colonne d'observations qu'on doit pouvoir lire),
+  // mais il n'est PAS imposé : une école qui préfère le portrait le choisit.
+  matOrientation:     'landscape',
+  // Bulletin du SECONDAIRE (premier et second cycle, tous formats).
+  //   secOrientation  'portrait' | 'landscape'
+  // Portrait par défaut : c'est une liste de matières, haute et étroite. Le
+  // choix existe quand même — une classe à trente matières peut avoir besoin
+  // de la largeur, et l'école est seule à savoir.
+  secOrientation:     'portrait',
   setBulletinsClassId:   (v) => set({ bulletinsClassId: v }),
   setBulletinsPeriodKey: (v) => set({ bulletinsPeriodKey: v }),
   setBulletinsStudentId: (v) => set({ bulletinsStudentId: v }),
   setBulletinsFormat:    (v) => set({ bulletinsFormat: v }),
   setPrimLayout:         (v) => set({ primLayout: v }),
   setPrimOrientation:    (v) => set({ primOrientation: v }),
+  setMatOrientation:     (v) => set({ matOrientation: v }),
+  setSecOrientation:     (v) => set({ secOrientation: v }),
 
   // Grades page navigation — persisted across route changes
   gradesClassId:   '',

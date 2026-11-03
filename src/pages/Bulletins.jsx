@@ -16,6 +16,8 @@ import {
 } from '../lib/print';
 import { useT } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
+import { aggregateAttendance } from '../core/attendanceEngine';
+import { fetchTimetableSlots } from '../lib/schoolService';
 import WhatsappFirstModal from '../components/notify/WhatsappFirstModal';
 import BulletinPhoto from '../components/bulletins/BulletinPhoto';
 import BoletinGE from '../components/bulletins/BoletinGE';
@@ -72,7 +74,7 @@ import { matDomaineLabel, primCompetenceLabel, primCritereLabel, primCoteLabel }
 import { obsNkey } from '../lib/matService';
 import { primNkey } from '../lib/primService';
 import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
-import { buildApcRanks, SEQ_TO_TRIM } from '../core/apcEngine';
+import { buildApcRanks, SEQ_TO_TRIM, profilClasse } from '../core/apcEngine';
 import {
   apcBulletinPeriods, apcPeriodLabel, resolveApcPeriod,
   isApcAnnualPeriod, isApcSequencePeriod, apcSeqIdsForTrimestre,
@@ -203,12 +205,23 @@ function SubjectOrderModal({ subjects, onClose }) {
 }
 
 
-// ── Périodes système anglophone (3 Terms) ─────────────────────────────────────
+// ── Périodes système anglophone ───────────────────────────────────────────────
+// SIX séquences groupées deux par deux en trois Terms — le miroir exact du
+// francophone (PERIODS, plus bas), parce qu'une école bilingue n'a qu'UN
+// calendrier d'évaluation. Avant, l'anglophone n'avait que trois périodes
+// (Term 1 = séquence 1) : la même école comptait six évaluations d'un côté et
+// trois de l'autre.
 const PERIODS_EN = [
-  { value: 'term_1', label: 'Term 1',  short: 'T1',   seqs: [1] },
-  { value: 'term_2', label: 'Term 2',  short: 'T2',   seqs: [2] },
-  { value: 'term_3', label: 'Term 3',  short: 'T3',   seqs: [3] },
-  { value: 'annuel', label: 'Annual',  short: 'Ann.', seqs: [1, 2, 3] },
+  { value: 'seq_1',  label: 'Sequence 1', short: 'Seq 1', seqs: [1] },
+  { value: 'seq_2',  label: 'Sequence 2', short: 'Seq 2', seqs: [2] },
+  { value: 'seq_3',  label: 'Sequence 3', short: 'Seq 3', seqs: [3] },
+  { value: 'seq_4',  label: 'Sequence 4', short: 'Seq 4', seqs: [4] },
+  { value: 'seq_5',  label: 'Sequence 5', short: 'Seq 5', seqs: [5] },
+  { value: 'seq_6',  label: 'Sequence 6', short: 'Seq 6', seqs: [6] },
+  { value: 'term_1', label: 'Term 1',  short: 'T1',   seqs: [1, 2] },
+  { value: 'term_2', label: 'Term 2',  short: 'T2',   seqs: [3, 4] },
+  { value: 'term_3', label: 'Term 3',  short: 'T3',   seqs: [5, 6] },
+  { value: 'annuel', label: 'Annual',  short: 'Ann.', seqs: [1, 2, 3, 4, 5, 6] },
 ];
 
 
@@ -476,8 +489,8 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
   const { absJ, absNJ, conduite } = getAbsCond(gradeMap, classId, student.id, period.seqs);
 
   const isAnnuel  = period.value === 'annuel';
-  const isEN_m    = sys === 'EN';
-  const termSeqsM = isAnnuel ? (isEN_m ? [[1],[2],[3]] : [[1,2],[3,4],[5,6]]) : null;
+  // Deux séquences par trimestre, anglophone compris (cf. countries/cameroon_en.js).
+  const termSeqsM = isAnnuel ? [[1,2],[3,4],[5,6]] : null;
   const termLblM  = isAnnuel ? ['T1','T2','T3'] : null;
 
   function termAvgM(subId, seqs) {
@@ -656,9 +669,9 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   const lastSeq = period.seqs[period.seqs.length - 1];
   const workAppreciation = (gradeMap[`${classId}_${student.id}_${lastSeq}`] || {})['__appreciation__'] || '';
   const isAnnuel    = period.value === 'annuel';
-  const isEN        = sys === 'EN';
   const isTrimestre = !isAnnuel && period.seqs.length > 1;
-  const termSeqs    = isAnnuel ? (isEN ? [[1],[2],[3]] : [[1,2],[3,4],[5,6]]) : null;
+  // Deux séquences par trimestre, anglophone compris (cf. countries/cameroon_en.js).
+  const termSeqs    = isAnnuel ? [[1,2],[3,4],[5,6]] : null;
   const termLabel   = isAnnuel ? ['T1','T2','T3'] : null;
 
   function termAvg(subId, seqs) {
@@ -765,9 +778,9 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
             {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[1]}/{maxScale}</th>}
             {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[2]}/{maxScale}</th>}
             {isAnnuel && <th style={{ ...thS, width: '9%' }}>{L(sys, 'Moy.Ann', 'Ann.Avg')}/{maxScale}</th>}
-            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'Term')} {period.seqs[0]} /{maxScale}</th>}
-            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'Term')} {period.seqs[1]} /{maxScale}</th>}
-            {!isAnnuel && <th style={{ ...thS, width: '11%' }}>{isTrimestre ? L(sys, `MOY /${maxScale}`, `AVG /${maxScale}`) : `${L(sys, 'SEQ', 'Term')} ${period.seqs[0]} /${maxScale}`}</th>}
+            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'SEQ')} {period.seqs[0]} /{maxScale}</th>}
+            {!isAnnuel && isTrimestre && <th style={{ ...thS, width: '9%' }}>{L(sys, 'SEQ', 'SEQ')} {period.seqs[1]} /{maxScale}</th>}
+            {!isAnnuel && <th style={{ ...thS, width: '11%' }}>{isTrimestre ? L(sys, `MOY /${maxScale}`, `AVG /${maxScale}`) : `${L(sys, 'SEQ', 'SEQ')} ${period.seqs[0]} /${maxScale}`}</th>}
             <th style={{ ...thS, width: '7%' }}>COEF</th>
             <th style={{ ...thS, width: '9%' }}>TOTAL</th>
             <th style={{ ...thS, width: '8%' }}>{L(sys, 'RANG', 'RANK')}</th>
@@ -1113,8 +1126,9 @@ function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrade
 
   // EN: 3 terms (seq 1/2/3) — FR: 6 sequences grouped in 3 trimestres (seq 1-2/3-4/5-6)
   const isEN      = sys === 'EN';
-  const termSeqs  = isEN ? [[1], [2], [3]] : [[1, 2], [3, 4], [5, 6]];
-  const allSeqs   = isEN ? [1, 2, 3] : [1, 2, 3, 4, 5, 6];
+  // Deux séquences par trimestre, anglophone compris (cf. countries/cameroon_en.js).
+  const termSeqs  = [[1, 2], [3, 4], [5, 6]];
+  const allSeqs   = [1, 2, 3, 4, 5, 6];
   const termLabel = isEN
     ? ['Term 1', 'Term 2', 'Term 3']
     : ['T1', 'T2', 'T3'];
@@ -1643,11 +1657,15 @@ export default function Bulletins() {
   const setPrimLayout   = useUiStore((s) => s.setPrimLayout);
   const primOrientation = useUiStore((s) => s.primOrientation);
   const setPrimOrientation = useUiStore((s) => s.setPrimOrientation);
+  const matOrientation  = useUiStore((s) => s.matOrientation);
+  const setMatOrientation = useUiStore((s) => s.setMatOrientation);
+  const secOrientation  = useUiStore((s) => s.secOrientation);
+  const setSecOrientation = useUiStore((s) => s.setSecOrientation);
   // Le profil de page et le profil MESURÉ doivent être le même : poser la
   // géométrie paysage dans le CSS tout en mesurant contre la hauteur utile du
   // portrait ferait chercher une densité pour une page qui n'existe pas.
-  const profilPage = primOrientation === 'landscape' ? 'large' : 'bulletin';
-  useEffect(() => { setPrintProfile(profilPage); }, [profilPage]);
+  // Le calcul vit plus bas (`profilPage`) : il a besoin de savoir QUEL document
+  // on rend, et les drapeaux de cycle ne sont connus qu'après la classe choisie.
 
   const PERIODS = [
     { value: 'seq_1',  label: t('Séquence 1',  'Sequence 1'),  short: 'Séq 1', seqs: [1] },
@@ -1699,7 +1717,8 @@ export default function Bulletins() {
   const schoolUnits    = useSchoolStore((s) => s.schoolUnits);
   const subjects = useSchoolStore((s) => s.subjects);
   const students = useSchoolStore((s) => s.students);
-  const gradeMap = useSchoolStore((s) => s.gradeMap);
+  const storedGradeMap = useSchoolStore((s) => s.gradeMap);
+  const academicPeriods = useSchoolStore((s) => s.academicPeriods);
   const teachers = useSchoolStore((s) => s.teachers);
   const apcReferentiel = useSchoolStore((s) => s.apcReferentiel);
   const apcNotes       = useSchoolStore((s) => s.apcNotes);
@@ -1744,7 +1763,58 @@ export default function Bulletins() {
 
   const classId   = useUiStore((s) => s.bulletinsClassId);
   const setClassId   = useUiStore((s) => s.setBulletinsClassId);
-  const periodKey = useUiStore((s) => s.bulletinsPeriodKey);
+
+  // ── Absences : l'appel alimente le bulletin ─────────────────────────────────
+  // Le bulletin lit `__abs_j__` / `__abs_nj__` dans les notes, saisis à la main
+  // au conseil de classe : un élève dont l'appel est fait mais dont personne n'a
+  // « reporté » les heures sortait donc avec « — » alors qu'il a des absences.
+  // Quand aucune valeur n'est SAISIE pour la séquence, on prend les heures de
+  // l'appel (mêmes règles que le conseil : attendanceEngine). Une valeur saisie
+  // — même 0 — reste prioritaire, et rien n'est écrit dans la base : c'est une
+  // surcouche de LECTURE, le store des notes n'est pas touché.
+  const [attRows, setAttRows]   = useState([]);
+  const [lateRows, setLateRows] = useState([]);
+  const [ttSlots, setTtSlots]   = useState([]);
+  useEffect(() => {
+    if (!rawSchool?.id || !classId) { setAttRows([]); setLateRows([]); return undefined; }
+    let alive = true;
+    const year = rawSchool.current_year;
+    Promise.all([
+      supabase.from('attendance').select('student_id, class_id, subject_id, date, session, status')
+        .eq('school_id', rawSchool.id).eq('class_id', classId).eq('year_label', year),
+      supabase.from('late_arrivals').select('student_id, class_id, date')
+        .eq('school_id', rawSchool.id).eq('class_id', classId).eq('year_label', year),
+      fetchTimetableSlots(rawSchool.id, year),
+    ]).then(([att, late, tt]) => {
+      if (!alive) return;
+      setAttRows(att?.data || []);
+      setLateRows(late?.data || []);
+      setTtSlots(tt || []);
+    }).catch(() => { /* appel indisponible : le bulletin garde les valeurs saisies */ });
+    return () => { alive = false; };
+  }, [rawSchool?.id, rawSchool?.current_year, classId]);
+  const attAgg = useMemo(
+    () => aggregateAttendance(attRows, { periods: academicPeriods, timetable: ttSlots, lateArrivals: lateRows, year: rawSchool?.current_year }),
+    [attRows, lateRows, ttSlots, academicPeriods, rawSchool?.current_year],
+  );
+  const gradeMap = useMemo(() => {
+    const byStudent = attAgg?.byStudent;
+    if (!classId || !byStudent || !Object.keys(byStudent).length) return storedGradeMap;
+    const out = { ...storedGradeMap };
+    const vide = (v) => v === undefined || v === null || v === '';
+    for (const [studentId, seqs] of Object.entries(byStudent)) {
+      for (const [seq, c] of Object.entries(seqs)) {
+        if (!c.absJ && !c.absNJ) continue;
+        const key = `${classId}_${studentId}_${seq}`;
+        const cur = storedGradeMap[key] || {};
+        if (!vide(cur['__abs_j__']) || !vide(cur['__abs_nj__'])) continue;   // saisie manuelle prioritaire
+        out[key] = { ...cur, __abs_j__: String(c.absJ), __abs_nj__: String(c.absNJ) };
+      }
+    }
+    return out;
+  }, [storedGradeMap, attAgg, classId]);
+
+  const periodKey =useUiStore((s) => s.bulletinsPeriodKey);
   const setPeriodKey = useUiStore((s) => s.setBulletinsPeriodKey);
   const studentId = useUiStore((s) => s.bulletinsStudentId);
   const setStudentId = useUiStore((s) => s.setBulletinsStudentId);
@@ -1813,6 +1883,34 @@ export default function Bulletins() {
   const isBil         = classEngine === 'bilingue';
   const isPrim        = classEngine === 'apc_primaire';   // primaire APC (compétences /10)
   const isMat         = classEngine === 'maternelle';     // maternelle (domaines A/ECA/NA)
+
+  // ── L'ORIENTATION SUIT LE DOCUMENT, PLUS UN RÉGLAGE GLOBAL ─────────────────
+  //
+  // `profilPage` ne dépendait que de `primOrientation`, un réglage exposé par le
+  // SEUL panneau du primaire APC. Comme la règle @page est unique pour l'écran,
+  // une école qui l'avait posé à « paysage » pour son carnet de primaire tirait
+  // ensuite TOUS ses bulletins en paysage — maternelle et premier cycle compris,
+  // sans aucun réglage pour le dire ni pour revenir en arrière.
+  //
+  // Demandé le 2026-11-02, et c'est la forme du document qui commande :
+  //   • MATERNELLE → paysage PAR DÉFAUT. Huit domaines, leurs cotes par UA et
+  //     une colonne d'observations qu'on doit pouvoir lire : c'est une grille
+  //     large. Mais rien n'est imposé — l'école a son sélecteur, comme le
+  //     primaire, et peut repasser en portrait.
+  //   • SECONDAIRE (premier et second cycle) → portrait PAR DÉFAUT. C'est une
+  //     liste de matières, haute et étroite ; en paysage elle laisse la moitié
+  //     de la feuille blanche. Sélecteur quand même : une classe à trente
+  //     matières peut avoir besoin de la largeur.
+  //   • PRIMAIRE APC → le choix de l'école, portrait par défaut.
+  //
+  // Le DÉFAUT diffère par cycle, le CHOIX appartient à l'école dans les trois
+  // cas : c'est la différence entre orienter un document et l'imposer.
+  const profilPage = isMat
+    ? (matOrientation === 'portrait' ? 'bulletin' : 'large')
+    : isPrim
+      ? (primOrientation === 'landscape' ? 'large' : 'bulletin')
+      : (secOrientation === 'landscape' ? 'large' : 'bulletin');
+  useEffect(() => { setPrintProfile(profilPage); }, [profilPage]);
   // Les bulletins officiels MINESEC sont des FORMATS de plus (à côté de Classique/
   // Moderne/APC), pas un remplacement : affichés seulement si l'utilisateur les
   // choisit. APC (1er cycle) → 'apc_officiel' ; Second Cycle (lycée) → 'sc_officiel'.
@@ -1978,17 +2076,21 @@ export default function Bulletins() {
     return Object.fromEntries(buildApcRanks(classStudents, avgById).map((r) => [r.id, r.rang]));
   }, [isApc, apcDataById, classStudents]);
 
-  const apcClassStats = useMemo(() => {
-    if (!isApc) return null;
-    const avgs = Object.values(apcDataById).map((d) => d?.moyenneGenerale).filter((v) => v != null);
-    if (!avgs.length) return null;
-    const sum = avgs.reduce((a, b) => a + b, 0);
-    return {
-      min: Math.min(...avgs), max: Math.max(...avgs),
-      avg: Math.round((sum / avgs.length) * 100) / 100, count: avgs.length,
-      rate: Math.round((avgs.filter((a) => a >= 10).length / avgs.length) * 100),
-    };
-  }, [isApc, apcDataById]);
+  // « Nombre de moyennes » = COMBIEN D'ÉLÈVES ONT LA MOYENNE, pas l'effectif.
+  // Ce bloc renvoyait `count: avgs.length` : une 3EME ESP de 6 élèves dont 3
+  // avaient 10 affichait « Nombre de moyennes : 6 » au-dessus d'un « Taux de
+  // réussite : 50 % » qu'il contredisait. Signalé le 2026-11-02.
+  // Le calcul vit dans `core/apcEngine` (`profilClasse`, pur et testé) parce
+  // que quatre documents affichent cette même ligne et l'avaient tous fausse.
+  const apcClassStats = useMemo(
+    () => (isApc
+      ? profilClasse(
+          Object.values(apcDataById).map((d) => d?.moyenneGenerale),
+          classStudents.length,
+        )
+      : null),
+    [isApc, apcDataById, classStudents.length],
+  );
 
   // Titre officiel du bulletin : une séquence, un trimestre ou l'annuel.
   // Le titre d'une séquence NOMME SON TRIMESTRE (« … SÉQUENCE 3 (T2) ») : le
@@ -2368,8 +2470,21 @@ export default function Bulletins() {
   }, [isPrim, primReferentiel, primNiveauSlug, primCompetencesEcole, primCriteresMasques]);
 
   // Titre du bulletin : rendu dans le SYSTÈME de la classe, comme `apcTitle`.
+  // UNE UA N'EST PAS UN TRIMESTRE, ET LE TITRE DOIT LE DIRE.
+  // `period.seqs[0]` ramène l'UA à son trimestre (`trimestreOfUA`) — ce dont la
+  // PERSISTANCE a besoin, puisque l'appréciation et la décision se rangent sur le
+  // créneau du trimestre. Mais le TITRE s'en servait aussi : cliquer « UA 1 »
+  // sortait « BULLETIN DU PREMIER TRIMESTRE », et trois bulletins d'UA d'un même
+  // trimestre portaient le même titre — une fois photocopiés, plus rien ne les
+  // distinguait. Signalé le 2026-11-02. Les périodes d'une seule UA portent
+  // `period.ua` (cf. PERIODS_PRIMAIRE), c'est lui qui tranche, pas `seqs`.
   const primTitle = (() => {
     const n = period.seqs?.[0] || 1;
+    if (period.ua) {
+      return sys === 'EN'
+        ? `LEARNING UNIT ${period.ua} REPORT CARD — PRIMARY (CBA)`
+        : `BULLETIN DE L'UA${period.ua} — PRIMAIRE APC`;
+    }
     if (sys === 'EN') {
       if (period.value === 'annuel') return 'ANNUAL REPORT CARD — PRIMARY (CBA)';
       return `${['FIRST', 'SECOND', 'THIRD'][n - 1] || ''} TERM REPORT CARD — PRIMARY (CBA)`;
@@ -2398,11 +2513,23 @@ export default function Bulletins() {
 
   // ── MATERNELLE (PS/MS/GS) — données du bulletin officiel (aperçu écran) ──────
   useEffect(() => { if (isMat) { loadMat(); loadRefMasques('mat'); } }, [isMat, loadMat, loadRefMasques]);
-  // LES UA DU TRIMESTRE CHOISI (UA1-3, UA4-6, UA7-8). Le bulletin de maternelle
-  // reste TRIMESTRIEL — c'est le document officiel — mais il montre désormais
-  // chaque UA de la période puis la synthèse, depuis que la saisie se fait par
-  // UA (2026-11-01, même rythme que le primaire).
-  const matUas = useMemo(() => uasDuTrimestre(period.seqs?.[0] || 1), [period]);
+  // LES UA DE LA PÉRIODE CHOISIE. Le bulletin de maternelle trimestriel montre
+  // chaque UA du trimestre puis la synthèse, depuis que la saisie se fait par UA
+  // (2026-11-01, même rythme que le primaire).
+  //
+  // CORRIGÉ LE 2026-11-02 : cette ligne appelait `uasDuTrimestre(seqs[0])`, donc
+  // elle REDÉRIVAIT le trimestre entier et ignorait `period.uas`. Choisir « UA 1 »
+  // sortait un bulletin à trois colonnes — UA1, UA2, UA3 — au lieu de la seule
+  // UA demandée. C'est exactement le piège que le commentaire de
+  // `PERIODS_PRIMAIRE` signalait : une période d'une seule UA n'a pas de numéro
+  // de trimestre à donner, et la dérivation la ramène au trimestre complet. Le
+  // primaire lisait déjà `period.uas` (cf. `primUAs`) ; la maternelle, non.
+  // Le repli reste pour une clé de période persistée par une version antérieure,
+  // qui ne porte pas ce champ : sans lui, l'écran repartirait sur une liste vide.
+  const matUas = useMemo(
+    () => (period.uas?.length ? period.uas : uasDuTrimestre(period.seqs?.[0] || 1)),
+    [period],
+  );
   // Domaines officiels, puis la surcharge de l'école (ligne `subjects` portant
   // `mat_domaine_id`) : le bulletin imprime le mot que l'enseignante lit a l'ecran.
   // Deux surcharges se cumulent — la ligne `subjects` (historique) puis la table
@@ -2454,8 +2581,15 @@ export default function Bulletins() {
     return out;
   }, [isMat, matReferentiel, matDomaines, classStudents, matObservations, matUas, sys]);
 
+  // Même règle qu'au primaire : une UA se nomme par son numéro d'UA, pas par le
+  // trimestre où elle compte (cf. le commentaire de `primTitle`).
   const matTitle = (() => {
     const n = period.seqs?.[0] || 1;
+    if (period.ua) {
+      return sys === 'EN'
+        ? `LEARNING UNIT ${period.ua} REPORT CARD — NURSERY`
+        : `BULLETIN DE L'UA${period.ua} — MATERNELLE`;
+    }
     if (sys === 'EN') return `${['FIRST', 'SECOND', 'THIRD'][n - 1] || ''} TERM REPORT CARD — NURSERY`;
     return `BULLETIN DU ${['PREMIER', 'DEUXIÈME', 'TROISIÈME'][n - 1] || ''} TRIMESTRE — MATERNELLE`;
   })();
@@ -3173,6 +3307,14 @@ export default function Bulletins() {
           student={student} classLabel={selectedClass?.name || ''}
           effectif={classStudents.length} profPrincipal={apcProfPrincipal}
           uas={matUas} rows={d.rows}
+          // L'APPRÉCIATION GÉNÉRALE N'ÉTAIT JAMAIS PASSÉE. Le modèle imprime
+          // depuis toujours « Appréciation générale de l'enseignant(e) : » et la
+          // ligne sortait vide sur tous les bulletins de maternelle, parce que
+          // cette prop manquait ici. Même source que les bulletins APC et le
+          // carnet du primaire (champ spécial `__appreciation__` du créneau de la
+          // période) ; elle se saisit maintenant classe entière depuis la page
+          // Notes (`ObservationGlobaleForm`).
+          appreciation={apcAppreciationFor(student.id)}
           decision={period?.seqs?.length >= 3 ? apcDecisionLabel(student.id) : ''}
         />
       </WatermarkWrap>
@@ -3281,6 +3423,40 @@ export default function Bulletins() {
             officiel). Pour les classes MINESEC, on AJOUTE l'option officielle
             (APC ou 2nd cycle) sans retirer Classique/Moderne/APC. */}
 
+        {/* ── MATERNELLE : orientation ───────────────────────────────────
+            Le même réglage que le primaire, au défaut près (paysage). Il ne
+            touche QUE la mise en page : aucune cote, aucune synthèse n'en
+            dépend. L'orientation avait d'abord été IMPOSÉE en paysage — une
+            école qui préfère le portrait doit pouvoir le dire. */}
+        {showMatOfficial && matReady && (
+          <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
+            <span className="text-sm font-medium text-gray-500">{t('Orientation :', 'Orientation:')}</span>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              {[
+                { key: 'landscape', label: t('Paysage', 'Landscape') },
+                { key: 'portrait',  label: t('Portrait', 'Portrait') },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setMatOrientation(key)}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    matOrientation === key ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-gray-400 italic">
+              {matOrientation === 'landscape'
+                ? t('Paysage — recommandé : les observations restent lisibles.',
+                    'Landscape — recommended: the remarks stay readable.')
+                : t('Portrait — la colonne « Observations » sera plus étroite.',
+                    'Portrait — the “Observations” column will be narrower.')}
+            </span>
+          </div>
+        )}
+
         {/* ── PRIMAIRE APC : disposition et orientation ──────────────────
             Deux reglages, et seulement pour le bulletin officiel du primaire.
             Ils ne touchent QUE la mise en page : aucun calcul ne depend d'eux,
@@ -3357,6 +3533,29 @@ export default function Bulletins() {
                 </button>
               ))}
             </div>
+
+            {/* ORIENTATION — le défaut est le portrait, parce qu'un bulletin de
+                matières est haut et étroit. Le choix reste offert : jusqu'ici
+                le secondaire héritait EN SILENCE du réglage du primaire, puis
+                a été figé en portrait ; ni l'un ni l'autre n'était un choix. */}
+            <span className="text-sm font-medium text-gray-500 ml-2">{t('Orientation :', 'Orientation:')}</span>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              {[
+                { key: 'portrait',  label: t('Portrait', 'Portrait') },
+                { key: 'landscape', label: t('Paysage', 'Landscape') },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setSecOrientation(key)}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    secOrientation === key ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {format === 'apc_officiel' && (
               <span className="text-xs text-gray-400 italic">
                 {t('Bulletin officiel MINESEC par compétences (référentiel)', 'Official MINESEC competency report card (framework)')}
@@ -3476,7 +3675,7 @@ export default function Bulletins() {
               </option>
               {visibleClasses.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}{schoolLanguage === 'bilingue' ? ` [${c.system === 'EN' ? 'EN /100' : 'FR /20'}]` : ''}
+                  {c.name}{schoolLanguage === 'bilingue' ? ` [${c.system === 'EN' ? 'EN' : 'FR'}]` : ''}
                 </option>
               ))}
             </select>

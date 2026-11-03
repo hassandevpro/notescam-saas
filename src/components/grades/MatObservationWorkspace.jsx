@@ -48,6 +48,7 @@ import GradeBundleIO from './GradeBundleIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import ReferentielEditor from './ReferentielEditor';
 import MobileEntryList from './MobileEntryList';
+import ObservationGlobaleForm from './ObservationGlobaleForm';
 import { withLibelles } from '../../lib/referentielEcole';
 import { canManageClassSubjects, refLineScope, mySubjects } from '../../lib/teacherScope';
 import { hasCapability } from '../../config/capabilities';
@@ -529,6 +530,22 @@ export default function MatObservationWorkspace() {
              'Level not recognized (expected PS/MS/GS) — domains remain editable.')}
         </div>
       )}
+
+      {/* L'APPRÉCIATION D'ENSEMBLE, celle du bas du bulletin. Elle n'avait
+          AUCUN champ : le modèle maternelle imprimait « Appréciation générale de
+          l'enseignant(e) : » suivi du vide, sur tous les bulletins. Rien à voir
+          avec l'onglet « Observations » ci-dessous, qui porte un texte PAR
+          DOMAINE. Replié par défaut — la grille reste l'outil principal — et
+          l'en-tête annonce combien d'élèves sont renseignés.
+          Le droit se lit comme pour les domaines : une enseignante de matière
+          non titulaire ne porte pas l'appréciation d'ensemble de la classe. */}
+      <ObservationGlobaleForm
+        classId={classId}
+        students={classStudents}
+        trimestre={trimestreOfUA(ua)}
+        ua={ua}
+        lectureSeule={subjectScoped && !estTitulaire}
+      />
 
       {/* Échange de notes entre postes : export global de TOUTES ses notes
           (toutes classes, tous moteurs) et, pour un admin, import du fichier

@@ -68,7 +68,13 @@ export default function BulletinMatOfficial({
   // Les colonnes d'UA ne s'affichent que si la période en fournit. Sans elles,
   // la mise en page reste EXACTEMENT celle d'avant (un bulletin déjà imprimé
   // garde son aspect) : c'est le même gabarit, pas un second.
-  const colUas = Array.isArray(uas) ? uas.filter((n) => Number.isFinite(Number(n))) : [];
+  const uasRecues = Array.isArray(uas) ? uas.filter((n) => Number.isFinite(Number(n))) : [];
+  // UNE SEULE UA : AUCUNE colonne d'UA. La « synthèse » d'une unique unité EST
+  // cette unité — les deux colonnes auraient porté la même cote côte à côte, et
+  // le bulletin d'une UA aurait eu l'air d'un bulletin de trimestre à moitié
+  // vide. On retombe alors sur la mise en page classique (« Niveau »), celle
+  // d'avant les UA, et c'est le TITRE qui dit laquelle (« BULLETIN DE L'UA1 »).
+  const colUas = uasRecues.length > 1 ? uasRecues : [];
   const parUA = colUas.length > 0;
   // Largeurs : les UA prennent la place rendue par la colonne « Niveau » et par
   // le libellé du domaine, l'observation reste large (c'est elle qu'on lit).

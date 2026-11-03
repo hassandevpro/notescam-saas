@@ -229,14 +229,29 @@ function identityHtml(student, { classLabel, sys, effectif, profPrincipal }) {
   </table>`;
 }
 
+// Le clamp deux lignes, en style en ligne : ce document est un HTML autonome
+// envoyé à l'impression, il ne reçoit pas la feuille de style de l'application.
+const CLAMP2 = 'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden';
+
 const TH = (txt, w) => `<th style="${C};background:#eef2f7;text-align:center;font-size:8.5px${w ? `;width:${w}` : ''}">${txt}</th>`;
 
 // Colonnes de fin optionnelles (COTE / [Min–Max] / Appréciation) selon les bascules
 // de l'établissement (school.apc_bulletin_cols). Ordre officiel préservé.
+// LES MÊMES LARGEURS QUE L'APERÇU, AU POINT PRÈS.
+//
+// Ce document est le JUMEAU PDF de BulletinApcOfficial : le lot d'export passe
+// par ici, l'aperçu écran par là, et le code dit depuis l'origine que les deux
+// ne doivent pas diverger. Le 2026-11-02 l'aperçu a été rééquilibré (colonne
+// compétences ramenée à 35 %, numériques élargies) parce que, SANS
+// `table-layout: fixed`, le navigateur ignorait les pourcentages et donnait
+// 26 % à une colonne qui en déclarait 42. Le jumeau avait exactement le même
+// défaut : il est corrigé ici de la même façon, avec les mêmes chiffres.
+// Libellés raccourcis pour la même raison : « Appréciations et Visa » occupait
+// à lui seul une colonne vide de 114 px.
 const TRAIL_TH = (sys) => ({
   cote:         [L(sys, 'COTE', 'GRADE'), '6%'],
-  minmax:       ['[Min–Max]', '8%'],
-  appreciation: [L(sys, 'Appréciations et Visa', 'Remarks and signature'), '13%'],
+  minmax:       ['Min–Max', '9%'],
+  appreciation: [L(sys, 'Appréc. / Visa', 'Remarks / Visa'), '8%'],
 });
 const trailingCols = (cols) => ['cote', 'minmax', 'appreciation'].filter((k) => cols[k]);
 
@@ -251,11 +266,11 @@ const scalesUniform = (data) =>
 function tableHeadHtml(cols, sys, uniform = true) {
   const tr = trailingCols(cols);
   const th = TRAIL_TH(sys);
-  const trailTh = (tr.length ? tr.map((k) => TH(th[k][0], th[k][1])) : [TH('', '10%')]).join('');
+  const trailTh = (tr.length ? tr.map((k) => TH(th[k][0], th[k][1])) : [TH('', '23%')]).join('');
   return `<tr>
-    ${TH(L(sys, 'MATIÈRES ET NOM DE L\'ENSEIGNANT', 'SUBJECTS AND TEACHER'), '20%')}
-    ${TH(L(sys, 'COMPÉTENCES ÉVALUÉES', 'COMPETENCES ASSESSED'))}
-    ${TH(uniform ? 'N/20' : 'N', '7%')}${TH('M/20', '7%')}${TH('Coef', '5%')}${TH('M×coef', '7%')}${trailTh}
+    ${TH(L(sys, 'MATIÈRES / ENSEIGNANT', 'SUBJECT / TEACHER'), '17%')}
+    ${TH(L(sys, 'COMPÉTENCES ÉVALUÉES', 'COMPETENCES ASSESSED'), '35%')}
+    ${TH(uniform ? 'N/20' : 'N', '6%')}${TH('M/20', '6%')}${TH('Coef', '5%')}${TH('M×coef', '8%')}${trailTh}
   </tr>`;
 }
 
@@ -320,8 +335,13 @@ function matiereRowsHtml(m, cols, sys) {
     const span = (content) => first ? `<td rowspan="${rs}" style="${C};text-align:center">${content}</td>` : '';
     const trailCells = (tr.length ? tr.map(trailContent) : ['']).map(span).join('');
     return `<tr>
-      ${first ? `<td rowspan="${rs}" style="${C}"><strong>${esc(m.nom)}</strong><br/><span style="color:#666">${esc(m.enseignant || L(sys, 'M/Mme', 'Mr/Mrs'))}</span></td>` : ''}
-      <td style="${C}">${esc(c.intitule)}${evalDetailHtml(c, sys)}</td>
+      ${first ? `<td rowspan="${rs}" style="${C}"><strong>${esc(m.nom)}</strong><br/>${m.enseignant ? `<span style="color:#666">${esc(m.enseignant)}</span>` : ''}</td>` : ''}
+      ${/* DEUX LIGNES AU PLUS, comme à l'aperçu. Le clamp est POSÉ SUR UN DIV
+            INTERNE et jamais sur le <td> : -webkit-box retirerait à la cellule
+            son display:table-cell et disloquerait la table. Le détail des
+            évaluations reste HORS du clamp — c'est une donnée chiffrée, pas une
+            phrase, et la tronquer serait une perte. */''}
+      <td style="${C}" title="${esc(c.intitule)}"><div style="${CLAMP2}">${esc(c.intitule)}</div>${evalDetailHtml(c, sys)}</td>
       <td style="${C};text-align:center">${compNoteCell(c)}</td>
       ${span(`<strong>${fix2(m.moyenne)}</strong>`)}
       ${span(String(m.coef))}
@@ -411,9 +431,21 @@ function footerBlocksHtml(data, { classStats, sys } = {}) {
 export const APC_FIRST_PAGE_LINES = 42;   // page 1 (en-tête complet + identité)
 export const APC_CONT_PAGE_LINES  = 80;   // pages 2+ (bandeau de continuation léger)
 export const APC_FOOTER_LINES     = 26;   // réserve pour le pied (TOTAL + blocs + signature)
-const APC_CHARS_PER_LINE = 44;
+// 34 et non 44 : la colonne COMPÉTENCES déclare 35 % de 194 mm, soit 68 mm,
+// et un caractère de 8 px en occupe environ 2,0 mm. 44 était la valeur de
+// l'époque où la colonne prenait toute la place restante ; la garder, c'était
+// compter une ligne là où le document en rend deux.
+const APC_CHARS_PER_LINE = 34;
 
-const apcCompLines = (c) => Math.max(1, Math.ceil(String(c.intitule || '').length / APC_CHARS_PER_LINE));
+// BORNÉ À DEUX, parce que le rendu l'est maintenant (CLAMP2). Compter trois ou
+// quatre lignes pour un intitulé long, c'est réserver une hauteur que le
+// document n'occupe plus : le paginateur coupait alors en deux une feuille qui
+// tenait. La borne n'est pas une approximation, c'est la règle de rendu.
+const APC_LIGNES_MAX_COMP = 2;
+const apcCompLines = (c) => Math.min(
+  APC_LIGNES_MAX_COMP,
+  Math.max(1, Math.ceil(String(c.intitule || '').length / APC_CHARS_PER_LINE)),
+);
 export const apcMatiereLines = (m) => Math.max(1, (m.competences || []).reduce((a, c) => a + apcCompLines(c), 0));
 
 // Découpe pure des matières en pages (matière jamais coupée), en remplissant chaque
@@ -451,7 +483,7 @@ export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
     return SHEET_OPEN
       + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr })
       + identityHtml(student, { classLabel, sys, effectif, profPrincipal })
-      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols, sys, uniforme)}</thead><tbody>${rows}${withFooter && !footerOwnPage ? totalRowHtml(data, cols, sys) : ''}</tbody></table>`
+      + `<table style="width:100%;border-collapse:collapse;table-layout:fixed"><thead>${tableHeadHtml(cols, sys, uniforme)}</thead><tbody>${rows}${withFooter && !footerOwnPage ? totalRowHtml(data, cols, sys) : ''}</tbody></table>`
       + (withFooter && !footerOwnPage ? footerBlocksHtml(data, { classStats, sys }) : '')
       + SHEET_CLOSE;
   };
@@ -461,7 +493,7 @@ export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
     sheets.push(
       SHEET_OPEN
       + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr })
-      + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml(cols, sys, uniforme)}</thead><tbody>${totalRowHtml(data, cols, sys)}</tbody></table>`
+      + `<table style="width:100%;border-collapse:collapse;table-layout:fixed"><thead>${tableHeadHtml(cols, sys, uniforme)}</thead><tbody>${totalRowHtml(data, cols, sys)}</tbody></table>`
       + footerBlocksHtml(data, { classStats, sys })
       + officialSignatureHtml(school, sys)
       + SHEET_CLOSE,

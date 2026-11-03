@@ -1834,3 +1834,368 @@ utilisaient donc la note de trimestre avant ce travail.
 **Retour arrière.** Revenir à une colonne par compétence = forcer `nombre` à
 `competences.length` dans `colonnesEvaluations`. Les notes de seconde séquence restent en
 base et continuent de compter au bulletin ; l'écran les dénombre et le dit.
+
+## D39 — La synchro passe à 30 s, avec un envoi 3 s après l'écriture, et un voyant pour l'administrateur (2026-11-02)
+
+**Demande.** Synchro LAN ↔ Cloud en moins de 30 s dans les deux sens ; un voyant
+OK / en attente / échec visible de l'administrateur à l'école comme en ligne.
+**Statut : écrit et testé, NON déployé.** Détail et réglages : `docs/SYNCHRONISATION.md` § 10.
+
+**Ce qu'on a choisi, et pourquoi.**
+
+- **On surveille la base, pas le code.** Le déclencheur SQLite d'I36 enfile toute
+  écriture ; le planificateur lit `sqlite_sequence` de `sync_outbox` chaque seconde.
+  Appeler le planificateur depuis chaque écriture recréerait la convention qu'I36 a
+  supprimée (32 écritures qui ne remontaient pas).
+- **Le contrôle d'intégrité et les fichiers gardent 5 min.** À 30 s, un `sync-verify`
+  par cycle multiplierait ces appels par dix pour confirmer que rien n'a divergé. C'est
+  aussi ce qui conserve la signification de « 12 cycles de divergence = une heure »
+  (`syncHealth.js`).
+- **Un lien coupé ne compte pas contre la ligne.** Avec un cycle toutes les 30 s, huit
+  échecs réseau tiennent dans quatre minutes ; la tête de file saine serait partie en
+  quarantaine. Seules les réponses du Cloud comptent.
+- **Recul ×2 après échec**, plafonné à 5 min (l'ancienne cadence) : une école hors ligne
+  ne martèle pas le Cloud.
+- **Un voyant étendu, pas un troisième.** `SyncBadge` existait (LAN, parité seulement) ;
+  il est étendu à la file, aux lignes refusées, aux coupures et aux désaccords, et on a
+  corrigé son `fetch` nu (403 avalé → voyant masqué : le défaut d'I39 resté ici). Le
+  Cloud a son pendant `CloudSyncBadge`, qui lit ce que l'école a DIT au Cloud.
+
+**Ce que 30 s ne garantit pas.** Cloud → école reste un sondage : au pire l'intervalle +
+la durée du cycle (≈ 30 s), en moyenne 15 s. Garantir « < 30 s » au pire cas demande ≤ 20 s
+(5 328 appels/jour/école). L'instantané exigerait Realtime : non retenu sans autorisation.
+
+**Coût.** 3 888 appels Edge/jour/école au repos, serveur allumé 24 h (ancien : 1 296). Voir
+le rapport de session pour les quotas Supabase et leur source.
+
+**Retour arrière.** Code : `NOTESCAM_SYNC_INTERVAL_MS=300000`, plus
+`NOTESCAM_SYNC_DEBOUNCE_MS=3600000` **et** `NOTESCAM_SYNC_DEBOUNCE_MAX_MS=3600000` (le
+plafond de 15 s borne aussi le débounce : régler l'un sans l'autre ne désactive rien),
+ramènent l'ancienne cadence sans redéployer. *(Variables à poser dans
+`/etc/notescam/notescam.env` ; non éprouvées en conditions réelles.)*
+Cloud : `supabase_sync_etat_lan.sql` porte son propre retour arrière en commentaire.
+
+---
+
+## D40 — Le sous-système anglophone passe de 3 « Terms » à 6 séquences (2026-11-02)
+
+**Demande (responsable, 2026-11-02), écran de saisie des notes, classe FORM2 d'une
+école bilingue :** « rend ceci en séquence pas en term trimestre » — et « enlève /100 ».
+
+**Ce qui existait.** `countries/cameroon_en.js` modélisait l'anglophone en **trois
+périodes** (`term_1..3`, une « séquence » par trimestre). Les classes francophones de
+la MÊME école en comptaient six. Un établissement bilingue comptait donc six
+évaluations d'un côté et trois de l'autre, pour un seul calendrier réel.
+
+**Ce qu'on a choisi.** L'anglophone devient le miroir exact du francophone :
+**6 séquences groupées deux par deux** en Term 1 (séq. 1-2), Term 2 (3-4), Term 3 (5-6).
+Le **Term reste l'unité de restitution** (bulletin, rapport) ; la **séquence devient
+l'unité de saisie**, comme côté francophone.
+
+Touché : `countries/cameroon_en.js` (périodes, `periodType`), la saisie
+(`pages/Grades.jsx`, `components/grades/SubjectTeacherWorkspace.jsx`), le conseil de
+classe, les bulletins (`PERIODS_EN` + le regroupement annuel `[[1,2],[3,4],[5,6]]`, qui
+valait `[[1],[2],[3]]` pour EN à trois endroits), les rapports (`PERIODS_EN`, et le
+rendu de pastilles propre à l'anglophone **supprimé** : il n'affichait que les
+trimestres, donc quatre séquences sur six auraient disparu), les relevés
+(`transcriptEngine`) et le calendrier (`calendarTracks`).
+
+**Les clés de calendrier ne sont PAS re-clées.** La piste garde le préfixe `en_term_`
+et passe de 3 à 6 entrées (`en_term_1..6`). Re-clé = dates déjà saisies perdues, pour
+un simple mot. Même raisonnement que la Guinée équatoriale, qui réutilise `fr_seq_1..3`.
+
+**Le décalage est assumé, et il a été posé au responsable avant d'écrire.** Les notes
+anglophones déjà enregistrées le sont sous les numéros 1, 2, 3. Elles se relisent
+désormais comme **séquences** 1, 2, 3 : l'ancien « Term 2 » (n° 2) tombe dans le
+**Trimestre 1** (séq. 1-2) et l'ancien « Term 3 » (n° 3) dans le **Trimestre 2**.
+C'est exactement le risque déjà documenté pour le primaire (`pages/Settings.jsx`,
+bascule trimestres → séquences). Le responsable a choisi cette option en connaissance
+de cause plutôt qu'un réglage par école : **une école qui a déjà saisi des notes
+anglophones cette année doit les reprendre, ou accepter le décalage.**
+
+**Retour arrière.** Remettre `sequences: [1, 2, 3]` et `seqs: [1] / [2] / [3]` dans
+`countries/cameroon_en.js`, et les quatre `PERIODS_EN` / regroupements annuels cités
+ci-dessus. Aucune migration SQL n'a été écrite ni appliquée : **rien en base ne change**,
+seule la lecture des numéros change.
+
+**Au passage :** le suffixe de barème a quitté les sélecteurs de classe —
+`FORM2 [EN /100]` devient `FORM2 [EN]` (Notes, Bulletins, Rapports). Le conseil de
+classe l'écrivait déjà ainsi. Le badge de barème à côté de la classe, lui, est
+conservé : c'est lui qui dit sur quoi on note.
+
+---
+
+## D41 — La feuille de notes à remplir à la main (2026-11-02)
+
+**Demande (responsable, 2026-11-02, quatre photos à l'appui) :** « fais un relevé de
+note comme ceci et permets d'extraire vide pour permettre de remplir à la main aussi ».
+
+**Ce que montraient les photos.** Des grilles que les écoles fabriquent elles-mêmes :
+(1) compétences 1A…6B en colonnes, chacune avec Oral / Écrit / Pratique / Savoir-être
+et un Total, barème écrit sous l'intitulé (« sur 5 », « sur 2 ») ; (2) une grille de
+matières (dictée, production, anglais, calcul, problème, sc. et conn., TIC, EPS) avec
+Total, Moyenne et Rang. Un élève par ligne, numérotés, remplis au stylo.
+
+**Ce qu'on a écrit.** Trois couches, aucune nouvelle technologie :
+
+- `core/feuilleNotes.js` — **pur et testé** : découpe en pages. Un groupe
+  (compétence, bloc de matières) n'est **jamais coupé en deux** — séparer « Oral » de
+  son « Total » rendrait la colonne de total inutilisable. Les numéros ne repartent
+  pas de 1 à la page suivante : c'est le N° de la liste de classe, appelé à l'oral.
+- `lib/feuilleNotesDoc.js` — le papier, **sur le socle `lib/print`** (profil `large`,
+  A4 paysage) : aucune règle `@page`, aucune géométrie à la main.
+- `components/grades/FeuilleNotesButton.jsx` — le bouton et son dialogue, branché sur
+  l'écran classique (`pages/Grades.jsx`) et sur le primaire APC
+  (`PrimCompetenceWorkspace`). Le composant ne connaît **rien au métier** : chaque
+  écran lui présente ses colonnes.
+
+**Trois choix qui méritent d'être écrits.**
+
+1. **Vierge par défaut.** C'est la demande. « Avec les notes déjà saisies » existe
+   aussi, pour relire sur papier — même gabarit, mêmes pages.
+2. **Pas d'en-tête ministériel.** Ce n'est pas une pièce remise à un parent mais
+   l'outil de travail de l'enseignant : les trois blocs République / Ministère /
+   Délégation coûteraient six lignes d'élèves par feuille. On garde l'identification
+   nécessaire pour qu'une feuille ramassée sur une table se recolle à sa classe.
+3. **Deux densités, et le nombre de pages annoncé pour chacune.** Onze compétences
+   × quatre épreuves + leurs totaux font 55 colonnes : une classe de 35 sort sur
+   **8 pages** en « confortable » (case de 7 mm, celle où l'on écrit à la main) et
+   **6 pages** en « serré ». L'école photocopie à ses frais : elle arbitre, le
+   dialogue lui donne les deux chiffres au lieu de choisir pour elle.
+
+**Au primaire, la feuille porte TOUTE l'UA**, pas la compétence sélectionnée : l'écran
+montre une compétence à la fois parce que c'est le bon geste au clavier, le papier les
+montre toutes parce que c'est le bon geste devant une pile de copies.
+
+**Vérifié.** 35 contrôles sur le moteur de découpe, 23 sur le document (dont
+`auditDocument` du socle : aucun `NaN` / `undefined` imprimé), et **rendu réel en PDF
+par Chrome** puis relu à l'image — c'est la grille des photos.
+
+**Non fait, à demander si besoin :** le même bouton sur l'écran APC du premier cycle
+(`ApcCompetenceWorkspace`) et sur la maternelle (`MatObservationWorkspace`). Même
+composant, quelques lignes de branchement.
+
+---
+
+## D42 — Le rattachement aux UA part école par école, pas d'un coup (2026-11-02)
+
+**Contexte.** La migration décidée en **D36** (maternelle : observations rattachées à une
+UA et non à un trimestre) n'avait jamais été appliquée. Le responsable l'a demandée sur
+une bannière d'écran — « 184 observation(s) de cette classe sont encore rattachées à un
+trimestre » — qui désignait **BRIGHT CONTINENT BILINGUAL SCHOOL · Nursery 1** (88 en T1 +
+96 en T2 = exactement 184).
+
+**Décision.** Appliquer **à cette école seule** (224 observations avec Nursery 2 et
+Pre-Nursery), et **pas** aux deux autres écoles pourtant dans le même état (LE SALUT 96,
+Collège La retraite 96), bien que le script sache tout migrer d'un geste.
+
+**Pourquoi ce découpage, qui coûte deux exécutions de plus.** La migration recalcule
+`trimestre_id`, et UA1 comme UA2 retombent sur le trimestre 1. Pour un couple
+(élève, domaine), les deux lignes T1 et T2 portent donc après coup le **même**
+`trimestre_id = 't1'`. Un serveur LAN en 0.3.26 ignore la colonne `ua` mais reçoit ce
+`trimestre_id` : son ancien `UNIQUE (eleve_id, domaine_id, trimestre_id)` **rejette la
+seconde ligne sans rien dire**. La colonne `ua` côté LAN n'arrive qu'en `58b940b`
+(0.3.29), et 0.3.27, 0.3.28 et 0.3.29 sont construits et **jamais envoyés** : aucune école
+en réseau local ne la porte aujourd'hui. On ne migre donc qu'une école dont il est
+**écrit et vérifiable** qu'elle n'a pas de serveur local — `REGISTRE_INCIDENTS` (I12) :
+« BRIGHT CONTINENT travaille dans le navigateur ».
+
+**Leçon de méthode, qui a failli faire conclure l'inverse.** Le premier verdict sur le
+pré-requis « l'appli Cloud déployée connaît-elle les UA ? » a été **faux** : il reposait
+sur `git merge-base --is-ancestor 58b940b main`, et la référence `main` **locale** était
+restée au 20 octobre (da83daa) quand `origin/main` était à 8553c8f. **Un pré-requis de
+production se juge sur la référence distante**, jamais sur une branche locale qu'on ne
+suit pas.
+
+**Ce qui n'a pas bougé : le T3.** Aucune règle n'a été donnée pour lui, donc aucune ligne
+n'est déplacée. L'audit a au passage démenti ce que `PROJECT_STATUS.md` affirmait
+(« 0 observation réelle en T3 ») : il y en a **96**, dans les deux écoles non migrées.
+
+**Retour arrière.** `node scripts/migrer-maternelle-ua.mjs --retour-arriere --ecole
+"BRIGHT CONTINENT BILINGUAL SCHOOL" --confirmer`. Vérifié **chargé et juste** avant
+d'annoncer quoi que ce soit : l'aperçu sans `--confirmer` renvoie les 96 lignes sur
+**T2**, pas sur T1 — `ancienne_periode` porte donc bien la période d'origine. À ne pas
+confondre avec la colonne `ancienne_periode` du tableau d'état affiché par le script, qui
+n'est qu'un alias de `trimestre_id` (ligne 181) et montre `t1` partout après migration.
+
+---
+
+## D43 — L'observation générale se saisit classe entière, dans la page Notes (2026-11-02)
+
+**Demande.** « Mets un formulaire pour l'observation globale pour la maternelle et le
+primaire directement dans la page notes. »
+
+**Ce qui n'allait pas, et c'était pire que « il manque un champ ».** Le gabarit
+`BulletinMatOfficial` imprime depuis toujours la ligne « Appréciation générale de
+l'enseignant(e) : ». La prop `appreciation` **n'était jamais passée** par
+`renderMatBulletin` : la ligne sortait vide sur **tous** les bulletins de maternelle,
+sans que rien ne le signale. Le carnet du primaire, lui, la lisait déjà
+(`primAppreciationSaisie`), mais il fallait ouvrir l'écran des bulletins et dérouler
+élève par élève pour l'écrire ; sans saisie il retombait sur le libellé de la cote, donc
+le **même texte** pour deux élèves de même cote.
+
+**Décision : aucun stockage neuf.** On écrit sous la clé spéciale `__appreciation__` du
+créneau de notes — exactement là où `AppreciationEditor` écrit déjà depuis l'écran des
+bulletins. Aucune table, aucune migration : le champ voyage par `student_absences` (canal
+des champs spéciaux), donc il est déjà synchronisé Cloud **et** LAN et déjà lu en
+production. Un second emplacement aurait fait deux vérités pour une seule ligne de
+bulletin.
+
+**L'unité est le TRIMESTRE, pas l'UA — et l'écran le dit.** La saisie se fait par UA, mais
+le bulletin se tire par trimestre et c'est lui qui porte cette ligne : les périodes UA
+déclarent `seqs: [trimestreOfUA(ua)]`, donc le créneau de stockage EST le numéro de
+trimestre. Les trois UA d'un trimestre partagent une observation. Le bandeau l'annonce
+avant la saisie — sans cela l'enseignante en écrit une par UA et n'en retrouve qu'une.
+
+**Replié par défaut.** La grille reste l'outil principal ; l'en-tête affiche
+« 7 / 35 élève(s) renseigné(s) », ce qui rend le panneau trouvable sans pousser la grille
+hors de l'écran. Écriture au `blur` et **seulement si le texte a changé** : un `onBlur`
+se déclenche à chaque passage de champ, et sans ce garde-fou une classe de 35 produirait
+35 écritures et 35 lignes de file de synchronisation pour rien.
+
+**Droit.** Un enseignant de matière non titulaire voit le panneau en lecture seule :
+l'appréciation d'ensemble revient au titulaire ou à l'administration.
+
+**Vérifié** : `src/core/_observationGlobale.test.mjs` — **41 contrôles** (clé identique à
+`gradeKey`, aucune fuite entre trimestres, jamais `undefined`, pas d'écriture inutile).
+
+---
+
+## D44 — Une UA se nomme et se tire comme une UA, pas comme son trimestre (2026-11-02)
+
+**Demande.** « Rends le bulletin UA1… au lieu de term quand on clique sur UA1 » puis
+« les notes de UA1 seulement doivent apparaître, pas pour le terme ».
+
+**Deux défauts, même cause : `period.seqs[0]`.** Pour une période d'une seule UA,
+`seqs` vaut `[trimestreOfUA(ua)]` — ce dont la PERSISTANCE a besoin (l'appréciation et la
+décision se rangent sur le créneau du trimestre, cf. **D43**). Mais deux endroits s'en
+servaient pour décider du CONTENU :
+
+1. `primTitle` et `matTitle` : cliquer « UA 1 » titrait « BULLETIN DU PREMIER
+   TRIMESTRE ». Les trois bulletins d'UA d'un même trimestre portaient le même titre —
+   une fois photocopiés, plus rien ne les distinguait.
+2. `matUas` appelait `uasDuTrimestre(period.seqs?.[0] || 1)` et **ignorait
+   `period.uas`** : le bulletin d'UA1 sortait avec trois colonnes, UA1, UA2, UA3, dont
+   deux vides. Le primaire lisait déjà `period.uas` (`primUAs`) ; la maternelle, non.
+
+C'est exactement le piège que le commentaire de `PERIODS_PRIMAIRE` décrivait : « une
+période d'une seule UA n'a pas de numéro de trimestre à donner, et la dérivation l'aurait
+ramenée au trimestre entier. » L'avertissement était écrit ; un seul des deux moteurs
+l'avait suivi.
+
+**Correctif.** `period.ua` tranche pour le titre (« BULLETIN DE L'UA1 — MATERNELLE »,
+« LEARNING UNIT 1 REPORT CARD »), `period.uas` pour les colonnes. Le repli sur `seqs`
+reste pour une clé de période persistée par une version antérieure, qui ne porte pas ces
+champs.
+
+**Et une colonne de moins.** Avec une seule UA, le gabarit affichait « UA1 » **puis**
+« Synthèse » — deux colonnes portant la même cote, la synthèse d'une unique unité étant
+cette unité. `BulletinMatOfficial` retombe désormais sur la mise en page classique
+(colonne « Niveau »), celle d'avant les UA ; c'est le titre qui dit laquelle.
+
+**Vérifié par RENDU RÉEL** (`react-dom/server`, pas une relecture du source) :
+`src/components/bulletins/_matOfficialUa.test.mjs` — 6 contrôles : une UA → 4 colonnes et
+aucune « Synthèse » ; un trimestre → 7 colonnes et ses trois UA, **inchangé** ;
+l'appréciation imprimée ; aucun `undefined`.
+
+---
+
+## D45 — L'orientation du bulletin suit le document, plus un réglage global (2026-11-02)
+
+**Demande.** « Le bulletin de la maternelle aussi en paysage » et « le bulletin du
+secondaire premier cycle en portrait ».
+
+**Le défaut.** La règle `@page` est **unique** pour l'écran (règle du socle, cf.
+`docs/PRINT_ENGINE.md` : la marge et l'orientation appartiennent à `@page`, jamais à une
+maquette). Or `profilPage` ne dépendait que de `primOrientation`, un réglage exposé par
+le **seul** panneau du primaire APC. Une école qui l'avait posé à « paysage » pour son
+carnet de primaire tirait ensuite **tous** ses bulletins en paysage — maternelle et
+premier cycle compris — sans aucun réglage pour le dire ni pour revenir en arrière.
+
+**Décision.** C'est la forme du document qui commande :
+
+| Document | **Défaut** | Pourquoi ce défaut |
+|---|---|---|
+| Maternelle | **paysage** | huit domaines, leurs cotes par UA et une colonne d'observations qu'on doit pouvoir lire : une grille large |
+| Secondaire (1er et 2nd cycle) | **portrait** | une liste de matières, haute et étroite ; en paysage la moitié de la feuille reste blanche |
+| Primaire APC | **portrait** | inchangé — son sélecteur existait déjà |
+
+**UN DÉFAUT N'EST PAS UNE CONTRAINTE.** Première version de ce correctif : la maternelle
+était FORCÉE en paysage et le secondaire FIGÉ en portrait. Le responsable l'a repris le
+jour même — « ce n'est pas obligatoire, on peut changer la forme paysage ou portrait » —
+et il a raison : on remplaçait un réglage qui fuitait d'un cycle à l'autre par deux
+réglages absents, ce qui n'est pas mieux. Les **trois** cycles ont maintenant leur
+sélecteur Portrait/Paysage ; seul le défaut diffère. Trois préférences distinctes dans
+`uiStore` (`primOrientation`, `matOrientation`, `secOrientation`), donc plus aucune
+fuite : régler le carnet du primaire en paysage ne touche plus au bulletin du collège.
+
+**Pourquoi le calcul a déménagé.** `profilPage` était calculé ligne ~1663, deux cents
+lignes **avant** les drapeaux de cycle (`isMat`, `isPrim`) : il ne pouvait pas savoir quel
+document on rendait. Il vit désormais après eux. Le profil POSÉ et le profil MESURÉ
+restent le même objet (`ajusterDensite`, `fitLiveSheets`) — poser la géométrie paysage
+tout en mesurant contre la hauteur utile du portrait ferait chercher une densité pour une
+page qui n'existe pas.
+
+Les préférences vivent dans le store d'UI, donc **par poste et pour la session** — comme
+`primOrientation` depuis l'origine. Un réglage par établissement demanderait une colonne
+`schools` et une migration : à demander si une école veut que son choix survive au
+redémarrage.
+
+
+## D46 — Le bulletin de séquence tient sur UNE page, et on dit jusqu'où (2026-11-02)
+
+**Demande.** « Le bulletin de séquence généré fait aujourd'hui 2 pages A4. Je veux qu'il
+tienne TOUJOURS sur 1 seule page A4 portrait, quel que soit le nombre de matières
+(jusqu'à 14), sans que ça devienne illisible », avec un plancher de police fixé à 6,5 pt
+et l'interdiction explicite de toucher aux calculs (moyennes, coef, cotes, rang).
+
+**Ce qui tenait vraiment la deuxième page — et ce n'était pas la police.** Le banc
+`scripts/apc-blocs-mesure.mjs` a mesuré, bloc par bloc, le composant réel en média
+print. La colonne COMPÉTENCES déclarait 42 % et recevait **186 px sur 720, soit 26 %**.
+Sans `table-layout: fixed`, le navigateur ne lit ces pourcentages que comme des souhaits :
+il redistribue selon le contenu, et les deux en-têtes les plus longs — « MATIÈRES ET NOM
+DE L'ENSEIGNANT » et « Appréciations et Visa », cette dernière pour une colonne **vide**
+qui s'octroyait 114 px — prenaient la place du texte des compétences. Chaque intitulé
+passait donc à quatre lignes et une ligne de matière faisait 72 px au lieu de 37. Sur
+onze matières : **385 px perdus**, pour un débordement de 210. La deuxième page ne venait
+pas d'un manque de place, elle venait d'une largeur qui n'était pas tenue.
+
+**Le deuxième verrou était dans le planificateur lui-même.** `core/apcLayout.js`
+retenait la première densité tenant « en 2 pages au plus » : il sortait donc 2 pages en
+11 pt **sans jamais essayer** une page en 8 pt. Et `_apcLayout.test.mjs` exigeait
+« police ≥ 10 pt », ce qui interdisait la solution. Un test qui verrouille le défaut
+n'est pas un garde-fou.
+
+**Ce qui a été fait.**
+- `table-layout: fixed` + largeurs rééquilibrées (compétences 35 %, numériques élargies),
+  libellés d'en-tête raccourcis, clamp **deux lignes** sur les colonnes de texte.
+- Le clamp est posé **hors** du bloc `@media print` : à l'écran comme au papier. Dans le
+  bloc print, l'aperçu mesurait 1424 px là où l'impression tenait sur une page, et
+  `fitLiveSheets` — qui mesure dans `beforeprint`, styles d'écran encore actifs —
+  calculait sa réduction sur une hauteur que le PDF n'a jamais.
+- Le planificateur essaie **une page d'abord**, sur toutes les densités, plancher 6,5 pt ;
+  puis une page **avec le filet de zoom** (tolérance 1,08) ; puis deux pages ; puis le
+  repli. Les hauteurs de blocs fixes ont été recalibrées sur la mesure, plus sur un barème.
+- Marge de sécurité de 10 % sur les plans multi-pages : à 42 lignes le planificateur
+  annonçait deux feuilles et Chrome en imprimait **trois**, dont une quasi blanche.
+- Le jumeau PDF `lib/apcBulletinDoc.js` (export en lot) reçoit les **mêmes** largeurs,
+  le même `table-layout: fixed` et le même clamp : écran et PDF ne divergent pas.
+
+**LA LIMITE, PARCE QU'IL FAUT LA DIRE.** Les blocs officiels obligatoires occupent 155 mm
+des 281 mm utiles (en-tête 22,6 · titre 6,9 · identité 23,0 · en-tête de colonnes 10,8 ·
+trois blocs 60,3 · appréciation 12,2 · signatures 19,3). Il reste 126 mm. Le **plafond
+mesuré est de 34 lignes de compétence** (`npm run test:print:apc:plafond`) — relevé de 28
+à 34 par la passe « une page avec filet ». Au-delà, tenir une page demanderait de passer
+sous 6,5 pt, ce que la demande interdit : on sort deux feuilles propres. 14 matières à une
+ou deux compétences tiennent donc sur une page ; 14 × 4 (56 lignes) non, et le banc
+l'exige explicitement en deux feuilles plutôt qu'en trois.
+
+**Corrections de données livrées avec (Étape 3).** « Nombre de moyennes » comptait
+l'effectif (6 au lieu de 3) : `profilClasse` dans `core/apcEngine.js` est désormais la
+source unique, et `scBulletinPdf.js` portait le même bogue sous la forme
+`count: st.above + (st.total - st.above)`, c'est-à-dire `st.total`. Le placeholder
+« M/Mme » disparaît quand le nom de l'enseignant est vide.
+
+**Preuves.** `npm run test:print:apc` (vrai PDF, pages comptées par pdf.js) et
+`npm run test:print:apc:plafond`. Captures avant/après dans
+`.print-tests/comparaison/`.

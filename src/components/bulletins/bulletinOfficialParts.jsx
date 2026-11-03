@@ -198,7 +198,23 @@ export function ContinuationHeader({ title, student, classLabel, serieLabel, sys
 // `ppLabel` : surcharge du libellé « P. principal » (le fondamental parle
 // d'enseignant(e) de la classe). `qrSrc` : QR d'identification de l'élève (même
 // payload que la carte scolaire) — colonne affichée seulement s'il est fourni.
-export function OfficialIdentity({ student, classLabel, serieLabel, effectif, profPrincipal, sys, ppLabel, qrSrc }) {
+// ── IDENTITÉ SUR DEUX LIGNES (variante `dense`) ─────────────────────────────
+//
+// Demandée le 2026-11-02 pour le bulletin de séquence, qui doit tenir sur UNE
+// page : « bloc identité sur 2 lignes, photo 18×22 mm à gauche ».
+//
+// AUCUN CHAMP OFFICIEL NE DISPARAÎT. Les quatre lignes d'origine portent sept
+// renseignements (nom, classe, naissance, genre, effectif, matricule,
+// redoublant, P. principal, parents) ; la variante dense les répartit sur deux
+// lignes de quatre cellules au lieu de quatre lignes de deux. Un bulletin
+// officiel porte la date et le lieu de naissance, le matricule et le tuteur, et
+// ce n'est pas négociable pour gagner des millimètres — ce sont les
+// interlignes, les rembourrages et le NOMBRE DE RANGS qui cèdent.
+//
+// La photo GRANDIT (18×22 mm contre 13,7×16,9 mm) : c'est elle qui fixe
+// désormais la hauteur du bloc, et c'est voulu — une photo d'identité trop
+// petite ne sert à rien sur un document remis à un parent.
+export function OfficialIdentity({ student, classLabel, serieLabel, effectif, profPrincipal, sys, ppLabel, qrSrc, dense = false }) {
   const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
   const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
   const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
@@ -209,12 +225,45 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
   const Chk = ({ on }) => (
     <span style={{ display: 'inline-block', width: 9, height: 9, border: B, margin: '0 2px', verticalAlign: 'middle', background: on ? '#374151' : '#fff' }} />
   );
+  // 18 × 22 mm = 68 × 83 px à 96 ppp (PX_PER_MM du socle).
+  const PHOTO_W = dense ? 68 : 52;
+  const PHOTO_H = dense ? 83 : 64;
+  const CD = dense ? { ...CELL, padding: '1px 3px', lineHeight: 1.15 } : CELL;
+
+  if (dense) {
+    return (
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 3, tableLayout: 'fixed' }}>
+        <tbody>
+          <tr>
+            <td rowSpan={2} style={{ ...CD, width: PHOTO_W + 8, textAlign: 'center', verticalAlign: 'middle' }}>
+              <BulletinPhoto src={student?.photo_url} width={PHOTO_W} height={PHOTO_H} radius={2} />
+            </td>
+            <td style={CD}>{L(sys, "Nom et Prénoms", 'Full name', 'Nombre y apellidos')} : <strong>{student?.name || ''}</strong></td>
+            {/* PAS DE nowrap ICI. Avec table-layout fixe, ces cellules font
+                219 px ; « Genre : Masculin · Redoublant : Non » en fait
+                davantage, et le nowrap le faisait sortir de la feuille (coupé
+                à « No » sur la capture du 2026-11-02). Le repli à la ligne est
+                GRATUIT : la hauteur du rang est fixée par la photo (83 px pour
+                deux rangs), qui laisse deux lignes de texte par cellule. */}
+            <td style={CD}>{L(sys, 'Classe', 'Class', 'Clase')} : <strong>{classTxt}</strong> · {L(sys, 'Effectif', 'Size', 'Total')} : {effectif ?? ''}</td>
+            <td style={CD}>{L(sys, 'Genre', 'Gender', 'Género')} : {genderLabel(student?.gender, sys)} · {L(sys, 'Redoublant', 'Repeater', 'Repetidor')} : {redoublant ? yes : no}</td>
+          </tr>
+          <tr>
+            <td style={CD}>{L(sys, 'Né(e) le', 'Born', 'Nacido(a) el')} : {student?.date_naissance || ''} {student?.lieu_naissance ? `${L(sys, 'à', 'in', 'en')} ${student.lieu_naissance}` : ''}</td>
+            <td style={CD}>{L(sys, 'Identifiant', 'Unique ID', 'Identificador')} : {student?.matricule || ''} · {ppLbl} : {profPrincipal || ''}</td>
+            <td style={CD}>{L(sys, 'Parents / Tuteurs', 'Parents / Guardians', 'Padres / Tutores')} : {parents}{phone}</td>
+          </tr>
+        </tbody>
+      </table>
+    );
+  }
+
   return (
     <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 4 }}>
       <tbody>
         <tr>
           <td rowSpan={4} style={{ ...CELL, width: 64, textAlign: 'center', verticalAlign: 'middle' }}>
-            <BulletinPhoto src={student?.photo_url} width={52} height={64} radius={2} />
+            <BulletinPhoto src={student?.photo_url} width={PHOTO_W} height={PHOTO_H} radius={2} />
           </td>
           <td style={CELL}>{L(sys, "Nom et Prénoms de l'élève", "Student's full name", 'Nombre y apellidos')} : <strong>{student?.name || ''}</strong></td>
           <td style={{ ...CELL, whiteSpace: 'nowrap' }}>{L(sys, 'Classe', 'Class', 'Clase')} : <strong>{classTxt}</strong></td>

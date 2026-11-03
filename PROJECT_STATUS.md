@@ -12,6 +12,129 @@
 > du primaire (I40) **vérifié sur le site servi** — § « Mise en ligne du 2026-11-02 ».
 > Le paquet LAN 0.3.29, lui, **reste non envoyé** : aucune école ne l'a reçu.
 >
+> ## ✍️ SESSION DU 2026-11-02 (nuit) — OBSERVATION GÉNÉRALE, UA ET ORIENTATIONS
+>
+> **Rien n'est commité, rien n'est déployé, aucun paquet n'est reconstruit.**
+> `npm test` → **254 ok, 0 ko** · `npm run build` passe.
+>
+> **1. Un formulaire d'observation générale dans la page Notes**, maternelle et primaire,
+> toute la classe à l'écran. Décision **D43**. Ce qui n'allait pas dépassait le champ
+> manquant : le bulletin de maternelle imprimait « Appréciation générale de
+> l'enseignant(e) : » **vide sur tous les bulletins**, la prop n'étant jamais passée.
+> Aucun stockage neuf — la clé spéciale `__appreciation__` du créneau de trimestre, déjà
+> synchronisée des deux côtés et déjà lue en production.
+> Fichiers : `src/core/observationGlobale.js` (+ **41 contrôles**),
+> `src/components/grades/ObservationGlobaleForm.jsx`, montés dans
+> `MatObservationWorkspace` et `PrimCompetenceWorkspace`.
+>
+> **2. Une UA se nomme et se tire comme une UA.** Décision **D44**. Cliquer « UA 1 »
+> titrait « BULLETIN DU PREMIER TRIMESTRE » et sortait **trois** colonnes (UA1, UA2, UA3)
+> dont deux vides : `matUas` ignorait `period.uas` et redérivait le trimestre. Vérifié
+> par **rendu réel** (`_matOfficialUa.test.mjs`, 6 contrôles).
+>
+> **3. L'orientation se choisit, par cycle.** Décision **D45**. Trois sélecteurs
+> Portrait/Paysage — maternelle (défaut **paysage**), secondaire 1er et 2nd cycle (défaut
+> **portrait**), primaire (inchangé). Le profil `@page` étant unique pour l'écran, le
+> réglage du primaire s'appliquait jusqu'ici à TOUS les bulletins ; trois préférences
+> distinctes dans `uiStore` ferment la fuite. Première version : orientations IMPOSÉES —
+> reprise le jour même par le responsable, « ce n'est pas obligatoire ».
+> Les préférences suivent le POSTE et la SESSION (store d'UI), pas l'établissement.
+>
+> ⚠️ **À regarder à l'écran avant de commiter** : le panneau d'observation (maternelle et
+> primaire), un bulletin d'UA1, un bulletin de maternelle en paysage et un bulletin de
+> premier cycle en portrait. Rien de tout cela n'a été ouvert dans l'application — c'est
+> la limite de ce qui est prouvé ici : tests et build, pas l'écran.
+>
+> ---
+>
+> ## ⚠️ ÉCRITURE EN PRODUCTION DU 2026-11-02 — MATERNELLE RATTACHÉE AUX UA
+>
+> **Une seule chose a été écrite en production dans cette session**, sur autorisation
+> explicite du responsable, demandée pour cette exécution-là. Tout le reste ci-dessous
+> est dans l'arbre de travail.
+>
+> | | |
+> |---|---|
+> | Demande | « faire apparaître les notes sur UA1 et UA2 » — bannière des 184 observations |
+> | Commande | `node scripts/migrer-maternelle-ua.mjs --appliquer --ecole "BRIGHT CONTINENT BILINGUAL SCHOOL" --par "Hassan Ousman"` |
+> | Cible | Cloud `ltxopwoxvgslsgzixbpx`, année 2026-2027 |
+> | Résultat | **224 observations** rattachées · 0 conflit · total avant 224 = total après 224, **aucune ligne perdue** |
+> | Trace | `ua_migre_le = 2026-11-02T21:18:44.562Z` · `ua_migre_par = Hassan Ousman` |
+> | Retour arrière | `node scripts/migrer-maternelle-ua.mjs --retour-arriere --ecole "BRIGHT CONTINENT BILINGUAL SCHOOL" --confirmer` — **vérifié chargé** : l'aperçu sans `--confirmer` renvoie bien les 96 lignes sur **T2**, donc `ancienne_periode` porte la valeur d'origine |
+> | Rapport | `scratchpad/ua-bright-continent.csv` (224 lignes, jeté avec la session) |
+>
+> Détail par classe : Nursery 1 T1→UA1 **88** · Nursery 1 T2→UA2 **96** (= les 184 de la
+> bannière) · Nursery 2 **16 + 16** · Pre-Nursery T1→UA1 **8**.
+>
+> **Pourquoi cette école seule.** Les trois pré-requis du script ont été établis depuis le
+> dépôt, et le troisième avait d'abord été jugé à tort sur une référence `main` **locale
+> périmée** (da83daa, 20 octobre) :
+>
+> 1. colonne `ua` au Cloud — **posée** (l'audit lit `o.ua` sans erreur) ;
+> 2. appli Cloud déployée avec les UA — **oui** : la bannière vient de `58b940b`, qui est
+>    sur `origin/main` (8553c8f) ; la production est à `b01dde8`, son parent. C'est
+>    précisément pourquoi le responsable voyait ce message ;
+> 3. paquet LAN portant `ua` — **aucun** (`ensureColumn('mat_observations','ua')` n'arrive
+>    qu'en `58b940b`, et 0.3.27/0.3.28/0.3.29 sont construits et jamais envoyés) ; **mais
+>    sans objet pour cette école** : `docs/REGISTRE_INCIDENTS.md` (I12) établit que
+>    « BRIGHT CONTINENT travaille dans le navigateur » — pas de serveur local à
+>    désynchroniser.
+>
+> ⛔ **LE SALUT (96) et Collège La retraite (96) n'ont PAS été migrés**, faute de preuve
+> qu'elles travaillent sans serveur local. Le danger est précis : la migration recalcule
+> `trimestre_id = 't1'` pour UA1 **et** UA2 ; un serveur 0.3.26, qui ignore la colonne
+> `ua` mais reçoit le `trimestre_id`, rejette la seconde ligne **en silence** sur son
+> ancien `UNIQUE (eleve_id, domaine_id, trimestre_id)`. À lever avant de les migrer.
+>
+> **T3 : rien n'a bougé**, aucune règle n'ayant été donnée. BRIGHT CONTINENT n'en a pas ;
+> les deux autres écoles en ont 96 au total.
+>
+> ---
+>
+> ## ✍️ SESSION DU 2026-11-02 (soir) — SÉQUENCES ANGLOPHONES + FEUILLE DE NOTES
+>
+> **Rien n'est commité, rien n'est déployé, aucun paquet n'est reconstruit.** Tout est
+> dans l'arbre de travail, par-dessus le travail de synchro 0.3.29 non commité lui non plus.
+>
+> **Suite de tests après ce travail : `npm test` → 252 ok, 0 ko.** `npm run build` passe.
+>
+> **1. Le sous-système anglophone compte six séquences, plus trois « Terms »** — décidé
+> par le responsable ce jour, sur la classe FORM2 d'une école bilingue. Term 1 = séq. 1-2,
+> Term 2 = 3-4, Term 3 = 5-6. Détail, périmètre et retour arrière : **D40**
+> (`docs/JOURNAL_DECISIONS.md`).
+>
+> > ⚠️ **À DIRE AUX ÉCOLES ANGLOPHONES AVANT DE LEUR LIVRER CECI.** Les notes anglophones
+> > déjà saisies portent les numéros 1, 2, 3. Elles se reliront comme **séquences** 1, 2, 3 :
+> > l'ancien « Term 2 » tombe dans le **Trimestre 1**, l'ancien « Term 3 » dans le
+> > **Trimestre 2**. Rien n'est perdu en base — c'est la LECTURE qui change. L'école doit
+> > soit reprendre ces notes, soit accepter le décalage. Le responsable a choisi cette
+> > option en connaissance de cause plutôt qu'un réglage par école.
+>
+> Fichiers : `countries/cameroon_en.js`, `pages/Grades.jsx`, `pages/Bulletins.jsx`,
+> `pages/Reports.jsx`, `pages/ConseilDeClasse.jsx`,
+> `components/grades/SubjectTeacherWorkspace.jsx`, `lib/transcriptEngine.js`,
+> `lib/calendarTracks.js` (+ son test, mis à jour : 23 clés de calendrier au lieu de 20).
+> Aucune migration SQL écrite ni appliquée.
+>
+> **2. `FORM2 [EN /100]` devient `FORM2 [EN]`** dans les sélecteurs de classe de Notes,
+> Bulletins et Rapports (le conseil de classe l'écrivait déjà ainsi). Le badge de barème
+> à côté de la classe est conservé.
+>
+> **3. La feuille de notes à remplir à la main** — demandée photos à l'appui. Bouton
+> « 🖨 Feuille de notes » sur l'écran de saisie classique et sur le primaire APC :
+> grille A4 paysage, **vierge par défaut**, ou avec les notes déjà saisies ; deux densités
+> dont le nombre de pages est annoncé ; lignes vides de fin pour les inscriptions
+> tardives. Détail et choix : **D41**.
+>
+> Neuf : `core/feuilleNotes.js` (+ test, 35 contrôles), `lib/feuilleNotesDoc.js`
+> (+ test, 23 contrôles), `components/grades/FeuilleNotesButton.jsx`. Bâti **sur le socle
+> `lib/print`** (profil `large`) — aucune règle `@page` ajoutée, aucune dépendance nouvelle.
+> Rendu réel vérifié en PDF par Chrome, aux deux formats des photos.
+>
+> **Prochaine action exacte** : faire valider les deux écrans par le responsable
+> (saisie FORM2 pour les séquences, feuille de notes imprimée pour la grille) **avant**
+> de commiter et avant toute reconstruction de paquet.
+>
 > ## 📦 0.3.29 — LA SYNCHRONISATION. PAQUET LINUX CONSTRUIT, NON ENVOYÉ (2026-11-02)
 >
 > **Côté Cloud, c'est fait et vérifié** (seule chose déployée à ce jour) :
@@ -2026,7 +2149,7 @@ synchronisation LAN↔Cloud**.
 |---|---|---|
 | **3. Colonne « N° » au primaire** | livré | `src/core/ordreClasse.js` + test ; colonne figée, présente à l'export, uniforme entre cycles |
 | **4. Doublons d'élèves** | livré | `src/core/_doublonsEleves.test.mjs` — **98 contrôles**, dont 700 élèves en 297 ms |
-| **1. Maternelle en UA** | code livré, **migration des données NON appliquée** | `scripts/_migrerMaternelleUa.test.mjs` — **43 contrôles** sur base temporaire portant les contraintes d'après migration |
+| **1. Maternelle en UA** | code livré · **migration appliquée chez BRIGHT CONTINENT le 2026-11-02** (224 observations, 0 conflit, 0 perte) ; les deux autres écoles restent en attente | `scripts/_migrerMaternelleUa.test.mjs` — **43 contrôles** sur base temporaire portant les contraintes d'après migration |
 | **2. Plusieurs évaluations par trimestre** | livré | `src/core/_apcEvaluations.test.mjs` + `src/components/grades/_apcEvaluationsEcran.test.mjs` |
 
 Décisions correspondantes : **D36** (maternelle), **D37** (doublons), **D38** (évaluations).
@@ -2061,7 +2184,10 @@ recalculé et rejette silencieusement la seconde ligne.
 1. **Quelle école** pour la migration maternelle — THE GENIUS (il faudrait sa base LAN) ou
    BRIGHT CONTINENT ?
 2. **Les notes de T3.** Aucune règle n'a été donnée, donc rien n'est transféré. Compté au
-   Cloud : **0 observation réelle en T3**. La question reste ouverte pour les bases LAN.
+   Cloud : **96 observations réelles en T3** au 2026-11-02 (48 chez LE SALUT · Petite
+   Section, 48 chez Collège La retraite · Petite Section ; **aucune** chez BRIGHT
+   CONTINENT). L'audit du 2026-11-02 démentit le « 0 » écrit ici auparavant. Elles sont
+   restées en place. La question reste ouverte, et pour les bases LAN aussi.
 3. **Validation du rapport à blanc** avant toute application (`--dry-run`, CSV).
 4. **Les verrous de période vivent dans `localStorage`**, par poste — ni en base, ni
    synchronisés. Une trace d'audit (`ua_migre_le`, `ua_migre_par`) est donc tout ce qui
@@ -2180,8 +2306,9 @@ appliqué** (§ 4 vicies) : l'école cible de la migration maternelle, la règle
 de **T3** (aucune n'a été donnée — rien n'est transféré), la validation du **rapport à
 blanc**, et la confirmation qu'une trace d'audit suffit puisque les verrous de période
 vivent dans `localStorage`. Les trois migrations SQL de ce travail sont **écrites et non
-appliquées** : `supabase_mat_observations_ua.sql`, `supabase_eleves_non_doublons.sql`,
-`supabase_apc_evaluations.sql`.
+appliquées** : `supabase_eleves_non_doublons.sql`, `supabase_apc_evaluations.sql`.
+`supabase_mat_observations_ua.sql`, elle, **est bien appliquée au Cloud** — vérifié le
+2026-11-02 en lisant `mat_observations.ua` sans erreur.
 
 **Poser à l'école les trois questions du § 4 quaterdecies**, dans cet ordre d'urgence :
 

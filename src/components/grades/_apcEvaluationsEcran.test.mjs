@@ -155,8 +155,12 @@ titre('le bulletin montre les deux notes ET leur moyenne');
     'seulement quand il y a plusieurs evaluations — sinon on repeterait la note sous son propre intitule');
   ok(/evaluations: evaluations\.length > 1 \? evaluations : null,/.test(BULLE),
     'et l assembleur ne les transporte que dans ce cas');
-  ok(/\$\{esc\(c\.intitule\)\}\$\{evalDetailHtml\(c, sys\)\}/.test(BULLE),
-    'le detail suit l intitule, en petit : aucune colonne n est ajoutee au tableau');
+  // L'INTENTION EST INCHANGÉE : le détail vit DANS la cellule de la compétence,
+  // il n'ajoute aucune colonne. La FORME a changé le 2026-11-02 : l'intitulé est
+  // désormais enveloppé dans un div borné à deux lignes (clamp), et le détail
+  // reste EN DEHORS de ce div — un chiffre ne se tronque pas.
+  ok(/<div style="\$\{CLAMP2\}">\$\{esc\(c\.intitule\)\}<\/div>\$\{evalDetailHtml\(c, sys\)\}/.test(BULLE),
+    'le detail suit l intitule, dans la MEME cellule : aucune colonne ajoutee');
   ok(/e\.max === APC_DEFAULT_MAX \? fix2\(e\.note\) : `\$\{fix2\(e\.note\)\}\/\$\{fix2\(e\.max\)\}`/.test(BULLE),
     'une evaluation hors bareme par defaut affiche son denominateur');
 

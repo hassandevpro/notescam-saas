@@ -76,7 +76,7 @@ function tableHeadHtml() {
 function groupBlockHtml(g) {
   const headRow = `<tr><td colspan="8" style="${C};background:#dde7f3;font-weight:bold">${esc(g.nom)}</td></tr>`;
   const body = g.rows.map((r) => `<tr>
-    <td style="${C}"><strong>${esc(r.nom)}</strong><br/><span style="color:#666">${esc(r.enseignant || 'M/Mme')}</span></td>
+    <td style="${C}"><strong>${esc(r.nom)}</strong><br/>${r.enseignant ? `<span style="color:#666">${esc(r.enseignant)}</span>` : ''}</td>
     <td style="${C};text-align:center">${r.coef}</td>
     <td style="${C};text-align:center">${r.charge ?? ''}</td>
     <td style="${C};text-align:center"><strong>${fix2(r.moyenne)}</strong></td>

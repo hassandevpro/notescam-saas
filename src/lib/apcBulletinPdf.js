@@ -10,6 +10,7 @@
 
 import { printSheets, PRINT_RESULT, chunk, BATCH_SIZE } from './print';
 import { buildTrimesterSheets, assembleTrimester } from './apcBulletinDoc';
+import { profilClasse } from '../core/apcEngine';
 
 export { PRINT_RESULT };
 
@@ -18,15 +19,11 @@ export function classStatsFor(referentiel, apcNotes, { classeSlug, trimestreId, 
   const avgs = students
     .map((s) => assembleTrimester(referentiel, apcNotes, { classeSlug, trimestreId, student: s }).moyenneGenerale)
     .filter((v) => v != null);
-  if (!avgs.length) return null;
-  const sum = avgs.reduce((a, b) => a + b, 0);
-  return {
-    min: Math.min(...avgs),
-    max: Math.max(...avgs),
-    avg: Math.round((sum / avgs.length) * 100) / 100,
-    count: avgs.length,
-    rate: Math.round((avgs.filter((a) => a >= 10).length / avgs.length) * 100),
-  };
+  // Même correction que dans Bulletins.jsx : « Nombre de moyennes » compte les
+  // élèves AYANT la moyenne, pas l effectif noté. Le calcul est centralisé dans
+  // core/apcEngine (profilClasse, pur et testé) pour que l export par lot et l
+  // aperçu à l écran ne puissent plus diverger.
+  return profilClasse(avgs, students?.length ?? null);
 }
 
 /**

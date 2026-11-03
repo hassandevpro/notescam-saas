@@ -3,14 +3,33 @@
 //
 // On vérifie, pour 6e / 5e / 4e / 3e avec le nombre MAXIMAL de matières APC
 // officielles :
-//   ✓ police ≥ 10 pt (jamais en dessous — lisibilité prioritaire) ;
-//   ✓ deux pages maximum pour une charge officielle réaliste ;
+//   ✓ UNE page pour une charge officielle réaliste ;
+//   ✓ police ≥ 6,5 pt (le plancher de lisibilité, jamais franchi) ;
 //   ✓ aucune compétence perdue ni dupliquée à la pagination ;
 //   ✓ continuité « (suite) » cohérente quand une matière est scindée ;
 //   ✓ pied (TOTAL + synthèse) sur la DERNIÈRE page ;
 //   ✓ pages équilibrées (pas de « page 1 = 80 %, page 2 = 20 % »).
-// Plus un cas EXTRÊME (charge ingérable) : le moteur reste à ≥ 10 pt même s'il doit
-// produire plus de 2 pages (repli best-effort, lisibilité avant densité).
+// Plus un cas EXTRÊME (charge ingérable) : le moteur ne descend jamais sous le
+// plancher, quitte à produire plusieurs feuilles.
+//
+// ── CE QUE CE FICHIER EXIGEAIT AVANT LE 2026-11-02, ET POURQUOI ÇA A CHANGÉ ──
+//
+// Il demandait « police ≥ 10 pt » et « deux pages maximum ». Les deux ont été
+// remplacés le 2026-11-02, sur demande explicite : le bulletin de séquence doit
+// tenir sur UNE page A4 jusqu'à 14 matières, « sans que ça devienne illisible »,
+// la demande fixant elle-même le plancher à 6,5 pt.
+//
+// Le test précédent n'était pas seulement plus laxiste : il VERROUILLAIT le
+// défaut. Tant que 10 pt était un minimum, le planificateur ne pouvait pas
+// essayer 8 pt pour tenir sur une page — il n'avait d'autre issue qu'une
+// seconde feuille. Un test qui interdit la solution n'est pas un garde-fou.
+//
+// Le plancher reste un plancher : SOUS 6,5 pt on refuse, et on imprime deux
+// feuilles. C'est l'ordre des priorités demandé — lisible d'abord, court
+// ensuite. La contrepartie est mesurée ailleurs, sur un VRAI PDF :
+// `npm run test:print:apc` (cas réel + 14 matières) et
+// `npm run test:print:apc:plafond` (le plafond : 34 lignes de compétence).
+// Ce fichier-ci reste pur — il vérifie le PLAN, pas le rendu.
 //
 // Pur (aucune dépendance React/DOM) : exécutable via `node src/core/_apcLayout.test.mjs`.
 
@@ -69,8 +88,16 @@ for (const classe of ['6e', '5e', '4e', '3e']) {
   const totalComps = matieres.reduce((a, m) => a + m.competences.length, 0);
   const { fontPt, pages, footerPageIndex, totalPages } = planApcLayout(matieres);
 
-  ok(fontPt >= 10, `${classe} : police ${fontPt}pt ≥ 10pt (lisibilité)`);
-  ok(totalPages <= 2, `${classe} : ${totalPages} page(s) ≤ 2 (charge officielle)`);
+  ok(fontPt >= 6.5, `${classe} : police ${fontPt}pt ≥ 6,5pt (plancher de lisibilité)`);
+  // DEUX PAGES RESTENT ADMISES ICI, et il faut dire pourquoi plutôt que de
+  // relâcher le seuil en silence. `officialLoad()` fabrique 37 compétences aux
+  // intitulés synthétiques de 60 à 120 caractères — c'est au-dessus du plafond
+  // MESURÉ d'une page A4 au plancher de 6,5 pt, qui est de 34 lignes
+  // (`npm run test:print:apc:plafond`, 2026-11-02). Exiger une page ici
+  // exigerait une police illisible, ce que la demande interdit explicitement.
+  // La cible réelle du 2026-11-02 — 14 matières — est vérifiée plus bas, elle,
+  // en page UNIQUE et sans tolérance.
+  ok(totalPages <= 2, `${classe} : ${totalPages} page(s) ≤ 2 (37 compétences : au-dessus du plafond d'une page)`);
   ok(pages.length === totalPages, `${classe} : cohérence pages.length == totalPages`);
 
   const flat = flatComps(pages);
@@ -97,21 +124,50 @@ for (const classe of ['6e', '5e', '4e', '3e']) {
   const light = [matiere('Français', 2, 40), matiere('Maths', 2, 40), matiere('Anglais', 1, 40)];
   const { fontPt, totalPages, footerPageIndex } = planApcLayout(light);
   ok(totalPages === 1, `Charge légère : 1 page (obtenu ${totalPages})`);
-  ok(fontPt >= 10, `Charge légère : police ${fontPt}pt ≥ 10pt`);
+  ok(fontPt >= 10, `Charge légère : police ${fontPt}pt ≥ 10pt (rien ne justifie de réduire)`);
   ok(footerPageIndex === 0, 'Charge légère : pied sur la page 1');
 }
 
 // Cas EXTRÊME : charge ingérable (25 matières × 6 compétences très longues).
-// Le moteur PEUT dépasser 2 pages mais NE DOIT JAMAIS descendre sous 10pt.
+// Le moteur PEUT produire plusieurs feuilles, mais NE DESCEND JAMAIS sous le
+// plancher de 6,5 pt : 25 matières × 6 compétences longues = 150 lignes, très
+// au-delà des 34 que porte une page A4.
 {
   uid = 0;
   const heavy = Array.from({ length: 25 }, (_, i) => matiere(`Matière ${i + 1}`, 6, 90));
   const totalComps = heavy.reduce((a, m) => a + m.competences.length, 0);
   const { fontPt, pages, footerPageIndex, totalPages } = planApcLayout(heavy);
-  ok(fontPt >= 10, `Charge extrême : police ${fontPt}pt ≥ 10pt (lisibilité avant densité)`);
+  ok(fontPt >= 6.5, `Charge extrême : police ${fontPt}pt ≥ 6,5pt (lisibilité avant densité)`);
   ok(flatComps(pages).length === totalComps, `Charge extrême : ${totalComps} compétences préservées`);
   ok(footerPageIndex === totalPages - 1, 'Charge extrême : pied sur la dernière page');
   console.log(`   ↳ charge extrême rendue sur ${totalPages} page(s) à ${fontPt}pt (repli best-effort)`);
+}
+
+// LA CIBLE EXPLICITE DU 2026-11-02 : « jusqu'à 14 matières », sur UNE page.
+// Deux compétences par matière = 28 lignes, sous le plafond mesuré de 34.
+{
+  uid = 0;
+  const quatorze = Array.from({ length: 14 }, (_, i) => matiere(`Matière ${i + 1}`, 2, 95));
+  const totalComps = quatorze.reduce((a, m) => a + m.competences.length, 0);
+  const { fontPt, pages, totalPages, footerPageIndex } = planApcLayout(quatorze);
+  ok(totalPages === 1, `14 matières × 2 compétences : 1 page (obtenu ${totalPages})`);
+  ok(fontPt >= 6.5, `14 matières × 2 compétences : police ${fontPt}pt ≥ 6,5pt`);
+  ok(footerPageIndex === 0, '14 matières × 2 compétences : pied sur la page 1');
+  ok(flatComps(pages).length === totalComps,
+    `14 matières × 2 compétences : ${totalComps} compétences préservées`);
+  console.log(`   ↳ 14 matières × 2 compétences rendues sur 1 page à ${fontPt}pt`);
+}
+
+// LE PLANCHER EST UN PLANCHER. Aucune charge, si lourde soit-elle, ne doit
+// faire descendre la police en dessous : c'est la seule promesse qui protège
+// le parent d'un bulletin qu'il ne peut pas lire.
+{
+  uid = 0;
+  for (const [nbMat, nbComp] of [[14, 1], [14, 2], [14, 4], [20, 3], [30, 2]]) {
+    const charge = Array.from({ length: nbMat }, (_, i) => matiere(`M${i + 1}`, nbComp, 110));
+    const { fontPt } = planApcLayout(charge);
+    ok(fontPt >= 6.5, `${nbMat}×${nbComp} : police ${fontPt}pt ≥ 6,5pt (plancher tenu)`);
+  }
 }
 
 console.log(failed ? '\n❌ DES TESTS DE MISE EN PAGE ONT ÉCHOUÉ' : '\n✅ Tous les tests de mise en page APC passent');

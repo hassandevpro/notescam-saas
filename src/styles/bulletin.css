@@ -490,11 +490,46 @@
     padding: 0 7px !important;
   }
   .apc-sheet thead { display: table-header-group; }
+  /* DEUX LIGNES AU PLUS dans les colonnes de TEXTE du tableau de matières.
+     C'est la seule borne qui rende la hauteur d'une ligne PRÉVISIBLE : sans
+     elle, un intitulé de compétence de 80 caractères occupe deux, trois ou
+     quatre lignes selon la largeur réellement accordée, et le planificateur ne
+     peut promettre aucune page. -webkit-line-clamp est la seule mise en oeuvre
+     que Chrome applique AUSSI à l'impression ; l'attribut title porte le texte
+     entier, et la saisie l'affiche en clair.
+     POSÉ SUR UN <div> INTERNE, jamais sur le <td> : -webkit-box retirerait à la
+     cellule son display:table-cell et disloquerait la table. */
   .apc-sheet tbody.apc-mat,
   .apc-sheet .apc-keep {
     page-break-inside: avoid;
     break-inside: avoid;
   }
+}
+
+/* DEUX LIGNES AU PLUS dans les colonnes de TEXTE du tableau de matières —
+   À L'ÉCRAN COMME À L'IMPRESSION, et c'est le point entier de cette règle.
+   Elle a d abord été écrite dans le bloc @media print. Erreur, mesurée le
+   2026-11-02 par scripts/apc-plafond-lignes.mjs : à 14 matières l'aperçu
+   mesurait 1424 px et l'impression tenait sur UNE page. Deux conséquences, et
+   aucune n'est acceptable :
+     1. fitLiveSheets mesure la feuille dans « beforeprint », où les styles
+        d'écran s'appliquent encore. Il calculait donc un facteur de réduction
+        sur une hauteur que le PDF n'a jamais : soit il rapetissait un document
+        qui tenait déjà, soit il tombait sous le plancher et renonçait.
+     2. Le responsable juge sur l'APERÇU. Un aperçu qui ne montre pas ce que
+        l'imprimante sort est un piège, et le socle d'impression pose depuis le
+        début que l'écran et le PDF ne doivent pas diverger.
+   Le texte entier n'est pas perdu : l'attribut title le porte au survol, et la
+   page Notes l'affiche en clair — c'est là qu'on le lit, pas sur un bulletin.
+   -webkit-line-clamp est la seule mise en oeuvre que Chrome applique AUSSI à
+   l'impression.
+   POSÉE SUR UN <div> INTERNE, jamais sur le <td> : -webkit-box retirerait à la
+   cellule son display:table-cell et disloquerait la table. */
+.apc-sheet .apc-clamp2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ── Filigrane logo officiel — répété sur CHAQUE page imprimée ──
@@ -514,7 +549,7 @@
   .official-print-watermark img {
     width: 58%;
     max-width: 440px;
-    opacity: 0.07;
+    opacity: 0.06;   /* 6 % — demandé le 2026-11-02 (était 7 %) */
     object-fit: contain;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;

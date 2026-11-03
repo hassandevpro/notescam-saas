@@ -95,7 +95,7 @@ const dataT = assembleScBulletin({
 const mathsRow = dataT.groups[0].rows.find((r) => r.id === 'maths');
 const angRow = dataT.groups[1].rows.find((r) => r.id === 'ang');
 ok(mathsRow.enseignant === 'M. KAMGA Paul', "SC : enseignant résolu (Maths → M. KAMGA Paul)");
-ok(angRow.enseignant === '', 'SC : matière sans enseignant assigné → vide (fallback M/Mme à l\'affichage)');
+ok(angRow.enseignant === '', 'SC : matière sans enseignant assigné → vide (et le bulletin n’affiche alors RIEN, plus de « M/Mme »)');
 
 // APC : correspondance par nom référentiel ↔ subjects de la classe.
 const refMat = [{ id: 'francais', nom: 'Français' }, { id: 'maths', nom: 'Mathématiques' }];

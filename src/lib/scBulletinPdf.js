@@ -42,7 +42,16 @@ export function perSubjectRanksAndStats(subjects, allGrades, classId, seqs, stud
 export function classProfile(subjects, allGrades, classId, seqs, students, sys, opts, excl = {}) {
   const st = clsStat(students, allGrades, classId, seqs, subjects, sys, excl, opts);
   if (st.avg == null) return null;
-  return { min: st.min, max: st.max, avg: st.avg, count: st.above + (st.total - st.above), rate: st.total ? Math.round((st.above / st.total) * 100) : 0 };
+  // `count` valait `st.above + (st.total - st.above)`, c'est-à-dire `st.total` —
+  // l'effectif, écrit en long. « Nombre de moyennes » désigne les élèves AYANT
+  // la moyenne : c'est `st.above`, le même numérateur que le taux de réussite
+  // juste à côté. Corrigé le 2026-11-02 (cf. `profilClasse` dans apcEngine).
+  return {
+    min: st.min, max: st.max, avg: st.avg,
+    count: st.above,
+    rate: st.total ? Math.round((st.above / st.total) * 100) : 0,
+    notes: st.total,
+  };
 }
 
 // ctx : { subjects, allGrades, classId, seqs, students, targetStudents, school,

@@ -44,7 +44,8 @@ function GroupBlock({ g, sys }) {
         <tr key={r.id}>
           <td style={CELL}>
             <strong>{r.nom}</strong><br />
-            <span style={{ color: '#666' }}>{r.enseignant || L(sys, 'M/Mme', 'Mr/Mrs', 'Sr/Sra')}</span>
+            {/* Voir BulletinApcOfficial : pas de placeholder d'enseignant. */}
+            {r.enseignant ? <span style={{ color: '#666' }}>{r.enseignant}</span> : null}
           </td>
           <td style={{ ...CELL, textAlign: 'center' }}>{r.coef}</td>
           <td style={{ ...CELL, textAlign: 'center' }}>{r.charge ?? ''}</td>

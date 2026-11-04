@@ -2263,3 +2263,67 @@ touche — seules les assertions l'ont ete.
 **Lecon.** Un gate rouge qu'on contourne est pire qu'un gate absent : il cesse d'etre lu.
 Et avant d'accuser son propre travail, comparer sur un arbre nu coute cinq minutes et
 repond a la seule question qui ordonne la suite.
+
+---
+
+## D48 — « Reste à payer » se lit sur une période, et la période reste visible (2026-11-04)
+
+**Date** : 2026-11-04 · **Statut** : en production (`1c44ddc`)
+**Où** : `src/lib/cantineEngine.js` (`projeterSurPeriode`, `listeAbonnes`),
+`src/components/services/FiltresRegistre.jsx` (`#registre-periode`),
+`src/components/services/ListeAbonnes.jsx` (`data-role="periode-liste"`)
+
+**Décision.** La liste des abonnés est **projetée sur une période**, placée par défaut sur
+le **mois courant**, et l'écran écrit en toutes lettres sur quel mois porte le nombre
+affiché. Le sélecteur de période **ne se replie pas** avec les autres réducteurs sous `sm`.
+
+**Raison.** Le jour où l'école a créé ses dix mois d'échéances d'avance, la colonne
+« Reste à payer » est devenue un **solde annuel** sans que rien ne change à l'écran : la
+secrétaire lisait ~120 000 XAF pendant que la famille devant elle devait 15 000. Un chiffre
+d'argent sans sa période est un chiffre faux, et c'est celui qu'on réclame au parent. Cacher
+le sélecteur derrière un bouton « Filtres » reproduirait exactement la même erreur, d'où le
+fait qu'il échappe au repli.
+
+**Ce que ça interdit.**
+- Afficher un montant du registre sans dire à quelle période il se rapporte.
+- Recalculer la projection dans le front : `projeterSurPeriode` **réutilise la règle de la
+  grille**, de sorte qu'un mois `moisSansService`, exempté, abandonné ou antérieur à
+  l'abonnement doit **zéro** et n'apparaît **jamais** en impayé. Une seconde règle écrite
+  côté écran divergerait au premier cas particulier.
+- Replier le sélecteur de période dans un menu, à quelque largeur que ce soit.
+
+**Comment revenir en arrière.** `projeterSurPeriode` est l'identité quand `periode` est
+vide : passer `periodeVue` à `''` par défaut dans `src/pages/Cantine.jsx` rend le solde
+annuel d'avant, sans toucher au moteur. Le banc `src/lib/_cantineListe.test.mjs` porte 13
+assertions sur cette lentille — dont « le même élève doit 90 000 sur l'année et 15 000 sur
+novembre » : elles tomberaient, et c'est le but.
+
+---
+
+## D49 — Encaisser depuis le registre passe par la caisse existante, sans nouvelle écriture (2026-11-04)
+
+**Date** : 2026-11-04 · **Statut** : en production (`1c44ddc`)
+**Où** : `src/components/fees/EncaissementServiceModal.jsx` (inchangé),
+`src/pages/Cantine.jsx` (le registre l'appelle), `src/lib/feeScheduleService.js`
+
+**Décision.** Le registre des services **n'ouvre aucun chemin d'écriture financière à lui**.
+Le bouton « Encaisser » appelle le flux existant, qui écrit dans `fee_payments` avec son
+`fee_schedule_item_id`, par `addPayment`. Aucune table, aucun compteur, aucun reçu nouveau.
+
+**Raison.** Le cahier des charges de la refonte demandait « une seule action principale :
+Encaisser un paiement » **et** « ne pas ajouter une écriture financière depuis cet écran » —
+apparemment contradictoire. Il ne l'est pas : encaisser depuis le registre et encaisser
+depuis la caisse doivent être **le même acte**. Une table `service_payments` séparée
+scinderait la caisse en deux et imposerait un second compteur de reçus ; deux journaux pour
+un même argent, c'est la panne qu'on ne retrouve jamais.
+
+**Ce que ça interdit.**
+- Toute table de paiement propre aux services.
+- Tout montant payé lu ailleurs que dans la **somme des `fee_payments`** : il n'y a pas de
+  colonne `amount_paid`, et une annulation est un paiement **négatif**. L'absence
+  d'échéance n'est pas une échéance à zéro.
+- Stocker la quote-part : elle reste peinte à la lecture, jamais écrite.
+
+**Comment revenir en arrière.** Rien à défaire : la décision a été de **ne pas** ajouter
+d'écriture. Si un jour une écriture propre au registre devient nécessaire, elle devra
+d'abord répondre à la question du compteur de reçus unique.

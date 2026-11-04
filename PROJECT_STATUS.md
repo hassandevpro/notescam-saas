@@ -1,5 +1,102 @@
 # PROJECT_STATUS — NotesCam
 
+> ## 🔑 MISE EN LIGNE DU 2026-11-04 — `main` à `1c44ddc`, registre des services
+>
+> **Demande** : « met tout les changement en ligne ». **« Tout » n'a pas été poussé, et
+> c'est volontaire** : l'arbre de travail portait le WIP de six chantiers distincts, dont
+> aucun n'a passé de gate. Le §4 les nomme un par un.
+>
+> ### 1. Ce qui est poussé — `65f4c7f..1c44ddc`, 28 fichiers
+>
+> Construit depuis un **arbre neuf sur `origin/main`** (`C:/nc-mel`), jamais depuis la
+> branche : c'est ce qui révèle les dépendances qu'on croit présentes parce qu'elles
+> traînent dans l'arbre de travail. Ici, aucune ne manquait, et **aucune dépendance npm
+> nouvelle** — les seuls imports non relatifs du lot sont `react`, `@playwright/test` et
+> des modules `node:`.
+>
+> | Morceau | Fichiers |
+> |---|---|
+> | moteur (pur, testé) | `src/lib/cantineEngine.js` (+150 l.), `feeScheduleService.js`, `serviceImportEngine.js` |
+> | écran | `src/pages/Cantine.jsx` (+421/-198), `components/services/` : `ListeAbonnes`, `LigneAbonne`, `FiltresRegistre`, `BanniereFiltre`, `GrilleMensuelle`, `ImportRegistreModal`, `ImportModeleModal` |
+> | bancs | `_cantineListe.test.mjs` (47 assertions), `_listeAbonnes.test.mjs` (37), `_serviceImportEngine.test.mjs` |
+> | parcours | `playwright.config.mjs`, `e2e/_amorce-registre.mjs`, `e2e/02-registre-services.spec.mjs` |
+> | dossier remis au front | `docs/refonte-registre-services/` — contrat, deux jeux de référence, 7 captures |
+>
+> ### 2. Les gates, tels quels
+>
+> | Banc | Résultat |
+> |---|---|
+> | `npm test` dans l'arbre neuf | **267 ok, 1 ko** |
+> | `npm run build` (Cloud) | ✅ 43,6 s |
+> | `npm run build:lan` | ✅ 45,8 s |
+> | `npx playwright test e2e/02-registre-services` | **5/5** en 1,4 min |
+>
+> **Le ko, attribué avant de pousser** : `server/_license_machine.test.mjs`. Ce lot ne
+> touche ni ce test ni `packaging/license/` (`git diff --stat HEAD` sur ces chemins : vide).
+> Il exige `packaging/license/private-key.pem`, **gitignoré** (`.gitignore:55`) donc absent
+> de **tout** arbre neuf. Le même fichier, lancé là où la clé existe : **13 réussis, 0
+> échoués**. Ce n'est pas un rouge du lot, c'est un banc qui a besoin d'un secret local.
+>
+> Chiffres du parcours, pas une affirmation : 320 abonnés amorcés, **affichage 801 ms**,
+> **tri 979 ms**, aucun débordement horizontal à 375 px avec un nom de **40 caractères**.
+>
+> ### 3. Vérifié sur le site SERVI — par marqueurs, pas par empreinte
+>
+> ⚠️ **L'empreinte ne prouve rien ici.** Build local : `index-CnUpsnVx.js`. Servi :
+> `index-CG5O8MKD.js`. Vercel scelle ses propres variables `VITE_*` dans le bundle, donc
+> les empreintes divergent **légitimement** — s'en servir comme preuve donnerait un faux
+> négatif à chaque fois. On lit donc le contenu du morceau servi
+> (`assets/Cantine-BZXkS8IQ.js`, 157 810 o, HTTP 200) :
+>
+> | Marqueur | Ce qu'il prouve | Compte |
+> |---|---|---|
+> | `filtre-periode` · `periode-liste` | la lentille de mois est en ligne | 1 · 1 |
+> | `banniere-filtre` · `les totaux portent sur cette` | les totaux suivent la sélection | 1 · 1 |
+> | `compte-abonnes` · `afficher-tout` | la tranche annonce son total | 1 · 1 |
+> | `` `onglet- `` (littéral de gabarit) | les trois onglets portent leur repère | 1 |
+> | `minmax(0,1fr)` | la piste qui empêche la coupe à droite | 1 |
+> | `sans_dette` · `a_jour` · `partiel` · `impaye` | les quatre états du moteur | 1 · 1 · 1 · 1 |
+> | `Exempté` · `Abandon` · `Impayé` · `Payé` | le mot sous le nombre, dans la grille | 3 · 3 · 6 · 5 |
+>
+> **Retour arrière** : `git push origin 65f4c7f:main --force-with-lease`. Rien en base n'a
+> été touché par cette mise en ligne — le lot est entièrement front + moteur.
+>
+> ### 4. ❌ CE QUI N'EST **PAS** EN LIGNE
+>
+> **a) Six chantiers restés locaux.** Aucun n'a de gate vert à son nom ; les pousser dans
+> ce lot aurait mélangé des échecs à des preuves.
+>
+> | Chantier | Fichiers encore locaux |
+> |---|---|
+> | bulletins / impression | `components/bulletins/{BulletinApcAnnual,BulletinApcOfficial,bulletinOfficialParts}.jsx`, `core/{bulletinEngine,bulletinScale}.js`, `lib/print/{fitDensity,printStyles}.js`, `pages/Bulletins.jsx`, `scripts/bulletin-une-page{,-test}.mjs` |
+> | primaire anglophone | `core/{primProgramme,primProgrammeEn,bilEngine}.js`, `countries/cameroon_en.js` |
+> | portée des classes / conseil | `core/{refClassScope,scEngine}.js`, `pages/{Classes,ConseilDeClasse,Grades}.jsx`, `components/grades/SubjectTeacherWorkspace.jsx` |
+> | caisse / calendrier / rapports | `lib/{cashSessionEngine,calendarTracks,transcriptEngine}.js`, `pages/Reports.jsx` |
+> | synchro serveur | `server/{cloudSync,index,syncEtat}.js`, `server/_sync_*.test.mjs`, `scripts/diagnostic-sync-lan.mjs` |
+> | store | `src/store/schoolStore.js` — ⚠️ **aussi touché par `65f4c7f`** (barème primaire) : ce fichier devra être fusionné, pas écrasé |
+>
+> **b) Le paquet LAN 0.3.31 n'est pas construit.** `package.json` reste à **0.3.30** sur
+> `main` : la version, `packaging/linux/deploy-0.3.31.sh` et sa notice sont restés locaux,
+> et `test:impression` pointe un script non poussé. **Conséquence directe** : THE GENIUS et
+> les écoles Windows **ne voient pas ce nouvel écran**. Il n'y a pas de mise à jour
+> automatique ; il faut reconstruire et livrer le paquet, et c'est une autorisation à
+> demander à part.
+>
+> **c) `modele_import_service_cantine.xlsx`** traîne à la racine du dépôt. Vérifié : aucun
+> fichier du code ne le nomme (`grep` vide) — c'est une sortie d'essai du générateur, pas
+> un actif servi. Laissé dehors exprès.
+>
+> ### 5. L'écriture en base de la veille, qui rend cet écran utile
+>
+> Rappel, parce que les deux se tiennent : les **624 échéances** de prolongation
+> (`notes = 'PROLONGATION-20261104'`) ont été écrites dans le Cloud **avant** cette mise en
+> ligne. C'est justement elles qui avaient transformé « reste à payer » en solde annuel —
+> la secrétaire lisait ~120 000 XAF là où la famille devait 15 000. La lentille de mois
+> (§1) est la réponse à cet effet de bord, pas une amélioration cosmétique.
+>
+> **À confirmer avec l'école** : que ces 624 échéances sont bien descendues sur son serveur
+> LAN. Non vérifié d'ici.
+
 > ## 🔑 MISE EN LIGNE DU 2026-11-03 (3) — `main` à `4cd746a`, synchronisation
 >
 > **Demande** : « deploie la sync aussi ». Quatre actes distincts, dont **trois seulement

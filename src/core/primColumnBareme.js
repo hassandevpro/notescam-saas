@@ -22,11 +22,15 @@
 //
 //   notes : [{ note, points_max }] — les notes de la colonne, élève par élève
 //           (une entrée absente/nulle = élève non noté)
+import { pointsMaxSain } from './primBareme.js';
+
 export function baremeEnVigueur(notes, officiel, pending) {
   for (const r of notes || []) {
     if (r?.points_max != null) {
       const m = Number(r.points_max);
-      if (Number.isFinite(m) && m > 0) return m;
+      // Un barème hors bornes (> 200, que la base refuse) n'est PAS un barème : on l'ignore et la
+      // colonne retombe sur l'officiel, au lieu d'afficher « /513 » et de refuser toutes ses notes.
+      if (Number.isFinite(m) && m > 0 && pointsMaxSain(m)) return m;
     }
     if (r?.note != null && r.note !== '') return Number(officiel);
   }

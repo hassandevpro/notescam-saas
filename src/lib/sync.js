@@ -18,6 +18,7 @@
 
 import { syncQueueDB, syncQuarantineDB, studentsDB, feesDB, initDB } from './db';
 import { uuid } from './uuid';
+import { repairPrimNotePayload } from '../core/primBareme';
 import { supabase } from './supabase';
 import { gradeEntryToRows, upsertAbsenceEntry, absenceEntryToRow, upsertFee, estDoublonFrais } from './schoolService';
 import { useUiStore } from '../store/uiStore';
@@ -270,7 +271,23 @@ async function markFailed(item, err) {
 // Absent ⇒ aucun filtrage, comportement d'avant à l'identique.
 export async function flushSyncQueue({ ecoleCourante = null } = {}) {
   await initDB();
-  const all = await syncQueueDB.getAll();
+  let all = await syncQueueDB.getAll();
+
+  // ── UNE LIGNE REFUSÉE POUR UN BARÈME HORS BORNES EST RÉPARÉE ──────────────
+  // Bright Continent, 2026-11-04 : points_max = 513 (faute de frappe), refusé 25 fois par la
+  // contrainte « prim_notes_points_max_sain », puis écarté du rejeu — et toute la colonne avec.
+  // On retire le seul barème invalide (NULL = barème officiel) ; la note, elle, n'est jamais
+  // touchée, et l'ancienne valeur reste tracée sur l'élément. Il repart alors avec zéro échec.
+  const reparees = [];
+  all = all.map((it) => {
+    if (it?.table !== 'prim_notes') return it;
+    const fixed = repairPrimNotePayload(it.payload);
+    if (!fixed) return it;
+    const r = { ...it, payload: fixed, attempts: 0, last_error: null, reparee_depuis_points_max: it.payload.points_max };
+    reparees.push(r);
+    return r;
+  });
+  for (const r of reparees) { try { await syncQueueDB.update(r); } catch (e) { console.warn('[sync] réparation non enregistrée:', e?.message ?? e); } }
 
   // ── UNE ÉCRITURE D'UN AUTRE ÉTABLISSEMENT NE PEUT PAS PASSER ICI ─────────
   //

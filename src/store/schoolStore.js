@@ -14,6 +14,7 @@ import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
 import { estUAValide } from '../core/uaMinedub';
+import { pointsMaxSain, PRIM_POINTS_MAX_LIMITE } from '../core/primBareme';
 import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey,
   fetchPrimNonEvaluees, nonEvalKey, setPrimNonEvaluee as pousserNonEvaluee } from '../lib/primService';
@@ -1649,6 +1650,17 @@ export const useSchoolStore = create((set, get) => ({
       // l'absence qu'on vient de déclarer, et inversement.
       statut: statut === undefined ? existing?.statut ?? null : statut,
     });
+    // Défense en profondeur : une ligne dont le barème sort des bornes de la base (1…${PRIM_POINTS_MAX_LIMITE})
+    // n'est NI écrite NI mise en file. Elle serait refusée 25 fois par le Cloud, puis resterait
+    // bloquée en emportant toutes les notes de la colonne.
+    if (!pointsMaxSain(record.points_max)) {
+      toast.error(tStatic(
+        `Barème /${record.points_max} refusé : il doit être compris entre 1 et ${PRIM_POINTS_MAX_LIMITE}. La note n'a pas été enregistrée.`,
+        `Scale /${record.points_max} refused: it must be between 1 and ${PRIM_POINTS_MAX_LIMITE}. The grade was not saved.`,
+        `Escala /${record.points_max} rechazada: debe estar entre 1 y ${PRIM_POINTS_MAX_LIMITE}. La nota no se guardó.`,
+      ));
+      return { error: 'bareme_invalide' };
+    }
     await primNotesDB.put(record);
     set({ primNotes: { ...get().primNotes, [nkey]: record } });
     if (backendOnline()) {

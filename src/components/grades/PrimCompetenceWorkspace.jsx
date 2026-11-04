@@ -42,6 +42,7 @@ import {
   trimestreOfUA, PRIM_COTE_DEFAULT,
 } from '../../core/primEngine';
 import { baremeEnVigueur, notesHorsBareme, notesSaisies, baremeOuverture } from '../../core/primColumnBareme';
+import { pointsMaxSain, PRIM_POINTS_MAX_LIMITE } from '../../core/primBareme';
 // Le PÉRIMÈTRE de la classe — ses matières cochées dans « Modifier la classe ».
 // Le bulletin l'applique déjà (primForClass) : la saisie doit lister EXACTEMENT
 // les mêmes compétences, sinon on saisit des notes qui ne s'impriment jamais.
@@ -96,6 +97,8 @@ function BaremeCell({ value, disabled, onCommit }) {
         disabled={disabled}
         onChange={(e) => setLocal(e.target.value)}
         onBlur={commit}
+        inputMode="decimal"
+        maxLength={5}
         onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
         className="w-9 text-center rounded border border-gray-200 px-0.5 py-0.5 text-[11px]
           focus:outline-none focus:border-brand-500 disabled:bg-gray-50 disabled:text-gray-400"
@@ -715,6 +718,20 @@ export default function PrimCompetenceWorkspace() {
           note: null, pointsMax: null,
         });
       }
+      return;
+    }
+
+    // Hors bornes (la base borne le barème à 1…${PRIM_POINTS_MAX_LIMITE}) : refusé AVANT d'écrire. Un « 513 » tapé par
+    // erreur était posé sur toute la colonne, et le Cloud refusait ensuite chacune de ses notes,
+    // sans un mot à l'écran (Bright Continent, 2026-11-04).
+    if (!pointsMaxSain(nouveau)) {
+      setBaremeMsg({
+        critereId,
+        text: t(
+          `Barème /${nouveau} refusé : il doit être compris entre 1 et ${PRIM_POINTS_MAX_LIMITE}. Corrigez la valeur (par exemple /10 ou /20).`,
+          `Scale /${nouveau} refused: it must be between 1 and ${PRIM_POINTS_MAX_LIMITE}. Fix the value (for example /10 or /20).`,
+        ),
+      });
       return;
     }
 

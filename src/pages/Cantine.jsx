@@ -25,7 +25,11 @@ import {
   fetchCatalog, fetchStudentFeeItems, upsertCatalogItem, upsertStudentFeeItem,
   dependancesDuService, supprimerService,
 } from '../lib/feeCatalogService';
-import { fetchSchedule, setScheduleStatus, createScheduleMonths } from '../lib/feeScheduleService';
+import {
+  fetchSchedule, setScheduleStatus, createScheduleMonths, creerEcheancesReprise, paidForSchedule,
+} from '../lib/feeScheduleService';
+import { nouveauLot, dateReprise, MODE_REPRISE } from '../lib/serviceImportEngine';
+import { logAction } from '../lib/historyService';
 import { STATUTS_POSABLES, SCHEDULE_STATUS } from '../lib/feeScheduleEngine';
 import { SCHEDULE_STATUS_LABELS, FEE_CATEGORY_LABELS } from '../components/fees/feeCatalogUi';
 import EncaissementServiceModal from '../components/fees/EncaissementServiceModal';
@@ -33,7 +37,10 @@ import ServiceFicheEleve from '../components/fees/ServiceFicheEleve';
 import ListeAbonnes from '../components/services/ListeAbonnes';
 import GrilleMensuelle from '../components/services/GrilleMensuelle';
 import ResumeService from '../components/services/ResumeService';
+import FiltresRegistre from '../components/services/FiltresRegistre';
+import BanniereFiltre from '../components/services/BanniereFiltre';
 import ImportRegistreModal from '../components/services/ImportRegistreModal';
+import ImportModeleModal, { telechargerModele } from '../components/services/ImportModeleModal';
 import SupprimerServiceModal from '../components/services/SupprimerServiceModal';
 // La section d'une classe est RÉSOLUE, pas stockée : `classSectionKey` connaît
 // déjà CRECHE/NURSERY, SIL/CP/CE1/CE2/CM1/CM2 et leurs variantes BIL, Class 1→6,
@@ -44,6 +51,12 @@ import { classSectionKey, SECTIONS } from '../core/engineResolver';
 import {
   moisDuService, enteteMois, tarifPleinDe, grilleCantine, etatsMensuels,
   csvEtatsMensuels, motPeriode,
+  // La liste des abonnés — état, filtre et tri — est DANS LE MOTEUR depuis la
+  // refonte. C'était la dernière règle métier de cet écran écrite en JSX :
+  // on ne pouvait pas l'exercer sans monter React, et ce dépôt n'a pas de
+  // moteur de rendu. Voir `src/lib/_cantineListe.test.mjs`, qui la compare au
+  // jeu d'essai champ par champ.
+  listeAbonnes, filtrerAbonnes, trierAbonnes,
 } from '../lib/cantineEngine';
 import { printServiceEtat } from '../lib/serviceDoc';
 import { exportServiceExcel } from '../lib/serviceExport';
@@ -95,6 +108,7 @@ export default function Cantine() {
   const [form, setForm] = useState(null);           // création / modification
   const [abonnementOuvert, setAbonnementOuvert] = useState(false);
   const [importOuvert, setImportOuvert] = useState(false);
+  const [importModeleOuvert, setImportModeleOuvert] = useState(false);
   const [suppressionOuverte, setSuppressionOuverte] = useState(false);
   const [choix, setChoix] = useState(() => new Set());
   const [debut, setDebut] = useState('');
@@ -103,6 +117,19 @@ export default function Cantine() {
   const [rechercheGrille, setRechercheGrille] = useState(''); // qui est dans la grille
   const [sectionGrille, setSectionGrille] = useState('');
   const [classeGrille, setClasseGrille] = useState('');
+  // Filtrer PAR ÉTAT, et pas seulement trier : la secrétaire qui relance les
+  // familles veut la liste des impayés, pas la liste entière commençant par
+  // eux. Et comme les totaux suivent le filtre, « Impayé » lui donne du même
+  // coup la somme à réclamer — à l'écran comme sur le papier.
+  const [etatGrille, setEtatGrille] = useState('');
+  // LA PÉRIODE REGARDÉE. Ce n'est pas un filtre — elle ne retire personne de
+  // la liste —, c'est la LENTILLE par laquelle on lit « reste à payer ».
+  //
+  // Sans elle, depuis que les dix mois de l'année sont créés d'avance
+  // (THE GENIUS, 2026-11-04), la colonne affichait le solde ANNUEL : environ
+  // 120 000 XAF en face de chaque nom, et plus personne ne voyait qui n'avait
+  // pas payé le mois en cours. Vide = l'année entière.
+  const [periodeVue, setPeriodeVue] = useState('');
   const [sectionAbo, setSectionAbo] = useState('');
   const [classeAbo, setClasseAbo] = useState('');
   const [moisChoisis, setMoisChoisis] = useState(() => new Set()); // mois à facturer
@@ -188,10 +215,27 @@ export default function Cantine() {
     [echeances, idsAbonnement]);
 
   // ── Les élèves présents dans la grille ────────────────────────────────────
+  //
+  // EST DANS LE REGISTRE QUI EST ABONNÉ, pas qui est déjà facturé.
+  //
+  // Le critère retenu était « avoir au moins une échéance pour ce service ».
+  // Un élève qu'on vient d'abonner et dont les mois ne sont pas encore créés
+  // n'apparaissait donc NULLE PART : ni dans la liste, ni dans la grille, ni
+  // dans le compte annoncé. La secrétaire l'abonnait, l'écran ne bougeait pas,
+  // et rien ne disait pourquoi. C'est aussi ce qui rendait l'état « Rien dû »
+  // inatteignable à l'écran, alors que le composant sait le peindre et que le
+  // bouton « Encaisser » sait s'éteindre pour lui.
+  //
+  // Trouvé par `e2e/02-registre-services` : 320 abonnés amorcés, 319 affichés.
+  // `grilleCantine` traite déjà le cas sans rien changer — un élève sans
+  // échéance reçoit des cases « non inscrit », donc `du = 0`, donc « Rien dû ».
   const eleves = useMemo(() => {
-    const avecEcheance = new Set(echeancesDuService.map((l) => l.student_id));
+    const abonnesAuService = new Set(
+      abonnements.filter((a) => a.fee_catalog_id === serviceId && a.status !== 'removed')
+        .map((a) => a.student_id));
+    for (const l of echeancesDuService) abonnesAuService.add(l.student_id);
     return (students || [])
-      .filter((e) => avecEcheance.has(e.id))
+      .filter((e) => abonnesAuService.has(e.id))
       .map((e) => ({
         id: e.id,
         name: [e.last_name, e.first_name].filter(Boolean).join(' ') || e.name || '—',
@@ -199,7 +243,7 @@ export default function Cantine() {
         matricule: e.matricule || '',
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-  }, [students, echeancesDuService, classById]);
+  }, [students, echeancesDuService, abonnements, serviceId, classById]);
 
   // LE TARIF DE CHAQUE ÉLÈVE, et non celui du service. Le registre transport
   // réel de THE GENIUS porte treize tarifs mensuels (5 000 → 15 000) selon la
@@ -233,17 +277,36 @@ export default function Cantine() {
     return m;
   }, [students, classById]);
 
-  const passeFiltres = useCallback((r, section, classe, texte) => {
-    if (section && sectionParEleve[r.student_id] !== section) return false;
-    if (classe && (students || []).find((e) => e.id === r.student_id)?.class_id !== classe) return false;
-    return correspond(r, texte);
-  }, [sectionParEleve, students]);
+  // ── LA LISTE, PUIS LE FILTRE, PUIS LES TOTAUX ─────────────────────────────
+  //
+  // L'ordre a changé avec la refonte, et il le fallait. Le filtre s'appliquait
+  // à la GRILLE BRUTE, et l'état de l'abonné (« Impayé », « À jour »…) était
+  // calculé APRÈS, dans le JSX : on ne pouvait donc pas filtrer par état,
+  // puisqu'il n'existait pas encore au moment où l'on filtrait.
+  //
+  // Désormais : on pose l'état sur toute la grille, on filtre ensuite, et les
+  // totaux se calculent sur ce qui reste. Les trois onglets, la bannière,
+  // l'impression et le classeur lisent donc tous la MÊME sélection — deux
+  // chiffres contradictoires sur le même écran ne sont plus possibles.
+  const abonnesTous = useMemo(
+    () => listeAbonnes({ grille, sections: sectionParEleve, periode: periodeVue }),
+    [grille, sectionParEleve, periodeVue]);
 
-  const grilleAffichee = useMemo(
-    () => grille.filter((r) => passeFiltres(r, sectionGrille, classeGrille, rechercheGrille)),
-    [grille, passeFiltres, sectionGrille, classeGrille, rechercheGrille]);
+  const classeDe = useCallback(
+    (id) => (students || []).find((e) => e.id === id)?.class_id || '',
+    [students]);
 
-  const filtreActif = Boolean(sectionGrille || classeGrille || rechercheGrille.trim());
+  const grilleAffichee = useMemo(() => filtrerAbonnes(abonnesTous, {
+    texte: rechercheGrille, section: sectionGrille, classe: classeGrille,
+    etat: etatGrille, classeDe,
+  }), [abonnesTous, rechercheGrille, sectionGrille, classeGrille, etatGrille, classeDe]);
+
+  const filtreActif = Boolean(
+    sectionGrille || classeGrille || etatGrille || rechercheGrille.trim());
+
+  const effacerFiltres = useCallback(() => {
+    setSectionGrille(''); setClasseGrille(''); setEtatGrille(''); setRechercheGrille('');
+  }, []);
 
   // LES TOTAUX SUIVENT LE FILTRE — règle du responsable (2026-10-31) : « les
   // totaux doivent refléter le filtre actif ». C'est utile : une école veut le
@@ -275,18 +338,10 @@ export default function Cantine() {
   // liste montre les élèves. Elle se dérive de `grilleAffichee`, donc elle suit
   // exactement les mêmes filtres — deux listes qui divergeraient sous le même
   // filtre seraient pires qu'une seule.
-  const abonnes = useMemo(() => grilleAffichee.map((r) => {
-    const creees = r.cellules.filter((c) => c.echeance_id).length;
-    const statut = r.du <= 0 ? 'sans_dette'
-      : r.reste <= 0 ? 'a_jour'
-        : r.paye > 0 ? 'partiel' : 'impaye';
-    return {
-      ...r,
-      moisCrees: creees,
-      section: sectionParEleve[r.student_id] || 'autre',
-      statut,
-    };
-  }), [grilleAffichee, sectionParEleve]);
+  // `grilleAffichee` porte déjà l'état et la section : `listeAbonnes` les a
+  // posés avant le filtre (voir plus haut). La liste n'a donc plus rien à
+  // recalculer — c'est ce que vérifie le critère d'acceptation n° 8.
+  const abonnes = grilleAffichee;
 
   // Libellé traduit d'une section, ou la clé brute si elle est inconnue — mieux
   // vaut « autre » affiché tel quel qu'une case vide qu'on ne sait pas lire.
@@ -296,16 +351,7 @@ export default function Cantine() {
   }, [t]);
 
   const [tri, setTri] = useState('nom');
-  const abonnesTries = useMemo(() => {
-    const l = [...abonnes];
-    if (tri === 'classe') l.sort((a, b) => (a.className || '').localeCompare(b.className || '', 'fr') || a.name.localeCompare(b.name, 'fr'));
-    else if (tri === 'reste') l.sort((a, b) => b.reste - a.reste || a.name.localeCompare(b.name, 'fr'));
-    else if (tri === 'statut') {
-      const rang = { impaye: 0, partiel: 1, a_jour: 2, sans_dette: 3 };
-      l.sort((a, b) => rang[a.statut] - rang[b.statut] || a.name.localeCompare(b.name, 'fr'));
-    } else l.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-    return l;
-  }, [abonnes, tri]);
+  const abonnesTries = useMemo(() => trierAbonnes(abonnes, tri), [abonnes, tri]);
 
   const STATUT_ABONNE = {
     a_jour:     ['À jour', 'Up to date', 'Al día'],
@@ -350,6 +396,34 @@ export default function Cantine() {
   useEffect(() => {
     setPortee(entete.some((e) => e.period_key === moisCourant) ? moisCourant : 'annee');
   }, [entete, moisCourant]);
+
+  // La période regardée suit la même règle que la portée d'impression : le
+  // mois courant s'il est facturé, l'année sinon. On la recale quand le
+  // service change, sinon un mois de la cantine resterait sélectionné sur un
+  // transport trimestriel, et la liste n'aurait plus aucune case à lire.
+  useEffect(() => {
+    setPeriodeVue((p) => {
+      if (p && entete.some((e) => e.period_key === p)) return p;
+      return entete.some((e) => e.period_key === moisCourant) ? moisCourant : '';
+    });
+  }, [entete, moisCourant]);
+
+  // CHANGER DE MOIS À L'ÉCRAN CHANGE AUSSI CE QU'ON IMPRIME. On regarde
+  // novembre, on imprime novembre : l'inverse serait un piège. La portée reste
+  // néanmoins modifiable seule sous « ⋯ Plus » — imprimer la feuille d'octobre
+  // depuis l'écran de novembre doit rester possible, c'est une décision prise
+  // le 2026-10-31 et on ne la défait pas.
+  const choisirPeriode = useCallback((v) => {
+    setPeriodeVue(v);
+    setPortee(v || 'annee');
+  }, []);
+
+  // Le libellé du mois regardé, pour que l'écran dise de quoi il parle.
+  const libellePeriodeVue = useMemo(() => (
+    periodeVue
+      ? (entete.find((e) => e.period_key === periodeVue)?.label || periodeVue)
+      : t('toute l’année', 'the whole year', 'todo el año')
+  ), [periodeVue, entete, t]);
 
   // Le filtre actif est PORTÉ sur le papier et dans le classeur : un état
   // partiel qu'on prend pour l'état du service entier est un faux chiffre, et
@@ -529,6 +603,123 @@ export default function Cantine() {
     // et l'école croirait l'import perdu.
     await recharger();
     return { abonnes, echeances, echecs: detailEchecs.length, detailEchecs };
+  };
+
+  // ── IMPORT PAR LE MODÈLE : montants dus et versements de reprise ─────────
+  //
+  // Ordre : abonnements → échéances (montant dû DU FICHIER) → versements. Chaque
+  // versement est un versement de REPRISE : daté du 1er du mois, mode 'reprise',
+  // référence = identifiant du lot. Il passe par `addPayment` (file hors-ligne,
+  // journal, synchro, numéro de reçu), donc se synchronise comme tout versement,
+  // mais l'arrêté de caisse l'ignore (cf. cashSessionEngine). Les échecs sont
+  // comptés et rapportés un par un.
+  const ecrireModele = async (plan) => {
+    const retenues = plan?.retenues || [];
+    if (!service || !retenues.length) return { lot: null, abonnes: 0, echeances: 0, versements: 0, total: 0, echecs: 0, detailEchecs: [], importees: [] };
+    const lot = nouveauLot();
+    const detailEchecs = [];
+    const libelle = Object.fromEntries(entete.map((e) => [e.period_key, e.label]));
+
+    // 1. Abonnements manquants — une fois par élève, démarrant au 1er mois du fichier.
+    const aboParEleve = new Map();
+    for (const l of retenues) if (l.abonnement) aboParEleve.set(l.student_id, l.abonnement.id);
+    const parEleve = new Map();
+    for (const l of retenues) parEleve.set(l.student_id, [...(parEleve.get(l.student_id) || []), l]);
+    let abonnes = 0;
+    for (const [sid, lignes] of parEleve) {
+      if (aboParEleve.has(sid)) continue;
+      const premier = lignes.map((l) => l.period_key).sort()[0];
+      const saved = await upsertStudentFeeItem({
+        school_id: schoolId, student_id: sid, fee_catalog_id: service.id, academic_year: year,
+        name: service.name, category: service.category, amount: lignes[0].du,
+        mandatory: false, payment_type: 'echelonne', status: 'active',
+        started_at: dateReprise(premier) || debutParDefaut,
+      }).catch(() => null);
+      if (!saved) { detailEchecs.push(`${lignes[0].nom} — abonnement refusé par la base`); continue; }
+      aboParEleve.set(sid, saved.id);
+      abonnes += 1;
+    }
+
+    // 2. Échéances manquantes, au montant dû du fichier.
+    const aCreer = retenues.filter((l) => l.creerEcheance && aboParEleve.has(l.student_id)).map((l) => ({
+      student_id: l.student_id, student_fee_item_id: aboParEleve.get(l.student_id),
+      academic_year: year, period_key: l.period_key,
+      period_label: libelle[l.period_key] || l.period_key, amount_due: l.du,
+    }));
+    const { creees, echecs: echecsEch } = await creerEcheancesReprise({ schoolId, lot, lignes: aCreer });
+    if (echecsEch.length) detailEchecs.push(`${echecsEch.length} échéance(s) refusée(s) par la base`);
+    const idEch = new Map(creees.map((e) => [`${e.student_id}|${e.period_key}`, e.id]));
+
+    // 3. Versements de reprise (l'écart seulement).
+    const { addPayment } = useSchoolStore.getState();
+    let versements = 0; let total = 0; const importees = [];
+    for (const l of retenues) {
+      const echeanceId = l.echeance?.id || idEch.get(`${l.student_id}|${l.period_key}`);
+      if (!echeanceId) { detailEchecs.push(`${l.nom} (${l.period_key}) — échéance introuvable`); continue; }
+      if (l.versement > 0) {
+        const rec = await addPayment(l.student_id, {
+          amount: l.versement, date: dateReprise(l.period_key),
+          note: `Reprise ${service.name} ${libelle[l.period_key] || l.period_key} — ${lot}`,
+          student_fee_item_id: aboParEleve.get(l.student_id) || null,
+          fee_schedule_item_id: echeanceId, method: MODE_REPRISE, reference: lot,
+        }).catch(() => null);
+        if (!rec) { detailEchecs.push(`${l.nom} (${l.period_key}) — versement refusé`); continue; }
+        versements += 1; total += l.versement;
+      }
+      importees.push(l);
+    }
+    logAction({ action: 'create', table: 'fee_payments', target_id: lot, details: {
+      source: 'import_registre', lot, service: service.name, annee: year,
+      echeances: creees.length, versements, total, echecs: detailEchecs.length,
+    } });
+    await recharger();
+    return {
+      lot, abonnes, echeances: creees.length, versements, total,
+      echecs: detailEchecs.length, detailEchecs, importees,
+    };
+  };
+
+  // Le dernier lot de reprise de CE service, tel que la base le porte.
+  const dernierLot = useMemo(() => {
+    const echIds = new Set(echeancesDuService.map((l) => l.id));
+    const parLot = new Map();
+    for (const p of feePayments || []) {
+      if (p.method !== MODE_REPRISE || !p.reference || !echIds.has(p.fee_schedule_item_id)) continue;
+      const g = parLot.get(p.reference) || { lot: p.reference, versements: 0, total: 0, date: '', crea: '' };
+      if (!p.reversal_of) {
+        g.versements += 1;
+        if (String(p.created_at || '') > g.crea) { g.crea = String(p.created_at); g.date = g.crea.slice(0, 10); }
+      }
+      g.total += Number(p.amount) || 0;
+      parLot.set(p.reference, g);
+    }
+    const lots = [...parLot.values()].filter((g) => g.total > 0);
+    return lots.sort((a, b) => String(b.crea).localeCompare(String(a.crea)))[0] || null;
+  }, [feePayments, echeancesDuService]);
+
+  // Annulation d'un lot : chaque versement est CONTRE-PASSÉ (motif et auteur
+  // tracés, daté de l'écriture d'origine, hors caisse), puis les échéances que ce
+  // lot a créées passent en « non applicable » si plus rien n'y est versé.
+  const annulerLot = async (g) => {
+    const { reversePayment } = useSchoolStore.getState();
+    const tous = useSchoolStore.getState().feePayments || [];
+    const dejaAnnules = new Set(tous.filter((p) => p.reversal_of).map((p) => p.reversal_of));
+    const aAnnuler = tous.filter((p) => p.reference === g.lot && p.method === MODE_REPRISE && !p.reversal_of && !dejaAnnules.has(p.id));
+    let annules = 0; let echecs = 0;
+    for (const p of aAnnuler) {
+      const ok = await reversePayment(p.id, p.student_id, `Annulation de l'import ${g.lot}`).catch(() => null);
+      if (ok) annules += 1; else echecs += 1;
+    }
+    const paiementsApres = useSchoolStore.getState().feePayments || [];
+    let neutralisees = 0;
+    for (const l of echeances.filter((x) => x.notes === g.lot)) {
+      if (paidForSchedule(l.id, paiementsApres) > 0) continue;
+      const r = await setScheduleStatus({ ligne: l, statut: 'not_applicable', schoolId, payments: paiementsApres }).catch(() => ({ ok: false }));
+      if (r?.ok) neutralisees += 1;
+    }
+    logAction({ action: 'void', table: 'fee_payments', target_id: g.lot, details: { source: 'annulation_import', lot: g.lot, annules, echecs, echeances: neutralisees } });
+    await recharger();
+    return { annules, echecs, echeances: neutralisees };
   };
 
   const abonnerChoisis = async () => {
@@ -730,6 +921,20 @@ export default function Cantine() {
                 {t('Exporter', 'Export', 'Exportar')} (Excel)
               </button>
               <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+              <button
+                type="button" onClick={() => telechargerModele({ service, annee: year, classes: (classes || []).map((c) => ({ id: c.id, name: c.name })), mois: entete, devise: school?.currency || 'XAF' })}
+                disabled={!service || !entete.length} data-role="import-modele-telecharger"
+                className="w-full text-left min-h-[40px] rounded-lg px-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
+              >
+                {t('Télécharger le modèle d’import', 'Download the import template', 'Descargar el modelo de importación')} (Excel)
+              </button>
+              <button
+                type="button" onClick={() => setImportModeleOuvert(true)} disabled={!service || !entete.length}
+                data-role="import-modele"
+                className="w-full text-left min-h-[40px] rounded-lg px-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40"
+              >
+                {t('Importer avec le modèle', 'Import with the template', 'Importar con el modelo')} (Excel)
+              </button>
               <button
                 type="button" onClick={() => setImportOuvert(true)} disabled={!service}
                 data-role="import"
@@ -1003,86 +1208,70 @@ export default function Cantine() {
         </p>
       ) : (
         <>
-        {/* ── UNE RECHERCHE UNIQUE, LARGE, ET LES FILTRES À CÔTÉ ──────────────
-            Trois champs de recherche vivaient à trois endroits de la page. Il
-            n'en reste qu'un : nom, matricule ou classe, et il sert aux trois
-            onglets. Sur petit écran, Section et Classe se replient derrière
-            « Filtres » pour que la recherche garde toute la largeur. */}
-        <div className="mb-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="search" value={rechercheGrille}
-              onChange={(e) => setRechercheGrille(e.target.value)}
-              placeholder={t('Rechercher un élève — nom, matricule ou classe',
-                             'Search a student — name, ID or class',
-                             'Buscar un alumno — nombre, matrícula o clase')}
-              className="flex-1 min-w-[12rem] min-h-[44px] rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 text-sm"
-            />
-            <button
-              type="button" onClick={() => setFiltresOuverts((v) => !v)}
-              className={`sm:hidden min-h-[44px] rounded-lg border px-3 text-sm ${
-                filtreActif ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-slate-300 dark:border-slate-600'}`}
-            >
-              {t('Filtres', 'Filters', 'Filtros')}
-            </button>
-            <div className={`${filtresOuverts ? 'flex' : 'hidden'} sm:flex w-full sm:w-auto flex-wrap gap-2`}>
-              <SectionFilterSelect
-                classes={classes || []}
-                value={sectionGrille}
-                onChange={(v) => { setSectionGrille(v); setClasseGrille(''); }}
-                className="min-h-[44px] rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 text-sm"
-              />
-              <select
-                value={classeGrille} onChange={(e) => setClasseGrille(e.target.value)}
-                className="min-h-[44px] rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 text-sm"
-              >
-                <option value="">{t('Toutes les classes', 'All classes', 'Todas las clases')}</option>
-                {classesDeSection(sectionGrille).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-              {filtreActif && (
-                <button
-                  type="button"
-                  onClick={() => { setSectionGrille(''); setClasseGrille(''); setRechercheGrille(''); }}
-                  className="min-h-[44px] rounded-lg border border-slate-300 dark:border-slate-600 px-3 text-sm"
-                >
-                  {t('Effacer', 'Clear', 'Limpiar')}
-                </button>
-              )}
-            </div>
-          </div>
-          {filtreActif && (
-            // Les totaux suivent le filtre (règle du responsable). Un total
-            // partiel pris pour un total général est un faux chiffre, et c'est
-            // celui que l'école recopie dans son cahier : on l'annonce.
-            <p className="mt-1.5 text-xs text-amber-800">
-              {grilleAffichee.length} / {grille.length} {t('élèves', 'students', 'alumnos')}
-              {' — '}
-              {t('les totaux portent sur cette sélection',
-                 'totals cover this selection only',
-                 'los totales cubren solo esta selección')}
-            </p>
-          )}
-        </div>
+        {/* ── LES FILTRES, COMMUNS AUX TROIS ONGLETS ──────────────────────
+            Ils vivaient en dur ici, sur 46 lignes. Extraits dans
+            `FiltresRegistre` : la page ne porte plus que leurs valeurs, et
+            l'état rejoint la section et la classe — il manquait, alors que
+            « donne-moi les impayés » est la demande la plus fréquente du
+            guichet. */}
+        <FiltresRegistre
+          recherche={rechercheGrille} setRecherche={setRechercheGrille}
+          section={sectionGrille} setSection={setSectionGrille}
+          classe={classeGrille} setClasse={setClasseGrille}
+          etat={etatGrille} setEtat={setEtatGrille}
+          periode={periodeVue} setPeriode={choisirPeriode}
+          entete={entete} motPeriode={mot}
+          classes={classes || []} classesDeSection={classesDeSection}
+          libelleStatut={(st) => t(...STATUT_ABONNE[st])}
+          filtreActif={filtreActif} onEffacer={effacerFiltres}
+          ouverts={filtresOuverts} setOuverts={setFiltresOuverts}
+          t={t}
+        />
 
-        {/* ── TROIS ONGLETS ──────────────────────────────────────────────── */}
+        {/* ── TROIS ONGLETS ──────────────────────────────────────────────────
+            DEUX LIBELLÉS PAR ONGLET, et c'est la correction d'un débordement
+            réel : à 390 px, « Élèves abonnés · Grille mensuelle · Résumé »
+            dépasse la largeur et la barre prend sa propre glissière
+            horizontale. Le critère d'acceptation interdit tout défilement
+            horizontal hors de la boîte de la grille. Plutôt que de tronquer
+            ou de replier les onglets dans un menu — qui cacherait la
+            navigation de l'écran —, on écrit le libellé COURT sous `sm` et le
+            libellé complet au-dessus. Le mot long reste dans `title` et dans
+            `aria-label` : rien n'est perdu pour un lecteur d'écran. */}
         <div className="mb-3 flex gap-1 border-b border-slate-200 dark:border-slate-700">
-          {[['liste',  t('Élèves abonnés', 'Subscribed students', 'Alumnos suscritos')],
-            ['grille', mot.parPeriode],
-            ['resume', t('Résumé', 'Summary', 'Resumen')]].map(([cle, lib]) => (
+          {[['liste',
+             t('Élèves abonnés', 'Subscribed students', 'Alumnos suscritos'),
+             t('Abonnés', 'Students', 'Suscritos')],
+            ['grille', mot.parPeriode, mot.le],
+            ['resume',
+             t('Résumé', 'Summary', 'Resumen'),
+             t('Résumé', 'Summary', 'Resumen')]].map(([cle, lib, court]) => (
               <button
                 key={cle} type="button" onClick={() => setOnglet(cle)}
                 aria-current={onglet === cle ? 'page' : undefined}
-                className={`min-h-[44px] px-3 text-sm font-semibold border-b-2 -mb-px ${
+                aria-label={lib} title={lib} data-role={`onglet-${cle}`}
+                className={`min-h-[44px] px-3 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap ${
                   onglet === cle
                     ? 'border-brand-600 text-brand-700 dark:text-brand-300'
                     : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
               >
-                {lib}
+                <span className="sm:hidden">{court}</span>
+                <span className="hidden sm:inline">{lib}</span>
               </button>
           ))}
         </div>
+
+        {/* LA BANNIÈRE EST AU-DESSUS DES TROIS ONGLETS, ET NON DANS CHACUN.
+            Elle vivait dans le bloc de filtres, visible du seul onglet
+            « grille » : on pouvait filtrer, basculer sur « Résumé », et lire
+            quatre cartes partielles sans aucun avertissement. Montée ici, elle
+            suit l'onglet quoi qu'il arrive. */}
+        {filtreActif && (
+          <BanniereFiltre
+            affiches={grilleAffichee.length} total={grille.length}
+            onEffacer={effacerFiltres} t={t}
+          />
+        )}
 
         {onglet === 'liste' && (
           <ListeAbonnes
@@ -1097,6 +1286,7 @@ export default function Cantine() {
               setMoisChoisis(new Set(moisParDefaut ? [moisParDefaut] : []));
               setAbonnementOuvert(true);
             } : null}
+            periodeLabel={libellePeriodeVue}
             money={money} t={t}
           />
         )}
@@ -1161,6 +1351,27 @@ export default function Cantine() {
           mois={entete}
           onEcrire={ecrireImport}
           onFerme={() => setImportOuvert(false)}
+          t={t}
+          money={money}
+        />
+      )}
+
+      {importModeleOuvert && service && (
+        <ImportModeleModal
+          service={service}
+          schoolId={schoolId}
+          year={year}
+          eleves={elevesBase}
+          classes={(classes || []).map((c) => ({ id: c.id, name: c.name }))}
+          mois={entete}
+          abonnements={abonnements.filter((a) => a.fee_catalog_id === serviceId)}
+          echeances={echeancesDuService}
+          payeDe={(id) => paidForSchedule(id, feePayments || [])}
+          dernierLot={dernierLot}
+          devise={school?.currency || 'XAF'}
+          onEcrire={ecrireModele}
+          onAnnulerLot={annulerLot}
+          onFerme={() => setImportModeleOuvert(false)}
           t={t}
           money={money}
         />

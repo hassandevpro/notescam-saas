@@ -46,6 +46,7 @@ import { EXCEL_ACCEPT, isExcelFile, excelOnlyMessage, readWorkbookAoa, downloadE
 import { lireRegistre, resumeRegistre } from '../../lib/registreServiceImport.js';
 import { planifierReprise, trancherEcriture } from '../../lib/registreServicePlan.js';
 import { rapprocherPlan } from '../../lib/rapprochementEleves.js';
+import { estUnExport, MESSAGE_EXPORT } from '../../lib/serviceImportEngine.js';
 
 const ETIQUETTE_REJET = {
   absent: { fr: 'Introuvable en base', en: 'Not found', es: 'No encontrado' },
@@ -89,6 +90,14 @@ export default function ImportRegistreModal({
     setOccupe(false);
     if (error) { setErreur(error); return; }
     if (!sheets.length) { setErreur(t('Ce classeur ne contient aucune feuille.', 'This workbook has no sheet.', 'Sin hojas.')); return; }
+    // Un EXPORT de registre n'est pas un fichier à importer : le dire d'emblée,
+    // au lieu du « aucune ligne d'en-tête reconnue » qui laisse l'école chercher.
+    if (sheets.some((s) => estUnExport(s.raw))) {
+      setErreur(t(MESSAGE_EXPORT,
+        'This file is an export, not an import template. Use “Download the import template” in the menu, copy the data into it, then use “Import with the template”.',
+        MESSAGE_EXPORT));
+      return;
+    }
     setFichier(f);
     setFeuilles(sheets);
     // La feuille retenue est celle où le lecteur reconnaît LE PLUS d'élèves, et

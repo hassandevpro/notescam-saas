@@ -30,13 +30,18 @@ import { pastilleCellule } from '../../lib/cantineEngine';
 // Le ton d'une case. Fond ET texte, pour que la couleur ne soit pas la seule
 // information : un écran mal réglé, une impression en noir et blanc, ou un
 // daltonien doivent lire la même chose.
+// Le TRAIT distingue autant que la teinte : plein pour ce qui est soldé,
+// tireté pour ce qui est entamé, épais pour ce qu'on réclame, pointillé pour
+// une décision posée à la main. Imprimée en noir et blanc, la grille reste
+// lisible ; et un daltonien n'a pas à deviner lequel des deux gris est le
+// mauvais. C'est le critère d'acceptation n° 7.
 const TON = {
-  vide:    'text-slate-300',
-  solde:   'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-  partiel: 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200',
-  impaye:  'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
-  exempte: 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
-  abandon: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+  vide:    'text-slate-300 border border-transparent',
+  solde:   'bg-emerald-50 text-emerald-700 border border-emerald-400 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-600',
+  partiel: 'bg-amber-50 text-amber-800 border border-dashed border-amber-500 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-500',
+  impaye:  'bg-rose-50 text-rose-700 border-2 border-rose-500 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-500',
+  exempte: 'bg-sky-50 text-sky-700 border border-dotted border-sky-500 dark:bg-sky-900/30 dark:text-sky-300 dark:border-sky-400',
+  abandon: 'bg-slate-100 text-slate-500 border border-dashed border-slate-400 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-500',
 };
 
 export default function GrilleMensuelle({
@@ -46,21 +51,31 @@ export default function GrilleMensuelle({
   const [montants, setMontants] = useState(false);
   const [totauxOuverts, setTotauxOuverts] = useState(false);
 
-  // Ce que porte une case : un signe court, et le reste s'il y en a un.
+  // Ce que porte une case : un signe court, un MOT sous le chiffre, et le
+  // reste s'il y en a un.
+  //
+  // POURQUOI LE MOT. Le responsable l'a dit de la version précédente : « chaque
+  // cellule affiche seulement un chiffre brut, sans dire s'il est payé, partiel
+  // ou impayé ». Un montant seul oblige à comparer de tête avec le tarif. Le
+  // mot répond à la question posée au guichet — « cet élève est-il à jour ? » —
+  // et il survit à l'impression en noir et blanc, là où la seule teinte ne
+  // survit pas. L'infobulle garde le détail complet : dû, versé, reste.
   const contenu = (c) => {
     const p = pastilleCellule(c);
-    if (p.ton === 'vide')    return { p, texte: '—', bulle: t('Mois non souscrit', 'Month not subscribed', 'Mes no suscrito') };
-    if (p.ton === 'exempte') return { p, texte: 'EX', bulle: t('Exempté', 'Exempted', 'Exento') };
-    if (p.ton === 'abandon') return { p, texte: 'AB', bulle: t('Abandon', 'Dropped', 'Abandono') };
+    if (p.ton === 'vide')    return { p, texte: '—', mot: '', bulle: t('Mois non souscrit', 'Month not subscribed', 'Mes no suscrito') };
+    if (p.ton === 'exempte') return { p, texte: 'EX', mot: t('Exempté', 'Exempted', 'Exento'), bulle: t('Exempté', 'Exempted', 'Exento') };
+    if (p.ton === 'abandon') return { p, texte: 'AB', mot: t('Abandon', 'Dropped', 'Abandono'), bulle: t('Abandon', 'Dropped', 'Abandono') };
     if (p.ton === 'solde') {
       return {
         p, texte: montants ? money(c.montantDu) : '✔',
+        mot: t('Payé', 'Paid', 'Pagado'),
         bulle: `${t('Soldé', 'Settled', 'Saldado')} — ${money(c.montantDu)}`,
       };
     }
     // Partiel et impayé portent le RESTE : c'est le chiffre qu'on réclame.
     return {
       p, texte: money(p.valeur),
+      mot: p.ton === 'partiel' ? t('Reste', 'Balance', 'Saldo') : t('Impayé', 'Unpaid', 'Impago'),
       bulle: `${p.ton === 'partiel' ? t('Partiel', 'Partial', 'Parcial') : t('Impayé', 'Unpaid', 'Impago')}`
         + ` — ${t('dû', 'due', 'debido')} ${money(c.montantDu)}, ${t('versé', 'paid', 'pagado')} ${money(c.paye)}`,
     };
@@ -123,10 +138,15 @@ export default function GrilleMensuelle({
                   <span className="block text-[11px] text-slate-400">{r.className || '—'}</span>
                 </td>
                 {r.cellules.map((c) => {
-                  const { p, texte, bulle } = contenu(c);
+                  const { p, texte, mot, bulle } = contenu(c);
                   const cellule = (
                     <span className={`inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums ${TON[p.ton]}`}>
                       {texte}
+                      {mot && (
+                        <span className="block text-[9px] font-medium uppercase tracking-wide opacity-80">
+                          {mot}
+                        </span>
+                      )}
                     </span>
                   );
                   return (

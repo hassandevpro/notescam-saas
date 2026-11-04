@@ -403,3 +403,153 @@ export function motPeriode(service, t = (fr) => fr) {
     parX: t('Par mois', 'By month', 'Por mes'),
   };
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * LA LISTE DES ABONNÉS — quatre fonctions sorties de `src/pages/Cantine.jsx`.
+ *
+ * POURQUOI ELLES DESCENDENT ICI. La règle des quatre états vivait dans le
+ * `useMemo` de la page (l.284-297 avant ce lot). C'était la DERNIÈRE règle
+ * métier de cet écran écrite dans du JSX : on ne pouvait pas l'exercer sans
+ * monter React, et le dépôt n'a pas de moteur de rendu. Le critère
+ * d'acceptation « les chiffres affichés sont ceux de `derivees`, champ par
+ * champ » était donc invérifiable sur la seule règle qui pouvait diverger.
+ *
+ * Elles ne changent AUCUN calcul : même ordre de test, mêmes bornes, même
+ * barème de tri. C'est un déplacement, et `_cantineListe.test.mjs` compare
+ * ligne à ligne avec le jeu d'essai du dossier de refonte.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * L'ÉTAT D'UN ABONNÉ, lu sans calcul par la secrétaire.
+ *
+ * L'ordre des tests est la règle, pas un détail : `sans_dette` passe AVANT
+ * `a_jour`. Un élève à qui l'école ne facture rien n'est pas « à jour » — il
+ * n'a jamais rien dû, et le dire autrement laisserait croire qu'il a payé.
+ */
+export function etatAbonne(ligne) {
+  const du = Number(ligne?.du) || 0;
+  const reste = Number(ligne?.reste) || 0;
+  const paye = Number(ligne?.paye) || 0;
+  if (du <= 0) return 'sans_dette';
+  if (reste <= 0) return 'a_jour';
+  return paye > 0 ? 'partiel' : 'impaye';
+}
+
+/** Les quatre états, dans l'ordre où l'écran les classe. */
+export const ETATS_ABONNE = Object.freeze(['impaye', 'partiel', 'a_jour', 'sans_dette']);
+
+/**
+ * La grille, lue par élève. Même matière que la grille des mois : deux listes
+ * qui divergeraient sous le même filtre seraient pires qu'une seule.
+ *
+ * @param {Array}  grille    sortie de `grilleCantine`
+ * @param {object} [sections] { [student_id]: clé de section } — résolue par
+ *                 `classSectionKey`, jamais stockée en base.
+ */
+export function listeAbonnes({ grille = [], sections = null, periode = '' } = {}) {
+  return grille.map((r0) => {
+    // La projection vient AVANT l'état : « À jour » doit vouloir dire « à jour
+    // POUR LE MOIS REGARDÉ », sinon un élève qui a payé novembre mais pas
+    // décembre serait annoncé impayé pendant qu'on encaisse novembre.
+    const r = projeterSurPeriode(r0, periode);
+    return {
+      ...r,
+      moisCrees: r0.cellules.filter((c) => c.echeance_id).length,
+      section: (sections && sections[r0.student_id]) || 'autre',
+      statut: etatAbonne(r),
+    };
+  });
+}
+
+/**
+ * LE FILTRE, commun aux trois onglets — et donc aux totaux, au papier et au
+ * classeur. Un filtre qui ne vaudrait que pour la liste donnerait deux
+ * chiffres contradictoires sur le même écran.
+ *
+ * `texte` cherche dans le NOM, le MATRICULE et la CLASSE : « MAT07 » et
+ * « 6eme A » sont deux façons dont une école désigne quelqu'un, et exiger le
+ * nom serait une chicane.
+ *
+ * `etat` ne s'applique qu'à une liste DÉJÀ étatée (`listeAbonnes`) : sur une
+ * grille brute il ne filtrerait rien, faute de colonne `statut`.
+ */
+export function filtrerAbonnes(lignes = [], {
+  texte = '', section = '', classe = '', etat = '', classeDe = null,
+} = {}) {
+  const q = String(texte || '').trim().toLowerCase();
+  return lignes.filter((r) => {
+    if (section && (r.section || 'autre') !== section) return false;
+    if (classe && classeDe && classeDe(r.student_id) !== classe) return false;
+    if (etat && (r.statut || etatAbonne(r)) !== etat) return false;
+    if (!q) return true;
+    return (r.name || '').toLowerCase().includes(q)
+      || (r.matricule || '').toLowerCase().includes(q)
+      || (r.className || '').toLowerCase().includes(q);
+  });
+}
+
+// Le barème du tri par état : ce qu'on réclame en premier vient en premier.
+const RANG_ETAT = { impaye: 0, partiel: 1, a_jour: 2, sans_dette: 3 };
+
+/**
+ * LE TRI. Le nom départage toujours en dernier ressort : deux lignes de même
+ * reste doivent sortir dans le même ordre d'un affichage à l'autre, sinon la
+ * liste bouge sous la main de la secrétaire entre deux encaissements.
+ */
+export function trierAbonnes(lignes = [], tri = 'nom') {
+  const l = [...lignes];
+  const parNom = (a, b) => (a.name || '').localeCompare(b.name || '', 'fr');
+  if (tri === 'classe') {
+    l.sort((a, b) => (a.className || '').localeCompare(b.className || '', 'fr') || parNom(a, b));
+  } else if (tri === 'reste') {
+    l.sort((a, b) => (Number(b.reste) || 0) - (Number(a.reste) || 0) || parNom(a, b));
+  } else if (tri === 'statut') {
+    l.sort((a, b) => (RANG_ETAT[a.statut ?? etatAbonne(a)] - RANG_ETAT[b.statut ?? etatAbonne(b)])
+      || parNom(a, b));
+  } else {
+    l.sort(parNom);
+  }
+  return l;
+}
+
+/**
+ * LA LIGNE D'UN ÉLÈVE, RAMENÉE À UN SEUL MOIS.
+ *
+ * ── POURQUOI CETTE FONCTION EXISTE ────────────────────────────────────────
+ *
+ * `grilleCantine` somme `du`, `paye` et `reste` sur TOUTE l'année. Tant qu'une
+ * école n'avait facturé que le mois courant, cette somme ÉTAIT le mois courant
+ * et la liste répondait à la question du guichet. Dès que les dix mois de
+ * l'année sont créés d'avance — ce que THE GENIUS a fait le 2026-11-04 — le
+ * même chiffre devient le solde annuel : 120 000 XAF en face de chaque nom, et
+ * plus personne ne voit qui n'a pas payé NOVEMBRE.
+ *
+ * On projette donc la ligne sur une période. Les totaux et l'état se
+ * recalculent sur cette seule case, avec EXACTEMENT la règle de la grille :
+ * seules les conventions `plein` et `demi` sont dues — un mois exempté,
+ * abandonné ou non inscrit ne doit rien, et ne doit donc pas apparaître en
+ * défaut.
+ *
+ * `cellules` est conservé tel quel : la grille continue de montrer l'année
+ * entière, c'est son office. Seule la LISTE regarde par le petit bout.
+ *
+ * @param {object} ligne   une ligne de `grilleCantine`
+ * @param {string} periode clé de période ; vide ou absente = l'année entière
+ */
+export function projeterSurPeriode(ligne, periode) {
+  if (!periode) return ligne;
+  const c = (ligne?.cellules || []).find((x) => x.period_key === periode);
+  const du = c && (c.convention === 'plein' || c.convention === 'demi')
+    ? Math.max(0, Math.floor(Number(c.montantDu) || 0)) : 0;
+  const paye = c ? Math.floor(Number(c.paye) || 0) : 0;
+  return {
+    ...ligne,
+    periode,
+    du,
+    paye,
+    reste: Math.max(0, du - paye),
+    // Ce que porte la case, pour que l'écran puisse dire « exempté » plutôt
+    // que « rien dû » quand la nuance compte.
+    convention: c?.convention || 'non_inscrit',
+  };
+}

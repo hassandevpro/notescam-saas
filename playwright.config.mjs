@@ -17,6 +17,7 @@
 // Prerequis : `npm run build:lan` (le serveur sert `dist/`).
 import { defineConfig, devices } from '@playwright/test';
 import { mkdtempSync } from 'node:fs';
+import { generateKeyPairSync } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -37,6 +38,32 @@ if (!LOCAL.includes(hote)) {
 
 // Base SQLite neuve par execution : jamais celle du poste de developpement.
 const DONNEES = process.env.E2E_DATA_DIR || mkdtempSync(join(tmpdir(), 'notescam-e2e-'));
+// Les tests doivent pouvoir AMORCER cette base (ecole, classes, eleves,
+// registre) avant la premiere navigation : sans cela un parcours ne peut rien
+// verifier d'autre que l'ecran d'entree d'une installation neuve. On repose le
+// chemin dans l'environnement du processus de test, pas seulement dans celui du
+// serveur, pour que les deux parlent bien de la MEME base.
+process.env.E2E_DATA_DIR = DONNEES;
+
+// UNE AUTORITE DE LICENCE JETABLE, propre a cette execution.
+//
+// L'edition LAN refuse de s'ouvrir sans licence : un parcours bute sur l'ecran
+// « Activation de NotesCam » avant d'avoir vu quoi que ce soit. Trois facons
+// de passer, et une seule est acceptable :
+//
+//   - retirer server/license-pubkey.txt : on testerait un serveur qui n'est
+//     plus celui qu'on livre ;
+//   - ajouter un interrupteur « licence desactivee » : ce serait un
+//     contournement livre aux ecoles en meme temps que le produit ;
+//   - CELLE-CI : on genere une paire de cles a chaque execution, on la donne
+//     au serveur par NOTESCAM_LICENSE_PUBKEY (qui a deja la priorite sur le
+//     fichier, voir server/security.js), et le test signe sa propre licence.
+//     Le controle reste ENTIER — il s'exerce simplement contre une autorite
+//     d'essai. La cle privee de l'editeur n'est jamais touchee, et la cle
+//     d'essai meurt avec le processus.
+const paire = generateKeyPairSync('ed25519');
+const LICENCE_PUBKEY = paire.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+process.env.E2E_LICENSE_PRIVKEY = paire.privateKey.export({ type: 'pkcs8', format: 'pem' });
 
 export default defineConfig({
   testDir: './e2e',
@@ -73,6 +100,7 @@ export default defineConfig({
       PORT: String(PORT),
       HOST: '127.0.0.1',          // jamais 0.0.0.0 : le test n'expose rien au LAN
       NOTESCAM_DATA_DIR: DONNEES,
+      NOTESCAM_LICENSE_PUBKEY: LICENCE_PUBKEY,
     },
   },
 });

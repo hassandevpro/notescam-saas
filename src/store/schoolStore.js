@@ -31,6 +31,7 @@ import { resolveClassEngine, firstCycleClasseSlug } from '../core/engineResolver
 import { manquesPourClasse } from '../core/apcRattrapage';
 import { attendreValeur } from '../core/attenteValeur';
 import { primSubjectsNeedingOwnCompetence, matSubjectsNeedingOwnDomaine } from '../core/refClassScope';
+import { planProgrammeAnglophone } from '../core/primProgrammeEn';
 import { domainesForMaternelle } from '../core/matEngine';
 // Même ordre que le bulletin et que l'écran de la classe : c'est lui qui décide
 // quelle matière GARDE la compétence nationale quand plusieurs la réclament.
@@ -1399,6 +1400,48 @@ export const useSchoolStore = create((set, get) => ({
       if (!r.error) created += 1;
     }
     return { created };
+  },
+
+  // ── CLASSE BILINGUE DU PRIMAIRE : LES ONZE COMPÉTENCES, AUSSI EN ANGLAIS ─────
+  //
+  // Demande de THE GENIUS (CE1 BIL, 2026-11-03) : « ces compétences en français, je les veux nettes
+  // aussi en anglais dans la même classe, chacune commençant par son code ». Voir
+  // core/primProgrammeEn.js pour la forme (code « 1A-EN », matière porteuse, bloc English du
+  // carnet). Idempotent : une jumelle déjà créée n'est ni recréée ni doublée, et on ne crée la
+  // matière porteuse que si elle manque. Jamais hors ligne : une écriture refusée repartirait en
+  // boucle dans la file (même garde que le rattrapage du primaire).
+  ajouterProgrammeAnglophonePrim: async (cls, niveauSlug) => {
+    const { subjects, primReferentiel, schoolId } = get();
+    if (!cls || !schoolId || !primReferentiel || !niveauSlug) return { error: 'parametres' };
+    if (!backendOnline()) return { error: 'offline' };
+    const plan = planProgrammeAnglophone({
+      competences: competencesForNiveau(primReferentiel, niveauSlug),
+      classSubjects: classSubjectsOf(subjects, cls.id),
+    });
+    let lignes = 0; let matieres = 0; const echecs = [];
+    for (const p of plan) {
+      let ligne = p.ligne;
+      if (!ligne) {
+        const r = await get().addRefLigne('prim', p.intitule, {
+          code: p.code, coefficient: p.coef, domaine: p.nat.domaine ?? null,
+          ordre: (Number(p.nat.ordre) || 0) + 1,
+        });
+        if (r.data) { ligne = r.data; lignes += 1; }
+        else if (r.error === 'existe') {
+          ligne = get()._refLignes('prim').find((l) => l.school_id === schoolId && l.code === p.code) || null;
+        }
+        if (!ligne) { echecs.push(`${p.code} — ${r.error || 'introuvable'}`); continue; }
+      }
+      const porteuse = classSubjectsOf(get().subjects, cls.id).find((s) => s.prim_competence_id === ligne.id);
+      if (!porteuse) {
+        await get().addSubject({
+          name: p.intitule, coef: p.coef, max: 20, class_id: cls.id, teacher_id: null,
+          prim_competence_id: ligne.id,
+        });
+        matieres += 1;
+      }
+    }
+    return { lignes, matieres, echecs };
   },
 
   addRefLigne: async (kind, intitule, extra = {}) => {

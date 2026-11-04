@@ -33,6 +33,7 @@ import {
 } from './primProgramme.js';
 import { agregerGroupe } from './primCompactRows.js';
 import { primSubjectsNeedingOwnCompetence } from './refClassScope.js';
+import { planProgrammeAnglophone, etatProgrammeAnglophone, estJumelleAnglophone } from './primProgrammeEn.js';
 
 let failed = false;
 const ok = (cond, msg, extra) => {
@@ -353,6 +354,73 @@ const ligne = (code, intitule, achieved, possible) => ({
   ok(/classSubjects, competences: primCompetencesEcole/.test(ecran),
     'Bulletins.jsx : le classement part des MATIÈRES et de la liste NON TRADUITE');
   ok(/programmes=\{programmes\}/.test(ecran), 'Bulletins.jsx : les blocs sont passés au gabarit');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LES ONZE COMPÉTENCES JUMELLES ANGLOPHONES (« 1A-EN » … « 6B-EN ») — CE1 BIL
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Demande de THE GENIUS (2026-11-03) : chaque compétence nationale, EN PLUS en anglais, avec ses
+// propres notes, sous son code. Chinois, Economics, Management, Practical Work… ne sont pas doublés.
+{
+  const CE1BIL = { level: 'CE1', name: 'CE1 BIL', system: 'FR', cycle: 'primaire' };
+  const AVEC_COEF = NATIONALES.map((c, i) => ({ ...c, coefficient: 2, ordre: (i + 1) * 10 }));
+
+  // 1. LE PLAN : onze entrées, au libellé anglais, au code « <national>-EN ».
+  const plan0 = planProgrammeAnglophone({ competences: AVEC_COEF, classSubjects: [] });
+  ok(plan0.length === 11, 'onze compétences à jumeler', plan0.length);
+  ok(plan0[0].code === '1A-EN' && plan0[0].intitule === 'Communicate in French', '1A → « 1A-EN · Communicate in French »', plan0[0]);
+  ok(plan0[1].intitule === 'Communicate in English' && plan0[10].code === '6B-EN', '1B anglais, et jusqu’à 6B-EN');
+  ok(plan0.every((p) => p.code.startsWith(p.nat.code) && p.code !== p.nat.code),
+    'chaque code COMMENCE par celui du national mais n’est jamais identique (aucune collision par code)');
+  ok(plan0.every((p) => p.coef === 2), 'le coefficient du national est repris');
+  ok(etatProgrammeAnglophone(plan0).aFaire === 11, 'rien n’est fait au départ : 11 à faire');
+
+  // 2. LES COMPÉTENCES D'ÉCOLE NE SONT PAS DOUBLÉES.
+  const ecole = [{ id: 'ch', code: 'CH', intitule: 'Chinois', school_id: 'ecole-1' }];
+  const plan1 = planProgrammeAnglophone({ competences: [...AVEC_COEF, ...ecole], classSubjects: [] });
+  ok(plan1.length === 11 && !plan1.some((p) => /chin/i.test(p.intitule)),
+    'Chinois, Economics, Management… restent hors du doublement');
+
+  // 3. IDEMPOTENCE : une fois créées (compétence + matière porteuse), plus rien à faire.
+  const jumelles = plan0.map((p, i) => ({ id: `j${i}`, code: p.code, intitule: p.intitule, school_id: 'ecole-1' }));
+  const porteuses = jumelles.map((j, i) => ({ id: `p${i}`, name: j.intitule, prim_competence_id: j.id }));
+  const plan2 = planProgrammeAnglophone({ competences: [...AVEC_COEF, ...jumelles], classSubjects: porteuses });
+  ok(etatProgrammeAnglophone(plan2).aFaire === 0, 'tout est en place : rien à recréer');
+  const plan3 = planProgrammeAnglophone({ competences: [...AVEC_COEF, ...jumelles], classSubjects: porteuses.slice(0, 4) });
+  ok(etatProgrammeAnglophone(plan3).aFaire === 7, 'une matière porteuse manquante est seule à recréer (4 en place → 7 à faire)');
+  ok(estJumelleAnglophone(jumelles[0]) && !estJumelleAnglophone(AVEC_COEF[0]) && !estJumelleAnglophone(ecole[0]),
+    'seule la ligne maison à code « -EN » est une jumelle');
+
+  // 4. LE CLASSEMENT : jumelles → English, nationales → French, Chinois → hors programme.
+  const subs = [...matieres(TRONC_FR), ...porteuses, { id: 'sch', name: 'Chinois' }];
+  const comps = [...AVEC_COEF, ...jumelles, ...ecole];
+  const par = programmesParCode(subs, comps, troncsDe(CE1BIL));
+  ok(par.get('1A-EN') === 'EN' && par.get('6B-EN') === 'EN', 'les jumelles tombent dans le bloc English');
+  ok(par.get('1A') === 'FR' && par.get('4A') === 'FR' && par.get('3B') === 'FR',
+    'les nationales — même celles qu’aucune matière ne réclame — sont du côté French');
+  ok(!par.has('CH'), 'Chinois n’est ni English ni French : bloc « Autres matières »');
+
+  // 5. DEUX BLOCS AU BULLETIN, ET LE TOTAL GÉNÉRAL TIENT.
+  const rows = [
+    ligne('1A', 'Communicate in French', 39, 40), ligne('2A', 'Use basic notions in mathematics', 30, 30),
+    ligne('1A-EN', 'Communicate in French', 36, 40), ligne('2A-EN', 'Use basic notions in mathematics', 27, 30),
+    ligne('CH', 'Chinois', 18, 20),
+  ];
+  const blocs = programmesDe(rows, { cls: CE1BIL, sys: 'EN', classSubjects: subs, competences: comps });
+  ok(blocs.length === 3, 'trois blocs : English, French, Autres', blocs.map((b) => b.programme));
+  // L'ordre suit le SYSTÈME de la classe (CE1 BIL est en système FR : French d'abord).
+  const parProg = Object.fromEntries(blocs.map((b) => [b.programme, b.codes.join(' ')]));
+  ok(parProg.EN === '1A-EN 2A-EN', 'bloc English : les jumelles', parProg.EN);
+  ok(parProg.FR === '1A 2A', 'bloc French : les nationales', parProg.FR);
+  ok(blocs.map((b) => b.programme).join() === 'FR,EN,AUTRE', 'classe de système FR : French, English, puis Autres', blocs.map((b) => b.programme));
+  ok(blocs[2].programme === 'AUTRE' && blocs[2].codes.join(' ') === 'CH', 'bloc Autres : Chinois seul', blocs[2]?.codes);
+  const somme = blocs.reduce((a, b) => a + b.achieved, 0);
+  ok(somme === 39 + 30 + 36 + 27 + 18, 'les blocs s’additionnent au total général (150)', somme);
+
+  // 6. NON-RÉGRESSION : sans jumelles, une nationale non réclamée reste hors programme.
+  const sans = programmesParCode(matieres([...TRONC_FR, ...TRONC_EN]), NATIONALES, troncsDe(CE1BIL));
+  ok(!sans.has('4A'), 'sans jumelles, le comportement d’avant ne change pas (4A reste hors programme)');
 }
 
 console.log(failed ? '\n❌ ÉCHEC' : '\n✅ TOUT PASSE');

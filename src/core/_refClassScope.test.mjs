@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs';
 import {
   scopeOf, applyScope, apcForClass, primForClass, matForClass, apcMatieresForClass,
-  unmatchedClassSubjects,
+  unmatchedClassSubjects, primOrphelines, lignesEnDouble,
 } from './refClassScope.js';
 
 let echecs = 0;
@@ -501,6 +501,53 @@ titre('Le rattrapage du primaire est bien CABLE a l ecran');
     'et la garde trop stricte ne doit pas revenir');
   ok(/rattrapees\.current\.has\(selectedClass\.id\)/.test(ecran),
     'et une seule fois par classe');
+}
+
+titre('primOrphelines : les competences que la classe ne porte pas');
+{
+  const ref = {
+    competences: [
+      { id: '1a', code: '1A', intitule: 'Lire et écrire', ordre: 1 },
+      { id: '2a', code: '2A', intitule: 'Compter', ordre: 2 },
+      { id: '3a', code: '3A', intitule: 'Pratiquer les valeurs sociales', ordre: 3 },
+      { id: '4a', code: '4A', intitule: 'Autonomie et esprit d initiative', ordre: 4 },
+    ],
+    niveauCompetences: ['1a', '2a', '3a', '4a'].map((c) => ({ niveau_id: 'ce1', competence_id: c })),
+  };
+  // Une classe qui ne porte que le français et les maths.
+  const o = primOrphelines(ref, 'ce1', [sub('1A'), sub('2A')], []);
+  ok(o.map((c) => c.id).join(',') === '3a,4a',
+    'les transversales 3A et 4A, que nulle matiere ne porte, sont montrees', o.map((c) => c.id));
+  ok(primOrphelines(ref, 'ce1', [sub('1A'), sub('2A')], ['3a']).map((c) => c.id).join(',') === '4a',
+    'une competence masquee n est pas proposee (elle n apparait pas aux notes)');
+  ok(primOrphelines(ref, 'ce1', [sub('1A'), sub('2A'), sub('3A'), sub('4A')], []).length === 0,
+    'une fois toutes rattachees : plus rien a montrer (idempotent)');
+  const liee = [{ id: 'x', name: 'Citizenship', prim_competence_id: '3a' }, sub('1A'), sub('2A')];
+  ok(primOrphelines(ref, 'ce1', liee, []).map((c) => c.id).join(',') === '4a',
+    'le lien explicite prim_competence_id fait foi, quel que soit le nom');
+  ok(primOrphelines(ref, 'ce1', [], []).length === 4, 'classe sans matiere : tout le niveau est a montrer');
+  ok(primOrphelines(null, 'ce1', [], []).length === 0 && primOrphelines(ref, null, [], []).length === 0,
+    'sans referentiel ou sans niveau : rien');
+}
+
+titre('lignesEnDouble : les repetitions d une competence deja portee');
+{
+  const comps = [
+    { id: '2b', code: '2B', intitule: 'Utiliser les notions de base en sciences et technologie' },
+    { id: '6b', code: '6B', intitule: 'Pratiquer les activités artistiques' },
+    { id: 'ch', code: 'CH', intitule: 'Chinois', school_id: 'x' },
+  ];
+  const classe = [sub('Chinois'), sub('Éveil scientifique / SVT'), sub('Biology'), sub('Technology'),
+    sub('Arts / Dessin'), sub('Music'), sub('Arabe')];
+  const d = lignesEnDouble(classe, comps);
+  ok(d.map((x) => x.subject.name).join(',') === 'Biology,Technology,Music',
+    'les secondes matières sur 2B et 6B sont des repetitions', d.map((x) => x.subject.name));
+  ok(d.every((x) => x.gardee.name === 'Éveil scientifique / SVT' || x.gardee.name === 'Arts / Dessin'),
+    'chaque repetition cite la ligne qui GARDE la competence');
+  ok(!d.some((x) => x.subject.name === 'Arabe' || x.subject.name === 'Chinois'),
+    'une ligne qui ne reclame rien (Arabe) ou qui garde sa competence (Chinois) n est jamais supprimee');
+  ok(lignesEnDouble([], comps).length === 0 && lignesEnDouble(null, comps).length === 0, 'classe vide ou absente : rien');
+  ok(lignesEnDouble([sub('Biology'), { id: 'z', name: '' }], comps).length === 0, 'une seule ligne, ou une ligne sans nom : rien');
 }
 
 console.log(echecs === 0 ? '\nTOUS LES TESTS PASSENT' : `\nECHEC : ${echecs}`);

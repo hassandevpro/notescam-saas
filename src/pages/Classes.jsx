@@ -14,7 +14,15 @@ import { COUNTRIES } from '../countries';
 // matiere n'ait pas deux familles selon l'ecran qui la regarde.
 import { CATEGORIES, DEFAULT_CATEGORY } from '../config/timetableConfig';
 import { inferCategory } from '../lib/timetableEngine';
-import { resolveClassEngine } from '../core/engineResolver';
+import { resolveClassEngine, primaireNiveauSlug } from '../core/engineResolver';
+
+import { programmesParCode, troncsDe } from '../core/primProgramme';
+import { lignesEnDouble } from '../core/refClassScope';
+import { competenceIdForSubject } from '../core/primCompetenceMatch';
+import { competencesForNiveau } from '../core/primEngine';
+import { planProgrammeAnglophone, etatProgrammeAnglophone } from '../core/primProgrammeEn';
+import { primCompetenceLabel } from '../core/referentielI18n';
+import { withLibelles } from '../lib/referentielEcole';
 import ChoixClassement from '../components/classes/ChoixClassement';
 import { parseClassName } from '../core/classNameParser';
 import { headTeacherText } from '../lib/headTeachers';
@@ -778,6 +786,148 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const moteurClasse  = resolveClassEngine(school, cls);
   const isSecondCycle = moteurClasse === 'sc';
 
+  // ── PRIMAIRE : LES COMPÉTENCES DU RÉFÉRENTIEL QUE LA CLASSE NE PORTE PAS ───
+  //
+  // La saisie des notes et le bulletin du primaire (Class 1 A à 6 A, CE1 BIL…) travaillent sur
+  // les COMPÉTENCES nationales du niveau ; cette fenêtre ne listait que les lignes `subjects`.
+  // Une compétence qu'aucune matière de la classe ne réclame s'affichait donc aux notes et au
+  // bulletin sans figurer ici — l'école ne pouvait ni la voir, ni lui donner un enseignant.
+  // Mêmes entrées que la saisie : niveau de la classe, compétences masquées exclues, libellés
+  // de l'école appliqués, rapprochement matière ↔ compétence identique (primCompetenceMatch).
+  const primReferentiel = useSchoolStore((s) => s.primReferentiel);
+  const masquesPrim     = useSchoolStore((s) => s.refMasques?.prim);
+  const libellesPrim    = useSchoolStore((s) => s.refLibelles?.prim);
+  const removeRefLigne  = useSchoolStore((s) => s.removeRefLigne);
+  const restoreRefLigne = useSchoolStore((s) => s.restoreRefLigne);
+  const addRefLigne     = useSchoolStore((s) => s.addRefLigne);
+
+  // ── CLASSE BILINGUE : LES ONZE COMPÉTENCES, AUSSI EN ANGLAIS (1A-EN … 6B-EN) ──
+  // Deux blocs au bulletin (English / French), chacun avec ses notes. Les compétences d'école
+  // (Chinois, Economics, Management, Practical Work…) ne sont pas doublées.
+  const ajouterProgrammeEn = useSchoolStore((s) => s.ajouterProgrammeAnglophonePrim);
+  const [enOccupe, setEnOccupe] = useState(false);
+  const [enMessage, setEnMessage] = useState(null);
+  const slugPrim = moteurClasse === 'apc_primaire' ? primaireNiveauSlug(cls.level, cls.name) : null;
+  // TOUTE classe du primaire peut porter le programme anglophone : une école bilingue (BRIGHT
+  // CONTINENT, THE GENIUS) ne met pas « BIL » dans le nom de chacune de ses classes. Le bouton est
+  // explicite — rien n'est ajouté tant qu'on ne le demande pas — et le nettoyage des doublons
+  // n'est proposé qu'ensuite.
+  const classeBilingue = !!slugPrim || bilingue || /\bbil/i.test(cls.name || '');
+  const etatEn = useMemo(() => {
+    if (!slugPrim || !primReferentiel) return null;
+    return etatProgrammeAnglophone(planProgrammeAnglophone({
+      competences: competencesForNiveau(primReferentiel, slugPrim), classSubjects,
+    }));
+  }, [slugPrim, primReferentiel, classSubjects]);
+  // ── LES MATIÈRES D'UNE CLASSE DU PRIMAIRE, COMME À LA SAISIE ET AU BULLETIN ──
+  //
+  // La fenêtre listait les lignes brutes `subjects` (catalogue FR + EN, « Mathematics FR »,
+  // « Communicate in French »…), alors que la saisie des notes et le bulletin travaillent sur les
+  // COMPÉTENCES : « 1A — Communiquer en français », « CH — Chinois »… On montre donc ICI la même
+  // liste, calculée par la même fonction (`primForClass`), avec les mêmes libellés (libellés
+  // d'école compris), dans le même ordre. Le programme (Français / English / Autres) se lit
+  // comme au carnet (`programmesParCode`) et n'apparaît que sur une classe réellement bilingue.
+  const lignesMiroir = useMemo(() => {
+    if (moteurClasse !== 'apc_primaire' || !primReferentiel || !slugPrim) return [];
+    const sysCls = cls.system || 'FR';
+    // TOUT le niveau, masquées comprises : une case décochée doit pouvoir être recochée.
+    // Même libellés, même ordre que la saisie (competencesForNiveau trie par `ordre`).
+    const duNiveau = competencesForNiveau(primReferentiel, slugPrim);
+    const libelles = withLibelles(
+      duNiveau.map((c) => ({ ...c, intitule: primCompetenceLabel(c, sysCls) })), libellesPrim,
+    );
+    const prog = programmesParCode(classSubjects, primReferentiel.competences || [], troncsDe(cls));
+    const vals = new Set(prog.values());
+    const bilingueProg = vals.has('FR') && vals.has('EN');
+    return libelles.map((c) => {
+      const nationale = !c.school_id;
+      // Les matières de la classe qui réclament la compétence ; la PREMIÈRE la garde (règle du produit).
+      const reclamantes = classSubjects.filter((m) => competenceIdForSubject(m, duNiveau) === c.id);
+      return {
+        c, nationale, reclamantes, matiere: reclamantes[0] || null,
+        // Nationale : au programme tant qu'elle n'est pas masquée. École : au programme de CETTE
+        // classe seulement si une de ses matières la porte (primForClass).
+        coche: nationale ? !(masquesPrim || []).includes(c.id) : reclamantes.length > 0,
+        programme: bilingueProg ? (prog.get(c.code) || 'AUTRE') : null,
+      };
+    });
+  }, [moteurClasse, primReferentiel, slugPrim, cls, classSubjects, masquesPrim, libellesPrim]);
+
+  // ── NETTOYAGE DES LIGNES EN DOUBLE (classe bilingue, programme anglophone EN PLACE) ──
+  // Les secondes matières sur une compétence déjà portée sont le tronc de l'autre langue tant que
+  // les jumelles 1A-EN…6B-EN ne le remplacent pas : le nettoyage n'est donc proposé qu'ensuite.
+  // Un aperçu d'abord, puis la suppression : chaque ligne part à la CORBEILLE (restaurable).
+  const doublons = useMemo(() => {
+    if (!slugPrim || !primReferentiel || !classeBilingue || !etatEn || etatEn.aFaire !== 0) return [];
+    return lignesEnDouble(classSubjects, competencesForNiveau(primReferentiel, slugPrim));
+  }, [slugPrim, primReferentiel, classeBilingue, etatEn, classSubjects]);
+  const [apercuDoublons, setApercuDoublons] = useState(false);
+  const [nettoyageOccupe, setNettoyageOccupe] = useState(false);
+  const supprimerDoublons = async () => {
+    setNettoyageOccupe(true);
+    let n = 0;
+    for (const d of doublons) { await deleteSubject(d.subject.id); n += 1; }
+    setNettoyageOccupe(false); setApercuDoublons(false);
+    setMiroirMessage(t(`${n} ligne(s) en double envoyée(s) à la corbeille.`, `${n} duplicate line(s) moved to the trash.`));
+  };
+
+  const [miroirMessage, setMiroirMessage] = useState(null);
+  const [nouvelleCompetence, setNouvelleCompetence] = useState('');
+  const basculerCompetence = async ({ c, nationale, coche, reclamantes }) => {
+    setMiroirMessage(null);
+    if (nationale) {
+      if (coche) {
+        // Le masquage est celui du référentiel : il vaut pour TOUTE l'école, pas pour cette classe.
+        const ok = window.confirm(t(
+          `Décocher « ${c.code} — ${c.intitule} » la masque pour TOUTES les classes de l'école (saisie des notes et bulletin). Continuer ?`,
+          `Unchecking “${c.code} — ${c.intitule}” hides it for ALL classes of the school (grade entry and report card). Continue?`));
+        if (!ok) return;
+        const r = await removeRefLigne('prim', c.id);
+        if (r?.error) setMiroirMessage(t(`Impossible de masquer : ${r.error}`, `Could not hide: ${r.error}`));
+      } else {
+        const r = await restoreRefLigne('prim', c.id);
+        if (r?.error) setMiroirMessage(t(`Impossible de réafficher : ${r.error}`, `Could not show: ${r.error}`));
+      }
+      return;
+    }
+    // Compétence d'école : l'activer dans CETTE classe = lui donner une matière porteuse ; la
+    // décocher = retirer ses matières porteuses de cette classe (les autres classes ne bougent pas).
+    if (coche) { for (const m of reclamantes) await deleteSubject(m.id); } else { await rattacherCompetence(c); }
+  };
+  const ajouterCompetenceEcole = async () => {
+    const nom = nouvelleCompetence.trim();
+    if (!nom) return;
+    setMiroirMessage(null);
+    const r = await addRefLigne('prim', nom);
+    const ligne = r?.data || null;
+    if (!ligne) { setMiroirMessage(t(`Impossible d'ajouter : ${r?.error || 'refus'}`, `Could not add: ${r?.error || 'refused'}`)); return; }
+    await addSubject({ name: nom, coef: 1, max: 20, class_id: cls.id, teacher_id: null, prim_competence_id: ligne.id });
+    setNouvelleCompetence('');
+  };
+
+  const lancerProgrammeEn = async () => {
+    setEnOccupe(true); setEnMessage(null);
+    const r = await ajouterProgrammeEn(cls, slugPrim).catch((e) => ({ error: String(e?.message || e) }));
+    setEnOccupe(false);
+    if (r?.error) {
+      setEnMessage({ ton: 'err', texte: r.error === 'offline'
+        ? t('Hors ligne : reconnectez-vous pour ajouter le programme anglophone.', 'Offline: reconnect to add the English programme.')
+        : t(`Impossible : ${r.error}`, `Could not add: ${r.error}`) });
+      return;
+    }
+    setEnMessage({ ton: r.echecs?.length ? 'err' : 'ok', texte: r.echecs?.length
+      ? t(`${r.echecs.length} compétence(s) en échec : ${r.echecs.join(' ; ')}`, `${r.echecs.length} failed: ${r.echecs.join('; ')}`)
+      : t(`Programme anglophone ajouté (${r.lignes} compétence(s), ${r.matieres} matière(s)).`, `English programme added (${r.lignes} competencies, ${r.matieres} subjects).`) });
+  };
+
+  // Rattacher = créer la ligne de matière portant le lien canonique `prim_competence_id`.
+  // Idempotent : une compétence déjà réclamée n'est pas proposée, donc pas recréée.
+  const rattacherCompetence = (c) => addSubject({
+    name: c.intitule, coef: Number(c.coefficient) > 0 ? Number(c.coefficient) : 1,
+    max: baremeDeLaMatiere(c.intitule, cls.system || 'FR'),
+    class_id: cls.id, teacher_id: null, prim_competence_id: c.id,
+  });
+
   // LE BARÈME DE CETTE CLASSE EST-IL PORTÉ PAR LA MATIÈRE, OU PAR LES CRITÈRES ?
   //
   // Défaut signalé par le responsable le 2026-10-31 : « quand ce sont les
@@ -980,7 +1130,152 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 modifiable juste en dessous, case par case, et l'état bilingue
                 d'une classe se DÉDUIT de cette liste (isBilingualClass) — il
                 n'a jamais été une colonne qu'il aurait fallu pouvoir régler. */}
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
+            {etatEn && classeBilingue && (
+              <div className="border border-sky-200 bg-sky-50/70 rounded-xl px-4 py-3 mb-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-sky-900">
+                    {t('Programme anglophone de la classe (classes bilingues)', 'English programme of the class (bilingual classes)')}
+                    {' '}({etatEn.completes}/{etatEn.total})
+                  </p>
+                  <button
+                    type="button" disabled={enOccupe || etatEn.aFaire === 0} onClick={lancerProgrammeEn}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
+                  >
+                    {enOccupe ? t('Ajout…', 'Adding…')
+                      : etatEn.aFaire === 0 ? t('Déjà ajouté', 'Already added')
+                      : t(`Ajouter les ${etatEn.aFaire} compétences en anglais`, `Add the ${etatEn.aFaire} competencies in English`)}
+                  </button>
+                </div>
+                <p className="text-xs text-sky-900/80 mt-1">
+                  {t('Chaque compétence nationale (1A, 1B…) est ajoutée en anglais sous le code 1A-EN, 1B-EN…, avec ses propres notes ; le bulletin affiche deux blocs, English et French. Chinois, Economics, Management, Practical Work… ne sont pas doublés.',
+                     'Each national competency (1A, 1B…) is added in English as 1A-EN, 1B-EN… with its own grades; the report card shows two blocks, English and French. Chinese, Economics, Management, Practical Work… are not duplicated.')}
+                </p>
+                {enMessage && (
+                  <p className={`text-xs mt-1 font-medium ${enMessage.ton === 'ok' ? 'text-emerald-700' : 'text-rose-700'}`}>{enMessage.texte}</p>
+                )}
+                {etatEn.aFaire !== 0 && (
+                  <p className="text-xs text-sky-900/70 mt-1">
+                    {t('Le nettoyage des lignes en double est proposé une fois le programme anglophone ajouté.', 'Duplicate-line cleanup is offered once the English programme is added.')}
+                  </p>
+                )}
+                {doublons.length > 0 && !apercuDoublons && (
+                  <button
+                    type="button" onClick={() => setApercuDoublons(true)}
+                    className="mt-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-rose-300 bg-white text-rose-700 hover:bg-rose-50"
+                  >
+                    {t(`Supprimer les ${doublons.length} lignes en double…`, `Delete the ${doublons.length} duplicate lines…`)}
+                  </button>
+                )}
+                {doublons.length > 0 && apercuDoublons && (
+                  <div className="mt-2 rounded-lg border border-rose-200 bg-white p-3">
+                    <p className="text-xs font-semibold text-rose-800 mb-1">
+                      {t(`Ces ${doublons.length} lignes répètent une compétence déjà portée par une autre ligne (conservée). Elles iront à la corbeille :`,
+                         `These ${doublons.length} lines repeat a competency already carried by another line (kept). They go to the trash:`)}
+                    </p>
+                    <ul className="max-h-48 overflow-y-auto text-xs text-gray-700 space-y-0.5">
+                      {doublons.map((d) => (
+                        <li key={d.subject.id}>
+                          <strong>{d.subject.name}</strong>
+                          <span className="text-gray-400"> → {t('garde :', 'kept:')} {d.gardee.name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button" disabled={nettoyageOccupe} onClick={supprimerDoublons}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                      >
+                        {nettoyageOccupe ? t('Suppression…', 'Deleting…') : t(`Supprimer ces ${doublons.length} lignes`, `Delete these ${doublons.length} lines`)}
+                      </button>
+                      <button type="button" onClick={() => setApercuDoublons(false)} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-300">
+                        {t('Annuler', 'Cancel')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {lignesMiroir.length > 0 && (
+              <div className="border border-brand-200 rounded-xl overflow-hidden mb-3 bg-white">
+                <div className="px-4 py-2.5 bg-brand-50 border-b border-brand-100">
+                  <p className="text-sm font-semibold text-brand-900">
+                    {t('Matières et compétences de la classe — mêmes noms qu’à la saisie des notes et au bulletin',
+                       'Class subjects and competencies — same names as in grade entry and on the report card')}
+                    {' '}({lignesMiroir.filter((l) => l.coche).length}/{lignesMiroir.length})
+                  </p>
+                  <p className="text-xs text-brand-900/70">
+                    {t('Cochez pour activer, décochez pour retirer. Une compétence nationale décochée est masquée pour toute l’école ; une compétence d’école ne l’est que pour cette classe.',
+                       'Check to enable, uncheck to remove. An unchecked national competency is hidden for the whole school; a school competency only for this class.')}
+                  </p>
+                  {miroirMessage && <p className="text-xs font-medium text-rose-700 mt-1">{miroirMessage}</p>}
+                </div>
+                {lignesMiroir.map((l, i) => (
+                  <div
+                    key={l.c.id}
+                    className={`grid grid-cols-[24px_64px_1fr_92px_220px] gap-3 items-center px-4 py-2 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${l.coche ? '' : 'opacity-60'}`}
+                  >
+                    <input
+                      type="checkbox" className="accent-brand-600 w-4 h-4 cursor-pointer"
+                      checked={l.coche} onChange={() => basculerCompetence(l)}
+                      aria-label={`${l.c.code} — ${l.c.intitule}`}
+                    />
+                    <span className="font-mono text-xs font-semibold text-brand-700">{l.c.code}</span>
+                    <span className="text-sm text-gray-900">
+                      {l.c.intitule}
+                      {l.nationale && <span className="ml-2 text-[10px] text-gray-400">{t('nationale', 'national')}</span>}
+                    </span>
+                    <span>
+                      {l.programme && (
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                          l.programme === 'EN' ? 'bg-sky-50 text-sky-700 border-sky-200'
+                            : l.programme === 'FR' ? 'bg-violet-50 text-violet-700 border-violet-200'
+                              : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                          {l.programme === 'EN' ? 'English' : l.programme === 'FR' ? t('Français', 'French') : t('Autres', 'Other')}
+                        </span>
+                      )}
+                    </span>
+                    {l.matiere ? (
+                      <select
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-brand-400 bg-white text-gray-700"
+                        value={l.matiere.teacher_id || ''}
+                        onChange={(e) => updateSubject(l.matiere.id, { teacher_id: e.target.value || null })}
+                      >
+                        <option value="">— {t('Aucun', 'None')} —</option>
+                        {teachers.map((tc) => <option key={tc.id} value={tc.id}>{tc.name}</option>)}
+                      </select>
+                    ) : l.coche ? (
+                      <button
+                        type="button" onClick={() => rattacherCompetence(l.c)}
+                        className="text-xs font-semibold px-2 py-1 rounded border border-amber-300 bg-amber-50 hover:bg-amber-100 text-left"
+                      >
+                        {t('Choisir un enseignant (créer la matière)', 'Pick a teacher (create the subject)')}
+                      </button>
+                    ) : <span />}
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 px-4 py-3 bg-brand-50/60 border-t border-brand-100">
+                  <input
+                    type="text" value={nouvelleCompetence}
+                    onChange={(e) => setNouvelleCompetence(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') ajouterCompetenceEcole(); }}
+                    placeholder={t('Ajouter une compétence ou matière de l’école…', 'Add a school competency or subject…')}
+                    className="flex-1 text-sm border border-brand-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-brand-400 bg-white"
+                  />
+                  <button
+                    type="button" onClick={ajouterCompetenceEcole} disabled={!nouvelleCompetence.trim()}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50"
+                  >
+                    {t('Ajouter', 'Add')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* UNE SEULE LISTE pour le primaire : la liste cochable ci-dessus (mêmes noms que le
+                bulletin). Le tableau brut des lignes `subjects` n'est rendu que s'il n'y a pas de
+                référentiel à montrer (autres cycles, ou référentiel pas encore chargé). */}
+            <div className={lignesMiroir.length > 0 ? 'hidden' : 'border border-gray-200 rounded-xl overflow-hidden'}>
               {/* En-tête tableau */}
               <div className={`grid ${COLS} gap-3 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wider`}>
                 <div />

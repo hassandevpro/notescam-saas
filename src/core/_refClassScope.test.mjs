@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs';
 import {
   scopeOf, applyScope, apcForClass, primForClass, matForClass, apcMatieresForClass,
-  unmatchedClassSubjects, primOrphelines, lignesEnDouble,
+  unmatchedClassSubjects, primOrphelines, lignesEnDouble, masquesDeClasse,
 } from './refClassScope.js';
 
 let echecs = 0;
@@ -528,6 +528,31 @@ titre('primOrphelines : les competences que la classe ne porte pas');
   ok(primOrphelines(ref, 'ce1', [], []).length === 4, 'classe sans matiere : tout le niveau est a montrer');
   ok(primOrphelines(null, 'ce1', [], []).length === 0 && primOrphelines(ref, null, [], []).length === 0,
     'sans referentiel ou sans niveau : rien');
+}
+
+titre('masquesDeClasse : un masque PAR CLASSE ne touche pas les autres classes');
+{
+  const ref = {
+    competences: [
+      { id: '1a', code: '1A', intitule: 'Lire et écrire', ordre: 1 },
+      { id: '3b', code: '3B', intitule: 'Pratiquer les valeurs citoyennes', ordre: 2 },
+      { id: '4a', code: '4A', intitule: 'Autonomie', ordre: 3 },
+    ],
+    niveauCompetences: ['1a', '3b', '4a'].map((c) => ({ niveau_id: 'ce1', competence_id: c })),
+  };
+  const classe = [sub('1A')];
+  const parClasse = { 'classe-1': ['3b'] };
+
+  ok(masquesDeClasse(['4a'], parClasse, 'classe-1').join() === '4a,3b', 'école + classe : les deux listes se cumulent', masquesDeClasse(['4a'], parClasse, 'classe-1'));
+  ok(masquesDeClasse(['4a'], parClasse, 'classe-2').join() === '4a', 'une AUTRE classe ne voit que les masques de l\'école');
+  ok(masquesDeClasse(['3b'], { c: ['3b'] }, 'c').length === 1, 'un id masqué des deux côtés n\'apparaît qu\'une fois');
+  ok(masquesDeClasse(null, null, 'x').length === 0 && masquesDeClasse(undefined, undefined, undefined).length === 0, 'sans masque : liste vide, pas une exception');
+
+  // Ce que voit la saisie / le bulletin de CHAQUE classe
+  const c1 = primForClass(ref, 'ce1', classe, masquesDeClasse([], parClasse, 'classe-1')).competences.map((c) => c.id);
+  const c2 = primForClass(ref, 'ce1', classe, masquesDeClasse([], parClasse, 'classe-2')).competences.map((c) => c.id);
+  ok(c1.join() === '1a,4a', '3B masquée pour la classe 1 : elle disparaît de SA saisie et de SON bulletin', c1);
+  ok(c2.join() === '1a,3b,4a', 'la classe 2, même école, garde ses trois compétences', c2);
 }
 
 titre('lignesEnDouble : les repetitions d une competence deja portee');

@@ -128,6 +128,7 @@ const A_BRANCHER = motifs([
   ['prim_criteres_masques',    'idem'],
   ['mat_domaines_masques',     'idem'],
   ['apc_competences_masques',  'idem'],
+  ['prim_competences_classe_masquees', 'masquage d’une compétence pour UNE classe — réglage d’affichage local comme les masques de l’école, clé composite SANS id : identifiant déterminé requis pour voyager'],
 ]);
 
 // ── LA RÈGLE ──────────────────────────────────────────────────────────────

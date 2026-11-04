@@ -1975,6 +1975,8 @@ export const ALLOWED_TABLES = new Set([
   // l'écran « Modifier les compétences » se heurtait à « Table non autorisée »
   // et l'école ne pouvait ni masquer ni renommer quoi que ce soit en LAN.
   'apc_competences_masques', 'prim_competences_masques', 'mat_domaines_masques',
+  // Masquage d'une compétence nationale pour UNE classe : même nature, même statut (hors SYNCED_TABLES).
+  'prim_competences_classe_masquees',
   // Les critères d'évaluation que l'école n'utilise pas (Oral, Pratique,
   // Savoir-être chez une école qui n'évalue qu'à l'écrit). Même nature que les
   // masques ci-dessus, et comme eux HORS `SYNCED_TABLES` : un masque est un

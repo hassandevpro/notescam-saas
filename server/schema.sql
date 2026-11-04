@@ -1605,6 +1605,18 @@ CREATE TABLE IF NOT EXISTS prim_competences_masques (
   masque_le     TEXT,
   PRIMARY KEY (school_id, competence_id)
 );
+-- Compétences NATIONALES masquées pour UNE classe seulement (Modifier la classe → décocher).
+-- Distinct de `prim_competences_masques`, qui masque pour toute l'école. Même nature : un réglage d'AFFICHAGE
+-- propre à l'édition, hors synchronisation (cf. ALLOWED_TABLES de db.js). Miroir de
+-- public.prim_competences_classe_masquees au Cloud (supabase_prim_competences_classe_masquees.sql).
+CREATE TABLE IF NOT EXISTS prim_competences_classe_masquees (
+  school_id     TEXT NOT NULL REFERENCES schools(id)          ON DELETE CASCADE,
+  class_id      TEXT NOT NULL REFERENCES classes(id)          ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES prim_competences(id) ON DELETE CASCADE,
+  masque_le     TEXT,
+  PRIMARY KEY (school_id, class_id, competence_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prim_classe_masquees_school ON prim_competences_classe_masquees(school_id);
 CREATE TABLE IF NOT EXISTS mat_domaines_masques (
   school_id  TEXT NOT NULL REFERENCES schools(id)      ON DELETE CASCADE,
   domaine_id TEXT NOT NULL REFERENCES mat_domaines(id) ON DELETE CASCADE,

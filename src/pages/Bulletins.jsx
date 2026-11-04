@@ -57,7 +57,7 @@ import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineM
 // Périmètre RÉEL de la classe dans le référentiel national : une matière
 // décochée dans l'écran Classes ne doit pas s'imprimer sur le bulletin officiel.
 // Le garde-fou (aucun filtre si rien n'est reconnu) est dans le module.
-import { apcForClass, primForClass, matForClass } from '../core/refClassScope';
+import { apcForClass, primForClass, matForClass, masquesDeClasse } from '../core/refClassScope';
 // Ordre d'affichage des matieres : une seule regle pour tout le produit.
 import { classSubjectsOf } from '../core/subjectOrder';
 import { APC_GROUPS, groupSubjects, domaineForSubject } from '../core/subjectGroup';
@@ -1732,7 +1732,8 @@ export default function Bulletins() {
   // Ce que l'ecole a masque / renomme dans les referentiels nationaux.
   const matMasques      = useSchoolStore((s) => s.refMasques.mat);
   const matLibelles     = useSchoolStore((s) => s.refLibelles.mat);
-  const primMasques     = useSchoolStore((s) => s.refMasques.prim);
+  const primMasquesEcole  = useSchoolStore((s) => s.refMasques.prim);
+  const primMasquesClasse = useSchoolStore((s) => s.refMasquesClasse);
   // Les critères que l'école n'évalue pas. Distincts des masques de COMPÉTENCE
   // ci-dessus : ceux-ci retirent une COLONNE du bulletin, pas une ligne.
   const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
@@ -2235,6 +2236,11 @@ export default function Bulletins() {
   //
   // `prim_competence_id` de la ligne `subjects` fait foi quand il est posé,
   // sinon l'appariement par nom ; aucun filtre si rien n'est reconnu.
+  // Masques de l'école + masques de CETTE classe (même liste que la saisie des notes).
+  const primMasques = useMemo(
+    () => masquesDeClasse(primMasquesEcole, primMasquesClasse, classId),
+    [primMasquesEcole, primMasquesClasse, classId],
+  );
   const primEcole = useMemo(
     () => (isPrim ? primForClass(primReferentiel, primNiveauSlug, classSubjects, primMasques)
                   : { competences: [], exclus: [] }),

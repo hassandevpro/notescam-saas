@@ -46,7 +46,7 @@ import { pointsMaxSain, PRIM_POINTS_MAX_LIMITE } from '../../core/primBareme';
 // Le PÉRIMÈTRE de la classe — ses matières cochées dans « Modifier la classe ».
 // Le bulletin l'applique déjà (primForClass) : la saisie doit lister EXACTEMENT
 // les mêmes compétences, sinon on saisit des notes qui ne s'impriment jamais.
-import { primForClass, unmatchedClassSubjects, primSubjectsNeedingOwnCompetence, scopeOf } from '../../core/refClassScope';
+import { primForClass, masquesDeClasse, unmatchedClassSubjects, primSubjectsNeedingOwnCompetence, scopeOf } from '../../core/refClassScope';
 // Les six familles du carnet, prises à la MÊME source que les bandeaux imprimés :
 // ce que l'école choisit ici est exactement ce qui s'imprimera.
 import { FAMILLES_PRIMAIRE, familleLabel } from '../../core/primCompactRows';
@@ -208,7 +208,8 @@ export default function PrimCompetenceWorkspace() {
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
   const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
   const setPrimNonEvalueeAction = useSchoolStore((s) => s.setPrimNonEvaluee);
-  const masques        = useSchoolStore((s) => s.refMasques.prim);
+  const masquesEcole   = useSchoolStore((s) => s.refMasques.prim);
+  const masquesClasse  = useSchoolStore((s) => s.refMasquesClasse);
   // Les CRITÈRES que l'école n'évalue pas : ils retirent une COLONNE de saisie,
   // là où `masques` retire une LIGNE de compétence.
   const masquesCrit    = useSchoolStore((s) => s.refMasques.prim_crit);
@@ -300,6 +301,9 @@ export default function PrimCompetenceWorkspace() {
   // rapproche du référentiel garde la liste complète plutôt qu'un écran vide.
   // Sans lui, la saisie offrait des compétences que le bulletin n'imprimait pas.
   const classSubjects = useMemo(() => classSubjectsOf(subjects, classId), [subjects, classId]);
+
+  // Masques de l'école + masques de CETTE classe : la saisie lit la même liste que le bulletin.
+  const masques = useMemo(() => masquesDeClasse(masquesEcole, masquesClasse, classId), [masquesEcole, masquesClasse, classId]);
 
   const competences = useMemo(() => {
     if (!referentiel || !niveauSlug) return [];
@@ -1026,7 +1030,7 @@ export default function PrimCompetenceWorkspace() {
             (referentiel?.competences || []).map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) })),
             libelles,
           )}
-          masques={masques}
+          masques={masquesEcole}
           motSingulier={t('compétence', 'competency')}
           renommable={() => true}
           onRename={(l, nom) => renameRef('prim', l.id, nom)}

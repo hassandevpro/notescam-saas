@@ -38,7 +38,7 @@ import { MAT_ACQUIS_CODES, MAT_ACQUIS_LABELS, dominantAcquis } from '../core/mat
 import { firstCycleClasseSlug, primaireNiveauSlug } from '../core/engineResolver.js';
 // Périmètre réel de la classe (masques de l'école + matières cochées) — même
 // source de vérité que les bulletins et le procès-verbal.
-import { apcForClass, primForClass } from '../core/refClassScope.js';
+import { apcForClass, primForClass, masquesDeClasse } from '../core/refClassScope.js';
 // Les intitulés du référentiel officiel (domaines du préscolaire, compétences
 // nationales du primaire, matières du premier cycle) sont stockés en français
 // pour tout le pays : sur une classe du secteur anglophone, on les rend en
@@ -321,7 +321,7 @@ function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas
   return round2((pcts.reduce((a, b) => a + b, 0) / pcts.length) / 100 * PRIM_GRADE_MAX);
 }
 
-function primReport({ cls, students, subjects, period, primNotes, primReferentiel, primMasques, primCriteresMasques = [],
+function primReport({ cls, students, subjects, period, primNotes, primReferentiel, primMasques, primMasquesClasse = {}, primCriteresMasques = [],
   primNonEvaluees = [], zeroSiManquante = false, sys }) {
   const scaleMax = PRIM_GRADE_MAX;
   const passThreshold = PRIM_GRADE_MAX / 2;
@@ -339,7 +339,7 @@ function primReport({ cls, students, subjects, period, primNotes, primReferentie
   // matières cochées. Le rapport listait tout le niveau, y compris ce que le
   // bulletin n'imprime pas — deux documents de la même classe ne concordaient
   // donc pas.
-  const comps = primForClass(primReferentiel, niveauSlug, subjects, primMasques).competences;
+  const comps = primForClass(primReferentiel, niveauSlug, subjects, masquesDeClasse(primMasques, primMasquesClasse, cls?.id)).competences;
   const columns = comps.map((c) => ({
     id: c.id,
     name: c.code ? `${c.code} — ${primCompetenceLabel(c, sys)}` : primCompetenceLabel(c, sys),
@@ -479,7 +479,7 @@ export function buildClassReport({
   // Masques du référentiel décidés par l'école. Le rapport ne les lisait pas :
   // une matière masquée, ou décochée dans la classe, restait une colonne alors
   // qu'elle ne figurait pas sur les bulletins.
-  apcMasques = [], primMasques = [],
+  apcMasques = [], primMasques = [], primMasquesClasse = {},
   // Les CRITÈRES que l'école n'évalue pas (Oral, Pratique, Savoir-être chez une
   // école qui n'évalue qu'à l'écrit). Sans eux ici, le rapport de classe
   // moyennerait sur des colonnes que le bulletin n'imprime pas — exactement la
@@ -494,7 +494,7 @@ export function buildClassReport({
   const ctx = { cls, students, subjects, period, sys, gOpts, scaleMax, passThreshold };
   switch (engine) {
     case 'maternelle':   return maternelleReport({ ...ctx, matObservations });
-    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques, primCriteresMasques, primNonEvaluees, zeroSiManquante });
+    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees, zeroSiManquante });
     case 'apc':          return apcReport({ ...ctx, apcNotes, apcReferentiel, apcMasques, gradeScale });
     default:             return classicReport({ ...ctx, gradeMap });
   }

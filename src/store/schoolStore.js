@@ -15,7 +15,7 @@ import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
 import { estUAValide } from '../core/uaMinedub';
 import { pointsMaxSain, PRIM_POINTS_MAX_LIMITE } from '../core/primBareme';
-import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
+import { fetchMasques, setMasque, fetchMasquesClasse, setMasqueClasse, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey,
   fetchPrimNonEvaluees, nonEvalKey, setPrimNonEvaluee as pousserNonEvaluee } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
@@ -454,6 +454,11 @@ export const useSchoolStore = create((set, get) => ({
   // Ce que CETTE ecole a masque dans chaque referentiel national (ids). Masquer
   // ne supprime rien : le national reste intact pour les 43 autres etablissements.
   refMasques:      { mat: [], apc: [], prim: [], prim_crit: [] },
+  // Masques PROPRES À CHAQUE CLASSE (primaire) : { [classId]: [competenceId…] }. `masquesClasseDispo`
+  // passe à false quand la lecture échoue (table absente tant que la migration Cloud n'est pas appliquée) :
+  // l'écran refuse alors de masquer, plutôt que de masquer à l'aveugle.
+  refMasquesClasse: {},
+  masquesClasseDispo: true,
   // Libelles de remplacement poses par CETTE ecole sur des lignes NATIONALES.
   // L'identite officielle est conservee : seules les notes resteraient attachees.
   refLibelles:     { mat: {}, apc: {}, prim: {} },
@@ -1019,6 +1024,30 @@ export const useSchoolStore = create((set, get) => ({
     // et on n'efface pas des surcharges deja connues.
     if (ids) set((st) => ({ refMasques: { ...st.refMasques, [kind]: ids } }));
     if (libelles) set((st) => ({ refLibelles: { ...st.refLibelles, [kind]: libelles } }));
+    if (kind === 'prim') {
+      const parClasse = await fetchMasquesClasse(schoolId);
+      // null = lecture en échec : on ne masque RIEN et on le dit, on n'efface pas ce qu'on savait.
+      if (parClasse) set({ refMasquesClasse: parClasse, masquesClasseDispo: true });
+      else set({ masquesClasseDispo: false });
+    }
+  },
+
+  // Masquer / réafficher une compétence nationale pour UNE classe (cf. core/refClassScope.masquesDeClasse).
+  masquerCompetenceClasse: async (classId, competenceId) => {
+    const { schoolId } = get();
+    if (!schoolId || !classId || !competenceId) return { error: 'parametres' };
+    if (!backendOnline()) return { error: 'offline' };
+    if (!(await setMasqueClasse(schoolId, classId, competenceId, true))) return { error: 'refus' };
+    set((st) => ({ refMasquesClasse: { ...st.refMasquesClasse, [classId]: [...new Set([...(st.refMasquesClasse[classId] || []), competenceId])] } }));
+    return { data: 'masque' };
+  },
+  restaurerCompetenceClasse: async (classId, competenceId) => {
+    const { schoolId } = get();
+    if (!schoolId || !classId || !competenceId) return { error: 'parametres' };
+    if (!backendOnline()) return { error: 'offline' };
+    if (!(await setMasqueClasse(schoolId, classId, competenceId, false))) return { error: 'refus' };
+    set((st) => ({ refMasquesClasse: { ...st.refMasquesClasse, [classId]: (st.refMasquesClasse[classId] || []).filter((x) => x !== competenceId) } }));
+    return { data: true };
   },
 
   // `extra` porte ce qui est propre au moteur : pour l'APC, la competence vit dans

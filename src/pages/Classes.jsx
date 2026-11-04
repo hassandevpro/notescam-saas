@@ -797,8 +797,12 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const primReferentiel = useSchoolStore((s) => s.primReferentiel);
   const masquesPrim     = useSchoolStore((s) => s.refMasques?.prim);
   const libellesPrim    = useSchoolStore((s) => s.refLibelles?.prim);
-  const removeRefLigne  = useSchoolStore((s) => s.removeRefLigne);
   const restoreRefLigne = useSchoolStore((s) => s.restoreRefLigne);
+  // Masquage PAR CLASSE d'une compétence nationale (table prim_competences_classe_masquees).
+  const masquesClasseMap     = useSchoolStore((s) => s.refMasquesClasse);
+  const masquesClasseDispo   = useSchoolStore((s) => s.masquesClasseDispo);
+  const masquerCompetenceClasse    = useSchoolStore((s) => s.masquerCompetenceClasse);
+  const restaurerCompetenceClasse  = useSchoolStore((s) => s.restaurerCompetenceClasse);
   const addRefLigne     = useSchoolStore((s) => s.addRefLigne);
 
   // ── CLASSE BILINGUE : LES ONZE COMPÉTENCES, AUSSI EN ANGLAIS (1A-EN … 6B-EN) ──
@@ -845,13 +849,17 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
       const reclamantes = classSubjects.filter((m) => competenceIdForSubject(m, duNiveau) === c.id);
       return {
         c, nationale, reclamantes, matiere: reclamantes[0] || null,
-        // Nationale : au programme tant qu'elle n'est pas masquée. École : au programme de CETTE
-        // classe seulement si une de ses matières la porte (primForClass).
-        coche: nationale ? !(masquesPrim || []).includes(c.id) : reclamantes.length > 0,
+        // Nationale : au programme tant qu'elle n'est masquée NI pour l'école NI pour cette classe.
+        // École : au programme de CETTE classe seulement si une de ses matières la porte (primForClass).
+        masqueeEcole: nationale && (masquesPrim || []).includes(c.id),
+        masqueeClasse: nationale && ((masquesClasseMap || {})[cls.id] || []).includes(c.id),
+        coche: nationale
+          ? !(masquesPrim || []).includes(c.id) && !((masquesClasseMap || {})[cls.id] || []).includes(c.id)
+          : reclamantes.length > 0,
         programme: bilingueProg ? (prog.get(c.code) || 'AUTRE') : null,
       };
     });
-  }, [moteurClasse, primReferentiel, slugPrim, cls, classSubjects, masquesPrim, libellesPrim]);
+  }, [moteurClasse, primReferentiel, slugPrim, cls, classSubjects, masquesPrim, masquesClasseMap, libellesPrim]);
 
   // ── NETTOYAGE DES LIGNES EN DOUBLE (classe bilingue, programme anglophone EN PLACE) ──
   // Les secondes matières sur une compétence déjà portée sont le tronc de l'autre langue tant que
@@ -873,21 +881,31 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
 
   const [miroirMessage, setMiroirMessage] = useState(null);
   const [nouvelleCompetence, setNouvelleCompetence] = useState('');
-  const basculerCompetence = async ({ c, nationale, coche, reclamantes }) => {
+  const basculerCompetence = async ({ c, nationale, coche, reclamantes, masqueeEcole }) => {
     setMiroirMessage(null);
     if (nationale) {
-      if (coche) {
-        // Le masquage est celui du référentiel : il vaut pour TOUTE l'école, pas pour cette classe.
+      // Masquée pour TOUTE l'école (réglage du référentiel) : la recocher la réaffiche partout, ce qui
+      // se confirme. C'est le seul cas où l'on sort du périmètre de CETTE classe.
+      if (masqueeEcole) {
         const ok = window.confirm(t(
-          `Décocher « ${c.code} — ${c.intitule} » la masque pour TOUTES les classes de l'école (saisie des notes et bulletin). Continuer ?`,
-          `Unchecking “${c.code} — ${c.intitule}” hides it for ALL classes of the school (grade entry and report card). Continue?`));
+          `« ${c.code} — ${c.intitule} » est masquée pour TOUTE l'école. La recocher la réaffiche dans toutes les classes. Continuer ?`,
+          `“${c.code} — ${c.intitule}” is hidden for the WHOLE school. Checking it shows it again in every class. Continue?`));
         if (!ok) return;
-        const r = await removeRefLigne('prim', c.id);
-        if (r?.error) setMiroirMessage(t(`Impossible de masquer : ${r.error}`, `Could not hide: ${r.error}`));
-      } else {
         const r = await restoreRefLigne('prim', c.id);
         if (r?.error) setMiroirMessage(t(`Impossible de réafficher : ${r.error}`, `Could not show: ${r.error}`));
+        return;
       }
+      // Sinon : le masque est celui de CETTE classe seulement.
+      if (!masquesClasseDispo) {
+        setMiroirMessage(t(
+          'Le masquage par classe n\'est pas encore disponible : la mise à jour du Cloud (migration prim_competences_classe_masquees) doit d\'abord être appliquée.',
+          'Per-class hiding is not available yet: the Cloud update (prim_competences_classe_masquees migration) must be applied first.'));
+        return;
+      }
+      const r = coche
+        ? await masquerCompetenceClasse(cls.id, c.id)
+        : await restaurerCompetenceClasse(cls.id, c.id);
+      if (r?.error) setMiroirMessage(t(`Impossible de modifier : ${r.error}`, `Could not change: ${r.error}`));
       return;
     }
     // Compétence d'école : l'activer dans CETTE classe = lui donner une matière porteuse ; la
@@ -1205,8 +1223,8 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     {' '}({lignesMiroir.filter((l) => l.coche).length}/{lignesMiroir.length})
                   </p>
                   <p className="text-xs text-brand-900/70">
-                    {t('Cochez pour activer, décochez pour retirer. Une compétence nationale décochée est masquée pour toute l’école ; une compétence d’école ne l’est que pour cette classe.',
-                       'Check to enable, uncheck to remove. An unchecked national competency is hidden for the whole school; a school competency only for this class.')}
+                    {t('Cochez pour activer, décochez pour retirer. Décocher une compétence, nationale ou d’école, la retire de CETTE classe seulement : les autres classes ne changent pas.',
+                       'Check to enable, uncheck to remove. Unchecking a competency, national or school-defined, removes it from THIS class only: other classes are unchanged.')}
                   </p>
                   {miroirMessage && <p className="text-xs font-medium text-rose-700 mt-1">{miroirMessage}</p>}
                 </div>
@@ -1224,6 +1242,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                     <span className="text-sm text-gray-900">
                       {l.c.intitule}
                       {l.nationale && <span className="ml-2 text-[10px] text-gray-400">{t('nationale', 'national')}</span>}
+                      {l.masqueeEcole && <span className="ml-2 text-[10px] font-semibold text-amber-700">{t('masquée pour toute l’école', 'hidden for the whole school')}</span>}
                     </span>
                     <span>
                       {l.programme && (

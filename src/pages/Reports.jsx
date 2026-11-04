@@ -424,6 +424,7 @@ function computeClassReport(cls, period, ctx) {
     matObservations: ctx.matObservations,
     apcMasques:      ctx.apcMasques,
     primMasques:     ctx.primMasques,
+    primMasquesClasse: ctx.primMasquesClasse,
     primCriteresMasques: ctx.primCriteresMasques,
     primNonEvaluees: ctx.primNonEvaluees,
     zeroSiManquante: ctx.zeroSiManquante,
@@ -815,6 +816,7 @@ export default function Reports() {
   // colonnes que le bulletin n'imprime pas (cf. core/refClassScope.js).
   const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
   const primMasques     = useSchoolStore((s) => s.refMasques.prim);
+  const primMasquesClasse = useSchoolStore((s) => s.refMasquesClasse);
   // Les CRITERES que l'ecole n'evalue pas : sans eux ici, cet ecran
   // moyennerait sur des colonnes que le bulletin n'imprime pas.
   const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
@@ -958,13 +960,13 @@ export default function Reports() {
   const reportCtx = useMemo(() => ({
     school, schoolUnits, students, subjects, gradeMap,
     apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
-    apcMasques, primMasques, primCriteresMasques,
+    apcMasques, primMasques, primMasquesClasse, primCriteresMasques,
     // Le rapport doit lire les MEMES totaux que le bulletin : sans ces deux-la,
     // il moyennerait sur des cellules que le bulletin compte zero, ou sur une
     // competence que la classe a declaree non evaluee.
     primNonEvaluees, zeroSiManquante: !!school?.notes_manquantes_zero,
   }), [school, schoolUnits, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
-      apcMasques, primMasques, primCriteresMasques, primNonEvaluees]);
+      apcMasques, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees]);
 
   const classReport = useMemo(
     () => (selectedClass ? computeClassReport(selectedClass, period, reportCtx) : null),

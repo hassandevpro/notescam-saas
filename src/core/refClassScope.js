@@ -321,6 +321,20 @@ export function primForClass(referentiel, niveauSlug, classSubjects, masques = [
 }
 
 /**
+ * LES MASQUES QUI S'APPLIQUENT À UNE CLASSE : ceux de l'école, plus ceux de cette classe seule.
+ *
+ * Le masquage du référentiel est par ÉCOLE (table `prim_competences_masques`) : décocher « 3B » dans
+ * une classe la retirait de toutes. Le masquage PAR CLASSE (`prim_competences_classe_masquees`) retire
+ * une compétence nationale d'UNE classe sans toucher aux autres.
+ *
+ * @param ecole    ids masqués pour toute l'école
+ * @param parClasse { [classId]: [ids] } masques propres à chaque classe
+ */
+export function masquesDeClasse(ecole, parClasse, classId) {
+  return [...new Set([...(ecole || []), ...(((parClasse || {})[classId]) || [])])];
+}
+
+/**
  * LES LIGNES DE MATIÈRE QUI RÉPÈTENT UNE COMPÉTENCE DÉJÀ PORTÉE PAR UNE AUTRE LIGNE.
  *
  * Même attribution que le produit (cf. `primSubjectsNeedingOwnCompetence`) : dans l'ordre de la

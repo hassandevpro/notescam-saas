@@ -140,6 +140,35 @@ export async function setMasque(kind, schoolId, id, masque) {
   return true;
 }
 
+// ── MASQUAGE PAR CLASSE (compétences du primaire) ────────────────────────────
+// Table `prim_competences_classe_masquees` (école, classe, compétence). Même nature que les masques de
+// l'école : un réglage d'AFFICHAGE propre à chaque édition, hors synchronisation.
+// `fetchMasquesClasse` rend { [classId]: [competenceId…] }, ou null si la lecture échoue — table absente
+// (migration Cloud pas encore appliquée) comprise : l'appelant ne doit alors RIEN masquer.
+export async function fetchMasquesClasse(schoolId) {
+  if (!schoolId) return {};
+  const { data, error } = await supabase
+    .from('prim_competences_classe_masquees').select('class_id, competence_id').eq('school_id', schoolId);
+  if (error) { console.error('fetchMasquesClasse', error); return null; }
+  const par = {};
+  for (const r of data || []) (par[r.class_id] = par[r.class_id] || []).push(r.competence_id);
+  return par;
+}
+
+export async function setMasqueClasse(schoolId, classId, competenceId, masque) {
+  if (!schoolId || !classId || !competenceId) return false;
+  const T = 'prim_competences_classe_masquees';
+  const q = masque
+    ? supabase.from(T).upsert(
+      { school_id: schoolId, class_id: classId, competence_id: competenceId },
+      { onConflict: 'school_id,class_id,competence_id' },
+    )
+    : supabase.from(T).delete().eq('school_id', schoolId).eq('class_id', classId).eq('competence_id', competenceId);
+  const { error } = await q;
+  if (error) { console.error('setMasqueClasse', error); return false; }
+  return true;
+}
+
 // Crée ou modifie une ligne MAISON. `record.school_id` doit être posé : sans lui
 // la RLS refuse (c'est elle qui empêche de s'approprier une ligne nationale).
 export async function upsertLigne(kind, record) {

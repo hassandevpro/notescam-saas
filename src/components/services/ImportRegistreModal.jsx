@@ -114,6 +114,20 @@ export default function ImportRegistreModal({
   const lecture = useMemo(() => (aoa.length ? lireRegistre(aoa) : null), [aoa]);
   const resume = useMemo(() => (lecture ? resumeRegistre(lecture) : null), [lecture]);
 
+  // L'ANNEE DE LA FEUILLE CONTRE L'ANNEE OU L'ON ECRIT.
+  //
+  // Le classeur de THE GENIUS porte trois feuilles et DEUX annees : le 3e
+  // trimestre 2025/2026 et le 1er trimestre 2026/2027, college compris. Rien
+  // ne distingue ces feuilles a l'oeil dans la liste deroulante — « Feuil1 »,
+  // « Feuil2 », « Feuil3 » — et l'import ecrit TOUJOURS dans l'annee ouverte.
+  // Prendre la mauvaise ferait devoir une annee entiere de transport a des
+  // eleves qui l'ont deja payee, et gonflerait la recette de l'exercice.
+  //
+  // Quand la feuille DIT son annee et qu'elle differe, on ne passe pas. Quand
+  // elle ne dit rien (`annee` nul), rien ne change : on ne devine pas.
+  const anneeFichier = lecture?.annee || null;
+  const anneeDiscordante = !!anneeFichier && !!year && anneeFichier !== String(year);
+
   // ── LE PLAN ──────────────────────────────────────────────────────────────
   //
   // `portee: 'annee_courante'` : les abonnements seuls, sans versement, et les
@@ -255,6 +269,13 @@ export default function ImportRegistreModal({
             </dl>
             {/* Les totaux de l'école servent de preuve de lecture : s'ils
                 tombent au franc près, le lecteur n'a rien perdu en route. */}
+            {anneeDiscordante && (
+              <p className="mb-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                {t(`Cette feuille annonce l'année ${anneeFichier}, mais l'import écrirait dans ${year}. Choisissez la feuille de ${year}, ou ouvrez l'année ${anneeFichier} avant d'importer.`,
+                   `This sheet states school year ${anneeFichier}, but the import would write into ${year}. Pick the ${year} sheet, or open ${anneeFichier} first.`,
+                   `Esta hoja indica el año ${anneeFichier}, pero la importación escribiría en ${year}.`)}
+              </p>
+            )}
             {totauxRecoupes != null && (
               <p className={`mb-3 rounded-lg border px-3 py-2 text-sm ${
                 totauxRecoupes
@@ -284,7 +305,7 @@ export default function ImportRegistreModal({
             )}
             <Pied>
               <button type="button" onClick={() => setEtape(1)} className={btnVide}>{t('Retour', 'Back', 'Atrás')}</button>
-              <button type="button" onClick={() => setEtape(3)} className={btnPlein} disabled={!lecture.eleves.length}>
+              <button type="button" onClick={() => setEtape(3)} className={btnPlein} disabled={!lecture.eleves.length || anneeDiscordante}>
                 {t('Voir le plan', 'See the plan', 'Ver el plan')}
               </button>
             </Pied>

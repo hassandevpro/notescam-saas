@@ -6,7 +6,7 @@
 // signaler sans jamais les corriger.
 //
 // Lancer : node --experimental-loader ./scripts/lib/esm-resolve.mjs src/lib/_registreServiceImport.test.mjs
-import { lireRegistre, resumeRegistre, serieExcelEnDate, compteEleves } from './registreServiceImport.js';
+import { lireRegistre, resumeRegistre, serieExcelEnDate, compteEleves, anneeAnnoncee } from './registreServiceImport.js';
 
 let pass = 0, fail = 0;
 const ok = (c, label, got) => {
@@ -170,5 +170,63 @@ console.log('\n— Les refus —');
   ok(resumeRegistre().elevesDistincts === 0, 'un résumé sans lecture ne lève pas');
 }
 
+
+// ── LA FEUILLE « COLLEGE » DU CLASSEUR DE THE GENIUS (2026-11-04) ─────────
+//
+// Le meme classeur porte desormais TROIS feuilles. Celle du college titre sa
+// colonne « FRAIS / MOIS » — avec des espaces autour de la barre — la ou les
+// deux autres ecrivent « FRAIS/MOIS ». Resultat avant correctif : colonne du
+// tarif introuvable, et les 37 eleves du college tous refuses en `sans_tarif`,
+// un fichier de l'annee EN COURS ecarte en entier pour deux espaces.
+{
+  const COLLEGE = [
+    ['THE GENIUS: PAIEMENT DES FRAIS DE TRANSPORT DU COLLEGE  ANNEE SCOLAIRE 2026/2027'],
+    ['N°', 'NOMS ET PRENOMS', 'CLASSE', 'RESIDENCE', 'FRAIS / MOIS', 'FRAIS ANNUEL',
+      '1er TRIM', '2ème TRIM', '3ème TRIM', 'TOTAL ANNUEL', 'OBSERVAT°'],
+    [1, 'MAKOUGOUM BRITANY', '6ème', 'Marie Rurale', 12500, 100000, 50000, '', '', 50000, ''],
+    [2, 'DEFFO JOYCE', 'FORM 1', 'Madelon', 12500, 100000, 50000, '', '', 50000, ''],
+  ];
+  const r = lireRegistre(COLLEGE);
+  ok(r.eleves.length === 2, '« FRAIS / MOIS » est reconnu comme « FRAIS/MOIS »', r.eleves.length);
+  ok(r.eleves[0]?.tarif === 12500, 'le tarif mensuel du college est bien lu', r.eleves[0]?.tarif);
+  ok(resumeRegistre(r).bloquantes === 0, 'et plus rien ne bloque la feuille du college', resumeRegistre(r).bloquantes);
+}
+
+// ── CE QUI BLOQUE : L'ANNUEL, PAS LE MOIS ────────────────────────────────
+// L'abonnement et l'echeance s'ecrivent au montant ANNUEL ; le tarif mensuel
+// ne sert qu'au libelle. Un refus commun aux deux ecartait des lignes
+// parfaitement ecrivables, avec un message qui affirmait « ni tarif ni montant
+// annuel » devant un annuel bien present.
+{
+  const base = (tarif, annuel) => [
+    ['N°', 'NOMS ET PRENOMS', 'CLASSE', 'FRAIS/MOIS', 'FRAIS ANNUEL', '1er TRIM', '2ème TRIM', '3ème TRIM', 'TOTAL ANNUEL'],
+    [1, 'SANS TARIF MENSUEL', 'CL1', tarif, annuel, 30000, '', '', 30000],
+  ];
+  const sansMois = lireRegistre(base('', 60000));
+  const t = sansMois.anomalies.map((a) => a.type);
+  ok(!t.includes('sans_tarif') && t.includes('tarif_mensuel_absent'),
+    'annuel sans tarif mensuel : signale, jamais bloquant', t);
+  ok(resumeRegistre(sansMois).bloquantes === 0, 'et la ligne reste ecrivable', resumeRegistre(sansMois).bloquantes);
+  const sansAnnuel = lireRegistre(base(7500, ''));
+  ok(sansAnnuel.anomalies.some((a) => a.type === 'sans_tarif' && /aucun montant annuel/.test(a.message)),
+    'sans annuel : bloquant, et le message dit lequel manque', sansAnnuel.anomalies.map((a) => a.message));
+  ok(resumeRegistre(sansAnnuel).bloquantes === 1, 'un annuel manquant bloque bien la ligne', resumeRegistre(sansAnnuel).bloquantes);
+}
+
+// ── L'ANNEE QUE LA FEUILLE ANNONCE ───────────────────────────────────────
+// Trois feuilles, DEUX annees. L'import ecrit dans l'annee ouverte : importer
+// le 3e trimestre 2025/2026 dans 2026/2027 ferait devoir une annee entiere de
+// transport a 211 eleves qui l'ont deja payee.
+{
+  ok(anneeAnnoncee([['... TROISIEME TRIMESTRE  ANNEE SCOLAIRE 2025/2026']]) === '2025-2026',
+    "l'annee du titre est lue (2025/2026)", anneeAnnoncee([['ANNEE SCOLAIRE 2025/2026']]));
+  ok(anneeAnnoncee([['THE GENIUS'], ['... DU 1er TRIMESTRE ANNEE 2026/2027']]) === '2026-2027',
+    "elle est cherchee sur les premieres lignes, pas seulement la premiere");
+  ok(anneeAnnoncee([['2025-2026 en tiret']]) === '2025-2026', 'le tiret vaut la barre');
+  ok(anneeAnnoncee([['aucune annee ici']]) === null, 'rien a annoncer : null, on ne devine pas');
+  ok(anneeAnnoncee([['exercice 2025/2027']]) === null, 'deux annees non consecutives ne sont pas une annee scolaire');
+  ok(lireRegistre([['TRANSPORT ANNEE SCOLAIRE 2026/2027']]).annee === '2026-2027',
+    'lireRegistre expose l annee meme quand il ne reconnait aucun tableau');
+}
 console.log(fail === 0 ? '\n✅ Tous les tests passent' : `\n❌ ÉCHEC : ${fail}`);
 if (fail > 0) process.exit(1);

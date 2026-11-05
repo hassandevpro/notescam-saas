@@ -10,7 +10,8 @@ const ok = (cond, msg) => { console.log(`${cond ? '✅' : '❌'} ${msg}`); if (!
 
 // ── Définition des pistes ───────────────────────────────────────────────────
 ok(TRACKS.fr_seq.periods.length === 6,  'MINESEC francophone : 6 séquences');
-ok(TRACKS.en_term.periods.length === 3, 'anglophone : 3 terms');
+ok(TRACKS.en_term.periods.length === 6, 'anglophone : 6 séquences (groupées en 3 terms)');
+ok(TRACKS.en_term.periods[2].hint.en === 'Term 2', 'Seq 3 anglophone est rattachée au 2e term');
 ok(TRACKS.prim_ua.periods.length === 8, 'MINEDUB primaire : 8 UA');
 ok(TRACKS.mat_trim.periods.length === 3, 'maternelle : 3 trimestres');
 ok(TRACKS.ge_trim.periods.length === 3, 'Guinée Éq. : 3 trimestres');
@@ -21,7 +22,7 @@ ok(TRACKS.fr_seq.periods[2].hint.fr === 'Trim. 2', 'Séq 3 est rattachée au 2e 
 // Clés persistables : uniques, et sur-ensemble strict de l'existant (sprint 19).
 const keys = ALL_CALENDAR_PERIODS.map((p) => p.key);
 ok(new Set(keys).size === keys.length, 'aucune clé seq_key dupliquée');
-ok(keys.length === 20, '6 séquences + 3 terms + 8 UA + 3 trimestres = 20 lignes');
+ok(keys.length === 23, '6 séquences FR + 6 séquences EN + 8 UA + 3 trimestres = 23 lignes');
 for (const legacy of ['fr_seq_1', 'fr_seq_6', 'en_term_1', 'en_term_3']) {
   ok(keys.includes(legacy), `clé historique conservée : ${legacy}`);
 }

@@ -44,6 +44,9 @@ const DEFINE = { 'import.meta.env': 'globalThis.__VITE_ENV__' };
 const SRC_DIR = new URL('../../src/', import.meta.url).href;
 
 export async function load(url, context, next) {
+  // Une feuille de style importée par un composant : sans objet pour Node (le banc
+  // charge le CSS livré lui-même), on la remplace par un module vide.
+  if (url.endsWith('.css')) return { format: 'module', shortCircuit: true, source: 'export default {};' };
   const estJsx = url.endsWith('.jsx');
   const estSrcJs = url.startsWith(SRC_DIR) && url.endsWith('.js');
   if (!estJsx && !estSrcJs) return next(url, context);

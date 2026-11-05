@@ -4,10 +4,14 @@
 // tutelle / niveau. Les découpages officiels ne coïncident pas :
 //
 //   • MINESEC — secondaire francophone ... 6 séquences            (fr_seq_1…6)
-//   • Sous-système anglophone ............ 3 terms                (en_term_1…3)
+//   • Sous-système anglophone ............ 6 séquences           (en_term_1…6 *)
 //   • MINEDUB — primaire APC ............. 8 unités d'apprentissage (prim_ua_1…8)
 //   • MINEDUB — maternelle ............... 3 trimestres           (mat_trim_1…3)
 //   • Guinée équatoriale ................. 3 trimestres           (fr_seq_1…3 *)
+//
+//   (*) L'anglophone GARDE le préfixe `en_term_` bien qu'il compte désormais
+//   six séquences : les dates déjà saisies sous `en_term_1..3` restent lues, au
+//   même rang qu'avant. Re-clé = dates perdues, pour un simple mot.
 //
 //   (*) La Guinée équatoriale RÉUTILISE les clés `fr_seq_1..3` : c'est ce que
 //   l'écran calendrier écrivait déjà avant l'ajout des pistes — on ne re-clé
@@ -46,10 +50,12 @@ export const TRACKS = {
   },
   en_term: {
     key:      'en_term',
-    unit:     { fr: 'Term', en: 'Term', es: 'Term' },
-    title:    { fr: 'Système anglophone — Terms', en: 'Anglophone system — Terms', es: 'Sistema anglófono — Terms' },
-    subtitle: { fr: 'Sous-système anglophone — 3 terms', en: 'Anglophone sub-system — 3 terms', es: 'Subsistema anglófono — 3 terms' },
-    periods:  periods('en_term_', 3, (n) => ({ fr: `Term ${n}`, en: `Term ${n}`, es: `Term ${n}` })),
+    unit:     { fr: 'Séquence', en: 'Sequence', es: 'Secuencia' },
+    title:    { fr: 'Système anglophone — Séquences', en: 'Anglophone system — Sequences', es: 'Sistema anglófono — Secuencias' },
+    subtitle: { fr: 'Sous-système anglophone — 6 séquences regroupées en 3 terms', en: 'Anglophone sub-system — 6 sequences grouped into 3 terms', es: 'Subsistema anglófono — 6 secuencias en 3 terms' },
+    periods:  periods('en_term_', 6,
+      (n) => ({ fr: `Séq ${n}`, en: `Seq ${n}`, es: `Sec ${n}` }),
+      (n) => ({ fr: `Term ${Math.ceil(n / 2)}`, en: `Term ${Math.ceil(n / 2)}`, es: `Term ${Math.ceil(n / 2)}` })),
   },
   prim_ua: {
     key:      'prim_ua',

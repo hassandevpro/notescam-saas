@@ -1,0 +1,158 @@
+======================================================================
+NotesCam 0.3.32 — SERVEUR LINUX (THE GENIUS)
+PRIMAIRE BILINGUE, IMPORT DES SERVICES, BULLETINS ANGLOPHONES,
+ET CORRECTIONS DE LA SYNCHRONISATION
+======================================================================
+
+PAQUET            notescam-linux-x64-0.3.32.tar.gz
+TAILLE            53 851 805 octets
+EMPREINTE SHA-256 5a95ae2953ef0705e2a17f3767dcdf9ee1cdc4d62d4798b9d092eed1e465067a
+CONSTRUIT LE      2026-11-04 (edition "lan", Node v24.22.0 comme sur le serveur)
+                  depuis l'arbre de travail du 2026-11-04, SANS commit : il
+                  contient donc les changements du 3 et du 4 novembre.
+SCRIPT            deploy-0.3.32.sh   (bash -n OK)
+
+Verifiez l'empreinte avant d'installer :
+
+    sha256sum notescam-linux-x64-0.3.32.tar.gz
+
+----------------------------------------------------------------------
+CE QU'IL FAUT AVOIR DANS LE MEME DOSSIER
+----------------------------------------------------------------------
+
+    notescam-linux-x64-0.3.32.tar.gz
+    deploy-0.3.32.sh
+    corriger-bareme-form.sh
+    diagnostic-0.3.29.sh            (controle apres coup)
+
+----------------------------------------------------------------------
+LA COMMANDE
+----------------------------------------------------------------------
+
+    cd ~/Telechargements
+    sudo ./deploy-0.3.32.sh notescam-linux-x64-0.3.32.tar.gz
+
+Le script sauvegarde la base (copie verifiee), installe, redemarre, puis
+controle. Il s'arrete SANS rien installer si la sauvegarde ne se verifie pas.
+Apres l'installation il LIT la quarantaine de synchronisation (rien n'est
+ecrit) et enregistre le resultat dans :
+    /var/lib/notescam/data/diagnostic-sync-0.3.32-AAAAMMJJHHMMSS.txt
+ENVOYEZ CE FICHIER : c'est lui qui donnera la cause (voir plus bas).
+
+----------------------------------------------------------------------
+CE QUE LA 0.3.32 AJOUTE A LA 0.3.31 (du 2026-11-04, a NE PAS installer)
+----------------------------------------------------------------------
+
+La 0.3.31 construite le 2026-11-04 est anterieure aux correctifs ci-dessous et
+annonce une version plus basse que celle-ci : installez la 0.3.32, jamais la
+0.3.31 apres elle.
+
+1. FRAIS DE SCOLARITE — « PAYE INTEGRAL » A TORT. Le « Paye » de l'ecran des
+   frais additionnait les versements de services (cantine, transport, tenue...)
+   alors que le « Du » de scolarite n'en contient plus. Un eleve ayant regle la
+   cantine pouvait donc apparaitre « Paye integral ». L'ecran retire desormais
+   les versements de services du paye de scolarite. AFFICHAGE SEUL : aucune
+   donnee n'est modifiee. Les portails parent et les statistiques lisent encore
+   le total brut.
+   (Cote Cloud, le 2026-11-05 : 6 fiches dont le cache du paye depassait leurs
+   lignes ont ete remises a la somme des lignes, et la suppression d'une ligne
+   de paiement retire desormais son montant du cache. Rien a faire sur le
+   serveur de l'ecole.)
+
+2. NOTES DU PRIMAIRE — UNE NOTE SAISIE NE DISPARAIT PLUS. Si le serveur refuse
+   une note, l'ecran la garde, la cerne en rouge, dit « pas encore enregistree »
+   et la renvoie. Regler un bareme n'ecrase plus les notes que l'appareil
+   n'avait pas lues.
+
+----------------------------------------------------------------------
+SYNCHRONISATION — CE QUI CHANGE, ET CE QUI NE CHANGE PAS
+----------------------------------------------------------------------
+
+LE CONSTAT. La notice 0.3.30 annoncait 221 lignes en quarantaine (surtout des
+affectations de classe). Le Cloud affichait 181 253 le 2026-11-04. Cette
+version ne PREND PAS la cause de ce saut : elle l'est en cours d'etablissement.
+
+CORRECTION 1 — LE COMPTEUR. « Lignes refusees par le Cloud » etait un
+COUNT(*) d'une table qui ne se vide jamais : une meme ligne refusee, reenfilee
+par la reparation puis refusee de nouveau, y comptait N fois, et une ligne
+actuellement reenfilee etait comptee deux fois (en file ET en quarantaine). Il
+compte maintenant les LIGNES DISTINCTES refusees et non reenfilees. Rien n'est
+supprime : la trace complete reste en base. Aucune ligne n'est retiree du
+compteur sans preuve qu'on ne possede pas encore ; le chiffre affiche peut donc
+rester eleve, et c'est voulu.
+
+CORRECTION 2 — LES OMBRES. Une ligne refusee par le Cloud puis mise en
+quarantaine recevait quand meme une « ombre » (la valeur accordee, base de la
+fusion champ par champ), a la milliseconde de sa mise de cote : un accord qui
+n'avait jamais eu lieu. Le code disait pourtant l'inverse. C'est corrige
+(server/cloudSync.js), avec un controle qui echoue si la correction est
+retiree. Les lignes DEJA en quarantaine gardent l'ombre posee a tort ; elle ne
+leur sert qu'a la fusion, et rien ne les efface.
+
+LE DIAGNOSTIC (scripts/diagnostic-sync-lan.mjs) croise maintenant TABLE x MOTIF
+de refus, compte les lignes distinctes, dit combien sont reenfilees, et donne
+la repartition par jour. LECTURE SEULE : il n'ecrit rien, ne contacte pas le
+Cloud, ne touche a aucune file.
+
+CE QUE CETTE VERSION NE FAIT PAS : elle ne vide, ne reinitialise et ne
+rejoue aucune file ni aucune quarantaine.
+
+----------------------------------------------------------------------
+CE QUI CHANGE POUR L'ECOLE
+----------------------------------------------------------------------
+
+ BULLETINS ANGLOPHONES (FORM1...)
+  - Moyenne generale, rangs et profil de classe dans le bareme de la classe
+    (/20) ; plus de « 78.6/20 ».
+  - Grade A1...F9 calcule sur le pourcentage : 17/20 donne A1, plus « F9 - Fail ».
+  - Rangs en anglais (19th), seuil de reussite juste dans la liste de gauche
+    (le compteur « admis » se calcule enfin a partir de 10/20).
+  - Le logo de l'ecole est imprime en filigrane sur le bulletin APC.
+ BULLETIN « APC REPORT CARD »
+  - Une seule page A4 jusqu'a 41 matieres (corps 8 pt, texte secondaire 7 pt) ;
+    au-dela, deux pages propres, « Page 1 / 2 », sans ligne coupee.
+ PRIMAIRE BILINGUE (CE1 BIL, Class 1 A a 6 A)
+  - Modifier la classe : une seule liste cochable, aux memes noms qu'a la saisie
+    des notes et au bulletin. Une competence d'ecole decochee quitte CETTE
+    classe ; une competence nationale decochee est masquee pour TOUTE l'ecole
+    (confirmation demandee).
+  - « Ajouter les 11 competences en anglais » : 1A-EN ... 6B-EN, avec leurs
+    propres notes ; le bulletin affiche deux blocs, English et French. Chinois,
+    Economics, Management, Practical Work... ne sont pas doubles.
+  - « Supprimer les N lignes en double » : propose seulement une fois le
+    programme anglophone ajoute ; apercu, confirmation, corbeille (restaurable).
+ SERVICES (cantine...)
+  - Modele d'import telechargeable, apercu avant ecriture, versements de reprise
+    hors arrete de caisse, annulation du dernier import.
+
+Aucune migration de schema. Aucune donnee modifiee par l'installation.
+
+----------------------------------------------------------------------
+A FAIRE APRES L'INSTALLATION, DANS CET ORDRE
+----------------------------------------------------------------------
+
+ 1. Envoyez le fichier diagnostic-sync-0.3.32-*.txt (section 7).
+ 2. Ctrl+Shift+R sur un poste, puis ouvrez un bulletin de FORM1 (format APC).
+ 3. CE1 BIL -> Modifier la classe : ajoutez les 11 competences en anglais,
+    VERIFIEZ la liste, puis seulement apres supprimez les lignes en double.
+ 4. Le bareme de FORM1 / FORM2 : voir la notice 0.3.30 (etape 7 du script).
+
+----------------------------------------------------------------------
+CE QUI N'A PAS ETE VERIFIE
+----------------------------------------------------------------------
+
+  - L'ecran reel de CE1 BIL et l'ecriture sur la base de THE GENIUS.
+  - L'impression sur imprimante, et dans Edge (Chrome/Chromium seulement).
+  - La suite complete : 265 ok / 1 intermittent (test de cadence de synchro,
+    un controle de delai qui passe 5 fois sur 5 en isolation).
+  - Le serveur a ete demarre depuis l'archive extraite sur une base jetable
+    (version 0.3.32 annoncee), mais pas sous Linux.
+
+----------------------------------------------------------------------
+RETOUR ARRIERE
+----------------------------------------------------------------------
+
+La base d'avant installation est conservee :
+    /var/lib/notescam/data/notescam.db.avant-0.3.32-AAAAMMJJHHMMSS
+Pour revenir : arreter le service, remettre cette copie en place, reinstaller
+le paquet 0.3.30 avec deploy-0.3.30.sh.

@@ -106,5 +106,18 @@ ok(unarchiveFields().archived_at === null, 'désarchivage : la marque est retir�
 const split = splitArchived([{ id: 'a' }, { id: 'b', archived_at: 'x' }]);
 ok(split.active.length === 1 && split.archived.length === 1, 'listes actives / archivées séparées');
 
+// ── Versements de REPRISE (import de registre de service) ───────────────────
+// Un registre repris n'est jamais entré dans un tiroir : le compter ferait
+// réclamer au caissier des espèces qu'il n'a pas.
+const avecReprise = [
+  pay('p1', 100000),
+  pay('r1', 15000, { method: 'reprise', reference: 'IMPORT-X' }),
+  pay('r2', -15000, { method: 'reprise', reversal_of: 'r1' }),
+];
+ok(expectedCash(avecReprise, { cashierId: CAISSIER, date: DAY }).expected === 100000,
+  'reprise : ni le versement ni son annulation n\'entrent dans l\'arrêté');
+ok(expectedCash(avecReprise, { cashierId: CAISSIER, date: DAY }).count === 1,
+  'reprise : une seule écriture de tiroir');
+
 console.log(failed ? '\n❌ ÉCHEC' : '\n✅ Tous les tests passent');
 process.exit(failed ? 1 : 0);

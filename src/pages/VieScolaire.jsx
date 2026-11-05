@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/pagination';
 import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
 import { INCIDENT_TYPES, labelOf } from '../core/disciplineTerms';
 import { useVsContext, VsHeader, fmtDate, todayISO } from '../components/vieScolaire/vsCommon';
@@ -50,14 +51,19 @@ export default function VieScolaire() {
       setLoading(true);
       const [snap, att] = await Promise.all([
         fetchVieScolaireSnapshot(schoolId, yearLabel),
+        // PAGINE. Une seule journee ne porte probablement pas mille absences — mais
+        // c est exactement le raisonnement qui a produit le defaut des notes : une borne
+        // qu on croit implicite n en est pas une. Paginer coute un appel quand la
+        // journee tient sous le plafond, et rend le compte juste quand elle le depasse.
         classIds.length
-          ? supabase.from('attendance').select('student_id, class_id, status, date')
-              .eq('school_id', schoolId).eq('date', today).in('class_id', classIds)
-          : Promise.resolve({ data: [] }),
+          ? fetchAllRows(() => supabase.from('attendance').select('student_id, class_id, status, date')
+            .eq('school_id', schoolId).eq('date', today).in('class_id', classIds)
+            .order('id', { ascending: true }), 'viescolaire:attendance')
+          : Promise.resolve([]),
       ]);
       if (!alive) return;
       setSnapshot(snap);
-      setAttToday(att?.data || []);
+      setAttToday(att || []);
       setLoading(false);
     })();
     return () => { alive = false; };

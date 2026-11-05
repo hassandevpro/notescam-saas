@@ -2,6 +2,7 @@
 // client (alias Vite). Aucune règle métier ici : tout le calcul appartient à
 // cashSessionEngine (pur, testé). Ce module ne fait que lire/écrire.
 import { supabase } from './supabase';
+import { fetchAllRows } from './pagination';
 
 const TABLE = 'cash_sessions';
 
@@ -30,11 +31,22 @@ export async function upsertCashSession(session) {
 // sur une grosse école, tirer toutes les lignes de paiement pour compter des
 // numéros serait absurde.
 export async function fetchReceiptNumbers(schoolId, { year = null, from = null, to = null } = {}) {
-  let q = supabase.from('fee_payments').select('receipt_no, date').eq('school_id', schoolId);
-  if (year) q = q.eq('academic_year', year);
-  if (from) q = q.gte('date', from);
-  if (to)   q = q.lte('date', to);
-  const { data, error } = await q;
-  if (error) { console.error('fetchReceiptNumbers', error); return []; }
-  return (data || []).map((r) => r.receipt_no).filter((n) => n != null);
+  // PAGINE — et ici la troncature ne faisait pas qu amputer un total : elle
+  // INVENTAIT des trous. Cette fonction sert a reperer les numeros manquants dans la
+  // serie des recus, c est-a-dire une recette encaissee puis escamotee. Au-dela de
+  // mille paiements — une ecole de 250 eleves a quatre echeances les depasse — tous
+  // les recus suivants paraissaient absents. L outil qui doit detecter un detournement
+  // en signalait donc des centaines qui n existaient pas.
+  const faireQ = () => {
+    let q = supabase.from('fee_payments').select('receipt_no, date').eq('school_id', schoolId);
+    if (year) q = q.eq('academic_year', year);
+    if (from) q = q.gte('date', from);
+    if (to)   q = q.lte('date', to);
+    return q.order('id', { ascending: true });
+  };
+  const data = await fetchAllRows(faireQ, 'fetchReceiptNumbers');
+  // `null` = la lecture a echoue. Rendre [] ferait croire a une serie VIDE, donc sans
+  // trou : le rapport dirait « tout va bien » alors qu il n a rien pu lire.
+  if (data === null) return [];
+  return data.map((r) => r.receipt_no).filter((n) => n != null);
 }

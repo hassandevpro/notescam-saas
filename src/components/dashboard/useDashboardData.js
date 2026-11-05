@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { fetchAllRows } from '../../lib/pagination';
 import { localISODate } from '../../core/attendanceEngine';
 import { fetchVieScolaireSnapshot } from '../../lib/vieScolaireService';
 import { fetchExpenses } from '../../lib/expenseService';
@@ -53,13 +54,18 @@ export function useDisciplineSnapshot(enabled, { schoolId, yearLabel, classIds }
       const ids = key ? key.split(',') : [];
       const [snap, att] = await Promise.all([
         fetchVieScolaireSnapshot(schoolId, yearLabel),
+        // PAGINE. Une seule journee ne porte probablement pas mille absences — mais
+        // c est exactement le raisonnement qui a produit le defaut des notes : une borne
+        // qu on croit implicite n en est pas une. Paginer coute un appel quand la
+        // journee tient sous le plafond, et rend le compte juste quand elle le depasse.
         ids.length
-          ? supabase.from('attendance').select('student_id, class_id, status, date')
-              .eq('school_id', schoolId).eq('date', today).in('class_id', ids)
-          : Promise.resolve({ data: [] }),
+          ? fetchAllRows(() => supabase.from('attendance').select('student_id, class_id, status, date')
+            .eq('school_id', schoolId).eq('date', today).in('class_id', ids)
+            .order('id', { ascending: true }), 'dashboard:attendance')
+          : Promise.resolve([]),
       ]);
       if (!alive) return;
-      setState({ loading: false, snapshot: snap, attendanceToday: att?.data || [] });
+      setState({ loading: false, snapshot: snap, attendanceToday: att || [] });
     })().catch(() => { if (alive) setState({ loading: false, snapshot: null, attendanceToday: [] }); });
     return () => { alive = false; };
   }, [enabled, schoolId, yearLabel, key, today]);

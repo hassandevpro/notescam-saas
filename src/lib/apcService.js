@@ -11,6 +11,7 @@
 // écraser une note. L'écriture cloud upsert sur ce triplet (anti-doublon).
 
 import { supabase } from './supabase';
+import { fetchToutesLesLignes } from './pagination';
 import { refreshReferentiel, versionFingerprint, maisonFingerprint } from './referentielFingerprint';
 import { uuid } from './uuid';
 // Définition canonique dans le moteur pur (lisible sans la couche Supabase).
@@ -120,9 +121,11 @@ export function refreshApcReferentiel(cachedFingerprint, schoolId) {
 
 // --- Notes --------------------------------------------------------------------
 export async function fetchApcNotes(schoolId) {
-  const { data, error } = await supabase.from('apc_notes').select('*').eq('school_id', schoolId);
-  if (error) { console.error('fetchApcNotes', error); return null; }
-  return data;
+// PAGINE : PostgREST plafonne un select a 1000 lignes, et repond 200 en tronquant.
+// Meme plafond, meme consequence : le premier cycle depassera 1 000 notes.
+// Sans pagination, une note au-dela du plafond est ECRITE mais jamais RELUE : elle
+// revient vide a l ecran, et l ecole conclut « ca ne persiste pas ».
+  return fetchToutesLesLignes('apc_notes', schoolId, 'fetchApcNotes');
 }
 
 // Construit le record canonique d'une note (colonnes cloud + nkey local).

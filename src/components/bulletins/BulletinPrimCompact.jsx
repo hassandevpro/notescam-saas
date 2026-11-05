@@ -89,6 +89,13 @@ export default function BulletinPrimCompact({
   nonEvalueesCodes = [],       // ['1C','3B','4A']
   moyenneGenerale, coteGenerale, appreciationGenerale,
   rank, decision,
+  // LE RANG NE S'IMPRIME PAS PARTOUT. Des écoles le jugent contraire à ce qu'elles
+  // veulent dire à un parent : il classe l'enfant au lieu de décrire ce qu'il sait
+  // faire, et l'approche par compétences du MINEDUB ne le demande pas. Le réglage
+  // vit sur l'ÉCOLE (`schools.prim_masquer_rang`), pas ici : une école le coche une
+  // fois, et tous ses bulletins suivent — un tirage fait par quelqu'un d'autre rend
+  // alors le même document.
+  masquerRang = false,
   // ── CE QUE LE CARNET DE L'ÉCOLE PORTE EN PLUS (modèle THE GENIUS, SIL) ────
   // Toutes FACULTATIVES : un bulletin qui ne les reçoit pas s'imprime comme
   // avant, sans case vide ni ligne fantôme.
@@ -525,14 +532,22 @@ export default function BulletinPrimCompact({
               {moyenneGenerale == null ? '—' : `${fix2(moyenneGenerale)} / ${PRIM_GRADE_MAX}`}
             </td>
             <td style={{ ...th, width: '10%' }}>{L(sys, 'Cote', 'Grade', 'Nota')}</td>
-            <td style={{ ...num, fontWeight: 'bold', color: COTE_COLORS[coteGenerale] || '#111' }}>
+            {/* Rang masqué : la cote prend la largeur libérée, et la ligne GARDE ses
+                huit colonnes — celles sur lesquelles les lignes suivantes comptent
+                leurs `colSpan`. Une ligne à six colonnes désalignerait le bandeau. */}
+            <td colSpan={masquerRang ? 3 : 1}
+              style={{ ...num, fontWeight: 'bold', color: COTE_COLORS[coteGenerale] || '#111' }}>
               {coteGenerale || '—'}
             </td>
+            {!masquerRang && (
             <td style={{ ...th, width: '10%' }}>{L(sys, 'Rang', 'Rank', 'Puesto')}</td>
+            )}
             {/* Le rang absent s'écrit « — / effectif » et non « — » : l'effectif
                 est connu même quand le rang ne l'est pas, et le parent qui lit
                 « — » seul ne sait pas si la classe compte 8 élèves ou 60. */}
+            {!masquerRang && (
             <td style={num}>{rank ? `${rank} / ${effectif}` : `— / ${effectif ?? ''}`}</td>
+            )}
           </tr>
           {(appreciationGenerale || decision) && (
             <tr>

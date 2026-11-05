@@ -2,7 +2,7 @@
 import {
   FEE_CATEGORIES, itemApplies, mandatoryItemsFor, optionalItemsFor, snapshotItem,
   paidForItem, itemBalance, balanceByCategory, studentTotals, revenueByFeeType,
-  estServiceHorsScolarite,
+  estServiceHorsScolarite, servicePaidByStudent,
   decisionSuppression, REFUS_SUPPRESSION,
 } from './feeCatalogEngine.js';
 
@@ -275,6 +275,26 @@ console.log('\n— Supprimer un service —');
   ok(decisionSuppression({}).ok === true, 'un objet vide vaut : rien d attache');
   ok(decisionSuppression({ versements: vers(0, 0), montant: 0 }).refus === REFUS_SUPPRESSION.LIGNES_SOLDEES,
     'deux versements a zero sont quand meme des lignes qui resteront');
+}
+// --- Payé de services retiré du payé de scolarité (audit 05/11/2026) ----------
+{
+  const items = [
+    { id: 'i-sc', student_id: 's1', category: 'scolarite' },
+    { id: 'i-ca', student_id: 's1', category: 'cantine' },
+    { id: 'i-tr', student_id: 's1', category: 'transport', status: 'removed' },
+  ];
+  const pays = [
+    { student_id: 's1', amount: 130000, student_fee_item_id: 'i-sc' },
+    { student_id: 's1', amount: 100000, student_fee_item_id: 'i-ca' },
+    { student_id: 's1', amount: 120000, student_fee_item_id: 'i-tr' },
+    { student_id: 's1', amount: -20000, student_fee_item_id: 'i-ca' },
+    { student_id: 's1', amount: 5000 },
+    { student_id: 's2', amount: 9000, student_fee_item_id: 'inconnu' },
+  ];
+  const r = servicePaidByStudent(items, pays);
+  ok(r.s1 === 200000, 'services : cantine + transport retiré, contre-passation déduite (200 000)');
+  ok(r.s2 === undefined, 'frais inconnu : rien retranché');
+  ok(Object.keys(servicePaidByStudent([], pays)).length === 0, 'aucun service : aucun retrait');
 }
 process.exit(failed ? 1 : 0);
 

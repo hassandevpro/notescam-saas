@@ -16,7 +16,7 @@ import FeeDashboard from '../components/fees/FeeDashboard';
 import CashControlTab from '../components/fees/CashControlTab';
 import { studentFeeSituation, inscriptionApplies } from '../lib/feeEngine';
 import { fetchStudentFeeItems, fetchCatalog, upsertStudentFeeItem, deleteStudentFeeItem } from '../lib/feeCatalogService';
-import { studentTotals, studentTotalsNetOfGrid, optionalItemsFor, snapshotItem, paidForItem, estServiceHorsScolarite } from '../lib/feeCatalogEngine';
+import { studentTotals, studentTotalsNetOfGrid, optionalItemsFor, snapshotItem, paidForItem, estServiceHorsScolarite, servicePaidByStudent } from '../lib/feeCatalogEngine';
 import { classSectionKey } from '../core/engineResolver';
 import { uuid } from '../lib/uuid';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
@@ -825,11 +825,22 @@ export default function Fees() {
     setOpenRow(sid);
   }, [searchParams, students]);
 
+  // `frais_payes` additionne TOUS les versements, services compris (cantine,
+  // transport…), alors que le Dû des frais scolaires n'en contient plus aucun.
+  // Sans ce retrait, 350 000 versés dont 220 000 de cantine soldaient une
+  // scolarité de 130 000 : « Payé intégral » à tort. On présente donc le payé
+  // ACADÉMIQUE ; le cache en base n'est pas touché.
+  const servicePaid = useMemo(() => servicePaidByStudent(feeItems, feePayments), [feeItems, feePayments]);
   const feeMap = useMemo(() => {
     const map = {};
-    fees.forEach((f) => { map[f.student_id] = f; });
+    fees.forEach((f) => {
+      const sp = servicePaid[f.student_id] || 0;
+      map[f.student_id] = sp > 0
+        ? { ...f, frais_payes: Math.max(0, (Number(f.frais_payes) || 0) - sp) }
+        : f;
+    });
     return map;
-  }, [fees]);
+  }, [fees, servicePaid]);
 
   const classById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
 

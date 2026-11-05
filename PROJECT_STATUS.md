@@ -1,5 +1,32 @@
 # PROJECT_STATUS — NotesCam
 
+> ## 🔴 2026-11-05 (soir) — « Payé intégral » à tort chez GENIUS : deux causes, paquet 0.3.32 construit
+>
+> **Audit de l'école** : élèves « Payé intégral » avec un payé > dû (305 000 pour 180 000).
+>
+> - **Cause A (21 élèves sur 24 surpayés)** : `student_fees.frais_payes` additionne TOUS les
+>   versements, services compris ; le dû de scolarité n'en contient plus depuis le 31/10.
+>   Correctif d'AFFICHAGE : `servicePaidByStudent` (`feeCatalogEngine.js`) retiré du payé dans
+>   `Fees.jsx`. Base non touchée. Commit `060335e`. Les portails parent / stats / budget lisent
+>   encore le brut (non traité).
+> - **Cause B (6 fiches)** : lignes `fee_payments` supprimées HORS application (28 traces dans
+>   `deleted_fee_payments`, 27/08→01/11) sans recalcul du cache ; `reconcilePaid` est monotone.
+>   **Appliqué en production le 2026-11-05, sur autorisation explicite** : 6 fiches remises à
+>   la somme des lignes (`docs/corrections/2026-11-05-genius-cache-frais-payes*.sql`, sauvegarde
+>   `../sauvegarde-cache-frais-payes-genius-20261105.json`) et déclencheur
+>   `trg_fee_cache_on_payment_delete` (`supabase_fee_cache_on_payment_delete.sql`).
+>   Vérifié : 6/6 fiches égales à leurs lignes ; 1 fiche reste > lignes = solde importé sans
+>   ligne (100 000), laissé volontairement.
+> - **À faire par l'école** : rapprocher les 28 suppressions des reçus/caisse ; une suppression
+>   qui était un vrai encaissement doit être ressaisie. Rapport : `../rapport-ecole-genius-frais-scolarite-20261105.pdf`.
+> - **Non établi** : QUI a supprimé les lignes ; la 3e fiche non expliquée par les services.
+> - **Paquet Linux 0.3.32** (cc893c0, arbre propre) : `packaging/linux/Output/livraison-0.3.32/`,
+>   SHA-256 `f3edeb96…613f`, 53 916 829 o. **NON LIVRÉ — attend l'autorisation explicite.**
+>   La 0.3.31 du 04/11 est antérieure aux correctifs : ne pas l'installer après.
+> - Lots commités aujourd'hui depuis l'arbre de travail : services, bulletins, notes primaire,
+>   synchro, release. Gate : `npm test` 276 ok / 1 ko (`_doublonsEleves`, durée sous charge, vert
+>   seul) ; `build:lan` ok. Paquet Windows 0.3.32 : NON construit.
+
 > ## 🔴 2026-11-05 — « J'AJOUTE LES NOTES ICI, ÇA NE PERSISTE PAS » : les trois causes, corrigées
 >
 > **Signalé** : les enseignantes se plaignent — une note saisie au primaire ne tient pas.

@@ -1,15 +1,15 @@
 ======================================================================
 NotesCam 0.3.32 — SERVEUR LINUX (THE GENIUS)
-PRIMAIRE BILINGUE, IMPORT DES SERVICES, BULLETINS ANGLOPHONES,
+PRIMAIRE BILINGUE, IMPORT DES SERVICES, BULLETINS ANGLOPHONES, FRAIS,
 ET CORRECTIONS DE LA SYNCHRONISATION
 ======================================================================
 
 PAQUET            notescam-linux-x64-0.3.32.tar.gz
-TAILLE            53 851 805 octets
-EMPREINTE SHA-256 5a95ae2953ef0705e2a17f3767dcdf9ee1cdc4d62d4798b9d092eed1e465067a
-CONSTRUIT LE      2026-11-04 (edition "lan", Node v24.22.0 comme sur le serveur)
-                  depuis l'arbre de travail du 2026-11-04, SANS commit : il
-                  contient donc les changements du 3 et du 4 novembre.
+TAILLE            53 916 829 octets
+EMPREINTE SHA-256 f3edeb963a51c94867c5bd7bc661b6a0922dee8e00ba457498af4a6adc9a613f
+CONSTRUIT LE      2026-11-05 (edition "lan", Node v24.22.0 comme sur le serveur)
+                  depuis le commit cc893c0 (arbre propre) : il
+                  contient les changements du 3 au 5 novembre.
 SCRIPT            deploy-0.3.32.sh   (bash -n OK)
 
 Verifiez l'empreinte avant d'installer :

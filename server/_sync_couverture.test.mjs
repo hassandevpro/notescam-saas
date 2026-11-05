@@ -126,6 +126,7 @@ const A_BRANCHER = motifs([
   ['discipline_statistics', 'vie scolaire — existe au Cloud et porte DÉJÀ updated_at/version/device_id ; manque les listes Edge'],
   ['prim_competences_masques', 'compétences masquées — clé composite SANS id : identifiant déterminé requis'],
   ['prim_criteres_masques',    'idem'],
+  ['prim_criteres_classe_masques', 'masquage d’un critère pour UNE classe — réglage d’affichage local, clé composite SANS id : identifiant déterminé requis'],
   ['mat_domaines_masques',     'idem'],
   ['apc_competences_masques',  'idem'],
   ['prim_competences_classe_masquees', 'masquage d’une compétence pour UNE classe — réglage d’affichage local comme les masques de l’école, clé composite SANS id : identifiant déterminé requis pour voyager'],

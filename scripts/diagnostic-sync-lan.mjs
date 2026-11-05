@@ -213,6 +213,41 @@ if (absent(q)) {
     GROUP BY 1 ORDER BY 2 DESC LIMIT 8`);
   console.log('  motifs, du plus fréquent au moins fréquent :');
   for (const r of motifs) console.log(`    ${String(r.n).padStart(5)} × ${r.last_error || '(sans motif)'}`);
+
+  // ── 7 bis. ENTRÉES OU LIGNES ? ─────────────────────────────────────────
+  // Le compteur du tableau de bord est un COUNT(*) de cette table : une même ligne
+  // refusée, réenfilée par la réparation puis refusée de nouveau, y compte plusieurs
+  // fois. 181 253 entrées peuvent désigner bien moins de lignes — et la cause n'est pas
+  // la même selon qu'il s'agit de 181 000 lignes différentes ou de 3 000 lignes
+  // refusées soixante fois chacune.
+  const tot = all(`SELECT count(*) AS entrees, count(DISTINCT tablename || '|' || row_id) AS lignes,
+      min(quarantined_at) AS premiere, max(quarantined_at) AS derniere FROM sync_outbox_quarantine`)[0];
+  console.log(`\n  ${tot.entrees} entrée(s) pour ${tot.lignes} ligne(s) DISTINCTE(S)`
+    + ` · du ${tot.premiere} au ${tot.derniere}`);
+  const enFile = all(`SELECT count(*) AS n FROM sync_outbox o WHERE EXISTS (
+      SELECT 1 FROM sync_outbox_quarantine z WHERE z.tablename = o.tablename AND z.row_id = o.row_id)`)[0];
+  console.log(`  dont ${enFile.n} actuellement RÉENFILÉE(S) dans la file d'envoi (la réparation s'en occupe)`);
+
+  // ── 7 ter. TABLE × MOTIF — LE CROISEMENT QUI DONNE LA CAUSE ─────────────
+  // Une cause systémique (colonne absente au Cloud, périmètre RLS, contrainte) refuse TOUTE
+  // une table pour un MÊME motif. Un motif qui ne touche qu'une table dit où chercher ; le
+  // même motif sur toutes les tables dit « le jeton, l'école ou le Cloud lui-même ».
+  const croise = all(`SELECT tablename, substr(coalesce(last_error,'(sans motif)'),1,140) AS motif,
+      count(*) AS entrees, count(DISTINCT row_id) AS lignes, min(row_id) AS exemple
+    FROM sync_outbox_quarantine GROUP BY 1,2 ORDER BY 3 DESC LIMIT 14`);
+  console.log('\n  TABLE × MOTIF (entrées · lignes distinctes · exemple d\'id) :');
+  for (const r of croise) {
+    console.log(`    ${String(r.tablename).padEnd(22)} ${String(r.entrees).padStart(6)} · ${String(r.lignes).padStart(6)} · ${r.exemple}`);
+    console.log(`        ${r.motif}`);
+  }
+
+  // ── 7 quater. QUAND ? ────────────────────────────────────────────────────
+  // Un pic UN jour = un événement (déploiement, migration, activation) ; un flux régulier =
+  // une cause qui court encore.
+  const jours = all(`SELECT substr(quarantined_at,1,10) AS jour, count(*) AS n
+    FROM sync_outbox_quarantine GROUP BY 1 ORDER BY 1 DESC LIMIT 10`);
+  console.log('\n  entrées mises de côté, par jour (les 10 derniers jours) :');
+  for (const r of jours) console.log(`    ${r.jour}  ${String(r.n).padStart(7)}`);
 }
 
 // ── 8. LE JOURNAL ────────────────────────────────────────────────────────

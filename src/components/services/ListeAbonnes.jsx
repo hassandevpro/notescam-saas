@@ -17,36 +17,59 @@
 //
 // Un `<table>` impose sa largeur : à 375 px, huit colonnes débordent et les
 // dernières — justement Reste et Encaisser — sortent de l'écran. On construit
-// donc des LIGNES en grille, qui se replient en carte sous `sm`. Le critère
-// d'acceptation est explicite : « aucun défilement horizontal sur la liste, y
-// compris sur téléphone ».
+// donc des LIGNES en grille (`LigneAbonne`), qui se replient en carte sous
+// `sm`. Le critère d'acceptation est explicite : « aucun défilement horizontal
+// sur la liste, y compris sur téléphone ».
 //
 // ── POURQUOI UN RENDU PAR TRANCHES, ET PAS UNE LIBRAIRIE ───────────────────
 //
 // Le registre doit rester fluide à 700 élèves. Le dépôt interdit d'introduire
 // une technologie nouvelle sans autorisation (AGENTS.md), donc pas de
 // virtualisation tierce : on rend une TRANCHE, avec un bouton pour tout
-// afficher. Moins savant, sans dépendance, et le compte total reste annoncé —
-// personne ne croit voir toute la liste alors qu'il en manque.
+// afficher. Moins savant, sans dépendance, et le compte est annoncé en toutes
+// lettres — « 60 sur 78 élèves affichés » — pour que personne ne croie voir
+// toute la liste alors qu'il en manque dix-huit.
+//
+// ── LE TRI EST EN PASTILLES, PAS EN LISTE DÉROULANTE ──────────────────────
+//
+// Trois choix seulement, et on en change souvent : trois boutons montrent
+// l'option RETENUE sans qu'on ait à ouvrir quoi que ce soit, et se touchent du
+// pouce. Une liste déroulante cache l'état courant derrière un geste.
 import { useState } from 'react';
+import LigneAbonne from './LigneAbonne';
 
 const PAR_TRANCHE = 60;
 
-// Les quatre états d'un abonné, et leur ton. « Reste à payer » est la colonne ;
-// l'état ne répète donc pas le chiffre, il le qualifie.
-const TON = {
-  a_jour:     'bg-emerald-50 text-emerald-700 border-emerald-200',
-  partiel:    'bg-amber-50 text-amber-800 border-amber-200',
-  impaye:     'bg-rose-50 text-rose-700 border-rose-200',
-  sans_dette: 'bg-slate-100 text-slate-500 border-slate-200',
-};
+const TRIS = [
+  ['nom', ['Nom', 'Name', 'Nombre']],
+  ['reste', ['Reste', 'Balance', 'Saldo']],
+  ['statut', ['Statut', 'Status', 'Estado']],
+];
 
 export default function ListeAbonnes({
   abonnes = [], tri, setTri, libelleStatut, canCollect,
-  onEncaisser, onFiche, money, t, onAbonner,
+  onEncaisser, onFiche, money, t, onAbonner, periodeLabel = '',
 }) {
   const [tout, setTout] = useState(false);
   const visibles = tout ? abonnes : abonnes.slice(0, PAR_TRANCHE);
+
+  // Le bouton d'abonnement, identique dans les deux branches. Il n'existait
+  // que dans la branche VIDE : dès le premier abonné il disparaissait, et le
+  // seul chemin pour abonner le deuxième élève passait par le menu replié
+  // « ⋯ Plus ». Une école inscrit ses élèves un par un pendant toute la
+  // rentrée : elle cherchait donc cette action à chaque fois.
+  const boutonAbonner = (principal) => onAbonner && (
+    <button
+      type="button" onClick={onAbonner} data-role="abonner"
+      className={principal
+        ? 'mt-3 min-h-[44px] rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700'
+        : 'min-h-[36px] rounded-lg border border-brand-600 px-3 text-sm font-semibold text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-900/30'}
+    >
+      {principal
+        ? t('Abonner des élèves', 'Subscribe students', 'Suscribir alumnos')
+        : `+ ${t('Abonner un élève', 'Subscribe a student', 'Suscribir un alumno')}`}
+    </button>
+  );
 
   if (!abonnes.length) {
     return (
@@ -55,91 +78,75 @@ export default function ListeAbonnes({
           {t('Aucun élève abonné à ce service.', 'No student subscribed to this service.',
              'Ningún alumno suscrito.')}
         </p>
-        {onAbonner && (
-          <button
-            type="button" onClick={onAbonner}
-            className="mt-3 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
-          >
-            {t('Abonner des élèves', 'Subscribe students', 'Suscribir alumnos')}
-          </button>
-        )}
+        {boutonAbonner(true)}
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-3 mb-2">
-        <span className="text-sm text-slate-500">
-          {abonnes.length} {t('élève(s) abonné(s)', 'subscribed student(s)', 'alumno(s)')}
-        </span>
-        <label className="ml-auto flex items-center gap-2 text-sm">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs uppercase tracking-wide text-slate-500">
-            {t('Trier', 'Sort', 'Ordenar')}
+            {t('Trier par', 'Sort by', 'Ordenar por')}
           </span>
-          <select
-            value={tri} onChange={(e) => setTri(e.target.value)}
-            className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
-          >
-            <option value="nom">{t('Nom', 'Name', 'Nombre')}</option>
-            <option value="reste">{t('Reste à payer', 'Balance due', 'Saldo')}</option>
-            <option value="statut">{t('État', 'Status', 'Estado')}</option>
-          </select>
-        </label>
+          {TRIS.map(([cle, lib]) => (
+            <button
+              key={cle} type="button" onClick={() => setTri(cle)}
+              aria-pressed={tri === cle}
+              className={`min-h-[36px] rounded-lg border px-3 text-sm font-semibold ${
+                tri === cle
+                  ? 'border-brand-600 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300'
+                  : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300'}`}
+            >
+              {t(...lib)}
+            </button>
+          ))}
+        </div>
+
+        {/* LE COMPTE, EN TOUTES LETTRES. Une tranche affichée sans son total
+            laisse croire que la liste est complète ; c'est le genre d'erreur
+            qui fait relancer 60 familles sur 78. */}
+        <span
+          className="ml-auto text-sm text-slate-500 tabular-nums"
+          data-role="compte-abonnes"
+        >
+          {visibles.length === abonnes.length
+            ? `${abonnes.length} ${t('élève(s) abonné(s)', 'subscribed student(s)', 'alumno(s) suscrito(s)')}`
+            : t(`${visibles.length} sur ${abonnes.length} élèves affichés`,
+                `${visibles.length} of ${abonnes.length} students shown`,
+                `${visibles.length} de ${abonnes.length} alumnos mostrados`)}
+        </span>
+
+        {boutonAbonner(false)}
       </div>
+
+      {/* DE QUOI PARLE LA COLONNE « RESTE ». Depuis qu'une école peut créer
+          ses dix mois d'avance, le même nombre vaut soit le mois, soit
+          l'année — et rien à l'écran ne le disait. Un chiffre d'argent sans
+          sa période est un chiffre faux : c'est celui qu'on réclame au parent
+          qui est devant. */}
+      {periodeLabel && (
+        <p className="mb-1.5 text-xs text-slate-500" data-role="periode-liste">
+          {t('Reste à payer pour', 'Balance due for', 'Saldo para')}{' '}
+          <b className="text-slate-700 dark:text-slate-200">{periodeLabel}</b>
+        </p>
+      )}
 
       <ul className="divide-y divide-slate-100 dark:divide-slate-700/60 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
         {visibles.map((a) => (
-          <li key={a.student_id}>
-            {/* Une seule rangée en grille : à partir de `sm` les quatre blocs
-                sont côte à côte, en dessous ils s'empilent en carte. Rien ne
-                sort jamais de l'écran. */}
-            <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_8rem_7rem_auto] items-center gap-2 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/40">
-              {/* Nom + classe. Le bouton couvre toute la zone cliquable : la
-                  cible tactile fait la hauteur de la ligne, pas celle du texte. */}
-              <button
-                type="button" onClick={() => onFiche(a)}
-                className="min-w-0 text-left py-1"
-                title={t('Ouvrir la fiche', 'Open the card', 'Abrir la ficha')}
-              >
-                <span className="block truncate font-medium text-gray-900 dark:text-slate-100">
-                  {a.name}
-                </span>
-                <span className="block truncate text-xs text-slate-500">
-                  {a.className || '—'}
-                </span>
-              </button>
-
-              {/* Reste à payer — aligné à droite, jamais collé, jamais tronqué. */}
-              <span className="order-3 sm:order-none text-right tabular-nums whitespace-nowrap font-semibold text-gray-900 dark:text-slate-100">
-                {a.reste > 0 ? money(a.reste) : '—'}
-              </span>
-
-              <span className="order-4 sm:order-none">
-                <span className={`inline-block px-2 py-0.5 rounded-full border text-[11px] font-semibold whitespace-nowrap ${TON[a.statut]}`}>
-                  {libelleStatut(a.statut)}
-                </span>
-              </span>
-
-              {canCollect && (
-                <button
-                  type="button" disabled={!a.reste}
-                  onClick={(e) => { e.stopPropagation(); onEncaisser(a); }}
-                  title={a.reste ? '' : t('Rien à encaisser', 'Nothing to collect', 'Nada que cobrar')}
-                  className="min-h-[44px] rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-30 whitespace-nowrap"
-                >
-                  {t('Encaisser', 'Collect', 'Cobrar')}
-                </button>
-              )}
-            </div>
-          </li>
+          <LigneAbonne
+            key={a.student_id} a={a} canCollect={canCollect}
+            onEncaisser={onEncaisser} onFiche={onFiche}
+            libelleStatut={libelleStatut} money={money} t={t}
+          />
         ))}
       </ul>
 
       {!tout && abonnes.length > PAR_TRANCHE && (
         <button
-          type="button" onClick={() => setTout(true)}
-          className="mt-2 w-full rounded-lg border border-slate-300 dark:border-slate-600 py-2 text-sm"
+          type="button" onClick={() => setTout(true)} data-role="afficher-tout"
+          className="mt-2 w-full min-h-[44px] rounded-lg border border-slate-300 dark:border-slate-600 py-2 text-sm"
         >
           {t(`Afficher les ${abonnes.length - PAR_TRANCHE} autres`,
              `Show the other ${abonnes.length - PAR_TRANCHE}`,

@@ -78,6 +78,15 @@ function plat(v) {
     .replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+// Meme en-tete, espaces en moins. La feuille COLLEGE du classeur de THE GENIUS
+// titre « FRAIS / MOIS » (espaces autour de la barre) la ou les deux autres
+// ecrivent « FRAIS/MOIS » : aucun mot de `COLONNES` ne tombait dessus, la
+// colonne du tarif restait introuvable, et les 37 eleves du college sortaient
+// tous en `sans_tarif` — un fichier de l'annee EN COURS, refuse en entier pour
+// deux espaces. On compare donc aussi les formes sans espace : c'est la meme
+// regle que le reste du lecteur (reconnaitre le SENS, pas la frappe).
+const compacte = (v) => plat(v).replace(/ /g, '');
+
 function nombre(v) {
   if (v === null || v === undefined || v === '') return 0;
   const n = Number(String(v).replace(/[^0-9.-]/g, ''));
@@ -104,6 +113,29 @@ export function compteEleves(nom) {
   return /\bfamille\b/i.test(String(nom ?? '')) ? 0 : 1;   // 0 = effectif inconnu
 }
 
+// L'ANNEE QUE LA FEUILLE ANNONCE DANS SON TITRE.
+//
+// Le classeur de THE GENIUS porte DESORMAIS trois feuilles et DEUX annees :
+// « ... FRAIS DE TRANSPORT DU TROISIEME TRIMESTRE ANNEE SCOLAIRE 2025/2026 »,
+// puis « ... DU 1er TRIMESTRE ANNEE 2026/2027 » et la feuille du COLLEGE,
+// 2026/2027 elle aussi. Importer la premiere dans l'annee en cours ferait
+// devoir une annee entiere de transport a 211 eleves qui l'ont deja payee, et
+// gonflerait la recette de l'exercice de treize millions.
+//
+// Le lecteur ne decide rien et ne corrige rien : il REND ce que la feuille dit
+// d'elle-meme, et c'est l'ecran qui compare avec l'annee visee. Null quand la
+// feuille ne dit pas son annee — on ne devine pas une annee comptable.
+export function anneeAnnoncee(aoa = []) {
+  const rows = Array.isArray(aoa) ? aoa.slice(0, 6) : [];
+  for (const r of rows) {
+    if (!Array.isArray(r)) continue;
+    const texte = r.map((c) => String(c ?? '')).join(' ');
+    const m = /\b(20\d{2})\s*[/–—-]\s*(20\d{2})\b/.exec(texte);
+    if (m && Number(m[2]) === Number(m[1]) + 1) return `${m[1]}-${m[2]}`;
+  }
+  return null;
+}
+
 /**
  * Repère les tableaux d'une feuille et lit leurs lignes.
  *
@@ -128,9 +160,11 @@ export function lireRegistre(entree = []) {
       if (!p) return;
       for (const col of COLONNES) {
         if (vus[col.cle] !== undefined) continue;
+        const k = compacte(cell);
         const touche = col.exact
-          ? col.mots.some((m) => p === m)
-          : col.mots.some((m) => p === m || p.startsWith(m));
+          ? col.mots.some((m) => p === m || k === compacte(m))
+          : col.mots.some((m) => p === m || p.startsWith(m)
+            || k === compacte(m) || k.startsWith(compacte(m)));
         if (touche) { vus[col.cle] = c; break; }
       }
     });
@@ -140,7 +174,7 @@ export function lireRegistre(entree = []) {
   });
 
   if (!entetes.length) {
-    return { tableaux: [], anomalies: [{ type: 'aucun_tableau', message: 'Aucune ligne d’en-tête reconnue.' }], eleves: [] };
+    return { tableaux: [], anomalies: [{ type: 'aucun_tableau', message: 'Aucune ligne d’en-tête reconnue.' }], eleves: [], annee: anneeAnnoncee(aoa) };
   }
 
   // ── Chaque tableau court de son en-tête jusqu'au suivant, ou à la fin.
@@ -259,9 +293,20 @@ export function lireRegistre(entree = []) {
         anomalies.push({ type: 'annuel_non_multiple', ligne: l.source.ligne, nom: l.nom,
           message: `${l.annuel} ÷ ${l.tarif} = ${(l.annuel / l.tarif).toFixed(2)} périodes : montant négocié à confirmer.` });
       }
-      if (!l.tarif || !l.annuel) {
+      // CE QUI BLOQUE, C'EST L'ABSENCE D'ENGAGEMENT ANNUEL, PAS CELLE DU MOIS.
+      // `planifierReprise` ecrit l'abonnement et l'echeance au montant ANNUEL ;
+      // le tarif mensuel ne vit que dans le libelle (« il renseigne, il n'engage
+      // pas »). Les confondre dans un seul refus ecartait une ligne parfaitement
+      // ecrivable, et le message affirmait « ni tarif ni montant annuel » devant
+      // un montant annuel bien present.
+      if (!l.annuel) {
         anomalies.push({ type: 'sans_tarif', ligne: l.source.ligne, nom: l.nom,
-          message: 'ni tarif ni montant annuel.' });
+          message: l.tarif
+            ? `tarif mensuel ${l.tarif} mais aucun montant annuel : l'engagement de l'annee ne se deduit pas du mois.`
+            : 'ni tarif mensuel ni montant annuel : rien a ecrire.' });
+      } else if (!l.tarif) {
+        anomalies.push({ type: 'tarif_mensuel_absent', ligne: l.source.ligne, nom: l.nom,
+          message: `montant annuel ${l.annuel} sans tarif mensuel : l'annuel suffit a ecrire, le mois n'est qu'une indication.` });
       }
       if (l.paye > l.annuel && l.annuel > 0) {
         anomalies.push({ type: 'trop_percu', ligne: l.source.ligne, nom: l.nom,
@@ -305,7 +350,7 @@ export function lireRegistre(entree = []) {
     }
   }
 
-  return { tableaux, anomalies, eleves };
+  return { tableaux, anomalies, eleves, annee: anneeAnnoncee(aoa) };
 }
 
 /** Le compte, pour le rapport de simulation. */

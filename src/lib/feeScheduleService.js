@@ -260,3 +260,32 @@ export async function setScheduleStatus({
 
   return { ok: true, raison: null };
 }
+
+// ── ÉCHÉANCES POSÉES PAR UNE REPRISE (import de registre) ───────────────────
+//
+// Contrairement à `createScheduleMonths`, le MONTANT DÛ vient du fichier de
+// l'école, pas du tarif du service : c'est le registre qui fait foi pour un
+// historique. Aucune règle « mois antérieur au début du service » ici — l'import
+// pose lui-même `started_at` au premier mois du fichier.
+//
+// `notes` porte l'identifiant du lot : c'est ce qui permet, à l'annulation du
+// lot, de retrouver les échéances que CET import a créées (et elles seules).
+// La colonne est déjà synchronisée ; aucune migration.
+export async function creerEcheancesReprise({ schoolId, lot, lignes = [] } = {}) {
+  if (!schoolId || !lot || !lignes.length) return { creees: [], echecs: [] };
+  const maintenant = new Date().toISOString();
+  const rows = lignes.map((l) => ({
+    id: uuid(), school_id: schoolId, student_id: l.student_id,
+    student_fee_item_id: l.student_fee_item_id, academic_year: l.academic_year || null,
+    period_key: l.period_key, period_label: l.period_label || l.period_key,
+    amount_due: Math.max(0, Math.floor(Number(l.amount_due) || 0)), status: 'due',
+    notes: lot, created_at: maintenant, updated_at: maintenant, version: 1,
+  }));
+  const { data, error } = await supabase
+    .from('fee_schedule_items').upsert(rows, { onConflict: 'student_fee_item_id,period_key' }).select();
+  if (error) { console.error('creerEcheancesReprise', error); return { creees: [], echecs: rows.map((r) => r.id) }; }
+  const relues = Array.isArray(data) && data.length ? data : rows;
+  logAction({ action: 'create', table: 'fee_schedule_items', target_id: lot,
+    details: { lot, echeances: relues.length, source: 'import_registre' } });
+  return { creees: relues, echecs: [] };
+}

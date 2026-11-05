@@ -19,7 +19,7 @@
 import {
   pastilleCellule, motPeriode,
   TAUX_DEMI_MOIS, CONVENTIONS, TEXTE_CONVENTION,
-  moisDuService, enteteMois, tarifPleinDe, celluleDuMois,
+  moisDuService, moisAffiches, enteteMois, tarifPleinDe, celluleDuMois,
   grilleCantine, quotePartDuMois, etatMensuel, etatsMensuels, csvEtatsMensuels,
 } from './cantineEngine.js';
 
@@ -410,6 +410,62 @@ console.log('\n— Le vocabulaire de la période —');
   ok(motPeriode(null, T).parPeriode === 'Grille mensuelle', 'aucun service → le mois, sans lever');
   ok(motPeriode({}).le === 'Mois', 'sans fonction i18n, le français par défaut');
 }
+
+// ── §9. L'ARGENT ÉCRIT NE SE CACHE PAS DERRIÈRE UN RÉGLAGE ────────────────
+//
+// Signalé le 2026-11-04 sur le transport de THE GENIUS : « on voit les élèves
+// mais pas les montants », l'import venant d'écrire. La grille ne montrait que
+// les périodes que le service facture AUJOURD'HUI ; changer la facturation
+// après coup laissait les échéances déjà écrites sans aucune colonne où
+// s'afficher — les élèves restaient listés, l'argent disparaissait.
+console.log('\n— Les colonnes montrent ce qui existe, pas seulement ce qui est configuré —');
+{
+  const MENSUEL = { ...SERVICE, periodicity: 'mensuel', billing_periods: ['2025-09', '2025-10', '2025-11'] };
+  const ECH = [
+    { period_key: '2025-09', amount_due: 15000 },
+    { period_key: '2025-10', amount_due: 15000 },
+    { period_key: '2025-11', amount_due: 15000 },
+  ];
+
+  const tel = moisAffiches(MENSUEL, '2025-2026', ECH);
+  ok(tel.mois.join('|') === '2025-09|2025-10|2025-11', 'configuration et écritures concordent : rien de plus', tel.mois);
+  ok(tel.horsConfig.length === 0, 'et rien à signaler', tel.horsConfig);
+
+  // LE CAS SIGNALÉ : le service passe « en une fois », et les trois mois déjà
+  // dus n'appartiennent plus à sa facturation.
+  const ANNUEL = { ...SERVICE, periodicity: 'annuel', billing_periods: null };
+  ok(moisDuService(ANNUEL, '2025-2026').join('|') === '2025-annee',
+    'la facturation annuelle ne connaît qu’une période', moisDuService(ANNUEL, '2025-2026'));
+  const apres = moisAffiches(ANNUEL, '2025-2026', ECH);
+  ok(apres.mois.join('|') === '2025-annee|2025-09|2025-10|2025-11',
+    'mais les trois mois DÉJÀ ÉCRITS gardent une colonne, après la période configurée', apres.mois);
+  ok(apres.horsConfig.join('|') === '2025-09|2025-10|2025-11',
+    'et ils sont NOMMÉS, pour que l’écran dise pourquoi la colonne dépasse', apres.horsConfig);
+
+  // La grille les peint vraiment : des montants, pas des cases « non inscrit ».
+  const eleves = [{ id: 'e1', name: 'KAMGA Ali', className: '6e A' }];
+  const posees = ECH.map((e, i) => ({ ...e, id: 'ech' + i, student_id: 'e1', status: 'due' }));
+  const avant = grilleCantine({ eleves, echeances: posees, paiements: [],
+    mois: moisDuService(ANNUEL, '2025-2026'), tarifPlein: PLEIN });
+  const maintenant = grilleCantine({ eleves, echeances: posees, paiements: [],
+    mois: apres.mois, tarifPlein: PLEIN });
+  ok(avant[0].du === 0, 'AVANT le correctif : 45 000 écrits, la grille affichait 0', avant[0].du);
+  ok(maintenant[0].du === 45000, 'APRÈS : les 45 000 réapparaissent, au franc près', maintenant[0].du);
+
+  // Garde-fous : ni doublon, ni clé vide, ni service absent.
+  const sales = moisAffiches(ANNUEL, '2025-2026', [
+    { period_key: '2025-09' }, { period_key: '2025-09' }, { period_key: '  ' }, { period_key: null }, {},
+  ]);
+  ok(sales.horsConfig.join('|') === '2025-09', 'une période hors configuration n’est nommée qu’une fois', sales.horsConfig);
+  // Sans service, il n'y a pas de configuration — mais l'argent écrit se voit
+  // quand même. Le principe tient jusque dans le cas dégénéré : on ne cache
+  // jamais une échéance, on l'affiche hors configuration.
+  const sansService = moisAffiches(null, '2025-2026', ECH);
+  ok(sansService.mois.join('|') === '2025-09|2025-10|2025-11', 'sans service, seules les écritures font les colonnes', sansService.mois);
+  ok(sansService.horsConfig.length === 3, 'et toutes sont hors configuration, par construction', sansService.horsConfig);
+  ok(moisAffiches(MENSUEL, '2025-2026').mois.length === 3, 'sans échéances, la configuration seule fait foi');
+}
+
 
 console.log(`\n${ko === 0 ? 'TOUT PASSE' : ko + ' ECHEC(S)'}`);
 process.exit(ko === 0 ? 0 : 1);

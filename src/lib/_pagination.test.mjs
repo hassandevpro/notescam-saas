@@ -114,3 +114,42 @@ test('l’ordre déterministe est exigé — sinon la pagination saute des ligne
   assert.ok(lire('./pagination.js').includes('.order(ordre)'), 'fetchToutesLesLignes doit toujours ordonner');
   assert.ok(src.includes('export async function fetchAllRows'), 'le helper doit être public');
 });
+
+// ── LIRE PAR IDENTIFIANTS ────────────────────────────────────────────────────
+// Un `.in('id', ids)` porte deux plafonds : les 1000 lignes de PostgREST, et la
+// longueur de l'URL (mille UUID ≈ 37 Ko). Découper règle les deux.
+const { fetchParLotsDIds, TAILLE_LOT_IN } = await import('../core/pagination.js');
+
+test('1 400 identifiants sont lus en lots, et tous reviennent', async () => {
+  const ids = Array.from({ length: 1400 }, (_, i) => `e-${i}`);
+  const lots = [];
+  const rows = await fetchParLotsDIds((lot) => {
+    lots.push(lot.length);
+    // Le faux serveur plafonne a 1000 lignes, comme le vrai.
+    return Promise.resolve({ data: lot.slice(0, 1000).map((id) => ({ id })), error: null });
+  }, ids, 'test');
+  assert.equal(rows.length, 1400, 'aucun élève ne doit manquer');
+  assert.equal(new Set(rows.map((r) => r.id)).size, 1400, 'ni doublon');
+  assert.ok(lots.every((n) => n <= TAILLE_LOT_IN), `chaque lot doit rester ≤ ${TAILLE_LOT_IN}`);
+  assert.equal(lots.length, 3, '1 400 / 500 = 3 lots');
+});
+
+test('les doublons et les valeurs vides sont écartés avant l’appel', async () => {
+  let vus = null;
+  await fetchParLotsDIds((lot) => { vus = lot; return Promise.resolve({ data: [], error: null }); },
+    ['a', 'a', null, 'b', undefined, ''], 'test');
+  assert.deepEqual(vus, ['a', 'b']);
+});
+
+test('une liste vide ne déclenche aucun appel', async () => {
+  let appels = 0;
+  const rows = await fetchParLotsDIds(() => { appels += 1; return Promise.resolve({ data: [], error: null }); }, [], 'test');
+  assert.deepEqual(rows, []);
+  assert.equal(appels, 0);
+});
+
+test('une erreur sur un lot rend `null` — on ne rend jamais une liste incomplète', async () => {
+  const rows = await fetchParLotsDIds(() => Promise.resolve({ data: null, error: { message: 'boom' } }),
+    ['a', 'b'], 'test');
+  assert.equal(rows, null);
+});

@@ -1,6 +1,7 @@
 // Couche CRUD du JOURNAL DE CAISSE (table `cash_movements`).
 // En LAN, `./supabase` est aliasé vers localClient (Vite) : mêmes appels.
 import { supabase } from './supabase';
+import { fetchAllRows } from '../core/pagination';
 import { uuid } from './uuid';
 import { MOVEMENT_KINDS } from './cashBookEngine';
 
@@ -8,19 +9,28 @@ function nn(v) { return v === '' || v === undefined ? null : v; }
 
 // Mouvements de caisse de l'école, du plus ancien au plus récent : c'est l'ordre
 // dans lequel un solde se lit. Les écrans qui veulent l'inverse trient eux-mêmes.
+// PAGINE. PostgREST plafonne un select a 1000 lignes et repond 200 en TRONQUANT :
+// au-dela, le journal serait incomplet et le solde FAUX, sans aucune erreur. C'est le
+// defaut qui a coute trois semaines sur les notes du primaire le 2026-11-05 (1 873
+// lignes en base, 1 000 recues). Une ligne par encaissement : ce seuil sera franchi.
+//
+// `makeQuery` doit rendre un builder NEUF a chaque appel — le `.range()` d'une page ne
+// doit pas s'accumuler — et ordonner sur une cle unique, sinon la pagination saute ou
+// duplique des lignes aux frontieres. `date` ne suffit pas : deux mouvements peuvent
+// partager la meme date, d'ou `id` en second critere.
 export async function fetchCashMovements(schoolId, { unitId, from, to } = {}) {
-  let q = supabase.from('cash_movements').select('*').eq('school_id', schoolId);
-  // `unitId === null` est un filtre LÉGITIME : c'est la caisse du complexe.
-  // `undefined` ne filtre pas. Un `if (unitId)` confondrait les deux et ferait
-  // disparaître la caisse du complexe de son propre écran.
-  if (unitId !== undefined) {
-    q = unitId === null ? q.is('school_unit_id', null) : q.eq('school_unit_id', unitId);
-  }
-  if (from) q = q.gte('date', from);
-  if (to) q = q.lte('date', to);
-  const { data, error } = await q.order('date', { ascending: true });
-  if (error) { console.error('fetchCashMovements', error); return null; }
-  return data;
+  return fetchAllRows(() => {
+    let q = supabase.from('cash_movements').select('*').eq('school_id', schoolId);
+    // `unitId === null` est un filtre LÉGITIME : c'est la caisse du complexe.
+    // `undefined` ne filtre pas. Un `if (unitId)` confondrait les deux et ferait
+    // disparaître la caisse du complexe de son propre écran.
+    if (unitId !== undefined) {
+      q = unitId === null ? q.is('school_unit_id', null) : q.eq('school_unit_id', unitId);
+    }
+    if (from) q = q.gte('date', from);
+    if (to) q = q.lte('date', to);
+    return q.order('date', { ascending: true }).order('id', { ascending: true });
+  }, 'fetchCashMovements');
 }
 
 export async function upsertCashMovement(row) {

@@ -45,6 +45,13 @@ const SUITES = [
   ['Fondations OTA + garde de parité mise à jour', 'server/_update_service.test.mjs', true],
   ['Métriques de santé (backlog / temps / bloquée)', 'server/_sync_metrics.test.mjs', false],
   ['Journal d’audit persistant', 'server/_sync_audit.test.mjs', false],
+  // LE PLAFOND DE 1000 LIGNES DE PostgREST. Critique, et pas par exces de prudence :
+  // le 2026-11-05, une ecole a passe des jours a ressaisir des notes qui etaient deja
+  // en base — 1 873 lignes, 1 000 lues, 873 invisibles, sans la moindre erreur. Le
+  // premier banc tient le pagineur ; le second BALAIE src/lib et refuse toute nouvelle
+  // lecture complete non bornee. C est lui qui empeche le defaut de revenir ailleurs.
+  ['Pagination : plafond PostgREST, lots d identifiants', 'src/lib/_pagination.test.mjs', true],
+  ['Balayage : aucune lecture complete non paginee', 'src/lib/_lecturesCompletes.test.mjs', true],
 ];
 for (const [name, file, critical] of SUITES) {
   record('Tests unitaires & comportement', name, critical, run('node', [join(ROOT, file)]));

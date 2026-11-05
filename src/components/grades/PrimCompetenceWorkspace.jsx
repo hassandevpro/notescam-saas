@@ -1328,36 +1328,6 @@ export default function PrimCompetenceWorkspace() {
         </div>
       )}
 
-      {/* SOUMETTRE — demandé par l'école le 2026-11-05. La saisie s'enregistre déjà au
-          fil de la frappe ; ce bouton ne la remplace pas, il RÉPOND. Il renvoie les notes
-          de cet écran, puis dit combien sont enregistrées, ou le motif EXACT du refus.
-          Sans lui, une enseignante n'avait aucun geste pour savoir où elle en était. */}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={soumettre}
-          disabled={envoi || !nkeysDeLEcran.length}
-          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white
-            hover:bg-brand-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-        >
-          {envoi
-            ? t('Envoi en cours…', 'Sending…')
-            : t(`Soumettre les notes (${nkeysDeLEcran.length})`, `Submit marks (${nkeysDeLEcran.length})`)}
-        </button>
-        <span className="text-xs text-gray-500">
-          {t('Les notes sont déjà gardées à la frappe. Ce bouton confirme qu’elles sont bien arrivées sur le serveur.',
-             'Marks are already kept as you type. This button confirms they reached the server.')}
-        </span>
-      </div>
-      {bilanEnvoi && (
-        <div role="status"
-          className={`rounded-lg border px-3 py-2 text-xs ${bilanEnvoi.ko
-            ? 'border-red-300 bg-red-50 text-red-800'
-            : 'border-emerald-300 bg-emerald-50 text-emerald-800'}`}>
-          {bilanEnvoi.texte}
-        </div>
-      )}
-
       {/* L'APPRÉCIATION D'ENSEMBLE du carnet. Le carnet la LISAIT déjà
           (`primAppreciationSaisie`), mais il fallait ouvrir l'écran des bulletins
           et dérouler élève par élève pour l'écrire ; sans saisie, il retombait
@@ -1589,6 +1559,36 @@ export default function PrimCompetenceWorkspace() {
                 + {c.nom}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* SOUMETTRE — demandé par l'école le 2026-11-05. La saisie s'enregistre déjà au
+            fil de la frappe ; ce bouton ne la remplace pas, il RÉPOND. Il renvoie les notes
+            de cet écran, puis dit combien sont enregistrées, ou le motif EXACT du refus.
+            Sans lui, une enseignante n'avait aucun geste pour savoir où elle en était. */}
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={soumettre}
+            disabled={envoi || !nkeysDeLEcran.length}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white
+              hover:bg-brand-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            {envoi
+              ? t('Envoi en cours…', 'Sending…')
+              : t(`Soumettre les notes (${nkeysDeLEcran.length})`, `Submit marks (${nkeysDeLEcran.length})`)}
+          </button>
+          <span className="text-xs text-gray-500">
+            {t('Les notes sont déjà gardées à la frappe. Ce bouton confirme qu’elles sont bien arrivées sur le serveur.',
+               'Marks are already kept as you type. This button confirms they reached the server.')}
+          </span>
+        </div>
+        {bilanEnvoi && (
+          <div role="status"
+            className={`rounded-lg border px-3 py-2 text-xs ${bilanEnvoi.ko
+              ? 'border-red-300 bg-red-50 text-red-800'
+              : 'border-emerald-300 bg-emerald-50 text-emerald-800'}`}>
+            {bilanEnvoi.texte}
           </div>
         )}
         </>

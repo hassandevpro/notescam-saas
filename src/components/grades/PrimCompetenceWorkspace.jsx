@@ -119,7 +119,7 @@ function BaremeCell({ value, disabled, onCommit }) {
 // un 17 tapé dans une colonne sur 14 s'effaçait sans un mot, et l'enseignant lit
 // cela comme une saisie que l'application a perdue. On nomme donc la raison —
 // c'est le barème de la colonne, et il se change juste au-dessus.
-function NoteCell({ value, statut, max, disabled, onCommit, onStatut, onRefus, champRef, onNav }) {
+function NoteCell({ value, statut, max, disabled, onCommit, onStatut, onRefus, champRef, onNav, nonEnregistree }) {
   const [local, setLocal] = useState(value ?? '');
   useEffect(() => { setLocal(value ?? ''); }, [value]);
   const commit = () => {
@@ -158,10 +158,17 @@ function NoteCell({ value, statut, max, disabled, onCommit, onStatut, onRefus, c
         onBlur={commit}
         onKeyDown={onKeyDown}
         placeholder={absent ? 'Abs' : '—'}
-        className={`w-16 text-center rounded border border-gray-200 px-1 py-1 text-sm
+        // PAS ENCORE ENREGISTRÉE : la note est en base locale et dans la file d'envoi,
+        // mais le serveur ne l'a pas acceptée. On le MONTRE plutôt que de la laisser
+        // s'effacer en silence au rafraîchissement suivant.
+        title={nonEnregistree
+          ? 'Note pas encore enregistrée sur le serveur — elle est gardée ici et sera renvoyée.'
+          : undefined}
+        className={`w-16 text-center rounded px-1 py-1 text-sm
           focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
           placeholder:text-gray-300 disabled:bg-amber-50 disabled:border-amber-200
           disabled:placeholder:text-amber-600 disabled:italic
+          ${nonEnregistree ? 'border-2 border-red-500 bg-red-50' : 'border border-gray-200'}
           ${absent ? '' : gradeColor(local, max, 'ES')}`}
       />
       {onStatut && (
@@ -203,6 +210,7 @@ export default function PrimCompetenceWorkspace() {
   const students    = useSchoolStore((s) => s.students);
   const referentiel = useSchoolStore((s) => s.primReferentiel);
   const primNotes   = useSchoolStore((s) => s.primNotes);
+  const primNotesEnAttente = useSchoolStore((s) => s.primNotesEnAttente);
   const primNotesPrets = useSchoolStore((s) => s.primNotesPrets);
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
@@ -609,6 +617,31 @@ export default function PrimCompetenceWorkspace() {
   const statutFor = (eleveId, critereId) =>
     primNotes[primNkey(eleveId, competenceId, critereId, ua)]?.statut || null;
 
+  // ── CETTE NOTE EST-ELLE VRAIMENT ENREGISTRÉE ? ────────────────────────────
+  //
+  // « J'ajoute les notes ici, ça ne persiste pas » (2026-11-05). La note était bien
+  // écrite en local, mais le serveur la refusait, et PERSONNE ne le disait : au
+  // rafraîchissement suivant elle disparaissait de l'écran. Elle reste maintenant
+  // affichée, en rouge, et la cellule porte la raison au survol. Une note qui
+  // s'efface sans un mot se fait ressaisir trois fois, puis l'école cesse de croire
+  // ce que l'écran montre.
+  const enAttente = useMemo(() => new Set(primNotesEnAttente || []), [primNotesEnAttente]);
+  const nonEnregistree = (eleveId, critereId) =>
+    enAttente.has(primNkey(eleveId, competenceId, critereId, ua));
+  // Celles de la classe et de la compétence AFFICHÉES — le compte doit porter sur ce
+  // que l'enseignante a sous les yeux, sinon il l'inquiète sans l'aider.
+  const attenteIci = useMemo(() => {
+    if (!enAttente.size) return [];
+    const out = [];
+    for (const stu of classStudents) {
+      for (const c of referentiel?.criteres || []) {
+        const k = primNkey(stu.id, competenceId, c.id, ua);
+        if (enAttente.has(k) && primNotes[k]?.note != null) out.push({ stu, critere: c });
+      }
+    }
+    return out;
+  }, [enAttente, classStudents, referentiel, competenceId, ua, primNotes]);
+
   // Cette compétence a-t-elle été déclarée non évaluée pour cette classe à cette
   // UA ? Le toast en cas de refus n'est pas décoratif : la case est optimiste,
   // et si le serveur refuse elle revient toute seule à son état d'avant. Sans
@@ -776,13 +809,19 @@ export default function PrimCompetenceWorkspace() {
     //
     // Aucune migration n'est nécessaire : `prim_notes.note` est nullable et
     // `points_max` existe déjà, en LAN comme en cloud.
+    // ── CE GESTE NE PARLE QUE DU BARÈME, JAMAIS DES NOTES ────────────────────
+    //
+    // RELEVÉ LE 2026-11-05, et c'est la cause des notes du primaire effacées : la
+    // boucle écrivait `note: r?.note ?? null`, soit la note que l'ÉTAT EN MÉMOIRE
+    // croyait connaître. Pour tout élève absent de cet état — lecture serveur
+    // incomplète, onglet ouvert avant l'arrivée des notes, autre enseignante ayant
+    // saisi entre-temps — elle écrivait donc `null` PAR-DESSUS une note bien réelle.
+    // Régler un barème effaçait des notes qu'on n'avait jamais vues.
+    //
+    // `note` n'est plus transmis : `savePrimNote` lit `undefined` comme « je ne parle
+    // pas de la note » et conserve celle de la ligne, en base comme en cache.
     for (const stu of classStudents) {
-      const r = primNotes[primNkey(stu.id, competenceId, critereId, ua)];
-      savePrimNote({
-        eleveId: stu.id, competenceId, critereId, ua,
-        note: r?.note ?? null,
-        pointsMax: nouveau,
-      });
+      savePrimNote({ eleveId: stu.id, competenceId, critereId, ua, pointsMax: nouveau });
     }
   };
 
@@ -1167,6 +1206,28 @@ export default function PrimCompetenceWorkspace() {
         </div>
       )}
 
+      {/* DES NOTES QUE LE SERVEUR N'A PAS ACCEPTÉES.
+          « J'ajoute les notes ici, ça ne persiste pas » (2026-11-05). Elles étaient
+          bien écrites en local, le serveur les refusait, et rien ne le disait : le
+          rafraîchissement suivant les faisait disparaître de l'écran. Elles sont
+          maintenant CONSERVÉES et ANNONCÉES — avec le nom des élèves concernés,
+          parce qu'« une note n'est pas enregistrée » sans dire laquelle ne permet
+          rien de plus que de tout ressaisir. */}
+      {attenteIci.length > 0 && (
+        <div role="alert" className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+          <span className="font-semibold">
+            {t(`${attenteIci.length} note(s) pas encore enregistrée(s) sur le serveur`,
+               `${attenteIci.length} mark(s) not saved to the server yet`)}
+          </span>
+          {' — '}
+          {attenteIci.slice(0, 4).map(({ stu, critere }) => `${stu.name} (${primCritereLabel(critere, sys)})`).join(', ')}
+          {attenteIci.length > 4 ? '…' : ''}
+          {'. '}
+          {t('Elles sont gardées sur cet appareil et renvoyées automatiquement : ne les ressaisissez pas. Si le message dure, le serveur les refuse — prévenez le support avec cette phrase.',
+             'They are kept on this device and resent automatically: do not re-enter them. If this message persists, the server is rejecting them — tell support, quoting this message.')}
+        </div>
+      )}
+
       {/* L'APPRÉCIATION D'ENSEMBLE du carnet. Le carnet la LISAIT déjà
           (`primAppreciationSaisie`), mais il fallait ouvrir l'écran des bulletins
           et dérouler élève par élève pour l'écrire ; sans saisie, il retombait
@@ -1294,6 +1355,7 @@ export default function PrimCompetenceWorkspace() {
               onStatut={(s) => setStatut(stu.id, c.id, s)}
               max={baremeFor(c.id)}
               onRefus={noteRefusee}
+              nonEnregistree={nonEnregistree(stu.id, c.id)}
               disabled={!new Set(criteresForStudent(stu).map((x) => x.id)).has(c.id)}
               onCommit={(v) => savePrimNote({
                 eleveId: stu.id, competenceId, critereId: c.id, ua,
@@ -1350,6 +1412,7 @@ export default function PrimCompetenceWorkspace() {
                           onStatut={(s) => setStatut(stu.id, c.id, s)}
                           max={baremeFor(c.id)}
                           onRefus={noteRefusee}
+                          nonEnregistree={nonEnregistree(stu.id, c.id)}
                           disabled={!studentCritereIds.has(c.id)}
                           champRef={poserCellule(ri, ci)}
                           onNav={naviguer(ri, ci)}

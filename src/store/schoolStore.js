@@ -14,6 +14,8 @@ import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
 import { estUAValide } from '../core/uaMinedub';
+import { fusionnerNotesServeur, recordsAEcrireEnCache, nkeysEnAttente, majAttenteNkeys }
+  from '../core/primNotesFusion';
 import { pointsMaxSain, PRIM_POINTS_MAX_LIMITE } from '../core/primBareme';
 import { fetchMasques, setMasque, fetchMasquesClasse, setMasqueClasse, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey,
@@ -175,11 +177,15 @@ async function queueOffline(op) {
 // est le plus élevé : une couche qui rejetterait pour une autre raison ne doit
 // pas pouvoir reproduire la panne.
 function sendOrQueue(promise, op) {
+  // Résout `true` si le serveur a accepté, `false` s'il a fallu mettre en file. Les
+  // appelants qui l'ignorent sont inchangés ; celui des notes du primaire s'en sert
+  // pour DIRE à l'écran ce qui n'est pas encore enregistré.
   return Promise.resolve(promise)
-    .then((ok) => { if (!ok) return queueOffline(op); })
-    .catch((e) => {
+    .then(async (ok) => { if (ok) return true; await queueOffline(op); return false; })
+    .catch(async (e) => {
       console.error('[notes] envoi rejeté — mise en file', op.table, e?.message ?? e);
-      return queueOffline(op);
+      await queueOffline(op);
+      return false;
     });
 }
 
@@ -472,6 +478,11 @@ export const useSchoolStore = create((set, get) => ({
   // `note: null` — quatre notes effacees sans un mot. Faux jusqu a ce que la
   // lecture serveur ait abouti (ou, hors ligne, le cache local).
   primNotesPrets:  false,
+  // LES NOTES QUI N'ONT PAS ENCORE ÉTÉ ACCEPTÉES PAR LE SERVEUR (nkey). Elles sont en
+  // base LOCALE et dans la file d'envoi — donc pas perdues — mais elles ne sont pas
+  // encore chez les autres. L'écran les montre en rouge et le dit, au lieu de les
+  // laisser disparaître au rafraîchissement suivant (cf. core/primNotesFusion).
+  primNotesEnAttente: [],
   // Compétences qu'une classe n'a pas évaluées à une UA. Liste de clés
   // `classId|competenceId|ua` : elles s'impriment « - - - - » et ne comptent
   // dans aucun total. Vide = tout a été évalué, ce qui est le cas de départ.
@@ -1667,8 +1678,17 @@ export const useSchoolStore = create((set, get) => ({
       const fresh = {};
       const records = notes.map((n) => ({ ...n, nkey: primNkey(n.eleve_id, n.competence_id, n.critere_id, n.ua) }));
       for (const n of records) fresh[n.nkey] = n;
-      await primNotesDB.putMany(records).catch(() => {});
-      set({ primNotes: fresh });
+      // CE QUI N'EST PAS ENCORE PARTI N'EST PAS EFFACÉ PAR CE QUI REVIENT. Sans cela,
+      // une note refusée par le serveur (contrainte, migration Cloud manquante) ou
+      // bloquée par le réseau disparaissait de l'écran au rafraîchissement suivant —
+      // « j'ajoute les notes ici, ça ne persiste pas », 2026-11-05. Elle attend dans
+      // la file, et l'écran le DIT maintenant (`primNotesEnAttente`).
+      const attente = nkeysEnAttente(await syncQueueDB.getAll().catch(() => []));
+      await primNotesDB.putMany(recordsAEcrireEnCache(records, attente)).catch(() => {});
+      set({
+        primNotes: fusionnerNotesServeur(fresh, get().primNotes, attente),
+        primNotesEnAttente: attente,
+      });
     }
     // `notes` à null = lecture en échec. On lève quand même le drapeau : un
     // écran qui l'attend resterait muet indéfiniment après une panne réseau, ce
@@ -1714,7 +1734,15 @@ export const useSchoolStore = create((set, get) => ({
     const existing = primNotes[nkey] || (await primNotesDB.getByNkey(nkey).catch(() => []))[0];
     const record = buildPrimNoteRecord({
       id: existing?.id, schoolId, eleveId, competenceId, critereId, ua,
-      enseignantId: teacherId, note,
+      enseignantId: teacherId,
+      // `note: undefined` = L'APPELANT NE PARLE PAS DE LA NOTE. C'est le cas du
+      // réglage de barème, qui a affaire à une COLONNE et n'a rien à dire sur la
+      // valeur de chaque élève. Sans cette distinction, il écrivait la note qu'il
+      // croyait connaître — soit `null` pour tout élève absent de l'état en
+      // mémoire. 2026-11-05 : c'est le mécanisme qui a effacé des notes du
+      // primaire sans un mot. On garde donc celle de la ligne, comme pour
+      // `statut` et `pointsMax` juste en dessous.
+      note: note === undefined ? existing?.note ?? null : note,
       pointsMax: pointsMax === undefined ? existing?.points_max : pointsMax,
       // `undefined` = l'appelant ne parle pas du statut (saisie ordinaire d'une
       // note) : on garde celui de la ligne. `null` = il le retire
@@ -1733,12 +1761,21 @@ export const useSchoolStore = create((set, get) => ({
       ));
       return { error: 'bareme_invalide' };
     }
+    // Une écriture qui ne parle pas de la note n'envoie PAS la colonne `note` : la
+    // ligne déjà en base garde la sienne, même si cet appareil ne l'a jamais lue.
+    const sansNote = note === undefined && existing?.note == null;
     await primNotesDB.put(record);
     set({ primNotes: { ...get().primNotes, [nkey]: record } });
+    const op = { table: 'prim_notes', operation: 'upsert', payload: record, sansNote, nkey };
     if (backendOnline()) {
-      sendOrQueue(upsertPrimNote(record), { table: 'prim_notes', operation: 'upsert', payload: record });
+      // Pas d'`await` : la cellule suivante doit pouvoir être saisie tout de suite.
+      // Mais le résultat n'est plus jeté — c'est lui qui allume l'avertissement.
+      sendOrQueue(upsertPrimNote(record, { sansNote }), op).then((envoye) => {
+        set({ primNotesEnAttente: majAttenteNkeys(get().primNotesEnAttente, nkey, !envoye) });
+      });
     } else {
-      queueOffline({ table: 'prim_notes', operation: 'upsert', payload: record });
+      await queueOffline(op);
+      set({ primNotesEnAttente: majAttenteNkeys(get().primNotesEnAttente, nkey, true) });
     }
   },
 

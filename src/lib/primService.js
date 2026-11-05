@@ -11,6 +11,7 @@
 // upsert sur ce quadruplet (anti-doublon).
 
 import { supabase } from './supabase';
+import { fetchToutesLesLignes } from './pagination';
 import { refreshReferentiel, countFingerprint } from './referentielFingerprint';
 import { uuid } from './uuid';
 // UA (Unité d'Apprentissage, 1-8) remplace trimestre_id comme clé de saisie —
@@ -70,10 +71,12 @@ export function refreshPrimReferentiel(cachedFingerprint) {
 }
 
 // --- Notes --------------------------------------------------------------------
+// PAGINE : PostgREST plafonne un select a 1000 lignes, et repond 200 en tronquant.
+// Mesure du 2026-11-05 a BRIGHT CONTINENT : 1 873 lignes en base, 1 000 recues.
+// Sans pagination, une note au-dela du plafond est ECRITE mais jamais RELUE : elle
+// revient vide a l ecran, et l ecole conclut « ca ne persiste pas ».
 export async function fetchPrimNotes(schoolId) {
-  const { data, error } = await supabase.from('prim_notes').select('*').eq('school_id', schoolId);
-  if (error) { console.error('fetchPrimNotes', error); return null; }
-  return data;
+  return fetchToutesLesLignes('prim_notes', schoolId, 'fetchPrimNotes');
 }
 
 // Record canonique d'une note (colonnes cloud + nkey local).
@@ -187,10 +190,10 @@ export async function computePrimAnnual({ schoolId, classId, annee, gradeMax = 1
 export { nonEvalKey } from '../core/primEngine.js';
 
 export async function fetchPrimNonEvaluees(schoolId) {
-  const { data, error } = await supabase
-    .from('prim_competences_non_evaluees').select('*').eq('school_id', schoolId);
-  if (error) { console.error('fetchPrimNonEvaluees', error); return null; }
-  return data;
+  // Pagine pour la meme raison que les notes : une declaration au-dela du plafond
+  // ferait imprimer un zero la ou la classe a declare n avoir rien evalue.
+  return fetchToutesLesLignes('prim_competences_non_evaluees', schoolId,
+    'fetchPrimNonEvaluees', { ordre: 'class_id' });
 }
 
 // Déclare (ou retire) une compétence non évaluée. `declaree = false` SUPPRIME la

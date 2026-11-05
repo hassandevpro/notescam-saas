@@ -16,6 +16,7 @@
 // vide. Exactement ce que fait déjà `primService.buildPrimNote`.
 
 import { supabase } from './supabase';
+import { fetchToutesLesLignes } from './pagination';
 import { refreshReferentiel, countFingerprint } from './referentielFingerprint';
 import { uuid } from './uuid';
 import { obsNkey, trimestreIdOfUA } from '../core/matEngine';
@@ -59,9 +60,11 @@ export function refreshMatReferentiel(cachedFingerprint) {
 
 // --- Observations -------------------------------------------------------------
 export async function fetchMatObservations(schoolId) {
-  const { data, error } = await supabase.from('mat_observations').select('*').eq('school_id', schoolId);
-  if (error) { console.error('fetchMatObservations', error); return null; }
-  return data;
+// PAGINE : PostgREST plafonne un select a 1000 lignes, et repond 200 en tronquant.
+// Meme plafond : une maternelle de plusieurs sections le franchit dans l annee.
+// Sans pagination, une note au-dela du plafond est ECRITE mais jamais RELUE : elle
+// revient vide a l ecran, et l ecole conclut « ca ne persiste pas ».
+  return fetchToutesLesLignes('mat_observations', schoolId, 'fetchMatObservations');
 }
 
 // Record canonique d'une observation (colonnes cloud + nkey local).

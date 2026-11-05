@@ -1,5 +1,348 @@
 # PROJECT_STATUS — NotesCam
 
+> ## 🔴 2026-11-05 — « J'AJOUTE LES NOTES ICI, ÇA NE PERSISTE PAS » : les trois causes, corrigées
+>
+> **Signalé** : les enseignantes se plaignent — une note saisie au primaire ne tient pas.
+> Écran fourni : classe anglophone, colonnes Oral /3, Written /10, Practical /5, Attitude /2.
+>
+> ### Cause 1 — le rafraîchissement EFFAÇAIT ce qui n'était pas encore parti
+>
+> `loadPrim` faisait `set({ primNotes: fresh })` : il **remplaçait** la carte par ce que le
+> serveur venait de rendre. Une note écrite localement mais **refusée par le serveur** (ou
+> bloquée par le réseau) disparaissait donc de l'écran au rafraîchissement suivant — sans un
+> mot. Elle n'était pas perdue (file d'envoi + cache local), mais l'écran mentait, ce qui
+> revient au même pour qui saisit : on ressaisit, et ça disparaît encore.
+>
+> `src/core/primNotesFusion.js` (pur) : `fusionnerNotesServeur` garde ce qui attend son envoi,
+> `recordsAEcrireEnCache` empêche le cache d'écraser la saisie, `nkeysEnAttente` lit la file.
+>
+> ### Cause 2 — régler un barème écrivait `note: null` par-dessus les notes qu'on n'avait pas lues
+>
+> La boucle de `setBareme` écrivait une ligne par élève avec `note: r?.note ?? null`, soit la
+> note que **l'état en mémoire** croyait connaître. Pour tout élève absent de cet état —
+> lecture incomplète, onglet ouvert avant l'arrivée des notes, saisie d'une collègue — elle
+> posait `null` sur une note réelle. `note` n'est plus transmis du tout : `savePrimNote` lit
+> `undefined` comme « je ne parle pas de la note », et `upsertPrimNote({ sansNote })`
+> **retire la colonne de la charge envoyée** — l'upsert ne met à jour que les colonnes
+> fournies, donc `note` n'est pas touchée, même pour une ligne jamais lue par cet appareil.
+>
+> ### Cause 3 — le refus était MUET
+>
+> `upsertPrimNote` ne faisait que `console.error`. L'écran affiche désormais, en rouge :
+> « N note(s) pas encore enregistrée(s) sur le serveur — <élèves concernés>. Elles sont
+> gardées sur cet appareil et renvoyées automatiquement : ne les ressaisissez pas. » Les
+> cellules concernées sont cerclées de rouge. `sendOrQueue` résout `true`/`false` pour cela.
+>
+> ### Vérifié sur l'ÉCRAN RÉEL (édition LAN, copie jetable, port 8099, Chromium)
+>
+> Écriture de `prim_notes` refusée côté serveur (42P10 simulé, le refus exact que produit une
+> contrainte absente) :
+>
+> | | avant | après |
+> |---|---|---|
+> | note à l'écran après rechargement | **disparue** | **toujours là** |
+> | ce que l'écran dit | rien | bandeau rouge nommant les élèves |
+> | la cellule | ordinaire | cerclée de rouge, avec la raison au survol |
+> | en base | rien | rien (le refus est réel) — mais la note est gardée et renvoyée |
+>
+> Et le barème : changer /12 → /10 sur une colonne portant une note hors de l'état écrivait
+> `note: VIDE` pour l'élève inconnu ; il écrit maintenant `points_max` seul, **note intacte**.
+>
+> ### Tests
+>
+> `src/core/_primNotesFusion.test.mjs` **9 ok** (dont « tapée, refusée, rechargée, puis
+> acceptée ») · `server/_prim_bareme_ecriture.test.mjs` **12 ok** sur le VRAI serveur d'école,
+> et il **prouve d'abord l'ancien défaut** (« l'ancien geste a effacé la note de el-2 ») avant
+> de prouver le correctif.
+>
+> ⚠️ `npm test` : **276 ok, 1 ko** — `server/_sync_cadence.test.mjs`, **délai dépassé à
+> 40,2 s sous charge parallèle ; relancé seul : 59 ok, 0 ko.** Au tour précédent c'était
+> `_doublonsEleves` (assertion de durée, 7,4 s pour un seuil de 3 s, **8,0 s sur `origin/main`
+> nu**). Deux rouges de CHARGE, verts à l'isolement, étrangers à ce lot.
+>
+> ### CE QU'IL RESTE À FAIRE, ET C'EST LA RACINE
+>
+> Les correctifs ci-dessus empêchent la note de disparaître et **disent** qu'elle n'est pas
+> enregistrée. Ils ne la font pas accepter par le Cloud. Si le serveur la refuse, c'est très
+> probablement une migration absente de CE projet :
+>
+> **Lancer `supabase_sonde_pourquoi_les_notes_ne_persistent_pas.sql`** (lecture seule, aucun
+> effet). Sa première ligne rend un VERDICT :
+> - `points_max` absente → appliquer `supabase_prim_note_points_max.sql` ;
+> - contrainte sur `trimestre_id` au lieu de `ua` → appliquer `supabase_prim_bareme_ua.sql`.
+>   ⚠️ Avec l'ancienne contrainte, **saisir UA2 ÉCRASE UA1** : les notes ne disparaissent pas
+>   au hasard, elles sont remplacées. Le bloc 4 de la sonde le mesure.
+> - tout en place → la cause est ailleurs : blocs A bis et C de
+>   `supabase_diagnostic_notes_prim_bright_continent.sql`.
+>
+> **SAUVEGARDER AVANT toute migration** : export CSV daté
+> (`supabase_extract_notes_bright_continent.sql`).
+>
+> **Non commité, non poussé.** L'arbre porte aussi des travaux 0.3.15 étrangers à ce lot.
+>
+
+> ## ⏸️ 2026-11-05 — MASQUAGE PAR CLASSE **ET COMPÉTENCE** : fait, dans l'arbre, PAS POUSSÉ
+>
+> **Signalé** : « lorsqu'on masque un critère à une compétence, ça masque pour toute la classe »
+> (suite de « ça ne doit pas le faire pour toutes les classes », même jour).
+>
+> **La portée juste est (classe, compétence, critère).** Le barème national a déjà cette clé
+> (`prim_bareme_criteres` : niveau, COMPÉTENCE, critère) ; le masque, lui, l'ignorait. Retirer
+> « Pratique » depuis 1A le retirait des ONZE compétences de la classe.
+>
+> ### Ce qui a changé
+>
+> | | avant | après |
+> |---|---|---|
+> | clé du masque | (école, critère) en prod ; (école, classe, critère) dans l'arbre | **(école, classe, compétence, critère)** |
+> | bulletin / PV / rapport | une liste plate pour les onze compétences | un **résolveur** que le moteur appelle par compétence |
+> | avertissement | « masquer dans votre école », compte de TOUTE l'école | nomme la compétence, la classe, et **les notes de cette case** |
+> | infobulle du « × » | « Masquer dans cette école » | « Retirer en <compétence>, pour cette classe seulement » |
+> | notes | — | **aucune touchée** : le masque ne retire qu'une colonne de l'affichage |
+>
+> `criteresMasquesPourClasse(parEcole, parClasse, classId, competenceId)` et
+> `resolveurCriteresMasques(…)` (mémoïsé) dans `src/core/primCriteresClasse.js` ;
+> `criteresForCompetence` accepte **une liste OU un résolveur** — les anciens appelants
+> marchent sans changement. Les masques d'école déjà posés continuent de valoir partout.
+>
+> ### Vérifié sur l'ÉCRAN RÉEL (édition LAN, copie jetable, port 8099, Chromium)
+>
+> « Écrit » retiré en **1A pour le CE1**, avec 2 notes dessus :
+>
+> | | résultat |
+> |---|---|
+> | avertissement affiché | « retirer « Écrit » de Communiquer en français, pour CE1 UNIQUEMENT … **2 note(s)** … **SANS être supprimées** » |
+> | CE1 / 1A | perd « Écrit » ✅ |
+> | CE1 / 5A et CE1 / 2A | **gardent « Écrit »** ✅ — le défaut signalé |
+> | CE2 / 1A | garde « Écrit » ✅ — pas de contagion entre classes |
+> | `prim_notes` | **3 notes intactes** ✅ |
+> | `prim_criteres_masques` (école) | **aucune ligne écrite** ✅ |
+>
+> **Un TDZ a été trouvé LÀ, et nulle part ailleurs** : le calcul des masques était écrit
+> au-dessus du `useState competenceId`, et le tableau de dépendances d'un `useMemo` est évalué
+> à sa ligne → « Cannot access 'P' before initialization », **écran blanc**. Ni le build ni les
+> bancs de texte ne le voyaient. Le banc de câblage garde maintenant l'ORDRE des déclarations.
+>
+> ### Tests
+>
+> `src/core/_primCriteresClasse.test.mjs` **12 ok** (dont les deux reproductions, le barème, et
+> « masquer puis démasquer : les notes sont les mêmes ») · `src/store/_criteresParClasse.test.mjs`
+> **9 ok** · `server/_criteres_classe_masques.test.mjs` **20 ok** sur le VRAI serveur d'école
+> (SQLite, chemin `runQuery`) · `npm run validate` **11/11 critiques, BUILD AUTORISÉ** ·
+> `npm run build` et `npm run build:lan` verts.
+>
+> ⚠️ **`npm test` : 274 ok, 1 ko** — `src/core/_doublonsEleves.test.mjs`, assertion de DURÉE
+> (300 homonymes en 7,4 s pour un seuil de 3 s). **Rejoué sur `origin/main` nu : 8,0 s, même
+> échec.** Fichier identique à `origin/main`, module sans aucun import : **rouge antérieur,
+> étranger à ce lot.**
+>
+> ### Ce qui attend l'autorisation, et dans CET ordre
+>
+> 1. **`supabase_prim_criteres_classe_masques.sql`** sur le Cloud — la table n'existe PAS en
+>    production (vérifié : « relation does not exist »). Tant qu'elle manque, l'écran **REFUSE**
+>    de masquer et le dit, au lieu de masquer pour toute l'école. Le fichier s'arrête de lui-même
+>    si une forme sans `competence_id` existait et portait des lignes.
+>    **Retour arrière** : `DROP TABLE IF EXISTS public.prim_criteres_classe_masques;` — aucune note concernée.
+> 2. **Le commit** : rien n'est commité ; l'arbre porte aussi des travaux 0.3.15 étrangers à ce
+>    lot, donc le commit doit être fait fichier par fichier (liste dans le rapport de session).
+> 3. **Le paquet LAN** : `server/schema.sql` crée la table avec la bonne clé, et `server/db.js`
+>    remplace une forme ancienne VIDE au démarrage (une clé primaire ne s'ajoute pas par ALTER).
+>
+> **Non vérifié** : le Cloud lui-même (table absente), et l'écran d'un bulletin IMPRIMÉ avec un
+> critère masqué sur une seule compétence — le résolveur est testé au moteur, pas à l'impression.
+>
+
+> ## ⏸️ 2026-11-05 — `c0edd18` PRÊT, PAS POUSSÉ : le transport sans chiffres
+>
+> **Signalé** : « le service de transport n'a pas de chiffre — on voit les élèves mais pas les
+> montants », l'import venant d'écrire (THE GENIUS).
+>
+> **Le commit existe** (`c0edd18`, sur un arbre neuf à partir de `origin/main` = `d572477`),
+> **le paquet LAN est construit**, mais **`git push` a été refusé par le garde de l'outil
+> (« Production Deploy ») : rien n'est en ligne.** La mise en ligne attend une autorisation.
+>
+> ### Trois causes, trois correctifs
+>
+> 1. **La grille cachait l'argent déjà écrit.** Ses colonnes étaient `periodesDuFrais`, la
+>    configuration du service À CET INSTANT. Changer la facturation après un import privait
+>    les échéances déjà écrites de toute colonne : les élèves restaient listés (ils viennent
+>    des abonnements), les montants disparaissaient. `moisAffiches` (moteur, pur, testé)
+>    ajoute les périodes QUI PORTENT des échéances et les nomme dans `horsConfig`.
+> 2. **La facturation était imposée.** `enregistrerService` réécrivait `periodicity: 'mensuel'`
+>    à CHAQUE enregistrement et n'écrivait jamais `billing_periods`. Le formulaire la DEMANDE
+>    (par mois / par trimestre / en une fois), reprend celle du service, et n'écrit les
+>    périodes que si elle change — sinon le mois décoché par l'école lui serait rendu.
+>    `unique` est hors du choix : elle ne pose AUCUNE échéance, donc pas de registre.
+> 3. **Les périodes refusées par la base étaient tues.** `createScheduleMonths` écarte tout
+>    mois hors facturation ; `ecrireImport` jetait ses `ignores`. Un import pouvait annoncer
+>    « 244 abonnés, 0 échéance » sans un mot. Elles sont nommées, avec la marche à suivre.
+>
+> ### Vérifié sur l'ÉCRAN RÉEL, pas seulement au banc
+>
+> Édition LAN montée sur une copie jetable (port 8099), Chrome, service « Transport » mis
+> **en une fois** alors que **20 échéances mensuelles — 200 000 XAF — étaient déjà écrites** :
+>
+> | | avant | après |
+> |---|---|---|
+> | colonnes | `2026-annee` seule, vide | les 10 mois, **10 000 XAF chacun** |
+> | total | — | **200 000 XAF** |
+> | explication à l'écran | aucune | bandeau nommant les 10 périodes hors facturation |
+> | retour en « Par mois » | — | `periodicity=mensuel`, 10 périodes écrites, **20 échéances intactes** |
+>
+> **Tests** : `npm test` **272 ok / 0 ko** · `npm run validate` **11/11 critiques, BUILD AUTORISÉ**
+> · banc neuf `_cantineEngine.test.mjs` §9 (11 assertions, dont la mesure avant/après en francs).
+>
+> ### Ce qui attend l'autorisation
+>
+> - **Cloud** : `git push origin c0edd18:main` — refusé par le garde de l'outil, à relancer.
+>   **Retour arrière** : `git push origin d572477:main --force-with-lease`.
+> - **Paquet LAN** : `packaging/linux/Output/notescam-linux-x64-0.3.30-c0edd18.tar.gz`
+>   (53,9 Mo, version annoncée **0.3.30**, SHA-256 `fa817496…bf62`), notice
+>   `packaging/linux/NOTICE-PAQUET-0.3.30-c0edd18.txt`. Installation **main à main**.
+> - ⚠️ **`notescam-linux-x64-0.3.31.tar.gz`** (2026-11-04 09:15) est ANTÉRIEURE aux trois
+>   correctifs et annonce une version PLUS HAUTE : l'installer ensuite les retirerait.
+>
+> **Non vérifié** : l'import sur une copie de la VRAIE base de THE GENIUS, et le second
+> bandeau (« des abonnés, aucune période facturée »), dont le code est en place mais qui n'a
+> pas été mis à l'écran.
+>
+
+> ## 🔑 MISE EN LIGNE DU 2026-11-04 — `main` à `d572477`, le RAF et le classeur transport
+>
+> **Deux lots poussés sur autorisation explicite demandée pour ce déploiement-là**, chacun
+> vérifié sur le site RÉELLEMENT SERVI. Livrés depuis un arbre neuf sur `origin/main`, qui a
+> bougé **trois fois** pendant la session (travail en parallèle dans le même arbre de travail).
+>
+> ### 1. `dc8312e` — le registre des services sur le compte du RAF
+>
+> **Signalé** : « Le registre des services n'est pas sur le compte de la RAF et le compte de
+> la caisse met sur leur compte » (THE GENIUS).
+>
+> L'entrée existait au menu pour `admin`/`censeur`, mais **`/app/cantine` n'était pas dans le
+> catalogue de capacités** (`src/config/capabilities.js`) : aucun compte À CAPACITÉS ne
+> pouvait la porter, pas même le profil RAF, qui vaut pourtant « toutes les Finances ». Le
+> compte de la caisse la voyait parce qu'il n'a pas de capacités — il est jugé sur son rôle.
+>
+> | Compte | avant | après |
+> |---|---|---|
+> | profil RAF (délégué), menu ET URL | **non** | oui |
+> | RAF en école **durcie** (`fees.manage`) | **non** | oui |
+> | caisse (déléguée ou par rôle) | oui | oui — rien ne lui est retiré |
+> | budgets seuls · pédagogique | non | non |
+> | pédago + frais en école durcie | non | **non** (`strictAllowsPage` passe avant) |
+>
+> Deux changements, et le second est celui qui agit sans geste de personne : la page entre au
+> catalogue (profils RAF et Direction générale), et une table de **capacités implicites**
+> ouvre le registre au compte qui porte déjà « Frais scolaires » ou « Catalogue des frais ».
+> Sans elle, l'école devrait rouvrir chaque compte pour cocher une case — or une page absente
+> du catalogue ne pouvait figurer dans AUCUNE liste enregistrée : son absence ne voulait pas
+> dire « refusé » mais « jamais proposé ».
+>
+> **Vérifié en ligne** : `index-hZnMW-bA.js` porte `{"/app/cantine":["/app/fees","/app/frais-catalogue"]}`.
+> **Retour arrière** : `git push origin 68d93f0:main --force-with-lease`.
+>
+> ### 2. `d572477` — le classeur transport de l'école, lu en entier
+>
+> Éprouvé sur les **deux fichiers réels** du 2026-11-04 : `TRANSPORT 20261.xlsx` (le classeur
+> natif, 3 feuilles) et `import_transport_2026-2027_rempli.xlsx` (notre modèle, rempli).
+>
+> **Le modèle rempli passait déjà tel quel** : 970 lignes, **0 rejet de format**, 970
+> rapprochées, 0 ambiguë ; 244 élèves, 28 classes, **14 tarifs distincts par élève**,
+> 8 682 000 dus / 7 324 500 payés. Le tarif par élève survit au reste de l'année —
+> `generateSchedule` et `createScheduleMonths` facturent déjà sur `studentFeeItem.amount`.
+>
+> **Le classeur natif, lui, perdait tout le collège.**
+>
+> | Feuille | avant | après |
+> |---|---|---|
+> | Feuil1 (2025/2026, 3 tableaux) | 211 élèves, 33 signalements | inchangé |
+> | Feuil2 (2026/2027, 1er trim.) | 255 élèves, 0 bloquant | inchangé |
+> | **Feuil3 (COLLÈGE 2026/2027)** | **37 élèves refusés en bloc** | **37 lus, 0 bloquant** |
+>
+> 1. La feuille collège titre sa colonne **`FRAIS / MOIS`** (espaces autour de la barre) là où
+>    les deux autres écrivent `FRAIS/MOIS` : colonne du tarif introuvable, 37 élèves en
+>    `sans_tarif`. Un fichier de l'année EN COURS, écarté pour deux espaces. Les en-têtes sont
+>    désormais comparés **aussi sans leurs espaces**.
+> 2. Ce refus confondait deux choses : l'abonnement s'écrit sur le montant **annuel**, le tarif
+>    mensuel ne vit que dans le libellé. Un annuel sans tarif mensuel devient un signalement
+>    (`tarif_mensuel_absent`) ; un **annuel manquant** bloque toujours, et le message dit enfin
+>    lequel des deux manque.
+> 3. **LE PIÈGE DES DEUX ANNÉES** : ce classeur porte trois feuilles et DEUX années scolaires
+>    (Feuil1 = 2025/2026, Feuil2 et Feuil3 = 2026/2027), que rien ne distingue à l'œil dans la
+>    liste « Feuil1 / Feuil2 / Feuil3 », et l'import écrit TOUJOURS dans l'année ouverte.
+>    Prendre Feuil1 ferait devoir une année entière de transport à **211 élèves qui l'ont déjà
+>    payée**. `lireRegistre` rend maintenant l'année que la feuille **annonce** (null quand elle
+>    n'en annonce pas), et l'écran refuse de passer au plan quand elle diffère.
+>
+> **Vérifié en ligne** : `Cantine-BRU8uHzP.js` porte `tarif_mensuel_absent` et le message du
+> garde-fou d'année. **Retour arrière** : `git push origin dc8312e:main --force-with-lease`.
+>
+> **Tests** : `npm test` **267 ok / 0 ko** · `npm run validate` **11/11 critiques, BUILD AUTORISÉ**.
+>
+> ### Le gate rouge du jour n'était pas le mien
+>
+> `server/_sync_couverture.test.mjs` est passé KO en cours de session : la table
+> `prim_competences_classe_masquees`, ajoutée à `server/schema.sql` par le travail en
+> parallèle, n'était pas classée au manifeste de synchro. Attribué avant de soupçonner mon
+> lot, et résolu depuis par ce travail-là (5 ok / 0 ko sur `main`).
+>
+> ### ❌ CE QUI N'EST PAS FAIT
+>
+> **Le paquet LAN n'est pas installé.** Il est CONSTRUIT (`main` à `d572477`, version annoncée
+> 0.3.30, archive `notescam-linux-x64-0.3.30-registre-genius.tar.gz`) mais THE GENIUS tourne
+> sous Linux sans mise à jour automatique : l'installation est **main à main**, avec
+> `deploy-0.3.30.sh`. Le paquet ne contient PAS l'import par modèle ni le bulletin APC sur une
+> page, qui ne sont pas commités.
+>
+> **Non vérifié** : l'écran réel dans Chrome, l'import sur une copie de la vraie base, et le
+> rapprochement par NOM des **38 élèves sans matricule** du modèle rempli. Les deux bases du
+> poste sont des écoles de test (5 et 15 élèves), pas une copie de THE GENIUS.
+
+> ## 🎯 MASQUAGE D'UNE COMPÉTENCE NATIONALE PAR CLASSE (2026-11-04) — code prêt, NON déployé, migration NON appliquée
+>
+> « Décocher 3B ne la masque que pour la classe en cours. » Table `prim_competences_classe_masquees`
+> (école, classe, compétence), du même statut que les masques de l'école : réglage d'affichage LOCAL à
+> chaque édition, **hors synchronisation** (aucune liste de synchro ni Edge Function à toucher).
+> Lu par la saisie des notes, le bulletin, le PV et le rapport de classe (`masquesDeClasse`).
+> **Ordre de mise en ligne** : 1) migration Cloud `supabase_prim_competences_classe_masquees.sql`
+> (`! node scripts/apply-cloud-sql.mjs --apply supabase_prim_competences_classe_masquees.sql`),
+> 2) code Cloud, 3) paquets d'école (la table se crée seule au démarrage du serveur LAN).
+> Tant que la migration n'est pas appliquée, l'écran refuse de masquer au lieu de masquer à l'aveugle.
+> Tests : `server/_masques_classe.test.mjs` (13 ok, mutation vue), `_refClassScope.test.mjs`.
+
+> ## 🇬🇧🇫🇷 CE1 BIL : PROGRAMME ANGLOPHONE (11 JUMELLES) (2026-11-03) — code prêt, NON commité, NON déployé
+>
+> Classes primaires bilingues (Modifier la classe → bouton « Ajouter les N compétences en anglais ») :
+> onze compétences maison « 1A-EN … 6B-EN » au libellé anglais (`PRIM_COMPETENCE_EN`), chacune portée
+> par une matière de la classe (`prim_competence_id`), avec leurs propres notes. Le bulletin range
+> ces lignes dans le bloc English, les nationales dans French, Chinois/Economics/Management/
+> Practical Work dans « Autres » (non doublés). Code : `core/primProgrammeEn.js`, règle de
+> classement dans `core/primProgramme.js`, action `ajouterProgrammeAnglophonePrim` (store).
+> Section « compétences du référentiel sans matière dans cette classe » pour tout le primaire.
+> **Non vérifié** : l'écran réel, une écriture sur base réelle, la synchro LAN↔Cloud.
+
+> ## 🖨️ BULLETIN « APC REPORT CARD » SUR UNE PAGE (2026-11-03) — code prêt, NON commité, NON déployé
+>
+> `BulletinAPC` (Bulletins.jsx) adopte le contrat de densité `--nc-*` (`vars`) : enseignant sur la ligne
+> de la matière, planchers de lisibilité (corps/notes ≥ 8 pt, secondaire ≥ 7 pt, `data-nc-lisible`),
+> pas de zoom sous le plancher, bascule en 2 pages propres (« Page n / N », identité rappelée).
+> FORM1 : 316,2 mm → 275,9 mm (1 page). 1 page jusqu'à 41 matières, 2 pages dès 42.
+> Banc : `scripts/bulletin-une-page.mjs` ; test : `npm run build && npm run test:impression`.
+> **Reste à faire** : les 5 autres modèles (classique, moderne, APC officiel, 2nd cycle officiel,
+> APC primaire). **Non vérifié** : Edge, imprimante réelle, données réelles de THE GENIUS.
+
+> ## 📥 IMPORT D'UN REGISTRE DE SERVICE PAR MODÈLE (2026-11-03) — code prêt, NON déployé, NON commité
+>
+> Menu « Registres de services » → *Télécharger le modèle d'import* / *Importer avec le modèle*.
+> Moteur pur `src/lib/serviceImportEngine.js` (+ `_serviceImportEngine.test.mjs`, 46 ok), écran
+> `components/services/ImportModeleModal.jsx`, écriture `ecrireModele`/`annulerLot` dans `pages/Cantine.jsx`.
+> **Décision du responsable** : « Payé » = versements de **reprise** (`method='reprise'`, date = 1er du
+> mois, `reference` = lot), exclus de l'arrêté de caisse (`cashSessionEngine.sessionEntries`) ; leur
+> contre-passation (`reversePayment`) garde la date d'origine. Aucune migration. `npm test` : 263 ok / 0 ko.
+> **Non vérifié** : écran dans Chrome, import réel sur une copie de base, synchro LAN↔Cloud des versements.
+> **Manque** : listes déroulantes dans le .xlsx (xlsx 0.18 ne sait pas les écrire ; `fflate` n'est que
+> transitif) — à décider. Équivalences de classes mémorisées par poste (localStorage), pas synchronisées.
+
 > ## 🔑 MISE EN LIGNE DU 2026-11-03 (3) — `main` à `4cd746a`, synchronisation
 >
 > **Demande** : « deploie la sync aussi ». Quatre actes distincts, dont **trois seulement

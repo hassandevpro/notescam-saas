@@ -18,7 +18,7 @@
 // All tables need RLS: auth.uid() → school_users → school_id match.
 
 import { supabase } from './supabase';
-import { fetchAllRows } from '../core/pagination';
+import { fetchAllRows, fetchParLotsDIds } from '../core/pagination';
 // La règle « que faire d'une colonne que le Cloud ne connaît pas » est pure et
 // testée à part : c'est elle qui empêche qu'un retard de migration coûte un
 // versement (cf. l'incident PGRST204 du 2026-10-31).
@@ -102,14 +102,17 @@ export async function fetchStudents(schoolId, classIds = null) {
 // Fetch student rows by id, regardless of their current class. Used to rebuild an
 // archived year's roster: a promoted student's single row now points to a later
 // year's class, so it never comes back from the class-scoped fetch above.
+// PAR LOTS. Un `.in()` de mille identifiants se heurte a DEUX plafonds : les 1000
+// lignes de PostgREST (les eleves en trop reviennent manquants, avec un 200), et la
+// longueur de l URL (mille UUID font ~37 Ko, refuses ou tronques par les mandataires).
+// Ici les identifiants sont ceux des eleves DEPLACES entre classes : une promotion
+// d annee ou une reorganisation en produit facilement plus de mille.
 export async function fetchStudentsByIds(schoolId, ids = []) {
-  if (!ids.length) return [];
-  const { data, error } = await supabase
-    .from('students').select('*')
-    .eq('school_id', schoolId)
-    .in('id', ids);
-  if (error) { console.error('fetchStudentsByIds', error); return []; }
-  return data || [];
+  const rows = await fetchParLotsDIds(
+    (lot) => supabase.from('students').select('*').eq('school_id', schoolId).in('id', lot),
+    ids, 'fetchStudentsByIds',
+  );
+  return rows || [];
 }
 
 function sanitizeStudent(d) {

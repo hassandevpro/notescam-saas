@@ -2,6 +2,7 @@
 // Compatible LAN (localClient). Les paiements passent par le chemin existant
 // (schoolStore.addPayment, avec student_fee_item_id) → aucune divergence.
 import { supabase } from './supabase';
+import { fetchAllRows } from '../core/pagination';
 import { uuid } from './uuid';
 import { decisionSuppression } from './feeCatalogEngine';
 
@@ -59,13 +60,19 @@ export async function deleteCatalogItem(id) {
 }
 
 // ── Frais par élève ───────────────────────────────────────────────────────────
+// PAGINE. Sans `studentId`, c'est TOUTE l'ecole qui est lue : une ligne par eleve et
+// par poste de frais, donc 1 000 lignes des 250 eleves a quatre postes. Au-dela,
+// PostgREST tronque en repondant 200 : des frais disparaitraient de la fiche d'un
+// eleve sans la moindre erreur, et le total du a l'ecole serait sous-evalue.
+// `created_at` ne departage pas deux lignes creees dans la meme milliseconde (un
+// echeancier est genere en bloc), d'ou `id` en second critere.
 export async function fetchStudentFeeItems(schoolId, { studentId, yearLabel } = {}) {
-  let q = supabase.from('student_fee_items').select('*').eq('school_id', schoolId);
-  if (studentId) q = q.eq('student_id', studentId);
-  if (yearLabel) q = q.eq('academic_year', yearLabel);
-  const { data, error } = await q.order('created_at', { ascending: true });
-  if (error) { console.error('fetchStudentFeeItems', error); return null; }
-  return data;
+  return fetchAllRows(() => {
+    let q = supabase.from('student_fee_items').select('*').eq('school_id', schoolId);
+    if (studentId) q = q.eq('student_id', studentId);
+    if (yearLabel) q = q.eq('academic_year', yearLabel);
+    return q.order('created_at', { ascending: true }).order('id', { ascending: true });
+  }, 'fetchStudentFeeItems');
 }
 export async function upsertStudentFeeItem(row) {
   const payload = {

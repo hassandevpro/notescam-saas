@@ -75,3 +75,29 @@ export async function fetchAllRows(makeQuery, label) {
   }
   return rows;
 }
+
+// ── LIRE PAR IDENTIFIANTS, SANS SE FAIRE TRONQUER ────────────────────────────
+//
+// Un `.in('id', ids)` porte DEUX plafonds, pas un :
+//   • le meme plafond de 1000 lignes — au-dela, les eleves en trop reviennent
+//     manquants, en silence, avec un 200 ;
+//   • la LONGUEUR DE L'URL : mille UUID font ~37 Ko de chaine de requete, que les
+//     mandataires et serveurs refusent couramment (414), ou tronquent.
+//
+// On decoupe donc la liste en lots. 500 est un compromis : assez grand pour que les
+// cas ordinaires tiennent en un appel, assez petit pour rester loin des deux plafonds.
+export const TAILLE_LOT_IN = 500;
+
+export async function fetchParLotsDIds(makeQuery, ids, label, { taille = TAILLE_LOT_IN } = {}) {
+  const liste = [...new Set((ids || []).filter(Boolean))];
+  if (!liste.length) return [];
+  const lots = [];
+  for (let i = 0; i < liste.length; i += taille) lots.push(liste.slice(i, i + taille));
+  const vagues = await Promise.all(lots.map((lot) => makeQuery(lot)));
+  const rows = [];
+  for (const { data, error } of vagues) {
+    if (error) { console.error(label, error); return null; }
+    if (data?.length) rows.push(...data);
+  }
+  return rows;
+}

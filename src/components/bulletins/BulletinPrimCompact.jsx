@@ -42,6 +42,7 @@ import { groupesDe, reperesDeGroupe, lignesParEpreuve } from '../../core/primCom
 // dessine le même bandeau dans les deux cas.
 import { ordonnerParProgramme } from '../../core/primProgramme';
 import { primCoteLabel } from '../../core/referentielI18n';
+import { rangEnAnglais } from '../../core/bulletinScale';
 import { MARQUE_NON_EVALUEE } from '../../core/noteEtat';
 // LA DENSITÉ N'EST PLUS ESTIMÉE, ELLE EST MESURÉE.
 // Toutes les tailles de ce gabarit dérivent de `--nc-d`, que
@@ -77,6 +78,18 @@ function CritereCell({ val, pt, vars = false }) {
       <span style={{ color: '#6b7280', fontSize: '0.86em' }}> /{fix2(val.max)}</span>
     </td>
   );
+}
+
+// LE RANG S ÉCRIT « 1er », PAS « 1 ». Le carnet papier et le modèle de l’école le
+// portent ainsi, et « 1 / 41 » se lit comme une note sur 41 avant de se lire comme un
+// rang. `rangEnAnglais` existait déjà pour les bulletins anglophones ; on lui rend ici
+// son pendant français plutôt que de réécrire un ordinal à côté.
+function rangOrdinal(rang, sys) {
+  if (sys === 'EN') return rangEnAnglais(rang);
+  const n = Number(rang);
+  if (!Number.isFinite(n)) return rang;
+  if (sys === 'ES') return `${n}.º`;
+  return `${n}${n === 1 ? 'er' : 'e'}`;
 }
 
 export default function BulletinPrimCompact({
@@ -546,7 +559,7 @@ export default function BulletinPrimCompact({
                 est connu même quand le rang ne l'est pas, et le parent qui lit
                 « — » seul ne sait pas si la classe compte 8 élèves ou 60. */}
             {!masquerRang && (
-            <td style={num}>{rank ? `${rank} / ${effectif}` : `— / ${effectif ?? ''}`}</td>
+            <td style={num}>{rank ? `${rangOrdinal(rank, sys)} / ${effectif}` : `— / ${effectif ?? ''}`}</td>
             )}
           </tr>
           {(appreciationGenerale || decision) && (
@@ -594,7 +607,10 @@ export default function BulletinPrimCompact({
                 {L(sys, 'Moy. dernier', 'Lowest average', 'Prom. último')}
               </td>
               <td style={num}>{statsClasse.dernier == null ? '—' : fix2(statsClasse.dernier)}</td>
-              <td style={th}>{L(sys, 'Moy. générale', 'Class average', 'Prom. general')}</td>
+              {/* « Moy. générale » se lisait comme la moyenne de L ENFANT, juste
+                  au-dessus. Le modèle de l’école lève l’ambiguïté : c’est celle de la
+                  CLASSE. Même donnée, même calcul — seul le mot change. */}
+              <td style={th}>{L(sys, 'Moyenne de la classe', 'Class average', 'Promedio de la clase')}</td>
               <td style={num}>{statsClasse.generale == null ? '—' : fix2(statsClasse.generale)}</td>
               {/* LE « % DE RÉUSSITE » TIENT DANS CETTE LIGNE SANS L'AGRANDIR.
                   « Moy. dernier » y occupait deux colonnes sur huit pour un
@@ -621,7 +637,7 @@ export default function BulletinPrimCompact({
           )}
 
           <tr>
-            <td style={th}>{L(sys, 'Observations du titulaire', 'Class teacher’s remarks', 'Observaciones')}</td>
+            <td style={th}>{L(sys, 'Observations de l’enseignant(e)', 'Class teacher’s remarks', 'Observaciones del maestro/a')}</td>
             {/* ZONE LIBRE : sa hauteur suit `--nc-observ`, qui reçoit en plus
                 le RELIQUAT de la page (cf. `--nc-reliquat`). C'est ici que va
                 la place restante d'un carnet peu rempli — pas dans un grand
@@ -672,7 +688,9 @@ export default function BulletinPrimCompact({
 
       <OfficialSignatures
         school={school} sys={sys} profPrincipal={titulaire} vars
-        headLabel={L(sys, 'Le Directeur / La Directrice', 'The Head Teacher', 'El Director / La Directora')}
+        // `headLabel` est LOCAL à ce gabarit : les autres bulletins de
+        // l application gardent « Le Directeur / La Directrice ».
+        headLabel={L(sys, 'Le Chef d’établissement', 'The Head Teacher', 'El Director / La Directora')}
         teacherLabel={L(sys, "L'Enseignant(e)", 'The Class Teacher', 'El Maestro / La Maestra')}
       />
     </OfficialSheet>

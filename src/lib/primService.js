@@ -122,14 +122,34 @@ export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, crite
 // jour n'y TOUCHE PAS — y compris pour une note que cet appareil n'a jamais lue. C'est
 // ce qui empêche un barème d'effacer la saisie d'une collègue. Même effet côté serveur
 // d'école : `runQuery` ne met à jour que les colonnes présentes.
-export async function upsertPrimNote(record, { sansNote = false } = {}) {
+// ── LE REFUS DU SERVEUR, EN CLAIR ──────────────────────────────────────────
+//
+// `upsertPrimNote` rend un booléen, et le motif du refus n'allait qu'à la console :
+// personne, à l'école, ne pouvait dire POURQUOI une note ne s'enregistrait pas. Or les
+// deux refus les plus probables se nomment eux-mêmes —
+//   42P10 « no unique or exclusion constraint matching the ON CONFLICT specification »
+//         → la contrainte unique porte encore sur `trimestre_id`, pas sur `ua` ;
+//   42703 « column prim_notes.points_max does not exist »
+//         → la migration du barème n'a pas été appliquée sur ce projet.
+// Dans les deux cas, c'est une migration manquante, et la phrase du serveur le dit.
+// `upsertPrimNoteDetaille` la REND, pour que le bouton « Soumettre » l'affiche.
+export async function upsertPrimNoteDetaille(record, { sansNote = false } = {}) {
   const { nkey, ...row } = record;
   if (sansNote) delete row.note;
   const { error } = await supabase
     .from('prim_notes')
     .upsert(row, { onConflict: 'eleve_id,competence_id,critere_id,ua' });
-  if (error) { console.error('upsertPrimNote', error); return false; }
-  return true;
+  if (error) {
+    console.error('upsertPrimNote', error);
+    const code = error.code ? `${error.code} ` : '';
+    return { ok: false, erreur: `${code}${error.message || 'refus sans message'}` };
+  }
+  return { ok: true, erreur: null };
+}
+
+// L'ancienne signature, inchangée pour tous ses appelants.
+export async function upsertPrimNote(record, opts) {
+  return (await upsertPrimNoteDetaille(record, opts)).ok;
 }
 
 // RPC : calcul des bulletins trimestriels d'une classe (moyennes + cotes + rangs).

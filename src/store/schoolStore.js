@@ -18,7 +18,7 @@ import { fusionnerNotesServeur, recordsAEcrireEnCache, nkeysEnAttente, majAttent
   from '../core/primNotesFusion';
 import { pointsMaxSain, PRIM_POINTS_MAX_LIMITE } from '../core/primBareme';
 import { fetchMasques, setMasque, fetchMasquesClasse, setMasqueClasse, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
-import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey,
+import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, upsertPrimNoteDetaille, buildPrimNoteRecord, primNkey,
   fetchPrimNonEvaluees, nonEvalKey, setPrimNonEvaluee as pousserNonEvaluee } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
 import { buildBilSubjectsForClass } from '../lib/bilAutoConfig';
@@ -483,6 +483,11 @@ export const useSchoolStore = create((set, get) => ({
   // encore chez les autres. L'écran les montre en rouge et le dit, au lieu de les
   // laisser disparaître au rafraîchissement suivant (cf. core/primNotesFusion).
   primNotesEnAttente: [],
+  // LA DERNIÈRE PHRASE DE REFUS DU SERVEUR, telle qu'il l'a dite. Elle n'allait qu'à la
+  // console : personne à l'école ne pouvait savoir POURQUOI une note ne s'enregistrait
+  // pas. Le bouton « Soumettre » l'affiche maintenant, et c'est elle qui nomme la
+  // migration manquante (42P10 = contrainte sur ua ; 42703 = colonne points_max).
+  primNotesRefus: null,
   // Compétences qu'une classe n'a pas évaluées à une UA. Liste de clés
   // `classId|competenceId|ua` : elles s'impriment « - - - - » et ne comptent
   // dans aucun total. Vide = tout a été évalué, ce qui est le cas de départ.
@@ -1770,13 +1775,49 @@ export const useSchoolStore = create((set, get) => ({
     if (backendOnline()) {
       // Pas d'`await` : la cellule suivante doit pouvoir être saisie tout de suite.
       // Mais le résultat n'est plus jeté — c'est lui qui allume l'avertissement.
-      sendOrQueue(upsertPrimNote(record, { sansNote }), op).then((envoye) => {
+      sendOrQueue(upsertPrimNoteDetaille(record, { sansNote }).then((r) => {
+        // La phrase du serveur est retenue DÈS la frappe : le bandeau peut déjà la
+        // montrer, sans attendre que quelqu'un pense à cliquer « Soumettre ».
+        if (!r.ok && r.erreur) set({ primNotesRefus: r.erreur });
+        return r.ok;
+      }), op).then((envoye) => {
         set({ primNotesEnAttente: majAttenteNkeys(get().primNotesEnAttente, nkey, !envoye) });
       });
     } else {
       await queueOffline(op);
       set({ primNotesEnAttente: majAttenteNkeys(get().primNotesEnAttente, nkey, true) });
     }
+  },
+
+  // ── SOUMETTRE LES NOTES SAISIES ───────────────────────────────────────────
+  //
+  // Demandé par l'école le 2026-11-05 : « mets un bouton soumettre après avoir saisi les
+  // notes ». La saisie écrit déjà au fil de la frappe — ce bouton ne la remplace pas, il
+  // RÉPOND. Il renvoie tout ce qui n'est pas passé, compte ce qui part et ce qui est
+  // refusé, et rapporte la phrase EXACTE du serveur. Une enseignante qui clique obtient
+  // donc soit « 12 notes enregistrées », soit le motif du refus — jamais le silence qui
+  // l'a fait ressaisir trois fois.
+  //
+  // `nkeys` = les notes de l'écran à soumettre. Vide ⇒ tout ce qui attend.
+  soumettrePrimNotes: async (nkeys) => {
+    const { schoolId, primNotes, primNotesEnAttente } = get();
+    if (!schoolId) return { error: 'ecole' };
+    if (!backendOnline()) return { error: 'offline' };
+    const cles = (nkeys && nkeys.length ? nkeys : primNotesEnAttente) || [];
+    const aEnvoyer = cles.map((k) => primNotes[k]).filter(Boolean);
+    if (!aEnvoyer.length) return { total: 0, envoyees: 0, refusees: 0, premierRefus: null };
+    let envoyees = 0;
+    let refusees = 0;
+    let premierRefus = null;
+    let attente = primNotesEnAttente || [];
+    for (const record of aEnvoyer) {
+      // Ici on PARLE de la note : c'est tout l'objet du geste.
+      const { ok, erreur } = await upsertPrimNoteDetaille(record).catch((e) => ({ ok: false, erreur: String(e?.message || e) }));
+      if (ok) { envoyees += 1; } else { refusees += 1; if (!premierRefus) premierRefus = erreur; }
+      attente = majAttenteNkeys(attente, record.nkey, !ok);
+    }
+    set({ primNotesEnAttente: attente, primNotesRefus: premierRefus });
+    return { total: aEnvoyer.length, envoyees, refusees, premierRefus };
   },
 
   // ── Academic year promotion ──────────────────────────────────────────────

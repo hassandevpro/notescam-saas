@@ -1,5 +1,54 @@
 # PROJECT_STATUS — NotesCam
 
+> ## 🔑 MISE EN LIGNE DU 2026-11-05 — `main` à `4c0bd86` : la saisie du primaire ne disparaît plus
+>
+> **Poussé sur autorisation explicite (« met en prod »).** Deux commits, en avance rapide
+> depuis `d572477`, construits dans un ARBRE NEUF sur `origin/main` — pas depuis la branche.
+>
+> | commit | contenu |
+> |---|---|
+> | `5a7943d` | les trois causes de « ça ne persiste pas » (7 fichiers, +551/-17) |
+> | `4c0bd86` | le commentaire du barème, qui promettait encore de conserver la note |
+>
+> **RETOUR ARRIÈRE** : `git push origin d572477:main --force-with-lease`
+>
+> ### Vérifié AVANT la poussée, sur le contenu exact poussé
+>
+> - `npm run build` (celui de Vercel) : **vert** · `npm run build:lan` : **vert**
+> - `core/_primNotesFusion.test.mjs` **9 ok** · `server/_prim_bareme_ecriture.test.mjs`
+>   **12 ok** sur le vrai serveur d'école (il prouve d'abord l'ANCIEN défaut)
+> - **Écran réel** (édition LAN, copie jetable, Chromium), écriture refusée côté serveur
+>   (42P10) : la note **reste affichée** après rechargement, la cellule est **rouge**, le
+>   bandeau **nomme les élèves**. Rejoué sur la production patchée avant de pousser.
+>
+> ### ⚠️ CE QUI N'EST PAS EN LIGNE, ET POURQUOI
+>
+> La branche `caisse-journal-et-sync-0.3.15` (7 commits, release 0.3.32) **a bifurqué avant
+> 7 commits déjà en production** — dont `68d93f0` (masquage d'une compétence par classe),
+> `7ad0800` (programme anglophone), `65f4c7f` (barème hors bornes). **52 fichiers sont
+> touchés des deux côtés**, et ce sont les MÊMES fonctions développées deux fois, pas un
+> conflit de texte. Un rebase à l'aveugle livrerait un écran de saisie que personne n'a
+> vérifié, dans une école en service. Le rebase a donc été **annulé** (`git rebase --abort`),
+> et seul le lot urgent a été reporté à la main sur la production.
+>
+> Restent donc à réconcilier, un par un, avec vérification à l'écran :
+> - **masquage d'un critère par classe ET compétence** (`primCriteresClasse.js`, absent de
+>   la production) + sa migration `supabase_prim_criteres_classe_masques.sql` ;
+> - **le transport sans chiffres** (`moisAffiches`, choix de la facturation) ;
+> - les autres commits de la branche (bulletins une page, quarantaine de synchro, 0.3.32).
+>
+> ### À FAIRE CÔTÉ CLOUD — c'est la racine
+>
+> Le correctif empêche la note de disparaître et DIT qu'elle n'est pas enregistrée. Il ne la
+> fait pas accepter. **Lancer `supabase_sonde_pourquoi_les_notes_ne_persistent_pas.sql`**
+> (lecture seule, livrée avec ce lot) : son verdict dit si `points_max` manque, ou si la
+> contrainte unique porte sur `trimestre_id` au lieu de `ua` — auquel cas **saisir UA2
+> écrase UA1**. Sauvegarder (export CSV daté) avant toute migration.
+>
+> Migration encore à appliquer, indépendante : `supabase_fee_cache_on_payment_delete.sql`
+> (trigger, additif) — elle est dans la branche, donc PAS en ligne.
+>
+
 > ## 🔴 2026-11-05 (soir) — « Payé intégral » à tort chez GENIUS : deux causes, paquet 0.3.32 construit
 >
 > **Audit de l'école** : élèves « Payé intégral » avec un payé > dû (305 000 pour 180 000).

@@ -1,7 +1,7 @@
 {
   "name": "notescam-saas",
   "private": true,
-  "version": "0.3.30",
+  "version": "0.3.32",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +12,7 @@
     "lan": "npm run build:lan && node server/index.js",
     "lan:dev": "node server/index.js",
     "test": "node scripts/run-tests.mjs",
+    "test:impression": "node scripts/bulletin-une-page-test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:sync-batch": "node --experimental-loader ./src/lib/_syncBatch.hooks.mjs src/lib/_syncBatch.test.mjs",

@@ -1,0 +1,80 @@
+=============================================================================
+NOTESCAM — PAQUET LAN construit sur « main » a d572477 (2026-11-04)
+Pour le serveur Ubuntu de THE GENIUS, qui tourne aujourd'hui en 0.3.30.
+Archive : notescam-linux-x64-0.3.30-d572477.tar.gz
+=============================================================================
+
+CE QUE CE PAQUET CONTIENT (la 0.3.30 + les six changements entres sur main)
+
+ 1. LE REGISTRE DES SERVICES SUR LE COMPTE DU RAF (dc8312e). L'entree
+    « Registre des services » s'affiche sur les comptes qui tiennent deja
+    l'argent (Frais scolaires ou Catalogue des frais). Rien a cocher : a la
+    prochaine ouverture, l'entree est la. Le compte de la caisse la garde.
+ 2. LE CLASSEUR TRANSPORT DE L'ECOLE EST LU EN ENTIER (d572477).
+    - La feuille COLLEGE (« FRAIS / MOIS », avec des espaces autour de la
+      barre) passe de 37 eleves refuses a 37 lus, 0 bloquant.
+    - Un montant annuel sans tarif mensuel ne bloque plus : l'abonnement
+      s'ecrit sur l'annuel, le mois n'est qu'une indication.
+    - GARDE-FOU D'ANNEE : le classeur porte trois feuilles et DEUX annees
+      (Feuil1 = 2025/2026, Feuil2 et Feuil3 = 2026/2027). L'import refuse
+      desormais de continuer quand la feuille annonce une autre annee que
+      celle ouverte. Sans ce garde-fou, prendre Feuil1 ferait devoir une annee
+      entiere de transport a 211 eleves qui l'ont deja payee.
+ 3. L'ECRAN DES SERVICES TIENT DANS UN TELEPHONE (1c44ddc), et le reste a
+    payer dit son mois.
+ 4. PRIMAIRE : une seule liste cochable, le programme anglophone, les doublons
+    nettoyes (7ad0800).
+ 5. PRIMAIRE : decocher une competence nationale ne la masque que pour la
+    classe en cours (68d93f0).
+ 6. PRIMAIRE : un bareme hors bornes bloquait toute la colonne — refuse a
+    l'ecran, a l'ecriture, repare au rejeu (65f4c7f).
+
+CE QU'IL NE CONTIENT PAS — pas encore commite, donc pas dans l'archive :
+  - l'import d'un registre par MODELE (.xlsx telechargeable) ;
+  - le bulletin « APC Report Card » sur une page.
+
+CE QUE CE PAQUET NE CHANGE PAS
+  - Aucune migration de schema, aucune donnee touchee.
+  - La version annoncee par le serveur est EXACTEMENT 0.3.30 (aucun suffixe :
+    « 0.3.30-quelquechose » se lirait en semver comme une PRE-version, donc
+    plus ancienne que ce qui est installe). Seule l archive est renommee, et le
+    script de deploiement 0.3.30 la recoit en argument : il passe sans retouche.
+  - Personne ne perd un acces.
+
+INSTALLATION (en root sur le serveur de l'ecole)
+  sudo ./deploy-0.3.30.sh notescam-linux-x64-0.3.30-d572477.tar.gz
+  Le script sauvegarde la base AVANT et reverifie ses comptages APRES.
+
+RETOUR ARRIERE
+  Reinstaller l'archive 0.3.30 d'origine (packaging/linux/Output/). Aucune
+  donnee n'ayant ete touchee, il n'y a rien d'autre a defaire.
+
+CE QUI N'EST PAS VERIFIE
+  L'ecran reel dans Chrome, l'import sur une copie de la vraie base, et le
+  rapprochement par NOM des 38 eleves du modele rempli qui n'ont pas de
+  matricule. Les deux bases disponibles sur le poste de developpement sont des
+  ecoles de test (5 et 15 eleves), pas une copie de THE GENIUS.
+
+PREUVES
+  npm test : 267 ok / 0 ko · npm run validate : 11/11 critiques, BUILD AUTORISE
+  Correctif RAF verifie sur le site reellement servi (index-hZnMW-bA.js porte
+  {"/app/cantine":["/app/fees","/app/frais-catalogue"]}).
+=============================================================================
+
+=============================================================================
+AVERTISSEMENT — NE PAS INSTALLER « notescam-linux-x64-0.3.31.tar.gz »
+APRES CELUI-CI
+=============================================================================
+Une archive 0.3.31 existe dans Output/, construite le 2026-11-04 a 09:15 —
+donc AVANT les deux correctifs du jour. Elle ne contient NI le registre des
+services sur le compte du RAF, NI la lecture de la feuille COLLEGE, NI le
+garde-fou d'annee. Elle s'annonce pourtant 0.3.31, soit PLUS RECENTE.
+
+L'installer apres ce paquet-ci retirerait les trois correctifs tout en
+affichant un numero superieur : personne ne verrait l'erreur.
+
+Deux conduites correctes, au choix :
+  • installer CE paquet (0.3.30 + les six changements de main), ou
+  • RECONSTRUIRE la 0.3.31 depuis un arbre qui contient d572477, puis
+    installer celle-la — elle emportera tout.
+=============================================================================

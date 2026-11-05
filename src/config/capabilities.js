@@ -37,6 +37,12 @@ export const CAP_GROUPS = [
   { module: ['Finances', 'Finance', 'Finanzas'], caps: [
     { to: '/app/fees', label: ['Frais scolaires', 'School fees', 'Tasas'] },
     { to: '/app/frais-catalogue', label: ['Catalogue des frais', 'Fee catalog', 'Catálogo'] },
+    // Registre des services : l'entrée EXISTE au menu (navigation.js, rôles
+    // admin/censeur) mais n'était pas DÉLÉGABLE — absente de ce catalogue, aucun
+    // compte à capacités ne pouvait la porter, pas même le profil RAF (= toutes
+    // les Finances). Le RAF ne la voyait donc pas, là où un compte NON délégué
+    // (la caisse, rôle censeur) la voit par son rôle de base.
+    { to: '/app/cantine', label: ['Registre des services', 'Service register', 'Registro de servicios'] },
     { to: '/app/budgets', label: ['Budgets', 'Budgets', 'Presupuestos'] },
     { to: '/app/budget-global', label: ['Budget global & prévisions', 'Global budget', 'Global'] },
     { to: '/app/depenses', label: ['Dépenses', 'Expenses', 'Gastos'] },
@@ -93,12 +99,45 @@ export const ACCESS_PRESETS = [
 
 export function presetByKey(key) { return ACCESS_PRESETS.find((p) => p.key === key) || ACCESS_PRESETS[0]; }
 
+// CAPACITÉS IMPLICITES — réparation des comptes DÉJÀ créés.
+//
+// Une page absente du catalogue ne pouvait figurer dans AUCUNE liste enregistrée :
+// la case n'existait pas à l'écran. Pour ces pages-là, une liste qui ne les
+// mentionne pas ne veut donc pas dire « refusé » — elle veut dire « jamais
+// proposé ». Les ajouter au catalogue (ci-dessus) ne suffit pas : cela ne touche
+// que les comptes à venir, et obligerait l'école à rouvrir chaque compte pour
+// cocher une case. D'où cette table : la page est ouverte au compte qui porte
+// déjà une page de la MÊME FAMILLE.
+//
+// `/app/cantine` (Registre des services) est le suivi mois par mois d'un service
+// facturé : même argent, mêmes élèves, mêmes montants que « Frais scolaires » et
+// le catalogue des frais (c'est la famille FEE_PAGES de core/strictMatrix.js). Un
+// compte qui tient les frais ne découvre donc rien ici. À l'inverse, porter un
+// BUDGET (/app/budgets, /app/depenses) n'ouvre pas le registre : un chef de
+// secteur n'a pas à voir qui paie sa cantine.
+//
+// Ce n'est pas une porte dérobée dans une école DURCIE : `strictAllowsPage` est
+// évaluée AVANT (navigation comme ProtectedRoute) et exige une autorité
+// financière que cette table ne donne pas.
+const CAPS_IMPLICITES = {
+  '/app/cantine': ['/app/fees', '/app/frais-catalogue'],
+};
+
+function capaciteImplicite(pathname, permissions) {
+  for (const [page, sources] of Object.entries(CAPS_IMPLICITES)) {
+    if (pathname !== page && !pathname.startsWith(page + '/')) continue;
+    return sources.some((s) => permissions.includes(s));
+  }
+  return false;
+}
+
 // Un chemin est-il autorisé par une liste de permissions ? (gère /app/x/:id)
 export function isPathPermitted(pathname, permissions) {
   if (!permissions || !permissions.length) return true;              // pas de restriction
   if (ALWAYS_ALLOWED.includes(pathname)) return true;                // accueil/profil/aide (exact)
   // Préfixe uniquement pour les permissions réelles (gère /app/students/:id).
-  return permissions.some((p) => pathname === p || pathname.startsWith(p + '/'));
+  if (permissions.some((p) => pathname === p || pathname.startsWith(p + '/'))) return true;
+  return capaciteImplicite(pathname, permissions);
 }
 
 // Première page autorisée (cible de repli à la connexion).

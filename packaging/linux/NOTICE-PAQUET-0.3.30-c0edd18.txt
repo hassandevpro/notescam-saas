@@ -1,0 +1,54 @@
+PAQUET LAN — notescam-linux-x64-0.3.30-c0edd18.tar.gz
+=====================================================
+Construit le 2026-11-05 depuis un arbre NEUF sur origin/main (d572477)
+PLUS le lot c0edd18 « le transport retrouve ses chiffres ».
+
+Version ANNONCEE par le serveur : 0.3.30 (inchangee, sans suffixe).
+Le suffixe « -c0edd18 » ne vit QUE dans le nom de l'archive : il identifie
+le lot sans tromper la comparaison de mise a jour. Un suffixe embarque
+(APP_VERSION=0.3.30-xxx) se lirait en semver comme une PRE-version de
+0.3.30, donc PLUS ANCIENNE que ce que l'ecole a deja.
+
+Empreinte SHA-256 :
+  fa8174966718655119fdcf781fb5ed72a9f117428f0698ad79760a51f7cfbf62
+
+CE QUE CE PAQUET AJOUTE PAR RAPPORT A notescam-linux-x64-0.3.30-d572477.tar.gz
+------------------------------------------------------------------------------
+Le registre des services ne cache plus l'argent deja ecrit, et la
+facturation d'un service se CHOISIT au lieu d'etre imposee.
+
+  1. La grille affiche les periodes qui PORTENT des echeances, meme si
+     elles ne font plus partie de la facturation du service, et un bandeau
+     les nomme. Avant : des eleves listes, pas un chiffre.
+  2. Le formulaire du service demande la facturation — par mois, par
+     trimestre, ou en une fois (toute l'annee). L'enregistrement ne
+     reecrit plus « mensuel » a chaque fois, et n'ecrit les periodes
+     facturees que si la facturation change (le mois decoche par l'ecole
+     lui reste decoche).
+  3. Les periodes refusees par la base a l'import sont NOMMEES a l'ecran
+     au lieu d'etre tues. L'import est rejouable sans doublon.
+
+Aucune ecriture financiere n'est creee, modifiee ni supprimee par ce lot.
+
+VERIFIE SUR L'ECRAN REEL (edition LAN, Chrome, 2026-11-05)
+----------------------------------------------------------
+Copie jetable d'une base, service « Transport » mis EN UNE FOIS alors que
+20 echeances mensuelles (200 000 XAF) etaient deja ecrites :
+  • avant le correctif : une seule colonne « 2026-annee », vide ;
+  • apres : les 10 mois reparaissent a 10 000 XAF chacun, total
+    200 000 XAF, et le bandeau nomme les 10 periodes hors facturation ;
+  • remise en « Par mois » depuis le formulaire : base relue, periodicity
+    = mensuel, 10 periodes ecrites, et les 20 echeances INTACTES.
+
+INSTALLATION (main a main, THE GENIUS tourne sous Linux sans mise a jour auto)
+------------------------------------------------------------------------------
+  tar xzf notescam-linux-x64-0.3.30-c0edd18.tar.gz
+  cd notescam-linux-x64
+  sudo ./install.sh          # ou: sudo ./install.sh 9090
+
+ATTENTION — NE PAS INSTALLER notescam-linux-x64-0.3.31.tar.gz APRES CELUI-CI
+-----------------------------------------------------------------------------
+Cette archive-la a ete construite le 2026-11-04 a 09:15, AVANT les trois
+correctifs du registre (RAF, classeur transport, chiffres du transport),
+et elle annonce une version PLUS HAUTE. L'installer ensuite retirerait les
+correctifs en silence.

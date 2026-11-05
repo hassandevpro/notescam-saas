@@ -36,8 +36,10 @@ export const SESSION_STATUS = Object.freeze({
 // Les écritures d'un caissier sur une journée donnée. Les contre-passations
 // sont incluses (montants négatifs) : le tiroir aussi a rendu l'argent.
 export function sessionEntries(payments = [], { cashierId, date }) {
+  // Les versements de REPRISE (import de registre) ne sont jamais entrés dans un
+  // tiroir : les compter ferait réclamer au caissier des espèces qu'il n'a pas.
   return (payments || []).filter((p) =>
-    p && p.date === date && (p.recorded_by || null) === (cashierId || null));
+    p && p.method !== 'reprise' && p.date === date && (p.recorded_by || null) === (cashierId || null));
 }
 
 /**

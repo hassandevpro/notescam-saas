@@ -234,6 +234,11 @@ ensureColumn('schools',  'primary_period_mode', "primary_period_mode TEXT NOT NU
 // Le defaut est l'existant : aucune ecole ne voit son bulletin bouger sans
 // l'avoir demande. Parite Cloud : supabase_prim_bulletin_mode.sql.
 ensureColumn('schools',  'prim_bulletin_mode', 'prim_bulletin_mode TEXT');
+// Le RANG du bulletin primaire : masque par ecole (Bright Continent, 2026-11-05).
+// La moyenne de classe, le taux de reussite et la repartition par tranche le
+// remplacent — elles situent un enfant sans le classer. Parite Cloud :
+// supabase_prim_masquer_rang.sql.
+ensureColumn('schools',  'prim_masquer_rang', 'prim_masquer_rang INTEGER');
 ensureColumn('schools',  'bulletin_subject_mode', "bulletin_subject_mode TEXT NOT NULL DEFAULT 'synthetic'"); // 'synthetic' | 'detailed'
 ensureColumn('schools',  'budget_validation', 'budget_validation INTEGER NOT NULL DEFAULT 0'); // workflows de validation budgétaire (0=off, comportement Budgets inchangé)
 ensureColumn('schools',  'advanced_delegation', 'advanced_delegation INTEGER NOT NULL DEFAULT 0'); // délégation avancée par école (0=off) — miroir de la colonne cloud

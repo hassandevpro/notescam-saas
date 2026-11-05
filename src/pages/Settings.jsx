@@ -467,6 +467,17 @@ export default function Settings() {
         bulletin_subject_mode: school.bulletin_subject_mode === 'detailed' ? 'detailed' : 'synthetic',
         // Carnet détaillé du primaire. Défaut = 'standard' : une école qui n'a
         // rien demandé garde son bulletin tel quel.
+        // RANG DU BULLETIN PRIMAIRE — même précaution que `bulletin_accent` ci-dessous,
+        // et pour la même raison : `updateSchool` envoie l’objet `form` ENTIER dans un
+        // seul `update()`. Tant que `supabase_prim_masquer_rang.sql` n’est pas appliquée,
+        // envoyer cette clé ferait rejeter la requête COMPLÈTE (PGRST204) : l’école ne
+        // pourrait plus enregistrer aucun réglage, pas même son nom. La fiche venant
+        // d’un `select *`, la clé est présente — fût-elle nulle — dès que la colonne
+        // existe. Le réglage s’allume donc tout seul le jour de la migration.
+        // Défaut = rang imprimé : aucune école ne voit son bulletin bouger.
+        ...('prim_masquer_rang' in school
+          ? { prim_masquer_rang: school.prim_masquer_rang === true || school.prim_masquer_rang === 1 }
+          : {}),
         prim_bulletin_mode: ['carnet', 'carnet_epreuves'].includes(school.prim_bulletin_mode)
           ? school.prim_bulletin_mode : 'standard',
         // En-tête officiel bilingue (2 blocs pays) ou mono-langue. Défaut = bilingue
@@ -1166,6 +1177,42 @@ export default function Settings() {
                   );
                 })}
               </div>
+              {/* ── LE RANG S’IMPRIME, OU NON ────────────────────────────────
+                  Demandé par BRIGHT CONTINENT le 2026-11-05. Ce n’est pas une
+                  préférence de mise en page : l’approche par compétences décrit ce
+                  qu’un enfant SAIT FAIRE, un rang le compare aux autres. Une école
+                  peut tenir qu’un parent de CM1 n’a pas à lire « 23e / 41 » à côté
+                  du travail de son enfant ; une autre y tient. Le choix lui revient.
+                  Ce qui RESTE quand le rang part — moyenne de la classe, taux de
+                  réussite, répartition par tranche — situe l’enfant sans le classer. */}
+              {/* La case ne paraît que si la base connaît la colonne. Cochée sans
+                  elle, elle serait écartée du formulaire et ne ferait RIEN, en
+                  silence : une case qui ment coûte plus cher qu’une case absente. */}
+              {'prim_masquer_rang' in (school || {}) && (
+              <label className={`mt-4 flex items-start gap-3 rounded-xl border p-4 ${
+                form.prim_masquer_rang ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white'
+              } ${isAdmin ? 'cursor-pointer hover:border-brand-300' : 'opacity-60 cursor-not-allowed'}`}>
+                <input
+                  type="checkbox"
+                  disabled={!isAdmin}
+                  checked={!!form.prim_masquer_rang}
+                  onChange={(e) => setForm((f) => ({ ...f, prim_masquer_rang: e.target.checked }))}
+                  className="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-400"
+                />
+                <span>
+                  <span className="font-semibold text-gray-900 text-sm block">
+                    {t('Ne pas faire apparaître le rang sur le bulletin du primaire',
+                       'Do not print the rank on primary report cards',
+                       'No imprimir el puesto en los boletines de primaria')}
+                  </span>
+                  <span className="text-xs text-gray-500 mt-1 block">
+                    {t('La case « Rang » disparaît du bulletin. La moyenne de la classe, le taux de réussite et la répartition par tranche restent : elles situent l’élève sans le classer. Le rang continue d’être calculé et reste visible dans l’application.',
+                       'The “Rank” box disappears from the report card. The class average, pass rate and range distribution remain: they place the pupil without ranking them. The rank is still computed and stays visible in the app.',
+                       'La casilla «Puesto» desaparece del boletín. El promedio de la clase, la tasa de aprobados y la distribución se mantienen.')}
+                  </span>
+                </span>
+              </label>
+              )}
             </Section>
 
         {isAdmin && (

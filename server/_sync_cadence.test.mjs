@@ -335,6 +335,10 @@ console.log('\n── 7. refus du Cloud');
   ok(!!qz && qz.a >= 3 && /foreign key/.test(qz.m), 'après N refus : quarantaine AVEC son motif', qz);
   ok(!db.prepare("SELECT 1 x FROM sync_outbox WHERE row_id='refusee-1'").get(), 'et la file redémarre');
   ok(present('refusee-1'), 'la ligne reste en base locale : rien n\'est perdu');
+  // Une ligne REFUSÉE n'a pas d'ombre : le Cloud ne l'a pas accordée. L'ombre était posée à la
+  // milliseconde de la mise en quarantaine — la base de la fusion par champ déclarait un accord faux.
+  ok(!db.prepare("SELECT 1 x FROM sync_shadow WHERE row_id='refusee-1'").get(),
+    'la ligne refusée / mise en quarantaine n\'a PAS d\'ombre (aucun accord n\'a eu lieu)');
 
   reset(); viderFile(); C.sansRejected = true;
   ecrire('ancien-1');

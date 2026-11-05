@@ -28,7 +28,26 @@ export function compteursSynchro() {
   try { ({ aArbitrer, total } = compterConflits()); } catch { /* table absente (vieux schéma) */ }
   return {
     pending: n('SELECT COUNT(*) n FROM sync_outbox'),
-    quarantined: n('SELECT COUNT(*) n FROM sync_outbox_quarantine'),
+    // LIGNES distinctes refusées — pas le nombre d'ENTRÉES de la table.
+    //
+    // `sync_outbox_quarantine` ne se vide jamais, et un COUNT(*) y comptait deux fois la même
+    // chose : une même ligne refusée, réenfilée par la réparation puis refusée de nouveau, y figure
+    // N fois ; et une ligne ACTUELLEMENT réenfilée est déjà comptée en attente. (Constaté le
+    // 2026-11-04 : « 181 253 lignes refusées ».)
+    //
+    // CE QUI N'EST PAS FAIT, À DESSEIN : considérer une ligne comme « résolue » d'après
+    // `sync_shadow`. L'ombre d'une ligne refusée était posée dans le cycle même de sa mise en
+    // quarantaine (défaut corrigé dans cloudSync.js) : toutes les lignes déjà en quarantaine en ont
+    // une, et ce critère aurait affiché ~0 en masquant le vrai problème. Aucune ligne n'est donc
+    // retirée du compteur sans une preuve qu'on ne possède pas encore.
+    //
+    // Rien n'est supprimé : la trace entière reste dans la table, exposée par `quarantinedBrut`.
+    quarantined: n(`SELECT COUNT(*) n FROM (
+      SELECT z.tablename, z.row_id FROM sync_outbox_quarantine z
+       WHERE NOT EXISTS (SELECT 1 FROM sync_outbox o
+                          WHERE o.tablename = z.tablename AND o.row_id = z.row_id)
+       GROUP BY z.tablename, z.row_id)`),
+    quarantinedBrut: n('SELECT COUNT(*) n FROM sync_outbox_quarantine'),
     conflits: { aArbitrer, total },
   };
 }

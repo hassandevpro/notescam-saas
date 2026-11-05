@@ -582,6 +582,12 @@ async function push(edge, dryRun) {
   // Compatible avec un Cloud non redéployé : sans `rejected`, on purge comme avant.
   const refuses = Array.isArray(res?.rejected) ? res.rejected : [];
   const cles = new Set(refuses.map((r) => `${r.table}|${r.id}`));
+  // `cles` se VIDE ci-dessous pour chaque ligne mise en quarantaine (elle n'est plus en file, donc
+  // « purgeable »). Elle ne doit pourtant PAS recevoir d'ombre : le Cloud l'a refusée. On garde
+  // donc la liste complète des refus, pour la pose des ombres. (Avant : l'ombre d'une ligne refusée
+  // était posée à la milliseconde de sa mise en quarantaine, en contradiction avec le commentaire
+  // ci-dessous — la base de la fusion par champ déclarait un accord qui n'a jamais eu lieu.)
+  const refusesTous = new Set(cles);
   const maxId = entries[entries.length - 1].id;
   tx(() => {
     if (cles.size) {
@@ -616,7 +622,7 @@ async function push(edge, dryRun) {
     // entière, et la fusion par champ ne servirait que pour les lignes nées
     // au Cloud. Les lignes refusées sont exclues : le Cloud ne les a pas.
     for (const c of changes) {
-      if (cles.has(`${c.table}|${c.row.id}`)) continue;
+      if (refusesTous.has(`${c.table}|${c.row.id}`)) continue;
       if (c.op === 'delete') retirerOmbre(c.table, c.row.id);
       else poserOmbre(c.table, c.row.id, c.row);
     }

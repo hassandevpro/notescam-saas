@@ -19,6 +19,7 @@ import { mirrorToCloud, flushMirrorQueue, credentialPublicKey, publishCredential
 import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
 import { scheduleCloudSync, syncOnce } from './cloudSync.js';
 import { scheduleEventSync } from './eventSync.js';
+import { compteursSynchro } from './syncEtat.js';
 import { scheduleDecisionApply } from './governanceApply.js';
 import { setSetting, isCloudSyncEnabled } from './syncFlag.js';
 import { syncHealth, hybridMode } from './syncHealth.js';
@@ -430,6 +431,9 @@ function hybridState() {
     policy,
     health,
     mode: hybridMode(enabled, health),
+    // File d'envoi, lignes refusées par le Cloud, désaccords : de quoi dire
+    // « synchronisé / en attente / échec » (src/lib/syncStatus.js).
+    ...compteursSynchro(),
   };
 }
 app.get('/api/hybrid/status', () => ({ data: hybridState(), error: null }));

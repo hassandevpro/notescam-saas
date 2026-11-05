@@ -799,11 +799,11 @@ export default function PrimCompetenceWorkspace() {
     // la colonne était retombée au barème officiel du référentiel. Il saisissait
     // alors ses notes sur un barème qu'il n'avait pas choisi, sans le voir.
     //
-    // On écrit donc une ligne pour CHAQUE élève de la classe, en conservant sa
-    // note actuelle (ou `null` s'il n'en a pas). Une ligne sans note persiste le
-    // barème sans rien affirmer sur l'élève, et le reste du produit l'ignore
-    // déjà : `competencePointsTotal` et `primAverageForCompetence` ne comptent
-    // que les notes non vides, et `indexPrimNotes` (progression de saisie)
+    // On écrit donc une ligne pour CHAQUE élève de la classe — mais SANS rien dire
+    // de sa note (voir juste en dessous : c'était la cause des notes effacées). Une
+    // ligne sans note persiste le barème sans rien affirmer sur l'élève, et le reste
+    // du produit l'ignore déjà : `competencePointsTotal` et `primAverageForCompetence`
+    // ne comptent que les notes non vides, et `indexPrimNotes` (progression de saisie)
     // écarte explicitement `!filled(note)` — la colonne ne passera donc pas
     // pour « saisie ».
     //

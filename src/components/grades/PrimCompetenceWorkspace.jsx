@@ -209,6 +209,8 @@ export default function PrimCompetenceWorkspace() {
   const students    = useSchoolStore((s) => s.students);
   const referentiel = useSchoolStore((s) => s.primReferentiel);
   const primNotes   = useSchoolStore((s) => s.primNotes);
+  const primNotesRefus = useSchoolStore((s) => s.primNotesRefus);
+  const soumettrePrimNotes = useSchoolStore((s) => s.soumettrePrimNotes);
   const primNotesPrets = useSchoolStore((s) => s.primNotesPrets);
   const primNotesEnAttente = useSchoolStore((s) => s.primNotesEnAttente);
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
@@ -514,6 +516,12 @@ export default function PrimCompetenceWorkspace() {
   useEffect(() => { loadRefMasques('prim'); loadRefMasques('prim_crit'); }, [loadRefMasques]);
   const [refOpen, setRefOpen] = useState(false);
   const [critOpen, setCritOpen] = useState(false);
+  // CE QUE LE BOUTON « SOUMETTRE » A RÉPONDU. Demandé par l'école le 2026-11-05 :
+  // « mets un bouton soumettre après avoir saisi les notes ». Il ne remplace pas la
+  // sauvegarde au fil de la frappe — il RÉPOND. Un clic doit donner soit un nombre,
+  // soit un motif, jamais le silence qui fait ressaisir trois fois.
+  const [envoi, setEnvoi] = useState(false);
+  const [bilanEnvoi, setBilanEnvoi] = useState(null);
 
   useEffect(() => {
     if (competences.length && !competences.some((c) => c.id === competenceId)) setCompetenceId(competences[0].id);
@@ -535,6 +543,51 @@ export default function PrimCompetenceWorkspace() {
     }
     return par;
   }, [primNotes, classStudents, competenceId, referentiel]);
+
+  // LES NOTES DE CET ÉCRAN : cette classe, cette compétence, cette UA. Soumettre ne
+  // doit renvoyer QUE ce que l'enseignante vient de saisir — pas les 2 000 notes de
+  // l'école, qui feraient attendre une minute pour un geste qu'elle croit local.
+  const nkeysDeLEcran = useMemo(() => {
+    const out = [];
+    for (const stu of classStudents) {
+      for (const c of referentiel?.criteres || []) {
+        const k = primNkey(stu.id, competenceId, c.id, ua);
+        if (primNotes[k]) out.push(k);
+      }
+    }
+    return out;
+  }, [classStudents, referentiel, competenceId, ua, primNotes]);
+  const soumettre = async () => {
+    setEnvoi(true);
+    setBilanEnvoi(null);
+    const r = await soumettrePrimNotes(nkeysDeLEcran);
+    setEnvoi(false);
+    if (r?.error === 'offline') {
+      setBilanEnvoi({ ko: true, texte: t(
+        'Hors ligne : les notes restent gardées ici et partiront dès le retour du réseau.',
+        'Offline: the marks stay here and will be sent as soon as the network is back.') });
+      return;
+    }
+    if (r?.error) {
+      setBilanEnvoi({ ko: true, texte: t('Envoi impossible pour le moment.', 'Cannot send right now.') });
+      return;
+    }
+    if (!r?.total) {
+      setBilanEnvoi({ ko: false, texte: t('Aucune note à soumettre sur cet écran.', 'No marks to submit on this screen.') });
+      return;
+    }
+    if (!r.refusees) {
+      setBilanEnvoi({ ko: false, texte: t(
+        `${r.envoyees} note(s) enregistrée(s) sur le serveur.`,
+        `${r.envoyees} mark(s) saved to the server.`) });
+      return;
+    }
+    // LE MOTIF DU SERVEUR, MOT POUR MOT. C'est lui qui nomme la cause — une migration
+    // manquante se dit elle-même (42P10 : contrainte sur `ua` ; 42703 : points_max).
+    setBilanEnvoi({ ko: true, texte: t(
+      `${r.refusees} note(s) REFUSÉE(S) par le serveur${r.envoyees ? `, ${r.envoyees} enregistrée(s)` : ''}. Elles sont gardées ici. Motif exact : ${r.premierRefus || 'inconnu'}`,
+      `${r.refusees} mark(s) REFUSED by the server${r.envoyees ? `, ${r.envoyees} saved` : ''}. They are kept here. Exact reason: ${r.premierRefus || 'unknown'}`) });
+  };
 
   // Colonnes de critères pour la compétence sélectionnée. Pour '6a' (sport), le
   // barème dépend de l'aptitude — on affiche l'UNION apte/inapte (la colonne
@@ -1267,6 +1320,41 @@ export default function PrimCompetenceWorkspace() {
           {'. '}
           {t('Elles sont gardées sur cet appareil et renvoyées automatiquement : ne les ressaisissez pas. Si le message dure, le serveur les refuse — prévenez le support avec cette phrase.',
              'They are kept on this device and resent automatically: do not re-enter them. If this message persists, the server is rejecting them — tell support, quoting this message.')}
+          {primNotesRefus && (
+            <div className="mt-1 font-mono text-[11px] text-red-900 break-words">
+              {t('Motif du serveur : ', 'Server reason: ')}{primNotesRefus}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SOUMETTRE — demandé par l'école le 2026-11-05. La saisie s'enregistre déjà au
+          fil de la frappe ; ce bouton ne la remplace pas, il RÉPOND. Il renvoie les notes
+          de cet écran, puis dit combien sont enregistrées, ou le motif EXACT du refus.
+          Sans lui, une enseignante n'avait aucun geste pour savoir où elle en était. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={soumettre}
+          disabled={envoi || !nkeysDeLEcran.length}
+          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white
+            hover:bg-brand-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+        >
+          {envoi
+            ? t('Envoi en cours…', 'Sending…')
+            : t(`Soumettre les notes (${nkeysDeLEcran.length})`, `Submit marks (${nkeysDeLEcran.length})`)}
+        </button>
+        <span className="text-xs text-gray-500">
+          {t('Les notes sont déjà gardées à la frappe. Ce bouton confirme qu’elles sont bien arrivées sur le serveur.',
+             'Marks are already kept as you type. This button confirms they reached the server.')}
+        </span>
+      </div>
+      {bilanEnvoi && (
+        <div role="status"
+          className={`rounded-lg border px-3 py-2 text-xs ${bilanEnvoi.ko
+            ? 'border-red-300 bg-red-50 text-red-800'
+            : 'border-emerald-300 bg-emerald-50 text-emerald-800'}`}>
+          {bilanEnvoi.texte}
         </div>
       )}
 

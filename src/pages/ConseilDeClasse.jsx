@@ -10,6 +10,7 @@ import { vieScolaire } from '../lib/vieScolaireService';
 import { aggregateAttendance, attendanceAuto } from '../core/attendanceEngine';
 import { fetchTimetableSlots } from '../lib/schoolService';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/pagination';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { resolveCountryCode } from '../countries';
@@ -212,15 +213,20 @@ export default function ConseilDeClasse() {
     let alive = true;
     const year = school.current_year;
     Promise.all([
-      supabase.from('attendance').select('student_id, class_id, subject_id, date, session, status')
-        .eq('school_id', school.id).eq('class_id', classId).eq('year_label', year),
-      supabase.from('late_arrivals').select('student_id, class_id, date')
-        .eq('school_id', school.id).eq('class_id', classId).eq('year_label', year),
+      // PAGINE — meme raison que sur le bulletin : une grande classe cumule plus de
+      // mille absences dans une annee, et PostgREST tronquait a 1000 en repondant 200.
+      // Le conseil de classe proposait donc des chiffres plus bas que la realite.
+      fetchAllRows(() => supabase.from('attendance').select('student_id, class_id, subject_id, date, session, status')
+        .eq('school_id', school.id).eq('class_id', classId).eq('year_label', year)
+        .order('id', { ascending: true }), 'conseil:attendance'),
+      fetchAllRows(() => supabase.from('late_arrivals').select('student_id, class_id, date')
+        .eq('school_id', school.id).eq('class_id', classId).eq('year_label', year)
+        .order('id', { ascending: true }), 'conseil:late_arrivals'),
       fetchTimetableSlots(school.id, year),
     ]).then(([att, late, tt]) => {
       if (!alive) return;
-      setAttRows(att?.data || []);
-      setLateRows(late?.data || []);
+      setAttRows(att || []);
+      setLateRows(late || []);
       setTtSlots(tt || []);
     }).catch(() => { /* suggestions indisponibles : la saisie manuelle reste possible */ });
     return () => { alive = false; };

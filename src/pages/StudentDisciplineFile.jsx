@@ -7,6 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/pagination';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { fetchStudentDisciplineFile } from '../lib/vieScolaireService';
@@ -48,8 +49,13 @@ export default function StudentDisciplineFile() {
       setLoading(true);
       const [f, att, tt] = await Promise.all([
         fetchStudentDisciplineFile(schoolId, studentId),
-        supabase.from('attendance').select('student_id, class_id, subject_id, date, session, status')
-          .eq('school_id', schoolId).eq('student_id', studentId),
+        // PAGINE. Cette lecture ne filtre aucune annee : elle porte TOUTE la scolarite
+        // de l eleve. Et la fiche doit dire la meme chose que le bulletin — c est le
+        // meme eleve et les memes absences ; deux lectures dont une seule est bornee
+        // donneraient deux comptes differents du meme fait.
+        fetchAllRows(() => supabase.from('attendance').select('student_id, class_id, subject_id, date, session, status')
+          .eq('school_id', schoolId).eq('student_id', studentId)
+          .order('id', { ascending: true }), 'fiche:attendance'),
         fetchTimetableSlots(schoolId),
       ]);
       if (!alive) return;

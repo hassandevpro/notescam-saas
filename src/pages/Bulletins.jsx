@@ -16,6 +16,7 @@ import {
 } from '../lib/print';
 import { useT } from '../lib/i18n';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/pagination';
 import { aggregateAttendance } from '../core/attendanceEngine';
 import { fetchTimetableSlots } from '../lib/schoolService';
 import WhatsappFirstModal from '../components/notify/WhatsappFirstModal';
@@ -1815,15 +1816,23 @@ export default function Bulletins() {
     let alive = true;
     const year = rawSchool.current_year;
     Promise.all([
-      supabase.from('attendance').select('student_id, class_id, subject_id, date, session, status')
-        .eq('school_id', rawSchool.id).eq('class_id', classId).eq('year_label', year),
-      supabase.from('late_arrivals').select('student_id, class_id, date')
-        .eq('school_id', rawSchool.id).eq('class_id', classId).eq('year_label', year),
+      // PAGINE. `attendance` porte une ligne par absence CONSTATEE : un filtre sur
+      // la classe et l annee ne la borne pas — une grande classe cumule plus de mille
+      // absences sur une annee. Tronquee, elle faisait imprimer sur le bulletin MOINS
+      // d absences qu il n y en a, sans la moindre erreur : PostgREST repond 200. Et
+      // sans `.order()` sur une cle unique, deux tirages du meme bulletin pouvaient
+      // meme ne pas porter les memes chiffres.
+      fetchAllRows(() => supabase.from('attendance').select('student_id, class_id, subject_id, date, session, status')
+        .eq('school_id', rawSchool.id).eq('class_id', classId).eq('year_label', year)
+        .order('id', { ascending: true }), 'bulletin:attendance'),
+      fetchAllRows(() => supabase.from('late_arrivals').select('student_id, class_id, date')
+        .eq('school_id', rawSchool.id).eq('class_id', classId).eq('year_label', year)
+        .order('id', { ascending: true }), 'bulletin:late_arrivals'),
       fetchTimetableSlots(rawSchool.id, year),
     ]).then(([att, late, tt]) => {
       if (!alive) return;
-      setAttRows(att?.data || []);
-      setLateRows(late?.data || []);
+      setAttRows(att || []);
+      setLateRows(late || []);
       setTtSlots(tt || []);
     }).catch(() => { /* appel indisponible : le bulletin garde les valeurs saisies */ });
     return () => { alive = false; };
@@ -2340,6 +2349,10 @@ export default function Bulletins() {
   // valeur aurait donc éteint en silence le travail académique, les statistiques
   // et la signature du parent — alors que le carnet papier les porte tous.
   const primCarnet = String(school?.prim_bulletin_mode || '').startsWith('carnet');
+  // LE RANG MASQUÉ PAR L’ÉCOLE. Réglage d’établissement (Paramètres), et non case
+  // d’impression : une école qui ne classe pas ses élèves ne les classe pas un jour
+  // sur deux, et un tirage fait par quelqu’un d’autre doit rendre le même document.
+  const primMasquerRang = school?.prim_masquer_rang === true || school?.prim_masquer_rang === 1;
   // Disposition des LIGNES du carnet : voir `BulletinPrimCompact`.
   const primEpreuves = school?.prim_bulletin_mode === 'carnet_epreuves';
 
@@ -3283,6 +3296,7 @@ export default function Bulletins() {
             // Ce qui est tiré du travail de l'élève, c'est la PROPOSITION
             // offerte à la saisie — jamais ce qui s'imprime ici.
             mentions={primMentionsFor(student)}
+            masquerRang={primMasquerRang}
             // Les stats de la classe figurent sur TOUS les bulletins du primaire, et pas seulement
             // en mode « carnet » : la meilleure et la plus faible moyenne, la moyenne générale, et
             // COMBIEN d'élèves ont réussi ou échoué. Le % de réussite, lui, reste propre au modèle
@@ -3290,15 +3304,24 @@ export default function Bulletins() {
             statsClasse={primClassStats ? {
               premier: primClassStats.max, dernier: primClassStats.min, generale: primClassStats.avg,
               reussis: primClassStats.reussis, echoues: primClassStats.echoues,
-              reussite: primEpreuves ? primClassStats.rate : null,
+              // LE TAUX DE RÉUSSITE N’EST PLUS RÉSERVÉ AU CARNET « épreuves ». Il répond
+              // à la question que tout parent pose — « et les autres ? » — et il est déjà
+              // calculé pour chaque classe. Le réserver à un mode de MISE EN PAGE n’avait
+              // aucune raison d’être, et il va de pair avec un rang masqué : il situe la
+              // classe sans classer personne.
+              reussite: primClassStats.rate,
             } : {
               // Aucune moyenne dans la classe (bulletin provisoire) : la ligne s'imprime QUAND MÊME, avec
               // des tirets, comme « Total obtenu » et « Moyenne » juste au-dessus. Sans cela, une classe
               // pas encore notée n'avait aucune statistique, et l'école croyait la fonction absente.
               premier: null, dernier: null, generale: null, reussis: null, echoues: null, reussite: null, vide: true,
             }}
-            repartition={primCarnet ? primRepartition : []}
-            repartitionTotal={primEpreuves ? primClassStats?.count : undefined}
+            // LA RÉPARTITION PAR TRANCHE, SUR TOUS LES BULLETINS DU PRIMAIRE. Elle était
+            // elle aussi enfermée dans le mode « carnet ». C’est pourtant la seule chose
+            // qui SITUE un enfant sans le CLASSER : un parent y lit combien d’élèves se
+            // trouvent dans chaque intervalle, sans qu’aucun nom ni aucun rang paraisse.
+            repartition={primRepartition}
+            repartitionTotal={primClassStats?.count}
             signatureParent={primCarnet}
             groupes={primCarnet}
             programmes={programmes}

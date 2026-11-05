@@ -3,6 +3,7 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 import { supabase } from '../lib/supabase';
+import { fetchAllRows } from '../lib/pagination';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { usePlan } from '../lib/plan';
@@ -341,17 +342,27 @@ function StatsTab({ schoolId, yearLabel, classes, students }) {
       return;
     }
     setLoading(true);
-    let q = supabase
-      .from('attendance')
-      .select('student_id, class_id, subject_id, date, session, status')
-      .eq('school_id',  schoolId)
-      .eq('year_label', yearLabel);
+    // PAGINE, ET C EST ICI QUE C ETAIT LE PLUS GRAVE : sans classe choisie, cette
+    // lecture porte sur TOUTE L ECOLE pour une annee entiere. Au-dela de mille
+    // absences — une ecole de taille moyenne les atteint — l ecran de statistiques
+    // affichait un total plus bas que la realite, sans erreur ni avertissement.
+    const faireQ = () => {
+      let q = supabase
+        .from('attendance')
+        .select('student_id, class_id, subject_id, date, session, status')
+        .eq('school_id',  schoolId)
+        .eq('year_label', yearLabel);
 
-    if (filterClass) q = q.eq('class_id', filterClass);
-    if (dateFrom)    q = q.gte('date', dateFrom);
-    if (dateTo)      q = q.lte('date', dateTo);
+      if (filterClass) q = q.eq('class_id', filterClass);
+      if (dateFrom)    q = q.gte('date', dateFrom);
+      if (dateTo)      q = q.lte('date', dateTo);
+      // L ordre sur `id` est ce qui rend la pagination sure : sans cle unique, les
+      // pages se chevauchent ou sautent des lignes.
+      return q.order('id', { ascending: true });
+    };
 
-    const [{ data }, tt] = await Promise.all([q, fetchTimetableSlots(schoolId, yearLabel)]);
+    const [data, tt] = await Promise.all([fetchAllRows(faireQ, 'absences:stats'),
+      fetchTimetableSlots(schoolId, yearLabel)]);
     _statsCache[key] = { records: data ?? [], timetable: tt ?? [] };
     setRecords(data ?? []);
     setTimetable(tt ?? []);

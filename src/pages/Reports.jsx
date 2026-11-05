@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { resolveurCriteresMasques } from '../core/primCriteresClasse';
 import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
@@ -27,11 +28,18 @@ import { buildClassReport, REPORT_KIND } from '../lib/classReportEngine';
 import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
 import { bySubjectOrder, classSubjectsOf } from '../core/subjectOrder';
 
+// Anglophone : six séquences groupées en trois Terms, miroir de PERIODS_FR.
 const PERIODS_EN = [
-  { value: 'term_1', label: 'Term 1', seqs: [1], group: 'terms' },
-  { value: 'term_2', label: 'Term 2', seqs: [2], group: 'terms' },
-  { value: 'term_3', label: 'Term 3', seqs: [3], group: 'terms' },
-  { value: 'annual', label: 'Annual', seqs: [1, 2, 3], group: 'annual' },
+  { value: 'seq_1',  label: 'Sequence 1', seqs: [1] },
+  { value: 'seq_2',  label: 'Sequence 2', seqs: [2] },
+  { value: 'seq_3',  label: 'Sequence 3', seqs: [3] },
+  { value: 'seq_4',  label: 'Sequence 4', seqs: [4] },
+  { value: 'seq_5',  label: 'Sequence 5', seqs: [5] },
+  { value: 'seq_6',  label: 'Sequence 6', seqs: [6] },
+  { value: 'term_1', label: 'Term 1', seqs: [1, 2], group: 'terms' },
+  { value: 'term_2', label: 'Term 2', seqs: [3, 4], group: 'terms' },
+  { value: 'term_3', label: 'Term 3', seqs: [5, 6], group: 'terms' },
+  { value: 'annual', label: 'Annual', seqs: [1, 2, 3, 4, 5, 6], group: 'annual' },
 ];
 
 // Guinea Ecuatorial — tres trimestres oficiales + anual, notas /10.
@@ -424,6 +432,7 @@ function computeClassReport(cls, period, ctx) {
     matObservations: ctx.matObservations,
     apcMasques:      ctx.apcMasques,
     primMasques:     ctx.primMasques,
+    primMasquesClasse: ctx.primMasquesClasse,
     primCriteresMasques: ctx.primCriteresMasques,
     primNonEvaluees: ctx.primNonEvaluees,
     zeroSiManquante: ctx.zeroSiManquante,
@@ -659,7 +668,7 @@ function StatBadge({ value, total, label, accent = 'brand' }) {
 }
 
 // ── Sélecteur de période en pills groupés ─────────────────────────────────────
-function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isEN, isGE, termsOnly }) {
+function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isGE, termsOnly }) {
   const t = useT();
   // Rythme TRIMESTRIEL sans séquences : 3 trimestres + Annuel. Concerne le
   // fondamental (maternelle, primaire APC) ET le secondaire APC, dont la
@@ -720,32 +729,11 @@ function PeriodPills({ periodKey, setPeriodKey, periodsForClass, isEN, isGE, ter
       </div>
     );
   }
-  if (isEN) {
-    return (
-      <div className="flex flex-wrap items-center gap-1.5">
-        {PERIODS_EN.filter((p) => p.group === 'terms').map((p) => (
-          <button key={p.value} onClick={() => setPeriodKey(p.value)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-              periodKey === p.value
-                ? 'bg-brand-600 text-white shadow-sm'
-                : 'bg-white border border-gray-200 text-gray-600 hover:border-brand-300'
-            }`}>
-            {p.label}
-          </button>
-        ))}
-        <span className="text-gray-200 mx-1">|</span>
-        <button onClick={() => setPeriodKey('annual')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-            periodKey === 'annual'
-              ? 'bg-gray-800 text-white shadow-sm'
-              : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-400'
-          }`}>
-          Annual
-        </button>
-      </div>
-    );
-  }
-
+  // L'ANGLOPHONE N'A PLUS DE RENDU À PART. Il n'offrait que trois pastilles
+  // « Term », parce qu'il n'avait que trois périodes ; depuis qu'il compte six
+  // séquences groupées deux par deux, c'est exactement la forme du francophone
+  // — six pastilles de séquence, trois de trimestre, puis Annuel. Un rendu
+  // propre à lui aurait caché quatre séquences sur six.
   const seqs = periodsForClass.filter((p) => p.seqs.length === 1);
   const trims = periodsForClass.filter((p) => p.seqs.length === 2);
   const annual = periodsForClass.find((p) => p.value === 'annual');
@@ -815,9 +803,11 @@ export default function Reports() {
   // colonnes que le bulletin n'imprime pas (cf. core/refClassScope.js).
   const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
   const primMasques     = useSchoolStore((s) => s.refMasques.prim);
+  const primMasquesClasse = useSchoolStore((s) => s.refMasquesClasse);
   // Les CRITERES que l'ecole n'evalue pas : sans eux ici, cet ecran
   // moyennerait sur des colonnes que le bulletin n'imprime pas.
-  const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
+  const primCriteresMasquesEcole = useSchoolStore((s) => s.refMasques.prim_crit);
+  const primCritParClasse = useSchoolStore((s) => s.refCriteresMasquesClasse);
   const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
   const loadApc  = useSchoolStore((s) => s.loadApc);
   const loadMat  = useSchoolStore((s) => s.loadMat);
@@ -888,6 +878,13 @@ export default function Reports() {
   const toggleCol = (key) => setCols((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const selectedClass   = classes.find((c) => c.id === classId) || null;
+  // Les critères retirés valent pour LA classe choisie (voir core/primCriteresClasse).
+  // UN RÉSOLVEUR, PAS UNE LISTE. Le masque d'un critère vaut pour UNE compétence
+  // d'UNE classe : une liste plate lui rendrait la portée « toute la classe ».
+  // `criteresForCompetence` l'appelle avec la compétence qu'il calcule.
+  const primCriteresMasques = useMemo(
+    () => resolveurCriteresMasques(primCriteresMasquesEcole, primCritParClasse, classId),
+    [primCriteresMasquesEcole, primCritParClasse, classId]);
   const sys             = selectedClass?.system || 'FR';
   const isEN            = sys === 'EN';
   const isGE            = resolveCountryCode(school) === 'guinea_eq';
@@ -928,7 +925,8 @@ export default function Reports() {
     // plus comme période de restitution pour ce moteur.
     else if (eng === 'apc') setPeriodKey('term_1');
     else if (resolveCountryCode(school) === 'guinea_eq') setPeriodKey('trim_1');
-    else if (cls?.system === 'EN') setPeriodKey('term_1');
+    // L'anglophone ouvre sur « Sequence 1 » comme le francophone : depuis qu'il
+    // compte six séquences, « Term 1 » n'est plus une période de saisie.
     else setPeriodKey('seq_1');
   }, [classId, classes, school]);
 
@@ -958,13 +956,13 @@ export default function Reports() {
   const reportCtx = useMemo(() => ({
     school, schoolUnits, students, subjects, gradeMap,
     apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
-    apcMasques, primMasques, primCriteresMasques,
+    apcMasques, primMasques, primMasquesClasse, primCriteresMasques,
     // Le rapport doit lire les MEMES totaux que le bulletin : sans ces deux-la,
     // il moyennerait sur des cellules que le bulletin compte zero, ou sur une
     // competence que la classe a declaree non evaluee.
     primNonEvaluees, zeroSiManquante: !!school?.notes_manquantes_zero,
   }), [school, schoolUnits, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
-      apcMasques, primMasques, primCriteresMasques, primNonEvaluees]);
+      apcMasques, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees]);
 
   const classReport = useMemo(
     () => (selectedClass ? computeClassReport(selectedClass, period, reportCtx) : null),
@@ -1175,7 +1173,7 @@ export default function Reports() {
               <option value="">{t('— Choisir une classe', '— Choose a class')}</option>
               {classes.filter((c) => inSection(c, sectionF)).map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}{schoolLanguage === 'bilingue' ? ` [${c.system === 'EN' ? '/100' : '/20'}]` : ''} — {students.filter((s) => s.class_id === c.id).length} {t('élèves', 'students')}
+                  {c.name}{schoolLanguage === 'bilingue' ? ` [${c.system === 'EN' ? 'EN' : 'FR'}]` : ''} — {students.filter((s) => s.class_id === c.id).length} {t('élèves', 'students')}
                 </option>
               ))}
             </select>
@@ -1188,7 +1186,6 @@ export default function Reports() {
                 periodKey={periodKey}
                 setPeriodKey={setPeriodKey}
                 periodsForClass={periodsForClass}
-                isEN={isEN}
                 isGE={isGE}
                 termsOnly={isFund || isApcClass}
               />

@@ -7,7 +7,7 @@
 // barème de la LANGUE. Ce test verrouille la séparation des deux.
 //
 // Lancer : node src/core/_bulletinScale.test.mjs
-import { bulletinScale, BAREME_DEFAUT_FR, BAREME_DEFAUT_EN, BAREME_DEFAUT_ES } from './bulletinScale.js';
+import { bulletinScale, BAREME_DEFAUT_FR, BAREME_DEFAUT_EN, BAREME_DEFAUT_ES, echelleMoteur, convertirEchelle, rangEnAnglais } from './bulletinScale.js';
 
 let failed = false;
 const ok = (cond, msg, extra) => {
@@ -98,6 +98,20 @@ const ok = (cond, msg, extra) => {
        `classScale(${JSON.stringify(cls)}, ge=${geMax}) inchangé → /${attendu}`,
        { attendu, obtenu });
   }
+}
+
+// ── Moteur /100, bulletin /20 (FORM1 chez THE GENIUS) ─────────────────────────
+{
+  const ok2 = (c, m) => { console.log(`${c ? '✅' : '❌'} ${m}`); if (!c) failed = true; };
+  ok2(echelleMoteur('EN', {}) === 100 && echelleMoteur('FR', {}) === 20 && echelleMoteur('ES', {}) === 10, 'échelle du moteur par système');
+  ok2(echelleMoteur('EN', { maxScale: 20 }) === 20, 'maxScale explicite prioritaire');
+  ok2(convertirEchelle(78.6, 100, 20) === 15.72, '78.6/100 → 15.72/20 (le total du bulletin)');
+  ok2(convertirEchelle(75.64, 100, 20) === 15.13 && convertirEchelle(46.09, 100, 20) === 9.22, 'moyenne de classe et minimum convertis');
+  ok2(convertirEchelle(17, 20, 100) === 85, '17/20 → 85 % (donc A1, pas F9)');
+  ok2(convertirEchelle(null, 100, 20) === null && convertirEchelle('', 100, 20) === null, 'non noté reste non noté');
+  ok2(['1er', '2ème', '3ème', '4ème', '11ème', '12e', '13ème', '19ème', '21e', '22e', '23e', '101e'].map(rangEnAnglais).join()
+    === '1st,2nd,3rd,4th,11th,12th,13th,19th,21st,22nd,23rd,101st', 'rangs en anglais : 1st 2nd 3rd 4th, 11-13th, 21st…');
+  ok2(rangEnAnglais('—') === '—' && rangEnAnglais('') === '' && rangEnAnglais(null) === '', 'rang absent inchangé');
 }
 
 console.log(failed ? '\n❌ échec' : '\n✅ tout passe');

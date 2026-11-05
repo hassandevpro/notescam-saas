@@ -15,6 +15,7 @@ import {
 } from './bulletinOfficialParts';
 import { planApcLayout, apcHeaderPt } from '../../core/apcLayout';
 import { APC_COTE_CODES, APC_COTE_COLORS, apcBulletinCols } from '../../core/apcEngine';
+import { rangEnAnglais } from '../../core/bulletinScale';
 
 // Colonnes fixes (toujours affichées) + colonnes de fin optionnelles pilotées par
 // les bascules de l'établissement (COTE / [Min–Max] / Appréciation).
@@ -212,7 +213,7 @@ function FooterBlocks({ data, classStats, rang, effectif, cell, head, sys, appre
                 <KV k="Coef" v={fix2(data.coefSum)} />
                 <KV k={L(sys, 'MOYENNE', 'AVERAGE', 'PROMEDIO')} v={fix2(data.moyenneGenerale)} strong />
                 <KV k={L(sys, 'Cote', 'Grade', 'Nota')} v={data.moyenneGenerale != null ? data.cote : ''} strong />
-                <KV k={L(sys, 'Rang', 'Rank', 'Puesto')} v={rang ? `${rang} / ${effectif ?? ''}` : ''} strong />
+                <KV k={L(sys, 'Rang', 'Rank', 'Puesto')} v={rang ? `${sys === 'EN' ? rangEnAnglais(rang) : rang} / ${effectif ?? ''}` : ''} strong />
                 {APC_COTE_CODES.map((c) => <KV key={c} k={c} v={coteCounts[c]} />)}
               </Mini>
             </td>

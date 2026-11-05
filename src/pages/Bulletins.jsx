@@ -39,7 +39,7 @@ import { buildCompactRows } from '../core/primCompactRows';
 // moteur ne décide rien : la saisie reste la seule source de ce qui s'imprime.
 import { propositionsConseil, lotConseil, ecartsConseil } from '../core/conseilPropositions';
 import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
-import { mkCell, mkTH, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
+import { mkCell, mkTH, mkCellVar, mkTHVar, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
 import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
 import { classIdentity } from '../lib/schoolIdentity';
 import {
@@ -57,13 +57,13 @@ import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineM
 // Périmètre RÉEL de la classe dans le référentiel national : une matière
 // décochée dans l'écran Classes ne doit pas s'imprimer sur le bulletin officiel.
 // Le garde-fou (aucun filtre si rien n'est reconnu) est dans le module.
-import { apcForClass, primForClass, matForClass } from '../core/refClassScope';
+import { apcForClass, primForClass, matForClass, masquesDeClasse } from '../core/refClassScope';
 // Ordre d'affichage des matieres : une seule regle pour tout le produit.
 import { classSubjectsOf } from '../core/subjectOrder';
 import { APC_GROUPS, groupSubjects, domaineForSubject } from '../core/subjectGroup';
 // Le barème d'impression vient de la classe (`grade_max`), pas de sa langue :
 // une classe anglophone du Cameroun note sur /20 comme sa jumelle francophone.
-import { bulletinScale } from '../core/bulletinScale';
+import { bulletinScale, echelleMoteur, convertirEchelle, rangEnAnglais } from '../core/bulletinScale';
 // Second cycle et bilingue : rapprochement tolérant du nom local avec la ligne
 // de référentiel qui porte le GROUPE officiel, le coefficient et la charge.
 import { resolveRefRow, unmatchedAgainstRef } from '../core/refNameMatch';
@@ -74,6 +74,9 @@ import { matDomaineLabel, primCompetenceLabel, primCritereLabel, primCoteLabel }
 import { obsNkey } from '../lib/matService';
 import { primNkey } from '../lib/primService';
 import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
+import { resolveurCriteresMasques } from '../core/primCriteresClasse';
+import { useLogoShape } from '../components/useLogoShape';
+import { computePrimClassStats } from '../core/primClassStats';
 import { buildApcRanks, SEQ_TO_TRIM, profilClasse } from '../core/apcEngine';
 import {
   apcBulletinPeriods, apcPeriodLabel, resolveApcPeriod,
@@ -303,6 +306,7 @@ function apcLevel(grade, maxScale) {
 // Officiels hérités du PAYS choisi à la configuration : République / devise, et
 // N° d'établissement sous la zone officielle.
 function BulletinPrimaryHeader({ school, qrSrc }) {
+  const { banner, onLoad: onLogoLoad } = useLogoShape(school?.logo_url);
   // Bulletin du PRIMAIRE : tutelle MINEDUB par construction — cet en-tête n’est
   // monté que par les bulletins du fondamental.
   const officials = bulletinOfficials(school, { basic: true });
@@ -321,7 +325,10 @@ function BulletinPrimaryHeader({ school, qrSrc }) {
       {blocks[0] && <Block b={blocks[0]} />}
       <div className="bulletin-logo" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
         {school?.logo_url
-          ? <AssetImg src={school.logo_url} alt="Logo" style={{ width: 90, height: 90, objectFit: 'contain' }} />
+          ? (banner
+              // Bannière : large, hauteur bornée — dans la case carrée de 90 px elle tenait sur 90 × 22.
+              ? <AssetImg src={school.logo_url} alt="Logo" style={{ maxWidth: 260, maxHeight: 90, width: 'auto', height: 'auto', objectFit: 'contain' }} />
+              : <AssetImg src={school.logo_url} alt="Logo" onLoad={onLogoLoad} style={{ width: 90, height: 90, objectFit: 'contain' }} />)
           : '📚'}
         {qrSrc && <BulletinQR src={qrSrc} size={48} />}
       </div>
@@ -361,11 +368,23 @@ function classicTitle(sys, period) {
   return `${base} – ${(!isTrimestre && !isAnnuel) ? `${termOrdinal} – ` : ''}${period.label.toUpperCase()}`;
 }
 
+// Mention A1…F9 : le barème anglophone s'exprime en POURCENTAGE. Une moyenne /20 est
+// ramenée à 100 avant d'être qualifiée, sinon 17/20 sortait « F9 — Fail ».
+const apprSur = (avg, gradeScale, sys, maxScale) => getAppreciation(
+  sys === 'EN' && avg !== null && avg !== undefined ? convertirEchelle(avg, maxScale, 100) : avg,
+  gradeScale, sys);
+
 function BulletinClassic({
   school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys,
   teachers, gradeMap, classId, classStudents = [], subjectRanks = {}, subjectStats = {}, qrSrc,
 }) {
   const { maxScale, passThreshold } = bulletinScale(cls, sys, geGradeMax(school));
+  // Moyenne, rang et profil de classe arrivent DÉJÀ dans le barème de la classe : la page
+  // fait calculer le moteur en `maxScale` (cf. `gOpts`). Seule la mention A1…F9, qui
+  // s'exprime en pourcentage, demande une conversion.
+  // Le barème de mentions anglophone (A1…F9) est exprimé en POURCENTAGE : on lui
+  // donne un pourcentage, quel que soit le barème d'affichage.
+  const versMention = (v, sur) => (sys === 'EN' ? convertirEchelle(v, sur, 100) : convertirEchelle(v, sur, maxScale));
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
   const autoDecision  = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
   // Une classe de maternelle/primaire atterrit ici pour ses bulletins TRIMESTRIELS
@@ -388,7 +407,7 @@ function BulletinClassic({
       // Appréciation calculée sur le barème de sortie (une matière notée /30 est
       // ramenée sur /20 ou /100 avant d'être qualifiée) — comme auparavant.
       const appr  = grade === null ? null
-        : getAppreciation((grade / (sub.max || maxScale)) * maxScale, school?.grade_scale, sys);
+        : getAppreciation(versMention(grade, sub.max || maxScale), school?.grade_scale, sys);
       const st    = subjectStats[sub.id];
       // Sous-composante d'une matière composite : affichée en retrait (« ↳ » posé
       // par la page) mais JAMAIS comptée dans les totaux — seul le parent compte.
@@ -401,7 +420,7 @@ function BulletinClassic({
         charge: sub.charge_horaire == null ? null : Number(sub.charge_horaire),
         moyenne: grade,
         ponderee: grade === null ? null : r2(grade * coef),
-        rang: child ? '' : (subjectRanks[sub.id]?.[student.id] || ''),
+        rang: child ? '' : (sys === 'EN' ? rangEnAnglais(subjectRanks[sub.id]?.[student.id] || '') : (subjectRanks[sub.id]?.[student.id] || '')),
         minmax: !child && st && st.min != null ? { min: st.min, max: st.max } : null,
         appreciation: appr ? (sys === 'EN' ? `${appr.g} — ${appr.txt}` : appr.text) : '',
       };
@@ -425,7 +444,7 @@ function BulletinClassic({
       .sort((a, b) => a.ordre - b.ordre)
       .map((g) => ({ ...g, mxSum: r2(g.mxSum), moyenne: g.coefSum ? r2(g.mxSum / g.coefSum) : null }));
 
-    const apprGlobal = getAppreciation(studentAvg, school?.grade_scale, sys);
+    const apprGlobal = getAppreciation(studentAvg === null ? null : versMention(studentAvg, maxScale), school?.grade_scale, sys);
     return {
       groups,
       coefSum: r2(groups.reduce((a, g) => a + g.coefSum, 0)),
@@ -433,7 +452,7 @@ function BulletinClassic({
       moyenneGenerale: studentAvg,
       appreciation: studentAvg === null ? '' : (sys === 'EN' ? `${apprGlobal.g} — ${apprGlobal.txt}` : apprGlobal.text),
       generalRank: rank?.rankD && rank.rankD !== '—'
-        ? `${rank.rankD}${stats?.total ? ` / ${stats.total}` : ''}`
+        ? `${sys === 'EN' ? rangEnAnglais(rank.rankD) : rank.rankD}${stats?.total ? ` / ${stats.total}` : ''}`
         : '',
       classStats: stats && stats.avg != null
         ? { avg: stats.avg, min: stats.min, max: stats.max, count: stats.total,
@@ -485,7 +504,7 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
   const { maxScale, passThreshold } = bulletinScale(cls, sys, geGradeMax(school));
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
   const decision      = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
-  const apprGlobal    = getAppreciation(studentAvg, school?.grade_scale, sys);
+  const apprGlobal    = apprSur(studentAvg, school?.grade_scale, sys, maxScale);
   const { absJ, absNJ, conduite } = getAbsCond(gradeMap, classId, student.id, period.seqs);
 
   const isAnnuel  = period.value === 'annuel';
@@ -647,7 +666,7 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
 }
 
 // ── Bulletin APC ──────────────────────────────────────────────────────────────
-function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, classStudents = [], qrSrc }) {
+export function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg, rank, stats, period, sys, teachers, gradeMap, classId, classStudents = [], qrSrc }) {
   const isEnSys    = sys === 'EN';
   const { maxScale, passThreshold: passThr } = bulletinScale(cls, sys, geGradeMax(school));
   // Note ramenée au barème du bulletin. `sub.max` est le barème de SAISIE de la
@@ -662,7 +681,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   };
   const passed     = studentAvg !== null && studentAvg >= passThr;
   const decision   = isEnSys ? (passed ? 'PASSED' : 'FAILED') : (passed ? 'ADMIS(E)' : 'AJOURNÉ(E)');
-  const apprGlobal = getAppreciation(studentAvg, school?.grade_scale, sys);
+  const apprGlobal = apprSur(studentAvg, school?.grade_scale, sys, maxScale);
   const abs = getAbsCond(gradeMap, classId, student.id, period.seqs);
   // Appréciation libre du travail de l'élève (saisie via l'éditeur du panneau,
   // stockée sous `__appreciation__` au dernier slot de séquence de la période).
@@ -723,8 +742,11 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   const totalCols = isAnnuel ? 9 : isTrimestre ? 8 : 6;
 
   // Styles officiels MINESEC : en-têtes de colonnes gris clair, cellules fines.
-  const cell = mkCell(9.5);
-  const thS  = mkTH(9);
+  // DENSITÉ MESURÉE (lib/print/fitDensity.js) : toutes les tailles et rembourrages sont des
+  // références `--nc-*`, dérivées d'une seule variable que l'impression CHERCHE par la mesure
+  // pour que le bulletin remplisse UNE page. Plus de zoom, donc plus de texte à 5 pt.
+  const cell = mkCellVar(1.12);
+  const thS  = mkTHVar(1.12);
   const pcx  = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
   const ghdr = { ...cell, background: '#dbe3ec', fontWeight: 'bold', textAlign: 'center', ...pcx };
   const gtot = { ...cell, background: '#eef2f7', fontWeight: 'bold', ...pcx };
@@ -758,22 +780,22 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   );
 
   return (
-    <OfficialSheet school={school}>
+    <OfficialSheet school={school} sys={sys} vars lisible>
       {/* En-tête officiel MINESEC : logo en filigrane au fond + barre de titre */}
-      <OfficialHeader school={school} sys={sys} title={title} />
+      <OfficialHeader school={school} sys={sys} title={title} vars />
       {/* `sys` est INDISPENSABLE : sans lui, OfficialIdentity retombe sur le
           français et le cartouche d'un bulletin anglophone (Form 1–5) sort en
           français au milieu d'une page par ailleurs en anglais. */}
       <OfficialIdentity
         student={student} classLabel={cls?.name || ''}
-        effectif={stats?.total} profPrincipal={profPrincipal} sys={sys}
+        effectif={stats?.total} profPrincipal={profPrincipal} sys={sys} vars
       />
 
       {/* SUBJECT TABLE — matières groupées (monde Classique), en-têtes gris officiels */}
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '5px' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 'var(--nc-gap)' }}>
         <thead>
           <tr>
-            <th style={{ ...thS, width: isAnnuel ? '22%' : isTrimestre ? '28%' : '34%', textAlign: 'left' }}>{L(sys, 'MATIÈRES', 'SUBJECTS')}</th>
+            <th style={{ ...thS, width: isAnnuel ? '22%' : isTrimestre ? '33%' : '38%', textAlign: 'left' }}>{L(sys, 'MATIÈRES', 'SUBJECTS')}</th>
             {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[0]}/{maxScale}</th>}
             {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[1]}/{maxScale}</th>}
             {isAnnuel && <th style={{ ...thS, width: '8%' }}>{termLabel[2]}/{maxScale}</th>}
@@ -784,7 +806,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
             <th style={{ ...thS, width: '7%' }}>COEF</th>
             <th style={{ ...thS, width: '9%' }}>TOTAL</th>
             <th style={{ ...thS, width: '8%' }}>{L(sys, 'RANG', 'RANK')}</th>
-            <th style={{ ...thS, width: isTrimestre ? '19%' : '21%' }}>{L(sys, 'APPRÉCIATION', 'GRADE')}</th>
+            <th style={{ ...thS, width: isTrimestre ? '16%' : '18%' }}>{L(sys, 'APPRÉCIATION', 'GRADE')}</th>
           </tr>
         </thead>
 
@@ -793,7 +815,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
           if (!subs.length) return null;
           const gs      = groupStats(subs);
           // gs.avg est déjà sur l'échelle native (/20 FR, /100 EN), ce que getAppreciation attend.
-          const gAppr   = getAppreciation(gs.avg, school?.grade_scale, sys);
+          const gAppr   = apprSur(gs.avg, school?.grade_scale, sys, maxScale);
           const gPassed = gs.avg !== null && gs.avg >= passThr;
 
           return (
@@ -811,7 +833,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
                 const total  = on20 !== null ? Math.round(on20 * sub.coef * 100) / 100 : '—';
                 const sRank  = getSubjectRank(sub);
                 // on20 est déjà sur l'échelle native attendue par getAppreciation (/20 FR, /100 EN).
-                const appr   = getAppreciation(on20, school?.grade_scale, sys);
+                const appr   = apprSur(on20, school?.grade_scale, sys, maxScale);
                 const isPassed = on20 !== null && on20 >= passThr;
                 const s1     = isTrimestre ? seqGrade(sub.id, student.id, classId, period.seqs[0], gradeMap) : null;
                 const s2     = isTrimestre ? seqGrade(sub.id, student.id, classId, period.seqs[1], gradeMap) : null;
@@ -823,10 +845,15 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
                 return (
                   <tr key={sub.id}>
                     <td style={{ ...cell, textAlign: 'left' }}>
-                      {sub.name}
-                      {subTch && (
-                        <span style={{ display: 'block', fontSize: '8px', color: '#6b7280' }}>{subTch.name}</span>
-                      )}
+                      {/* Matière à gauche, enseignant à droite SUR LA MÊME LIGNE (petit, gris) : une
+                          ligne séparée coûtait 2,4 mm × chaque matière. Un nom trop long passe à la
+                          ligne SANS être coupé. */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', columnGap: 6 }}>
+                        <span>{sub.name}</span>
+                        {subTch && (
+                          <span style={{ fontSize: 'max(7pt, var(--nc-small))', color: '#4b5563', marginLeft: 'auto', textAlign: 'right' }}>{subTch.name}</span>
+                        )}
+                      </div>
                     </td>
                     {isAnnuel && (
                       <td style={{ ...cell, textAlign: 'center' }}>
@@ -858,8 +885,8 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
                     </td>
                     <td style={{ ...cell, textAlign: 'center' }}>{sub.coef}</td>
                     <td style={{ ...cell, textAlign: 'center' }}>{total}</td>
-                    <td style={{ ...cell, textAlign: 'center', fontSize: '9px' }}>{sRank}</td>
-                    <td style={{ ...cell, textAlign: 'center', fontWeight: 'bold', fontSize: '9px', color: on20 !== null ? appr?.col : '#9ca3af' }}>
+                    <td style={{ ...cell, textAlign: 'center', fontSize: 'max(7pt, var(--nc-small))' }}>{sRank}</td>
+                    <td style={{ ...cell, textAlign: 'center', fontWeight: 'bold', fontSize: 'max(7pt, var(--nc-small))', color: on20 !== null ? appr?.col : '#9ca3af' }}>
                       {on20 !== null ? (isEnSys ? `${appr?.g} — ${appr?.txt}` : appr?.text) : '—'}
                     </td>
                   </tr>
@@ -885,8 +912,13 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
         })}
       </table>
 
-      {/* Pied officiel à 3 blocs : Discipline · Travail de l'élève · Profil de la classe */}
-      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 5 }}>
+      {/* Pied officiel SOLIDAIRE : Discipline · Travail · Profil · Remarques · Signatures restent
+          ensemble sur la même page (jamais les signatures seules sur la page 2). */}
+      <div className="apc-keep">
+      <div className="nc-cont" style={{ fontSize: 'var(--nc-small)', marginBottom: 'var(--nc-gap)', color: '#374151' }}>
+        <strong>{student?.name}</strong> — {cls?.name} · {title} <em>{L(sys, '(suite)', '(cont.)')}</em>
+      </div>
+      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'var(--nc-gap)' }}>
         <tbody>
           <tr>
             <td style={{ width: '34%', verticalAlign: 'top', paddingRight: 4 }}>
@@ -923,8 +955,8 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
           </tr>
         </tbody>
       </table>
-      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 3 }}>
-        <tbody><tr><td style={{ ...cell, height: 30, verticalAlign: 'top' }}>
+      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'var(--nc-gap)' }}>
+        <tbody><tr><td style={{ ...cell, height: 'var(--nc-observ)', verticalAlign: 'top' }}>
           <strong>{L(sys, "Appréciation du travail de l'élève (points forts et points à améliorer)",
                   "Remarks on the student's work (strengths and areas to improve)")}</strong>
           {workAppreciation ? <div style={{ marginTop: 2, whiteSpace: 'pre-wrap' }}>{workAppreciation}</div> : null}
@@ -932,7 +964,8 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
       </table>
 
       {/* Signatures officielles à 3 colonnes (Parent · Prof principal · Chef d'établissement) */}
-      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} />
+      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} vars />
+      </div>
     </OfficialSheet>
   );
 }
@@ -942,7 +975,7 @@ function BulletinPrimaire({ school, cls, student, subjects, studentAvg, rank, st
   const { maxScale, passThreshold } = bulletinScale(cls, sys, geGradeMax(school));
   const passed        = studentAvg !== null && studentAvg >= passThreshold;
   const decision      = sys === 'FR' ? (passed ? 'Admis(e)' : 'Ajourné(e)') : (passed ? 'Passed' : 'Failed');
-  const apprGlobal    = getAppreciation(studentAvg, school?.grade_scale, sys);
+  const apprGlobal    = apprSur(studentAvg, school?.grade_scale, sys, maxScale);
 
   const getGrade = (subjectId, seq) => {
     const v = (gradeMap[`${classId}_${student.id}_${seq}`] || {})[subjectId];
@@ -1122,7 +1155,7 @@ function BulletinAnnuelSecondaire({ school, cls, student, subjects, subjectGrade
   const decision = annualDecision && decisionMap[annualDecision]
     ? decisionMap[annualDecision]
     : (sys === 'FR' ? (passed ? 'Admis(e) en classe supérieure' : 'Autorisé(e) à redoubler') : (passed ? 'Promoted' : 'Repeats class'));
-  const apprGlobal    = getAppreciation(studentAvg, school?.grade_scale, sys);
+  const apprGlobal    = apprSur(studentAvg, school?.grade_scale, sys, maxScale);
 
   // EN: 3 terms (seq 1/2/3) — FR: 6 sequences grouped in 3 trimestres (seq 1-2/3-4/5-6)
   const isEN      = sys === 'EN';
@@ -1732,10 +1765,12 @@ export default function Bulletins() {
   // Ce que l'ecole a masque / renomme dans les referentiels nationaux.
   const matMasques      = useSchoolStore((s) => s.refMasques.mat);
   const matLibelles     = useSchoolStore((s) => s.refLibelles.mat);
-  const primMasques     = useSchoolStore((s) => s.refMasques.prim);
+  const primMasquesEcole  = useSchoolStore((s) => s.refMasques.prim);
+  const primMasquesClasse = useSchoolStore((s) => s.refMasquesClasse);
   // Les critères que l'école n'évalue pas. Distincts des masques de COMPÉTENCE
   // ci-dessus : ceux-ci retirent une COLONNE du bulletin, pas une ligne.
-  const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
+  const primCriteresMasquesEcole = useSchoolStore((s) => s.refMasques.prim_crit);
+  const primCritParClasse = useSchoolStore((s) => s.refCriteresMasquesClasse);
   const primLibelles    = useSchoolStore((s) => s.refLibelles.prim);
   const apcLibelles     = useSchoolStore((s) => s.refLibelles.apc);
   const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
@@ -1762,6 +1797,13 @@ export default function Bulletins() {
   const canPrint        = role !== 'teacher' || (myTeacher?.can_print_bulletin ?? true);
 
   const classId   = useUiStore((s) => s.bulletinsClassId);
+  // Les critères retirés valent pour LA classe affichée : masques d'école déjà posés + ceux de cette classe.
+  // UN RÉSOLVEUR, PAS UNE LISTE. Le masque d'un critère vaut pour UNE compétence
+  // d'UNE classe : une liste plate lui rendrait la portée « toute la classe ».
+  // `criteresForCompetence` l'appelle avec la compétence qu'il calcule.
+  const primCriteresMasques = useMemo(
+    () => resolveurCriteresMasques(primCriteresMasquesEcole, primCritParClasse, classId),
+    [primCriteresMasquesEcole, primCritParClasse, classId]);
   const setClassId   = useUiStore((s) => s.setBulletinsClassId);
 
   // ── Absences : l'appel alimente le bulletin ─────────────────────────────────
@@ -1932,7 +1974,13 @@ export default function Bulletins() {
       ? [...FORMATS, { key: 'mat_officiel', label: t('Maternelle officiel', 'Official Nursery'), icon: '🏛️' }]
       : FORMATS;
   // Options de notation GE (échelle /10 ou /20, coef primaire) — {} hors GE.
-  const gOpts         = gradingOpts(school, cycle);
+  // Le moteur calcule DANS LE BARÈME DE LA CLASSE : moyennes, rangs, profil de classe et
+  // liste latérale parlent ainsi la même échelle que le bulletin imprimé (FORM1 : /20,
+  // alors que le moteur anglophone calcule en /100 par défaut).
+  const gOpts         = {
+    ...gradingOpts(school, cycle),
+    ...(sys === 'EN' ? { maxScale: bulletinScale(selectedClass, sys, geGradeMax(school)).maxScale } : {}),
+  };
 
   // Périodes Guinea Ecuatorial — 3 trimestres en espagnol + anual.
   const PERIODS_GE = [
@@ -2235,6 +2283,11 @@ export default function Bulletins() {
   //
   // `prim_competence_id` de la ligne `subjects` fait foi quand il est posé,
   // sinon l'appariement par nom ; aucun filtre si rien n'est reconnu.
+  // Masques de l'école + masques de CETTE classe (même liste que la saisie des notes).
+  const primMasques = useMemo(
+    () => masquesDeClasse(primMasquesEcole, primMasquesClasse, classId),
+    [primMasquesEcole, primMasquesClasse, classId],
+  );
   const primEcole = useMemo(
     () => (isPrim ? primForClass(primReferentiel, primNiveauSlug, classSubjects, primMasques)
                   : { competences: [], exclus: [] }),
@@ -2356,16 +2409,12 @@ export default function Bulletins() {
     }));
   }, [isPrim, primDataById]);
 
+  // Statistiques de la classe (une moyenne par élève, sur la période) : plus grande, plus petite,
+  // moyenne générale, nombre d'élèves réussis et échoués. Une seule fonction, testée
+  // (core/primClassStats) : les deux modèles du primaire lisent le même objet.
   const primClassStats = useMemo(() => {
     if (!isPrim) return null;
-    const avgs = Object.values(primDataById).map((d) => d?.moyenneGenerale).filter((v) => v != null);
-    if (!avgs.length) return null;
-    const sum = avgs.reduce((a, b) => a + b, 0);
-    return {
-      min: Math.min(...avgs), max: Math.max(...avgs),
-      avg: Math.round((sum / avgs.length) * 100) / 100, count: avgs.length,
-      rate: Math.round((avgs.filter((a) => a >= PRIM_GRADE_MAX / 2).length / avgs.length) * 100),
-    };
+    return computePrimClassStats(Object.values(primDataById).map((d) => d?.moyenneGenerale), PRIM_GRADE_MAX / 2);
   }, [isPrim, primDataById]);
 
   // Détail par compétence × UA — un mini-tableau par compétence avec Notes/Cote
@@ -2663,13 +2712,17 @@ export default function Bulletins() {
     const stats2 = classProfile(subs, gradeMap, classId, period.seqs, classStudents, sys, gOpts);
     const ranked = buildRanks(classStudents, gradeMap, classId, period.seqs, subs, sys, {}, gOpts);
     const generalRankById = Object.fromEntries(ranked.map((s) => [s.id, s.rankD]));
-    const pass = (gOpts.maxScale ?? (sys === 'EN' ? 100 : 20)) / 2;
+    // Seuil dans l'échelle du DOCUMENT : `data.moyenneGenerale` y est déjà convertie.
+    const pass = sys === 'EN'
+      ? bulletinScale(selectedClass, sys, geGradeMax(school)).maxScale / 2
+      : (gOpts.maxScale ?? 20) / 2;
     const isAnnual = period.seqs.length >= 4;
     const out = {};
     for (const s of classStudents) {
       const data = assembleScBulletin({
         subjects: subs, allGrades: gradeMap, classId, student: s, seqs: period.seqs,
         sys, opts: gOpts, gradeScale: school?.grade_scale,
+        displayScale: bulletinScale(selectedClass, sys, geGradeMax(school)).maxScale,
         subjectRanks: ranks, subjectStats: stats, classStats: stats2, teachersById,
         generalRank: generalRankById[s.id],
       });
@@ -2678,7 +2731,7 @@ export default function Bulletins() {
       out[s.id] = { data, discipline, decision: discipline.decision || fallback };
     }
     return out;
-  }, [showScOfficial, scEnrichedSubjects, gradeMap, classId, period.seqs, classStudents, sys, gOpts.maxScale, gOpts.useCoef, school?.grade_scale, teachers]);
+  }, [showScOfficial, scEnrichedSubjects, gradeMap, classId, period.seqs, classStudents, sys, gOpts.maxScale, gOpts.useCoef, school?.grade_scale, teachers, selectedClass]);
 
   // ── PROGRAMME BILINGUE SPÉCIAL (premier cycle) ─────────────────────────────
   // Même structure que le second cycle, mais sur le référentiel de l'arrêté
@@ -2850,6 +2903,12 @@ export default function Bulletins() {
   // Le Classique rend la maquette officielle (feuilles A4 + filigrane logo répété
   // à l'impression), sauf quand le dispatcher route vers un autre bulletin.
   const classicOfficialLook = usesOfficialSheet({ format, cycle, period, countryCode: schoolCountryCode });
+  // Le format « APC » (BulletinAPC, « APC REPORT CARD ») est lui aussi une feuille officielle :
+  // son filigrane d'écran est masqué à l'impression (`no-print`), c'est donc le filigrane
+  // GLOBAL qui doit le porter sur le papier — il n'y était pas, et le bulletin sortait sans logo.
+  // Mêmes exclusions que le dispatcher : Guinée Équatoriale, maternelle, primaire annuel.
+  const apcClassiqueLook = format === 'apc' && schoolCountryCode !== 'guinea_eq'
+    && cycle !== 'maternelle' && !(cycle === 'primaire' && period?.value === 'annuel');
 
   // Rang + [Min–Max] PAR MATIÈRE : colonnes de la maquette officielle reprise par
   // le bulletin Classique. Calculé UNE fois pour la classe (et non par élève),
@@ -2860,7 +2919,10 @@ export default function Bulletins() {
   }, [format, displaySubjects, gradeMap, classId, period.seqs.join(','), classStudents]);
 
   // APC officiel : notes toujours sur /20 (cotes MINESEC) → seuil 10 quel que soit le système.
-  const passThreshold = showApcOfficial ? 10 : sys === 'ES' ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
+  // Anglophone : la moitié du barème de la CLASSE (FORM1 /20 → 10), plus un 50 figé qui
+  // comparait une moyenne /20 à 50 — « 0 admis · 41 ajournés ».
+  const passThreshold = showApcOfficial ? 10 : sys === 'ES' ? geGradeMax(school) / 2 : sys === 'FR' ? 10
+    : bulletinScale(selectedClass, sys, geGradeMax(school)).passThreshold;
 
   const admisCount = useMemo(() => {
     // Maternelle : pas de réussite/échec (évaluation par domaines, non chiffrée).
@@ -3256,13 +3318,20 @@ export default function Bulletins() {
             // Ce qui est tiré du travail de l'élève, c'est la PROPOSITION
             // offerte à la saisie — jamais ce qui s'imprime ici.
             mentions={primMentionsFor(student)}
-            statsClasse={primCarnet && primClassStats ? {
+            // Les stats de la classe figurent sur TOUS les bulletins du primaire, et pas seulement
+            // en mode « carnet » : la meilleure et la plus faible moyenne, la moyenne générale, et
+            // COMBIEN d'élèves ont réussi ou échoué. Le % de réussite, lui, reste propre au modèle
+            // papier. Rien n'est recalculé ici : tout vient de `primClassStats`.
+            statsClasse={primClassStats ? {
               premier: primClassStats.max, dernier: primClassStats.min, generale: primClassStats.avg,
-              // « Suc. rates / % réussite » du carnet papier. `rate` est déjà
-              // calculé (élèves à la moyenne / élèves notés) : on l'affiche, on
-              // ne le recalcule pas. Seul le modèle papier le porte.
+              reussis: primClassStats.reussis, echoues: primClassStats.echoues,
               reussite: primEpreuves ? primClassStats.rate : null,
-            } : undefined}
+            } : {
+              // Aucune moyenne dans la classe (bulletin provisoire) : la ligne s'imprime QUAND MÊME, avec
+              // des tirets, comme « Total obtenu » et « Moyenne » juste au-dessus. Sans cela, une classe
+              // pas encore notée n'avait aucune statistique, et l'école croyait la fonction absente.
+              premier: null, dernier: null, generale: null, reussis: null, echoues: null, reussite: null, vide: true,
+            }}
             repartition={primCarnet ? primRepartition : []}
             repartitionTotal={primEpreuves ? primClassStats?.count : undefined}
             signatureParent={primCarnet}
@@ -3932,7 +4001,7 @@ export default function Bulletins() {
               {/* Filigrane logo À L'IMPRESSION uniquement : élément `position:fixed`
                   unique → se répète sur CHAQUE page (bulletin long ou classe entière)
                   sans se cumuler. L'aperçu écran a son propre filigrane par feuille. */}
-              {(showApcOfficial || showScOfficial || classicOfficialLook) && school?.logo_url && (
+              {(showApcOfficial || showScOfficial || classicOfficialLook || apcClassiqueLook) && school?.logo_url && (
                 <div className="official-print-watermark" aria-hidden>
                   <AssetImg src={school.logo_url} alt="" />
                 </div>

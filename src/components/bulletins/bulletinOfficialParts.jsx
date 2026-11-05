@@ -7,6 +7,7 @@
 // styles de cellule sont paramétrables par la taille de police (auto-fit APC).
 
 import AssetImg from '../AssetImg';
+import { useLogoShape } from '../useLogoShape';
 import BulletinPhoto from './BulletinPhoto';
 import { bulletinOfficials } from '../../countries';
 import { bulletinFontFamily } from '../../lib/schoolTheme';
@@ -110,10 +111,17 @@ export function OfficialHeader({
   // qu'un parent ne peut pas composer est un défaut plus grave qu'une
   // délégation sur deux lignes. La vraie correction est ci-dessous, sur le
   // retour à la ligne, et elle vaut pour TOUS les bulletins.
-  const centerW   = bilingual ? '34%' : '50%';
-  const sideW     = bilingual ? '33%' : '50%';
+  // La forme du logo est mesurée à son chargement (core/logoShape). Une BANNIÈRE a besoin d'une
+  // colonne centrale plus large : elle reste ENTRE les deux blocs des ministères, qui cèdent un peu.
+  const { banner, onLoad: onLogoLoad } = useLogoShape(school?.logo_url);
+  const centerW   = bilingual ? (banner ? '46%' : '34%') : '50%';
+  const sideW     = bilingual ? (banner ? '27%' : '33%') : '50%';
   const yearLbl   = sys === 'EN' ? 'Academic year' : sys === 'ES' ? 'Año escolar' : 'Année scolaire';
   const logoPx    = vars ? 'var(--nc-logo)' : dense ? 38 : 56;
+  // Une BANNIÈRE (nom de l'école en deux langues, médaillon, année : ≈ 4 fois plus large que haute)
+  // ne tient pas dans la case carrée : elle y devenait illisible. Dès que l'image se révèle large,
+  // elle passe sur toute la largeur de l'en-tête, hauteur bornée. Un logo carré ne change pas.
+  const bannerMax = vars ? 'calc(var(--nc-logo) * 1.9)' : dense ? 64 : 100;
   const ptPetit   = vars ? 'var(--nc-small)' : null;
   const gap       = vars ? 'var(--nc-gap)' : null;
 
@@ -139,9 +147,16 @@ export function OfficialHeader({
             {blocks[0] && <Block b={blocks[0]} />}
             <td style={{ width: centerW, textAlign: 'center', padding: dense ? 1 : 2, verticalAlign: 'top' }}>
               {school?.logo_url && (
-                <AssetImg src={school.logo_url} alt="" style={{ width: logoPx, height: logoPx, objectFit: 'contain', display: 'block', margin: '0 auto 2px' }} />
+                <AssetImg src={school.logo_url} alt="" onLoad={onLogoLoad}
+                  style={banner
+                    ? { width: '100%', height: 'auto', maxHeight: bannerMax, objectFit: 'contain', display: 'block', margin: '0 auto 2px' }
+                    : { width: logoPx, height: logoPx, objectFit: 'contain', display: 'block', margin: '0 auto 2px' }} />
               )}
-              <strong style={{ fontSize: vars ? 'var(--nc-head)' : dense ? '10pt' : '11pt', display: 'block', lineHeight: dense ? 1.1 : undefined }}>{(school?.name || '').toUpperCase()}</strong>
+              {/* Une bannière PORTE déjà le nom de l'école : le répéter en texte le doublait (et pouvait le
+                  contredire). On garde l'adresse, le téléphone et l'année du système, qui restent justes. */}
+              {!banner && (
+                <strong style={{ fontSize: vars ? 'var(--nc-head)' : dense ? '10pt' : '11pt', display: 'block', lineHeight: dense ? 1.1 : undefined }}>{(school?.name || '').toUpperCase()}</strong>
+              )}
               {/* UN NUMÉRO DE TÉLÉPHONE NE SE COUPE PAS. Relevé au rendu :
                   « 690 56 76 76 » passait à la ligne entre le 3e et le 4e
                   groupe, et un parent ne peut pas composer un numéro coupé.
@@ -214,7 +229,7 @@ export function ContinuationHeader({ title, student, classLabel, serieLabel, sys
 // La photo GRANDIT (18×22 mm contre 13,7×16,9 mm) : c'est elle qui fixe
 // désormais la hauteur du bloc, et c'est voulu — une photo d'identité trop
 // petite ne sert à rien sur un document remis à un parent.
-export function OfficialIdentity({ student, classLabel, serieLabel, effectif, profPrincipal, sys, ppLabel, qrSrc, dense = false }) {
+export function OfficialIdentity({ student, classLabel, serieLabel, effectif, profPrincipal, sys, ppLabel, qrSrc, dense = false, vars = false }) {
   const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
   const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
   const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
@@ -226,13 +241,16 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
     <span style={{ display: 'inline-block', width: 9, height: 9, border: B, margin: '0 2px', verticalAlign: 'middle', background: on ? '#374151' : '#fff' }} />
   );
   // 18 × 22 mm = 68 × 83 px à 96 ppp (PX_PER_MM du socle).
-  const PHOTO_W = dense ? 68 : 52;
-  const PHOTO_H = dense ? 83 : 64;
-  const CD = dense ? { ...CELL, padding: '1px 3px', lineHeight: 1.15 } : CELL;
+  // `vars` (densité mesurée) : les DEUX lignes de quatre cellules, mais la photo reste à
+  // 14 × 17 mm — assez pour reconnaître l'enfant, assez petite pour ne pas fixer
+  // la hauteur du bloc — et les tailles suivent `--nc-*` comme le reste de la feuille.
+  const PHOTO_W = vars ? 52 : dense ? 68 : 52;
+  const PHOTO_H = vars ? 64 : dense ? 83 : 64;
+  const CD = vars ? mkCellVar(1.15) : dense ? { ...CELL, padding: '1px 3px', lineHeight: 1.15 } : CELL;
 
-  if (dense) {
+  if (dense || vars) {
     return (
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 3, tableLayout: 'fixed' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: vars ? 'var(--nc-gap)' : 3, tableLayout: 'fixed' }}>
         <tbody>
           <tr>
             <td rowSpan={2} style={{ ...CD, width: PHOTO_W + 8, textAlign: 'center', verticalAlign: 'middle' }}>
@@ -420,7 +438,7 @@ export function PageNumber({ n, total, sys, vars = false }) {
 // de la feuille : `@page` fournit déjà 8 mm de marge, et les 4 px ajoutés en
 // haut comme en bas s'empilaient par-dessus. C'est la marge du bas récupérée —
 // la dernière, et celle qui ne coûte rien à personne.
-export function OfficialSheet({ school, pageNo, total, pt = 10, sys, dense = false, vars = false, children }) {
+export function OfficialSheet({ school, pageNo, total, pt = 10, sys, dense = false, vars = false, lisible = false, children }) {
   // `nc-densite` : la feuille déclare que sa BOÎTE appartient au socle
   // d'impression, et non à la feuille de style d'écran. Sans elle, la règle
   // `@media print { .apc-sheet { padding: 4px 7px !important } }` de
@@ -432,6 +450,7 @@ export function OfficialSheet({ school, pageNo, total, pt = 10, sys, dense = fal
   return (
     <div
       className={`bulletin-paper apc-sheet${vars ? ' nc-densite' : ''}${dense ? ' apc-sheet-dense' : ''}`}
+      data-nc-lisible={vars && lisible ? '1' : undefined}
       style={{ position: 'relative', fontFamily: bulletinFontFamily(school), fontSize: vars ? 'var(--nc-body)' : `${pt}pt`, color: '#111' }}
     >
       <OfficialWatermark src={school?.logo_url} />

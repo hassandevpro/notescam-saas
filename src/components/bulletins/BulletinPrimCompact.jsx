@@ -575,7 +575,7 @@ export default function BulletinPrimCompact({
               <td style={th}>{L(sys, 'Stats de performance', 'Performance stats', 'Estadísticas')}</td>
               <td style={th}>{L(sys, 'Moy. premier', 'Top average', 'Prom. primero')}</td>
               <td style={num}>{statsClasse.premier == null ? '—' : fix2(statsClasse.premier)}</td>
-              <td style={th} colSpan={statsClasse.reussite == null ? 2 : 1}>
+              <td style={th} colSpan={statsClasse.reussite == null && statsClasse.reussis == null && !statsClasse.vide ? 2 : 1}>
                 {L(sys, 'Moy. dernier', 'Lowest average', 'Prom. último')}
               </td>
               <td style={num}>{statsClasse.dernier == null ? '—' : fix2(statsClasse.dernier)}</td>
@@ -589,9 +589,17 @@ export default function BulletinPrimCompact({
                   hauteur : une ligne de plus coûterait de la place à la zone où
                   l'enseignant ÉCRIT. Sans taux fourni — toutes les écoles qui
                   n'ont rien demandé — la ligne reste celle d'avant, au point. */}
-              {statsClasse.reussite != null && (
+              {(statsClasse.reussite != null || statsClasse.reussis != null || statsClasse.vide) && (
                 <td style={{ ...num, fontWeight: 'bold' }}>
-                  {L(sys, 'Réussite', 'Pass', 'Éxito')} : {statsClasse.reussite} %
+                  {(statsClasse.reussis != null || statsClasse.vide) && (
+                    <>
+                      <div>{L(sys, 'Réussis', 'Passed', 'Aprobados')} : {statsClasse.reussis ?? '—'}</div>
+                      <div>{L(sys, 'Échoués', 'Failed', 'Reprobados')} : {statsClasse.echoues ?? '—'}</div>
+                    </>
+                  )}
+                  {statsClasse.reussite != null && (
+                    <div>{L(sys, 'Réussite', 'Pass', 'Éxito')} : {statsClasse.reussite} %</div>
+                  )}
                 </td>
               )}
             </tr>
@@ -603,13 +611,11 @@ export default function BulletinPrimCompact({
                 le RELIQUAT de la page (cf. `--nc-reliquat`). C'est ici que va
                 la place restante d'un carnet peu rempli — pas dans un grand
                 vide en bas de feuille — parce que c'est ici qu'on écrit. */}
-            <td style={{ ...cell, height: 'var(--nc-observ)', borderTop: B }} colSpan={signatureParent ? 4 : 7} />
-            {signatureParent && (
-              <>
-                <td style={th} colSpan={1}>{L(sys, 'Signature du parent', 'Parent’s signature', 'Firma del padre')}</td>
-                <td style={{ ...cell, height: 26, borderTop: B }} colSpan={2} />
-              </>
-            )}
+            {/* LA SIGNATURE DU PARENT N'EST IMPRIMÉE QU'UNE FOIS : dans le bloc des signatures, en bas
+                (« Visa du Parent / Tuteur »). Elle figurait aussi ici, dans la ligne des observations :
+                le même bulletin portait deux cases pour le même geste. `signatureParent` reste accepté
+                par compatibilité avec les appelants, mais n'ajoute plus de case. */}
+            <td style={{ ...cell, height: 'var(--nc-observ)', borderTop: B }} colSpan={7} />
           </tr>
         </tbody>
       </table>

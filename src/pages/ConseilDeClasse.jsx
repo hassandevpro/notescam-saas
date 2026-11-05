@@ -27,9 +27,9 @@ const SEQUENCES_FR = [
   { value: 5, label: 'Séquence 5' }, { value: 6, label: 'Séquence 6' },
 ];
 const SEQUENCES_EN = [
-  { value: 1, label: 'Term 1' },
-  { value: 2, label: 'Term 2' },
-  { value: 3, label: 'Term 3' },
+  { value: 1, label: 'Sequence 1' }, { value: 2, label: 'Sequence 2' },
+  { value: 3, label: 'Sequence 3' }, { value: 4, label: 'Sequence 4' },
+  { value: 5, label: 'Sequence 5' }, { value: 6, label: 'Sequence 6' },
 ];
 const SEQUENCES_GE = [
   { value: 1, label: 'Primer Trimestre' },

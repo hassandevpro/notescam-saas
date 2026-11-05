@@ -24,7 +24,7 @@ import { TRIM_TO_SEQ } from '../core/apcEngine.js';
 import { apcSeqNumsForTrimestre, apcSeqIdOfSeqNum } from '../core/apcPeriods.js';
 // Périmètre réel de la classe (masques de l'école + matières cochées) — même
 // source de vérité que les bulletins, pour que les deux documents concordent.
-import { apcForClass, primForClass } from '../core/refClassScope.js';
+import { apcForClass, primForClass, masquesDeClasse } from '../core/refClassScope.js';
 import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
@@ -303,6 +303,8 @@ export function buildClassPv(ctx) {
     // procès-verbal alors qu'elle ne figurait pas sur les bulletins. Le conseil
     // délibérait donc sur des colonnes que le bulletin n'imprimait pas.
     apcMasques = [], primMasques = [],
+    // Masques propres à chaque classe { [classId]: [ids] } — cf. masquesDeClasse.
+    primMasquesClasse = {},
     // Idem pour les CRITÈRES que l'école n'évalue pas.
     primCriteresMasques = [],
     // Les deux etats declares par l ecole. Sans eux, le PV delibere sur d autres
@@ -325,7 +327,7 @@ export function buildClassPv(ctx) {
     ? { ...apcReferentiel, competences: apcForClass(apcReferentiel, subjects, apcMasques).competences }
     : apcReferentiel;
   const primComps = engine === 'apc_primaire'
-    ? primForClass(primReferentiel, primNiveauSlug, subjects, primMasques).competences
+    ? primForClass(primReferentiel, primNiveauSlug, subjects, masquesDeClasse(primMasques, primMasquesClasse, cls?.id)).competences
     : null;
 
   const base = engine === 'apc'

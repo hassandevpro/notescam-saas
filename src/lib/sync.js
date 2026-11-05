@@ -17,6 +17,10 @@
 // la suppression par âge qui existait ici a fait perdre des notes à l'école.
 
 import { syncQueueDB, syncQuarantineDB, studentsDB, feesDB, initDB } from './db';
+// Une ECRITURE QUI NE PARLE PAS DE LA NOTE ne doit envoyer la colonne `note` par AUCUN
+// chemin — ni l'envoi direct, ni le rejeu de la file. Decide dans le coeur pur, pour
+// que les deux bouts ne puissent pas diverger en silence (cf. core/primNotesFusion).
+import { ligneDeRejeu, lotRejouableEnBloc } from '../core/primNotesFusion';
 import { uuid } from './uuid';
 import { supabase } from './supabase';
 import { gradeEntryToRows, upsertAbsenceEntry, absenceEntryToRow, upsertFee, estDoublonFrais } from './schoolService';
@@ -83,7 +87,14 @@ async function replayItem(item) {
     // payload = record IDB { id, school_id, eleve_id, competence_id, critere_id,
     //   ua, …, nkey }. `nkey` est local : on le retire et on upsert sur le
     //   quadruplet officiel (anti-doublon, comme le chemin online direct — primService.js).
-    const { nkey, ...row } = payload;
+    //
+    // ⚠️ ET ON HONORE `sansNote`. Regler un barème met en file une operation qui ne
+    // parle pas de la note, mais dont la charge porte `note: null` — un record de note
+    // est toujours complet. Ce rejeu l'ignorait et renvoyait la charge entiere :
+    // `SET note = NULL` par-dessus la saisie d'une collegue, sans erreur et sans trace,
+    // puisqu'un rejeu « reussi » quitte la file. Releve le 2026-11-05 sur les captures
+    // de l'ecole : deux cellules sur six videes apres actualisation.
+    const row = ligneDeRejeu(item);
     const { error } = await supabase
       .from('prim_notes')
       .upsert(row, { onConflict: 'eleve_id,competence_id,critere_id,ua' });
@@ -205,7 +216,11 @@ const BATCHABLE = {
   },
   prim_notes: {
     conflict: 'eleve_id,competence_id,critere_id,ua',
-    rows: (p) => { const { nkey, ...row } = p; return [row]; },
+    // `op` (et non la seule charge) : c'est lui qui porte `sansNote`.
+    rows: (p, op) => [ligneDeRejeu(op || { payload: p })],
+    // Un lot ne melange pas des lignes qui parlent de la note et des lignes qui
+    // n'en parlent pas : il n'a qu'un jeu de colonnes pour toutes ses lignes.
+    groupable: lotRejouableEnBloc,
   },
 };
 
@@ -214,7 +229,8 @@ async function replayBatch(table, items) {
   const spec = BATCHABLE[table];
   if (!spec || items.length < 2) return false;
 
-  const rows = items.flatMap((it) => spec.rows(it.payload) || []);
+  if (spec.groupable && !spec.groupable(items)) return false;
+  const rows = items.flatMap((it) => spec.rows(it.payload, it) || []);
   if (!rows.length) return true;   // rien à écrire : le lot est « réussi »
 
   for (const part of chunk(rows, BATCH_ROWS)) {

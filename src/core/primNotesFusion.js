@@ -76,3 +76,37 @@ export function nkeysEnAttente(file) {
   }
   return out;
 }
+
+/**
+ * LA LIGNE QU'UN REJEU DE FILE DOIT ENVOYER — et surtout, ce qu'il ne doit PAS envoyer.
+ *
+ * LE DÉFAUT, relevé le 2026-11-05 sur deux captures de l'école (Ayden perd son 20, Bidjo
+ * perd son 10, Djomo garde les deux) : régler un barème met en file une opération qui NE
+ * PARLE PAS de la note — `sansNote: true` — mais dont la charge porte tout de même
+ * `note: null`, parce qu'un record de note est toujours complet. Le chemin direct retire
+ * la colonne (`upsertPrimNote`, `sansNote`). LE REJEU, LUI, NE LISAIT PAS `sansNote` :
+ * `sansNote` n'apparaissait pas une seule fois dans tout `lib/sync.js`. Il renvoyait la
+ * charge entière, l'upsert faisait `ON CONFLICT DO UPDATE SET note = NULL`, et la note
+ * qu'une collègue avait saisie entre-temps disparaissait — sans erreur, sans trace : le
+ * rejeu « réussissait », donc l'opération était retirée de la file.
+ *
+ * C'est le même raisonnement que `upsertPrimNote({ sansNote })`, à l'autre bout du
+ * chemin. Les deux doivent rester d'accord : une écriture qui ne parle pas de la note ne
+ * doit JAMAIS envoyer la colonne `note`, par quelque chemin qu'elle passe.
+ */
+export function ligneDeRejeu(op) {
+  const { nkey, ...row } = op?.payload || {};
+  if (op?.sansNote) delete row.note;
+  return row;
+}
+
+/**
+ * Un lot ne peut pas mélanger des lignes qui parlent de la note et des lignes qui n'en
+ * parlent pas : un upsert groupé envoie UN jeu de colonnes pour toutes ses lignes, donc
+ * la colonne `note` y serait soit imposée à celles qui doivent l'omettre, soit retirée à
+ * celles qui doivent l'écrire. Dans les deux cas on perd une note. Le lot est alors
+ * refusé, et le rejeu reprend élément par élément — plus lent, et juste.
+ */
+export function lotRejouableEnBloc(ops) {
+  return !(ops || []).some((op) => op?.sansNote);
+}

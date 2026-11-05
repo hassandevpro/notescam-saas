@@ -1559,32 +1559,43 @@ export default function PrimCompetenceWorkspace() {
         {/* SOUMETTRE — demandé par l'école le 2026-11-05. La saisie s'enregistre déjà au
             fil de la frappe ; ce bouton ne la remplace pas, il RÉPOND. Il renvoie les notes
             de cet écran, puis dit combien sont enregistrées, ou le motif EXACT du refus.
-            Sans lui, une enseignante n'avait aucun geste pour savoir où elle en était. */}
-        <div className="flex flex-wrap items-center gap-3">
+            Sans lui, une enseignante n'avait aucun geste pour savoir où elle en était.
+
+            ⚠️ IL EST COLLÉ AU BAS DE LA FENÊTRE, et ce n'est pas un choix d'esthétique.
+            Posé au-dessus du tableau, il s'intercalait entre les réglages et la feuille.
+            Posé dessous, il partait sous la ligne de flottaison : avec vingt élèves il
+            faut dérouler toute la classe pour le voir, et l'école a répondu « rien n'a
+            changé » à sa livraison — elle ne l'avait tout simplement jamais vu. Un geste
+            qu'il faut chercher n'existe pas. Collé en bas, il reste sous les yeux pendant
+            toute la saisie, et le bilan s'affiche au même endroit que le clic. */}
+        <div className="sticky bottom-0 z-20 -mx-1 mt-3 flex flex-wrap items-center gap-3
+          border-t border-gray-200 bg-white/95 px-1 py-3 backdrop-blur
+          supports-[backdrop-filter]:bg-white/80">
           <button
             type="button"
             onClick={soumettre}
             disabled={envoi || !nkeysDeLEcran.length}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white
+            className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm
               hover:bg-brand-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
           >
             {envoi
               ? t('Envoi en cours…', 'Sending…')
               : t(`Soumettre les notes (${nkeysDeLEcran.length})`, `Submit marks (${nkeysDeLEcran.length})`)}
           </button>
-          <span className="text-xs text-gray-500">
-            {t('Les notes sont déjà gardées à la frappe. Ce bouton confirme qu’elles sont bien arrivées sur le serveur.',
-               'Marks are already kept as you type. This button confirms they reached the server.')}
-          </span>
+          {bilanEnvoi ? (
+            <span role="status"
+              className={`rounded-lg border px-3 py-2 text-xs ${bilanEnvoi.ko
+                ? 'border-red-300 bg-red-50 text-red-800'
+                : 'border-emerald-300 bg-emerald-50 text-emerald-800'}`}>
+              {bilanEnvoi.texte}
+            </span>
+          ) : (
+            <span className="text-xs text-gray-500">
+              {t('Les notes sont déjà gardées à la frappe. Ce bouton confirme qu’elles sont bien arrivées sur le serveur.',
+                 'Marks are already kept as you type. This button confirms they reached the server.')}
+            </span>
+          )}
         </div>
-        {bilanEnvoi && (
-          <div role="status"
-            className={`rounded-lg border px-3 py-2 text-xs ${bilanEnvoi.ko
-              ? 'border-red-300 bg-red-50 text-red-800'
-              : 'border-emerald-300 bg-emerald-50 text-emerald-800'}`}>
-            {bilanEnvoi.texte}
-          </div>
-        )}
         </>
       )}
     </div>

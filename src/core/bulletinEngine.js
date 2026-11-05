@@ -15,6 +15,8 @@
 // partout sans modifier les appelants. Rétro-compatible : sans `parent_id`,
 // resolveScores renvoie (g, subs) à l'identique.
 
+import { rangEnAnglais } from './bulletinScale.js';
+
 export const topSubjects = (subs) => subs.filter((s) => !s.parent_id);
 export const hasComposites = (subs) => subs.some((s) => s.parent_id);
 
@@ -317,7 +319,8 @@ export const buildRanks = (studs, allGrades, classId, seqs, subs, sys, excl = {}
   wa.forEach((s, i) => {
     if (s.av === null) { s.rankD = '—'; return; }
     if (i > 0 && wa[i - 1].av !== null && s.av < wa[i - 1].av) rk = i + 1;
-    s.rankD = `${rk}${rk === 1 ? 'er' : 'ème'}`;
+    // Anglophone : « 1st / 2nd / 19th », jamais « 19ème » sur une feuille anglaise.
+    s.rankD = sys === 'EN' ? rangEnAnglais(rk) : `${rk}${rk === 1 ? 'er' : 'ème'}`;
   });
 
   return wa;

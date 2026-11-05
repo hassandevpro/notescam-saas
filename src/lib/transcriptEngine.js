@@ -18,7 +18,7 @@ import {
 // ── Colonnes de séquences selon le système / cycle ───────────────────────────
 // Le relevé annuel liste TOUTES les évaluations de l'année :
 //   FR secondaire  : 6 séquences (groupées en 3 trimestres pour l'affichage)
-//   EN secondaire  : 3 terms
+//   EN secondaire  : 6 séquences (groupées en 3 Terms pour l'affichage)
 //   ES (Guinée Éq.): 3 trimestres
 //   Primaire FR/EN : 3 trimestres
 export function transcriptColumns(sys, cycle, countryCode) {
@@ -43,13 +43,11 @@ export function transcriptColumns(sys, cycle, countryCode) {
     };
   }
   if (sys === 'EN') {
+    // Six séquences, comme le francophone : le secondaire anglophone partage le
+    // calendrier d'évaluation de son école (cf. countries/cameroon_en.js).
     return {
-      cols: [
-        { seq: 1, label: 'Term 1', full: 'Term 1' },
-        { seq: 2, label: 'Term 2', full: 'Term 2' },
-        { seq: 3, label: 'Term 3', full: 'Term 3' },
-      ],
-      seqs: [1, 2, 3],
+      cols: [1, 2, 3, 4, 5, 6].map((n) => ({ seq: n, label: `Seq ${n}`, full: `Sequence ${n}` })),
+      seqs: [1, 2, 3, 4, 5, 6],
     };
   }
   // FR secondaire — 6 séquences.

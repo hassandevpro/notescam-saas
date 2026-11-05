@@ -54,7 +54,7 @@ export function officialHeaderHtml(school, { sys = 'FR', title = '', subtitle = 
       <tbody><tr>
         ${block(blocks[0])}
         <td style="width:${centerW};text-align:center;padding:2px;vertical-align:top">
-          ${school?.logo_url ? `<img src="${esc(school.logo_url)}" alt="" style="width:64px;height:64px;object-fit:contain;display:block;margin:0 auto 3px"/>` : ''}
+          ${school?.logo_url ? `<img src="${esc(school.logo_url)}" alt="" style="max-width:100%;max-height:64px;width:auto;height:auto;object-fit:contain;display:block;margin:0 auto 3px"/>` : ''}
           <strong style="font-size:12px;display:block">${esc((school?.name || '').toUpperCase())}</strong>
           ${(school?.address || school?.phone) ? `<span style="font-size:8.5px">${school?.address ? 'B.P. ' + esc(school.address) : ''}${school?.address && school?.phone ? ' · ' : ''}${esc(school?.phone || '')}</span><br/>` : ''}
           <span style="font-size:8.5px">${L(sys, 'Année scolaire', 'Academic year', 'Año escolar')} : <strong>${esc(school?.current_year || '—')}</strong></span>

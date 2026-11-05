@@ -186,6 +186,12 @@ function densiteCss(sel) {
       --nc-stamp:  ${entre(d.stampMin, d.stampMax, 'px')};
       --nc-sign:   calc(${entre(d.signMin, d.signMax, 'px')} + var(--nc-reliquat) * 0.4);
       --nc-observ: calc(${entre(d.observMin, d.observMax, 'px')} + var(--nc-reliquat) * 0.6);
+    }
+    /* PLANCHERS DE LISIBILITÉ (gabarits qui les demandent : data-nc-lisible). Corps et notes
+       ne descendent pas sous 8 pt, le texte secondaire sous 7 pt — quelle que soit la densité. */
+    ${sel}[data-nc-lisible] {
+      --nc-body:  calc(8pt + var(--nc-d) * ${+(d.bodyMax - 8).toFixed(3)}pt);
+      --nc-small: calc(7pt + var(--nc-d) * ${+(d.smallMax - 7).toFixed(3)}pt);
     }`;
 }
 
@@ -238,7 +244,13 @@ export function printCss({ profile = DEFAULT_PROFILE, screen = true, page = true
     ${geometrieFeuille(`${S}.bulletin-paper`, m)}
 
     /* 1. Géométrie — la marge appartient à la page, pas à la feuille. */
-    ${page ? `@page { size: ${m.cssSize}; margin: ${m.margin}mm; }` : '/* @page : laissé au document hôte */'}
+    ${page ? `@page { size: ${m.cssSize}; margin: ${m.margin}mm; }
+    /* Bulletin qui coule sur 2 pages ou plus (cf. ajusterDensite) : « Page n / N » dans la marge. */
+    @page nc-multipage { @bottom-right { content: "Page " counter(page) " / " counter(pages); font: 7pt sans-serif; color: #4b5563; } }
+    .nc-multipage { page: nc-multipage; }
+    /* Rappel d'identité en tête de la 2e page : visible seulement quand la feuille coule. */
+    .nc-cont { display: none; }
+    [data-nc-fit="flow"] .nc-cont { display: block; }` :'/* @page : laissé au document hôte */'}
 
     ${S}html, ${S}body { background: #fff; margin: 0; padding: 0; }
 

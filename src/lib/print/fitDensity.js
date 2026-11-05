@@ -326,6 +326,8 @@ export function ajusterDensite(selector = '.bulletin-paper', profile = DEFAULT_P
     el.style.removeProperty(FIT_VAR);
     el.removeAttribute('data-nc-d');
     el.removeAttribute('data-nc-fit');
+    el.removeAttribute('data-nc-pages');
+    el.classList.remove('nc-multipage');
 
     const r = chercherDensite((d) => {
       el.style.setProperty(VAR_D, String(d));
@@ -355,6 +357,21 @@ export function ajusterDensite(selector = '.bulletin-paper', profile = DEFAULT_P
       // `RESERVE_MM` existe parce que viser le bord exact de la page rend
       // encore deux pages (sous-pixels, arrondis d'imprimante). La même
       // prudence vaut ici.
+      // GABARIT À PLANCHER DE LISIBILITÉ (data-nc-lisible) : pas de zoom — 8 pt réduits à
+      // 0,86 font 6,9 pt, sous le minimum d'un bulletin qu'on lit à l'imprimante. La feuille
+      // coule sur 2 pages (lignes insécables, en-tête répété, blocs du bas solidaires) et,
+      // si c'est la seule feuille du document, la marge porte « Page n / N ».
+      if (el.hasAttribute('data-nc-lisible')) {
+        const pages = Math.max(2, Math.ceil(r.hauteur / contentHpx));
+        el.setAttribute('data-nc-fit', 'flow');
+        el.setAttribute('data-nc-pages', String(pages));
+        // La 2e page est presque vide : sa place libre va aux zones où l'on ÉCRIT (remarques,
+        // cadres de signature), comme le reliquat d'une feuille courte.
+        el.style.setProperty(VAR_RELIQUAT, '260px');
+        if (feuilles.length === 1) el.classList.add('nc-multipage');
+        details.push({ d: r.d, h: Math.round(r.hauteur), r: 0, etat: `${r.etat}+${pages}p` });
+        continue;
+      }
       const s = facteurFit(r.hauteur, vise);
       if (s != null) {
         el.style.setProperty(FIT_VAR, String(s));
@@ -402,6 +419,8 @@ export function reinitialiserDensite(selector = '.bulletin-paper') {
     el.style.removeProperty(FIT_VAR);
     el.removeAttribute('data-nc-d');
     el.removeAttribute('data-nc-fit');
+    el.removeAttribute('data-nc-pages');
+    el.classList.remove('nc-multipage');
     el.classList.remove(CLASSE_MESURE);
   }
 }

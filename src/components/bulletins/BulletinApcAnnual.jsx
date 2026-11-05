@@ -11,6 +11,7 @@ import {
   OfficialHeader, OfficialIdentity, OfficialSheet, OfficialSignatures,
 } from './bulletinOfficialParts';
 import { APC_COTE_CODES, APC_COTE_COLORS, apcBulletinCols } from '../../core/apcEngine';
+import { rangEnAnglais } from '../../core/bulletinScale';
 
 // Colonnes de fin optionnelles du bulletin annuel : COTE / Appréciation (pas de
 // [Min–Max] en annuel). Au moins une reste affichée pour héberger « MOYENNE ».
@@ -128,7 +129,7 @@ export default function BulletinApcAnnual({
               <Mini t={L(sys, "Travail de l'élève", "Student's work", 'Trabajo del alumno')}>
                 <KV k={L(sys, 'Moyenne annuelle', 'Annual average', 'Promedio anual')} v={`${fix2(data.moyenneGenerale)}/20`} strong />
                 <KV k={L(sys, 'Cote', 'Grade', 'Nota')} v={data.moyenneGenerale != null ? data.cote : ''} strong />
-                <KV k={L(sys, 'Rang', 'Rank', 'Puesto')} v={rang ? `${rang} / ${effectif ?? ''}` : ''} strong />
+                <KV k={L(sys, 'Rang', 'Rank', 'Puesto')} v={rang ? `${sys === 'EN' ? rangEnAnglais(rang) : rang} / ${effectif ?? ''}` : ''} strong />
                 {APC_COTE_CODES.map((c) => <KV key={c} k={c} v={coteCounts[c]} />)}
               </Mini>
             </td>

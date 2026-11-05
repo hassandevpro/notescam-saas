@@ -285,7 +285,10 @@ export default function BulletinPrimAnnualUA({
                 <tbody>
                   <tr><td colSpan={2} style={th}>{L(sys, 'Profil de la classe', 'Class profile', 'Perfil de la clase')}</td></tr>
                   <tr><td style={cell}>{L(sys, 'Moyenne générale', 'General average', 'Promedio general')}</td><td style={{ ...cell, textAlign: 'center' }}>{fix2(classStats?.avg)}</td></tr>
-                  <tr><td style={cell}>[Min – Max]</td><td style={{ ...cell, textAlign: 'center' }}>{classStats ? `${fix2(classStats.min)} – ${fix2(classStats.max)}` : ''}</td></tr>
+                  <tr><td style={cell}>{L(sys, 'Moyenne la plus élevée', 'Highest average', 'Promedio más alto')}</td><td style={{ ...cell, textAlign: 'center' }}>{classStats ? fix2(classStats.max) : '—'}</td></tr>
+                  <tr><td style={cell}>{L(sys, 'Moyenne la plus faible', 'Lowest average', 'Promedio más bajo')}</td><td style={{ ...cell, textAlign: 'center' }}>{classStats ? fix2(classStats.min) : '—'}</td></tr>
+                  <tr><td style={cell}>{L(sys, 'Élèves ayant réussi', 'Students who passed', 'Alumnos aprobados')}</td><td style={{ ...cell, textAlign: 'center' }}>{classStats?.reussis ?? '—'}</td></tr>
+                  <tr><td style={cell}>{L(sys, 'Élèves en échec', 'Students who failed', 'Alumnos reprobados')}</td><td style={{ ...cell, textAlign: 'center' }}>{classStats?.echoues ?? '—'}</td></tr>
                   <tr><td style={cell}>{L(sys, 'Taux de réussite', 'Pass rate', 'Tasa de aprobados')}</td><td style={{ ...cell, textAlign: 'center' }}>{classStats?.rate != null ? `${classStats.rate}%` : ''}</td></tr>
                 </tbody>
               </table>

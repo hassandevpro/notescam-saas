@@ -79,3 +79,42 @@ export function bulletinScale(cls, sys, defautES) {
     : BAREME_DEFAUT_FR;
   return { maxScale, passThreshold: maxScale / 2 };
 }
+
+/**
+ * L'ÉCHELLE DANS LAQUELLE LE MOTEUR A CALCULÉ une moyenne.
+ *
+ * `getAvg` calcule en /100 pour l'anglophone, /10 pour l'espagnol, /20 sinon,
+ * sauf si on lui passe `opts.maxScale`. Le bulletin, lui, s'affiche dans le
+ * barème de la CLASSE (`bulletinScale`). Quand les deux diffèrent — FORM1 :
+ * moteur /100, bulletin /20 — il faut convertir, sinon le document imprime
+ * « 78.6/20 » et qualifie 17/20 de « F9 — Fail ».
+ */
+export function echelleMoteur(sys, opts) {
+  const o = Number(opts?.maxScale);
+  if (Number.isFinite(o) && o > 0) return o;
+  const s = String(sys ?? '').toUpperCase();
+  return s === 'EN' ? 100 : s === 'ES' ? BAREME_DEFAUT_ES : 20;
+}
+
+/** Convertit une valeur d'une échelle à une autre ; `null` reste `null`. */
+export function convertirEchelle(v, de, vers) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || !(de > 0) || !(vers > 0)) return null;
+  return Math.round((n / de) * vers * 100) / 100;
+}
+
+/**
+ * Rang en anglais : « 19ème » / « 1er » / « 23e » → « 19th » / « 1st » / « 23rd ».
+ * Le moteur fabrique ses rangs en français (`buildRanks`) pour tous les
+ * systèmes ; un bulletin anglophone ne doit pas les imprimer tels quels.
+ * Une valeur sans nombre (« — », vide) est rendue inchangée.
+ */
+export function rangEnAnglais(valeur) {
+  const m = String(valeur ?? '').match(/^\s*(\d+)/);
+  if (!m) return valeur ?? '';
+  const n = Number(m[1]);
+  const d = n % 100;
+  const suf = d >= 11 && d <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+  return `${n}${suf}`;
+}

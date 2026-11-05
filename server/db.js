@@ -113,6 +113,34 @@ function ensureColumn(table, column, ddl) {
   COLONNES_AJOUTEES.push({ table, column });
   return true;
 }
+// UNE CLÉ PRIMAIRE NE S'AJOUTE PAS PAR `ALTER TABLE`. `prim_criteres_classe_masques` a
+// gagné `competence_id` dans sa clé le 2026-11-05 (retirer un critère d'UNE compétence ne
+// doit pas le retirer des onze). Aucun serveur d'école n'a l'ancienne forme — la table n'a
+// jamais été livrée —, mais une base de développement peut l'avoir. On la remplace si elle
+// est VIDE, et on laisse tel quel si elle porte des lignes : un masque posé sans compétence
+// ne se rattache à aucune compétence, et c'est à l'école de dire laquelle.
+(() => {
+  const cols = db.prepare("PRAGMA table_info(prim_criteres_classe_masques)").all();
+  if (!cols.length || cols.some((c) => c.name === 'competence_id')) return;
+  const n = db.prepare('SELECT count(*) AS c FROM prim_criteres_classe_masques').get()?.c || 0;
+  if (n > 0) {
+    console.warn(`[schema] prim_criteres_classe_masques est dans son ancienne forme (sans competence_id)`
+      + ` et porte ${n} ligne(s) : le masquage par competence restera inactif tant qu'elles seront la.`);
+    return;
+  }
+  db.exec('DROP TABLE prim_criteres_classe_masques');
+  db.exec(`CREATE TABLE prim_criteres_classe_masques (
+    school_id     TEXT NOT NULL REFERENCES schools(id)          ON DELETE CASCADE,
+    class_id      TEXT NOT NULL REFERENCES classes(id)          ON DELETE CASCADE,
+    competence_id TEXT NOT NULL REFERENCES prim_competences(id) ON DELETE CASCADE,
+    critere_id    TEXT NOT NULL REFERENCES prim_criteres(id)    ON DELETE CASCADE,
+    masque_le     TEXT,
+    PRIMARY KEY (school_id, class_id, competence_id, critere_id)
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_prim_criteres_classe_masques_school'
+    + ' ON prim_criteres_classe_masques(school_id)');
+  console.log('[schema] prim_criteres_classe_masques : competence_id ajoutee a la cle (table vide).');
+})();
 ensureColumn('subjects', 'position', 'position INTEGER');   // ordre des matières sur le bulletin
 ensureColumn('students', 'photo_url', 'photo_url TEXT');    // photo de l'élève
 ensureColumn('students', 'statut_etablissement', 'statut_etablissement TEXT'); // nouveau/ancien dans l'établissement → frais d'inscription
@@ -1975,6 +2003,10 @@ export const ALLOWED_TABLES = new Set([
   // l'écran « Modifier les compétences » se heurtait à « Table non autorisée »
   // et l'école ne pouvait ni masquer ni renommer quoi que ce soit en LAN.
   'apc_competences_masques', 'prim_competences_masques', 'mat_domaines_masques',
+  // Masquage d'une compétence nationale pour UNE classe : même nature, même statut (hors SYNCED_TABLES).
+  'prim_competences_classe_masquees',
+  // Masquage d'un CRITÈRE d'évaluation pour UNE classe : même nature, même statut (hors SYNCED_TABLES).
+  'prim_criteres_classe_masques',
   // Les critères d'évaluation que l'école n'utilise pas (Oral, Pratique,
   // Savoir-être chez une école qui n'évalue qu'à l'écrit). Même nature que les
   // masques ci-dessus, et comme eux HORS `SYNCED_TABLES` : un masque est un

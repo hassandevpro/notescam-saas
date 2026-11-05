@@ -321,6 +321,73 @@ export function primForClass(referentiel, niveauSlug, classSubjects, masques = [
 }
 
 /**
+ * LES MASQUES QUI S'APPLIQUENT À UNE CLASSE : ceux de l'école, plus ceux de cette classe seule.
+ *
+ * Le masquage du référentiel est par ÉCOLE (table `prim_competences_masques`) : décocher « 3B » dans
+ * une classe la retirait de toutes. Le masquage PAR CLASSE (`prim_competences_classe_masquees`) retire
+ * une compétence nationale d'UNE classe sans toucher aux autres.
+ *
+ * @param ecole    ids masqués pour toute l'école
+ * @param parClasse { [classId]: [ids] } masques propres à chaque classe
+ */
+export function masquesDeClasse(ecole, parClasse, classId) {
+  return [...new Set([...(ecole || []), ...(((parClasse || {})[classId]) || [])])];
+}
+
+/**
+ * LES LIGNES DE MATIÈRE QUI RÉPÈTENT UNE COMPÉTENCE DÉJÀ PORTÉE PAR UNE AUTRE LIGNE.
+ *
+ * Même attribution que le produit (cf. `primSubjectsNeedingOwnCompetence`) : dans l'ordre de la
+ * classe, la PREMIÈRE matière qui réclame une compétence la garde ; chaque SUIVANTE en est une
+ * répétition. Une ligne qui ne réclame rien (« Arabe ») n'est jamais une répétition.
+ *
+ * À n'utiliser pour SUPPRIMER qu'avec le programme anglophone en place : sur une classe
+ * bilingue, les secondes matières sont le tronc de l'autre langue tant que les compétences
+ * jumelles (primProgrammeEn.js) ne les portent pas.
+ *
+ * @returns {Array<{ subject, competenceId, gardee }>}  `gardee` = la ligne qui garde la compétence
+ */
+export function lignesEnDouble(classSubjects, competences) {
+  const liste = (competences || []).filter((c) => c && c.id != null);
+  const prises = new Map();
+  const doublons = [];
+  for (const s of (classSubjects || [])) {
+    if (!s || !s.name) continue;
+    const id = competenceIdForSubject(s, liste);
+    if (!id) continue;
+    const garde = prises.get(id);
+    if (!garde) { prises.set(id, s); continue; }
+    doublons.push({ subject: s, competenceId: id, gardee: garde });
+  }
+  return doublons;
+}
+
+/**
+ * LES COMPÉTENCES DU NIVEAU QU'AUCUNE MATIÈRE DE LA CLASSE NE RÉCLAME.
+ *
+ * Le primaire se note et s'imprime par compétence nationale (onze, dont des transversales comme
+ * 3A « valeurs sociales » ou 4A « autonomie, initiative »), alors que la fenêtre de modification
+ * d'une classe liste des LIGNES `subjects`. Une compétence que nulle matière ne porte figure
+ * donc à la saisie et au bulletin sans figurer dans la classe : relevé sur le CE1 BIL de THE
+ * GENIUS (2026-10-22) puis sur Class 1 A à Class 6 A.
+ *
+ * Même entrée et même rapprochement que `primForClass` : niveau de la classe, compétences
+ * masquées exclues, `competenceIdForSubject`. Rend les compétences À MONTRER, dans l'ordre du
+ * référentiel ; ne filtre RIEN du bulletin.
+ */
+export function primOrphelines(referentiel, niveauSlug, classSubjects, masques = []) {
+  if (!referentiel || !niveauSlug) return [];
+  const duNiveau = competencesForNiveau(referentiel, niveauSlug)
+    .filter((c) => !(masques || []).includes(c.id));
+  const reclamees = new Set();
+  for (const s of (classSubjects || [])) {
+    const id = competenceIdForSubject(s, duNiveau);
+    if (id) reclamees.add(id);
+  }
+  return duNiveau.filter((c) => !reclamees.has(c.id));
+}
+
+/**
  * LA FAMILLE D'UNE COMPÉTENCE MAISON, DÉDUITE DE CELLE QU'ELLE DOUBLE.
  *
  * ── LE DÉFAUT, RELEVÉ SUR LA VRAIE BASE LE 2026-10-29 ─────────────────────

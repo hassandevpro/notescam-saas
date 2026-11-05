@@ -12,6 +12,7 @@ import { isSubjectScoped, isFundamentalTitulaire, canManageClassSubjects, canEdi
 import ClassSubjectsEditor from '../components/grades/ClassSubjectsEditor';
 import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
+import FeuilleNotesButton from '../components/grades/FeuilleNotesButton';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
 import ApcCompetenceWorkspace from '../components/grades/ApcCompetenceWorkspace';
 import MatObservationWorkspace from '../components/grades/MatObservationWorkspace';
@@ -23,12 +24,6 @@ import { classSubjectsOf, withoutCompositeParents } from '../core/subjectOrder';
 // L'ordre de la liste de classe — et donc le numéro « N° » affiché en tête de
 // ligne, le même que sur la liste imprimée et les bulletins.
 import { elevesDeClasse } from '../core/ordreClasse';
-
-const TERMS_EN = [
-  { value: 1, label: 'Term 1' },
-  { value: 2, label: 'Term 2' },
-  { value: 3, label: 'Term 3' },
-];
 
 const COMPETENCES  = ['A', 'EA', 'NA'];
 const COMP_COLORS  = { A: '#059669', EA: '#d97706', NA: '#dc2626' };
@@ -661,10 +656,12 @@ function PrincipalGrades() {
   // avant. La maternelle reste toujours en trimestres.
   const primSequences = isPrimaire && primaryPeriodMode(school) === 'sequences';
   // Pour les écoles Guinea Ecuatorial : 3 trimestres en espagnol, quel que soit le cycle.
+  // Le secondaire anglophone suit les MÊMES six séquences que le francophone
+  // (groupées deux par deux en Term 1/2/3 sur le bulletin) : dans une école
+  // bilingue, les deux ailes partagent un seul calendrier d'évaluation.
   const periods = isGE
     ? TRIMESTRES_GE
     : (isMaternelle || (isPrimaire && !primSequences)) ? TRIMESTRES
-    : isEN ? TERMS_EN
     : SEQUENCES;
 
   const classSubjects = useMemo(() => {
@@ -686,6 +683,10 @@ function PrincipalGrades() {
   // L'ordre de la LISTE DE CLASSE, et lui seul : c'est de lui que découle le
   // numéro affiché en colonne « N° » (cf. core/ordreClasse).
   const classStudents = useMemo(() => elevesDeClasse(students, classId), [students, classId]);
+
+  // L'intitulé complet de la période courante (« Séquence 3 », « Term 1 »…),
+  // tel qu'il s'imprime en tête de la feuille de notes papier.
+  const periodLabelFeuille = periods.find((p) => p.value === sequence)?.label || String(sequence);
 
   const prevClassIdRef = useRef(null);
   useEffect(() => {
@@ -893,10 +894,71 @@ function PrincipalGrades() {
 
   const selectSubject = (id) => { setSubjectId(id); setStudentSearch(''); setGradePage(1); };
 
+  // ── LA FEUILLE DE NOTES PAPIER ────────────────────────────────────────────
+  //
+  // La grille que l'enseignant remplit au stylo pendant qu'il corrige, puis
+  // recopie ici. Les écoles la fabriquaient elles-mêmes (photos du
+  // 2026-11-01) : une colonne par matière, le barème en tête, et Total /
+  // Moyenne / Rang à droite.
+  //
+  // UN SEUL GROUPE pour toutes les matières, et non un groupe par matière :
+  // c'est ce qui donne la bande « SÉQUENCE 3 … /300 » du papier de l'école,
+  // avec le barème de chaque épreuve juste en dessous de son nom.
+  //
+  // Total, Moyenne et Rang sont des colonnes CALCULÉES : elles s'impriment
+  // grisées et vides, parce qu'elles se remplissent une fois les notes posées.
+  // Les imprimer pré-calculées sur une feuille vierge n'aurait aucun sens.
+  const feuilleGroupes = useMemo(() => {
+    if (!classSubjects.length) return [];
+    // LA MATERNELLE NE SE NOTE PAS EN CHIFFRES. Ses domaines reçoivent une COTE
+    // (A / ECA / NA) : imprimer « sur 20 » au-dessus de la colonne ferait écrire
+    // des nombres qui n'entreront jamais dans l'application. On annonce donc les
+    // cotes attendues, et aucune colonne de synthèse — il n'y a ni total ni
+    // moyenne à calculer sur des cotes.
+    const matieres = {
+      id: 'matieres',
+      label: isMaternelle
+        ? `${periodLabelFeuille} — ${t('cotes A / ECA / NA', 'grades A / ECA / NA')}`
+        : periodLabelFeuille,
+      colonnes: classSubjects.map((s) => ({
+        id: s.id,
+        label: s.name,
+        bareme: !isMaternelle && Number(s.max) > 0 ? Number(s.max) : null,
+      })),
+    };
+    if (isMaternelle) return [matieres];
+    const synthese = {
+      id: 'synthese',
+      label: t('Synthèse', 'Summary'),
+      colonnes: [
+        { id: '__total', label: t('Total', 'Total'), calculee: true },
+        { id: '__moy',   label: t('Moy.', 'Avg.'),   calculee: true },
+        { id: '__rang',  label: t('Rang', 'Rank'),   calculee: true },
+      ],
+    };
+    return [matieres, synthese];
+  }, [classSubjects, periodLabelFeuille, isMaternelle, t]);
+
+  // Les élèves tels qu'ils sont APPELÉS : l'ordre et le numéro de la liste de
+  // classe (core/ordreClasse), le même qu'à l'écran et sur le bulletin.
+  const feuilleEleves = useMemo(
+    () => classStudents.map((s, i) => ({ id: s.id, numero: i + 1, nom: s.name })),
+    [classStudents],
+  );
+
+  const feuilleValeur = useCallback(
+    (eleveId, colonneId) => {
+      if (colonneId.startsWith('__')) return '';
+      const v = (gradeMap[`${classId}_${eleveId}_${sequence}`] || {})[colonneId];
+      return v === null || v === undefined ? '' : String(v);
+    },
+    [gradeMap, classId, sequence],
+  );
+
   const periodLabel =
     isGE                              ? t('Trimestre', 'Quarter') /* auto-traduit ES */
     : (isMaternelle || (isPrimaire && !primSequences)) ? t('Trimestre', 'Quarter')
-    : isEN                            ? 'Term'
+    : isEN                            ? 'Sequence'
                                       : t('Séquence', 'Sequence');
 
   return (
@@ -1061,7 +1123,7 @@ function PrincipalGrades() {
                   </option>
                   {visibleClasses.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}{schoolLanguage === 'bilingue' && !isGE ? ` [${c.system === 'EN' ? 'EN /100' : 'FR /20'}]` : ''}
+                      {c.name}{schoolLanguage === 'bilingue' && !isGE ? ` [${c.system === 'EN' ? 'EN' : 'FR'}]` : ''}
                     </option>
                   ))}
                 </select>
@@ -1099,6 +1161,19 @@ function PrincipalGrades() {
                          isMaternelle ? 'Manage domains' : 'Manage subjects')}
                     </button>
                   )}
+                  {/* La grille PAPIER de cette classe et de cette période —
+                      vierge pour corriger au stylo, ou avec les notes déjà
+                      saisies pour relire. */}
+                  <FeuilleNotesButton
+                    school={school}
+                    sys={sys}
+                    classe={selectedClass?.name}
+                    periode={periodLabelFeuille}
+                    portee={{ libelle: t('Matières', 'Subjects'), valeur: `${classSubjects.length}` }}
+                    groupes={feuilleGroupes}
+                    eleves={feuilleEleves}
+                    valeur={feuilleValeur}
+                  />
                 </div>
               )}
             </div>

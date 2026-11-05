@@ -1605,6 +1605,35 @@ CREATE TABLE IF NOT EXISTS prim_competences_masques (
   masque_le     TEXT,
   PRIMARY KEY (school_id, competence_id)
 );
+-- Compétences NATIONALES masquées pour UNE classe seulement (Modifier la classe → décocher).
+-- Distinct de `prim_competences_masques`, qui masque pour toute l'école. Même nature : un réglage d'AFFICHAGE
+-- propre à l'édition, hors synchronisation (cf. ALLOWED_TABLES de db.js). Miroir de
+-- public.prim_competences_classe_masquees au Cloud (supabase_prim_competences_classe_masquees.sql).
+CREATE TABLE IF NOT EXISTS prim_competences_classe_masquees (
+  school_id     TEXT NOT NULL REFERENCES schools(id)          ON DELETE CASCADE,
+  class_id      TEXT NOT NULL REFERENCES classes(id)          ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES prim_competences(id) ON DELETE CASCADE,
+  masque_le     TEXT,
+  PRIMARY KEY (school_id, class_id, competence_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prim_classe_masquees_school ON prim_competences_classe_masquees(school_id);
+-- Critères d'évaluation (Oral, Écrit, Pratique, Savoir-être) masqués pour UNE classe ET UNE COMPÉTENCE.
+-- Distinct de `prim_criteres_masques` (toute l'école). Même nature : réglage d'AFFICHAGE propre à
+-- l'édition, hors synchronisation. Miroir de public.prim_criteres_classe_masques
+-- (supabase_prim_criteres_classe_masques.sql).
+--
+-- LA COMPÉTENCE EST DANS LA CLÉ : une classe évalue « Pratique » en TIC et pas en Dictée. Sans elle,
+-- retirer un critère depuis une compétence le retirait des onze (signalé le 2026-11-05). Masquer ne
+-- supprime et n'ignore AUCUNE note : la colonne quitte l'affichage, les notes restent en base.
+CREATE TABLE IF NOT EXISTS prim_criteres_classe_masques (
+  school_id     TEXT NOT NULL REFERENCES schools(id)          ON DELETE CASCADE,
+  class_id      TEXT NOT NULL REFERENCES classes(id)          ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES prim_competences(id) ON DELETE CASCADE,
+  critere_id    TEXT NOT NULL REFERENCES prim_criteres(id)    ON DELETE CASCADE,
+  masque_le     TEXT,
+  PRIMARY KEY (school_id, class_id, competence_id, critere_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prim_criteres_classe_masques_school ON prim_criteres_classe_masques(school_id);
 CREATE TABLE IF NOT EXISTS mat_domaines_masques (
   school_id  TEXT NOT NULL REFERENCES schools(id)      ON DELETE CASCADE,
   domaine_id TEXT NOT NULL REFERENCES mat_domaines(id) ON DELETE CASCADE,

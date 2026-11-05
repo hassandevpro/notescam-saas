@@ -75,6 +75,7 @@ import { defaultClassicSubjects } from './classicSubjects.js';
 // dont l'écran de saisie la croit absente.
 import { competenceIdForSubject } from './primCompetenceMatch.js';
 import { agregerGroupe } from './primCompactRows.js';
+import { estJumelleAnglophone } from './primProgrammeEn.js';
 
 // Même normalisation que `primCompetenceMatch` et `bilingualSubjects` : sans
 // accents, sans ponctuation. Deux modules qui normaliseraient différemment
@@ -212,6 +213,20 @@ export function programmesParCode(classSubjects, competences, troncs) {
     // Sinon la matière a sa propre compétence maison — si elle existe.
     const maison = maisonDe.get(norm(s.name));
     if (cote && maison?.code != null && !parCode.has(maison.code)) parCode.set(maison.code, cote);
+  }
+
+  // LES JUMELLES ANGLOPHONES EXPLICITES (code « 1A-EN », cf. primProgrammeEn.js). Leur programme
+  // ne se devine pas sur le nom de la matière — « Communicate in French » n'est dans aucun tronc :
+  // il est porté par la marque du code. Quand un jeu de jumelles existe, les compétences
+  // NATIONALES que rien d'autre n'a classées sont celles du programme francophone — c'est
+  // l'inverse exact de l'anglais. Les compétences d'école (Chinois, Economics…) ne sont ni l'une
+  // ni l'autre : elles restent hors programme.
+  let jumelles = false;
+  for (const c of liste) {
+    if (estJumelleAnglophone(c)) { parCode.set(c.code, 'EN'); jumelles = true; }
+  }
+  if (jumelles) {
+    for (const c of nationales) if (c.code != null && !parCode.has(c.code)) parCode.set(c.code, 'FR');
   }
   return parCode;
 }

@@ -14,7 +14,7 @@ import { fetchScReferentiel, refreshScReferentiel } from '../lib/scService';
 import { refreshBilReferentiel } from '../lib/bilService';
 import { fetchMatReferentiel, refreshMatReferentiel, fetchMatObservations, upsertMatObservation, buildObsRecord, obsNkey } from '../lib/matService';
 import { estUAValide } from '../core/uaMinedub';
-import { fetchMasques, setMasque, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
+import { fetchMasques, setMasque, fetchMasquesClasse, setMasqueClasse, fetchCriteresMasquesClasse, setCritereMasqueClasse, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, buildPrimNoteRecord, primNkey,
   fetchPrimNonEvaluees, nonEvalKey, setPrimNonEvaluee as pousserNonEvaluee } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
@@ -30,6 +30,9 @@ import { resolveClassEngine, firstCycleClasseSlug } from '../core/engineResolver
 import { manquesPourClasse } from '../core/apcRattrapage';
 import { attendreValeur } from '../core/attenteValeur';
 import { primSubjectsNeedingOwnCompetence, matSubjectsNeedingOwnDomaine } from '../core/refClassScope';
+import { fusionnerNotesServeur, recordsAEcrireEnCache, nkeysEnAttente, majAttenteNkeys }
+  from '../core/primNotesFusion';
+import { planProgrammeAnglophone } from '../core/primProgrammeEn';
 import { domainesForMaternelle } from '../core/matEngine';
 // Même ordre que le bulletin et que l'écran de la classe : c'est lui qui décide
 // quelle matière GARDE la compétence nationale quand plusieurs la réclament.
@@ -173,12 +176,33 @@ async function queueOffline(op) {
 // est le plus élevé : une couche qui rejetterait pour une autre raison ne doit
 // pas pouvoir reproduire la panne.
 function sendOrQueue(promise, op) {
+  // Résout `true` si le serveur a accepté, `false` s'il a fallu mettre en file. Les
+  // appelants qui l'ignorent sont inchangés ; celui des notes du primaire s'en sert
+  // pour DIRE à l'écran ce qui n'est pas encore enregistré.
   return Promise.resolve(promise)
-    .then((ok) => { if (!ok) return queueOffline(op); })
-    .catch((e) => {
+    .then(async (ok) => { if (ok) return true; await queueOffline(op); return false; })
+    .catch(async (e) => {
       console.error('[notes] envoi rejeté — mise en file', op.table, e?.message ?? e);
-      return queueOffline(op);
+      await queueOffline(op);
+      return false;
     });
+}
+
+
+// Pose ou retire un masque de critère dans { [classId]: { [competenceId]: [critereId…] } }.
+// Hors du magasin : c'est une manipulation de carte, elle se lit et se teste seule.
+function majMasqueCritere(etat, classId, competenceId, critereId, masque) {
+  const parClasse = { ...(etat || {}) };
+  const parComp = { ...(parClasse[classId] || {}) };
+  const avant = parComp[competenceId] || [];
+  const apres = masque
+    ? [...new Set([...avant, critereId])]
+    : avant.filter((x) => x !== critereId);
+  if (apres.length) parComp[competenceId] = apres;
+  else delete parComp[competenceId];
+  if (Object.keys(parComp).length) parClasse[classId] = parComp;
+  else delete parClasse[classId];
+  return parClasse;
 }
 
 function gradeKey(classId, studentId, sequence) {
@@ -452,6 +476,14 @@ export const useSchoolStore = create((set, get) => ({
   // Ce que CETTE ecole a masque dans chaque referentiel national (ids). Masquer
   // ne supprime rien : le national reste intact pour les 43 autres etablissements.
   refMasques:      { mat: [], apc: [], prim: [], prim_crit: [] },
+  // Masques PROPRES À CHAQUE CLASSE (primaire) : { [classId]: [competenceId…] }. `masquesClasseDispo`
+  // passe à false quand la lecture échoue (table absente tant que la migration Cloud n'est pas appliquée) :
+  // l'écran refuse alors de masquer, plutôt que de masquer à l'aveugle.
+  refMasquesClasse: {},
+  masquesClasseDispo: true,
+  // Critères d'évaluation masqués pour UNE classe : { [classId]: [critereId…] } (voir core/primCriteresClasse).
+  refCriteresMasquesClasse: {},
+  criteresMasquesClasseDispo: true,
   // Libelles de remplacement poses par CETTE ecole sur des lignes NATIONALES.
   // L'identite officielle est conservee : seules les notes resteraient attachees.
   refLibelles:     { mat: {}, apc: {}, prim: {} },
@@ -465,6 +497,11 @@ export const useSchoolStore = create((set, get) => ({
   // `note: null` — quatre notes effacees sans un mot. Faux jusqu a ce que la
   // lecture serveur ait abouti (ou, hors ligne, le cache local).
   primNotesPrets:  false,
+  // LES NOTES QUI N'ONT PAS ENCORE ÉTÉ ACCEPTÉES PAR LE SERVEUR (nkey). Elles sont en
+  // base LOCALE et dans la file d'envoi — donc pas perdues — mais elles ne sont pas
+  // encore chez les autres. L'écran les montre en rouge et le dit, au lieu de les
+  // laisser disparaître au rafraîchissement suivant (cf. core/primNotesFusion).
+  primNotesEnAttente: [],
   // Compétences qu'une classe n'a pas évaluées à une UA. Liste de clés
   // `classId|competenceId|ua` : elles s'impriment « - - - - » et ne comptent
   // dans aucun total. Vide = tout a été évalué, ce qui est le cas de départ.
@@ -1017,6 +1054,60 @@ export const useSchoolStore = create((set, get) => ({
     // et on n'efface pas des surcharges deja connues.
     if (ids) set((st) => ({ refMasques: { ...st.refMasques, [kind]: ids } }));
     if (libelles) set((st) => ({ refLibelles: { ...st.refLibelles, [kind]: libelles } }));
+    if (kind === 'prim') {
+      const parClasse = await fetchMasquesClasse(schoolId);
+      // null = lecture en échec : on ne masque RIEN et on le dit, on n'efface pas ce qu'on savait.
+      if (parClasse) set({ refMasquesClasse: parClasse, masquesClasseDispo: true });
+      else set({ masquesClasseDispo: false });
+    }
+    if (kind === 'prim_crit') {
+      const parClasse = await fetchCriteresMasquesClasse(schoolId);
+      // null = lecture en échec (table absente comprise) : on ne masque RIEN et on le dit.
+      if (parClasse) set({ refCriteresMasquesClasse: parClasse, criteresMasquesClasseDispo: true });
+      else set({ criteresMasquesClasseDispo: false });
+    }
+  },
+
+  // Masquer / réafficher un CRITÈRE d'évaluation pour UNE classe ET UNE COMPÉTENCE
+  // (cf. core/primCriteresClasse). La compétence fait partie de la clé : une classe évalue
+  // « Pratique » en TIC et pas en Dictée, et retirer le critère depuis une compétence ne doit
+  // pas le retirer des dix autres.
+  //
+  // Refuse (au lieu de masquer pour toute l'école) tant que la table du Cloud n'existe pas, et
+  // AUCUNE note n'est touchée : masquer ne fait que retirer la colonne de l'affichage.
+  masquerCritereClasse: async (classId, competenceId, critereId) => {
+    const { schoolId } = get();
+    if (!schoolId || !classId || !competenceId || !critereId) return { error: 'parametres' };
+    if (!backendOnline()) return { error: 'offline' };
+    if (!(await setCritereMasqueClasse(schoolId, classId, competenceId, critereId, true))) return { error: 'refus' };
+    set((st) => ({ refCriteresMasquesClasse: majMasqueCritere(st.refCriteresMasquesClasse, classId, competenceId, critereId, true) }));
+    return { data: 'masque' };
+  },
+  restaurerCritereClasse: async (classId, competenceId, critereId) => {
+    const { schoolId } = get();
+    if (!schoolId || !classId || !competenceId || !critereId) return { error: 'parametres' };
+    if (!backendOnline()) return { error: 'offline' };
+    if (!(await setCritereMasqueClasse(schoolId, classId, competenceId, critereId, false))) return { error: 'refus' };
+    set((st) => ({ refCriteresMasquesClasse: majMasqueCritere(st.refCriteresMasquesClasse, classId, competenceId, critereId, false) }));
+    return { data: true };
+  },
+
+  // Masquer / réafficher une compétence nationale pour UNE classe (cf. core/refClassScope.masquesDeClasse).
+  masquerCompetenceClasse: async (classId, competenceId) => {
+    const { schoolId } = get();
+    if (!schoolId || !classId || !competenceId) return { error: 'parametres' };
+    if (!backendOnline()) return { error: 'offline' };
+    if (!(await setMasqueClasse(schoolId, classId, competenceId, true))) return { error: 'refus' };
+    set((st) => ({ refMasquesClasse: { ...st.refMasquesClasse, [classId]: [...new Set([...(st.refMasquesClasse[classId] || []), competenceId])] } }));
+    return { data: 'masque' };
+  },
+  restaurerCompetenceClasse: async (classId, competenceId) => {
+    const { schoolId } = get();
+    if (!schoolId || !classId || !competenceId) return { error: 'parametres' };
+    if (!backendOnline()) return { error: 'offline' };
+    if (!(await setMasqueClasse(schoolId, classId, competenceId, false))) return { error: 'refus' };
+    set((st) => ({ refMasquesClasse: { ...st.refMasquesClasse, [classId]: (st.refMasquesClasse[classId] || []).filter((x) => x !== competenceId) } }));
+    return { data: true };
   },
 
   // `extra` porte ce qui est propre au moteur : pour l'APC, la competence vit dans
@@ -1400,6 +1491,48 @@ export const useSchoolStore = create((set, get) => ({
     return { created };
   },
 
+  // ── CLASSE BILINGUE DU PRIMAIRE : LES ONZE COMPÉTENCES, AUSSI EN ANGLAIS ─────
+  //
+  // Demande de THE GENIUS (CE1 BIL, 2026-11-03) : « ces compétences en français, je les veux nettes
+  // aussi en anglais dans la même classe, chacune commençant par son code ». Voir
+  // core/primProgrammeEn.js pour la forme (code « 1A-EN », matière porteuse, bloc English du
+  // carnet). Idempotent : une jumelle déjà créée n'est ni recréée ni doublée, et on ne crée la
+  // matière porteuse que si elle manque. Jamais hors ligne : une écriture refusée repartirait en
+  // boucle dans la file (même garde que le rattrapage du primaire).
+  ajouterProgrammeAnglophonePrim: async (cls, niveauSlug) => {
+    const { subjects, primReferentiel, schoolId } = get();
+    if (!cls || !schoolId || !primReferentiel || !niveauSlug) return { error: 'parametres' };
+    if (!backendOnline()) return { error: 'offline' };
+    const plan = planProgrammeAnglophone({
+      competences: competencesForNiveau(primReferentiel, niveauSlug),
+      classSubjects: classSubjectsOf(subjects, cls.id),
+    });
+    let lignes = 0; let matieres = 0; const echecs = [];
+    for (const p of plan) {
+      let ligne = p.ligne;
+      if (!ligne) {
+        const r = await get().addRefLigne('prim', p.intitule, {
+          code: p.code, coefficient: p.coef, domaine: p.nat.domaine ?? null,
+          ordre: (Number(p.nat.ordre) || 0) + 1,
+        });
+        if (r.data) { ligne = r.data; lignes += 1; }
+        else if (r.error === 'existe') {
+          ligne = get()._refLignes('prim').find((l) => l.school_id === schoolId && l.code === p.code) || null;
+        }
+        if (!ligne) { echecs.push(`${p.code} — ${r.error || 'introuvable'}`); continue; }
+      }
+      const porteuse = classSubjectsOf(get().subjects, cls.id).find((s) => s.prim_competence_id === ligne.id);
+      if (!porteuse) {
+        await get().addSubject({
+          name: p.intitule, coef: p.coef, max: 20, class_id: cls.id, teacher_id: null,
+          prim_competence_id: ligne.id,
+        });
+        matieres += 1;
+      }
+    }
+    return { lignes, matieres, echecs };
+  },
+
   addRefLigne: async (kind, intitule, extra = {}) => {
     const { schoolId } = get();
     const nom = String(intitule || '').trim();
@@ -1594,8 +1727,17 @@ export const useSchoolStore = create((set, get) => ({
       const fresh = {};
       const records = notes.map((n) => ({ ...n, nkey: primNkey(n.eleve_id, n.competence_id, n.critere_id, n.ua) }));
       for (const n of records) fresh[n.nkey] = n;
-      await primNotesDB.putMany(records).catch(() => {});
-      set({ primNotes: fresh });
+      // CE QUI N'EST PAS ENCORE PARTI N'EST PAS EFFACÉ PAR CE QUI REVIENT. Sans cela,
+      // une note refusée par le serveur (contrainte, migration Cloud manquante) ou
+      // bloquée par le réseau disparaissait de l'écran au rafraîchissement suivant —
+      // « j'ajoute les notes ici, ça ne persiste pas », 2026-11-05. Elle attend dans
+      // la file, et l'écran le DIT maintenant (`primNotesEnAttente`).
+      const attente = nkeysEnAttente(await syncQueueDB.getAll().catch(() => []));
+      await primNotesDB.putMany(recordsAEcrireEnCache(records, attente)).catch(() => {});
+      set({
+        primNotes: fusionnerNotesServeur(fresh, get().primNotes, attente),
+        primNotesEnAttente: attente,
+      });
     }
     // `notes` à null = lecture en échec. On lève quand même le drapeau : un
     // écran qui l'attend resterait muet indéfiniment après une panne réseau, ce
@@ -1641,7 +1783,15 @@ export const useSchoolStore = create((set, get) => ({
     const existing = primNotes[nkey] || (await primNotesDB.getByNkey(nkey).catch(() => []))[0];
     const record = buildPrimNoteRecord({
       id: existing?.id, schoolId, eleveId, competenceId, critereId, ua,
-      enseignantId: teacherId, note,
+      enseignantId: teacherId,
+      // `note: undefined` = L'APPELANT NE PARLE PAS DE LA NOTE. C'est le cas du
+      // réglage de barème, qui a affaire à une COLONNE et n'a rien à dire sur la
+      // valeur de chaque élève. Sans cette distinction, il écrivait la note qu'il
+      // croyait connaître — soit `null` pour tout élève absent de l'état en
+      // mémoire. 2026-11-05 : c'est le mécanisme qui a effacé des notes du
+      // primaire sans un mot. On garde donc celle de la ligne, comme pour
+      // `statut` et `pointsMax` juste en dessous.
+      note: note === undefined ? existing?.note ?? null : note,
       pointsMax: pointsMax === undefined ? existing?.points_max : pointsMax,
       // `undefined` = l'appelant ne parle pas du statut (saisie ordinaire d'une
       // note) : on garde celui de la ligne. `null` = il le retire
@@ -1649,12 +1799,22 @@ export const useSchoolStore = create((set, get) => ({
       // l'absence qu'on vient de déclarer, et inversement.
       statut: statut === undefined ? existing?.statut ?? null : statut,
     });
+    // Une écriture qui ne parle pas de la note n'envoie PAS la colonne `note` : la
+    // ligne déjà en base garde la sienne, même si cet appareil ne l'a jamais lue.
+    // C'est ce qui empêche un réglage de barème d'effacer la saisie d'une collègue.
+    const sansNote = note === undefined && existing?.note == null;
     await primNotesDB.put(record);
     set({ primNotes: { ...get().primNotes, [nkey]: record } });
+    const op = { table: 'prim_notes', operation: 'upsert', payload: record, sansNote, nkey };
     if (backendOnline()) {
-      sendOrQueue(upsertPrimNote(record), { table: 'prim_notes', operation: 'upsert', payload: record });
+      // Pas d'`await` : la cellule suivante doit pouvoir être saisie tout de suite.
+      // Mais le résultat n'est plus jeté — c'est lui qui allume l'avertissement.
+      sendOrQueue(upsertPrimNote(record, { sansNote }), op).then((envoye) => {
+        set({ primNotesEnAttente: majAttenteNkeys(get().primNotesEnAttente, nkey, !envoye) });
+      });
     } else {
-      queueOffline({ table: 'prim_notes', operation: 'upsert', payload: record });
+      await queueOffline(op);
+      set({ primNotesEnAttente: majAttenteNkeys(get().primNotesEnAttente, nkey, true) });
     }
   },
 
@@ -3312,13 +3472,20 @@ export const useSchoolStore = create((set, get) => ({
     const amount = -Math.abs(Number(payment.amount) || 0);
     if (!amount) return null;
 
+    // UN VERSEMENT DE REPRISE (import de registre) n'a jamais touché le tiroir :
+    // son annulation non plus. Daté d'aujourd'hui, le négatif entrerait dans
+    // l'arrêté du caissier qui annule, et lui ferait « rendre » de l'argent qu'il
+    // n'a pas reçu. On le date donc de l'écriture d'origine, et on lui reporte son
+    // mode et sa référence de lot, pour que la reprise s'annule en bloc.
+    const reprise = payment.method === 'reprise';
     const record = {
       id:            uuid(),
       school_id:     schoolId,
       student_id:    studentId,
       academic_year: payment.academic_year || activeYear,
       amount,
-      date:          new Date().toISOString().slice(0, 10),  // date de l'ANNULATION, pas du versement
+      date:          reprise ? payment.date : new Date().toISOString().slice(0, 10),  // date de l'ANNULATION, pas du versement
+      ...(reprise ? { method: 'reprise', reference: payment.reference || null } : {}),
       note:          `Annulation — ${motif}`,
       recorded_by:   userId,
       recorded_by_name: fullName || null,

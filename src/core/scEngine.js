@@ -65,6 +65,7 @@ export function groupSubtotals(rows) {
 // Réutilise le moteur de NOTES classique. Vit ici (module pur, testable en Node)
 // ; le rendu HTML/PDF est dans src/lib/scBulletinDoc.js + scBulletinPdf.js.
 import { fusedG, multiAvg, getAppreciation } from './bulletinEngine.js';
+import { echelleMoteur, convertirEchelle, rangEnAnglais } from './bulletinScale.js';
 
 const GROUP_LABEL = { 1: 'GROUPE 1', 2: 'GROUPE 2' };
 
@@ -98,11 +99,22 @@ export function assembleScBulletin(ctx) {
     teachersById = {} } = ctx;
   const maxScale = opts.maxScale ?? (sys === 'EN' ? 100 : 20);
   const r2 = (v) => Math.round(v * 100) / 100;
+  // ÉCHELLE DU DOCUMENT ≠ ÉCHELLE DU MOTEUR (anglophone). Le moteur calcule la
+  // moyenne générale et le profil de classe en /100 ; les notes de matières, les
+  // totaux pondérés et les gabarits (« Moy/20 ») sont en /20. Sans conversion le
+  // bulletin imprimait « 78.6/20 », qualifiait 17/20 de « F9 — Fail » (le barème
+  // A1…F9 attend un POURCENTAGE) et numérotait « 19ème » sur une feuille anglaise.
+  const en = sys === 'EN';
+  const moteur = echelleMoteur(sys, opts);
+  const affichage = ctx.displayScale ?? (en ? 20 : moteur);
+  const versAffichage = (v) => (en ? convertirEchelle(v, moteur, affichage) : v);
+  const rang = (r) => (en ? rangEnAnglais(r) : r);
+  const libelleMention = (a) => (en ? (a && a.g ? `${a.g} — ${a.txt}` : '') : (a?.text || ''));
 
   const rows = orderedScSubjects(subjects).map((s) => {
     const moyenne = scSubjectMean(allGrades, classId, student.id, seqs, s);
     const coef = Number(s.coef) || 0;
-    const app = getAppreciation(moyenne, gradeScale, sys, maxScale);
+    const app = getAppreciation(en ? convertirEchelle(moyenne, Number(s.max) || affichage, 100) : moyenne, gradeScale, sys, maxScale);
     const st = subjectStats[s.id];
     return {
       id: s.id, nom: s.name, coef,
@@ -111,9 +123,9 @@ export function assembleScBulletin(ctx) {
       groupe_ordre: s.sc_groupe_ordre ?? 99,
       groupe_nom: s.sc_groupe || GROUP_LABEL[s.sc_groupe_ordre] || '',
       moyenne, ponderee: moyenne == null ? null : r2(moyenne * coef),
-      rang: subjectRanks[s.id]?.[student.id] || '',
+      rang: rang(subjectRanks[s.id]?.[student.id] || ''),
       minmax: st && st.min != null ? { min: st.min, max: st.max } : null,
-      appreciation: app?.text || '',
+      appreciation: libelleMention(app),
     };
   });
 
@@ -150,9 +162,15 @@ export function assembleScBulletin(ctx) {
   const coefSum = groups.reduce((a, g) => a + g.coefSum, 0);
   const mxSum = r2(groups.reduce((a, g) => a + g.mxSum, 0));
   const moyenneGenerale = multiAvg(allGrades, classId, student.id, seqs, subjects, sys, opts);
-  const app = getAppreciation(moyenneGenerale, gradeScale, sys, maxScale);
+  const app = getAppreciation(en ? convertirEchelle(moyenneGenerale, moteur, 100) : moyenneGenerale, gradeScale, sys, maxScale);
+  const stats = en && classStats && classStats.avg != null
+    ? { ...classStats, avg: versAffichage(classStats.avg), min: versAffichage(classStats.min), max: versAffichage(classStats.max) }
+    : classStats;
 
-  return { groups, coefSum, mxSum, moyenneGenerale, appreciation: app?.text || '', generalRank, classStats };
+  return {
+    groups, coefSum, mxSum, moyenneGenerale: versAffichage(moyenneGenerale),
+    appreciation: libelleMention(app), generalRank: rang(generalRank), classStats: stats,
+  };
 }
 
 // Lecture de la DISCIPLINE + DÉCISION DU CONSEIL depuis gradeMap (clés spéciales

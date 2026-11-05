@@ -20,6 +20,7 @@
 //   • le coefficient vient du référentiel — JAMAIS la charge horaire.
 
 import { DEFAULT_GRADE_SCALE, scaleMention } from './bulletinEngine.js';
+import { rangEnAnglais } from './bulletinScale.js';
 
 // ── Appréciation ─────────────────────────────────────────────────────────────
 // On ne passe PAS par `getAppreciation` : pour sys 'EN' celle-ci bascule sur
@@ -203,7 +204,8 @@ export function assembleBilBulletin(ctx) {
       // Points pondérés de la matière : null si non évaluée (et non 0, qui se
       // confondrait avec un élève ayant réellement eu 0).
       ponderee: evaluee ? r2(moyenne * coef) : null,
-      rang: subjectRanks[s.id]?.[student.id] || '',
+      // Le moteur de rang fabrique « 23e » / « 19ème » ; une feuille anglaise dit « 23rd ».
+      rang: sys === 'EN' ? rangEnAnglais(subjectRanks[s.id]?.[student.id] || '') : (subjectRanks[s.id]?.[student.id] || ''),
       minmax: st && st.min != null ? { min: st.min, max: st.max } : null,
       appreciation: evaluee ? bilAppreciation(moyenne, gradeScale, sys) : '',
     };
@@ -269,7 +271,7 @@ export function assembleBilBulletin(ctx) {
     totalCoefApplicable: rows.reduce((a, r) => a + r.coef, 0),
     serieId,
     sys,
-    generalRank,
+    generalRank: sys === 'EN' ? rangEnAnglais(generalRank ?? '') || generalRank : generalRank,
     classStats,
   };
 }

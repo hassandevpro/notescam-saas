@@ -140,6 +140,76 @@ export async function setMasque(kind, schoolId, id, masque) {
   return true;
 }
 
+// ── MASQUAGE PAR CLASSE (compétences du primaire) ────────────────────────────
+// Table `prim_competences_classe_masquees` (école, classe, compétence). Même nature que les masques de
+// l'école : un réglage d'AFFICHAGE propre à chaque édition, hors synchronisation.
+// `fetchMasquesClasse` rend { [classId]: [competenceId…] }, ou null si la lecture échoue — table absente
+// (migration Cloud pas encore appliquée) comprise : l'appelant ne doit alors RIEN masquer.
+export async function fetchMasquesClasse(schoolId) {
+  if (!schoolId) return {};
+  const { data, error } = await supabase
+    .from('prim_competences_classe_masquees').select('class_id, competence_id').eq('school_id', schoolId);
+  if (error) { console.error('fetchMasquesClasse', error); return null; }
+  const par = {};
+  for (const r of data || []) (par[r.class_id] = par[r.class_id] || []).push(r.competence_id);
+  return par;
+}
+
+export async function setMasqueClasse(schoolId, classId, competenceId, masque) {
+  if (!schoolId || !classId || !competenceId) return false;
+  const T = 'prim_competences_classe_masquees';
+  const q = masque
+    ? supabase.from(T).upsert(
+      { school_id: schoolId, class_id: classId, competence_id: competenceId },
+      { onConflict: 'school_id,class_id,competence_id' },
+    )
+    : supabase.from(T).delete().eq('school_id', schoolId).eq('class_id', classId).eq('competence_id', competenceId);
+  const { error } = await q;
+  if (error) { console.error('setMasqueClasse', error); return false; }
+  return true;
+}
+
+// ── MASQUAGE PAR CLASSE ET PAR COMPÉTENCE (critères d'évaluation du primaire) ───
+// Table `prim_criteres_classe_masques` (école, classe, COMPÉTENCE, critère). Même nature que les masques
+// de l'école : un réglage d'AFFICHAGE propre à chaque édition, hors synchronisation.
+//
+// LA COMPÉTENCE FAIT PARTIE DE LA CLÉ depuis le 2026-11-05 : une classe évalue « Pratique » en TIC et
+// pas en Dictée. Sans elle, retirer un critère depuis une compétence le retirait de TOUTES les
+// compétences de la classe — le défaut signalé.
+//
+// `fetchCriteresMasquesClasse` rend { [classId]: { [competenceId]: [critereId…] } }, ou null si la
+// lecture échoue — table absente (migration Cloud pas encore appliquée) comprise : l'appelant ne doit
+// alors RIEN masquer, et surtout pas pour toute l'école.
+export async function fetchCriteresMasquesClasse(schoolId) {
+  if (!schoolId) return {};
+  const { data, error } = await supabase
+    .from('prim_criteres_classe_masques').select('class_id, competence_id, critere_id').eq('school_id', schoolId);
+  if (error) { console.error('fetchCriteresMasquesClasse', error); return null; }
+  const par = {};
+  for (const r of data || []) {
+    if (!r?.class_id || !r?.competence_id || !r?.critere_id) continue;
+    const parComp = par[r.class_id] = par[r.class_id] || {};
+    (parComp[r.competence_id] = parComp[r.competence_id] || []).push(r.critere_id);
+  }
+  return par;
+}
+
+export async function setCritereMasqueClasse(schoolId, classId, competenceId, critereId, masque) {
+  if (!schoolId || !classId || !competenceId || !critereId) return false;
+  const T = 'prim_criteres_classe_masques';
+  const q = masque
+    ? supabase.from(T).upsert(
+      { school_id: schoolId, class_id: classId, competence_id: competenceId, critere_id: critereId },
+      { onConflict: 'school_id,class_id,competence_id,critere_id' },
+    )
+    : supabase.from(T).delete()
+      .eq('school_id', schoolId).eq('class_id', classId)
+      .eq('competence_id', competenceId).eq('critere_id', critereId);
+  const { error } = await q;
+  if (error) { console.error('setCritereMasqueClasse', error); return false; }
+  return true;
+}
+
 // Crée ou modifie une ligne MAISON. `record.school_id` doit être posé : sans lui
 // la RLS refuse (c'est elle qui empêche de s'approprier une ligne nationale).
 export async function upsertLigne(kind, record) {

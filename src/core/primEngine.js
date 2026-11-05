@@ -88,7 +88,15 @@ export { UA_PAR_TRIMESTRE, trimestreOfUA } from './uaMinedub.js';
 export function criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude = 'apte', masques = []) {
   const bareme = referentiel?.baremeCriteres || [];
   const criteresById = new Map((referentiel?.criteres || []).map((c) => [c.id, c]));
-  const masque = new Set(masques || []);
+  // LES MASQUES PEUVENT DÉPENDRE DE LA COMPÉTENCE. Depuis que l'école retire un
+  // critère pour UNE compétence d'UNE classe (et non plus pour toute l'école),
+  // les écrans qui traitent les onze compétences d'un coup — bulletin, PV,
+  // rapport de classe — ne peuvent plus passer une liste plate : elle rendrait
+  // au masque la portée qu'on vient de lui retirer. Ils passent donc un
+  // RÉSOLVEUR `(competenceId) => [critereId…]`, appelé ici avec la compétence en
+  // cours. Une liste reste acceptée telle quelle : c'est le masque d'école, et
+  // tous les appelants d'avant continuent de marcher sans rien changer.
+  const masque = new Set(typeof masques === 'function' ? (masques(competenceId) || []) : (masques || []));
   return bareme
     .filter((b) => b.niveau_id === niveauSlug && b.competence_id === competenceId && (b.aptitude || 'apte') === aptitude)
     .filter((b) => !masque.has(b.critere_id))

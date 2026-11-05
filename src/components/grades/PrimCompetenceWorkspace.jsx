@@ -22,6 +22,8 @@ import { useT } from '../../lib/i18n';
 import { validateGrade, gradeColor } from '../../lib/gradeEntry';
 import { celluleSuivante } from '../../lib/gridNavigation';
 import { toast } from '../../store/toastStore';
+import { criteresMasquesPourClasse, resolveurCriteresMasques, notesDuCritere }
+  from '../../core/primCriteresClasse';
 import { nonEvalKey } from '../../lib/primService';
 import {
   isSubjectScoped, isSubjectScopedForClass, canManageClassSubjects, refLineScope,
@@ -45,7 +47,7 @@ import { baremeEnVigueur, notesHorsBareme, notesSaisies, baremeOuverture } from 
 // Le PÉRIMÈTRE de la classe — ses matières cochées dans « Modifier la classe ».
 // Le bulletin l'applique déjà (primForClass) : la saisie doit lister EXACTEMENT
 // les mêmes compétences, sinon on saisit des notes qui ne s'impriment jamais.
-import { primForClass, unmatchedClassSubjects, primSubjectsNeedingOwnCompetence, scopeOf } from '../../core/refClassScope';
+import { primForClass, masquesDeClasse, unmatchedClassSubjects, primSubjectsNeedingOwnCompetence, scopeOf } from '../../core/refClassScope';
 // Les six familles du carnet, prises à la MÊME source que les bandeaux imprimés :
 // ce que l'école choisit ici est exactement ce qui s'imprimera.
 import { FAMILLES_PRIMAIRE, familleLabel } from '../../core/primCompactRows';
@@ -116,7 +118,7 @@ function BaremeCell({ value, disabled, onCommit }) {
 // un 17 tapé dans une colonne sur 14 s'effaçait sans un mot, et l'enseignant lit
 // cela comme une saisie que l'application a perdue. On nomme donc la raison —
 // c'est le barème de la colonne, et il se change juste au-dessus.
-function NoteCell({ value, statut, max, disabled, onCommit, onStatut, onRefus, champRef, onNav }) {
+function NoteCell({ value, statut, max, disabled, onCommit, onStatut, onRefus, champRef, onNav, nonEnregistree }) {
   const [local, setLocal] = useState(value ?? '');
   useEffect(() => { setLocal(value ?? ''); }, [value]);
   const commit = () => {
@@ -155,10 +157,17 @@ function NoteCell({ value, statut, max, disabled, onCommit, onStatut, onRefus, c
         onBlur={commit}
         onKeyDown={onKeyDown}
         placeholder={absent ? 'Abs' : '—'}
-        className={`w-16 text-center rounded border border-gray-200 px-1 py-1 text-sm
+        // PAS ENCORE ENREGISTRÉE : la note est en base locale et dans la file d'envoi,
+        // mais le serveur ne l'a pas acceptée. On le MONTRE (cadre rouge épais) plutôt
+        // que de la laisser s'effacer en silence au rafraîchissement suivant.
+        title={nonEnregistree
+          ? 'Note pas encore enregistrée sur le serveur — elle est gardée ici et sera renvoyée.'
+          : undefined}
+        className={`w-16 text-center rounded px-1 py-1 text-sm
           focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-300
           placeholder:text-gray-300 disabled:bg-amber-50 disabled:border-amber-200
           disabled:placeholder:text-amber-600 disabled:italic
+          ${nonEnregistree ? 'border-2 border-red-500 bg-red-50' : 'border border-gray-200'}
           ${absent ? '' : gradeColor(local, max, 'ES')}`}
       />
       {onStatut && (
@@ -201,14 +210,19 @@ export default function PrimCompetenceWorkspace() {
   const referentiel = useSchoolStore((s) => s.primReferentiel);
   const primNotes   = useSchoolStore((s) => s.primNotes);
   const primNotesPrets = useSchoolStore((s) => s.primNotesPrets);
+  const primNotesEnAttente = useSchoolStore((s) => s.primNotesEnAttente);
   const loadPrim    = useSchoolStore((s) => s.loadPrim);
   const savePrimNote = useSchoolStore((s) => s.savePrimNote);
   const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
   const setPrimNonEvalueeAction = useSchoolStore((s) => s.setPrimNonEvaluee);
-  const masques        = useSchoolStore((s) => s.refMasques.prim);
+  const masquesEcole   = useSchoolStore((s) => s.refMasques.prim);
+  const masquesClasse  = useSchoolStore((s) => s.refMasquesClasse);
   // Les CRITÈRES que l'école n'évalue pas : ils retirent une COLONNE de saisie,
   // là où `masques` retire une LIGNE de compétence.
-  const masquesCrit    = useSchoolStore((s) => s.refMasques.prim_crit);
+  const masquesCritEcole = useSchoolStore((s) => s.refMasques.prim_crit);          // masques d'école déjà posés : toutes les classes
+  const critParClasse  = useSchoolStore((s) => s.refCriteresMasquesClasse);
+  const masquerCritereClasse   = useSchoolStore((s) => s.masquerCritereClasse);
+  const restaurerCritereClasse = useSchoolStore((s) => s.restaurerCritereClasse);
   const libelles       = useSchoolStore((s) => s.refLibelles.prim);
   const loadRefMasques = useSchoolStore((s) => s.loadRefMasques);
   const addRef         = useSchoolStore((s) => s.addRefLigne);
@@ -222,6 +236,17 @@ export default function PrimCompetenceWorkspace() {
   const setClassId = useUiStore((s) => s.setGradesClassId);
   const [ua, setUa] = useState(1);
   const [competenceId, setCompetenceId] = useState('');
+  // LES CRITÈRES RETIRÉS POUR CETTE CLASSE **ET CETTE COMPÉTENCE** (union avec les masques
+  // d'école déjà posés). La compétence fait partie de la portée depuis le 2026-11-05 :
+  // retirer « Pratique » en TIC ne doit pas le retirer en Dictée.
+  const masquesCrit = useMemo(
+    () => criteresMasquesPourClasse(masquesCritEcole, critParClasse, classId, competenceId),
+    [masquesCritEcole, critParClasse, classId, competenceId]);
+  // Pour ce qui parcourt LES ONZE compétences (la feuille de notes à imprimer), le masque
+  // ne peut pas être une liste plate : chaque compétence a la sienne.
+  const masquesCritPour = useMemo(
+    () => resolveurCriteresMasques(masquesCritEcole, critParClasse, classId),
+    [masquesCritEcole, critParClasse, classId]);
   // Barème posé sur une colonne encore VIDE : il n'a nulle part où être stocké
   // (le barème vit sur les notes) tant qu'aucune note n'existe. On le retient donc
   // le temps de la saisie, pour que la colonne s'affiche et se borne déjà au bon
@@ -297,6 +322,9 @@ export default function PrimCompetenceWorkspace() {
   // rapproche du référentiel garde la liste complète plutôt qu'un écran vide.
   // Sans lui, la saisie offrait des compétences que le bulletin n'imprimait pas.
   const classSubjects = useMemo(() => classSubjectsOf(subjects, classId), [subjects, classId]);
+
+  // Masques de l'école + masques de CETTE classe : la saisie lit la même liste que le bulletin.
+  const masques = useMemo(() => masquesDeClasse(masquesEcole, masquesClasse, classId), [masquesEcole, masquesClasse, classId]);
 
   const competences = useMemo(() => {
     if (!referentiel || !niveauSlug) return [];
@@ -437,15 +465,6 @@ export default function PrimCompetenceWorkspace() {
   // le barème. Ce nombre est ce qui transforme « je retire une colonne vide »
   // en « je retire 412 notes de l'affichage » — la seule phrase qui arrête un
   // geste dont on ne mesurait pas la portée.
-  const notesParCritere = useMemo(() => {
-    const par = {};
-    for (const n of Object.values(primNotes || {})) {
-      if (!n?.critere_id) continue;
-      if (n.note == null || n.note === '') continue;
-      par[n.critere_id] = (par[n.critere_id] || 0) + 1;
-    }
-    return par;
-  }, [primNotes]);
 
   // ── UNE COMPÉTENCE MASQUÉE QUE LA CLASSE ENSEIGNE POURTANT ────────────────
   //
@@ -503,6 +522,19 @@ export default function PrimCompetenceWorkspace() {
   // L'ordre de la LISTE DE CLASSE, et lui seul : c'est de lui que découle le
   // numéro affiché en colonne « N° » (cf. core/ordreClasse).
   const classStudents = useMemo(() => elevesDeClasse(students, classId), [students, classId]);
+
+  // COMPTÉ POUR CE QUE LE GESTE TOUCHE, ET RIEN DE PLUS : les élèves de CETTE classe, sur
+  // CETTE compétence. Le compte portait sur toute l'école et toutes les compétences — il
+  // annonçait « 412 notes » pour un geste qui n'en concernait que douze, ce qui fait douter
+  // d'un avertissement juste autant qu'un avertissement absent.
+  const notesParCritere = useMemo(() => {
+    const ids = new Set(classStudents.map((e) => e.id));
+    const par = {};
+    for (const cr of referentiel?.criteres || []) {
+      par[cr.id] = notesDuCritere(primNotes, ids, competenceId, cr.id);
+    }
+    return par;
+  }, [primNotes, classStudents, competenceId, referentiel]);
 
   // Colonnes de critères pour la compétence sélectionnée. Pour '6a' (sport), le
   // barème dépend de l'aptitude — on affiche l'UNION apte/inapte (la colonne
@@ -601,6 +633,31 @@ export default function PrimCompetenceWorkspace() {
   };
   const statutFor = (eleveId, critereId) =>
     primNotes[primNkey(eleveId, competenceId, critereId, ua)]?.statut || null;
+
+  // ── CETTE NOTE EST-ELLE VRAIMENT ENREGISTRÉE ? ────────────────────────────
+  //
+  // « J'ajoute les notes ici, ça ne persiste pas » (2026-11-05). La note était bien
+  // écrite en local, mais le serveur la refusait, et PERSONNE ne le disait : au
+  // rafraîchissement suivant elle disparaissait de l'écran. Elle reste maintenant
+  // affichée, en rouge, et la cellule porte la raison au survol. Ce n'est pas un
+  // détail d'ergonomie : une note qui s'efface sans un mot se fait ressaisir trois
+  // fois, puis l'école cesse de croire ce que l'écran montre.
+  const enAttente = useMemo(() => new Set(primNotesEnAttente || []), [primNotesEnAttente]);
+  const nonEnregistree = (eleveId, critereId) =>
+    enAttente.has(primNkey(eleveId, competenceId, critereId, ua));
+  // Celles de la classe et de la compétence AFFICHÉES — le compte doit porter sur ce
+  // que l'enseignante a sous les yeux, sinon il l'inquiète sans l'aider.
+  const attenteIci = useMemo(() => {
+    if (!enAttente.size) return [];
+    const out = [];
+    for (const stu of classStudents) {
+      for (const c of referentiel?.criteres || []) {
+        const k = primNkey(stu.id, competenceId, c.id, ua);
+        if (enAttente.has(k) && primNotes[k]?.note != null) out.push({ stu, critere: c });
+      }
+    }
+    return out;
+  }, [enAttente, classStudents, referentiel, competenceId, ua, primNotes]);
 
   // Cette compétence a-t-elle été déclarée non évaluée pour cette classe à cette
   // UA ? Le toast en cas de refus n'est pas décoratif : la case est optimiste,
@@ -755,13 +812,22 @@ export default function PrimCompetenceWorkspace() {
     //
     // Aucune migration n'est nécessaire : `prim_notes.note` est nullable et
     // `points_max` existe déjà, en LAN comme en cloud.
+    // ── CE GESTE NE PARLE QUE DU BARÈME, JAMAIS DES NOTES ────────────────────
+    //
+    // RELEVÉ LE 2026-11-05, et c'est la cause des notes du primaire effacées :
+    // la boucle écrivait `note: r?.note ?? null`, soit la note que l'ÉTAT EN
+    // MÉMOIRE croyait connaître. Pour tout élève absent de cet état — lecture
+    // serveur incomplète, onglet ouvert avant l'arrivée des notes, autre
+    // enseignante ayant saisi entre-temps — elle écrivait donc `null` PAR-DESSUS
+    // une note bien réelle. Régler un barème effaçait des notes qu'on n'avait
+    // jamais vues.
+    //
+    // `note` n'est plus transmis : `savePrimNote` lit `undefined` comme « je ne
+    // parle pas de la note » et conserve celle de la ligne, en base comme en
+    // cache. L'écriture reste UNE LIGNE PAR ÉLÈVE (le barème vit sur les notes),
+    // mais elle ne porte plus que `points_max`.
     for (const stu of classStudents) {
-      const r = primNotes[primNkey(stu.id, competenceId, critereId, ua)];
-      savePrimNote({
-        eleveId: stu.id, competenceId, critereId, ua,
-        note: r?.note ?? null,
-        pointsMax: nouveau,
-      });
+      savePrimNote({ eleveId: stu.id, competenceId, critereId, ua, pointsMax: nouveau });
     }
   };
 
@@ -836,6 +902,39 @@ export default function PrimCompetenceWorkspace() {
   // Les colonnes fermées ne disparaissent pas pour autant : elles s'ouvrent
   // d'un clic sous le tableau, au barème que l'école emploie déjà. Sans cette
   // porte, « désactiver » deviendrait « supprimer ».
+  // ── RETIRER UN CRITÈRE : POUR CETTE CLASSE SEULEMENT ─────────────────────
+  // Avant, le geste écrivait `prim_criteres_masques` : un masque d'ÉCOLE, donc « Pratique » retiré en CE1
+  // disparaissait aussi de la CM2 (demande du 2026-11-05). Il écrit maintenant le masque de la classe.
+  // Un masque d'école déjà posé (avant cette règle) vaut toujours pour toutes les classes : le réafficher
+  // reste un geste d'école, et il le dit.
+  // LE GESTE PORTE SUR (CETTE CLASSE, CETTE COMPÉTENCE). Et il le DIT avant d'agir : le
+  // nombre de notes que la colonne porte ici est la seule phrase qui distingue « je retire
+  // une colonne vide » de « je retire douze notes de l'affichage ». Aucune note n'est
+  // touchée — elles restent en base et reviennent au démasquage.
+  const nomCompetence = () => (competences.find((c) => c.id === competenceId)?.intitule
+    || String(competenceId || '').toUpperCase());
+  // La phrase d'avertissement de l'éditeur, à la portée EXACTE du geste : ni l'école, ni
+  // la classe entière — cette compétence, dans cette classe. Et ce que le masque NE fait
+  // pas : il ne supprime aucune note.
+  const messageMasqueCritere = (l, n) => t(
+    `Cliquez sur ✓ pour retirer « ${l.intitule || l.id} » de ${nomCompetence()}, pour ${selectedClass?.name || 'cette classe'} UNIQUEMENT — les autres compétences et les autres classes n’y touchent pas.${n > 0 ? ` ${n} note(s) déjà saisie(s) cesseront d’être affichées et comptées, SANS être supprimées : elles reviennent si vous réaffichez le critère.` : ''}`,
+    `Click ✓ to remove “${l.intitule || l.id}” from ${nomCompetence()}, for ${selectedClass?.name || 'this class'} ONLY — other competences and other classes are untouched.${n > 0 ? ` ${n} mark(s) already entered will stop being shown and counted, WITHOUT being deleted: they come back if you restore the criterion.` : ''}`,
+  );
+  const masquerCritere = async (l) => {
+    const r = await masquerCritereClasse(classId, competenceId, l.id);
+    if (r?.error) {
+      toast.error(r.error === 'offline'
+        ? t('Hors ligne : le critère ne peut pas être retiré maintenant.', 'Offline: the criterion cannot be removed right now.')
+        : t('Impossible de retirer ce critère pour cette classe : la mise à jour du Cloud doit d’abord être appliquée.',
+            'Cannot remove this criterion for this class: the Cloud update must be applied first.'));
+    }
+  };
+  const demasquerCritere = async (l) => {
+    if ((masquesCritEcole || []).includes(l.id)) { await restoreRef('prim_crit', l.id); return; }   // masque d'école : toutes les classes
+    const r = await restaurerCritereClasse(classId, competenceId, l.id);
+    if (r?.error) toast.error(t('Impossible de réafficher ce critère maintenant.', 'Cannot show this criterion right now.'));
+  };
+
   const criteresActifs = criteres.filter((c) => baremeFor(c.id) > 0);
   const criteresFermes = criteres.filter((c) => baremeFor(c.id) <= 0);
   // Ouvrir une colonne fermée : même barème de départ que « Écrit » à
@@ -874,7 +973,7 @@ export default function PrimCompetenceWorkspace() {
     const out = [];
     for (const comp of competences) {
       const colonnes = [];
-      for (const cr of criteresForCompetence(referentiel, niveauSlug, comp.id, 'apte', masquesCrit)) {
+      for (const cr of criteresForCompetence(referentiel, niveauSlug, comp.id, 'apte', masquesCritPour)) {
         const bareme = baremeEnVigueur(
           classStudents.map((stu) => primNotes[primNkey(stu.id, comp.id, cr.id, ua)]),
           cr.points_max,
@@ -1009,7 +1108,7 @@ export default function PrimCompetenceWorkspace() {
             (referentiel?.competences || []).map((c) => ({ ...c, intitule: primCompetenceLabel(c, sys) })),
             libelles,
           )}
-          masques={masques}
+          masques={masquesEcole}
           motSingulier={t('compétence', 'competency')}
           renommable={() => true}
           onRename={(l, nom) => renameRef('prim', l.id, nom)}
@@ -1039,8 +1138,8 @@ export default function PrimCompetenceWorkspace() {
         <ReferentielEditor
           titre={t('Critères évalués', 'Assessed criteria')}
           sousTitre={t(
-            'Le référentiel MINEDUB en propose quatre. Retirez ceux que votre école n’évalue pas : leur colonne quitte la saisie et le bulletin, et leurs points quittent le barème. Réversible.',
-            'The MINEDUB framework offers four. Remove those your school does not assess: their column leaves entry and the report card, and their points leave the scale. Reversible.',
+            `Le référentiel MINEDUB en propose quatre. Retirez ceux que cette classe n’évalue pas EN ${nomCompetence()} : leur colonne quitte la saisie, le bulletin et le barème — pour cette compétence et cette classe seulement, pas pour les autres. Les notes déjà saisies sont conservées. Réversible.`,
+            `The MINEDUB framework offers four. Remove those this class does not assess IN ${nomCompetence()}: their column leaves entry, the report card and the scale — for this competence and this class only. Marks already entered are kept. Reversible.`,
           )}
           lignes={(referentiel?.criteres || [])
             .slice()
@@ -1049,10 +1148,13 @@ export default function PrimCompetenceWorkspace() {
           masques={masquesCrit}
           motSingulier={t('critère', 'criterion')}
           renommable={() => false}
-          onMasquer={(l) => removeRef('prim_crit', l.id)}
-          onSupprimer={(l) => removeRef('prim_crit', l.id)}
-          onDemasquer={(l) => restoreRef('prim_crit', l.id)}
+          onMasquer={masquerCritere}
+          onSupprimer={masquerCritere}
+          onDemasquer={demasquerCritere}
           nbNotes={(l) => notesParCritere[l.id] || 0}
+          messageMasque={messageMasqueCritere}
+          titreMasquer={() => t(`Retirer en ${nomCompetence()}, pour cette classe seulement`,
+            `Remove in ${nomCompetence()}, for this class only`)}
           onClose={() => setCritOpen(false)}
         />
       )}
@@ -1143,6 +1245,28 @@ export default function PrimCompetenceWorkspace() {
       {baremeMsg && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           {baremeMsg.text}
+        </div>
+      )}
+
+      {/* DES NOTES QUE LE SERVEUR N'A PAS ACCEPTÉES.
+          « J'ajoute les notes ici, ça ne persiste pas » (2026-11-05). Elles étaient
+          bien écrites en local, le serveur les refusait, et rien ne le disait : le
+          rafraîchissement suivant les faisait disparaître de l'écran. Elles sont
+          maintenant CONSERVÉES et ANNONCÉES — avec le nom des élèves concernés,
+          parce qu'« une note n'est pas enregistrée » sans dire laquelle ne permet
+          rien de plus que de tout ressaisir. */}
+      {attenteIci.length > 0 && (
+        <div role="alert" className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+          <span className="font-semibold">
+            {t(`${attenteIci.length} note(s) pas encore enregistrée(s) sur le serveur`,
+               `${attenteIci.length} mark(s) not saved to the server yet`)}
+          </span>
+          {' — '}
+          {attenteIci.slice(0, 4).map(({ stu, critere }) => `${stu.name} (${primCritereLabel(critere, sys)})`).join(', ')}
+          {attenteIci.length > 4 ? '…' : ''}
+          {'. '}
+          {t('Elles sont gardées sur cet appareil et renvoyées automatiquement : ne les ressaisissez pas. Si le message dure, le serveur les refuse — prévenez le support avec cette phrase.',
+             'They are kept on this device and resent automatically: do not re-enter them. If this message persists, the server is rejecting them — tell support, quoting this message.')}
         </div>
       )}
 
@@ -1273,6 +1397,7 @@ export default function PrimCompetenceWorkspace() {
               onStatut={(s) => setStatut(stu.id, c.id, s)}
               max={baremeFor(c.id)}
               onRefus={noteRefusee}
+              nonEnregistree={nonEnregistree(stu.id, c.id)}
               disabled={!new Set(criteresForStudent(stu).map((x) => x.id)).has(c.id)}
               onCommit={(v) => savePrimNote({
                 eleveId: stu.id, competenceId, critereId: c.id, ua,
@@ -1329,6 +1454,7 @@ export default function PrimCompetenceWorkspace() {
                           onStatut={(s) => setStatut(stu.id, c.id, s)}
                           max={baremeFor(c.id)}
                           onRefus={noteRefusee}
+                          nonEnregistree={nonEnregistree(stu.id, c.id)}
                           disabled={!studentCritereIds.has(c.id)}
                           champRef={poserCellule(ri, ci)}
                           onNav={naviguer(ri, ci)}

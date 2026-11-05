@@ -115,8 +115,16 @@ export function buildPrimNoteRecord({ id, schoolId, eleveId, competenceId, crite
   };
 }
 
-export async function upsertPrimNote(record) {
+// `sansNote` = CETTE ÉCRITURE NE PARLE PAS DE LA NOTE (réglage de barème). La colonne
+// `note` est alors RETIRÉE de la charge envoyée, et ce n'est pas un détail de style :
+// un upsert PostgREST fait `ON CONFLICT DO UPDATE SET` sur les colonnes FOURNIES. En
+// l'omettant, l'insertion laisse `note` à NULL (aucune note n'est connue) et la mise à
+// jour n'y TOUCHE PAS — y compris pour une note que cet appareil n'a jamais lue. C'est
+// ce qui empêche un barème d'effacer la saisie d'une collègue. Même effet côté serveur
+// d'école : `runQuery` ne met à jour que les colonnes présentes.
+export async function upsertPrimNote(record, { sansNote = false } = {}) {
   const { nkey, ...row } = record;
+  if (sansNote) delete row.note;
   const { error } = await supabase
     .from('prim_notes')
     .upsert(row, { onConflict: 'eleve_id,competence_id,critere_id,ua' });

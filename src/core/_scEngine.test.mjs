@@ -1,6 +1,6 @@
 // Test du cœur pur du second cycle : coef par (série,classe) distinct, groupement,
 // matières optionnelles, + résolution du moteur par classe. Aucune dépendance.
-import { matieresForSerieClasse, groupSubtotals, subjectsFromReferentiel, vieScolaireAutoConduite } from './scEngine.js';
+import { matieresForSerieClasse, groupSubtotals, subjectsFromReferentiel, vieScolaireAutoConduite, assembleScBulletin } from './scEngine.js';
 import { resolveClassEngine, isFirstCycle, isSecondCycle, secondCycleClasseSlug } from './engineResolver.js';
 
 let failed = false;
@@ -79,6 +79,31 @@ ok(vsAuto.blameConduiteAuto === 1, 'blame_conduite auto = 1 (blâme seq 4 unique
 ok(vsAuto.exclusionsAuto === 3, 'exclusions auto = 3 j (2 + défaut 1)');
 const vsEmpty = vieScolaireAutoConduite([], 'K', 'E1', [1, 2]);
 ok(vsEmpty.averConduiteAuto === 0 && vsEmpty.blameConduiteAuto === 0 && vsEmpty.exclusionsAuto === 0, 'aucune sanction → tout à zéro');
+
+// ── Bulletin ANGLOPHONE d'une classe /20 (FORM1) : moteur /100, document /20 ──
+{
+  const subjects = [
+    { id: 'a', name: 'English Language', coef: 4, max: 20 },
+    { id: 'b', name: 'Biology', coef: 2, max: 20 },
+    { id: 'c', name: 'Physical Education', coef: 2, max: 20 },
+  ];
+  const allGrades = { F1_s1_1: { a: '17', b: '16', c: '18' } };
+  const data = assembleScBulletin({
+    subjects, allGrades, classId: 'F1', student: { id: 's1' }, seqs: [1], sys: 'EN',
+    generalRank: '19ème',
+    classStats: { avg: 75.64, min: 46.09, max: 96, count: 41, rate: 98 },
+    subjectRanks: { a: { s1: '23e' }, c: { s1: '1er' } },
+  });
+  const rows = data.groups.flatMap((g) => g.rows);
+  ok(rows.find((r) => r.id === 'a').appreciation.startsWith('A1'), '17/20 → A1 (et non F9 — Fail)');
+  ok(rows.find((r) => r.id === 'c').appreciation.startsWith('A1'), '18/20 → A1');
+  ok(Math.abs(data.moyenneGenerale - 17) < 0.01, `moyenne générale ramenée à /20 (obtenu ${data.moyenneGenerale})`);
+  ok(data.appreciation.startsWith('A1'), 'mention générale lue sur le pourcentage');
+  ok(data.classStats.avg === 15.13 && data.classStats.min === 9.22 && data.classStats.max === 19.2, `profil de classe /100 → /20 (${JSON.stringify(data.classStats)})`);
+  ok(data.generalRank === '19th' && rows.find((r) => r.id === 'a').rang === '23rd' && rows.find((r) => r.id === 'c').rang === '1st', 'rangs en anglais');
+  const fr = assembleScBulletin({ subjects, allGrades, classId: 'F1', student: { id: 's1' }, seqs: [1], sys: 'FR', generalRank: '19ème' });
+  ok(fr.generalRank === '19ème', 'FR : le rang reste en français');
+}
 
 console.log(failed ? '\n❌ DES TESTS ONT ÉCHOUÉ' : '\n✅ Tous les tests SC passent');
 process.exit(failed ? 1 : 0);

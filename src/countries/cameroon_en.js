@@ -1,5 +1,8 @@
 // Cameroon — Anglophone (English-speaking) system.
-// Grades /100, three Terms per academic year.
+// Grades /100. SIX sequences per academic year, grouped two by two into three
+// Terms — the same evaluation calendar as the francophone sub-system, because a
+// bilingual school runs ONE calendar for both of its wings. The Term stays the
+// unit that is reported on; the Sequence is the unit that is marked.
 
 export const cameroonEn = {
   code: 'cameroon_en',
@@ -33,13 +36,13 @@ export const cameroonEn = {
   ],
 
   periods: {
-    sequences: [1, 2, 3],
+    sequences: [1, 2, 3, 4, 5, 6],
     trimestres: [
-      { value: 'term_1', label: 'Term 1', short: 'T1', seqs: [1] },
-      { value: 'term_2', label: 'Term 2', short: 'T2', seqs: [2] },
-      { value: 'term_3', label: 'Term 3', short: 'T3', seqs: [3] },
+      { value: 'term_1', label: 'Term 1', short: 'T1', seqs: [1, 2] },
+      { value: 'term_2', label: 'Term 2', short: 'T2', seqs: [3, 4] },
+      { value: 'term_3', label: 'Term 3', short: 'T3', seqs: [5, 6] },
     ],
-    annuel: { value: 'annual', label: 'Annual', seqs: [1, 2, 3] },
+    annuel: { value: 'annual', label: 'Annual', seqs: [1, 2, 3, 4, 5, 6] },
   },
 
   examClasses: ['Class 6', 'Form 5', 'Upper Sixth'],
@@ -71,8 +74,8 @@ export const cameroonEn = {
 
   // Evaluation engine — Cameroon anglophone (unchanged). Marks /100.
   evaluation: {
-    periodType:     'term',               // 3 terms
-    evaluationModel: 'term',
+    periodType:     'sequence',           // 6 sequences grouped into 3 terms
+    evaluationModel: 'sequentiel',
     subjectTrimestral: 'term_mark',
     subjectFinal:    'annual_average',
     termAverage:     'weighted_mean',     // weighted by coefficient

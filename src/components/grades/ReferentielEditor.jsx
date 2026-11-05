@@ -48,6 +48,18 @@ export default function ReferentielEditor({
   // saisir, et 18 notes déjà posées ne s'imprimaient plus. Personne ne
   // pouvait relier l'un à l'autre.
   nbNotes = () => 0,        // (ligne) => number
+  // ── CE QUE LE MASQUE EMPORTE, DIT PAR CELUI QUI CONNAÎT SA PORTÉE ───────
+  //
+  // La phrase d'avertissement disait « dans votre école » pour tout le monde.
+  // C'était vrai de l'APC et de la maternelle, et c'est devenu FAUX des critères
+  // du primaire, dont le masque ne vaut plus que pour une classe et une
+  // compétence. Un écran qui annonce une portée plus large que la vraie fait
+  // renoncer à un geste juste ; l'inverse fait perdre des colonnes partout.
+  // L'appelant fournit donc sa phrase quand la sienne n'est pas celle-ci.
+  messageMasque = null,     // (ligne, nbNotes) => string | null
+  // L'infobulle du « × » disait elle aussi « dans cette école ». Un survol qui annonce
+  // une portée plus large que la vraie suffit à faire renoncer.
+  titreMasquer = null,      // () => string | null
   // ── OÙ SE RANGE UNE LIGNE MAISON ────────────────────────────────────────
   //
   // Le carnet du primaire totalise par FAMILLE. Une ligne maison n'a pas de
@@ -254,7 +266,9 @@ export default function ReferentielEditor({
                         className="shrink-0 text-xs font-bold text-red-600 hover:text-red-700">✓</button>
                     ) : (
                       <button type="button" disabled={busy} onClick={() => setConfirmId(l.id)}
-                        title={estNational(l) ? t('Masquer dans cette école', 'Hide in this school') : t('Supprimer', 'Delete')}
+                        title={estNational(l)
+                          ? (titreMasquer?.() || t('Masquer dans cette école', 'Hide in this school'))
+                          : t('Supprimer', 'Delete')}
                         className="shrink-0 text-gray-300 hover:text-red-500 text-sm">×</button>
                     )}
                   </div>
@@ -266,8 +280,9 @@ export default function ReferentielEditor({
           {cible && (
             <p className="text-xs text-red-600">
               {estNational(cible)
-                ? t(`Cliquez sur ✓ pour masquer ${cible.intitule} dans votre école. Elle sortira de la saisie ET du bulletin${nbNotes(cible) > 0 ? ` — ${nbNotes(cible)} note(s) déjà saisie(s) cesseront de s'imprimer, sans être supprimées` : ''}. La ligne officielle reste intacte pour les autres établissements, et vous pouvez la rétablir ici même.`,
-                    `Click ✓ to hide ${cible.intitule} in your school. It will leave both the entry screen AND the report card${nbNotes(cible) > 0 ? ` — ${nbNotes(cible)} mark(s) already entered will stop printing, without being deleted` : ''}. The official row stays intact for other schools, and you can restore it right here.`)
+                ? (messageMasque?.(cible, nbNotes(cible))
+                  || t(`Cliquez sur ✓ pour masquer ${cible.intitule} dans votre école. Elle sortira de la saisie ET du bulletin${nbNotes(cible) > 0 ? ` — ${nbNotes(cible)} note(s) déjà saisie(s) cesseront de s'imprimer, sans être supprimées` : ''}. La ligne officielle reste intacte pour les autres établissements, et vous pouvez la rétablir ici même.`,
+                    `Click ✓ to hide ${cible.intitule} in your school. It will leave both the entry screen AND the report card${nbNotes(cible) > 0 ? ` — ${nbNotes(cible)} mark(s) already entered will stop printing, without being deleted` : ''}. The official row stays intact for other schools, and you can restore it right here.`))
                 : t('Cliquez sur ✓ pour supprimer. Impossible si des notes y sont déjà rattachées — masquez-la plutôt.',
                     'Click ✓ to delete. Not possible if marks are already attached — hide it instead.')}
             </p>

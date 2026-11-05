@@ -225,6 +225,38 @@ export function estServiceHorsScolarite(item) {
 }
 
 /**
+ * Ce qu'un élève a versé sur des SERVICES (cantine, transport, tenue…), par élève.
+ *
+ * LE DÉFAUT QUE CECI CORRIGE (audit, 05/11/2026) : des élèves marqués « Payé
+ * intégral » alors qu'ils n'avaient pas soldé la scolarité — payé affiché 350 000
+ * pour une scolarité de 130 000. `student_fees.frais_payes` additionne TOUS les
+ * versements de l'élève, services compris ; or depuis le 31/10 les services sont
+ * sortis du « Dû » des frais scolaires. Le payé gardait donc l'argent de la
+ * cantine, le dû non : la scolarité paraissait soldée par les mensualités de
+ * cantine.
+ *
+ * Les versements d'un service sont retrouvés par leur frais (`student_fee_item_id`)
+ * — y compris pour un frais RETIRÉ ensuite, dont l'argent reste acquis. La somme
+ * est algébrique : une contre-passation (montant négatif) se retranche.
+ * Un versement sans frais rattaché est un versement global : il reste dans la
+ * scolarité, comme avant.
+ *
+ * @returns {Object<string, number>} studentId → total versé sur des services
+ */
+export function servicePaidByStudent(studentItems = [], payments = []) {
+  const serviceIds = new Set(
+    (studentItems || []).filter((si) => si && estServiceHorsScolarite(si)).map((si) => si.id),
+  );
+  const out = {};
+  if (!serviceIds.size) return out;
+  for (const p of payments || []) {
+    if (!p || !p.student_fee_item_id || !serviceIds.has(p.student_fee_item_id)) continue;
+    out[p.student_id] = (out[p.student_id] || 0) + (Number(p.amount) || 0);
+  }
+  return out;
+}
+
+/**
  * Dû du catalogue NET de ce que la grille couvre déjà. C'est ce montant, et non
  * `studentTotals().due`, qui doit entrer dans le « Dû » d'un élève.
  *

@@ -426,9 +426,20 @@ export function sumPaidForStudent(payments, studentId, academicYear = null) {
 // Recalcule frais_payes à une MUTATION (ajout / suppression de versement), en
 // préservant le socle opaque importé. rowsSumBefore/After = somme des lignes
 // avant/après la mutation. newPaid = baseline + rowsSumAfter.
-export function derivePaid(prevCachedPaid, rowsSumBefore, rowsSumAfter) {
+//
+// GARDE-FOU DU SOCLE FANTÔME (audit GENIUS 2026-11-06). Si des lignes disparaissent
+// hors application (nettoyage SQL), le cache reste haut ; `cache − lignes` passe alors
+// pour un « solde importé » et s'ajoute au versement RESSAISI : 210 000 + 210 000 =
+// 420 000 pour 210 000 dus. Quand le dû (`dueTotal`) est connu, le socle ne peut donc
+// plus faire dépasser max(dû, lignes) : le résultat est borné. Les lignes elles-mêmes
+// ne sont jamais bornées (un vrai trop-perçu reste visible, et reconcilePaid le relève).
+export function derivePaid(prevCachedPaid, rowsSumBefore, rowsSumAfter, dueTotal = null) {
   const baseline = Math.max(0, toInt(prevCachedPaid) - toInt(rowsSumBefore));
-  return Math.max(0, baseline + toInt(rowsSumAfter));
+  const after = toInt(rowsSumAfter);
+  const raw = Math.max(0, baseline + after);
+  const due = toInt(dueTotal);
+  if (dueTotal == null || due <= 0) return raw;
+  return Math.min(raw, Math.max(due, after, 0));
 }
 
 // Réconciliation MONOTONE au chargement : ne corrige qu'une SOUS-évaluation du

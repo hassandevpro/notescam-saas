@@ -44,6 +44,16 @@ ok(derivePaid(200000, before, after) === 150000, 'socle importé préservé (50 
 // Un montant ne peut pas devenir négatif, même si on annule plus que le socle.
 ok(derivePaid(50000, 150000, -20000) === 0, 'frais_payes borné à 0, jamais négatif');
 
+// Régression audit 2026-11-06 : ligne de 210 000 supprimée hors app (cache resté 210 000),
+// versement de 210 000 ressaisi → l'ancien code donnait 420 000 pour 210 000 dus.
+ok(derivePaid(210000, 0, 210000) === 420000, 'sans dû connu : comportement historique inchangé');
+ok(derivePaid(210000, 0, 210000, 210000) === 210000, 'socle fantôme borné au dû (plus de doublement)');
+ok(derivePaid(100000, 0, 50000, 180000) === 150000, 'vrai socle importé sous le dû : préservé');
+ok(derivePaid(0, 0, 250000, 210000) === 250000, 'vrai trop-perçu en lignes : jamais tronqué');
+// Rejeu : recalculer deux fois le même état donne le même résultat (idempotence).
+const r1 = derivePaid(210000, 210000, 210000, 210000);
+ok(derivePaid(r1, 210000, 210000, 210000) === r1, 'recalcul répété idempotent');
+
 // ── Réconciliation au chargement : ne doit PAS ressusciter le montant annulé ──
 // Le cache a déjà été abaissé par l'annulation ; rowsSum vaut la même chose.
 ok(reconcilePaid(100000, after) === 100000, 'rechargement : l\'annulation n\'est pas défaite');

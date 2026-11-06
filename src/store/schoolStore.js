@@ -3367,7 +3367,7 @@ export const useSchoolStore = create((set, get) => ({
     // s'écrasent. On préserve le socle opaque importé (cf. feeEngine.derivePaid).
     const existing = fees.find((f) => f.student_id === studentId && f.academic_year === activeYear);
     const rowsBefore = sumPaidForStudent(feePayments, studentId, activeYear);
-    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore + parsedAmount);
+    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore + parsedAmount, existing?.frais_annuels);
 
     await feePaymentsDB.put(record);
     set((s) => ({ feePayments: [record, ...s.feePayments] }));
@@ -3545,7 +3545,7 @@ export const useSchoolStore = create((set, get) => ({
     // somme, donc `frais_payes` se corrige sans soustraction en aveugle.
     const existing = fees.find((f) => f.student_id === studentId && f.academic_year === activeYear);
     const rowsBefore = sumPaidForStudent(feePayments, studentId, activeYear);
-    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore + amount);
+    const newPaid = derivePaid(existing?.frais_payes, rowsBefore, rowsBefore + amount, existing?.frais_annuels);
 
     await feePaymentsDB.put(record);
     set((s) => ({ feePayments: [record, ...s.feePayments] }));

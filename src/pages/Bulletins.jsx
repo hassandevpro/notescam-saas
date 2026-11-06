@@ -3465,6 +3465,12 @@ export default function Bulletins() {
                       Compacte porte les mêmes totaux de période sur UNE page.
                       C'est donc elle qu'on propose, pas une refonte du
                       référentiel de l'école. */}
+                  {attAgg?.unassigned > 0 && (
+                    <span className="no-print text-xs font-medium text-red-600 self-center">
+                      {t(`${attAgg.unassigned} jour(s) d'absence saisis ne sont rattachés à aucune séquence : ils n'apparaissent pas sur les bulletins. Renseignez les dates d'enseignement des séquences (Paramètres → Périodes).`,
+                          `${attAgg.unassigned} absence day(s) are not linked to any sequence and do not appear on the report cards. Set the teaching dates of the sequences (Settings → Periods).`)}
+                    </span>
+                  )}
                   {fitWarning > 0 && (
                     <span className="no-print text-xs font-medium text-amber-600 self-center">
                       {isPrim && primLayout === 'detail'

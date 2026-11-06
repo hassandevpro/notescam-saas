@@ -74,7 +74,6 @@ import { matDomaineLabel, primCompetenceLabel, primCritereLabel, primCoteLabel }
 import { obsNkey } from '../lib/matService';
 import { primNkey } from '../lib/primService';
 import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
-import { resolveurCriteresMasques } from '../core/primCriteresClasse';
 import { useLogoShape } from '../components/useLogoShape';
 import { computePrimClassStats } from '../core/primClassStats';
 import { buildApcRanks, SEQ_TO_TRIM, profilClasse } from '../core/apcEngine';
@@ -1770,7 +1769,6 @@ export default function Bulletins() {
   // Les critères que l'école n'évalue pas. Distincts des masques de COMPÉTENCE
   // ci-dessus : ceux-ci retirent une COLONNE du bulletin, pas une ligne.
   const primCriteresMasquesEcole = useSchoolStore((s) => s.refMasques.prim_crit);
-  const primCritParClasse = useSchoolStore((s) => s.refCriteresMasquesClasse);
   const primLibelles    = useSchoolStore((s) => s.refLibelles.prim);
   const apcLibelles     = useSchoolStore((s) => s.refLibelles.apc);
   const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
@@ -1797,13 +1795,8 @@ export default function Bulletins() {
   const canPrint        = role !== 'teacher' || (myTeacher?.can_print_bulletin ?? true);
 
   const classId   = useUiStore((s) => s.bulletinsClassId);
-  // Les critères retirés valent pour LA classe affichée : masques d'école déjà posés + ceux de cette classe.
-  // UN RÉSOLVEUR, PAS UNE LISTE. Le masque d'un critère vaut pour UNE compétence
-  // d'UNE classe : une liste plate lui rendrait la portée « toute la classe ».
-  // `criteresForCompetence` l'appelle avec la compétence qu'il calcule.
-  const primCriteresMasques = useMemo(
-    () => resolveurCriteresMasques(primCriteresMasquesEcole, primCritParClasse, classId),
-    [primCriteresMasquesEcole, primCritParClasse, classId]);
+  // Critères masqués : la liste de l'école (le choix par classe n'est pas encore en production).
+  const primCriteresMasques = primCriteresMasquesEcole;
   const setClassId   = useUiStore((s) => s.setBulletinsClassId);
 
   // ── Absences : l'appel alimente le bulletin ─────────────────────────────────

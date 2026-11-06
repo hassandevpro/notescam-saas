@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { resolveurCriteresMasques } from '../core/primCriteresClasse';
 import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
@@ -807,7 +806,6 @@ export default function Reports() {
   // Les CRITERES que l'ecole n'evalue pas : sans eux ici, cet ecran
   // moyennerait sur des colonnes que le bulletin n'imprime pas.
   const primCriteresMasquesEcole = useSchoolStore((s) => s.refMasques.prim_crit);
-  const primCritParClasse = useSchoolStore((s) => s.refCriteresMasquesClasse);
   const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
   const loadApc  = useSchoolStore((s) => s.loadApc);
   const loadMat  = useSchoolStore((s) => s.loadMat);
@@ -878,13 +876,8 @@ export default function Reports() {
   const toggleCol = (key) => setCols((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const selectedClass   = classes.find((c) => c.id === classId) || null;
-  // Les critères retirés valent pour LA classe choisie (voir core/primCriteresClasse).
-  // UN RÉSOLVEUR, PAS UNE LISTE. Le masque d'un critère vaut pour UNE compétence
-  // d'UNE classe : une liste plate lui rendrait la portée « toute la classe ».
-  // `criteresForCompetence` l'appelle avec la compétence qu'il calcule.
-  const primCriteresMasques = useMemo(
-    () => resolveurCriteresMasques(primCriteresMasquesEcole, primCritParClasse, classId),
-    [primCriteresMasquesEcole, primCritParClasse, classId]);
+  // Critères masqués : la liste de l'école (le choix par classe n'est pas encore en production).
+  const primCriteresMasques = primCriteresMasquesEcole;
   const sys             = selectedClass?.system || 'FR';
   const isEN            = sys === 'EN';
   const isGE            = resolveCountryCode(school) === 'guinea_eq';

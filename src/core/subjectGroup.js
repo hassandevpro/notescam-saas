@@ -53,6 +53,24 @@ export const APC_GROUPS = [
 
 export const APC_GROUP_KEYS = APC_GROUPS.map((g) => g.key);
 
+// LIBELLÉS PROPRES À UN NIVEAU (demande THE GENIUS, 2026-11-06). Table à modifier ici :
+//   Form 1 / Form 2 → « Science and technology », « Personal development » ;
+//   6ème / 5ème     → « Sciences et technologies », « Développement personnel ».
+// Les autres niveaux gardent les libellés de APC_GROUPS.
+const FORM_1_2 = /^\s*form\s*0?[12](?![0-9])/i;
+const SIXIEME_CINQUIEME = /^\s*[56]\s*(?:e|è|é|ème|eme|ieme|ième)(?![a-zà-ÿ])/i;
+export const LIBELLES_PAR_NIVEAU = [
+  { test: FORM_1_2, labels: { SCIENCES_EXACTES: 'SCIENCE AND TECHNOLOGY', ARTS_SPORTS: 'PERSONAL DEVELOPMENT' } },
+  { test: SIXIEME_CINQUIEME, labels: { SCIENCES_EXACTES: 'SCIENCES ET TECHNOLOGIES', ARTS_SPORTS: 'DÉVELOPPEMENT PERSONNEL' } },
+];
+
+/** Libellé imprimé d'un groupe : celui du niveau de la classe s'il existe, sinon la moitié FR/EN. */
+export function libelleGroupe(group, isEnSys, className) {
+  const n = String(className || '');
+  for (const r of LIBELLES_PAR_NIVEAU) if (r.test.test(n) && r.labels[group.key]) return r.labels[group.key];
+  return (isEnSys ? group.label.split('/')[1] : group.label.split('/')[0]).trim();
+}
+
 /**
  * Repli : groupe déduit du NOM. Table historique du bulletin, CONSERVÉE mot pour
  * mot, et complétée des manques relevés en passant tous les noms officiels du

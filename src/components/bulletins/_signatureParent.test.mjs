@@ -48,6 +48,6 @@ test('EN : « Parent’s signature » n’existe plus ; « Parent / Guardian » 
 
 test('les observations du titulaire gardent leur zone, et la page reste complète', () => {
   const t = rendu('FR', { signatureParent: true });
-  assert.match(t, /Observations du titulaire/);
+  assert.match(t, /Observations de l’enseignant/); // libellé du modèle de l’école (0e4e9ae)
   assert.match(t, /L'Enseignant\(e\)/);
 });

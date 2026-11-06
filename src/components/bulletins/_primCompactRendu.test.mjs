@@ -130,7 +130,8 @@ test('le gabarit affiche le total qu’on lui passe, il ne le recalcule pas', ()
   assert.ok(t.includes('999'), 'le total passé en props doit être affiché tel quel');
   assert.ok(!t.includes(String(somme)), `le gabarit a recalculé le total (${somme})`);
   assert.ok(t.includes('13.68'), 'la moyenne passée en props doit être affichée telle quelle');
-  assert.ok(/Rang.{0,20}3 \/ 8/.test(t), 'le rang passé en props doit être affiché');
+  // Le rang s'écrit « 3e / 8 » (ordinal du modèle de l'école, commit 0e4e9ae), plus « 3 / 8 ».
+  assert.ok(/Rang.{0,20}3e \/ 8/.test(t), 'le rang passé en props doit être affiché');
   assert.ok(t.includes('ECA'), 'la cote passée en props doit être affichée');
 });
 

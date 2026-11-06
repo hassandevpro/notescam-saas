@@ -42,7 +42,9 @@ test('compact : plus grande moyenne, plus petite, moyenne générale, réussis E
   assert.match(t, /Stats de performance/);
   assert.match(t, /Moy. premier 18 /);
   assert.match(t, /Moy. dernier 6 /);
-  assert.match(t, /Moy. générale 11.5 /);
+  // Libellé du modèle de l'école (0e4e9ae) : « Moy. générale » se lisait comme la
+  // moyenne de L'ENFANT, alors que c'est celle de la classe.
+  assert.match(t, /Moyenne de la classe 11.5 /);
   assert.match(t, /Réussis : 3/);
   assert.match(t, /Échoués : 2/);
 });
@@ -64,7 +66,7 @@ test('compact : une classe sans moyenne imprime QUAND MÊME la ligne, avec des t
   assert.match(t, /Stats de performance/);
   assert.match(t, /Moy\. premier —/);
   assert.match(t, /Moy\. dernier —/);
-  assert.match(t, /Moy\. générale —/);
+  assert.match(t, /Moyenne de la classe —/);
   assert.match(t, /Réussis : —/);
   assert.match(t, /Échoués : —/);
   assert.doesNotMatch(t, /Réussis : 0|Échoués : 0/);          // jamais un zéro inventé

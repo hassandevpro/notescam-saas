@@ -42,7 +42,6 @@ import { groupesDe, reperesDeGroupe, lignesParEpreuve } from '../../core/primCom
 // dessine le même bandeau dans les deux cas.
 import { ordonnerParProgramme } from '../../core/primProgramme';
 import { primCoteLabel } from '../../core/referentielI18n';
-import { rangEnAnglais } from '../../core/bulletinScale';
 import { MARQUE_NON_EVALUEE } from '../../core/noteEtat';
 // LA DENSITÉ N'EST PLUS ESTIMÉE, ELLE EST MESURÉE.
 // Toutes les tailles de ce gabarit dérivent de `--nc-d`, que
@@ -82,12 +81,16 @@ function CritereCell({ val, pt, vars = false }) {
 
 // LE RANG S ÉCRIT « 1er », PAS « 1 ». Le carnet papier et le modèle de l’école le
 // portent ainsi, et « 1 / 41 » se lit comme une note sur 41 avant de se lire comme un
-// rang. `rangEnAnglais` existait déjà pour les bulletins anglophones ; on lui rend ici
-// son pendant français plutôt que de réécrire un ordinal à côté.
+// rang. L ordinal est écrit ICI, et non importé de `bulletinScale` : ce gabarit doit
+// pouvoir être livré seul, sans dépendre d un module que la production n a pas encore.
 function rangOrdinal(rang, sys) {
-  if (sys === 'EN') return rangEnAnglais(rang);
   const n = Number(rang);
   if (!Number.isFinite(n)) return rang;
+  if (sys === 'EN') {
+    const d = n % 100;
+    const suf = d >= 11 && d <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
+    return `${n}${suf}`;
+  }
   if (sys === 'ES') return `${n}.º`;
   return `${n}${n === 1 ? 'er' : 'e'}`;
 }

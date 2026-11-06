@@ -53,6 +53,7 @@ function isOverdue(fee) {
 
 const STATUS_CONFIG = {
   paid:    { label: 'Payé intégral', color: 'bg-emerald-100 text-emerald-700' },
+  over:    { label: 'Trop-perçu',    color: 'bg-violet-100 text-violet-700' },
   partial: { label: 'Partiel',       color: 'bg-amber-100 text-amber-700' },
   unpaid:  { label: 'Non payé',      color: 'bg-red-100 text-red-600' },
   none:    { label: 'Non défini',    color: 'bg-gray-100 text-gray-500' },
@@ -917,7 +918,8 @@ export default function Fees() {
     const due = effectiveDue(student, fee);
     const paid = fee?.frais_payes || 0;
     if (due <= 0) return 'none';
-    if (paid >= due) return 'paid';
+    if (paid > due) return 'over'; // jamais « intégral » : un net au-dessus du dû est un trop-perçu
+    if (paid === due) return 'paid';
     if (paid > 0) return 'partial';
     return 'unpaid';
   };
@@ -1361,6 +1363,7 @@ export default function Fees() {
                         <td className="px-4 py-3 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cfg.color}`}>
                             {status === 'paid'    ? t('Payé intégral', 'Paid in full')
+                           : status === 'over'    ? t('Trop-perçu',    'Overpaid')
                            : status === 'partial' ? t('Partiel',       'Partial')
                            : status === 'unpaid'  ? t('Non payé',      'Unpaid')
                            :                        t('Non défini',    'Not defined')}

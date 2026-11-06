@@ -73,6 +73,17 @@ ok(attendanceAuto(agg, 'inconnu', 1).absNJAuto === 0, 'élève sans pointage : 0
 ok(sequenceForDate('2026-10-16', periods) === 1 && sequenceForDate('2026-10-19', periods) === 2, 'bornes de séquence incluses');
 ok(sequenceForDate('2026-10-05', periods, '2025-2026') === null, 'autre année : pas de séquence');
 
+console.log('Bulletin : toute absence saisie y figure (rattachement à la séquence la plus proche)');
+const hors = [rec({ date: '2026-10-17' }), rec({ date: '2026-12-10', session: 'H1' }), rec({ date: '2026-08-30', session: 'H1' })];
+const stricte = aggregateAttendance(hors, { periods, year: '2026-2027' });
+ok(Object.keys(stricte.byStudent).length === 0 && stricte.unassigned === 3, 'règle stricte inchangée pour les autres écrans', stricte.unassigned);
+const bull = aggregateAttendance(hors, { periods, year: '2026-2027', rattacher: true });
+ok(bull.byStudent.s1[1].absNJ === 6 + 1, 'samedi 17/10 et 30/08 → séquence 1 (la plus proche)', bull.byStudent.s1[1]);
+ok(bull.byStudent.s1[2].absNJ === 1, '10/12 après la dernière séquence → séquence 2', bull.byStudent.s1[2]);
+ok(bull.unassigned === 0, 'plus rien de perdu');
+const sansSeq = aggregateAttendance(hors, { periods: [], year: '2026-2027', rattacher: true });
+ok(sansSeq.unassigned === 3, 'aucune séquence réglée : l’écart reste visible, pas inventé', sansSeq.unassigned);
+
 console.log('Statistiques sur une plage');
 {
   const tot = attendanceTotals(att);

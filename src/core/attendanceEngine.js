@@ -101,6 +101,23 @@ export function sequenceForDate(date, periods, year = null) {
   return p ? p.sequence_order : null;
 }
 
+// Séquence dont la fenêtre d'enseignement est la plus proche d'une date (null si aucune
+// séquence n'a de dates). À égalité, la plus ancienne.
+export function sequenceLaPlusProche(date, periods, year = null) {
+  const t = Date.parse(String(date).slice(0, 10));
+  if (Number.isNaN(t)) return null;
+  let best = null, bestGap = Infinity;
+  for (const x of periods || []) {
+    if (x.type !== 'sequence' || x.sequence_order == null) continue;
+    if (year && x.school_year && x.school_year !== year) continue;
+    if (!x.teaching_start || !x.teaching_end) continue;
+    const a = Date.parse(x.teaching_start.slice(0, 10)), b = Date.parse(x.teaching_end.slice(0, 10));
+    const gap = t < a ? a - t : t > b ? t - b : 0;
+    if (gap < bestGap || (gap === bestGap && best != null && x.sequence_order < best)) { best = x.sequence_order; bestGap = gap; }
+  }
+  return best;
+}
+
 /**
  * Agrège l'appel d'une classe en heures par élève et par séquence.
  * @param {object[]} attendance   lignes `attendance` (une classe, une année)
@@ -111,7 +128,7 @@ export function sequenceForDate(date, periods, year = null) {
  * @param {string}   [opts.year]
  * @returns {{ byStudent: Object<string, Object<number, {absJ, absNJ, lates, days}>>, unassigned: number }}
  */
-export function aggregateAttendance(attendance, { periods, timetable = [], lateArrivals = [], year = null } = {}) {
+export function aggregateAttendance(attendance, { periods, timetable = [], lateArrivals = [], year = null, rattacher = false } = {}) {
   // Regroupement élève × jour.
   const days = new Map();
   const key = (s, d) => `${s}|${String(d).slice(0, 10)}`;
@@ -132,7 +149,11 @@ export function aggregateAttendance(attendance, { periods, timetable = [], lateA
   const byStudent = {};
   let unassigned = 0;
   for (const day of days.values()) {
-    const seq = sequenceForDate(day.date, periods, year);
+    let seq = sequenceForDate(day.date, periods, year);
+    // BULLETIN : « toute absence saisie doit y figurer ». Un jour hors des dates
+    // d'enseignement (vacances, bornes non réglées) rejoint la séquence la plus proche
+    // au lieu de disparaître. Les autres écrans gardent la règle stricte (`unassigned`).
+    if (seq == null && rattacher) seq = sequenceLaPlusProche(day.date, periods, year);
     const shape = dayShape(timetable, day.classId, isoWeekday(day.date));
     const t = dayTotals(day.recs, shape);
     const late = t.late || day.late;

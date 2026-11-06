@@ -101,6 +101,26 @@ export function sequenceForDate(date, periods, year = null) {
   return p ? p.sequence_order : null;
 }
 
+// CALENDRIER PAR DÉFAUT DU SECONDAIRE (règle donnée par THE GENIUS) : une séquence dure
+// 1,5 mois (45 jours) ; après deux séquences (un trimestre de 3 mois), 2 semaines de
+// congé. L'année commence le 1er septembre. Utilisé SEULEMENT quand aucune séquence de
+// l'année n'a de dates réglées ; jamais écrit en base, il ne remplace pas le réglage
+// de l'école (Paramètres → Périodes).
+export function calendrierSequencesParDefaut(year, nbSequences = 6) {
+  const y = Number(/^(\d{4})/.exec(String(year || ''))?.[1]);
+  if (!y) return [];
+  const DAY = 86400000;
+  const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+  let debut = Date.UTC(y, 8, 1);
+  const out = [];
+  for (let k = 1; k <= nbSequences; k++) {
+    const fin = debut + 44 * DAY;                       // 45 jours, bornes incluses
+    out.push({ type: 'sequence', sequence_order: k, school_year: String(year), teaching_start: iso(debut), teaching_end: iso(fin) });
+    debut = fin + DAY + (k % 2 === 0 ? 14 * DAY : 0);   // congé de 2 semaines après chaque trimestre
+  }
+  return out;
+}
+
 // Séquence dont la fenêtre d'enseignement est la plus proche d'une date (null si aucune
 // séquence n'a de dates). À égalité, la plus ancienne.
 export function sequenceLaPlusProche(date, periods, year = null) {
@@ -129,6 +149,11 @@ export function sequenceLaPlusProche(date, periods, year = null) {
  * @returns {{ byStudent: Object<string, Object<number, {absJ, absNJ, lates, days}>>, unassigned: number }}
  */
 export function aggregateAttendance(attendance, { periods, timetable = [], lateArrivals = [], year = null, rattacher = false } = {}) {
+  // Bulletin sans dates de séquence réglées : calendrier par défaut du secondaire.
+  if (rattacher && !(periods || []).some((x) => x.type === 'sequence' && x.sequence_order != null
+      && x.teaching_start && x.teaching_end && (!year || !x.school_year || x.school_year === year))) {
+    periods = calendrierSequencesParDefaut(year);
+  }
   // Regroupement élève × jour.
   const days = new Map();
   const key = (s, d) => `${s}|${String(d).slice(0, 10)}`;

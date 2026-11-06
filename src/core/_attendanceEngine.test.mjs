@@ -5,7 +5,7 @@
 // justification ignorée, pointage hors séquence perdu.
 import {
   aggregateAttendance, dayTotals, dayShape, sequenceForDate, isoWeekday,
-  distinctStudents, localISODate, attendanceAuto, attendanceTotals, DEFAULT_HOURS,
+  distinctStudents, localISODate, attendanceAuto, attendanceTotals, DEFAULT_HOURS, calendrierSequencesParDefaut,
 } from './attendanceEngine.js';
 
 let fails = 0;
@@ -81,8 +81,17 @@ const bull = aggregateAttendance(hors, { periods, year: '2026-2027', rattacher: 
 ok(bull.byStudent.s1[1].absNJ === 6 + 1, 'samedi 17/10 et 30/08 → séquence 1 (la plus proche)', bull.byStudent.s1[1]);
 ok(bull.byStudent.s1[2].absNJ === 1, '10/12 après la dernière séquence → séquence 2', bull.byStudent.s1[2]);
 ok(bull.unassigned === 0, 'plus rien de perdu');
-const sansSeq = aggregateAttendance(hors, { periods: [], year: '2026-2027', rattacher: true });
-ok(sansSeq.unassigned === 3, 'aucune séquence réglée : l’écart reste visible, pas inventé', sansSeq.unassigned);
+const cal = calendrierSequencesParDefaut('2026-2027');
+ok(cal[0].teaching_start === '2026-09-01' && cal[0].teaching_end === '2026-10-15', 'séquence 1 : 1,5 mois dès le 1er septembre', cal[0]);
+ok(cal[1].teaching_start === '2026-10-16' && cal[1].teaching_end === '2026-11-29', 'séquence 2 enchaîne sans trou', cal[1]);
+ok(cal[2].teaching_start === '2026-12-14', 'après 2 séquences : 2 semaines de congé', cal[2]);
+ok(cal[3].teaching_start === '2027-01-28' && cal[4].teaching_start === '2027-03-28', 'congé de 2 semaines après chaque trimestre', [cal[3], cal[4]].map((x) => x.teaching_start));
+const gen = aggregateAttendance([rec({ date: '2026-11-06' })], { periods: [], year: '2026-2027', rattacher: true });
+ok(gen.byStudent.s1?.[2]?.absNJ === 6 && gen.unassigned === 0, 'sans dates réglées : l’absence du 06/11 va en séquence 2', gen);
+const stricteSans = aggregateAttendance([rec({ date: '2026-11-06' })], { periods: [], year: '2026-2027' });
+ok(stricteSans.unassigned === 1, 'autres écrans : règle stricte inchangée', stricteSans.unassigned);
+const reglees = aggregateAttendance([rec({ date: '2026-10-05' })], { periods, year: '2026-2027', rattacher: true });
+ok(reglees.byStudent.s1[1].absNJ === 6, 'dates réglées par l’école : le calendrier par défaut n’intervient pas');
 
 console.log('Statistiques sur une plage');
 {

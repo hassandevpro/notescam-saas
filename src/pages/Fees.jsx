@@ -832,16 +832,32 @@ export default function Fees() {
   // scolarité de 130 000 : « Payé intégral » à tort. On présente donc le payé
   // ACADÉMIQUE ; le cache en base n'est pas touché.
   const servicePaid = useMemo(() => servicePaidByStudent(feeItems, feePayments), [feeItems, feePayments]);
+  // Somme nette des lignes par (élève, année) : la VÉRITÉ, face au cache frais_payes.
+  const linesByKey = useMemo(() => {
+    const m = new Map();
+    for (const p of feePayments || []) {
+      if (!p) continue;
+      const k = `${p.student_id}::${p.academic_year || ''}`;
+      m.set(k, (m.get(k) || 0) + (parseInt(p.amount, 10) || 0));
+    }
+    return m;
+  }, [feePayments]);
   const feeMap = useMemo(() => {
     const map = {};
     fees.forEach((f) => {
       const sp = servicePaid[f.student_id] || 0;
-      map[f.student_id] = sp > 0
-        ? { ...f, frais_payes: Math.max(0, (Number(f.frais_payes) || 0) - sp) }
-        : f;
+      let paid = Math.max(0, (Number(f.frais_payes) || 0) - sp);
+      // CACHE IMPOSSIBLE : au-dessus du dû ET au-dessus de ce que les lignes prouvent
+      // (versements supprimés hors application, cache resté haut — audit GENIUS
+      // 2026-11-06). On affiche alors ce que les lignes prouvent. Sans ligne du tout
+      // (solde importé), on ne touche à rien. Affichage seul : le cache n'est pas écrit.
+      const lignes = (linesByKey.get(`${f.student_id}::${f.academic_year || ''}`) || 0) - sp;
+      const du = Number(f.frais_annuels) || 0;
+      if (lignes > 0 && paid > Math.max(du, lignes)) paid = Math.max(0, lignes);
+      map[f.student_id] = paid !== (Number(f.frais_payes) || 0) ? { ...f, frais_payes: paid } : f;
     });
     return map;
-  }, [fees, servicePaid]);
+  }, [fees, servicePaid, linesByKey]);
 
   const classById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
 

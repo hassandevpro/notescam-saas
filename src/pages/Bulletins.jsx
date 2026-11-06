@@ -1795,7 +1795,7 @@ export default function Bulletins() {
     return () => { alive = false; };
   }, [rawSchool?.id, rawSchool?.current_year, classId]);
   const attAgg = useMemo(
-    () => aggregateAttendance(attRows, { periods: academicPeriods, timetable: ttSlots, lateArrivals: lateRows, year: rawSchool?.current_year }),
+    () => aggregateAttendance(attRows, { periods: academicPeriods, timetable: ttSlots, lateArrivals: lateRows, year: rawSchool?.current_year, rattacher: true }),
     [attRows, lateRows, ttSlots, academicPeriods, rawSchool?.current_year],
   );
   const gradeMap = useMemo(() => {

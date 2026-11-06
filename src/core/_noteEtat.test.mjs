@@ -229,7 +229,7 @@ process.exitCode = fail ? 1 : 0;
     'Rapports : lit le réglage de l école');
   ok(rep.includes('s.primNonEvaluees'), 'Rapports : lit les compétences non évaluées');
 
-  const pvw = readFileSync('src/components/documents/PvWorkspace.jsx', 'utf8');
+  const pvw = readFileSync('src/components/documents/usePvBuilder.js', 'utf8'); // le calcul du PV et du relevé vit dans le hook partagé
   ok(/zeroSiManquante: !!school\?\.notes_manquantes_zero/.test(pvw), 'PV : lit le réglage');
   ok(pvw.includes('s.primNonEvaluees'), 'PV : lit les compétences non évaluées');
 

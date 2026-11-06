@@ -133,7 +133,7 @@ titre('Bulletin, rapport de classe et PV lisent tous le masque');
   }
 
   // Le masque doit être CHARGÉ, sinon il reste vide et ne masque rien.
-  for (const f of ['src/pages/Bulletins.jsx', 'src/components/documents/PvWorkspace.jsx',
+  for (const f of ['src/pages/Bulletins.jsx', 'src/components/documents/usePvBuilder.js',
     'src/components/grades/PrimCompetenceWorkspace.jsx']) {
     ok(readFileSync(f, 'utf8').includes("loadRefMasques('prim_crit')"),
       `${f.split('/').pop()} : charge les masques de critères au montage`);

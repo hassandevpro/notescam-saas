@@ -127,9 +127,14 @@ export function annualDecision({ sys, avg, pass, subjects, classId, studentId, s
 //   opts    : { maxScale, useCoef, gradeScale } + { decisionOverride }
 export function buildTranscript({
   student, cls, subjects, gradeMap, sys, cycle, countryCode,
-  schoolYear, ranks = [], stats = null, opts = {}, decisionOverride = null,
+  schoolYear, ranks = [], stats = null, opts = {}, decisionOverride = null, periodSeq = null,
 }) {
-  const { seqs, cols } = transcriptColumns(sys, cycle, countryCode);
+  // Période : une séquence précise, ou l'année entière (défaut). Une séquence
+  // inconnue de ce système retombe sur l'année plutôt que de sortir un relevé vide.
+  const all = transcriptColumns(sys, cycle, countryCode);
+  const only = periodSeq && all.seqs.includes(periodSeq) ? periodSeq : null;
+  const seqs = only ? [only] : all.seqs;
+  const cols = only ? all.cols.filter((c) => c.seq === only) : all.cols;
   const classId = cls.id;
   const maxScale = opts.maxScale;
   const pass = passThresholdFor(sys, maxScale);
@@ -159,20 +164,22 @@ export function buildTranscript({
     student, cls, schoolYear, sys, cycle, countryCode,
     cols, rows, generalAvg, generalAppr, rankEntry, stats, decision,
     totalCoef, pass, maxScale,
+    periodLabel: only ? (cols[0]?.full || null) : null,
   };
 }
 
 // ── Relevés par classe (génération en masse) ─────────────────────────────────
 export function buildClassTranscripts({
   classStudents, cls, subjects, gradeMap, sys, cycle, countryCode,
-  schoolYear, stats = null, opts = {}, decisionOverrides = {},
+  schoolYear, stats = null, opts = {}, decisionOverrides = {}, periodSeq = null,
 }) {
-  const { seqs } = transcriptColumns(sys, cycle, countryCode);
+  const all = transcriptColumns(sys, cycle, countryCode).seqs;
+  const seqs = periodSeq && all.includes(periodSeq) ? [periodSeq] : all;
   const ranks = buildRanks(classStudents, gradeMap, cls.id, seqs, subjects, sys, {}, opts);
   return classStudents.map((student) =>
     buildTranscript({
       student, cls, subjects, gradeMap, sys, cycle, countryCode, schoolYear,
-      ranks, stats, opts, decisionOverride: decisionOverrides[student.id] || null,
+      ranks, stats, opts, decisionOverride: decisionOverrides[student.id] || null, periodSeq,
     })
   );
 }

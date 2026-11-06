@@ -599,6 +599,8 @@ function PrincipalGrades() {
   const setSequence   = useUiStore((s) => s.setGradesSequence);
   const subjectId  = useUiStore((s) => s.gradesSubjectId);
   const setSubjectId  = useUiStore((s) => s.setGradesSubjectId);
+  const gradesFocus      = useUiStore((s) => s.gradesFocus);
+  const clearGradesFocus = useUiStore((s) => s.clearGradesFocus);
 
   const [showImport,    setShowImport]    = useState(false);
   const [sectionFilter, setSectionFilter] = useState('');
@@ -694,6 +696,18 @@ function PrincipalGrades() {
     prevClassIdRef.current = classId;
     setSequence(1); setStudentSearch(''); setGradePage(1); setSubjectId('');
   }, [classId]);
+
+  // Arrivée depuis une anomalie des Documents : on se place sur la séquence, la
+  // matière et l'élève concernés. Déclaré APRÈS la remise à zéro ci-dessus : à
+  // changement de classe, c'est ce dernier réglage qui l'emporte.
+  useEffect(() => {
+    if (!gradesFocus || gradesFocus.classId !== classId) return;
+    if (gradesFocus.sequence) setSequence(gradesFocus.sequence);
+    if (gradesFocus.subjectId) setSubjectId(gradesFocus.subjectId);
+    if (gradesFocus.studentName) setStudentSearch(gradesFocus.studentName);
+    setGradePage(1);
+    clearGradesFocus();
+  }, [gradesFocus, classId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (classSubjects.length > 0 && (!subjectId || !classSubjects.find((s) => s.id === subjectId))) {

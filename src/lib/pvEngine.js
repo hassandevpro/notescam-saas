@@ -20,6 +20,8 @@
 
 import { multiAvg, fusedG, getAppreciation } from '../core/bulletinEngine.js';
 import { assemblePeriod, assembleApcAnnual } from './apcBulletinDoc.js';
+import { assembleBilBulletin, assembleBilAnnual, orderedBilSubjects, bilAppreciation, bilSysForSerie } from '../core/bilEngine.js';
+import { bilRefKeyForClass, enrichBilSubjects } from './bilAutoConfig.js';
 import { TRIM_TO_SEQ } from '../core/apcEngine.js';
 import { apcSeqNumsForTrimestre, apcSeqIdOfSeqNum } from '../core/apcPeriods.js';
 // Périmètre réel de la classe (masques de l'école + matières cochées) — même
@@ -41,11 +43,22 @@ export const PV_PERIODS = [
   { key: 't1',     trimestre: 1, fr: 'Trimestre 1', en: 'Term 1', es: 'Trimestre 1' },
   { key: 't2',     trimestre: 2, fr: 'Trimestre 2', en: 'Term 2', es: 'Trimestre 2' },
   { key: 't3',     trimestre: 3, fr: 'Trimestre 3', en: 'Term 3', es: 'Trimestre 3' },
+  // Par SÉQUENCE (ou UA au primaire) : c'est le découpage que l'école manipule.
+  ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ key: `s${n}`, sequence: n, fr: `Séquence ${n}`, en: `Sequence ${n}`, es: `Secuencia ${n}` })),
   { key: 'annuel', trimestre: 0, fr: 'Annuel',      en: 'Annual', es: 'Anual' },
 ];
+// Choix proposés à l'écran : séquences + annuel (les trimestres restent acceptés en interne).
+// Secondaire : 6 séquences. Les séquences 7 et 8 n'existent QUE comme UA 7 et UA 8 du
+// primaire (8 UA par an) : on ne les propose pas ailleurs.
+export const PV_PERIOD_CHOICES = PV_PERIODS.filter((p) => (p.sequence && p.sequence <= 6) || p.key === 'annuel');
+// Primaire APC : les huit UA, puis l'annuel.
+export const PV_PERIOD_CHOICES_PRIMAIRE = PV_PERIODS.filter((p) => p.sequence || p.key === 'annuel');
+// Choix selon le périmètre : toutes les classes visées sont-elles au primaire APC ?
+export const pvPeriodChoices = (allPrimary) => (allPrimary ? PV_PERIOD_CHOICES_PRIMAIRE : PV_PERIOD_CHOICES);
 
-export const pvPeriodLabel = (key, sys) => {
+export const pvPeriodLabel = (key, sys, primaire = false) => {
   const p = PV_PERIODS.find((x) => x.key === key) || PV_PERIODS[0];
+  if (primaire && p.sequence) return `UA ${p.sequence}`;
   return sys === 'EN' ? p.en : sys === 'ES' ? p.es : p.fr;
 };
 
@@ -54,7 +67,9 @@ const L = (sys, fr, en, es) => (sys === 'EN' ? en : sys === 'ES' ? (es || fr) : 
 const mean = (vals) => (vals.length ? r2(vals.reduce((a, b) => a + b, 0) / vals.length) : null);
 
 // Le PV n'est produit que pour les moteurs à moyenne chiffrée.
-export const PV_ENGINES = ['classic', 'sc', 'apc', 'apc_primaire'];
+// 'bilingue' (programme bilingue spécial, 6e–3e / Form 1–3) : il manquait, donc
+// 5eme, 6eme, FORM1 et FORM2 n'avaient AUCUN procès-verbal, sans explication.
+export const PV_ENGINES = ['classic', 'sc', 'bilingue', 'apc', 'apc_primaire'];
 export const pvApplicable = (engine) => PV_ENGINES.includes(engine);
 
 // ── Unités d'évaluation d'une période, selon le moteur ───────────────────────
@@ -67,21 +82,43 @@ export const pvApplicable = (engine) => PV_ENGINES.includes(engine);
 // repli sur le rythme MINESEC courant. Les moteurs à notes (classic / sc) gardent
 // leur découpage historique en six séquences, inchangé.
 export function pvUnits({ engine, sys, cycle, countryCode, primSequences = false, period = 't1', apcReferentiel = null }) {
-  const trim = PV_PERIODS.find((p) => p.key === period)?.trimestre ?? 1;
-  const annual = trim === 0;
+  const def = PV_PERIODS.find((p) => p.key === period);
+  // Séquence 7 ou 8 = UA 7 ou 8 : n'a de sens qu'au primaire APC.
+  const seqN = def?.sequence && (def.sequence <= 6 || engine === 'apc_primaire') ? def.sequence : null;
+  const trim = seqN ? Math.ceil(seqN / 2) : (def?.trimestre ?? 1);
+  const annual = !seqN && trim === 0;
   const termLabel = (n) => (sys === 'EN' ? `Term ${n}` : `T${n}`);
 
   if (engine === 'apc_primaire') {
+    // Au primaire la séquence n est l'Unité d'Apprentissage n.
+    if (seqN) return [{ key: `ua${seqN}`, label: `UA${seqN}`, seqs: [seqN] }];
     if (annual) {
-      return [1, 2, 3].map((n) => ({ key: `t${n}`, label: termLabel(n), seqs: UA_PAR_TRIMESTRE[n] || [] }));
+      // Une colonne par UA (les trois trimestres mis bout à bout) ; la moyenne reste la
+      // moyenne de toutes les UA, comme avant.
+      return [1, 2, 3].flatMap((n) => UA_PAR_TRIMESTRE[n] || []).map((ua) => ({ key: `ua${ua}`, label: `UA${ua}`, seqs: [ua] }));
     }
     return (UA_PAR_TRIMESTRE[trim] || [1, 2, 3]).map((ua) => ({ key: `ua${ua}`, label: `UA${ua}`, seqs: [ua] }));
   }
 
   if (engine === 'apc') {
     const seqsOf = (tid) => apcSeqNumsForTrimestre(apcReferentiel, tid);
-    if (annual) return [1, 2, 3].map((n) => ({ key: `t${n}`, label: termLabel(n), seqs: seqsOf(`t${n}`) }));
+    if (annual) {
+      return [1, 2, 3].flatMap((n) => seqsOf(`t${n}`).map((q) => ({ key: `s${q}`, label: `S${q}`, seqs: [q], tid: `t${n}` })));
+    }
+    if (seqN) {
+      const tid = [1, 2, 3].map((n) => `t${n}`).find((id) => seqsOf(id).includes(seqN)) || `t${trim}`;
+      return [{ key: `s${seqN}`, label: `S${seqN}`, seqs: [seqN], tid }];
+    }
     return seqsOf(`t${trim}`).map((n) => ({ key: `s${n}`, label: `S${n}`, seqs: [n] }));
+  }
+
+  // Programme bilingue : toujours 6 séquences, 2 par trimestre (même découpage
+  // que le bulletin, y compris pour une classe anglophone).
+  if (engine === 'bilingue') {
+    if (seqN) return [{ key: `s${seqN}`, label: `S${seqN}`, seqs: [seqN] }];
+    // Annuel : une colonne par SÉQUENCE (la moyenne annuelle reste celle du bulletin).
+    if (annual) return [1, 2, 3, 4, 5, 6].map((n) => ({ key: `s${n}`, label: `S${n}`, seqs: [n] }));
+    return (TRIM_TO_SEQ[`t${trim}`] || [1, 2]).map((n) => ({ key: `s${n}`, label: `S${n}`, seqs: [n] }));
   }
 
   // Moteurs à notes (classic / sc). Deux rythmes possibles :
@@ -90,10 +127,11 @@ export function pvUnits({ engine, sys, cycle, countryCode, primSequences = false
   const sixSeq = countryCode !== 'guinea_eq' && sys !== 'EN'
     && (cycle === 'secondaire' || primSequences);
   if (sixSeq) {
-    if (annual) return [1, 2, 3].map((n) => ({ key: `t${n}`, label: termLabel(n), seqs: TRIM_TO_SEQ[`t${n}`] }));
+    if (seqN) return [{ key: `s${seqN}`, label: `S${seqN}`, seqs: [seqN] }];
+    if (annual) return [1, 2, 3, 4, 5, 6].map((n) => ({ key: `s${n}`, label: `S${n}`, seqs: [n] }));
     return (TRIM_TO_SEQ[`t${trim}`] || [1, 2]).map((n) => ({ key: `s${n}`, label: `S${n}`, seqs: [n] }));
   }
-  const nums = annual ? [1, 2, 3] : [trim];
+  const nums = annual ? [1, 2, 3] : [seqN && seqN <= 3 ? seqN : trim];
   return nums.map((n) => ({ key: `p${n}`, label: termLabel(n), seqs: [n] }));
 }
 
@@ -169,6 +207,45 @@ function buildNotesPv({ cls, sys, students, subjects, gradeMap, units, opts, gra
   return { cols, rows, maxScale, pass: maxScale / 2, gradeScale };
 }
 
+// ── Programme bilingue spécial (6e–3e / Form 1–3) ────────────────────────────
+// Aucune moyenne n'est recalculée « à part » : chaque cellule vient de
+// assembleBilBulletin / assembleBilAnnual, les fonctions mêmes du bulletin, sur
+// les matières enrichies du référentiel (coefficients inclus). Le conseil
+// délibère donc sur les chiffres imprimés sur le bulletin remis aux parents.
+function buildBilPv({ cls, students, subjects, gradeMap, units, annual, maxScale, gradeScale }) {
+  const serieId = bilRefKeyForClass(cls)?.serieId;
+  const ordered = orderedBilSubjects(subjects);
+  const cols = ordered.map((s) => ({ key: s.id, name: s.name, code: s.code || null, coef: Number(s.coef) || 0 }));
+  const seqs = allSeqs(units);
+  const commun = (st) => ({ subjects, allGrades: gradeMap, classId: cls.id, student: st, serieId, maxScale, gradeScale });
+  const flat = (d) => Object.fromEntries(d.domaines.flatMap((dom) => dom.rows).map((r) => [r.id, r]));
+
+  const rows = students.map((st) => {
+    const cells = {};
+    if (annual) {
+      // Moyenne annuelle = règle du bulletin annuel (trimestres de 2 séquences) ;
+      // colonnes = une par séquence, lues dans le bulletin de cette séquence.
+      const d = assembleBilAnnual({ ...commun(st), termSeqs: [[1, 2], [3, 4], [5, 6]] });
+      const perSeq = units.map((u) => flat(assembleBilBulletin({ ...commun(st), seqs: u.seqs })));
+      for (const [id, r] of Object.entries(flat(d))) {
+        cells[id] = { moy: r.evaluee ? r.moyenne : null, byUnit: Object.fromEntries(units.map((u, i) => [u.key, perSeq[i][id]?.evaluee ? perSeq[i][id].moyenne : null])) };
+      }
+      return { id: st.id, name: st.name, matricule: st.matricule || '', cells, avg: d.moyenneGenerale ?? null };
+    }
+    const full = assembleBilBulletin({ ...commun(st), seqs });
+    const perUnit = units.map((u) => flat(assembleBilBulletin({ ...commun(st), seqs: u.seqs })));
+    for (const [id, r] of Object.entries(flat(full))) {
+      cells[id] = {
+        moy: r.evaluee ? r.moyenne : null,
+        byUnit: Object.fromEntries(units.map((u, i) => [u.key, perUnit[i][id]?.evaluee ? perUnit[i][id].moyenne : null])),
+      };
+    }
+    return { id: st.id, name: st.name, matricule: st.matricule || '', cells, avg: full.moyenneGenerale ?? null };
+  });
+
+  return { cols, rows, maxScale, pass: maxScale / 2, gradeScale };
+}
+
 // ── Moteur APC (premier cycle MINESEC) ───────────────────────────────────────
 // Une passe d'assemblage par unité donne la note de chaque matière ; la moyenne
 // de matière et la moyenne générale viennent de l'assemblage sur la période
@@ -188,10 +265,16 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
     const cells = {};
     if (annual) {
       // Vue annuelle : le moteur APC fournit déjà T1/T2/T3 par matière.
+      // Moyennes = règle du bulletin APC annuel ; colonnes = une par séquence, lue
+      // dans la période de cette séquence.
       const d = assembleApcAnnual(referentiel, notes, { classeSlug, student: st, gradeScale, sys });
+      const perSeq = units.map((u) => {
+        const one = assemblePeriod(referentiel, notes, { classeSlug, trimestreId: u.tid, seqIds: seqIdsOf(u.seqs), student: st, gradeScale, sys });
+        return Object.fromEntries(one.matieres.map((m) => [m.id, m.moyenne]));
+      });
       for (const m of d.matieres) {
         addCol(m);
-        cells[m.id] = { moy: m.moyenne, byUnit: { t1: m.t1, t2: m.t2, t3: m.t3 } };
+        cells[m.id] = { moy: m.moyenne, byUnit: Object.fromEntries(units.map((u, i) => [u.key, perSeq[i][m.id] ?? null])) };
       }
       return { id: st.id, name: st.name, matricule: st.matricule || '', cells, avg: d.moyenneGenerale ?? null };
     }
@@ -298,6 +381,7 @@ export function buildClassPv(ctx) {
     apcReferentiel, apcNotes = {}, apcClasseSlug,
     primReferentiel, primNotes = {}, primNiveauSlug, primBareme,
     primSequences = false, decisions = {}, teacherName = '',
+    bilReferentiel = null,
     // Masques du référentiel décidés par l'école. Le PV ne les lisait PAS : une
     // matière masquée, ou décochée dans la classe, restait une colonne du
     // procès-verbal alors qu'elle ne figurait pas sur les bulletins. Le conseil
@@ -315,6 +399,8 @@ export function buildClassPv(ctx) {
   if (!pvApplicable(engine)) return null;
   if (engine === 'apc' && (!apcReferentiel || !apcClasseSlug)) return null;
   if (engine === 'apc_primaire' && (!primReferentiel || !primNiveauSlug)) return null;
+  // Sans référentiel bilingue, les coefficients seraient faux : pas de PV plutôt qu'un PV faux.
+  if (engine === 'bilingue' && (!bilReferentiel || !bilRefKeyForClass(cls))) return null;
 
   const units = pvUnits({ engine, sys, cycle, countryCode, primSequences, period, apcReferentiel });
   const trim = PV_PERIODS.find((p) => p.key === period)?.trimestre ?? 1;
@@ -331,10 +417,12 @@ export function buildClassPv(ctx) {
     : null;
 
   const base = engine === 'apc'
-    ? buildApcPv({ sys, students, units, referentiel: apcRefEcole, notes: apcNotes, classeSlug: apcClasseSlug, annual, trimestreId: `t${trim || 1}`, gradeScale })
+    ? buildApcPv({ sys, students, units, referentiel: apcRefEcole, notes: apcNotes, classeSlug: apcClasseSlug, annual, trimestreId: units[0]?.tid || `t${trim || 1}`, gradeScale })
     : engine === 'apc_primaire'
       ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme, competences: primComps, criteresMasques: primCriteresMasques, classId: cls?.id || null, nonEvaluees: primNonEvaluees, zeroSiManquante })
-      : buildNotesPv({ cls, sys, students, subjects, gradeMap, units, opts, gradeScale });
+      : engine === 'bilingue'
+        ? buildBilPv({ cls, students, subjects: enrichBilSubjects(subjects, bilReferentiel, cls), gradeMap, units, annual, maxScale: opts?.maxScale ?? 20, gradeScale })
+        : buildNotesPv({ cls, sys, students, subjects, gradeMap, units, opts, gradeScale });
 
   const { cols, rows, maxScale, pass } = base;
   const ranks = rankMap(rows);
@@ -344,7 +432,11 @@ export function buildClassPv(ctx) {
     const explicit = decisions[r.id];
     const mention = r.avg == null ? '' : (engine === 'apc_primaire'
       ? (primCote(r.avg, maxScale, base.primScale)?.libelle || '')
-      : (() => {
+      : engine === 'bilingue'
+        // Moyenne /20 même sur une classe anglophone : enGrade() lit du /100 et
+        // classerait un 15/20 comme un échec. Même mention que le bulletin.
+        ? bilAppreciation(r.avg, base.gradeScale, bilSysForSerie(bilRefKeyForClass(cls)?.serieId))
+        : (() => {
           const a = getAppreciation(r.avg, base.gradeScale, sys, maxScale);
           return sys === 'EN' ? `${a.g} — ${a.txt}` : a.text;
         })());
@@ -365,6 +457,7 @@ export function buildClassPv(ctx) {
     cls, engine, sys, cycle, schoolYear, teacherName, annual,
     period, periodLabel: pvPeriodLabel(period, sys),
     units, cols, rows: enriched, maxScale,
+    primScale: base.primScale, gradeScale: base.gradeScale,
     summary: pvSummary(enriched, pass),
   };
 }

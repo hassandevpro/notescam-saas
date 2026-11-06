@@ -244,9 +244,8 @@ export default function CertificateWorkspace({ t }) {
       </div>
 
       {/* Aperçu */}
-      <PdfPreviewPanel left={left} includes={includes} building={building} sheets={sheets} multiCount={docCount} t={t} />
-
-      {/* Génération */}
+      <PdfPreviewPanel
+        actions={(
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -283,12 +282,13 @@ export default function CertificateWorkspace({ t }) {
           </div>
         )}
       </div>
+        )} left={left} includes={includes} building={building} sheets={sheets} multiCount={docCount} t={t} />
 
       {/* Historique */}
-      <div>
-        <h2 className="mb-2 text-sm font-bold text-slate-800">{t('Historique des générations', 'Generation history', 'Historial')}</h2>
-        <GenerationHistory entries={history} t={t} />
-      </div>
+      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-600">{t('Historique des générations', 'Generation history', 'Historial')}</summary>
+        <div className="p-4 pt-0"><GenerationHistory entries={history} t={t} /></div>
+      </details>
     </>
   );
 }

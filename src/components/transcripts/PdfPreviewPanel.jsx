@@ -26,7 +26,7 @@ function Field({ label, value }) {
 
 export default function PdfPreviewPanel({
   left = {}, includes = [], building, sheets = [], blockedNode, multiCount,
-  profile = 'standard', maxZoom = 1, previewLabel, t,
+  profile = 'standard', maxZoom = 1, previewLabel, actions = null, t,
 }) {
   const m = pageMetrics(profile);
   const frameRef = useRef(null);
@@ -57,53 +57,9 @@ export default function PdfPreviewPanel({
   const totalPages = multiCount > 1 ? pageCount * multiCount : pageCount;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
-      {/* Colonne paramètres */}
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="mb-2 text-sm font-bold text-slate-800">{t('Paramètres', 'Parameters', 'Parámetros')}</h3>
-          <div className="divide-y divide-slate-50">
-            <Field label={t('Établissement', 'School', 'Centro')} value={left.schoolName} />
-            <Field label={t('Classe', 'Class', 'Clase')} value={left.className} />
-            <Field label={left.itemLabel || t('Élève', 'Student', 'Alumno')} value={left.studentName} />
-            <Field label={t('Année', 'Year', 'Año')} value={left.year} />
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="mb-2 text-sm font-bold text-slate-800">{t('Mise en page', 'Page setup', 'Diseño')}</h3>
-          <div className="divide-y divide-slate-50">
-            <Field label={t('Format', 'Format', 'Formato')} value={`${m.paper} ${m.orientation === 'landscape' ? t('paysage', 'landscape', 'horizontal') : t('portrait', 'portrait', 'vertical')}`} />
-            <Field label={t('Marges', 'Margins', 'Márgenes')} value={`${m.margin} mm`} />
-            <Field
-              label={t('Pages par document', 'Pages per document', 'Páginas por documento')}
-              value={sheets.length ? `${pageCount}` : '—'}
-            />
-            {multiCount > 1 && (
-              <Field label={t('Total à imprimer', 'Total to print', 'Total a imprimir')} value={`≈ ${totalPages} ${t('pages', 'pages', 'páginas')}`} />
-            )}
-          </div>
-          {info.overflowX > 2 && (
-            <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
-              {t('Le contenu dépasse la largeur imprimable — colonnes trop nombreuses.',
-                 'Content exceeds the printable width — too many columns.',
-                 'El contenido excede el ancho imprimible.')}
-            </p>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="mb-2 text-sm font-bold text-slate-800">{t('Contenu du document', 'Document content', 'Contenido')}</h3>
-          <ul className="space-y-1">
-            {includes.map((it) => (
-              <li key={it.id} className="flex items-center gap-2 text-[12px]">
-                <span className={`flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] text-white ${it.ok ? 'bg-emerald-500' : 'bg-slate-300'}`}>{it.ok ? '✓' : ''}</span>
-                <span className={it.ok ? 'text-slate-600' : 'text-slate-400'}>{it.label}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+    <div className="space-y-3">
+      {/* Action principale : AU-DESSUS de l'aperçu, visible sans défiler. */}
+      {actions}
 
       {/* Colonne aperçu */}
       <div className="min-h-[360px] rounded-2xl border border-slate-200 bg-slate-100 p-4">
@@ -174,6 +130,60 @@ export default function PdfPreviewPanel({
           </div>
         )}
       </div>
+
+
+      {/* Réglages techniques : repliés, ils servent rarement. */}
+      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-600">
+          {t('Détails du document (format, contenu)', 'Document details (format, content)', 'Detalles del documento')}
+        </summary>
+      <div className="grid grid-cols-1 gap-4 p-4 pt-0 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="mb-2 text-sm font-bold text-slate-800">{t('Paramètres', 'Parameters', 'Parámetros')}</h3>
+          <div className="divide-y divide-slate-50">
+            <Field label={t('Établissement', 'School', 'Centro')} value={left.schoolName} />
+            <Field label={t('Classe', 'Class', 'Clase')} value={left.className} />
+            <Field label={left.itemLabel || t('Élève', 'Student', 'Alumno')} value={left.studentName} />
+            <Field label={t('Année', 'Year', 'Año')} value={left.year} />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="mb-2 text-sm font-bold text-slate-800">{t('Mise en page', 'Page setup', 'Diseño')}</h3>
+          <div className="divide-y divide-slate-50">
+            <Field label={t('Format', 'Format', 'Formato')} value={`${m.paper} ${m.orientation === 'landscape' ? t('paysage', 'landscape', 'horizontal') : t('portrait', 'portrait', 'vertical')}`} />
+            <Field label={t('Marges', 'Margins', 'Márgenes')} value={`${m.margin} mm`} />
+            <Field
+              label={t('Pages par document', 'Pages per document', 'Páginas por documento')}
+              value={sheets.length ? `${pageCount}` : '—'}
+            />
+            {multiCount > 1 && (
+              <Field label={t('Total à imprimer', 'Total to print', 'Total a imprimir')} value={`≈ ${totalPages} ${t('pages', 'pages', 'páginas')}`} />
+            )}
+          </div>
+          {info.overflowX > 2 && (
+            <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
+              {t('Le contenu dépasse la largeur imprimable — colonnes trop nombreuses.',
+                 'Content exceeds the printable width — too many columns.',
+                 'El contenido excede el ancho imprimible.')}
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="mb-2 text-sm font-bold text-slate-800">{t('Contenu du document', 'Document content', 'Contenido')}</h3>
+          <ul className="space-y-1">
+            {includes.map((it) => (
+              <li key={it.id} className="flex items-center gap-2 text-[12px]">
+                <span className={`flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] text-white ${it.ok ? 'bg-emerald-500' : 'bg-slate-300'}`}>{it.ok ? '✓' : ''}</span>
+                <span className={it.ok ? 'text-slate-600' : 'text-slate-400'}>{it.label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      </details>
     </div>
   );
 }

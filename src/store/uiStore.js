@@ -85,6 +85,12 @@ export const useUiStore = create((set) => ({
   setGradesClassId:   (v) => set({ gradesClassId: v }),
   setGradesSequence:  (v) => set({ gradesSequence: v }),
   setGradesSubjectId: (v) => set({ gradesSubjectId: v }),
+  // Raccourci « corriger cette anomalie » depuis les Documents : la page des notes
+  // s'ouvre DIRECTEMENT sur la classe, la séquence, la matière et l'élève fautifs.
+  // Consommé une fois par la page Grades (voir clearGradesFocus).
+  gradesFocus: null,
+  setGradesFocus:   (v) => set({ gradesFocus: v }),
+  clearGradesFocus: () => set({ gradesFocus: null }),
 
   // Absences page navigation — persisted across route changes
   absencesTab:          'saisie',

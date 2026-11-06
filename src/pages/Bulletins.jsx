@@ -60,7 +60,7 @@ import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineM
 import { apcForClass, primForClass, matForClass, masquesDeClasse } from '../core/refClassScope';
 // Ordre d'affichage des matieres : une seule regle pour tout le produit.
 import { classSubjectsOf } from '../core/subjectOrder';
-import { APC_GROUPS, groupSubjects, domaineForSubject } from '../core/subjectGroup';
+import { APC_GROUPS, groupSubjects, domaineForSubject, libelleGroupe } from '../core/subjectGroup';
 // Le barème d'impression vient de la classe (`grade_max`), pas de sa langue :
 // une classe anglophone du Cameroun note sur /20 comme sa jumelle francophone.
 import { bulletinScale } from '../core/bulletinScale';
@@ -735,7 +735,7 @@ function BulletinAPC({ school, cls, student, subjects, subjectGrades, studentAvg
   // SCIENCES ») : un bulletin n'en affiche QUE la moitié de son système. La
   // ligne de total le faisait déjà, pas l'en-tête de groupe — d'où un titre
   // français au-dessus d'un total anglais, sur la même feuille.
-  const groupLabel = (g) => (isEnSys ? g.label.split('/')[1] : g.label.split('/')[0]).trim();
+  const groupLabel = (g) => libelleGroupe(g, isEnSys, cls?.name);
   const profPrincipal = headTeacherText(cls, teachers);
   let gPts = 0, gCoef = 0;
   subjects.forEach((sub) => {

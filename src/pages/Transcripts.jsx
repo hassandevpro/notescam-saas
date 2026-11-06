@@ -32,13 +32,15 @@ import {
 import { recentGenerations } from '../lib/documentLog';
 import { estimateSeconds } from '../lib/print';
 import usePrintJob from '../components/documents/usePrintJob';
+import usePvBuilder from '../components/documents/usePvBuilder';
+import { transcriptsFromPv, transcriptUsesPv } from '../lib/transcriptFromPv';
+import { resolveClassEngine } from '../core/engineResolver';
 import { buildParentLinks } from '../lib/parentLinks';
 import { transcriptSheetHtml, multiYearSheetHtml } from '../lib/transcriptDoc';
 import { classIdentity } from '../lib/schoolIdentity';
 import { loadYearAcademics, matchStudent, listYears } from '../lib/transcriptHistory';
 import Layout from '../components/Layout';
 import Modal from '../components/Modal';
-import TranscriptDashboard from '../components/transcripts/TranscriptDashboard';
 import GenerationCards from '../components/transcripts/GenerationCards';
 import TranscriptFilters from '../components/transcripts/TranscriptFilters';
 import ControlPanel from '../components/transcripts/ControlPanel';
@@ -60,6 +62,19 @@ const DOC_TYPES = [
   { key: 'pv',          icon: '⚖️', label: ['Procès-verbal de délibération', 'Deliberation minutes', 'Acta de deliberación'], desc: ['Par classe ou établissement', 'By class or whole school', 'Por clase o centro'] },
   { key: 'certificate', icon: '📜', label: ['Certificat de scolarité', 'Enrollment certificate', 'Certificado de escolaridad'], desc: ["Attestation d'inscription", 'Proof of enrollment', 'Comprobante de matrícula'] },
 ];
+
+// Une ligne d'état à la place de quatre compteurs : ce qui est prêt, ce qui attend des notes.
+function ReadinessLine({ summary, pending, t }) {
+  const withNotes = summary.byClass.filter((e) => e.ready > 0);
+  const noNotes = summary.byClass.filter((e) => e.total > 0 && e.ready === 0);
+  return (
+    <p className="rounded-xl bg-slate-50 px-4 py-2.5 text-[13px] text-slate-600">
+      {pending && <span className="mr-2 text-amber-700">{t('Chargement des référentiels…', 'Loading curricula…', 'Cargando…')}</span>}
+      <strong className="text-emerald-700">{summary.ready}</strong> {t('relevés prêts dans', 'transcripts ready in', 'listas en')} <strong>{withNotes.length}</strong> {t('classe(s)', 'class(es)', 'clase(s)')}
+      {noNotes.length > 0 && <> · <span className="text-slate-500">{noNotes.length} {t('classe(s) sans notes saisies', 'class(es) without grades yet', 'clase(s) sin notas')}</span></>}
+    </p>
+  );
+}
 
 function TranscriptWorkspace() {
   const t = useT();
@@ -84,10 +99,21 @@ function TranscriptWorkspace() {
   const schoolYear  = viewYear ?? school?.current_year ?? '';
   const countryCode = resolveCountryCode(school);
 
+  const nonMaternelle = useMemo(() => classes.filter((c) => (c.cycle || 'secondaire') !== 'maternelle'), [classes]);
+
+  // Bilingue / APC / primaire : le relevé vient du MÊME calcul que le bulletin et
+  // le PV (voir lib/transcriptFromPv). Les référentiels sont chargés ici.
+  const { pvForClass, referentielsPending } = usePvBuilder(nonMaternelle);
+  const engineOf = useCallback((cls) => resolveClassEngine(school, cls), [school]);
+  const pvTranscripts = useCallback(
+    (cls) => transcriptsFromPv(pvForClass(cls, 'annuel')),
+    [pvForClass],
+  );
+
   // Contexte partagé du moteur de préparation.
   const ctx = useMemo(
-    () => ({ classes, subjects, students, gradeMap, school, countryCode, schoolYear }),
-    [classes, subjects, students, gradeMap, school, countryCode, schoolYear],
+    () => ({ classes, subjects, students, gradeMap, school, countryCode, schoolYear, engineOf, pvTranscripts }),
+    [classes, subjects, students, gradeMap, school, countryCode, schoolYear, engineOf, pvTranscripts],
   );
 
   // ── État UI ─────────────────────────────────────────────────────────────────
@@ -107,13 +133,27 @@ function TranscriptWorkspace() {
   // ── Évaluations (état de production) ─────────────────────────────────────────
   const schoolSummary = useMemo(() => evaluateSchool(ctx), [ctx]);
 
-  const nonMaternelle = useMemo(() => classes.filter((c) => (c.cycle || 'secondaire') !== 'maternelle'), [classes]);
   const levels = useMemo(
     () => [...new Set(nonMaternelle.map((c) => c.level).filter(Boolean))].sort(),
     [nonMaternelle],
   );
 
   const selectedClass = classes.find((c) => c.id === classId) || null;
+
+  const classTotals = useMemo(
+    () => Object.fromEntries(schoolSummary.byClass.map((e) => [e.cls.id, e.total])),
+    [schoolSummary],
+  );
+
+  // Chaque classe dit d'avance si elle a des relevés : plus de découverte après coup.
+  const classOptionsLabeled = useMemo(() => nonMaternelle.map((c) => {
+    const e = schoolSummary.byClass.find((x) => x.cls.id === c.id);
+    if (!e || !e.total) return c;
+    const suffix = e.ready === 0
+      ? t('aucune note', 'no grades', 'sin notas')
+      : `${e.ready}/${e.total} ${t('prêts', 'ready', 'listos')}`;
+    return { ...c, name: `${c.name} · ${suffix}` };
+  }), [nonMaternelle, schoolSummary, t]);
   const classEval = useMemo(
     () => (selectedClass ? evaluateClass(selectedClass, ctx) : null),
     [selectedClass, ctx],
@@ -202,6 +242,10 @@ function TranscriptWorkspace() {
 
   // Transcripts d'une classe (avec stats + rangs).
   const classTranscripts = useCallback((cls) => {
+    if (transcriptUsesPv(engineOf(cls))) {
+      const data = pvTranscripts(cls);
+      return { sys: cls.system || 'FR', data };
+    }
     const { sys, cycle, classSubjects, classStudents: cs, opts } = classContext(cls, ctx);
     const { seqs } = transcriptColumns(sys, cycle, countryCode);
     const { subs, gm } = compositeView(gradeMap, cls.id, classSubjects);
@@ -211,7 +255,7 @@ function TranscriptWorkspace() {
       countryCode, schoolYear, stats, opts,
     });
     return { sys, data };
-  }, [ctx, countryCode, gradeMap, schoolYear]);
+  }, [ctx, countryCode, gradeMap, schoolYear, engineOf, pvTranscripts]);
 
   // Construit le relevé multi-années d'un élève (parcourt les archives).
   const buildMultiSheet = useCallback(async (refStudent, cls) => {
@@ -342,8 +386,32 @@ function TranscriptWorkspace() {
   };
 
   // Navigue vers la saisie des notes (correction d'une anomalie).
+  // « Corriger » : ouvre la saisie DIRECTEMENT sur l'anomalie (classe, séquence,
+  // matière, élève), pas sur la page des notes en général.
   const goCorrect = (target) => {
-    if (target?.classId && target.classId !== classId) setClassId(target.classId);
+    const cid = target?.classId || classId;
+    const issues = target?.issues || [];
+    const first = issues[0] || null;
+    if (first?.code === 'no_subjects' || first?.code === 'no_reference') {
+      useUiStore.getState().setGradesClassId?.(cid || '');
+      navigate('/app/classes');
+      return;
+    }
+    if (!cid) { navigate('/app/grades'); return; }
+    const ui = useUiStore.getState();
+    ui.setGradesClassId(cid);
+    // Matière fautive = la première matière citée ; séquence = la première où l'élève n'a pas de note.
+    const missing = issues.find((i) => i.code === 'missing_subjects');
+    const subj = missing ? subjects.find((s) => s.class_id === cid && s.name === missing.names?.[0]) : null;
+    let sequence = 1;
+    if (target?.id) {
+      for (let q = 1; q <= 6; q++) {
+        const g = gradeMap[`${cid}_${target.id}_${q}`] || {};
+        const has = subj ? (g[subj.id] != null && g[subj.id] !== '') : Object.keys(g).length > 0;
+        if (!has) { sequence = q; break; }
+      }
+    }
+    ui.setGradesFocus({ classId: cid, studentName: target?.name || '', subjectId: subj?.id || '', sequence });
     navigate('/app/grades');
   };
 
@@ -409,34 +477,52 @@ function TranscriptWorkspace() {
           </div>
         )}
 
-        {/* SECTION 2 — Dashboard */}
-        <TranscriptDashboard summary={schoolSummary} onKpiClick={onKpiClick} t={t} />
+        {/* 1 ligne d'état : qui a des relevés prêts, qui n'a pas encore de notes */}
+        <ReadinessLine summary={schoolSummary} pending={referentielsPending} t={t} />
 
-        {/* SECTION 3 — Cartes de génération */}
-        <GenerationCards mode={mode} onChange={setMode} t={t} />
+        {/* POUR QUI ? Deux choix courants ; le reste est replié. */}
+        <div className="flex flex-wrap items-start gap-2">
+          {[['single', t('Un élève', 'One student', 'Un alumno'), '👤'], ['class', t('Toute la classe', 'Whole class', 'Toda la clase'), '👥']].map(([k, label, icon]) => (
+            <button key={k} type="button" onClick={() => setMode(k)} aria-pressed={mode === k}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-all ${mode === k ? 'border-brand-500 bg-brand-50 text-brand-800 ring-1 ring-brand-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}`}>
+              {icon} {label}
+            </button>
+          ))}
+          <details open={mode !== 'single' && mode !== 'class'} className="min-w-[220px] flex-1 rounded-xl border border-slate-200 bg-white">
+            <summary className="cursor-pointer select-none px-4 py-2 text-sm font-semibold text-slate-500">
+              {t('Plus d’options (niveau, établissement, historique)', 'More options (level, whole school, history)', 'Más opciones')}
+            </summary>
+            <div className="p-3"><GenerationCards mode={mode} onChange={setMode} t={t} /></div>
+          </details>
+        </div>
 
-        {/* SECTION 4 — Filtres */}
         <TranscriptFilters
           mode={mode}
           levels={levels} level={level} onLevelChange={setLevel}
-          classOptions={nonMaternelle} classId={classId} onClassChange={setClassId}
+          classOptions={classOptionsLabeled} classId={classId} onClassChange={setClassId}
           studentOptions={studentOptions} studentId={studentId} onStudentChange={setStudentId}
           search={search} onSearch={setSearch}
           year={schoolYear} t={t}
         />
 
-        {/* SECTION 5 — Panneau de contrôle (classe) */}
         {(mode === 'single' || mode === 'class' || mode === 'multi') && classEval && (
           <ControlPanel classEval={classEval} onCorrect={goCorrect} t={t} />
         )}
 
-        {/* SECTION 6 — Validation automatique */}
-        <ValidationChecklist items={checklist} t={t} />
+        {/* Un seul message d'état, cohérent avec la sélection (plus de « tout est prêt » en contradiction avec les compteurs). */}
+        {classEval && classEval.total > 0 && classEval.ready === 0 && (mode === 'single' || mode === 'class') ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <span>{t('Aucune note n’est saisie pour cette classe : il n’y a pas encore de relevé à produire.', 'No grades are entered for this class yet: there is no transcript to produce.', 'Aún no hay notas en esta clase.')}</span>
+            <button type="button" onClick={() => goCorrect({ classId })} className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm hover:bg-amber-100">{t('Saisir les notes', 'Enter grades', 'Capturar notas')}</button>
+          </div>
+        ) : (selectedClass || mode === 'all' || mode === 'level') ? (
+          <>
+            {checklist.some((c) => !c.ok) && <ValidationChecklist items={checklist.filter((c) => !c.ok)} t={t} />}
+            <AnomaliesPanel anomalies={scopeAnomalies} classTotals={classTotals} onCorrect={goCorrect} t={t} />
+          </>
+        ) : null}
 
-        {/* SECTION 7 — Alertes */}
-        <AnomaliesPanel anomalies={scopeAnomalies} onCorrect={goCorrect} t={t} />
-
-        {/* SECTION 8 — Prévisualisation PDF */}
+        {/* APERÇU + IMPRIMER (le bouton est au-dessus, visible sans défiler) */}
         <PdfPreviewPanel
           left={left}
           includes={includes}
@@ -444,31 +530,30 @@ function TranscriptWorkspace() {
           sheets={sheets}
           multiCount={docCount}
           blockedNode={targetIssues.length ? (
-            <PdfDiagnostic issues={targetIssues} onCorrect={() => goCorrect(selectedStudent ? { classId, studentId } : null)} t={t} />
+            <PdfDiagnostic issues={targetIssues} onCorrect={() => goCorrect(selectedStudent ? { classId, id: studentId, name: selectedStudent.name, issues: targetIssues } : null)} t={t} />
           ) : null}
+          actions={(
+            <MassGenerationBar
+              count={docCount}
+              progress={job.progress}
+              estimateSeconds={estimateSeconds(docCount)}
+              canGenerate={canGenerate}
+              canPrint={canPrint}
+              onPrint={() => job.run()}
+              onParentLinks={handleParents}
+              batches={job.batches.length}
+              batchIndex={job.batchIndex}
+              batched={job.batched}
+              t={t}
+            />
+          )}
           t={t}
         />
 
-        {/* SECTION 9 — Génération de masse */}
-        <MassGenerationBar
-          count={docCount}
-          progress={job.progress}
-          estimateSeconds={estimateSeconds(docCount)}
-          canGenerate={canGenerate}
-          canPrint={canPrint}
-          onPrint={() => job.run()}
-          onParentLinks={handleParents}
-          batches={job.batches.length}
-          batchIndex={job.batchIndex}
-          batched={job.batched}
-          t={t}
-        />
-
-        {/* SECTION 11 — Historique */}
-        <div>
-          <h2 className="mb-2 text-sm font-bold text-slate-800">{t('Historique des générations', 'Generation history', 'Historial')}</h2>
-          <GenerationHistory entries={history} t={t} />
-        </div>
+        <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-600">{t('Historique des générations', 'Generation history', 'Historial')}</summary>
+          <div className="p-4 pt-0"><GenerationHistory entries={history} t={t} /></div>
+        </details>
 
         {plan === 'starter' && (
           <p className="text-xs text-gray-400">

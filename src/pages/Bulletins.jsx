@@ -81,7 +81,7 @@ import {
 } from '../core/apcPeriods';
 import { assembleScBulletin, scDisciplineConseil, matieresForSerieClasse } from '../core/scEngine';
 import { assembleBilBulletin, assembleBilAnnual, matieresForBilClasse } from '../core/bilEngine';
-import { bilRefKeyForClass } from '../lib/bilAutoConfig';
+import { bilRefKeyForClass, enrichBilSubjects } from '../lib/bilAutoConfig';
 import { perSubjectRanksAndStats, classProfile } from '../lib/scBulletinPdf';
 import { teacherByMatiere as teacherByMatiereMap, teacherIndexById } from '../lib/teacherNames';
 import { resolveCountryCode, bulletinOfficials } from '../countries';
@@ -2691,39 +2691,11 @@ export default function Bulletins() {
   // 239-23 et avec sa PROPRE règle de moyenne : Σ(Moy×Coef) / Σcoef.
   useEffect(() => { if (isBil) loadBil(); }, [isBil, loadBil]);
 
-  const bilEnrichedSubjects = useMemo(() => {
-    if (!isBil) return classSubjects;
-    const key = bilRefKeyForClass(selectedClass);
-    if (!bilReferentiel || !key) return classSubjects;
-    const rows = matieresForBilClasse(bilReferentiel, key);
-    if (!rows.length) return classSubjects;
-    // Même rapprochement tolérant que le second cycle : un nom abrégé ne doit
-    // pas coûter son domaine d'apprentissage à la matière.
-    return classSubjects.map((s) => {
-      if (s.bil_domaine_ordre != null) return s;
-      const r = resolveRefRow(s.name, rows, (x) => x.nom);
-      if (!r) {
-        // MATIÈRE MAISON. Le référentiel ne la réclame pas — l'école l'a créée
-        // elle-même, ce qui est son droit. Elle ne doit pas pour autant tomber
-        // dans AUTRES MATIÈRES : les domaines du bulletin bilingue sont
-        // THÉMATIQUES, donc son classement dit où elle va. On ne reprend que le
-        // NOM et l'ORDRE du domaine ; le coefficient et la charge restent ceux
-        // que l'école a saisis, puisqu'il n'existe aucun chiffre officiel pour
-        // une matière absente de l'arrêté.
-        const d = domaineForSubject(s, rows);
-        if (!d) return s;
-        return { ...s, bil_domaine: d.domaine_nom, bil_domaine_ordre: d.domaine_ordre };
-      }
-      return {
-        ...s,
-        bil_domaine: r.domaine_nom,
-        bil_domaine_ordre: r.domaine_ordre,
-        bil_obligatoire: r.obligatoire,
-        charge_horaire: s.charge_horaire ?? r.charge_horaire,
-        coef: (s.coef != null && s.coef !== 1) ? s.coef : (r.coefficient || s.coef),
-      };
-    });
-  }, [isBil, classSubjects, bilReferentiel, selectedClass]);
+  // Définition UNIQUE (lib/bilAutoConfig) : le procès-verbal et le relevé s'en servent aussi.
+  const bilEnrichedSubjects = useMemo(
+    () => (isBil ? enrichBilSubjects(classSubjects, bilReferentiel, selectedClass) : classSubjects),
+    [isBil, classSubjects, bilReferentiel, selectedClass],
+  );
 
   // Matières que le référentiel bilingue ne réclame pas : même avis que le
   // second cycle. Elles s'impriment sous AUTRES MATIÈRES, hors domaine.

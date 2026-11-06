@@ -16,7 +16,7 @@ const eq = (a, b, m) => ok(a === b, `${m} (${a} ≈ ${b})`);
 eq(pvUnits({ engine: 'classic', sys: 'FR', cycle: 'secondaire', period: 't1' }).map((u) => u.label).join(','),
   'S1,S2', 'classique francophone : Trimestre 1 → séquences S1/S2');
 eq(pvUnits({ engine: 'classic', sys: 'FR', cycle: 'secondaire', period: 'annuel' }).map((u) => u.label).join(','),
-  'T1,T2,T3', 'annuel → trois trimestres (jamais six séquences)');
+  'S1,S2,S3,S4,S5,S6', 'annuel → une colonne par séquence (demande de l’école : séquences, pas trimestres)');
 eq(pvUnits({ engine: 'classic', sys: 'EN', cycle: 'secondaire', period: 't2' }).map((u) => u.label).join(','),
   'Term 2', 'anglophone : un seul term par période');
 eq(pvUnits({ engine: 'classic', sys: 'FR', cycle: 'primaire', period: 't1' }).map((u) => u.label).join(','),
@@ -27,6 +27,15 @@ eq(pvUnits({ engine: 'apc', sys: 'FR', cycle: 'secondaire', period: 't3' }).map(
   'S5,S6', 'APC premier cycle : séquences du trimestre');
 eq(pvUnits({ engine: 'apc_primaire', sys: 'FR', cycle: 'primaire', period: 't1' }).map((u) => u.label).join(','),
   'UA1,UA2,UA3', 'primaire APC : unités d’apprentissage');
+// Annuel par séquence / UA (APC et primaire), et période « Séquence n ».
+eq(pvUnits({ engine: 'apc', sys: 'FR', cycle: 'secondaire', period: 'annuel' }).map((u) => u.label).join(','),
+  'S1,S2,S3,S4,S5,S6', 'APC annuel : une colonne par séquence');
+eq(pvUnits({ engine: 'apc', sys: 'FR', cycle: 'secondaire', period: 's3' }).map((u) => u.label + u.tid).join(','),
+  'S3t2', 'APC Séquence 3 : une colonne, rattachée au trimestre 2 (pour le calcul)');
+eq(pvUnits({ engine: 'apc_primaire', sys: 'FR', cycle: 'primaire', period: 'annuel' }).map((u) => u.label).join(',').split(',').length >= 6, true,
+  'primaire APC annuel : une colonne par UA (plus de trimestres)');
+eq(pvUnits({ engine: 'apc_primaire', sys: 'FR', cycle: 'primaire', period: 's2' }).map((u) => u.label).join(','),
+  'UA2', 'primaire : séquence 2 = UA2');
 eq(pvUnits({ engine: 'classic', sys: 'ES', cycle: 'secondaire', countryCode: 'guinea_eq', period: 't2' }).map((u) => u.label).join(','),
   'T2', 'Guinée Éq. : trimestres, pas de séquences');
 

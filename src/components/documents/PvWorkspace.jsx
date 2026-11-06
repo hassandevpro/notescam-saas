@@ -13,7 +13,8 @@ import { useSchoolStore } from '../../store/schoolStore';
 import { useUiStore } from '../../store/uiStore';
 import { pvSheetHtml, pvSchoolSummarySheetHtml } from '../../lib/pvDoc';
 import usePrintJob from './usePrintJob';
-import { buildClassPv, pvApplicable, PV_PERIODS, pvPeriodLabel } from '../../lib/pvEngine';
+import usePvBuilder from './usePvBuilder';
+import { buildClassPv, pvApplicable, PV_PERIOD_CHOICES, pvPeriodLabel } from '../../lib/pvEngine';
 import { classIdentity } from '../../lib/schoolIdentity';
 import { recentGenerations } from '../../lib/documentLog';
 import { resolveClassEngine, firstCycleClasseSlug, primaireNiveauSlug, classSectionKey } from '../../core/engineResolver';
@@ -37,27 +38,7 @@ export default function PvWorkspace({ t }) {
   const userName    = useAuthStore((s) => s.fullName || s.user?.email || '—');
   const classes     = useSchoolStore((s) => s.classes);
   const schoolUnits = useSchoolStore((s) => s.schoolUnits);
-  const subjects    = useSchoolStore((s) => s.subjects);
-  const students    = useSchoolStore((s) => s.students);
-  const gradeMap    = useSchoolStore((s) => s.gradeMap);
   const teachers    = useSchoolStore((s) => s.teachers);
-  const apcReferentiel  = useSchoolStore((s) => s.apcReferentiel);
-  const apcNotes        = useSchoolStore((s) => s.apcNotes);
-  const loadApc         = useSchoolStore((s) => s.loadApc);
-  const primReferentiel = useSchoolStore((s) => s.primReferentiel);
-  const primNotes       = useSchoolStore((s) => s.primNotes);
-  const loadPrim        = useSchoolStore((s) => s.loadPrim);
-  // Masques du référentiel décidés par l'école. Sans eux, le procès-verbal
-  // portait des colonnes absentes des bulletins, et le conseil de classe
-  // délibérait sur des matières qui ne s'impriment pas.
-  const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
-  const primMasques     = useSchoolStore((s) => s.refMasques.prim);
-  const primMasquesClasse = useSchoolStore((s) => s.refMasquesClasse);
-  // Les CRITERES que l'ecole n'evalue pas : sans eux ici, cet ecran
-  // moyennerait sur des colonnes que le bulletin n'imprime pas.
-  const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
-  const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
-  const loadRefMasques  = useSchoolStore((s) => s.loadRefMasques);
   const viewYear    = useUiStore((s) => s.viewYear);
 
   const myTeacher = role === 'teacher' ? teachers.find((tt) => tt.id === teacherId) : null;
@@ -69,7 +50,7 @@ export default function PvWorkspace({ t }) {
   const [mode,     setMode]     = useState('class');
   const [classId,  setClassId]  = useState('');
   const [level,    setLevel]    = useState('');
-  const [period,   setPeriod]   = useState('t1');
+  const [period,   setPeriod]   = useState('s1');
   const [sheets,   setSheets]   = useState([]);
   const [building, setBuilding] = useState(false);
   const [err,      setErr]      = useState(null);
@@ -102,43 +83,11 @@ export default function PvWorkspace({ t }) {
     return pvClasses;
   }, [mode, selectedClass, levelClasses, pvClasses]);
 
-  // Les référentiels APC / primaire ne sont chargés que si le périmètre en a besoin.
-  const needsApc  = useMemo(() => targets.some((c) => resolveClassEngine(school, c) === 'apc'), [targets, school]);
-  const needsPrim = useMemo(() => targets.some((c) => resolveClassEngine(school, c) === 'apc_primaire'), [targets, school]);
-  useEffect(() => { if (needsApc) { loadApc(); loadRefMasques('apc'); } }, [needsApc, loadApc, loadRefMasques]);
-  useEffect(() => { if (needsPrim) { loadPrim(); loadRefMasques('prim'); loadRefMasques('prim_crit'); } }, [needsPrim, loadPrim, loadRefMasques]);
+  // Calcul partagé avec le relevé de notes (une seule source de chiffres).
+  const { pvForClass: pvFor, referentielsPending } = usePvBuilder(targets);
+  const pvForClass = useCallback((cls) => pvFor(cls, period), [pvFor, period]);
 
   useEffect(() => { if (school?.id) recentGenerations(school.id).then(setHistory); }, [school?.id]);
-
-  // ── Assemblage du PV d'une classe ──────────────────────────────────────────
-  const pvForClass = useCallback((cls) => {
-    const engine = resolveClassEngine(school, cls);
-    const sys    = cls.system || 'FR';
-    const cycle  = cls.cycle || 'secondaire';
-    const section = classSectionKey(cls);
-    return buildClassPv({
-      cls, engine, sys, cycle, countryCode, schoolYear, period,
-      students: students.filter((s) => s.class_id === cls.id).sort((a, b) => a.name.localeCompare(b.name)),
-      subjects: subjects.filter((s) => s.class_id === cls.id)
-        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name)),
-      gradeMap,
-      opts: gradingOpts(school, cycle),
-      gradeScale: school?.grade_scale,
-      apcReferentiel, apcNotes, apcClasseSlug: firstCycleClasseSlug(cls.level, cls.name),
-      primReferentiel, primNotes, primNiveauSlug: primaireNiveauSlug(cls.level, cls.name),
-      primBareme: primReferentiel?.bareme,
-      primSequences: section === 'primaire' && primaryPeriodMode(school) === 'sequences',
-      apcMasques, primMasques, primMasquesClasse, primCriteresMasques,
-      // Le conseil de classe doit deliberer sur les memes chiffres que ceux
-      // remis aux parents : les deux etats declares par l ecole voyagent donc
-      // jusqu ici aussi.
-      primNonEvaluees, zeroSiManquante: !!school?.notes_manquantes_zero,
-      // Les DEUX enseignants principaux (mention seule, cf. src/lib/headTeachers.js).
-      teacherName: headTeacherText(cls, teachers),
-    });
-  }, [school, countryCode, schoolYear, period, students, subjects, gradeMap,
-      apcReferentiel, apcNotes, primReferentiel, primNotes, teachers,
-      apcMasques, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees]);
 
   // Feuille HTML d'une classe (identité surchargée par l'unité pédagogique).
   const sheetForClass = useCallback((cls) => {
@@ -290,14 +239,14 @@ export default function PvWorkspace({ t }) {
           <div>
             <label className="form-label">{t('Période de délibération', 'Deliberation period', 'Periodo de deliberación')}</label>
             <select className="form-input" value={period} onChange={(e) => setPeriod(e.target.value)} style={{ minWidth: 200 }}>
-              {PV_PERIODS.map((p) => (
+              {PV_PERIOD_CHOICES.map((p) => (
                 <option key={p.key} value={p.key}>{pvPeriodLabel(p.key, sys)}</option>
               ))}
             </select>
           </div>
           <p className="flex-1 min-w-[240px] text-[12px] text-slate-500">
             {t(
-              'Chaque classe est délibérée selon son propre système de bulletin : séquences en classique et second cycle, séquences APC au premier cycle, unités d’apprentissage au primaire.',
+              'Chaque classe est délibérée par séquence, comme son bulletin ; au primaire, la séquence n correspond à l’unité d’apprentissage (UA) n.',
               'Each class is deliberated according to its own report-card system: sequences for classic and second cycle, APC sequences for first cycle, learning units for primary.',
               'Cada clase se delibera según su propio sistema de boletín.',
             )}
@@ -306,9 +255,18 @@ export default function PvWorkspace({ t }) {
         {classes.length > pvClasses.length && (
           <p className="mt-2 text-[12px] text-amber-700">
             {t(
-              `${classes.length - pvClasses.length} classe(s) de maternelle exclue(s) : l’évaluation par domaines ne se délibère pas sur une moyenne.`,
-              `${classes.length - pvClasses.length} nursery class(es) excluded: domain-based assessment has no average to deliberate.`,
-              `${classes.length - pvClasses.length} clase(s) de preescolar excluida(s).`,
+              `${classes.length - pvClasses.length} classe(s) sans procès-verbal : maternelle (évaluation par domaines, aucune moyenne à délibérer).`,
+              `${classes.length - pvClasses.length} class(es) without minutes: nursery (domain-based assessment, no average to deliberate).`,
+              `${classes.length - pvClasses.length} clase(s) sin acta: preescolar.`,
+            )}
+          </p>
+        )}
+        {referentielsPending && (
+          <p className="mt-2 text-[12px] text-amber-700">
+            {t(
+              'Chargement du référentiel bilingue (coefficients des matières)… le procès-verbal s’affichera dès qu’il est prêt.',
+              'Loading the bilingual curriculum (subject coefficients)… the minutes will appear as soon as it is ready.',
+              'Cargando el referencial bilingüe…',
             )}
           </p>
         )}
@@ -316,13 +274,7 @@ export default function PvWorkspace({ t }) {
 
       {/* Aperçu */}
       <PdfPreviewPanel
-        left={left} includes={includes} building={building} sheets={sheets}
-        multiCount={docCount} profile="large"
-        previewLabel={t('Aperçu du PV de la 1re classe', 'Preview of the 1st class minutes', 'Vista del acta de la 1.ª clase')}
-        t={t}
-      />
-
-      {/* Impression */}
+        actions={(
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -352,12 +304,18 @@ export default function PvWorkspace({ t }) {
           </div>
         </div>
       </div>
+        )}
+        left={left} includes={includes} building={building} sheets={sheets}
+        multiCount={docCount} profile="large"
+        previewLabel={t('Aperçu du PV de la 1re classe', 'Preview of the 1st class minutes', 'Vista del acta de la 1.ª clase')}
+        t={t}
+      />
 
       {/* Historique */}
-      <div>
-        <h2 className="mb-2 text-sm font-bold text-slate-800">{t('Historique des générations', 'Generation history', 'Historial')}</h2>
-        <GenerationHistory entries={history} t={t} />
-      </div>
+      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-600">{t('Historique des générations', 'Generation history', 'Historial')}</summary>
+        <div className="p-4 pt-0"><GenerationHistory entries={history} t={t} /></div>
+      </details>
     </>
   );
 }

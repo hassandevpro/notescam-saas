@@ -17,6 +17,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { buildClassTranscripts } from './transcriptEngine';
+import { transcriptUsesPv } from './transcriptFromPv';
 import { gradingOpts } from './useCountry';
 // Ordre des matières : la règle unique du produit (voir core/subjectOrder).
 import { classSubjectsOf } from '../core/subjectOrder';
@@ -37,7 +38,8 @@ export function classContext(cls, ctx) {
 function statusFromTranscript(data, classSubjects) {
   const issues = [];
 
-  if (!classSubjects.length) {
+  // Relevé bâti sur le PV (bilingue / APC / primaire) : les « matières » sont ses lignes.
+  if (!classSubjects.length && !data.rows.length) {
     issues.push({ code: 'no_subjects' });
     return { status: 'blocked', issues };
   }
@@ -69,10 +71,33 @@ export function evaluateClass(cls, ctx) {
   }
 
   const { sys, classSubjects, classStudents, opts } = classContext(cls, ctx);
+
+  // Classe dont le bulletin suit un moteur officiel : ses relevés viennent du MÊME
+  // calcul que le bulletin et le PV. Les lire dans gradeMap rendait bloqués des
+  // centaines de relevés dont le bulletin existait (notes hors gradeMap).
+  if (ctx.engineOf && ctx.pvTranscripts && transcriptUsesPv(ctx.engineOf(cls))) {
+    const fromPv = ctx.pvTranscripts(cls);
+    if (!fromPv.length) {
+      // Référentiel officiel absent (chargement, ou programme non pris en charge) :
+      // on le dit, on ne laisse pas croire à une saisie manquante.
+      const students = classStudents.map((st) => ({
+        id: st.id, name: st.name, classId: cls.id, className: cls.name,
+        status: 'blocked', issues: [{ code: 'no_reference' }], generalAvg: null, rank: null,
+      }));
+      return { applicable: true, cls, total: students.length, ready: 0, blocked: students.length, warning: 0, students };
+    }
+    return summarizeClass(cls, fromPv.map((data) => ({ data })), classSubjects);
+  }
+
   const transcripts = buildClassTranscripts({
     classStudents, cls, subjects: classSubjects, gradeMap: ctx.gradeMap, sys, cycle,
     countryCode: ctx.countryCode, schoolYear: ctx.schoolYear, stats: null, opts,
   });
+  return summarizeClass(cls, transcripts.map((data) => ({ data })), classSubjects);
+}
+
+function summarizeClass(cls, items, classSubjects) {
+  const transcripts = items.map((i) => i.data);
 
   const students = transcripts.map((data) => {
     const { status, issues } = statusFromTranscript(data, classSubjects);
@@ -189,6 +214,11 @@ export function describeIssue(issue, t) {
         action: t('Saisir les notes des matières concernées.', 'Enter grades for those subjects.', 'Capturar las notas faltantes.'),
       };
     }
+    case 'no_reference':
+      return {
+        cause:  t('Référentiel officiel de la classe indisponible (chargement en cours ou programme non pris en charge).', 'Official curriculum unavailable for this class (still loading or unsupported programme).', 'Referencial oficial no disponible.'),
+        action: t('Patienter quelques secondes ; sinon vérifier le programme de la classe.', 'Wait a few seconds; otherwise check the class programme.', 'Esperar unos segundos.'),
+      };
     case 'no_rank':
       return {
         cause:  t('Rang non calculé.', 'Rank not computed.', 'Puesto no calculado.'),
@@ -206,6 +236,7 @@ export function summarizeIssue(issue, t) {
     case 'no_grades':       return t('Aucune note saisie', 'No grades entered', 'Sin notas');
     case 'no_average':      return t('Moyenne non calculée', 'Average not computed', 'Promedio no calculado');
     case 'missing_subjects':return t(`${issue.count} matière(s) sans notes`, `${issue.count} subject(s) without grades`, `${issue.count} asignatura(s) sin notas`);
+    case 'no_reference':    return t('Référentiel indisponible', 'Curriculum unavailable', 'Referencial no disponible');
     case 'no_rank':         return t('Rang non calculé', 'Rank not computed', 'Puesto no calculado');
     default:                return '';
   }

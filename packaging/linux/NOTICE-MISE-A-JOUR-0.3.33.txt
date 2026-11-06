@@ -5,10 +5,10 @@ PRIMAIRE BILINGUE, SERVICES, SYNCHRONISATION
 ======================================================================
 
 PAQUET            notescam-linux-x64-0.3.33.tar.gz
-TAILLE            @@TAILLE@@ octets
-EMPREINTE SHA-256 @@SHA@@
-CONSTRUIT LE      @@DATE@@ (edition "lan", Node v24.22.0 comme sur le serveur)
-                  depuis le commit @@COMMIT@@ (arbre propre).
+TAILLE            53 891 550 octets
+EMPREINTE SHA-256 1d4d2a04581d12c26c74766bb28047eda72bee20eff1f3e2427c624a08145feb
+CONSTRUIT LE      2026-11-06 (edition "lan", Node v24.22.0 comme sur le serveur)
+                  depuis le commit e739a94 (arbre propre).
 SCRIPT            deploy-0.3.33.sh   (bash -n OK)
 
 Verifiez l'empreinte avant d'installer :

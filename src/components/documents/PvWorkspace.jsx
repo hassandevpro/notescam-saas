@@ -14,7 +14,7 @@ import { useUiStore } from '../../store/uiStore';
 import { pvSheetHtml, pvSchoolSummarySheetHtml } from '../../lib/pvDoc';
 import usePrintJob from './usePrintJob';
 import usePvBuilder from './usePvBuilder';
-import { buildClassPv, pvApplicable, PV_PERIOD_CHOICES, pvPeriodLabel } from '../../lib/pvEngine';
+import { buildClassPv, pvApplicable, pvPeriodChoices, pvPeriodLabel } from '../../lib/pvEngine';
 import { classIdentity } from '../../lib/schoolIdentity';
 import { recentGenerations } from '../../lib/documentLog';
 import { resolveClassEngine, firstCycleClasseSlug, primaireNiveauSlug, classSectionKey } from '../../core/engineResolver';
@@ -170,6 +170,13 @@ export default function PvWorkspace({ t }) {
   const docCount = targets.length;
   const canGenerate = docCount > 0 && canPrint;
   const sys = selectedClass?.system || 'FR';
+  // Au primaire APC la période est l'UA (8 par an) : UA 1 à UA 8, puis l'annuel.
+  const allPrimary = targets.length > 0 && targets.every((c) => resolveClassEngine(school, c) === 'apc_primaire');
+  const periodChoices = useMemo(() => pvPeriodChoices(allPrimary), [allPrimary]);
+  // Si le périmètre change (secondaire ↔ primaire), une période devenue invalide repart de la 1re.
+  useEffect(() => {
+    if (!periodChoices.some((p) => p.key === period)) setPeriod('s1');
+  }, [periodChoices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const left = {
     schoolName: school?.name,
@@ -239,8 +246,8 @@ export default function PvWorkspace({ t }) {
           <div>
             <label className="form-label">{t('Période de délibération', 'Deliberation period', 'Periodo de deliberación')}</label>
             <select className="form-input" value={period} onChange={(e) => setPeriod(e.target.value)} style={{ minWidth: 200 }}>
-              {PV_PERIOD_CHOICES.map((p) => (
-                <option key={p.key} value={p.key}>{pvPeriodLabel(p.key, sys)}</option>
+              {periodChoices.map((p) => (
+                <option key={p.key} value={p.key}>{pvPeriodLabel(p.key, sys, allPrimary)}</option>
               ))}
             </select>
           </div>

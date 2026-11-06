@@ -44,14 +44,21 @@ export const PV_PERIODS = [
   { key: 't2',     trimestre: 2, fr: 'Trimestre 2', en: 'Term 2', es: 'Trimestre 2' },
   { key: 't3',     trimestre: 3, fr: 'Trimestre 3', en: 'Term 3', es: 'Trimestre 3' },
   // Par SÉQUENCE (ou UA au primaire) : c'est le découpage que l'école manipule.
-  ...[1, 2, 3, 4, 5, 6].map((n) => ({ key: `s${n}`, sequence: n, fr: `Séquence ${n}`, en: `Sequence ${n}`, es: `Secuencia ${n}` })),
+  ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ key: `s${n}`, sequence: n, fr: `Séquence ${n}`, en: `Sequence ${n}`, es: `Secuencia ${n}` })),
   { key: 'annuel', trimestre: 0, fr: 'Annuel',      en: 'Annual', es: 'Anual' },
 ];
 // Choix proposés à l'écran : séquences + annuel (les trimestres restent acceptés en interne).
-export const PV_PERIOD_CHOICES = PV_PERIODS.filter((p) => p.sequence || p.key === 'annuel');
+// Secondaire : 6 séquences. Les séquences 7 et 8 n'existent QUE comme UA 7 et UA 8 du
+// primaire (8 UA par an) : on ne les propose pas ailleurs.
+export const PV_PERIOD_CHOICES = PV_PERIODS.filter((p) => (p.sequence && p.sequence <= 6) || p.key === 'annuel');
+// Primaire APC : les huit UA, puis l'annuel.
+export const PV_PERIOD_CHOICES_PRIMAIRE = PV_PERIODS.filter((p) => p.sequence || p.key === 'annuel');
+// Choix selon le périmètre : toutes les classes visées sont-elles au primaire APC ?
+export const pvPeriodChoices = (allPrimary) => (allPrimary ? PV_PERIOD_CHOICES_PRIMAIRE : PV_PERIOD_CHOICES);
 
-export const pvPeriodLabel = (key, sys) => {
+export const pvPeriodLabel = (key, sys, primaire = false) => {
   const p = PV_PERIODS.find((x) => x.key === key) || PV_PERIODS[0];
+  if (primaire && p.sequence) return `UA ${p.sequence}`;
   return sys === 'EN' ? p.en : sys === 'ES' ? p.es : p.fr;
 };
 
@@ -76,7 +83,8 @@ export const pvApplicable = (engine) => PV_ENGINES.includes(engine);
 // leur découpage historique en six séquences, inchangé.
 export function pvUnits({ engine, sys, cycle, countryCode, primSequences = false, period = 't1', apcReferentiel = null }) {
   const def = PV_PERIODS.find((p) => p.key === period);
-  const seqN = def?.sequence ?? null;
+  // Séquence 7 ou 8 = UA 7 ou 8 : n'a de sens qu'au primaire APC.
+  const seqN = def?.sequence && (def.sequence <= 6 || engine === 'apc_primaire') ? def.sequence : null;
   const trim = seqN ? Math.ceil(seqN / 2) : (def?.trimestre ?? 1);
   const annual = !seqN && trim === 0;
   const termLabel = (n) => (sys === 'EN' ? `Term ${n}` : `T${n}`);

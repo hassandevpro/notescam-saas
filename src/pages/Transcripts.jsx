@@ -34,6 +34,7 @@ import { estimateSeconds } from '../lib/print';
 import usePrintJob from '../components/documents/usePrintJob';
 import usePvBuilder from '../components/documents/usePvBuilder';
 import { transcriptsFromPv, transcriptUsesPv } from '../lib/transcriptFromPv';
+import { pvPeriodChoices, pvPeriodLabel } from '../lib/pvEngine';
 import { resolveClassEngine } from '../core/engineResolver';
 import { buildParentLinks } from '../lib/parentLinks';
 import { transcriptSheetHtml, multiYearSheetHtml } from '../lib/transcriptDoc';
@@ -105,9 +106,17 @@ function TranscriptWorkspace() {
   // le PV (voir lib/transcriptFromPv). Les référentiels sont chargés ici.
   const { pvForClass, referentielsPending } = usePvBuilder(nonMaternelle);
   const engineOf = useCallback((cls) => resolveClassEngine(school, cls), [school]);
+  // Période du relevé : année entière, ou une séquence (une UA au primaire).
+  const [period, setPeriod] = useState('annuel');
+  const seqOfPeriod = period.startsWith('s') ? Number(period.slice(1)) : null;
+  // L'ÉTAT « prêt / bloqué » se juge toujours sur l'année entière.
   const pvTranscripts = useCallback(
     (cls) => transcriptsFromPv(pvForClass(cls, 'annuel')),
     [pvForClass],
+  );
+  const pvTranscriptsForPeriod = useCallback(
+    (cls) => transcriptsFromPv(pvForClass(cls, period)),
+    [pvForClass, period],
   );
 
   // Contexte partagé du moteur de préparation.
@@ -243,19 +252,20 @@ function TranscriptWorkspace() {
   // Transcripts d'une classe (avec stats + rangs).
   const classTranscripts = useCallback((cls) => {
     if (transcriptUsesPv(engineOf(cls))) {
-      const data = pvTranscripts(cls);
+      const data = pvTranscriptsForPeriod(cls);
       return { sys: cls.system || 'FR', data };
     }
     const { sys, cycle, classSubjects, classStudents: cs, opts } = classContext(cls, ctx);
     const { seqs } = transcriptColumns(sys, cycle, countryCode);
     const { subs, gm } = compositeView(gradeMap, cls.id, classSubjects);
-    const stats = clsStat(cs, gm, cls.id, seqs, subs, sys, {}, opts);
+    const periodSeq = seqOfPeriod && seqs.includes(seqOfPeriod) ? seqOfPeriod : null;
+    const stats = clsStat(cs, gm, cls.id, periodSeq ? [periodSeq] : seqs, subs, sys, {}, opts);
     const data = buildClassTranscripts({
       classStudents: cs, cls, subjects: subs, gradeMap: gm, sys, cycle,
-      countryCode, schoolYear, stats, opts,
+      countryCode, schoolYear, stats, opts, periodSeq,
     });
     return { sys, data };
-  }, [ctx, countryCode, gradeMap, schoolYear, engineOf, pvTranscripts]);
+  }, [ctx, countryCode, gradeMap, schoolYear, engineOf, pvTranscriptsForPeriod, seqOfPeriod]);
 
   // Construit le relevé multi-années d'un élève (parcourt les archives).
   const buildMultiSheet = useCallback(async (refStudent, cls) => {
@@ -328,7 +338,7 @@ function TranscriptWorkspace() {
     } else {
       setSheets([]);
     }
-  }, [mode, classId, studentId, level, scopeTargets.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, classId, studentId, level, scopeTargets.length, period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Construit les feuilles d'une liste de cibles (impression) ────────────────
   // `skipped` compte TOUT ce qui n'a pas été produit : erreur de rendu comme
@@ -377,7 +387,7 @@ function TranscriptWorkspace() {
   });
 
   // Une nouvelle sélection repart du premier lot.
-  useEffect(() => { job.reset(); }, [mode, classId, studentId, level]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { job.reset(); }, [mode, classId, studentId, level, period]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleParents = () => {
     const ids = new Set(scopeTargets.map((x) => x.studentId));
@@ -437,6 +447,13 @@ function TranscriptWorkspace() {
       { id: 'stamp', label: t('Tampon', 'Stamp', 'Sello'), ok: !!school?.stamp_url },
     ];
   }, [mode, school, selectedStudent, selectedClass, schoolYear, t]);
+
+  // Le périmètre est-il entièrement au primaire APC ? (UA 1 à 8 au lieu des séquences 1 à 6)
+  const allPrimary = scopeTargets.length > 0 && scopeTargets.every((x) => resolveClassEngine(school, x.cls) === 'apc_primaire');
+  const periodChoices = useMemo(() => pvPeriodChoices(allPrimary), [allPrimary]);
+  useEffect(() => {
+    if (!periodChoices.some((p) => p.key === period)) setPeriod('annuel');
+  }, [periodChoices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const docCount = scopeTargets.length;
   const canGenerate = docCount > 0 && canPrint;
@@ -504,6 +521,21 @@ function TranscriptWorkspace() {
           search={search} onSearch={setSearch}
           year={schoolYear} t={t}
         />
+
+        {/* PÉRIODE : année entière, ou une séquence (UA au primaire). Sans objet pour l'historique multi-années. */}
+        {mode !== 'multi' && (
+          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <label className="text-sm font-semibold text-slate-700" htmlFor="rel-periode">{t('Période du relevé', 'Transcript period', 'Periodo')}</label>
+            <select id="rel-periode" className="form-input" value={period} onChange={(e) => setPeriod(e.target.value)} style={{ minWidth: 200 }}>
+              {periodChoices.map((p) => (
+                <option key={p.key} value={p.key}>{p.key === 'annuel' ? t('Année entière', 'Whole year', 'Año completo') : pvPeriodLabel(p.key, 'FR', allPrimary)}</option>
+              ))}
+            </select>
+            <span className="text-[12px] text-slate-500">{allPrimary
+              ? t('Au primaire, chaque période est une unité d’apprentissage (UA).', 'In primary, each period is a learning unit (UA).', '')
+              : t('Chaque période est une séquence.', 'Each period is a sequence.', '')}</span>
+          </div>
+        )}
 
         {(mode === 'single' || mode === 'class' || mode === 'multi') && classEval && (
           <ControlPanel classEval={classEval} onCorrect={goCorrect} t={t} />

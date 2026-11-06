@@ -4,7 +4,7 @@
 //
 //   node src/lib/_pvEngine.test.mjs
 
-import { buildClassPv, pvUnits, pvApplicable } from './pvEngine.js';
+import { buildClassPv, pvUnits, pvApplicable, pvPeriodChoices, pvPeriodLabel } from './pvEngine.js';
 import { pvSheetHtml, pvSchoolSummarySheetHtml } from './pvDoc.js';
 import { pageMetrics } from './print/printStyles.js';
 
@@ -36,6 +36,15 @@ eq(pvUnits({ engine: 'apc_primaire', sys: 'FR', cycle: 'primaire', period: 'annu
   'primaire APC annuel : une colonne par UA (plus de trimestres)');
 eq(pvUnits({ engine: 'apc_primaire', sys: 'FR', cycle: 'primaire', period: 's2' }).map((u) => u.label).join(','),
   'UA2', 'primaire : séquence 2 = UA2');
+// Primaire APC : 8 UA par an (1-3, 4-6, 7-8) — toutes doivent être accessibles.
+eq(pvUnits({ engine: 'apc_primaire', sys: 'FR', cycle: 'primaire', period: 'annuel' }).map((u) => u.label).join(','),
+  'UA1,UA2,UA3,UA4,UA5,UA6,UA7,UA8', 'primaire APC annuel : les 8 UA');
+eq(pvUnits({ engine: 'apc_primaire', sys: 'FR', cycle: 'primaire', period: 's7' }).map((u) => u.label).join(','), 'UA7', 'primaire : période UA7 accessible');
+eq(pvUnits({ engine: 'apc_primaire', sys: 'FR', cycle: 'primaire', period: 's8' }).map((u) => u.label).join(','), 'UA8', 'primaire : période UA8 accessible');
+eq(pvPeriodChoices(true).map((p) => p.key).join(','), 's1,s2,s3,s4,s5,s6,s7,s8,annuel', 'liste primaire : UA1 à UA8 + annuel');
+eq(pvPeriodChoices(false).map((p) => p.key).join(','), 's1,s2,s3,s4,s5,s6,annuel', 'liste secondaire : 6 séquences + annuel (pas de séquence 7/8)');
+eq(pvPeriodLabel('s7', 'FR', true), 'UA 7', 'libellé primaire : « UA 7 »');
+eq(pvPeriodLabel('s3', 'FR', false), 'Séquence 3', 'libellé secondaire : « Séquence 3 »');
 eq(pvUnits({ engine: 'classic', sys: 'ES', cycle: 'secondaire', countryCode: 'guinea_eq', period: 't2' }).map((u) => u.label).join(','),
   'T2', 'Guinée Éq. : trimestres, pas de séquences');
 

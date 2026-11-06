@@ -42,6 +42,7 @@ export function transcriptSheetHtml(data, { qrSrc, verification, school }) {
   const mention = (a) => safe(a?.text ?? (a?.g ? `${a.g} — ${a.txt}` : ''), '');
   const year = schoolYear || school?.current_year || '';
   const colCount = 4 + cols.length;
+  const per = data.periodLabel || null; // null = relevé annuel
 
   // Ligne d'identification répétée en tête de tableau : sur un relevé qui
   // déborde, la page suivante reste identifiable. `<thead>` est réimprimé par
@@ -58,7 +59,7 @@ export function transcriptSheetHtml(data, { qrSrc, verification, school }) {
       <th style="${TH};text-align:left;width:32%">${L(sys, 'Matière', 'Subject', 'Asignatura')}</th>
       <th style="${TH};width:8%">${L(sys, 'Coef', 'Coef', 'Coef')}</th>
       ${cols.map((c) => `<th style="${TH}">${safe(c.label, '')}</th>`).join('')}
-      <th style="${TH};width:11%">${L(sys, 'Moy. An.', 'Annual', 'Media')}</th>
+      <th style="${TH};width:11%">${per ? L(sys, 'Moy.', 'Avg', 'Media') : L(sys, 'Moy. An.', 'Annual', 'Media')}</th>
       <th style="${TH};width:15%">${L(sys, 'Mention', 'Remark', 'Apreciación')}</th>
     </tr>`;
 
@@ -78,7 +79,7 @@ export function transcriptSheetHtml(data, { qrSrc, verification, school }) {
     ${sheetOpen({ school })}
       ${officialHeaderHtml(school, sys, { basic: isBasicClass(cls) })}
 
-      ${titleBandHtml(`${L(sys, 'RELEVÉ DE NOTES ANNUEL', 'ANNUAL TRANSCRIPT', 'CERTIFICACIÓN ACADÉMICA ANUAL')} — ${safe(year, '')}`)}
+      ${titleBandHtml(`${per ? L(sys, 'RELEVÉ DE NOTES', 'TRANSCRIPT', 'CERTIFICACIÓN ACADÉMICA') : L(sys, 'RELEVÉ DE NOTES ANNUEL', 'ANNUAL TRANSCRIPT', 'CERTIFICACIÓN ACADÉMICA ANUAL')} — ${per ? `${safe(per, '')} — ` : ''}${safe(year, '')}`)}
 
       <table class="${CLASS.keep}" style="width:100%;border-collapse:collapse;margin-bottom:6px">
         <tbody><tr>
@@ -96,7 +97,7 @@ export function transcriptSheetHtml(data, { qrSrc, verification, school }) {
         <tbody>
           ${bodyRows || `<tr><td style="${CELL};text-align:center" colspan="${colCount}">${L(sys, 'Aucune matière', 'No subjects', 'Sin asignaturas')}</td></tr>`}
           <tr>
-            <td style="${CELL};background:#e8edf2;font-weight:bold;text-align:right" colspan="${colspanLeft}">${L(sys, 'MOYENNE GÉNÉRALE ANNUELLE', 'ANNUAL GENERAL AVERAGE', 'MEDIA GENERAL ANUAL')} ${esc(scaleLabel)}</td>
+            <td style="${CELL};background:#e8edf2;font-weight:bold;text-align:right" colspan="${colspanLeft}">${per ? L(sys, 'MOYENNE GÉNÉRALE', 'GENERAL AVERAGE', 'MEDIA GENERAL') : L(sys, 'MOYENNE GÉNÉRALE ANNUELLE', 'ANNUAL GENERAL AVERAGE', 'MEDIA GENERAL ANUAL')} ${esc(scaleLabel)}</td>
             <td style="${CELL};background:#e8edf2;text-align:center;font-weight:bold;font-size:12px;color:${passed ? '#059669' : '#dc2626'}">${grade(generalAvg)}</td>
             <td style="${CELL};background:#e8edf2;text-align:center;font-weight:600;color:${esc(generalAppr?.col || '#111')}">${mention(generalAppr)}</td>
           </tr>

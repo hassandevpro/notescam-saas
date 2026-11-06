@@ -18,6 +18,7 @@ import { getAppreciation } from '../core/bulletinEngine.js';
 import { bilAppreciation, bilSysForSerie } from '../core/bilEngine.js';
 import { bilRefKeyForClass } from './bilAutoConfig.js';
 import { primCote } from '../core/primEngine.js';
+import { pvPeriodLabel } from './pvEngine.js';
 
 // Moteurs dont le relevé doit venir du PV (les autres gardent le chemin direct).
 export const TRANSCRIPT_FROM_PV_ENGINES = ['bilingue', 'apc', 'apc_primaire'];
@@ -77,6 +78,8 @@ export function transcriptsFromPv(pv, { gradeScale: gs } = {}) {
     totalCoef: pvCols.reduce((a, c) => a + (rows.length && r.cells[c.key]?.moy != null ? (Number(c.coef) || 0) : 0), 0),
     pass: summary.pass,
     fromPv: true,
+    // Titre de période (null = année entière) : « Séquence 3 », « UA 7 »…
+    periodLabel: pv.period === 'annuel' ? null : pvPeriodLabel(pv.period, sys, pv.engine === 'apc_primaire'),
   }));
 }
 

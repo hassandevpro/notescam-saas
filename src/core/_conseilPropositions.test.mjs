@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import {
   SEUILS_CONSEIL, CLES_CONSEIL, propositionsConseil, appreciationProposee,
-  valeurAEcrire, valeurSaisie, ecartsConseil, lotConseil,
+  valeurAEcrire, valeurSaisie, ecartsConseil, lotConseil, lotsConseilClasse, resumeLotsClasse,
 } from './conseilPropositions.js';
 
 let echecs = 0;
@@ -225,6 +225,41 @@ titre('l ecran de saisie propose, et le carnet lit la saisie');
   ok(/propositionsConseil/.test(conseil), 'l assistant du conseil la calcule aussi');
   ok(/lotConseil/.test(conseil), 'et applique un LOT, jamais champ par champ a l aveugle');
   ok(/ecartsConseil/.test(conseil), 'en ne touchant que les champs qui different');
+}
+
+// ── « Appliquer à toute la classe » : jamais d'écrasement ─────────────────────
+{
+  const prop = (avg) => propositionsConseil(avg, 20);
+  const el = (id, avg, scores = {}) => ({ stu: { id, name: id.toUpperCase() }, avg, scores });
+
+  // 15,36/20 = 76,8 % : tableau d'honneur + encouragement, pas de félicitations (< 80 %).
+  const lots = lotsConseilClasse([el('a', 15.36)], prop);
+  ok(lots.length === 1 && lots[0].champs.includes('tableauHonneur') && lots[0].champs.includes('encouragement')
+    && !lots[0].champs.includes('felicitation'), 'classe : 15,36/20 reçoit tableau d honneur et encouragement, pas félicitations');
+  ok(lots[0].lot.__th__ === 'true' && lots[0].lot.__encouragement__ === 'true', 'classe : le lot écrit les bonnes clés');
+
+  ok(lotsConseilClasse([el('b', null)], prop).length === 0, 'classe : un élève sans moyenne ne reçoit RIEN (on n invente rien)');
+  ok(lotsConseilClasse([el('c', 5)], prop).every((l) => !l.champs.includes('tableauHonneur')), 'classe : une moyenne basse ne reçoit aucune distinction');
+
+  // Case déjà saisie : intouchable, vrai OU faux.
+  const dejaTrue = lotsConseilClasse([el('d', 15.36, { __th__: 'true' })], prop);
+  ok(!dejaTrue.some((l) => l.champs.includes('tableauHonneur')), 'classe : un tableau d honneur déjà accordé n est pas retouché');
+  const refuse = lotsConseilClasse([el('e', 15.36, { __th__: 'false' })], prop);
+  ok(!refuse.some((l) => l.champs.includes('tableauHonneur')), 'classe : un « non » saisi par le conseil n est PAS écrasé par la proposition');
+  const felicite = lotsConseilClasse([el('f', 12, { __felicitation__: 'true' })], prop);
+  ok(!felicite.some((l) => Object.keys(l.lot).includes('__felicitation__')), 'classe : des félicitations accordées malgré 12/20 ne sont pas retirées');
+  const appr = lotsConseilClasse([el('g', 17, { __appreciation__: 'Bon trimestre, continue.' })], prop);
+  ok(!appr.some((l) => l.champs.includes('appreciation')), 'classe : l appréciation écrite à la main n est jamais remplacée');
+
+  // Rien à recevoir : aucun lot (un clic ne doit rien écrire pour rien).
+  const complet = el('h', 15.36, { __th__: 'true', __encouragement__: 'true', __felicitation__: 'false', __aver_travail__: '0', __appreciation__: 'ok' });
+  ok(lotsConseilClasse([complet], prop).length === 0, 'classe : une fiche déjà complète ne produit aucun lot');
+
+  const r = resumeLotsClasse(lotsConseilClasse([el('i', 15.36), el('j', 17), el('k', 18.5)], prop));
+  ok(r.eleves === 3 && r.tableauHonneur === 3 && r.felicitation === 2, 'classe : le décompte annonce 3 élèves, 3 tableaux d honneur, 2 félicitations (17 et 18,5 dépassent 80 %)');
+
+  const conseil = readFileSync(new URL('../pages/ConseilDeClasse.jsx', import.meta.url), 'utf8');
+  ok(/lotsConseilClasse/.test(conseil) && /window\.confirm\(msg\)/.test(conseil), 'écran : le bouton passe par lotsConseilClasse et demande confirmation');
 }
 
 console.log(echecs === 0 ? '\nTOUS LES TESTS PASSENT' : `\nECHEC : ${echecs}`);

@@ -144,3 +144,47 @@ export function lotConseil(prop, scores = {}, champs = null) {
   }
   return lot;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOUTE LA CLASSE EN UN CLIC — mais jamais au détriment d'une saisie
+// ─────────────────────────────────────────────────────────────────────────────
+// Le bouton « appliquer à toute la classe » ne fait que REMPLIR LES CASES VIDES.
+// Une case déjà saisie — « vrai » comme « faux » — est la décision du conseil : on
+// n'y touche pas. Sans cette règle, un clic retirerait les félicitations qu'un
+// élève a reçues malgré une moyenne un peu basse, ou effacerait l'appréciation
+// écrite à la main. Les mêmes écarts que pour un élève seul (`ecartsConseil`),
+// restreints aux champs encore vides.
+//
+// rows : [{ stu: { id, name }, scores, avg }]   propositionDe(avg) → proposition | null
+// Renvoie [{ studentId, name, champs, lot }] — seulement les élèves qui ont quelque
+// chose à recevoir. Un élève sans moyenne n'en reçoit pas : on n'invente rien.
+export function lotsConseilClasse(rows, propositionDe) {
+  const out = [];
+  for (const r of rows || []) {
+    const prop = propositionDe(r.avg);
+    if (!prop) continue;
+    const scores = r.scores || {};
+    const vides = Object.keys(CLES_CONSEIL).filter((champ) => {
+      const brut = scores[CLES_CONSEIL[champ]];
+      return brut === undefined || brut === null || brut === '';
+    });
+    const champs = ecartsConseil(prop, scores).filter((c) => vides.includes(c));
+    if (!champs.length) continue;
+    const lot = lotConseil(prop, scores, champs);
+    if (Object.keys(lot).length) out.push({ studentId: r.stu.id, name: r.stu.name, champs, lot });
+  }
+  return out;
+}
+
+// Le décompte affiché dans la confirmation : combien d'élèves, et de quoi.
+export function resumeLotsClasse(lots) {
+  const n = (champ) => lots.filter((l) => l.champs.includes(champ)).length;
+  return {
+    eleves: lots.length,
+    tableauHonneur: n('tableauHonneur'),
+    encouragement: n('encouragement'),
+    felicitation: n('felicitation'),
+    avertissement: n('avertissement'),
+    appreciation: n('appreciation'),
+  };
+}

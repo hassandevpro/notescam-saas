@@ -5,7 +5,7 @@ import { buildRanks } from '../core/bulletinEngine';
 import { vieScolaireAutoConduite } from '../core/scEngine';
 // Les cinq champs du bas du bulletin, proposés d'après le travail de l'élève —
 // jamais écrits d'office : le conseil applique d'un clic.
-import { propositionsConseil, ecartsConseil, lotConseil } from '../core/conseilPropositions';
+import { propositionsConseil, ecartsConseil, lotConseil, lotsConseilClasse, resumeLotsClasse } from '../core/conseilPropositions';
 import { vieScolaire } from '../lib/vieScolaireService';
 import { aggregateAttendance, attendanceAuto } from '../core/attendanceEngine';
 import { fetchTimetableSlots } from '../lib/schoolService';
@@ -343,6 +343,32 @@ export default function ConseilDeClasse() {
     saveGrade(classId, assistRow.stu.id, seq, lot);
   }, [assistRow, classId, seq, saveGrade]);
 
+  // « Appliquer à toute la classe » : les propositions du conseil pour tous les élèves
+  // qui ont une moyenne, en ne remplissant QUE les cases encore vides. Rien de ce
+  // qui est déjà saisi n'est modifié (voir core/conseilPropositions.lotsConseilClasse).
+  const lotsClasse = useMemo(
+    () => lotsConseilClasse(rows, (avg) => propositionsConseil(avg, scale, { sys, gradeScale: school?.grade_scale, maxScale: geGradeMax(school) })),
+    [rows, scale, sys, school],
+  );
+  const applyConseilAll = useCallback(() => {
+    if (!lotsClasse.length) return;
+    const r = resumeLotsClasse(lotsClasse);
+    const detail = [
+      r.tableauHonneur ? t(`${r.tableauHonneur} tableau(x) d'honneur`, `${r.tableauHonneur} honour roll`) : null,
+      r.encouragement ? t(`${r.encouragement} encouragement(s)`, `${r.encouragement} commendation(s)`) : null,
+      r.felicitation ? t(`${r.felicitation} félicitation(s)`, `${r.felicitation} congratulation(s)`) : null,
+      r.avertissement ? t(`${r.avertissement} avertissement(s) de travail`, `${r.avertissement} work warning(s)`) : null,
+      r.appreciation ? t(`${r.appreciation} appréciation(s)`, `${r.appreciation} remark(s)`) : null,
+    ].filter(Boolean).join(', ');
+    const msg = t(
+      `Enregistrer les propositions du conseil pour ${r.eleves} élève(s) (${seqLabel}) : ${detail} ?\n\nSeules les cases encore VIDES sont remplies. Rien de ce qui est déjà saisi n'est modifié.`,
+      `Save the council's proposals for ${r.eleves} student(s) (${seqLabel}): ${detail}?\n\nOnly EMPTY fields are filled. Nothing already entered is changed.`,
+    );
+    if (!window.confirm(msg)) return;
+    // Un enregistrement par élève (le lot de ses champs en une fois), comme pour un élève seul.
+    for (const l of lotsClasse) saveGrade(classId, l.studentId, seq, l.lot);
+  }, [lotsClasse, classId, seq, seqLabel, saveGrade, t]);
+
   // Élèves dont le bulletin diffère de l'appel pour cette séquence. Seuls ceux
   // qui ONT des heures à l'appel : une école qui ne fait pas l'appel ne doit
   // pas se voir proposer de remettre ses absences à zéro.
@@ -405,6 +431,15 @@ export default function ConseilDeClasse() {
 
             {classId && (
               <div className="flex items-center gap-2 shrink-0">
+                {lotsClasse.length > 0 && (
+                  <button
+                    onClick={applyConseilAll}
+                    title={t("Remplit tableau d'honneur, encouragement, félicitations et avertissement d'après la moyenne de chaque élève. Ne remplit que les cases vides.", "Fills honour roll, commendation, congratulations and warning from each student's average. Only empty fields are filled.")}
+                    className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100 transition-colors"
+                  >
+                    {t(`Appliquer à toute la classe (${lotsClasse.length})`, `Apply to whole class (${lotsClasse.length})`)}
+                  </button>
+                )}
                 {attDiffs.length > 0 && (
                   <button
                     onClick={applyAttendanceAll}

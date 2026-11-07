@@ -62,6 +62,7 @@ import CompetenceGradeIO from './CompetenceGradeIO';
 import GradeBundleIO from './GradeBundleIO';
 import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import FeuilleNotesButton from './FeuilleNotesButton';
+import usePvBuilder from '../documents/usePvBuilder';
 import ObservationGlobaleForm from './ObservationGlobaleForm';
 
 // ── Barème d'une colonne (une évaluation) ────────────────────────────────────
@@ -999,9 +1000,9 @@ export default function PrimCompetenceWorkspace() {
         colonnes.push({ id: `${comp.id}|${cr.id}`, label: primCritereLabel(cr, sys), bareme });
       }
       if (!colonnes.length) continue;
-      // Le total de la compétence : colonne CALCULÉE, donc imprimée vide et
-      // grisée — elle s'additionne une fois les épreuves notées.
-      colonnes.push({ id: `${comp.id}|__total`, label: t('Total', 'Total'), calculee: true });
+      // PAS DE « TOTAL » ENTRE LES COMPÉTENCES : l'école ne veut qu'une MOYENNE, en
+      // fin de ligne. Un total par compétence encombrait la feuille (une colonne de
+      // plus à chaque matière) sans servir à la moyenne de l'élève.
       // L'intitulé officiel fait une phrase : tronqué, sinon l'en-tête de
       // groupe prend quatre lignes et mange autant d'élèves par page.
       const nom = comp.intitule || '';
@@ -1011,9 +1012,37 @@ export default function PrimCompetenceWorkspace() {
         colonnes,
       });
     }
+    // La synthèse, en fin de ligne : moyenne et rang de l'élève sur la période.
+    // CALCULÉE : imprimée vide et grisée sur la feuille vierge, remplie sur la feuille
+    // « avec les notes ».
+    if (out.length) {
+      out.push({
+        id: '__synthese',
+        label: t('Synthèse', 'Summary'),
+        colonnes: [
+          { id: '__synthese|__moy', label: t('Moyenne /10', 'Average /10'), calculee: true },
+          { id: '__synthese|__rang', label: t('Rang', 'Rank'), calculee: true },
+        ],
+      });
+    }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [referentiel, niveauSlug, competences, masquesCrit, classStudents, primNotes, pendingBareme, ua, sys, t]);
+
+  // La moyenne et le rang imprimés = ceux du bulletin ET du procès-verbal de cette UA :
+  // même calcul (buildClassPv), donc jamais deux chiffres différents pour un même élève.
+  const pvClasses = useMemo(() => (selectedClass ? [selectedClass] : []), [selectedClass]);
+  const { pvForClass } = usePvBuilder(pvClasses);
+  const moyenneParEleve = useMemo(() => {
+    if (!selectedClass) return {};
+    let pv = null;
+    try { pv = pvForClass(selectedClass, `s${ua}`); } catch { pv = null; }
+    return Object.fromEntries((pv?.rows || []).filter((r) => r.avg != null).map((r) => [r.id, {
+      moy: r.avg,
+      // « 3e / 8 » → « 3e » : l'effectif est déjà en tête de feuille.
+      rang: r.rank ? String(r.rankTxt || r.rank).split(' / ')[0] : '',
+    }]));
+  }, [selectedClass, pvForClass, ua]);
 
   const feuilleEleves = useMemo(
     () => classStudents.map((s, i) => ({ id: s.id, numero: i + 1, nom: s.name })),
@@ -1026,12 +1055,17 @@ export default function PrimCompetenceWorkspace() {
     const sep = String(colonneId).indexOf('|');
     if (sep < 0) return '';
     const compId = String(colonneId).slice(0, sep);
+    if (compId === '__synthese') {
+      const m = moyenneParEleve[eleveId];
+      if (!m) return '';
+      return String(colonneId).endsWith('|__rang') ? m.rang : String(m.moy);
+    }
     const critId = String(colonneId).slice(sep + 1);
     if (critId.startsWith('__')) return '';
     const r = primNotes[primNkey(eleveId, compId, critId, ua)];
     if (r?.statut === 'absent') return 'ABS';
     return r?.note != null ? String(r.note) : '';
-  }, [primNotes, ua]);
+  }, [primNotes, ua, moyenneParEleve]);
 
   function renderClassPicker() {
     return (

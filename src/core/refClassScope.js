@@ -450,20 +450,8 @@ export function matForClass(referentiel, classSubjects, masques = []) {
 }
 
 /**
- * COEFFICIENTS DE L'ÉCOLE POUR UNE CLASSE APC.
- *
- * Deux sources se contredisaient : « Modifier la classe » écrit `subjects.coef`
- * (SVTEEHB coef 3 en 5ème), alors que la saisie, le bulletin, le PV et le rapport de
- * classe lisaient le coefficient NATIONAL (`apc_classe_matieres`) — 2, voire 1 quand la
- * matière n'est pas rattachée au niveau. La même matière portait donc trois coefficients
- * selon l'écran, et la moyenne générale suivait le national, pas ce que l'école avait réglé.
- *
- * Règle : le coefficient que l'école a posé sur SA matière de classe l'emporte. On
- * rend la table `classeMatieres` du référentiel avec ces valeurs, à brancher partout où
- * le référentiel est filtré pour la classe. Une matière locale qui couvre PLUSIEURS
- * matières officielles (« Histoire-Géo ») est ambiguë : on ne touche à rien.
- *
- * @returns classeMatieres (même forme que le référentiel) — jamais d'exception.
+ * Table des coefficients APC d'une classe : celui que l'école a posé sur sa matière (subjects.coef)
+ * l'emporte sur le national. Matière locale couvrant plusieurs matières officielles : ignorée.
  */
 export function apcClasseMatieresEcole(referentiel, classeSlug, classSubjects, label) {
   const base = referentiel?.classeMatieres || [];
@@ -479,7 +467,7 @@ export function apcClasseMatieresEcole(referentiel, classeSlug, classSubjects, l
   if (!coefParMatiere.size) return base;
   const out = base.map((r) => (r.classe_id === classeSlug && coefParMatiere.has(r.matiere_id)
     ? { ...r, coefficient: coefParMatiere.get(r.matiere_id) } : r));
-  // Matière absente de la table du niveau : on pose la ligne, sinon coefFor retomberait sur 1.
+  // Absente de la table du niveau : sans ligne, coefFor retomberait sur 1.
   for (const [matiereId, coef] of coefParMatiere) {
     if (!out.some((r) => r.classe_id === classeSlug && r.matiere_id === matiereId)) {
       out.push({ classe_id: classeSlug, matiere_id: matiereId, coefficient: coef, ordre: null, optionnelle: false });

@@ -274,7 +274,6 @@ export default function ApcCompetenceWorkspace() {
   // regarde — c'est exactement la liste que le bulletin utilise.
   const classSubjects = useMemo(() => classSubjectsOf(subjects, classId), [subjects, classId]);
 
-  // Coefficients : celui que l'école a posé sur sa matière (Modifier la classe) l'emporte sur le national.
   const classeMatieresEcole = useMemo(
     () => apcClasseMatieresEcole(referentiel, classeSlug, classSubjects),
     [referentiel, classeSlug, classSubjects],

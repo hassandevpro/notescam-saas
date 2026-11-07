@@ -33,8 +33,7 @@ import usePvBuilder from '../components/documents/usePvBuilder';
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
 const PRIM_UAS   = [1, 2, 3, 4, 5, 6, 7, 8];
 const SEC_SEQS   = [1, 2, 3, 4, 5, 6];
-// Moteurs dont les notes ne sont PAS dans `gradeMap` (APC : apc_notes ; bilingue ; second cycle) :
-// la fiche les lit via le moteur de PV, comme le bulletin.
+// Moteurs dont les notes ne sont pas dans `gradeMap` : lues via le moteur de PV.
 const ENGINES_PV = ['apc_primaire', 'apc', 'bilingue', 'sc'];
 
 function calcAge(dob) {
@@ -367,10 +366,7 @@ export default function StudentProfile() {
     });
   }, [subs, gradeMap, cls, student, sys]);
 
-  // PRIMAIRE (APC) : la fiche ne lisait que les notes du secondaire (gradeMap), donc
-  // « N/A » pour tout élève du primaire alors que son bulletin est rempli. On prend la
-  // moyenne de chaque UA au MÊME endroit que le bulletin et le PV (buildClassPv) : un
-  // parent voit le même chiffre sur la fiche, le bulletin et le procès-verbal.
+  // Moyennes lues dans buildClassPv : mêmes chiffres que le bulletin et le PV.
   const engine = cls ? resolveClassEngine(school, cls) : 'classic';
   const isPrim = engine === 'apc_primaire';
   const usePv  = ENGINES_PV.includes(engine);
@@ -385,8 +381,7 @@ export default function StudentProfile() {
       return { ua, avg: r?.avg ?? null, mention: r?.mention || '', rank: r?.rankTxt || '', max: pv?.maxScale ?? 10 };
     });
   }, [usePv, isPrim, cls, student, pvForClass]);
-  // Détail par matière (secondaire) ou par compétence (primaire) : la vue ANNUELLE du PV porte
-  // une colonne par séquence / UA et la moyenne de l'année — les mêmes chiffres que le bulletin.
+  // Détail par matière / compétence : vue annuelle du PV (une colonne par séquence ou UA).
   const detail = useMemo(() => {
     if (!usePv || !student) return null;
     let pv = null;
@@ -913,7 +908,6 @@ export default function StudentProfile() {
           </div>
         )}
 
-        {/* Au primaire APC, ce tableau (matières à séquences) resterait vide : les notes sont par compétence et par UA. */}
         {detail && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-5">
             <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/80">

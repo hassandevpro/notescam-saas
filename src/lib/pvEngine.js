@@ -308,8 +308,6 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
 // règle que le bulletin primaire officiel.
 function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme, competences, criteresMasques = [],
   classId = null, nonEvaluees = [], zeroSiManquante = false }) {
-  // Même échelle que le bulletin et le rapport de classe (source unique : primEngine) — avant
-  // c'était 10 en dur : le PV et la fiche annonçaient 6,60/10 là où le bulletin dit 13,20/20.
   const GRADE_MAX = PRIM_GRADE_MAX;
   // `competences` est fourni par `buildClassPv` : masques de l'école + matières
   // réellement cochées pour la classe. Repli sur le niveau entier si l'appelant

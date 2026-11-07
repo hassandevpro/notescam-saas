@@ -2107,7 +2107,6 @@ export default function Bulletins() {
     return {
       ...apcReferentiel,
       competences: withLibelles(apcEcole.competences, apcLibelles),
-      // Le coefficient posé par l'école sur sa matière l'emporte sur le national.
       classeMatieres: apcClasseMatieresEcole(apcReferentiel, apcClasseSlug, classSubjects),
     };
   }, [apcReferentiel, apcEcole, apcLibelles, apcClasseSlug, classSubjects]);

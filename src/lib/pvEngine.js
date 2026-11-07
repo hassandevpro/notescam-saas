@@ -30,7 +30,7 @@ import { apcForClass, primForClass, masquesDeClasse } from '../core/refClassScop
 import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
-  primNkey, celluleDeNote, nonEvalKey,
+  primNkey, celluleDeNote, nonEvalKey, PRIM_GRADE_MAX,
 } from '../core/primEngine.js';
 // Les intitulés du référentiel officiel sont stockés en français : sur une classe
 // du secteur anglophone, le PV les rend en anglais, comme le fait le bulletin.
@@ -308,7 +308,9 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
 // règle que le bulletin primaire officiel.
 function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme, competences, criteresMasques = [],
   classId = null, nonEvaluees = [], zeroSiManquante = false }) {
-  const GRADE_MAX = 10;
+  // Même échelle que le bulletin et le rapport de classe (source unique : primEngine) — avant
+  // c'était 10 en dur : le PV et la fiche annonçaient 6,60/10 là où le bulletin dit 13,20/20.
+  const GRADE_MAX = PRIM_GRADE_MAX;
   // `competences` est fourni par `buildClassPv` : masques de l'école + matières
   // réellement cochées pour la classe. Repli sur le niveau entier si l'appelant
   // ne le passe pas (compatibilité des appels existants).

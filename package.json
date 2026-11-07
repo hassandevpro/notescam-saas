@@ -41,7 +41,9 @@
     "test:print:bulletin": "node --experimental-loader ./scripts/lib/jsx-resolve.mjs scripts/print-capacity-bulletin.mjs",
     "test:print:apc": "node --experimental-loader ./scripts/lib/jsx-resolve.mjs scripts/apc-sequence-fit.mjs",
     "test:print:apc:plafond": "node --experimental-loader ./scripts/lib/jsx-resolve.mjs scripts/apc-plafond-lignes.mjs",
-    "bulletin:visual": "node --experimental-loader ./scripts/lib/jsx-resolve.mjs scripts/bulletin-prim-visual.mjs"
+    "bulletin:visual": "node --experimental-loader ./scripts/lib/jsx-resolve.mjs scripts/bulletin-prim-visual.mjs",
+    "bulletin:visual:paysage": "node --experimental-loader ./scripts/lib/jsx-resolve.mjs scripts/bulletin-prim-visual.mjs paysage",
+    "pdf:mesure": "node scripts/pdf-mesure.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

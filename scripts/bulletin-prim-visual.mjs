@@ -31,7 +31,7 @@ import { join } from 'node:path';
 import { startServer, writeDoc, openRasterizer, rasterize, OUT_DIR } from './lib/print-harness.mjs';
 import { ajusterFeuilles } from './lib/densite-navigateur.mjs';
 import {
-  school, student, vierge, note, peu, extreme, aNLignes,
+  school, student, vierge, note, peu, extreme, aNLignes, paysage,
 } from './lib/bulletin-jeux.mjs';
 
 const require = createRequire(import.meta.url);
@@ -92,9 +92,13 @@ const CSS = cssLivre();
 //
 // Memes arguments que l'application : `screen: false` (l'apercu ecran vient du
 // CSS du build), `page: true` (l'ecran Bulletins declare sa geometrie).
-const CSS_PRINT = printCss({ profile: 'bulletin', screen: false, page: true });
+// MODE PAYSAGE : `node … bulletin-prim-visual.mjs paysage` — profil « large » (A4
+// paysage), celui que l'école choisit pour le carnet primaire.
+const PAYSAGE = process.argv.includes('paysage');
+const PROFIL = PAYSAGE ? 'large' : 'bulletin';
+const CSS_PRINT = printCss({ profile: PROFIL, screen: false, page: true });
 
-const m = pageMetrics('bulletin');
+const m = pageMetrics(PROFIL);
 const VIS = join(OUT_DIR, 'visual');
 mkdirSync(VIS, { recursive: true });
 
@@ -112,7 +116,21 @@ for (const f of lsDir(VIS)) {
 // décrivent plus la même feuille et le bas de page peut sauter.
 const ECART_MAX_PX = 6;
 
-const JEUX = {
+// Tolérance de remplissage : 1 point. La hauteur n'est pas strictement monotone en densité
+// (le texte se reflue), donc la dichotomie peut s'arrêter à 96,9 % au lieu de 97 %. L'exigence
+// qui compte — UNE page, jamais de débordement — reste stricte (≤ 100 %).
+const TOLERANCE_REMPLISSAGE = 0.01;
+
+const JEUX_PAYSAGE = {
+  p10: ['P1. paysage EN, 10 compétences (le bulletin du PDF du 07/11)', () => paysage(10)],
+  p11: ['P2. paysage EN, 11 compétences', () => paysage(11)],
+  p16: ['P3. paysage EN, 16 compétences', () => paysage(16)],
+  pfr: ['P4. paysage FR, 11 compétences', () => paysage(11, { sys: 'FR' })],
+  plong: ['P5. paysage, noms et remarques LONGS, intitulés sur 2 lignes (12)', () => paysage(15, { long: true })],
+  p20: ['P6. capacité maximale : 20 compétences au plancher de 7,5 pt', () => paysage(20)],
+  pext: ['P7. paysage, 15 compétences + noms et remarques longs + intitulés sur 2 lignes', () => paysage(15, { long: true })],
+};
+const JEUX = PAYSAGE ? JEUX_PAYSAGE : {
   ref: ['a. vierge, 16 lignes (équivalent de la référence)', () => vierge()],
   note: ['b. entièrement noté, 16 lignes', () => note()],
   peu: ['c. peu de compétences (6)', peu],
@@ -180,7 +198,7 @@ const browser = await chromium.launch({ channel: 'chrome' }).catch(() => chromiu
 const page = await browser.newPage({ viewport: { width: 1200, height: 1600 } });
 const raster = await openRasterizer(browser, port);
 
-console.log(`Profil « bulletin » : ${m.contentW}×${m.contentH} mm `
+console.log(`Profil « ${PROFIL} »${PAYSAGE ? ' (A4 PAYSAGE)' : ''} : ${m.contentW}×${m.contentH} mm `
   + `(${Math.round(m.contentWpx)}×${Math.round(m.contentHpx)} px)`);
 console.log(`Bornes de densité : corps ${DENSITE.bodyMin}–${DENSITE.bodyMax} pt ; `
   + `cible de remplissage ≥ ${(CIBLE_MIN * 100).toFixed(0)} %\n`);
@@ -199,7 +217,7 @@ for (const cle of aFaire) {
 
   // ÉTAPE 1 — l'ajustement, en média SCREEN : c'est ce que fait l'application.
   await page.emulateMedia({ media: 'screen' });
-  const bilan = await ajusterFeuilles(page, m);
+  const bilan = await ajusterFeuilles(page, process.argv.includes('ajuste-portrait') ? pageMetrics('bulletin') : m);
   const b = bilan[0];
 
   // ÉTAPE 2 — la mesure en média PRINT : c'est ce que Chrome pagine.
@@ -229,7 +247,7 @@ for (const cle of aFaire) {
   const unePage = exiger(pages.length === 1, `${cle} : ${pages.length} pages`);
   const tient = exiger(remplissage <= 1.0,
     `${cle} : déborde (${(remplissage * 100).toFixed(1)} %)`);
-  const rempli = exiger(remplissage >= CIBLE_MIN || b.etat === 'plancher',
+  const rempli = exiger(remplissage >= CIBLE_MIN - TOLERANCE_REMPLISSAGE || b.etat === 'plancher',
     `${cle} : sous-rempli (${(remplissage * 100).toFixed(1)} %)`);
   const lisible = exiger(vu.corpsPt >= DENSITE.bodyMin - 0.05 && vu.corpsPt <= DENSITE.bodyMax + 0.05,
     `${cle} : corps hors bornes (${vu.corpsPt.toFixed(1)} pt)`);
@@ -258,7 +276,8 @@ for (const cle of aFaire) {
   });
   writeFileSync(join(VIS, `${cle}-letter.pdf`), pdfLetter);
   const pagesL = await pagesDu(raster, pdfLetter);
-  const a4 = pagesL[0] && Math.abs(pagesL[0].hmm - 297) < 1.5 && Math.abs(pagesL[0].wmm - 210) < 1.5;
+  const [bw, bh] = PAYSAGE ? [297, 210] : [210, 297];
+  const a4 = pagesL[0] && Math.abs(pagesL[0].hmm - bh) < 1.5 && Math.abs(pagesL[0].wmm - bw) < 1.5;
   exiger(pagesL.length === 1, `${cle} (Letter) : ${pagesL.length} pages`);
   exiger(a4, `${cle} (Letter) : la boîte de page n'est pas l'A4 déclarée`
     + ` (${pagesL[0]?.wmm.toFixed(0)}×${pagesL[0]?.hmm.toFixed(0)} mm)`);
@@ -304,7 +323,7 @@ console.log('— e. Export par lot : 8 élèves, 8 pages, aucune page blanche');
   // qui écraserait celui qu'on vient de poser et rendrait le contrôle de fuite
   // illisible. Sa hauteur est couverte par le carnet de 22 lignes.
   const fabriques = [
-    () => vierge(), peu, () => note(), () => aNLignes(22),
+    () => vierge(), peu, () => note(), () => aNLignes(PAYSAGE ? 16 : 22),
     () => aNLignes(4), () => aNLignes(8), () => aNLignes(16), () => aNLignes(12),
   ];
   const corps = NOMS.map(([nom, , pere, mere], i) => renderToStaticMarkup(createElement(
@@ -361,7 +380,7 @@ console.log('— e. Export par lot : 8 élèves, 8 pages, aucune page blanche');
     const r = vu.hauteur / m.contentHpx;
     const etat = bilanLot[i].etat;
     exiger(r <= 1.0, `lot/${NOMS[i][1]} : déborde (${(r * 100).toFixed(1)} %)`);
-    exiger(r >= CIBLE_MIN || etat === 'plancher',
+    exiger(r >= CIBLE_MIN - TOLERANCE_REMPLISSAGE || etat === 'plancher',
       `lot/${NOMS[i][1]} : sous-rempli (${(r * 100).toFixed(1)} %)`);
     exiger(vu.corpsPt >= DENSITE.bodyMin - 0.05 && vu.corpsPt <= DENSITE.bodyMax + 0.05,
       `lot/${NOMS[i][1]} : corps hors bornes (${vu.corpsPt.toFixed(1)} pt)`);

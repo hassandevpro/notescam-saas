@@ -167,3 +167,46 @@ export const aNLignes = (n) => {
   }
   return note(def);
 };
+
+// ═══ A4 PAYSAGE — le bulletin tel que l'école l'imprime (PDF du 2026-11-07) ═══════
+// Classe anglophone, UA 2 : stats de classe COMPLÈTES (réussis / échoués / taux),
+// répartition en neuf tranches avec « Total », trois signatures, remarques de
+// l'enseignant. Le banc portrait ne couvrait ni le paysage ni ces blocs : il passait
+// au vert pendant que le PDF réel débordait sur 2 pages.
+export const TRANCHES = ['[0-3.99]', '[4-5.99]', '[6-7.99]', '[8-9.99]', '[10-11.99]', '[12-13.99]', '[14-15.99]', '[16-17.99]', '[18-20]'];
+const REPARTITION = TRANCHES.map((label, i) => ({ label, n: [0, 0, 0, 0, 0, 1, 5, 0, 0][i] }));
+
+export const paysage = (n = 10, { sys = 'EN', long = false } = {}) => {
+  const def = [];
+  for (let i = 0; i < n; i++) {
+    const src = LIGNES_REF[i % LIGNES_REF.length];
+    let intitule = src[1];
+    // Intitulés longs sur deux lignes, comme les compétences 4A / 5A du référentiel.
+    if (long && i % 3 === 1) intitule += " dans des situations de la vie courante, à l'école comme à la maison";
+    def.push([i < LIGNES_REF.length ? src[0] : `X${i}`, intitule, src[2]]);
+  }
+  const rows = lignes(def, true);
+  const ach = rows.reduce((a, r) => a + r.achieved, 0);
+  const pos = rows.reduce((a, r) => a + r.possible, 0);
+  const en = sys === 'EN';
+  return base(rows, {
+    sys,
+    cls: { id: 'cls-1', name: en ? 'Class 1' : 'CE1', level: en ? 'Class 1' : 'CE1', system: sys },
+    periodLabel: 'UA 2', effectif: 6, pt: 9, groupes: false,
+    student: long ? {
+      ...student,
+      name: 'NGUEMA ONDOA MARIE-CLAIRE JOSÉPHINE BERTHE',
+      nom_pere: 'NGUEMA ONDOA JEAN-BAPTISTE EMMANUEL DE LA CROIX',
+      nom_mere: 'MBALLA ATANGANA MARIE-THÉRÈSE FRANÇOISE ANGÈLE',
+      tuteur: 'ESSOMBA NKOULOU PIERRE-CÉLESTIN',
+    } : student,
+    overall: { achieved: ach, possible: pos, pct: (ach / pos) * 100, evaluees: rows.length, nonEvaluees: 0 },
+    nonEvalueesCodes: [], moyenneGenerale: 13.2, coteGenerale: 'ECA', rank: 6,
+    appreciationGenerale: long
+      ? "Élève appliquée et volontaire, qui gagnerait à soigner la présentation de ses travaux écrits, à participer davantage à l'oral et à terminer ses exercices en classe avant de commencer ceux de la maison."
+      : (en ? 'Fair' : 'Passable'),
+    decision: en ? 'Promoted' : 'Admis en classe supérieure',
+    statsClasse: { premier: 15.98, dernier: 13.2, generale: 14.72, reussis: 6, echoues: 0, reussite: 100 },
+    repartition: REPARTITION, repartitionTotal: 6,
+  });
+};

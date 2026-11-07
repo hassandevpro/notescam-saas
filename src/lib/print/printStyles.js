@@ -159,9 +159,9 @@ function geometrieFeuille(sel, m) {
  * compétences remplit sa page au lieu de flotter en haut d'un grand vide.
  */
 export const DENSITE = {
-  bodyMin: 7,    bodyMax: 10,    // pt — corps du tableau
+  bodyMin: 7.5,  bodyMax: 10,    // pt — corps du tableau (plancher 7,5 pt : minimum exigé par l'école)
   headMin: 8,    headMax: 11,    // pt — en-têtes
-  smallMin: 6.5, smallMax: 9,    // pt — mentions, légendes
+  smallMin: 7.5, smallMax: 9,    // pt — mentions, légendes (idem : jamais sous 7,5 pt)
   padMin: 0,     padMax: 5,      // px — rembourrage vertical d'une cellule
   gapMin: 1,     gapMax: 6,      // px — interstice entre deux blocs
   logoMin: 30,   logoMax: 62,    // px

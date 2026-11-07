@@ -3056,14 +3056,27 @@ export default function Bulletins() {
     }
   };
 
+  // LE PROFIL D'IMPRESSION DOIT ÊTRE CELUI DU MOMENT, PAS CELUI DU MONTAGE.
+  //
+  // Les écouteurs `beforeprint` ci-dessous sont posés UNE fois (`[]`). Ils
+  // captaient donc `profilPage` tel qu'il valait au premier rendu — « bulletin »
+  // (A4 PORTRAIT), avant que la classe et l'orientation soient connues. Quand l'école
+  // imprimait en PAYSAGE, l'ajustement visait la hauteur d'une page portrait (1041 px)
+  // au lieu de celle du paysage (733 px) : il concluait que tout tenait, ne resserrait
+  // rien, et le bulletin partait sur DEUX pages (relevé : 131 % de la hauteur utile,
+  // police inchangée à 9 pt). Une ref lue AU MOMENT de l'impression règle cela pour
+  // tous les modèles qui passent par ce gestionnaire.
+  const profilRef = useRef(profilPage);
+  profilRef.current = profilPage;
+
   useEffect(() => {
     const debug = typeof window !== 'undefined'
       && /[?&]ncdebug=1/.test(window.location.search);
 
     const avant = () => {
       try {
-        const neuf   = ajusterDensite(SEL_DENSITE, profilPage);
-        const ancien = fitLiveSheets(SEL_AUTRES, profilPage);
+        const neuf   = ajusterDensite(SEL_DENSITE, profilRef.current);
+        const ancien = fitLiveSheets(SEL_AUTRES, profilRef.current);
         bilanFit.current = {
           ...neuf,
           debordantes: (neuf?.debordantes || 0) + (ancien?.debordantes || 0),

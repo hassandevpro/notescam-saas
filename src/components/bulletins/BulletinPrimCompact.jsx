@@ -74,7 +74,7 @@ function CritereCell({ val, pt, vars = false }) {
   return (
     <td style={cell}>
       {fix2(val.note)}
-      <span style={{ color: '#6b7280', fontSize: '0.86em' }}> /{fix2(val.max)}</span>
+      <span style={{ color: '#6b7280', fontSize: 'max(7.5pt, 0.86em)' }}> /{fix2(val.max)}</span>
     </td>
   );
 }
@@ -358,19 +358,19 @@ export default function BulletinPrimCompact({
                 ))}
                 {finDeGroupe(i) && (
                   <tr style={{ background: '#f3f4f6', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                    <td style={{ ...cellL, fontStyle: 'italic', fontSize: '0.88em' }} colSpan={3}>
+                    <td style={{ ...cellL, fontStyle: 'italic', fontSize: 'max(7.5pt, 0.88em)' }} colSpan={3}>
                       {finDeGroupe(i).numero != null ? `${finDeGroupe(i).numero}) ` : ''}{finDeGroupe(i).intitule}
                     </td>
-                    <td style={{ ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: '0.88em' }}>
+                    <td style={{ ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: 'max(7.5pt, 0.88em)' }}>
                       {finDeGroupe(i).achieved == null ? '—'
                         : `${L(sys, 'Total', 'Total', 'Total')}: ${fix2(finDeGroupe(i).achieved)}`}
                     </td>
-                    <td style={{ ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: '0.88em' }}>
+                    <td style={{ ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: 'max(7.5pt, 0.88em)' }}>
                       {finDeGroupe(i).moyenne == null ? '—'
                         : `${L(sys, 'Moy', 'Avg', 'Prom')}: ${fix2(finDeGroupe(i).moyenne)}`}
                     </td>
                     <td style={{
-                      ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: '0.88em',
+                      ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: 'max(7.5pt, 0.88em)',
                       color: COTE_COLORS[finDeGroupe(i).cote] || '#111',
                     }}>
                       {finDeGroupe(i).cote || '—'}
@@ -398,7 +398,7 @@ export default function BulletinPrimCompact({
                   ? <span style={{ color: '#6b7280', letterSpacing: '0.1em' }}>{MARQUE_NON_EVALUEE}</span>
                   : r.achieved == null
                   ? <span style={{ color: '#9ca3af' }}>—</span>
-                  : <>{fix2(r.achieved)}<span style={{ color: '#6b7280', fontSize: '0.86em' }}> /{fix2(r.possible)}</span></>}
+                  : <>{fix2(r.achieved)}<span style={{ color: '#6b7280', fontSize: 'max(7.5pt, 0.86em)' }}> /{fix2(r.possible)}</span></>}
               </td>
               <td style={{ ...numL, fontWeight: 'bold', color: COTE_COLORS[r.cote] || '#111' }}>
                 {r.cote || <span style={{ color: '#9ca3af' }}>—</span>}
@@ -411,17 +411,17 @@ export default function BulletinPrimCompact({
                 de sa famille, d'où la comparaison avec la ligne suivante. */}
             {finDeGroupe(i) && (
               <tr style={{ background: '#f3f4f6', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                <td style={{ ...cellL, fontStyle: 'italic', fontSize: '0.88em' }} colSpan={2 + critereColumns.length}>
+                <td style={{ ...cellL, fontStyle: 'italic', fontSize: 'max(7.5pt, 0.88em)' }} colSpan={2 + critereColumns.length}>
                   {finDeGroupe(i).numero != null ? `${finDeGroupe(i).numero}) ` : ''}{finDeGroupe(i).intitule}
                 </td>
                 {/* `whiteSpace: normal` : si la valeur ne tient toujours pas,
                     elle REVIENT À LA LIGNE. Une ligne plus haute se voit ;
                     une décimale perdue, non — et c'est elle qui ment. */}
-                <td style={{ ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: '0.88em' }}>
+                <td style={{ ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: 'max(7.5pt, 0.88em)' }}>
                   {finDeGroupe(i).achieved == null ? '—'
                     : `${L(sys, 'Total', 'Total', 'Total')}: ${fix2(finDeGroupe(i).achieved)}`}
                 </td>
-                <td style={{ ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: '0.88em' }}>
+                <td style={{ ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: 'max(7.5pt, 0.88em)' }}>
                   {finDeGroupe(i).moyenne == null ? '—'
                     : `${L(sys, 'Moy', 'Avg', 'Prom')}: ${fix2(finDeGroupe(i).moyenne)}`}
                 </td>
@@ -475,7 +475,7 @@ export default function BulletinPrimCompact({
                 <td style={{ ...num, fontWeight: 'bold' }}>
                   {s.achieved == null
                     ? <span style={{ color: '#9ca3af' }}>—</span>
-                    : <>{fix2(s.achieved)}<span style={{ color: '#6b7280', fontSize: '0.86em' }}> /{fix2(s.possible)}</span></>}
+                    : <>{fix2(s.achieved)}<span style={{ color: '#6b7280', fontSize: 'max(7.5pt, 0.86em)' }}> /{fix2(s.possible)}</span></>}
                 </td>
                 <td style={{ ...num, fontWeight: 'bold', color: COTE_COLORS[s.cote] || '#111' }}>
                   {s.cote || <span style={{ color: '#9ca3af' }}>—</span>}

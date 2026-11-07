@@ -283,7 +283,7 @@ export default function BulletinApcOfficial({
             <>
               {/* MODE COMPACT SUR UNE PAGE. `dense` existait déjà sur l'en-tête,
                   le bandeau titre et les signatures, et donne exactement les
-                  cotes demandées le 2026-11-02 : en-tête 28 mm (logo 38 px,
+                  cotes demandées le 2026-11-02 : en-tête 28 mm (logo 80 px,
                   corps 8 pt), bandeau titre 7 mm (11 pt, rembourrage 2 px),
                   signatures 18 mm (cadre 58 px). Il n'était simplement jamais
                   branché ici. L'identité reçoit sa variante deux lignes. */}

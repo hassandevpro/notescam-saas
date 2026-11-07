@@ -76,7 +76,7 @@ export function OfficialWatermark({ src }) {
         pointerEvents: 'none',
       }}
     >
-      <AssetImg src={src} alt="" style={{ width: '66%', maxWidth: 460, objectFit: 'contain', opacity: 0.06 }} />
+      <AssetImg src={src} alt="" style={{ width: '80%', maxWidth: 640, objectFit: 'contain', opacity: 0.06 }} />
     </div>
   );
 }
@@ -117,13 +117,16 @@ export function OfficialHeader({
   const centerW   = bilingual ? (banner ? '46%' : '34%') : '50%';
   const sideW     = bilingual ? (banner ? '27%' : '33%') : '50%';
   const yearLbl   = sys === 'EN' ? 'Academic year' : sys === 'ES' ? 'Año escolar' : 'Année scolaire';
-  const logoPx    = vars ? 'var(--nc-logo)' : dense ? 38 : 56;
+  const logoPx    = vars ? 'var(--nc-logo)' : dense ? 80 : 56;
   // Une BANNIÈRE (nom de l'école en deux langues, médaillon, année : ≈ 4 fois plus large que haute)
   // ne tient pas dans la case carrée : elle y devenait illisible. Dès que l'image se révèle large,
   // elle passe sur toute la largeur de l'en-tête, hauteur bornée. Un logo carré ne change pas.
   const bannerMax = vars ? 'calc(var(--nc-logo) * 1.9)' : dense ? 64 : 100;
   const ptPetit   = vars ? 'var(--nc-small)' : null;
   const gap       = vars ? 'var(--nc-gap)' : null;
+  // Bulletin sur une page : le logo se place À CÔTÉ du nom, pas au-dessus. Plus grand, il ne coûte
+  // aucune hauteur : la ligne vaut max(logo, texte) au lieu de logo + texte.
+  const sideBySide = dense && !vars && !banner;
 
   const Block = ({ b }) => (
     <td style={{
@@ -146,12 +149,14 @@ export function OfficialHeader({
           <tr>
             {blocks[0] && <Block b={blocks[0]} />}
             <td style={{ width: centerW, textAlign: 'center', padding: dense ? 1 : 2, verticalAlign: 'top' }}>
+              <div style={sideBySide ? { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 } : undefined}>
               {school?.logo_url && (
                 <AssetImg src={school.logo_url} alt="" onLoad={onLogoLoad}
                   style={banner
                     ? { width: '100%', height: 'auto', maxHeight: bannerMax, objectFit: 'contain', display: 'block', margin: '0 auto 2px' }
-                    : { width: logoPx, height: logoPx, objectFit: 'contain', display: 'block', margin: '0 auto 2px' }} />
+                    : { width: logoPx, height: logoPx, objectFit: 'contain', display: 'block', margin: sideBySide ? 0 : '0 auto 2px', flexShrink: 0 }} />
               )}
+              <div>
               {/* Une bannière PORTE déjà le nom de l'école : le répéter en texte le doublait (et pouvait le
                   contredire). On garde l'adresse, le téléphone et l'année du système, qui restent justes. */}
               {!banner && (
@@ -171,6 +176,8 @@ export function OfficialHeader({
               )}
               <br />
               <span style={{ fontSize: ptPetit || (dense ? '8pt' : '8.5pt') }}>{yearLbl} : <strong>{school?.current_year || '—'}</strong></span>
+              </div>
+              </div>
             </td>
             {bilingual && blocks[1] && <Block b={blocks[1]} />}
           </tr>

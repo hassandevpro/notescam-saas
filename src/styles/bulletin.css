@@ -547,8 +547,8 @@
     z-index: 9999;
   }
   .official-print-watermark img {
-    width: 58%;
-    max-width: 440px;
+    width: 80%;
+    max-width: 640px;
     opacity: 0.06;   /* 6 % — demandé le 2026-11-02 (était 7 %) */
     object-fit: contain;
     -webkit-print-color-adjust: exact;

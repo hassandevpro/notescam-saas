@@ -27,8 +27,11 @@ import { parentPortalUrl, whatsappLinkFor } from '../lib/parentLinks';
 // jeton (sans compte) et continue d'exister en parallèle.
 import ParentAccountsModal from '../components/transcripts/ParentAccountsModal';
 import { classSubjectsOf } from '../core/subjectOrder';
+import { resolveClassEngine } from '../core/engineResolver';
+import usePvBuilder from '../components/documents/usePvBuilder';
 
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
+const PRIM_UAS   = [1, 2, 3, 4, 5, 6, 7, 8];
 
 function calcAge(dob) {
   if (!dob) return null;
@@ -360,10 +363,30 @@ export default function StudentProfile() {
     });
   }, [subs, gradeMap, cls, student, sys]);
 
-  const lastAvg = [...seqAvgs].reverse().find((v) => v !== null) ?? null;
-  const appr    = sys === 'FR' && lastAvg !== null ? frApp(lastAvg) : null;
-  const enG     = sys === 'EN' && lastAvg !== null ? enGrade(lastAvg) : null;
-  const mention = appr?.text || (enG ? `${enG.g} — ${enG.txt}` : null);
+  // PRIMAIRE (APC) : la fiche ne lisait que les notes du secondaire (gradeMap), donc
+  // « N/A » pour tout élève du primaire alors que son bulletin est rempli. On prend la
+  // moyenne de chaque UA au MÊME endroit que le bulletin et le PV (buildClassPv) : un
+  // parent voit le même chiffre sur la fiche, le bulletin et le procès-verbal.
+  const isPrim = !!cls && resolveClassEngine(school, cls) === 'apc_primaire';
+  const pvClasses = useMemo(() => (isPrim ? [cls] : []), [isPrim, cls]);
+  const { pvForClass } = usePvBuilder(pvClasses);
+  const primUa = useMemo(() => {
+    if (!isPrim || !student) return [];
+    return PRIM_UAS.map((ua) => {
+      let pv = null;
+      try { pv = pvForClass(cls, `s${ua}`); } catch { pv = null; }
+      const r = pv?.rows?.find((x) => x.id === student.id);
+      return { ua, avg: r?.avg ?? null, mention: r?.mention || '', rank: r?.rankTxt || '', max: pv?.maxScale ?? 10 };
+    });
+  }, [isPrim, cls, student, pvForClass]);
+  const lastPrim = [...primUa].reverse().find((u) => u.avg !== null) ?? null;
+
+  const lastAvg = isPrim ? (lastPrim?.avg ?? null) : ([...seqAvgs].reverse().find((v) => v !== null) ?? null);
+  const appr    = !isPrim && sys === 'FR' && lastAvg !== null ? frApp(lastAvg) : null;
+  const enG     = !isPrim && sys === 'EN' && lastAvg !== null ? enGrade(lastAvg) : null;
+  const mention = isPrim ? (lastPrim?.mention || null) : (appr?.text || (enG ? `${enG.g} — ${enG.txt}` : null));
+  const avgMax  = isPrim ? (lastPrim?.max ?? 10) : maxScale;
+  const avgPass = isPrim ? avgMax / 2 : pass;
 
   if (!student) {
     return (
@@ -607,7 +630,7 @@ export default function StudentProfile() {
               {
                 label: t('Moyenne', 'Average'),
                 value: lastAvg !== null
-                  ? <span className={lastAvg >= pass ? 'text-emerald-600' : 'text-red-500'}>{lastAvg.toFixed(2)}/{maxScale}</span>
+                  ? <span className={lastAvg >= avgPass ? 'text-emerald-600' : 'text-red-500'}>{lastAvg.toFixed(2)}/{avgMax}</span>
                   : 'N/A',
               },
               {
@@ -809,7 +832,38 @@ export default function StudentProfile() {
           </div>
         </div>
 
-        {seqAvgs.some((v) => v !== null) && (
+        {isPrim && primUa.some((u) => u.avg !== null) && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-5">
+            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">
+              {t('Progression — moyennes par UA', 'Progression — average per learning unit')}
+            </h2>
+            <div className="grid grid-cols-4 md:grid-cols-8 gap-3">
+              {primUa.map((u) => (
+                <div key={u.ua} className={`rounded-xl p-3 text-center border ${
+                  u.avg === null ? 'bg-gray-50 border-gray-100'
+                    : u.avg >= u.max / 2 ? 'bg-emerald-50 border-emerald-200'
+                    : 'bg-red-50 border-red-200'
+                }`}>
+                  <div className="text-xs text-gray-400 font-medium mb-1">UA {u.ua}</div>
+                  {u.avg !== null ? (
+                    <>
+                      <div className={`text-xl font-extrabold ${u.avg >= u.max / 2 ? 'text-emerald-700' : 'text-red-600'}`}>
+                        {u.avg.toFixed(2)}
+                      </div>
+                      <div className="text-xs text-gray-400">/{u.max}</div>
+                      {u.mention && <div className="text-xs mt-0.5 font-semibold text-gray-600">{u.mention}</div>}
+                      {u.rank && u.rank !== '—' && <div className="text-xs text-gray-400">{u.rank}</div>}
+                    </>
+                  ) : (
+                    <div className="text-gray-300 text-lg font-bold">—</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isPrim && seqAvgs.some((v) => v !== null) && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-5">
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">
               {t('Progression — moyennes générales', 'Progression — overall averages')}
@@ -843,7 +897,8 @@ export default function StudentProfile() {
           </div>
         )}
 
-        {subs.length > 0 && (
+        {/* Au primaire APC, ce tableau (matières à séquences) resterait vide : les notes sont par compétence et par UA. */}
+        {!isPrim && subs.length > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-5">
             <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/80">
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">{t('Notes par matière', 'Grades by subject')}</h2>
@@ -891,7 +946,7 @@ export default function StudentProfile() {
           </div>
         )}
 
-        {subs.length === 0 && cls && (
+        {!isPrim && subs.length === 0 && cls && (
           <div className="bg-white rounded-xl p-8 text-center shadow-sm border border-gray-100">
             <p className="text-gray-400 text-sm">{t('Aucune matière configurée pour cette classe.', 'No subjects configured for this class.')}</p>
           </div>

@@ -32,6 +32,10 @@ import usePvBuilder from '../components/documents/usePvBuilder';
 
 const TERM_SEQS  = [[1, 2], [3, 4], [5, 6]];
 const PRIM_UAS   = [1, 2, 3, 4, 5, 6, 7, 8];
+const SEC_SEQS   = [1, 2, 3, 4, 5, 6];
+// Moteurs dont les notes ne sont PAS dans `gradeMap` (APC : apc_notes ; bilingue ; second cycle) :
+// la fiche les lit via le moteur de PV, comme le bulletin.
+const ENGINES_PV = ['apc_primaire', 'apc', 'bilingue', 'sc'];
 
 function calcAge(dob) {
   if (!dob) return null;
@@ -367,26 +371,28 @@ export default function StudentProfile() {
   // « N/A » pour tout élève du primaire alors que son bulletin est rempli. On prend la
   // moyenne de chaque UA au MÊME endroit que le bulletin et le PV (buildClassPv) : un
   // parent voit le même chiffre sur la fiche, le bulletin et le procès-verbal.
-  const isPrim = !!cls && resolveClassEngine(school, cls) === 'apc_primaire';
-  const pvClasses = useMemo(() => (isPrim ? [cls] : []), [isPrim, cls]);
+  const engine = cls ? resolveClassEngine(school, cls) : 'classic';
+  const isPrim = engine === 'apc_primaire';
+  const usePv  = ENGINES_PV.includes(engine);
+  const pvClasses = useMemo(() => (usePv ? [cls] : []), [usePv, cls]);
   const { pvForClass } = usePvBuilder(pvClasses);
   const primUa = useMemo(() => {
-    if (!isPrim || !student) return [];
-    return PRIM_UAS.map((ua) => {
+    if (!usePv || !student) return [];
+    return (isPrim ? PRIM_UAS : SEC_SEQS).map((ua) => {
       let pv = null;
       try { pv = pvForClass(cls, `s${ua}`); } catch { pv = null; }
       const r = pv?.rows?.find((x) => x.id === student.id);
       return { ua, avg: r?.avg ?? null, mention: r?.mention || '', rank: r?.rankTxt || '', max: pv?.maxScale ?? 10 };
     });
-  }, [isPrim, cls, student, pvForClass]);
+  }, [usePv, isPrim, cls, student, pvForClass]);
   const lastPrim = [...primUa].reverse().find((u) => u.avg !== null) ?? null;
 
-  const lastAvg = isPrim ? (lastPrim?.avg ?? null) : ([...seqAvgs].reverse().find((v) => v !== null) ?? null);
-  const appr    = !isPrim && sys === 'FR' && lastAvg !== null ? frApp(lastAvg) : null;
-  const enG     = !isPrim && sys === 'EN' && lastAvg !== null ? enGrade(lastAvg) : null;
-  const mention = isPrim ? (lastPrim?.mention || null) : (appr?.text || (enG ? `${enG.g} — ${enG.txt}` : null));
-  const avgMax  = isPrim ? (lastPrim?.max ?? 10) : maxScale;
-  const avgPass = isPrim ? avgMax / 2 : pass;
+  const lastAvg = usePv ? (lastPrim?.avg ?? null) : ([...seqAvgs].reverse().find((v) => v !== null) ?? null);
+  const appr    = !usePv && sys === 'FR' && lastAvg !== null ? frApp(lastAvg) : null;
+  const enG     = !usePv && sys === 'EN' && lastAvg !== null ? enGrade(lastAvg) : null;
+  const mention = usePv ? (lastPrim?.mention || null) : (appr?.text || (enG ? `${enG.g} — ${enG.txt}` : null));
+  const avgMax  = usePv ? (lastPrim?.max ?? maxScale) : maxScale;
+  const avgPass = usePv ? avgMax / 2 : pass;
 
   if (!student) {
     return (
@@ -832,19 +838,19 @@ export default function StudentProfile() {
           </div>
         </div>
 
-        {isPrim && primUa.some((u) => u.avg !== null) && (
+        {usePv && primUa.some((u) => u.avg !== null) && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-5">
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">
-              {t('Progression — moyennes par UA', 'Progression — average per learning unit')}
+              {isPrim ? t('Progression — moyennes par UA', 'Progression — average per learning unit') : t('Progression — moyennes par séquence', 'Progression — average per sequence')}
             </h2>
-            <div className="grid grid-cols-4 md:grid-cols-8 gap-3">
+            <div className={`grid grid-cols-3 gap-3 ${isPrim ? 'md:grid-cols-8' : 'md:grid-cols-6'}`}>
               {primUa.map((u) => (
                 <div key={u.ua} className={`rounded-xl p-3 text-center border ${
                   u.avg === null ? 'bg-gray-50 border-gray-100'
                     : u.avg >= u.max / 2 ? 'bg-emerald-50 border-emerald-200'
                     : 'bg-red-50 border-red-200'
                 }`}>
-                  <div className="text-xs text-gray-400 font-medium mb-1">UA {u.ua}</div>
+                  <div className="text-xs text-gray-400 font-medium mb-1">{isPrim ? `UA ${u.ua}` : `Séq ${u.ua}`}</div>
                   {u.avg !== null ? (
                     <>
                       <div className={`text-xl font-extrabold ${u.avg >= u.max / 2 ? 'text-emerald-700' : 'text-red-600'}`}>
@@ -863,7 +869,7 @@ export default function StudentProfile() {
           </div>
         )}
 
-        {!isPrim && seqAvgs.some((v) => v !== null) && (
+        {!usePv && seqAvgs.some((v) => v !== null) && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-5">
             <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-4">
               {t('Progression — moyennes générales', 'Progression — overall averages')}
@@ -898,7 +904,7 @@ export default function StudentProfile() {
         )}
 
         {/* Au primaire APC, ce tableau (matières à séquences) resterait vide : les notes sont par compétence et par UA. */}
-        {!isPrim && subs.length > 0 && (
+        {!usePv && subs.length > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-5">
             <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/80">
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">{t('Notes par matière', 'Grades by subject')}</h2>
@@ -946,7 +952,7 @@ export default function StudentProfile() {
           </div>
         )}
 
-        {!isPrim && subs.length === 0 && cls && (
+        {!usePv && subs.length === 0 && cls && (
           <div className="bg-white rounded-xl p-8 text-center shadow-sm border border-gray-100">
             <p className="text-gray-400 text-sm">{t('Aucune matière configurée pour cette classe.', 'No subjects configured for this class.')}</p>
           </div>

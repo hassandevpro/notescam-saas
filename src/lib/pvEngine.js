@@ -26,7 +26,7 @@ import { TRIM_TO_SEQ } from '../core/apcEngine.js';
 import { apcSeqNumsForTrimestre, apcSeqIdOfSeqNum } from '../core/apcPeriods.js';
 // Périmètre réel de la classe (masques de l'école + matières cochées) — même
 // source de vérité que les bulletins, pour que les deux documents concordent.
-import { apcForClass, primForClass, masquesDeClasse } from '../core/refClassScope.js';
+import { apcForClass, primForClass, masquesDeClasse, apcClasseMatieresEcole } from '../core/refClassScope.js';
 import {
   competencesForNiveau, criteresForCompetence, competencePointsTotal,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
@@ -412,7 +412,8 @@ export function buildClassPv(ctx) {
   // source de vérité que les bulletins (`core/refClassScope.js`), pour que les
   // deux documents listent les mêmes matières.
   const apcRefEcole = engine === 'apc' && apcReferentiel
-    ? { ...apcReferentiel, competences: apcForClass(apcReferentiel, subjects, apcMasques).competences }
+    ? { ...apcReferentiel, competences: apcForClass(apcReferentiel, subjects, apcMasques).competences,
+        classeMatieres: apcClasseMatieresEcole(apcReferentiel, apcClasseSlug, subjects) }
     : apcReferentiel;
   const primComps = engine === 'apc_primaire'
     ? primForClass(primReferentiel, primNiveauSlug, subjects, masquesDeClasse(primMasques, primMasquesClasse, cls?.id)).competences

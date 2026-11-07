@@ -31,7 +31,7 @@ import {
 // Le PÉRIMÈTRE de la classe — ses matières cochées dans « Modifier la classe ».
 // Le bulletin l'applique déjà (apcForClass) : la saisie doit lister EXACTEMENT
 // les mêmes matières, sinon on saisit des notes qui ne s'impriment jamais.
-import { apcMatieresForClass, unmatchedClassSubjects } from '../../core/refClassScope';
+import { apcMatieresForClass, unmatchedClassSubjects, apcClasseMatieresEcole } from '../../core/refClassScope';
 import { manquesPourClasse } from '../../core/apcRattrapage';
 import { classSubjectsOf } from '../../core/subjectOrder';
 // L'ordre de la liste de classe — et donc le numéro « N° » affiché en tête de
@@ -274,6 +274,12 @@ export default function ApcCompetenceWorkspace() {
   // regarde — c'est exactement la liste que le bulletin utilise.
   const classSubjects = useMemo(() => classSubjectsOf(subjects, classId), [subjects, classId]);
 
+  // Coefficients : celui que l'école a posé sur sa matière (Modifier la classe) l'emporte sur le national.
+  const classeMatieresEcole = useMemo(
+    () => apcClasseMatieresEcole(referentiel, classeSlug, classSubjects),
+    [referentiel, classeSlug, classSubjects],
+  );
+
   // Matières du référentiel réellement disponibles pour (classe, trimestre),
   // avant tout filtrage par enseignant.
   const matieresDuReferentiel = useMemo(() => {
@@ -283,7 +289,7 @@ export default function ApcCompetenceWorkspace() {
         ...m,
         nom: apcMatiereLabel(m, sys),
         nomOfficiel: m.nom,
-        coef: coefFor(referentiel.classeMatieres, classeSlug, m),
+        coef: coefFor(classeMatieresEcole, classeSlug, m),
         nbComp: competencesFor(referentiel.competences, { classeId: classeSlug, trimestreId, matiereId: m.id }).length,
       }))
       .filter((m) => m.nbComp > 0)
@@ -292,7 +298,7 @@ export default function ApcCompetenceWorkspace() {
         const ob = (referentiel.classeMatieres || []).find((r) => r.classe_id === classeSlug && r.matiere_id === b.id)?.ordre ?? b.ordre ?? 0;
         return oa - ob;
       });
-  }, [referentiel, classeSlug, trimestreId, sys]);
+  }, [referentiel, classeSlug, trimestreId, sys, classeMatieresEcole]);
 
   // ── LE PÉRIMÈTRE DE LA CLASSE S'APPLIQUE ICI AUSSI ──────────────────────────
   // Même appel, même garde-fou et mêmes alias de noms que le bulletin : une

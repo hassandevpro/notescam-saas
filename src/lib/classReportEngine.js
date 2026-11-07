@@ -38,7 +38,7 @@ import { MAT_ACQUIS_CODES, MAT_ACQUIS_LABELS, dominantAcquis } from '../core/mat
 import { firstCycleClasseSlug, primaireNiveauSlug } from '../core/engineResolver.js';
 // Périmètre réel de la classe (masques de l'école + matières cochées) — même
 // source de vérité que les bulletins et le procès-verbal.
-import { apcForClass, primForClass, masquesDeClasse } from '../core/refClassScope.js';
+import { apcForClass, primForClass, masquesDeClasse, apcClasseMatieresEcole } from '../core/refClassScope.js';
 // Les intitulés du référentiel officiel (domaines du préscolaire, compétences
 // nationales du primaire, matières du premier cycle) sont stockés en français
 // pour tout le pays : sur une classe du secteur anglophone, on les rend en
@@ -238,6 +238,7 @@ function apcReport({ cls, students, subjects, period, apcNotes, apcReferentiel: 
   const apcReferentiel = {
     ...apcRefBrut,
     competences: apcForClass(apcRefBrut, subjects, apcMasques).competences,
+    classeMatieres: apcClasseMatieresEcole(apcRefBrut, classeSlug, subjects),
   };
 
   // Une période peut couvrir plusieurs trimestres (annuel) : on assemble chaque

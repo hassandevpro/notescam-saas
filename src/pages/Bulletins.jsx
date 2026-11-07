@@ -58,7 +58,7 @@ import { domaineLabelOverrides, withDomaineOverrides } from '../core/matDomaineM
 // Périmètre RÉEL de la classe dans le référentiel national : une matière
 // décochée dans l'écran Classes ne doit pas s'imprimer sur le bulletin officiel.
 // Le garde-fou (aucun filtre si rien n'est reconnu) est dans le module.
-import { apcForClass, primForClass, matForClass, masquesDeClasse } from '../core/refClassScope';
+import { apcForClass, primForClass, matForClass, masquesDeClasse, apcClasseMatieresEcole } from '../core/refClassScope';
 // Ordre d'affichage des matieres : une seule regle pour tout le produit.
 import { classSubjectsOf } from '../core/subjectOrder';
 import { APC_GROUPS, groupSubjects, domaineForSubject, libelleGroupe } from '../core/subjectGroup';
@@ -2104,8 +2104,13 @@ export default function Bulletins() {
 
   const apcReferentielEcole = useMemo(() => {
     if (!apcReferentiel) return apcReferentiel;
-    return { ...apcReferentiel, competences: withLibelles(apcEcole.competences, apcLibelles) };
-  }, [apcReferentiel, apcEcole, apcLibelles]);
+    return {
+      ...apcReferentiel,
+      competences: withLibelles(apcEcole.competences, apcLibelles),
+      // Le coefficient posé par l'école sur sa matière l'emporte sur le national.
+      classeMatieres: apcClasseMatieresEcole(apcReferentiel, apcClasseSlug, classSubjects),
+    };
+  }, [apcReferentiel, apcEcole, apcLibelles, apcClasseSlug, classSubjects]);
 
   const apcDataById = useMemo(() => {
     if (!isApc || !apcReferentielEcole || !apcClasseSlug) return {};

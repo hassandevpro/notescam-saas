@@ -3344,6 +3344,7 @@ export default function Bulletins() {
             programmes={programmes}
             disposition={primEpreuves ? 'epreuves' : 'criteres'}
             pt={primOrientation === 'landscape' ? 9 : 8.5}
+            paysage={primOrientation === 'landscape'}
           />
         </WatermarkWrap>
       );
@@ -3352,6 +3353,7 @@ export default function Bulletins() {
     return (
       <WatermarkWrap key={student.id} active={f.watermark}>
         <BulletinPrimAnnualUA
+          paysage={primOrientation === 'landscape'}
           school={school} sys={sys} title={primTitle}
           student={student} classLabel={selectedClass?.name || ''}
           effectif={classStudents.length} profPrincipal={apcProfPrincipal}
@@ -4012,7 +4014,7 @@ export default function Bulletins() {
               {/* Filigrane logo À L'IMPRESSION uniquement : élément `position:fixed`
                   unique → se répète sur CHAQUE page (bulletin long ou classe entière)
                   sans se cumuler. L'aperçu écran a son propre filigrane par feuille. */}
-              {(showApcOfficial || showScOfficial || classicOfficialLook || apcClassiqueLook) && school?.logo_url && (
+              {(showApcOfficial || showScOfficial || showPrimOfficial || classicOfficialLook || apcClassiqueLook) && school?.logo_url && (
                 <div className="official-print-watermark" aria-hidden>
                   <AssetImg src={school.logo_url} alt="" />
                 </div>

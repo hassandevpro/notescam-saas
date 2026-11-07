@@ -99,7 +99,7 @@ export function OfficialWatermark({ src }) {
 // et dit la même chose.
 export function OfficialHeader({
   school, sys, title, subtitle, accent = '#1e3a5f', rounded = false, basic = false,
-  dense = false, vars = false,
+  dense = false, vars = false, grand = false,
 }) {
   const officials = bulletinOfficials(school, { basic, sys });
   const blocks    = officials?.blocks ?? [];
@@ -119,7 +119,7 @@ export function OfficialHeader({
   const yearLbl   = sys === 'EN' ? 'Academic year' : sys === 'ES' ? 'Año escolar' : 'Année scolaire';
   // Réglage de l'école « le logo contient déjà le nom » : le nom n'est plus écrit, le logo gagne de la place.
   const nomDansLogo = banner || school?.logo_contient_nom === true || school?.logo_contient_nom === 1;
-  const logoPx    = vars ? (nomDansLogo ? 'calc(var(--nc-logo) * 1.8)' : 'calc(var(--nc-logo) * 1.6)') : dense ? (nomDansLogo ? 88 : 80) : 56;
+  const logoPx    = vars ? (grand ? `max(calc(var(--nc-logo) * 1.8), ${nomDansLogo ? 96 : 88}px)` : nomDansLogo ? 'calc(var(--nc-logo) * 1.8)' : 'calc(var(--nc-logo) * 1.6)') : dense ? (nomDansLogo ? 88 : 80) : 56;
   // Une BANNIÈRE (nom de l'école en deux langues, médaillon, année : ≈ 4 fois plus large que haute)
   // ne tient pas dans la case carrée : elle y devenait illisible. Dès que l'image se révèle large,
   // elle passe sur toute la largeur de l'en-tête, hauteur bornée. Un logo carré ne change pas.
@@ -324,7 +324,7 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
 // officiel porte la date et le lieu de naissance, le matricule et le tuteur, et
 // ce n'est pas négociable pour gagner des millimètres. Ce sont la photo, les
 // interlignes et les rembourrages qui cèdent.
-export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, ppLabel, sys, accent = '#1e3a5f', tint = '#eef2f7', dense = false, variant = 'bande', vars = false }) {
+export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, ppLabel, sys, accent = '#1e3a5f', tint = '#eef2f7', dense = false, variant = 'bande', vars = false, grand = false }) {
   const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
   const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
   const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
@@ -350,7 +350,7 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
   // l'état civil, c'est la même information dans la hauteur de ces trois
   // lignes — et c'est la disposition du modèle de référence.
   if (variant === 'carnet') {
-    const photoH = dense ? 46 : 58;
+    const photoH = grand ? 76 : dense ? 46 : 58;
     const libelle = { fontWeight: 'bold' };
     return (
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: vars ? 'var(--nc-gap)' : dense ? 2 : 4, tableLayout: 'fixed' }}>
@@ -400,7 +400,7 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
       {/* Bande colorée : photo + nom + classe */}
       <div style={{ display: 'flex', alignItems: 'center', gap: dense ? 7 : 10, background: accent, color: '#fff', borderRadius: '6px 6px 0 0', padding: dense ? '2px 8px' : '5px 10px', ...pcx }}>
         <div style={{ background: '#fff', borderRadius: 4, padding: dense ? 1 : 2, lineHeight: 0, flexShrink: 0 }}>
-          <BulletinPhoto src={student?.photo_url} width={dense ? 34 : 46} height={dense ? 42 : 56} radius={2} />
+          <BulletinPhoto src={student?.photo_url} width={grand ? 60 : dense ? 34 : 46} height={grand ? 76 : dense ? 42 : 56} radius={2} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Ces deux tailles étaient les DERNIÈRES à rester figées sur une

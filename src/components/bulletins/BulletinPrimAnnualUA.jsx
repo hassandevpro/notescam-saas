@@ -146,6 +146,7 @@ function CompetenceUATable({ sys, row }) {
 }
 
 export default function BulletinPrimAnnualUA({
+  paysage = false,
   school, sys = 'FR', title, student, classLabel, effectif, profPrincipal = '',
   competenceRows = [], moyenneGenerale = null, coteGenerale = null, rang, classStats, appreciation = '',
   // ── CE QUE LE CARNET DE L'ÉCOLE PORTE EN PLUS ────────────────────────────
@@ -224,8 +225,8 @@ export default function BulletinPrimAnnualUA({
 
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys} vars>
-      <OfficialHeader school={school} sys={sys} title={title} accent={PRIM_ACCENT} basic vars />
-      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={PRIM_ACCENT} tint={PRIM_TH_BG} vars />
+      <OfficialHeader school={school} sys={sys} title={title} accent={PRIM_ACCENT} basic vars grand={paysage} />
+      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={PRIM_ACCENT} tint={PRIM_TH_BG} vars grand={paysage} />
 
       {rowsWithCriteresCote.map((row, i) => (
         <Fragment key={row.code}>

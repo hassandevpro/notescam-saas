@@ -17,7 +17,7 @@ const parts = lire('./bulletinOfficialParts.jsx');
 test('le logo carré garde sa case d’avant : le rendu initial de l’en-tête ne change pas', () => {
   // Avant le chargement, `banner` vaut false : la case carrée est rendue exactement comme avant.
   assert.match(parts, /: \{ width: logoPx, height: logoPx, objectFit: 'contain', display: 'block', margin: sideBySide \? 0 : '0 auto 2px', flexShrink: 0 \}\} \/>/);
-  assert.match(parts, /const logoPx    = vars \? \(nomDansLogo \? 'calc\(var\(--nc-logo\) \* 1\.8\)' : 'calc\(var\(--nc-logo\) \* 1\.6\)'\) : dense \? \(nomDansLogo \? 88 : 80\) : 56;/);
+  assert.match(parts, /const logoPx    = vars \? \(grand \? `max\(calc\(var\(--nc-logo\) \* 1\.8\), \$\{nomDansLogo \? 96 : 88\}px\)` : nomDansLogo \? 'calc\(var\(--nc-logo\) \* 1\.8\)' : 'calc\(var\(--nc-logo\) \* 1\.6\)'\) : dense \? \(nomDansLogo \? 88 : 80\) : 56;/);
   assert.match(parts, /const sideBySide = \(dense \|\| vars\) && !banner;/);
   assert.match(parts, /const centerW   = bilingual \? \(banner \? '46%' : '34%'\) : '50%';/);
   assert.match(parts, /const sideW     = bilingual \? \(banner \? '27%' : '33%'\) : '50%';/);

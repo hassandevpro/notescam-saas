@@ -142,6 +142,7 @@ export default function BulletinPrimCompact({
   titulaire,
   pt = 9,
   pageNo, total,
+  paysage = false,             // A4 paysage : logo et photo plus grands
 }) {
   // Les six regroupements, calcules par le moteur. `finDeGroupe(i)` rend le
   // groupe quand la ligne i est la DERNIERE de sa famille — c'est la que se
@@ -225,7 +226,7 @@ export default function BulletinPrimCompact({
   return (
     <OfficialSheet school={school} pageNo={pageNo} total={total} pt={pt} sys={sys} vars>
       <OfficialHeader
-        school={school} sys={sys} title={titre} accent={ACCENT} rounded basic vars
+        school={school} sys={sys} title={titre} accent={ACCENT} rounded basic vars grand={paysage}
       />
 
       {/* Le bandeau de période reste une LIGNE À PART, comme sur le carnet de
@@ -245,6 +246,7 @@ export default function BulletinPrimCompact({
         profPrincipal={titulaire} sys={sys} accent={ACCENT} tint={TH_BG}
         variant="carnet"
         vars
+        grand={paysage}
         ppLabel={headTeacherLabel(headTeacherCount(titulaire), sys, { basic: true })}
       />
 

@@ -1020,7 +1020,7 @@ export default function PrimCompetenceWorkspace() {
         id: '__synthese',
         label: t('Synthèse', 'Summary'),
         colonnes: [
-          { id: '__synthese|__moy', label: t('Moyenne /10', 'Average /10'), calculee: true },
+          { id: '__synthese|__moy', label: t('Moyenne /20', 'Average /20'), calculee: true },
           { id: '__synthese|__rang', label: t('Rang', 'Rank'), calculee: true },
         ],
       });

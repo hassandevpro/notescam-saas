@@ -34,7 +34,7 @@ test('le moteur imprime la synthèse sur la feuille remplie, et la laisse vide s
   const groupes = [
     { id: '1a', label: '1a — Lire', colonnes: [{ id: '1a|o', label: 'Oral', bareme: 10 }, { id: '1a|e', label: 'Écrit', bareme: 10 }] },
     { id: '__synthese', label: 'Synthèse', colonnes: [
-      { id: '__synthese|__moy', label: 'Moyenne /10', calculee: true },
+      { id: '__synthese|__moy', label: 'Moyenne /20', calculee: true },
       { id: '__synthese|__rang', label: 'Rang', calculee: true },
     ] },
   ];

@@ -25,3 +25,9 @@ test('le tableau issu de gradeMap est masqué quand le moteur lit ailleurs (APC,
   assert.match(src, /\{!usePv && subs\.length > 0 && \(/);
   assert.match(src, /\{!usePv && seqAvgs\.some/);
 });
+
+test("le détail par matière / compétence vient de la vue ANNUELLE du PV (une colonne par séquence ou UA)", () => {
+  assert.match(src, /pvForClass\(cls, 'annuel'\)/);
+  assert.match(src, /detail\.units\.map/);
+  assert.match(src, /cell\.byUnit\?\.\[u\.key\]/);
+});

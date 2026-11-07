@@ -385,6 +385,16 @@ export default function StudentProfile() {
       return { ua, avg: r?.avg ?? null, mention: r?.mention || '', rank: r?.rankTxt || '', max: pv?.maxScale ?? 10 };
     });
   }, [usePv, isPrim, cls, student, pvForClass]);
+  // Détail par matière (secondaire) ou par compétence (primaire) : la vue ANNUELLE du PV porte
+  // une colonne par séquence / UA et la moyenne de l'année — les mêmes chiffres que le bulletin.
+  const detail = useMemo(() => {
+    if (!usePv || !student) return null;
+    let pv = null;
+    try { pv = pvForClass(cls, 'annuel'); } catch { pv = null; }
+    const row = pv?.rows?.find((x) => x.id === student.id);
+    if (!pv || !row || !pv.cols?.length) return null;
+    return { cols: pv.cols, units: pv.units || [], cells: row.cells || {}, max: pv.maxScale ?? maxScale };
+  }, [usePv, cls, student, pvForClass, maxScale]);
   const lastPrim = [...primUa].reverse().find((u) => u.avg !== null) ?? null;
 
   const lastAvg = usePv ? (lastPrim?.avg ?? null) : ([...seqAvgs].reverse().find((v) => v !== null) ?? null);
@@ -904,6 +914,47 @@ export default function StudentProfile() {
         )}
 
         {/* Au primaire APC, ce tableau (matières à séquences) resterait vide : les notes sont par compétence et par UA. */}
+        {detail && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-5">
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/80">
+              <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
+                {isPrim ? t('Notes par compétence', 'Grades by competence') : t('Notes par matière', 'Grades by subject')}
+              </h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-semibold">
+                    <th className="text-left px-5 py-3">{isPrim ? t('Compétence', 'Competence') : t('Matière', 'Subject')}</th>
+                    <th className="px-3 py-3 text-center">{t('Coef', 'Coeff')}</th>
+                    {detail.units.map((u) => <th key={u.key} className="px-3 py-3 text-center">{u.label}</th>)}
+                    <th className="px-4 py-3 text-center bg-gray-100 font-bold text-gray-700">{t('Annuel', 'Annual')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {detail.cols.map((col) => {
+                    const cell = detail.cells[col.key] || {};
+                    const show = (v) => (v == null || Number.isNaN(Number(v))
+                      ? <span className="text-gray-200">—</span>
+                      : <span className={`font-semibold ${Number(v) >= detail.max / 2 ? 'text-emerald-600' : 'text-red-500'}`}>{Number(v).toFixed(2)}</span>);
+                    return (
+                      <tr key={col.key} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-3 font-semibold text-gray-900">
+                          {col.code ? <span className="text-xs text-gray-400 font-normal mr-1">{col.code}</span> : null}{col.name}
+                          <span className="text-xs text-gray-400 font-normal ml-1">/{detail.max}</span>
+                        </td>
+                        <td className="px-3 py-3 text-center text-gray-500 text-xs">{col.coef}</td>
+                        {detail.units.map((u) => <td key={u.key} className="px-3 py-3 text-center">{show(cell.byUnit?.[u.key])}</td>)}
+                        <td className="px-4 py-3 text-center bg-gray-50">{show(cell.moy)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {!usePv && subs.length > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-5">
             <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/80">

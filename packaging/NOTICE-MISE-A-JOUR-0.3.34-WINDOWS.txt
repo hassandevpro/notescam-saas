@@ -1,0 +1,58 @@
+======================================================================
+NotesCam 0.3.34 — INSTALLATEUR WINDOWS (editions LAN)
+======================================================================
+
+PAQUET            NotesCam-Setup-0.3.34.exe
+TAILLE            31 100 641 octets
+EMPREINTE SHA-256 7bc65a42d9b8474636dd4f5a1aace24f251b1cc6981c57fa4cb6da1b6f97e6e1
+CONSTRUIT LE      2026-11-07 (edition "lan", Node v24.22.2) depuis le commit
+                  381b119 de la branche main.
+
+Verifiez l'empreinte avant d'installer (PowerShell) :
+
+    Get-FileHash .\NotesCam-Setup-0.3.34.exe -Algorithm SHA256
+
+----------------------------------------------------------------------
+INSTALLATION
+----------------------------------------------------------------------
+
+ 1. Fermez NotesCam si une fenetre est ouverte.
+ 2. Sauvegardez le dossier de donnees (copie du dossier contenant notescam.db).
+ 3. Lancez NotesCam-Setup-0.3.34.exe en administrateur et suivez l'assistant.
+ 4. REDEMARREZ le service ou la machine apres l'installation.
+ 5. Sur chaque poste : Ctrl+Shift+R.
+
+Aucune migration de schema. Aucune donnee modifiee par l'installation.
+
+----------------------------------------------------------------------
+CE QUI CHANGE
+----------------------------------------------------------------------
+
+Meme contenu que la notice Linux 0.3.34 :
+ 1. Fiche eleve coherente avec le moteur du bulletin, avec le tableau des notes
+    par competence / matiere.
+ 2. Primaire : moyenne du PV et de la fiche sur 20.
+ 3. Coefficient de « Modifier la classe » applique partout en APC (des moyennes
+    deja imprimees peuvent changer a la reimpression).
+ 4. Fiche de notes : Moyenne et Rang, impression paysage sur une page.
+ 5. Notes du primaire : bouton Soumettre repositionne ; le rejeu hors ligne
+    n'ecrase plus la note d'un collegue.
+ 6. Frais : le « Paye » de scolarite ne compte plus les services ; certains
+    « Paye integral » changeront de statut a l'ecran.
+ 7. Calendrier anglophone : six sequences en trois terms (dates conservees).
+ 8. Synchronisation : etat annonce au Cloud, diagnostic LAN.
+
+----------------------------------------------------------------------
+CE QUI N'A PAS ETE VERIFIE
+----------------------------------------------------------------------
+
+  - L'installation de ce .exe sur un poste Windows (a faire sur un poste de test
+    avant de livrer).
+  - L'impression sur imprimante.
+
+----------------------------------------------------------------------
+RETOUR ARRIERE
+----------------------------------------------------------------------
+
+Restaurer la copie du dossier de donnees faite a l'etape 2 et reinstaller
+l'installateur de la version precedente.

@@ -1,0 +1,106 @@
+======================================================================
+NotesCam 0.3.34 — SERVEUR LINUX (THE GENIUS)
+FICHE ELEVE COHERENTE, COEFFICIENTS DE L'ECOLE, FICHE DE NOTES,
+SOUMISSION DES NOTES, FRAIS, CALENDRIER ANGLOPHONE, SYNCHRONISATION
+======================================================================
+
+PAQUET            notescam-linux-x64-0.3.34.tar.gz
+TAILLE            53 938 874 octets
+EMPREINTE SHA-256 67b8101b92cdd29fb64754167ae1386d9ecea2d89504dafd26bcad44b3f497b1
+CONSTRUIT LE      2026-11-07 (edition "lan", Node v24.22.x), depuis le commit
+                  381b119 de la branche main (arbre propre).
+SCRIPT            deploy-0.3.34.sh   (bash -n OK)
+
+Verifiez l'empreinte avant d'installer :
+
+    sha256sum notescam-linux-x64-0.3.34.tar.gz
+
+----------------------------------------------------------------------
+CE QU'IL FAUT AVOIR DANS LE MEME DOSSIER
+----------------------------------------------------------------------
+
+    notescam-linux-x64-0.3.34.tar.gz
+    deploy-0.3.34.sh
+    corriger-bareme-form.sh
+    diagnostic-0.3.29.sh            (controle apres coup)
+
+----------------------------------------------------------------------
+LA COMMANDE
+----------------------------------------------------------------------
+
+    cd ~/Telechargements
+    sudo ./deploy-0.3.34.sh notescam-linux-x64-0.3.34.tar.gz
+
+Le script sauvegarde la base (copie verifiee), installe, redemarre, puis
+controle. Il s'arrete SANS rien installer si la sauvegarde ne se verifie pas.
+Il lit ensuite la quarantaine de synchronisation (lecture seule) et enregistre
+le resultat dans /var/lib/notescam/data/diagnostic-sync-0.3.34-AAAAMMJJHHMMSS.txt
+(envoyez ce fichier).
+
+La 0.3.34 remplace la 0.3.33 : installez-la directement. Ne reinstallez jamais
+une version plus basse apres elle.
+
+----------------------------------------------------------------------
+CE QUI CHANGE POUR L'ECOLE
+----------------------------------------------------------------------
+
+1. FICHE ELEVE. Elle lit le meme moteur que le bulletin (APC, bilingue, second
+   cycle, primaire). Un eleve du primaire ou de l'APC n'affiche plus « N/A ».
+   Tableau « Notes par competence / matiere » : une colonne par sequence ou UA
+   et une colonne Annuel. Progression des moyennes par UA ou par sequence.
+2. PRIMAIRE — MOYENNE SUR 20. Le PV et la fiche utilisent le meme bareme que le
+   bulletin (/20) ; ils affichaient /10.
+3. COEFFICIENTS APC. Le coefficient pose dans « Modifier la classe » (exemple :
+   SVTEEHB = 3) l'emporte partout : saisie des notes, bulletin, PV, rapport de
+   classe. Avant, la meme matiere pouvait porter 3, 2 ou 1 selon l'ecran.
+   ATTENTION : des moyennes APC deja imprimees peuvent changer a la reimpression.
+4. FICHE DE NOTES. Colonnes Moyenne et Rang ; impression en paysage sur une page.
+5. NOTES DU PRIMAIRE. Bouton Soumettre repositionne. Le rejeu d'une file hors
+   ligne n'ecrase plus la note qu'un collegue a saisie entre-temps.
+6. FRAIS. Le « Paye » de scolarite ne compte plus les versements de services
+   (cantine...) : un eleve n'est plus « Paye integral » parce qu'il a regle la
+   cantine. Des statuts « Paye integral » vont donc changer a l'ecran. Les
+   versements de reprise (import de registre) n'entrent plus dans l'arrete de
+   caisse. AFFICHAGE ET CALCUL : aucune donnee n'est modifiee.
+7. CALENDRIER ANGLOPHONE. Six sequences regroupees en trois terms. Les dates deja
+   saisies sous en_term_1..3 sont conservees, au meme rang.
+8. SYNCHRONISATION. L'ecole annonce son etat au Cloud ; une ligne refusee n'a pas
+   d'ombre ; le diagnostic LAN croise table x motif de refus. Rien n'est vide,
+   reinitialise ni rejoue.
+
+Contenu de la 0.3.33 conserve : frais (doublement, trop-percu), absences du
+bulletin, libelles Form 1-2 / 6eme-5eme, primaire bilingue, services.
+
+Aucune migration de schema. Aucune donnee modifiee par l'installation.
+
+----------------------------------------------------------------------
+A FAIRE APRES L'INSTALLATION
+----------------------------------------------------------------------
+
+ 1. Envoyez le fichier diagnostic-sync-0.3.34-*.txt.
+ 2. Ctrl+Shift+R sur chaque poste.
+ 3. Ouvrez la fiche d'un eleve du primaire et d'un eleve de 4eme/5eme : les
+    moyennes doivent etre celles du bulletin.
+ 4. Verifiez un coefficient modifie dans « Modifier la classe » : meme valeur a
+    la saisie et sur le bulletin.
+ 5. Ecran Frais : prevenez la comptabilite que certains « Paye integral »
+    changeront de statut.
+
+----------------------------------------------------------------------
+CE QUI N'A PAS ETE VERIFIE
+----------------------------------------------------------------------
+
+  - L'installation sous Linux et sur la base reelle de THE GENIUS.
+  - L'impression sur imprimante (paysage, une page) ; Chrome/Chromium seulement.
+  - Le script deploy-0.3.34.sh n'a ete controle qu'a la syntaxe (bash -n).
+  - La suite de tests complete etait verte sauf _license_machine (cle privee
+    absente de l'environnement de build, sans rapport avec ce lot).
+
+----------------------------------------------------------------------
+RETOUR ARRIERE
+----------------------------------------------------------------------
+
+La base d'avant installation est conservee :
+    /var/lib/notescam/data/notescam.db.avant-0.3.34-AAAAMMJJHHMMSS
+Pour revenir : arreter le service, remettre cette copie en place, reinstaller
+le paquet 0.3.30 avec deploy-0.3.30.sh.

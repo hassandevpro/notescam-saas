@@ -346,6 +346,9 @@ ensureColumn('schools', 'notes_manquantes_zero', 'notes_manquantes_zero INTEGER 
 // Cloud fait rejeter la ligne ENTIÈRE, donc tous les réglages de l'école, pas
 // seulement la couleur. NULL = vert MINEDUB par défaut, aspect inchangé.
 ensureColumn('schools', 'bulletin_accent', 'bulletin_accent TEXT');
+// Réglage « le logo contient déjà le nom » : miroir de `supabase_logo_contient_nom.sql`, à appliquer
+// au Cloud AVANT toute distribution d'un paquet LAN portant cette ligne (même règle que `bulletin_accent`).
+ensureColumn('schools', 'logo_contient_nom', 'logo_contient_nom INTEGER NOT NULL DEFAULT 0');
 
 // ── LA CLÉ D'UNICITÉ DE prim_notes A CHANGÉ, ET LES BASES INSTALLÉES NON ─────
 //

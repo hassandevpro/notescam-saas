@@ -117,7 +117,9 @@ export function OfficialHeader({
   const centerW   = bilingual ? (banner ? '46%' : '34%') : '50%';
   const sideW     = bilingual ? (banner ? '27%' : '33%') : '50%';
   const yearLbl   = sys === 'EN' ? 'Academic year' : sys === 'ES' ? 'Año escolar' : 'Année scolaire';
-  const logoPx    = vars ? 'var(--nc-logo)' : dense ? 80 : 56;
+  // Réglage de l'école « le logo contient déjà le nom » : le nom n'est plus écrit, le logo gagne de la place.
+  const nomDansLogo = banner || school?.logo_contient_nom === true || school?.logo_contient_nom === 1;
+  const logoPx    = vars ? (nomDansLogo ? 'calc(var(--nc-logo) * 1.8)' : 'calc(var(--nc-logo) * 1.6)') : dense ? (nomDansLogo ? 88 : 80) : 56;
   // Une BANNIÈRE (nom de l'école en deux langues, médaillon, année : ≈ 4 fois plus large que haute)
   // ne tient pas dans la case carrée : elle y devenait illisible. Dès que l'image se révèle large,
   // elle passe sur toute la largeur de l'en-tête, hauteur bornée. Un logo carré ne change pas.
@@ -126,7 +128,7 @@ export function OfficialHeader({
   const gap       = vars ? 'var(--nc-gap)' : null;
   // Bulletin sur une page : le logo se place À CÔTÉ du nom, pas au-dessus. Plus grand, il ne coûte
   // aucune hauteur : la ligne vaut max(logo, texte) au lieu de logo + texte.
-  const sideBySide = dense && !vars && !banner;
+  const sideBySide = (dense || vars) && !banner;
 
   const Block = ({ b }) => (
     <td style={{
@@ -159,7 +161,7 @@ export function OfficialHeader({
               <div>
               {/* Une bannière PORTE déjà le nom de l'école : le répéter en texte le doublait (et pouvait le
                   contredire). On garde l'adresse, le téléphone et l'année du système, qui restent justes. */}
-              {!banner && (
+              {!nomDansLogo && (
                 <strong style={{ fontSize: vars ? 'var(--nc-head)' : dense ? '10pt' : '11pt', display: 'block', lineHeight: dense ? 1.1 : undefined }}>{(school?.name || '').toUpperCase()}</strong>
               )}
               {/* UN NUMÉRO DE TÉLÉPHONE NE SE COUPE PAS. Relevé au rendu :

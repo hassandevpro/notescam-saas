@@ -496,6 +496,7 @@ export default function Settings() {
         // colonne existe. Le réglage s'allume donc tout seul le jour de la
         // migration, et ne casse rien avant.
         ...('bulletin_accent' in school ? { bulletin_accent: school.bulletin_accent || '' } : {}),
+        ...('logo_contient_nom' in school ? { logo_contient_nom: school.logo_contient_nom === true || school.logo_contient_nom === 1 } : {}),
         censeur_name:     school.censeur_name     || '',
         surveillant_name: school.surveillant_name || '',
       });
@@ -1639,6 +1640,24 @@ export default function Settings() {
                 formulaire) : tant que la migration Cloud n'est pas passée, le
                 réglage reste invisible plutôt que d'offrir un bouton qui
                 ferait échouer l'enregistrement. */}
+            {'logo_contient_nom' in (school || {}) && (
+              <label className="flex items-start gap-2 text-sm mb-4 cursor-pointer">
+                <input
+                  type="checkbox" className="w-4 h-4 mt-0.5 accent-emerald-600"
+                  disabled={!isAdmin}
+                  checked={form.logo_contient_nom === true || form.logo_contient_nom === 1}
+                  onChange={(e) => setForm((f) => ({ ...f, logo_contient_nom: e.target.checked }))}
+                />
+                <span>
+                  <span className="font-medium text-gray-700">
+                    {t('Le logo contient déjà le nom de l’école', 'The logo already shows the school name', 'El logotipo ya incluye el nombre de la escuela')}
+                  </span>
+                  <span className="block text-xs text-gray-500">
+                    {t('Le bulletin n’écrit plus le nom sous le logo (adresse, téléphone et année restent) et agrandit le logo.', 'The report card no longer prints the name under the logo (address, phone and year stay) and enlarges the logo.', 'El boletín ya no imprime el nombre bajo el logotipo y lo agranda.')}
+                  </span>
+                </span>
+              </label>
+            )}
             {'bulletin_accent' in (school || {}) && (
               <div className="mb-4">
                 <label className="form-label">

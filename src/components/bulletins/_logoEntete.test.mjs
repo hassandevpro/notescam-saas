@@ -17,8 +17,8 @@ const parts = lire('./bulletinOfficialParts.jsx');
 test('le logo carré garde sa case d’avant : le rendu initial de l’en-tête ne change pas', () => {
   // Avant le chargement, `banner` vaut false : la case carrée est rendue exactement comme avant.
   assert.match(parts, /: \{ width: logoPx, height: logoPx, objectFit: 'contain', display: 'block', margin: sideBySide \? 0 : '0 auto 2px', flexShrink: 0 \}\} \/>/);
-  assert.match(parts, /const logoPx    = vars \? 'var\(--nc-logo\)' : dense \? 80 : 56;/);
-  assert.match(parts, /const sideBySide = dense && !vars && !banner;/);
+  assert.match(parts, /const logoPx    = vars \? \(nomDansLogo \? 'calc\(var\(--nc-logo\) \* 1\.8\)' : 'calc\(var\(--nc-logo\) \* 1\.6\)'\) : dense \? \(nomDansLogo \? 88 : 80\) : 56;/);
+  assert.match(parts, /const sideBySide = \(dense \|\| vars\) && !banner;/);
   assert.match(parts, /const centerW   = bilingual \? \(banner \? '46%' : '34%'\) : '50%';/);
   assert.match(parts, /const sideW     = bilingual \? \(banner \? '27%' : '33%'\) : '50%';/);
 });
@@ -35,7 +35,7 @@ test('une bannière reste DANS la colonne centrale, entre les deux blocs des min
 });
 
 test('avec une bannière, le nom de l’école n’est pas répété en texte ; l’année et le téléphone restent', () => {
-  assert.match(parts, /\{!banner && \(\n\s+<strong style=\{\{ fontSize: vars \? 'var\(--nc-head\)'/);
+  assert.match(parts, /\{!nomDansLogo && \(\n\s+<strong style=\{\{ fontSize: vars \? 'var\(--nc-head\)'/);
   assert.match(parts, /yearLbl\} : <strong>\{school\?\.current_year/);   // l'année du système reste imprimée
   assert.match(parts, /school\.phone/);                                   // le téléphone aussi
 });

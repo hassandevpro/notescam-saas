@@ -63,14 +63,18 @@ const COTE_COLORS = { 'A+': '#059669', A: '#10b981', ECA: '#f59e0b', IP: '#f59e0
 // comme sur le carnet, parce qu'il VARIE d'une compétence à l'autre (l'Écrit vaut
 // 20 en 1A et 30 en 2A) et d'une évaluation à l'autre. Une note nue serait
 // illisible — 17 ne dit rien sans savoir sur combien.
-function CritereCell({ val, pt, vars = false }) {
+function CritereCell({ val, pt, vars = false, sys = 'FR' }) {
   const cell = {
     ...(vars ? mkCellVar() : mkCell(pt)),
     textAlign: 'center', whiteSpace: 'nowrap',
   };
   // Distinction CAPITALE : une absence de note (`null`) s'écrit « — », jamais 0.
   // Un zéro réellement attribué s'écrit « 0 », et compte dans les totaux.
-  if (!val || val.note == null) return <td style={{ ...cell, color: '#9ca3af' }}>—</td>;
+  // Sur le papier, « — » se lisait comme un oubli. Une case de critère SANS note s'écrit « N.É. »
+  // (non évalué) : la colonne existe au barème de l'école, l'élève n'y a simplement pas été évalué.
+  if (!val || val.note == null) {
+    return <td style={{ ...cell, color: '#6b7280', fontSize: 'max(7.5pt, 0.88em)' }}>{L(sys, 'N.É.', 'N/A', 'N.E.')}</td>;
+  }
   return (
     <td style={cell}>
       {fix2(val.note)}
@@ -388,7 +392,7 @@ export default function BulletinPrimCompact({
               <td style={{ ...numL, fontWeight: 'bold' }}>{r.code}</td>
               <td style={cellL}>{r.intitule}</td>
               {critereColumns.map((c) => (
-                <CritereCell key={c.id} val={r.parCritere?.[c.id]} vars />
+                <CritereCell key={c.id} val={r.parCritere?.[c.id]} vars sys={sys} />
               ))}
               {/* « - - - - » ET « — » NE DISENT PAS LA MÊME CHOSE, et le parent
                   qui lit le bulletin doit pouvoir les distinguer. Le tiret seul
@@ -473,7 +477,7 @@ export default function BulletinPrimCompact({
             {additionalSubjects.map((s) => (
               <tr key={s.id || s.name} style={{ breakInside: 'avoid' }}>
                 <td style={cell} colSpan={2}>{s.name}</td>
-                {critereColumns.map((c) => <CritereCell key={c.id} val={s.parCritere?.[c.id]} pt={pt} />)}
+                {critereColumns.map((c) => <CritereCell key={c.id} val={s.parCritere?.[c.id]} pt={pt} sys={sys} />)}
                 <td style={{ ...num, fontWeight: 'bold' }}>
                   {s.achieved == null
                     ? <span style={{ color: '#9ca3af' }}>—</span>

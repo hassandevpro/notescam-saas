@@ -163,3 +163,19 @@ test('des props absentes ou vides ne font pas tomber le rendu', () => {
     assert.ok(html.length > 0, 'le rendu doit produire quelque chose');
   }
 });
+
+// ── Une case de critère sans note s'écrit « N.É. », pas « — » ───────────────
+test('une case de critère sans note s’écrit « N.É. » (non évalué), jamais un zéro', () => {
+  const rows = lignes(true);
+  rows[0] = { ...rows[0], parCritere: { ...rows[0].parCritere, 'cr-e': null } };   // Écrit non évalué sur 1A
+  const t = texte(rendu({
+    rows,
+    overall: { achieved: 200, possible: 320, pct: 62, evaluees: 4, nonEvaluees: 0 },
+    nonEvalueesCodes: [], moyenneGenerale: 12, coteGenerale: 'B', rank: 1,
+  }));
+  assert.ok(t.includes('N.É.'), 'la case sans note doit dire « N.É. »');
+  assert.equal((t.match(/N\.É\./g) || []).length, 1, 'une seule case sans note ici');
+  const en = texte(rendu({ sys: 'EN', rows, overall: { achieved: 200, possible: 320, pct: 62, evaluees: 4, nonEvaluees: 0 },
+    nonEvalueesCodes: [], moyenneGenerale: 12, coteGenerale: 'B', rank: 1 }));
+  assert.ok(en.includes('N/A'), 'version anglophone : « N/A »');
+});

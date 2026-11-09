@@ -28,6 +28,7 @@ import { toast } from '../../store/toastStore';
 export default function ReferentielEditor({
   titre,
   sousTitre,
+  pied = null,              // contenu libre sous le sous-titre (actions propres à l'écran appelant)
   lignes = [],              // [{ id, code, intitule, school_id }] — déjà localisées
   masques = [],             // ids masqués par l'école
   schoolId,
@@ -188,6 +189,7 @@ export default function ReferentielEditor({
               {sousTitre || t('Renommez, retirez, ou ajoutez les vôtres. Rien ne sort de votre établissement.',
                               'Rename, remove, or add your own. Nothing leaves your school.')}
             </p>
+            {pied}
           </div>
           <button type="button" onClick={fermer} className="text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0">×</button>
         </div>

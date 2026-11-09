@@ -61,6 +61,7 @@ export function primCote(avg, gradeMax = PRIM_GRADE_MAX, bareme = PRIM_COTE_DEFA
 // finit par diverger dans l'un des deux. Ré-exporté ici sous ses noms
 // historiques — aucun appelant n'a changé.
 export { UA_PAR_TRIMESTRE, trimestreOfUA } from './uaMinedub.js';
+import { masquesDe } from './primCriteresMasques.js';
 
 // Barème (points) des critères d'UNE sous-compétence, pour un niveau donné. Pour la
 // compétence '6a' (sport), le profil dépend de l'aptitude de l'élève ('apte' par
@@ -88,7 +89,9 @@ export { UA_PAR_TRIMESTRE, trimestreOfUA } from './uaMinedub.js';
 export function criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude = 'apte', masques = []) {
   const bareme = referentiel?.baremeCriteres || [];
   const criteresById = new Map((referentiel?.criteres || []).map((c) => [c.id, c]));
-  const masque = new Set(masques || []);
+  // `masques` : une LISTE d'ids (comportement historique, valable pour toute compétence) ou une
+  // FONCTION (competenceId) → ids, quand le masque est propre à (classe, compétence, critère).
+  const masque = new Set(masquesDe(masques, competenceId));
   return bareme
     .filter((b) => b.niveau_id === niveauSlug && b.competence_id === competenceId && (b.aptitude || 'apte') === aptitude)
     .filter((b) => !masque.has(b.critere_id))

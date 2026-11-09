@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { masquesCriteresPour } from '../core/primCriteresMasques';
 import { useSearchParams } from 'react-router-dom';
 import { useSchoolStore } from '../store/schoolStore';
 import { useAuthStore } from '../store/authStore';
@@ -432,7 +433,7 @@ function computeClassReport(cls, period, ctx) {
     apcMasques:      ctx.apcMasques,
     primMasques:     ctx.primMasques,
     primMasquesClasse: ctx.primMasquesClasse,
-    primCriteresMasques: ctx.primCriteresMasques,
+    primCriteresMasques: masquesCriteresPour(ctx.primCriteresMasques, ctx.critMasquesParClasse, cls?.id),
     primNonEvaluees: ctx.primNonEvaluees,
     zeroSiManquante: ctx.zeroSiManquante,
     sys, gOpts,
@@ -806,6 +807,7 @@ export default function Reports() {
   // Les CRITERES que l'ecole n'evalue pas : sans eux ici, cet ecran
   // moyennerait sur des colonnes que le bulletin n'imprime pas.
   const primCriteresMasquesEcole = useSchoolStore((s) => s.refMasques.prim_crit);
+  const critMasquesParClasse = useSchoolStore((s) => s.refCriteresMasquesClasse);
   const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
   const loadApc  = useSchoolStore((s) => s.loadApc);
   const loadMat  = useSchoolStore((s) => s.loadMat);
@@ -949,13 +951,13 @@ export default function Reports() {
   const reportCtx = useMemo(() => ({
     school, schoolUnits, students, subjects, gradeMap,
     apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
-    apcMasques, primMasques, primMasquesClasse, primCriteresMasques,
+    apcMasques, primMasques, primMasquesClasse, primCriteresMasques, critMasquesParClasse,
     // Le rapport doit lire les MEMES totaux que le bulletin : sans ces deux-la,
     // il moyennerait sur des cellules que le bulletin compte zero, ou sur une
     // competence que la classe a declaree non evaluee.
     primNonEvaluees, zeroSiManquante: !!school?.notes_manquantes_zero,
   }), [school, schoolUnits, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
-      apcMasques, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees]);
+      apcMasques, primMasques, primMasquesClasse, primCriteresMasques, critMasquesParClasse, primNonEvaluees]);
 
   const classReport = useMemo(
     () => (selectedClass ? computeClassReport(selectedClass, period, reportCtx) : null),

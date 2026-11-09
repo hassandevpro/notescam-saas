@@ -14,6 +14,7 @@
 // Monté par Grades.jsx quand la classe est résolue 'apc_primaire'.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { masquesCriteresPour, masquesDe } from '../../core/primCriteresMasques';
 import { useNavigate } from 'react-router-dom';
 import { useSchoolStore } from '../../store/schoolStore';
 import { useAuthStore } from '../../store/authStore';
@@ -223,7 +224,9 @@ export default function PrimCompetenceWorkspace() {
   const masquesClasse  = useSchoolStore((s) => s.refMasquesClasse);
   // Les CRITÈRES que l'école n'évalue pas : ils retirent une COLONNE de saisie,
   // là où `masques` retire une LIGNE de compétence.
-  const masquesCrit    = useSchoolStore((s) => s.refMasques.prim_crit);
+  const masquesCritEcole = useSchoolStore((s) => s.refMasques.prim_crit);
+  const critParClasse  = useSchoolStore((s) => s.refCriteresMasquesClasse);
+  const masquerCritClasse = useSchoolStore((s) => s.masquerCritereClasse);
   const libelles       = useSchoolStore((s) => s.refLibelles.prim);
   const loadRefMasques = useSchoolStore((s) => s.loadRefMasques);
   const addRef         = useSchoolStore((s) => s.addRefLigne);
@@ -234,6 +237,11 @@ export default function PrimCompetenceWorkspace() {
   const resetLibelle   = useSchoolStore((s) => s.resetRefLibelle);
 
   const classId    = useUiStore((s) => s.gradesClassId);
+  // Masque des critères PAR (classe, compétence, critère) : une fonction (competenceId) → ids masqués.
+  const masquesCrit = useMemo(
+    () => masquesCriteresPour(masquesCritEcole, critParClasse, classId),
+    [masquesCritEcole, critParClasse, classId],
+  );
   const setClassId = useUiStore((s) => s.setGradesClassId);
   const [ua, setUa] = useState(1);
   const [competenceId, setCompetenceId] = useState('');
@@ -465,6 +473,20 @@ export default function PrimCompetenceWorkspace() {
     return par;
   }, [primNotes]);
 
+  // ── MASQUER UN CRITÈRE : (classe, compétence, critère), jamais toute l'école ─────────────────
+  // `competenceId` et `classId` sont ceux de l'écran ; `toutesComp` sert à la recopie initiale du masque d'école.
+  const toutesComp = () => (referentiel?.competences || []).map((c) => c.id);
+  const retourMasque = (r) => {
+    if (r?.error === 'offline') toast.error(t('Réglage impossible hors connexion.', 'Cannot change this setting offline.'));
+    else if (r?.error) toast.error(t('Réglage refusé par le serveur.', 'Setting refused by the server.'));
+  };
+  const masquerCritUn = async (critereId, masque) => {
+    retourMasque(await masquerCritClasse(classId, competenceId, critereId, masque, { toutesComp: toutesComp() }));
+  };
+  const appliquerCritATous = async (critereId, masque) => {
+    retourMasque(await masquerCritClasse(classId, competenceId, critereId, masque, { partout: true, toutesComp: toutesComp() }));
+  };
+
   // ── UNE COMPÉTENCE MASQUÉE QUE LA CLASSE ENSEIGNE POURTANT ────────────────
   //
   // RELEVÉ EN PRODUCTION le 2026-10-21, école BRIGHT CONTINENT. L'école avait
@@ -609,7 +631,7 @@ export default function PrimCompetenceWorkspace() {
       // Un critère MASQUÉ par l'école ne revient pas par cette porte : il est
       // absent du barème national pour cette compétence OU retiré par elle, et
       // dans les deux cas il n'a pas à reparaître en colonne « à définir ».
-      .filter((c) => !(masquesCrit || []).includes(c.id))
+      .filter((c) => !masquesDe(masquesCrit, competenceId).includes(c.id))
       .map((c) => ({
         id: c.id,
         nom: primCritereLabel(c, sys),
@@ -1186,21 +1208,37 @@ export default function PrimCompetenceWorkspace() {
           ligne, et une ligne nationale n'est jamais supprimée. */}
       {critOpen && (
         <ReferentielEditor
-          titre={t('Critères évalués', 'Assessed criteria')}
+          titre={`${t('Critères évalués', 'Assessed criteria')} — ${competences.find((c) => c.id === competenceId)?.code || ''} ${classes.find((c) => c.id === classId)?.name || ''}`.trim()}
           sousTitre={t(
-            'Le référentiel MINEDUB en propose quatre. Retirez ceux que votre école n’évalue pas : leur colonne quitte la saisie et le bulletin, et leurs points quittent le barème. Réversible.',
-            'The MINEDUB framework offers four. Remove those your school does not assess: their column leaves entry and the report card, and their points leave the scale. Reversible.',
+            'Ce réglage vaut pour CETTE compétence et CETTE classe seulement : les autres compétences et les autres classes gardent leurs colonnes. Un critère retiré quitte la saisie, le bulletin et le barème. Réversible.',
+            'This setting applies to THIS competency and THIS class only: other competencies and classes keep their columns. A removed criterion leaves entry, the report card and the scale. Reversible.',
+          )}
+          pied={(
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(referentiel?.criteres || []).map((c) => (
+                <span key={c.id} className="inline-flex gap-1">
+                  <button type="button" className="px-2 py-1 rounded border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                    onClick={() => appliquerCritATous(c.id, true)}>
+                    {t(`Masquer « ${primCritereLabel(c, sys)} » sur toutes les compétences`, `Hide “${primCritereLabel(c, sys)}” on all competencies`)}
+                  </button>
+                  <button type="button" className="px-2 py-1 rounded border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                    onClick={() => appliquerCritATous(c.id, false)}>
+                    {t('Afficher partout', 'Show everywhere')}
+                  </button>
+                </span>
+              ))}
+            </div>
           )}
           lignes={(referentiel?.criteres || [])
             .slice()
             .sort((a, b) => (a.ordre || 0) - (b.ordre || 0))
             .map((c) => ({ ...c, intitule: primCritereLabel(c, sys) }))}
-          masques={masquesCrit}
+          masques={masquesDe(masquesCrit, competenceId)}
           motSingulier={t('critère', 'criterion')}
           renommable={() => false}
-          onMasquer={(l) => removeRef('prim_crit', l.id)}
-          onSupprimer={(l) => removeRef('prim_crit', l.id)}
-          onDemasquer={(l) => restoreRef('prim_crit', l.id)}
+          onMasquer={(l) => masquerCritUn(l.id, true)}
+          onSupprimer={(l) => masquerCritUn(l.id, true)}
+          onDemasquer={(l) => masquerCritUn(l.id, false)}
           nbNotes={(l) => notesParCritere[l.id] || 0}
           onClose={() => setCritOpen(false)}
         />

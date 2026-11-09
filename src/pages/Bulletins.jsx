@@ -1,3 +1,4 @@
+import { masquesCriteresPour } from '../core/primCriteresMasques';
 import { useState, useEffect, useMemo, useCallback, useRef, createElement } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useSchoolStore } from '../store/schoolStore';
@@ -1773,6 +1774,7 @@ export default function Bulletins() {
   // Les critères que l'école n'évalue pas. Distincts des masques de COMPÉTENCE
   // ci-dessus : ceux-ci retirent une COLONNE du bulletin, pas une ligne.
   const primCriteresMasquesEcole = useSchoolStore((s) => s.refMasques.prim_crit);
+  const critMasquesParClasse = useSchoolStore((s) => s.refCriteresMasquesClasse);
   const primLibelles    = useSchoolStore((s) => s.refLibelles.prim);
   const apcLibelles     = useSchoolStore((s) => s.refLibelles.apc);
   const apcMasques      = useSchoolStore((s) => s.refMasques.apc);
@@ -1800,7 +1802,11 @@ export default function Bulletins() {
 
   const classId   = useUiStore((s) => s.bulletinsClassId);
   // Critères masqués : la liste de l'école (le choix par classe n'est pas encore en production).
-  const primCriteresMasques = primCriteresMasquesEcole;
+  // Masque des critères PAR (classe, compétence, critère) ; une classe non initialisée garde la liste de l'école.
+  const primCriteresMasques = useMemo(
+    () => masquesCriteresPour(primCriteresMasquesEcole, critMasquesParClasse, classId),
+    [primCriteresMasquesEcole, critMasquesParClasse, classId],
+  );
   const setClassId   = useUiStore((s) => s.setBulletinsClassId);
 
   // ── Absences : l'appel alimente le bulletin ─────────────────────────────────

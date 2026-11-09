@@ -169,6 +169,54 @@ export async function setMasqueClasse(schoolId, classId, competenceId, masque) {
   return true;
 }
 
+// ── MASQUE DES CRITÈRES PAR (CLASSE, COMPÉTENCE, CRITÈRE) ────────────────────
+// Tables `prim_criteres_masques_classe` + `prim_criteres_masques_init` (cf. core/primCriteresMasques.js).
+// Rend { [classId]: { init: true, parCompetence: { [competenceId]: [critereId…] } } }, ou null si la lecture
+// échoue (table absente = migration Cloud pas encore appliquée) : l'appelant garde alors le masque d'école.
+export async function fetchCriteresMasquesClasse(schoolId) {
+  if (!schoolId) return {};
+  const [init, lignes] = await Promise.all([
+    supabase.from('prim_criteres_masques_init').select('class_id').eq('school_id', schoolId),
+    supabase.from('prim_criteres_masques_classe').select('class_id, competence_id, critere_id').eq('school_id', schoolId),
+  ]);
+  if (init.error || lignes.error) { console.error('fetchCriteresMasquesClasse', init.error || lignes.error); return null; }
+  const par = {};
+  for (const r of init.data || []) par[r.class_id] = { init: true, parCompetence: {} };
+  for (const r of lignes.data || []) {
+    const c = (par[r.class_id] = par[r.class_id] || { init: true, parCompetence: {} });
+    (c.parCompetence[r.competence_id] = c.parCompetence[r.competence_id] || []).push(r.critere_id);
+  }
+  return par;
+}
+
+// Écrit le DIFFÉRENTIEL entre l'état connu et le nouvel état d'une classe (jamais « tout effacer puis tout
+// réécrire » : une coupure au milieu ne doit pas laisser une classe sans masque). Le marqueur d'initialisation
+// part EN PREMIER : s'il échoue, rien n'a changé ; s'il réussit mais qu'une ligne échoue, la classe garde
+// au pire l'ancien masque sur les compétences non encore écrites.
+export async function ecrireCriteresMasquesClasse(schoolId, classId, avant, apres) {
+  if (!schoolId || !classId) return false;
+  const T = 'prim_criteres_masques_classe';
+  const cles = (o) => new Set(Object.entries(o || {}).flatMap(([comp, l]) => l.map((c) => `${comp}|${c}`)));
+  const a = cles(avant), b = cles(apres);
+  const ajout = [...b].filter((k) => !a.has(k)).map((k) => k.split('|'));
+  const retrait = [...a].filter((k) => !b.has(k)).map((k) => k.split('|'));
+  const i = await supabase.from('prim_criteres_masques_init')
+    .upsert({ school_id: schoolId, class_id: classId, init_le: new Date().toISOString() }, { onConflict: 'school_id,class_id' });
+  if (i.error) { console.error('ecrireCriteresMasquesClasse init', i.error); return false; }
+  if (ajout.length) {
+    const { error } = await supabase.from(T).upsert(
+      ajout.map(([competence_id, critere_id]) => ({ school_id: schoolId, class_id: classId, competence_id, critere_id, masque_le: new Date().toISOString() })),
+      { onConflict: 'school_id,class_id,competence_id,critere_id' });
+    if (error) { console.error('ecrireCriteresMasquesClasse ajout', error); return false; }
+  }
+  for (const [competence_id, critere_id] of retrait) {
+    const { error } = await supabase.from(T).delete()
+      .eq('school_id', schoolId).eq('class_id', classId).eq('competence_id', competence_id).eq('critere_id', critere_id);
+    if (error) { console.error('ecrireCriteresMasquesClasse retrait', error); return false; }
+  }
+  return true;
+}
+
 // Crée ou modifie une ligne MAISON. `record.school_id` doit être posé : sans lui
 // la RLS refuse (c'est elle qui empêche de s'approprier une ligne nationale).
 export async function upsertLigne(kind, record) {

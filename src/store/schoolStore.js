@@ -17,7 +17,8 @@ import { estUAValide } from '../core/uaMinedub';
 import { fusionnerNotesServeur, recordsAEcrireEnCache, nkeysEnAttente, majAttenteNkeys }
   from '../core/primNotesFusion';
 import { pointsMaxSain, PRIM_POINTS_MAX_LIMITE } from '../core/primBareme';
-import { fetchMasques, setMasque, fetchMasquesClasse, setMasqueClasse, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
+import { appliquerGeste } from '../core/primCriteresMasques';
+import { fetchMasques, setMasque, fetchMasquesClasse, setMasqueClasse, fetchCriteresMasquesClasse, ecrireCriteresMasquesClasse, upsertLigne, deleteLigne, idMaison, codeMaison, fetchLibelles, setLibelle, addMatiereMaisonApc, rattacherMatiereAuNiveau, majCoefMatiereMaisonApc, uuidMaison } from '../lib/referentielEcole';
 import { fetchPrimReferentiel, refreshPrimReferentiel, fetchPrimNotes, upsertPrimNote, upsertPrimNoteDetaille, buildPrimNoteRecord, primNkey,
   fetchPrimNonEvaluees, nonEvalKey, setPrimNonEvaluee as pousserNonEvaluee } from '../lib/primService';
 import { buildSubjectsForClass } from '../lib/scAutoConfig';
@@ -464,6 +465,8 @@ export const useSchoolStore = create((set, get) => ({
   // passe à false quand la lecture échoue (table absente tant que la migration Cloud n'est pas appliquée) :
   // l'écran refuse alors de masquer, plutôt que de masquer à l'aveugle.
   refMasquesClasse: {},
+  // Critères masqués par (classe, compétence, critère) : { [classId]: { init, parCompetence } }. Cf. core/primCriteresMasques.js.
+  refCriteresMasquesClasse: {},
   masquesClasseDispo: true,
   // Libelles de remplacement poses par CETTE ecole sur des lignes NATIONALES.
   // L'identite officielle est conservee : seules les notes resteraient attachees.
@@ -1046,6 +1049,25 @@ export const useSchoolStore = create((set, get) => ({
       if (parClasse) set({ refMasquesClasse: parClasse, masquesClasseDispo: true });
       else set({ masquesClasseDispo: false });
     }
+    if (kind === 'prim_crit') {
+      const parClasse = await fetchCriteresMasquesClasse(schoolId);
+      // null = table absente ou lecture en échec : on garde le masque d'école, on ne masque rien de plus.
+      if (parClasse) set({ refCriteresMasquesClasse: parClasse, criteresMasquesClasseDispo: true });
+      else set({ criteresMasquesClasseDispo: false });
+    }
+  },
+
+  // Masquer / réafficher UN critère pour UNE compétence d'UNE classe (`partout` : toutes les compétences).
+  // `toutesComp` : ids de toutes les compétences, nécessaires à la recopie initiale du masque d'école.
+  masquerCritereClasse: async (classId, competenceId, critereId, masque, { partout = false, toutesComp = [] } = {}) => {
+    const { schoolId, refCriteresMasquesClasse, refMasques } = get();
+    if (!schoolId || !classId || !critereId || (!partout && !competenceId)) return { error: 'parametres' };
+    if (!backendOnline()) return { error: 'offline' };
+    const avant = refCriteresMasquesClasse[classId];
+    const apres = appliquerGeste(avant, refMasques.prim_crit, toutesComp, { competenceId, critereId, masque, partout });
+    if (!(await ecrireCriteresMasquesClasse(schoolId, classId, avant?.init ? avant.parCompetence : {}, apres.parCompetence))) return { error: 'refus' };
+    set((st) => ({ refCriteresMasquesClasse: { ...st.refCriteresMasquesClasse, [classId]: apres } }));
+    return { data: true };
   },
 
   // Masquer / réafficher une compétence nationale pour UNE classe (cf. core/refClassScope.masquesDeClasse).

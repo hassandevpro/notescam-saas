@@ -6,6 +6,7 @@
 // l'appeler — notes, référentiels officiels, masques décidés par l'école — pour
 // que les deux ateliers ne puissent pas diverger.
 import { useCallback, useEffect, useMemo } from 'react';
+import { masquesCriteresPour } from '../../core/primCriteresMasques';
 import { useAuthStore } from '../../store/authStore';
 import { useSchoolStore } from '../../store/schoolStore';
 import { useUiStore } from '../../store/uiStore';
@@ -36,7 +37,8 @@ export default function usePvBuilder(classesToLoad) {
   const primMasques       = useSchoolStore((s) => s.refMasques.prim);
   const primMasquesClasse = useSchoolStore((s) => s.refMasquesClasse);
   // Critères que l'école n'évalue pas (liste de l'école, comme sur main).
-  const primCriteresMasques = useSchoolStore((s) => s.refMasques.prim_crit);
+  const primCriteresMasquesEcole = useSchoolStore((s) => s.refMasques.prim_crit);
+  const critMasquesParClasse = useSchoolStore((s) => s.refCriteresMasquesClasse);
   const primNonEvaluees   = useSchoolStore((s) => s.primNonEvaluees);
   const loadRefMasques    = useSchoolStore((s) => s.loadRefMasques);
   const viewYear    = useUiStore((s) => s.viewYear);
@@ -76,13 +78,13 @@ export default function usePvBuilder(classesToLoad) {
       primBareme: primReferentiel?.bareme,
       primSequences: section === 'primaire' && primaryPeriodMode(school) === 'sequences',
       apcMasques, primMasques, primMasquesClasse,
-      primCriteresMasques,
+      primCriteresMasques: masquesCriteresPour(primCriteresMasquesEcole, critMasquesParClasse, cls.id),
       primNonEvaluees, zeroSiManquante: !!school?.notes_manquantes_zero,
       teacherName: headTeacherText(cls, teachers),
     });
   }, [school, countryCode, schoolYear, students, subjects, gradeMap,
       apcReferentiel, apcNotes, bilReferentiel, primReferentiel, primNotes, teachers,
-      apcMasques, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees]);
+      apcMasques, primMasques, primMasquesClasse, primCriteresMasquesEcole, critMasquesParClasse, primNonEvaluees]);
 
   return { pvForClass, referentielsPending, needsBil, bilReferentiel };
 }

@@ -1990,6 +1990,8 @@ export const ALLOWED_TABLES = new Set([
   // masques ci-dessus, et comme eux HORS `SYNCED_TABLES` : un masque est un
   // réglage d'affichage local, il ne voyage pas et ne touche pas au contrat.
   'prim_criteres_masques',
+  // Même réglage, mais par (classe, compétence, critère), et le marqueur « classe initialisée ».
+  'prim_criteres_masques_classe', 'prim_criteres_masques_init',
   // Les compétences qu'une classe n'a pas évaluées à une UA donnée (« - - - - »
   // au bulletin). Contrairement aux masques ci-dessus, ce n'est PAS un réglage
   // d'affichage : c'est un fait pédagogique que l'enseignante déclare, et il

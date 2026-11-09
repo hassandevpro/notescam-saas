@@ -1647,6 +1647,26 @@ CREATE TABLE IF NOT EXISTS prim_criteres_masques (
   masque_le  TEXT,
   PRIMARY KEY (school_id, critere_id)
 );
+-- Critères masqués PAR (CLASSE, COMPÉTENCE, CRITÈRE) : le masque d'école ci-dessus retirait « Oral » de
+-- TOUTES les compétences et de TOUTES les classes. Miroir de public.prim_criteres_masques_classe
+-- (supabase_prim_criteres_masques_classe.sql). Réglage d'affichage : hors SYNCED_TABLES, comme ses voisines.
+CREATE TABLE IF NOT EXISTS prim_criteres_masques_classe (
+  school_id     TEXT NOT NULL REFERENCES schools(id)          ON DELETE CASCADE,
+  class_id      TEXT NOT NULL REFERENCES classes(id)          ON DELETE CASCADE,
+  competence_id TEXT NOT NULL REFERENCES prim_competences(id) ON DELETE CASCADE,
+  critere_id    TEXT NOT NULL REFERENCES prim_criteres(id)    ON DELETE CASCADE,
+  masque_le     TEXT,
+  PRIMARY KEY (school_id, class_id, competence_id, critere_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prim_crit_masques_classe ON prim_criteres_masques_classe(school_id, class_id);
+-- Une classe est « initialisée » quand son masque a été recopié depuis celui de l'école : avant, on lit
+-- encore la liste de l'école (comportement historique). Voir src/core/primCriteresMasques.js.
+CREATE TABLE IF NOT EXISTS prim_criteres_masques_init (
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  class_id  TEXT NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
+  init_le   TEXT,
+  PRIMARY KEY (school_id, class_id)
+);
 
 -- Compétences qu'une classe n'a PAS évaluées à une UA donnée. Elles s'impriment
 -- « - - - - » sur le bulletin et ne comptent dans aucun total — ni au

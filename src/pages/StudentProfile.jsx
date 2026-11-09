@@ -362,9 +362,9 @@ export default function StudentProfile() {
         const v = (gradeMap[`${cls?.id}_${student?.id}_${seq}`] || {})[sub.id];
         if (v && v !== 'ABS' && v !== '') scores[sub.id] = v;
       });
-      return getAvg(scores, subs, sys);
+      return getAvg(scores, subs, sys, sys === 'EN' ? { maxScale } : {});
     });
-  }, [subs, gradeMap, cls, student, sys]);
+  }, [subs, gradeMap, cls, student, sys, maxScale]);
 
   // Moyennes lues dans buildClassPv : mêmes chiffres que le bulletin et le PV.
   const engine = cls ? resolveClassEngine(school, cls) : 'classic';

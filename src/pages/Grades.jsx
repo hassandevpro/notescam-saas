@@ -8,6 +8,7 @@ import Layout from '../components/Layout';
 import { useT, localeForLang } from '../lib/i18n';
 import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../lib/lockService';
 import { useCountry, gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
+import { bulletinScale } from '../core/bulletinScale';
 import { isSubjectScoped, isFundamentalTitulaire, canManageClassSubjects, canEditSubjectRow } from '../lib/teacherScope';
 import ClassSubjectsEditor from '../components/grades/ClassSubjectsEditor';
 import { validateGrade, gradeColor, isPass, displayGrade, gradeCell } from '../lib/gradeEntry';
@@ -646,7 +647,9 @@ function PrincipalGrades() {
   const isPrimaire    = cycle === 'primaire';
   const sys           = selectedClass?.system || 'FR';
   // Options de notation GE (échelle /10 ou /20, coef primaire) — {} hors GE.
-  const gOpts         = gradingOpts(school, cycle);
+  // Le moteur anglophone calcule en /100 par défaut : on lui impose le barème de la CLASSE
+  // (FORM2 : /20), sinon la moyenne de la feuille de notes sort sur 100.
+  const gOpts         = { ...gradingOpts(school, cycle), ...(sys === 'EN' ? { maxScale: bulletinScale(selectedClass, sys, geGradeMax(school)).maxScale } : {}) };
   const geMax         = geGradeMax(school);
   const isEN          = sys === 'EN';
   // Le primaire classique peut suivre le rythme du secondaire (6 séquences) si

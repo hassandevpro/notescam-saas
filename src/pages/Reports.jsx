@@ -412,7 +412,7 @@ function computeClassReport(cls, period, ctx) {
   const { school, students, subjects } = ctx;
   const sys   = cls?.system || 'FR';
   const isGE  = resolveCountryCode(school) === 'guinea_eq';
-  const gOpts = gradingOpts(school, cls?.cycle);
+  const gOpts = { ...gradingOpts(school, cls?.cycle), ...(sys === 'EN' ? { maxScale: bulletinScale(cls, sys, geGradeMax(school)).maxScale } : {}) };
   const engine = resolveClassEngine(school, cls);
 
   const classSubjects = subjects.filter((s) => s.class_id === cls.id)
@@ -437,7 +437,7 @@ function computeClassReport(cls, period, ctx) {
     zeroSiManquante: ctx.zeroSiManquante,
     sys, gOpts,
     scaleMax:      bulletinScale(cls, sys, geGradeMax(school)).maxScale,
-    passThreshold: isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50,
+    passThreshold: bulletinScale(cls, sys, geGradeMax(school)).maxScale / 2,
     gradeScale:    school?.grade_scale,
   });
   if (!report.ready || !report.columns.length) {
@@ -881,8 +881,8 @@ export default function Reports() {
   const sys             = selectedClass?.system || 'FR';
   const isEN            = sys === 'EN';
   const isGE            = resolveCountryCode(school) === 'guinea_eq';
-  const gOpts           = gradingOpts(school, selectedClass?.cycle);
-  const passThreshold   = isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
+  const gOpts           = { ...gradingOpts(school, selectedClass?.cycle), ...(sys === 'EN' ? { maxScale: bulletinScale(selectedClass, sys, geGradeMax(school)).maxScale } : {}) };
+  const passThreshold   = bulletinScale(selectedClass, sys, geGradeMax(school)).maxScale / 2;
   // `selectedClass`, PAS `cls` : ici le nom local de la classe choisie est
   // `selectedClass` (cf. la ligne qui precede et `classEngine` juste apres).
   // `cls` etait une VARIABLE LIBRE, heritee de la passe du 2026-10-26 qui a

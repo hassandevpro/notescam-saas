@@ -42,16 +42,21 @@ export function gradeCell(val) {
   return isNaN(n) ? s : String(Math.round(n * 100) / 100).replace('.', ',');
 }
 
+// RÉUSSITE = MOITIÉ DU BARÈME DE LA MATIÈRE : 10/20, 5/10, 20/40, 50/100. Source unique.
+// Ne dépend JAMAIS du système (FR/EN/ES) : un « 50 » codé en dur pour l'anglophone rendait
+// rouge tout 14/20 d'une matière dont le barème était resté à 100 (cas Janus, FORM2).
+export function isPass(note, max) {
+  const n = parseFloat(note);
+  const m = Number(max);
+  if (!Number.isFinite(n) || !(m > 0)) return false;
+  return n >= m / 2;
+}
+
 // Classe Tailwind de couleur selon la réussite (seuil = moitié du barème).
-export function gradeColor(val, max, sys) {
+export function gradeColor(val, max) {
   if (!val || val === '') return 'text-gray-300';
   if (val === 'ABS') return 'text-gray-400 italic';
-  const n = parseFloat(val);
-  const pass =
-    sys === 'ES' ? (5 / 10) * max
-    : sys === 'FR' ? (10 / 20) * max
-    : 50;
-  return n >= pass ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold';
+  return isPass(val, max) ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold';
 }
 
 // Observation auto-dérivée d'une note (jamais stockée — cohérent avec les

@@ -111,7 +111,7 @@ export function buildSubjectsForClassicClass({ school, cls, makeId }) {
   if (!cls || resolveClassEngine(school, cls) !== 'classic') return [];
   const rows = defaultClassicSubjects(cls);
   if (!rows.length) return [];
-  const max = (cls.system || 'FR') === 'EN' ? 100 : 20;
+  const max = Number(cls.grade_max) > 0 ? Number(cls.grade_max) : ((cls.system || 'FR') === 'EN' ? 100 : 20);
   return rows.map((r, i) => ({
     id: makeId(r.name),
     school_id: cls.school_id,

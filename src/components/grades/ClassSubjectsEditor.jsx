@@ -18,7 +18,8 @@ import { classSubjectsOf } from '../../core/subjectOrder';
 import { collectSubjectBundle } from '../../lib/studentBundle';
 
 // Barème par défaut selon le système de la classe (comme l'auto-config).
-const defaultMax = (cls) => ((cls?.system || 'FR') === 'EN' ? 100 : 20);
+// Le barème que la CLASSE déclare (`grade_max`) l'emporte sur la langue.
+const defaultMax = (cls) => (Number(cls?.grade_max) > 0 ? Number(cls.grade_max) : ((cls?.system || 'FR') === 'EN' ? 100 : 20));
 
 export default function ClassSubjectsEditor({
   cls, role, school, teacherId, isDelegate = false, teachers = [], onClose,

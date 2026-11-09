@@ -14,12 +14,12 @@ const studs = [{ id: 'e1' }, { id: 'e2' }];
   const subs = [{ id: 'm1' }, { id: 'm2' }];
   const gradeMap = {
     c1_e1_3: { m1: 14, m2: '' },      // 1 saisie
-    c1_e2_3: { m1: 'ABS', m2: 9 },    // ABS ne compte pas → 1 saisie
+    c1_e2_3: { m1: 'ABS', m2: 9 },    // ABS compte comme saisi
     c1_e1_4: { m1: 12, m2: 12 },
   };
   const p = classEntryProgress({ engine: 'classic', cls, subs, studs, order: 3, gradeMap });
   eq(p.expected, 4, 'classique : 2 élèves × 2 matières');
-  eq(p.entered, 2, 'classique : vide et ABS ne comptent pas');
+  eq(p.entered, 3, 'classique : ABS compte comme saisi, le vide non');
 
   eq(classEntryProgress({ engine: 'sc', cls, subs, studs, order: 5, gradeMap }).entered, 0,
     'classique : séquence sans aucune saisie');

@@ -15,6 +15,7 @@ import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { resolveCountryCode } from '../countries';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
+import { bulletinScale } from '../core/bulletinScale';
 import { createDocumentScale, pageDimsPx } from '../lib/documentScale';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import '../styles/conseil.css';
@@ -242,8 +243,8 @@ export default function ConseilDeClasse() {
   const isGE     = resolveCountryCode(school) === 'guinea_eq';
   const honorMode = isGE ? 'es' : isEN ? 'en' : 'fr';
   const periods  = isGE ? SEQUENCES_GE : isEN ? SEQUENCES_EN : SEQUENCES_FR;
-  const gOpts    = gradingOpts(school, cls?.cycle);
-  const pass     = isGE ? geGradeMax(school) / 2 : sys === 'FR' ? 10 : 50;
+  const gOpts    = { ...gradingOpts(school, cls?.cycle), ...(sys === 'EN' ? { maxScale: bulletinScale(cls, sys, geGradeMax(school)).maxScale } : {}) };
+  const pass     = bulletinScale(cls, sys, geGradeMax(school)).maxScale / 2;
   const passVal  = isGE ? 'aprobado' : 'admis';
   const scale    = gOpts.maxScale ?? (isGE ? geGradeMax(school) : isEN ? 100 : 20);
   const subs     = useMemo(() => subjects.filter((s) => s.class_id === classId), [subjects, classId]);

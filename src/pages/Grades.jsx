@@ -10,7 +10,7 @@ import { isSequenceLocked, lockSequence, unlockSequence, getLockInfo } from '../
 import { useCountry, gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
 import { isSubjectScoped, isFundamentalTitulaire, canManageClassSubjects, canEditSubjectRow } from '../lib/teacherScope';
 import ClassSubjectsEditor from '../components/grades/ClassSubjectsEditor';
-import { validateGrade, gradeColor, displayGrade, gradeCell } from '../lib/gradeEntry';
+import { validateGrade, gradeColor, isPass, displayGrade, gradeCell } from '../lib/gradeEntry';
 import GradeImportPanel from '../components/grades/GradeImportPanel';
 import SubjectTeacherWorkspace from '../components/grades/SubjectTeacherWorkspace';
 import ApcCompetenceWorkspace from '../components/grades/ApcCompetenceWorkspace';
@@ -23,12 +23,6 @@ import { classSubjectsOf, withoutCompositeParents } from '../core/subjectOrder';
 // L'ordre de la liste de classe — et donc le numéro « N° » affiché en tête de
 // ligne, le même que sur la liste imprimée et les bulletins.
 import { elevesDeClasse } from '../core/ordreClasse';
-
-const TERMS_EN = [
-  { value: 1, label: 'Term 1' },
-  { value: 2, label: 'Term 2' },
-  { value: 3, label: 'Term 3' },
-];
 
 const COMPETENCES  = ['A', 'EA', 'NA'];
 const COMP_COLORS  = { A: '#059669', EA: '#d97706', NA: '#dc2626' };
@@ -196,10 +190,7 @@ function SubjectTabs({ subjects, activeId, onSelect, gradeMap, classId, sequence
 function SubjectStatsBar({ students, subject, gradeMap, classId, sequence, sys }) {
   const t = useT();
   if (!subject || !students.length) return null;
-  const pass =
-    sys === 'ES' ? (5 / 10) * subject.max
-    : sys === 'FR' ? (10 / 20) * subject.max
-    : 50;
+  const pass = Number(subject.max) / 2; // moitié du barème de la matière (cf. isPass)
 
   const vals = students
     .map((s) => {
@@ -222,7 +213,7 @@ function SubjectStatsBar({ students, subject, gradeMap, classId, sequence, sys }
   return (
     <div className="flex flex-wrap gap-4 bg-brand-50 border border-brand-100 rounded-xl px-5 py-3 text-sm mb-5">
       <span className="text-gray-600">
-        <strong className="text-gray-900">{vals.length}</strong>/{students.length} {t('notés', 'graded')}
+        <strong className="text-gray-900">{vals.length}</strong>/{students.length} {t('ont composé', 'sat the exam')}
       </span>
       {absCount > 0 && (
         <span className="text-gray-600">
@@ -666,8 +657,7 @@ function PrincipalGrades() {
   const periods = isGE
     ? TRIMESTRES_GE
     : (isMaternelle || (isPrimaire && !primSequences)) ? TRIMESTRES
-    : isEN ? TERMS_EN
-    : SEQUENCES;
+    : SEQUENCES; // anglophone compris : les six séquences, comme à la génération du bulletin
 
   const classSubjects = useMemo(() => {
     // MÊME ordre que le bulletin (position, puis coef/nom) : la grille de saisie
@@ -910,7 +900,6 @@ function PrincipalGrades() {
   const periodLabel =
     isGE                              ? t('Trimestre', 'Quarter') /* auto-traduit ES */
     : (isMaternelle || (isPrimaire && !primSequences)) ? t('Trimestre', 'Quarter')
-    : isEN                            ? 'Term'
                                       : t('Séquence', 'Sequence');
 
   return (
@@ -936,7 +925,7 @@ function PrincipalGrades() {
                       : sys === 'ES' ? 'bg-emerald-100 text-emerald-700'
                       : 'bg-purple-100 text-purple-700'
                     }`}>
-                      {sys === 'FR' ? 'FR /20' : sys === 'EN' ? 'EN /100' : `ES /${geMax}`}
+                      {sys === 'FR' ? 'FR /20' : sys === 'EN' ? 'EN' : `ES /${geMax}`}
                     </span>
                     {isMaternelle && <span className="text-xs font-semibold px-2 py-0.5 rounded bg-rose-100 text-rose-700">{t('Maternelle', 'Nursery')}</span>}
                     {isPrimaire   && <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">{t('Primaire', 'Primary')}</span>}
@@ -1075,7 +1064,7 @@ function PrincipalGrades() {
                   </option>
                   {visibleClasses.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}{schoolLanguage === 'bilingue' && !isGE ? ` [${c.system === 'EN' ? 'EN /100' : 'FR /20'}]` : ''}
+                      {c.name}{schoolLanguage === 'bilingue' && !isGE ? ` [${c.system === 'EN' ? 'EN' : 'FR'}]` : ''}
                     </option>
                   ))}
                 </select>
@@ -1099,7 +1088,7 @@ function PrincipalGrades() {
                     : sys === 'ES' ? 'bg-emerald-100 text-emerald-700'
                     : 'bg-purple-100 text-purple-700'
                   }`}>
-                    {sys === 'FR' ? 'FR /20' : sys === 'EN' ? 'EN /100' : 'ES /10'}
+                    {sys === 'FR' ? 'FR /20' : sys === 'EN' ? 'EN' : 'ES /10'}
                   </span>
                   {isMaternelle && <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-100 text-rose-700">{t('Maternelle', 'Nursery')}</span>}
                   {isPrimaire   && <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-700">{t('Primaire', 'Primary')}</span>}
@@ -1397,7 +1386,7 @@ function PrincipalGrades() {
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           <span className={`text-sm font-bold ${
-                            subjectClassAvg >= (sys === 'ES' ? (5 / 10) * currentSubject.max : sys === 'FR' ? (10 / 20) * currentSubject.max : 50)
+                            isPass(subjectClassAvg, currentSubject.max)
                               ? 'text-emerald-600' : 'text-red-500'
                           }`}>
                             {subjectClassAvg}/{currentSubject.max}

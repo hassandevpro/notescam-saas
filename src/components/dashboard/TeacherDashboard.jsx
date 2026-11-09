@@ -52,7 +52,7 @@ export default function TeacherClasses({
       const total   = studs.length * subs.length;
       const entered = studs.reduce((n, stu) => {
         const g = gradeMap[`${cls.id}_${stu.id}_${seq}`] || {};
-        return n + subs.filter((sub) => { const v = g[sub.id]; return v !== undefined && v !== null && v !== '' && v !== 'ABS'; }).length;
+        return n + subs.filter((sub) => { const v = g[sub.id]; return v !== undefined && v !== null && v !== ''; }).length; // ABS = saisi
       }, 0);
       return { seq, entered, total, pct: total > 0 ? Math.round((entered / total) * 100) : 0 };
     }) : [];
@@ -112,7 +112,7 @@ export default function TeacherClasses({
                     {subs.length} {t('matière', 'subject')}{subs.length !== 1 ? 's' : ''}
                   </span>
                   <span className="bg-white/20 rounded-lg px-3 py-1 text-xs font-semibold">
-                    {sys === 'FR' ? 'FR /20' : 'EN /100'}
+                    {sys === 'FR' ? 'FR /20' : 'EN'}
                   </span>
                 </div>
               </div>

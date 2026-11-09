@@ -11,7 +11,8 @@ import { useSchoolStore } from '../../store/schoolStore';
 import { useUiStore } from '../../store/uiStore';
 import { buildClassPv } from '../../lib/pvEngine';
 import { resolveClassEngine, firstCycleClasseSlug, primaireNiveauSlug, classSectionKey } from '../../core/engineResolver';
-import { gradingOpts, primaryPeriodMode } from '../../lib/useCountry';
+import { gradingOpts, primaryPeriodMode, geGradeMax } from '../../lib/useCountry';
+import { bulletinScale } from '../../core/bulletinScale';
 import { resolveCountryCode } from '../../countries';
 import { headTeacherText } from '../../lib/headTeachers';
 
@@ -67,7 +68,7 @@ export default function usePvBuilder(classesToLoad) {
       subjects: subjects.filter((s) => s.class_id === cls.id)
         .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name)),
       gradeMap,
-      opts: gradingOpts(school, cycle),
+      opts: { ...gradingOpts(school, cycle), ...(cls.system === 'EN' ? { maxScale: bulletinScale(cls, 'EN', geGradeMax(school)).maxScale } : {}) },
       gradeScale: school?.grade_scale,
       apcReferentiel, apcNotes, apcClasseSlug: firstCycleClasseSlug(cls.level, cls.name),
       bilReferentiel,

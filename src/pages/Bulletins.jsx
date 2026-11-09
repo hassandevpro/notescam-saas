@@ -65,6 +65,7 @@ import { APC_GROUPS, groupSubjects, domaineForSubject, libelleGroupe } from '../
 // Le barème d'impression vient de la classe (`grade_max`), pas de sa langue :
 // une classe anglophone du Cameroun note sur /20 comme sa jumelle francophone.
 import { bulletinScale, echelleMoteur, convertirEchelle, rangEnAnglais } from '../core/bulletinScale';
+import { etatMatiere } from '../core/noteAbsence';
 // Second cycle et bilingue : rapprochement tolérant du nom local avec la ligne
 // de référentiel qui porte le GROUPE officiel, le coefficient et la charge.
 import { resolveRefRow, unmatchedAgainstRef } from '../core/refNameMatch';
@@ -578,7 +579,9 @@ function BulletinModern({ school, cls, student, subjects, subjectGrades, student
         <tbody>
           {subjects.map((sub) => {
             const grade    = subjectGrades[sub.id];
-            const gradeStr = grade !== null ? String(grade) : 'ABS';
+            // « ABS » seulement si l'enseignant l'a déclaré ; une matière jamais saisie s'imprime « — ».
+            const gradeStr = grade !== null ? String(grade)
+              : (etatMatiere(gradeMap, classId, student.id, sub.id, period.seqs) === 'abs' ? 'ABS' : '—');
             const mxc      = grade !== null ? Math.round(grade * sub.coef * 100) / 100 : '—';
             const pct      = grade !== null ? grade / sub.max : null;
             const appr     = grade !== null

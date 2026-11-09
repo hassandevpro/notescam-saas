@@ -25,7 +25,9 @@ function classicProgress({ cls, subs, studs, order, gradeMap }) {
   const expected = studs.length * subs.length;
   const entered = studs.reduce((count, stu) => {
     const grades = gradeMap?.[`${cls.id}_${stu.id}_${order}`] || {};
-    return count + subs.filter((sub) => filled(grades[sub.id])).length;
+    // ABS compte comme SAISI : l'enseignant a répondu pour cet élève. Sinon une classe avec un
+    // absent ne pouvait jamais atteindre 100 %. (Un absent reste hors des statistiques.)
+    return count + subs.filter((sub) => filled(grades[sub.id]) || grades[sub.id] === 'ABS').length;
   }, 0);
   return { expected, entered };
 }

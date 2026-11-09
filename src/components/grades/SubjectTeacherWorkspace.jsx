@@ -30,7 +30,6 @@ function classRank(name = '') {
   return 99;
 }
 
-const TERMS_EN  = [{ value: 1, label: 'Term 1' }, { value: 2, label: 'Term 2' }, { value: 3, label: 'Term 3' }];
 
 export default function SubjectTeacherWorkspace() {
   const t = useT();
@@ -125,13 +124,15 @@ export default function SubjectTeacherWorkspace() {
     if (cycle === 'maternelle' || cycle === 'primaire') return [
       { value: 1, label: t('Trimestre 1', 'Quarter 1') }, { value: 2, label: t('Trimestre 2', 'Quarter 2') }, { value: 3, label: t('Trimestre 3', 'Quarter 3') },
     ];
-    if (isEN) return TERMS_EN;
+    // Anglophone comme francophone : six séquences, comme à la génération du bulletin
+    // (Term 1 = séquences 1 et 2). « Term N » ici saisissait la séquence N : une note
+    // « Term 2 » tombait dans le Term 1 du bulletin.
     return [1, 2, 3, 4, 5, 6].map((v) => ({ value: v, label: t(`Séquence ${v}`, `Sequence ${v}`) }));
   }, [isGE, cycle, isEN, t]);
 
   const periodLabel = isGE ? t('Trimestre', 'Quarter')
     : (cycle === 'maternelle' || cycle === 'primaire') ? t('Trimestre', 'Quarter')
-    : isEN ? 'Term' : t('Séquence', 'Sequence');
+    : t('Séquence', 'Sequence');
 
   // Verrou de séquence (admin) — lecture seule côté enseignant.
   const locked = classId && schoolId ? isSequenceLocked(schoolId, classId, sequence) : false;

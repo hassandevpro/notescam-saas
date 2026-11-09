@@ -713,7 +713,10 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
 
   const catalogEntries = useMemo(() => {
     if (!bilingue) {
-      return catalog_local.map((name) => ({ name, max: isEN_local ? 100 : 20, cote: isEN_local ? 'EN' : 'FR' }));
+      // Barème de la CLASSE d'abord (`grade_max`) : une classe anglophone notée /20 ne doit pas
+      // créer ses matières à /100 (cas Janus : History, Citizenship). La langue ne sert que de repli.
+      const bareme = Number(cls.grade_max) > 0 ? Number(cls.grade_max) : (isEN_local ? 100 : 20);
+      return catalog_local.map((name) => ({ name, max: bareme, cote: isEN_local ? 'EN' : 'FR' }));
     }
     // D’abord les matières RÉELLES des deux classes, puis le catalogue du
     // pays pour tout ce que l’école voudrait ajouter en plus.
@@ -736,7 +739,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   // anglophone (décision du responsable, 2026-10-19). En APC le calcul lit de
   // toute façon les barèmes du ministère dans le référentiel.
   const baremeDeLaMatiere = (name, cote) => infoMatiere.get(String(name).toLowerCase())?.max
-    ?? (cote === 'EN' || (cls.system || 'FR') === 'EN' ? 100 : 20);
+    ?? (Number(cls.grade_max) > 0 ? Number(cls.grade_max) : (cote === 'EN' || (cls.system || 'FR') === 'EN' ? 100 : 20));
 
   const studentCount  = students.filter((s) => s.class_id === cls.id).length;
   const teacherCount  = new Set(classSubjects.filter((s) => s.teacher_id).map((s) => s.teacher_id)).size;

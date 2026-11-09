@@ -15,6 +15,9 @@ import { COUNTRIES } from '../countries';
 import { CATEGORIES, DEFAULT_CATEGORY } from '../config/timetableConfig';
 import { inferCategory } from '../lib/timetableEngine';
 import { resolveClassEngine, primaireNiveauSlug } from '../core/engineResolver';
+import { modeChange, garde } from '../core/modeEvaluation';
+import { classeADesNotes } from '../lib/classeANotes';
+import { toast } from '../store/toastStore';
 
 import { programmesParCode, troncsDe } from '../core/primProgramme';
 import { lignesEnDouble } from '../core/refClassScope';
@@ -762,6 +765,26 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
+    // ── GARDE-FOU DU MODE D'ÉVALUATION ───────────────────────────────────────
+    // Passer une classe de « compétences » à « matières » (ou l'inverse) alors qu'elle a déjà des notes les
+    // ferait disparaître de l'écran : elles restent en base, mais l'autre mode ne les lit pas. On ne convertit
+    // et on ne supprime RIEN : le reste du formulaire s'enregistre, le mode reste celui d'avant.
+    let moteurChoisi = form.bulletin_engine || null;
+    if (cls.id && modeChange(school, cls, moteurChoisi)) {
+      const aDesNotes = await classeADesNotes({
+        classId: cls.id, studentIds: students.filter((s) => s.class_id === cls.id).map((s) => s.id),
+      });
+      const g = garde({ change: true, aDesNotes });
+      if (g.bloque) {
+        moteurChoisi = cls.bulletin_engine || null;
+        setForm((f) => ({ ...f, bulletin_engine: moteurChoisi || '' }));
+        toast.error(g.raison === 'notes'
+          ? t('Ce mode d’évaluation ne peut plus changer : cette classe a déjà des notes. Elles resteraient en base mais ne s’afficheraient plus. Le reste de vos modifications est enregistré.',
+              'The evaluation mode can no longer change: this class already has grades. They would stay in the database but no longer show. The rest of your changes is saved.')
+          : t('Impossible de vérifier si cette classe a des notes (hors connexion ?). Le mode d’évaluation n’a pas été modifié ; le reste est enregistré.',
+              'Could not check whether this class has grades (offline?). The evaluation mode was not changed; the rest is saved.'));
+      }
+    }
     await onSave({
       ...form,
       teacher_id:   form.teacher_id   || null,
@@ -769,7 +792,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
       // « Hérité de l'école » se stocke NULL, jamais '' : la colonne est lue par
       // `resolveClassEngine`, et une chaîne vide y passerait pour une surcharge
       // posée alors qu'elle n'en est pas une.
-      bulletin_engine: form.bulletin_engine || null,
+      bulletin_engine: moteurChoisi,
       max_students: form.max_students !== '' ? Number(form.max_students) : null,
     });
     setSaving(false);

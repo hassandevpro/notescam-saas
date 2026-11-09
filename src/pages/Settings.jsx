@@ -495,7 +495,7 @@ export default function Settings() {
         // d'un `select *`, la clé est présente — fût-elle nulle — dès que la
         // colonne existe. Le réglage s'allume donc tout seul le jour de la
         // migration, et ne casse rien avant.
-        ...('bulletin_accent' in school ? { bulletin_accent: school.bulletin_accent || '' } : {}),
+        ...('bulletin_accent' in school ? { bulletin_accent: school.bulletin_accent || null } : {}),
         ...('logo_contient_nom' in school ? { logo_contient_nom: school.logo_contient_nom === true || school.logo_contient_nom === 1 } : {}),
         censeur_name:     school.censeur_name     || '',
         surveillant_name: school.surveillant_name || '',
@@ -572,7 +572,13 @@ export default function Settings() {
     setSaving(true);
     setError(null);
     setSaved(false);
-    const result = await doUpdateSchool(form);
+    // La base n'accepte que NULL ou #rrggbb pour l'accent : une chaîne vide
+    // (« vert officiel » / pas de couleur choisie) ferait rejeter TOUT
+    // l'enregistrement par schools_bulletin_accent_hex.
+    const payload = 'bulletin_accent' in form
+      ? { ...form, bulletin_accent: form.bulletin_accent || null }
+      : form;
+    const result = await doUpdateSchool(payload);
     setSaving(false);
     if (result.error) {
       setError(result.error);

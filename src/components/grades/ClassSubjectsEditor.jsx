@@ -17,6 +17,8 @@ import { canManageClassSubjects, canEditSubjectRow, gradeEntryMode } from '../..
 import { classSubjectsOf } from '../../core/subjectOrder';
 import { collectSubjectBundle } from '../../lib/studentBundle';
 import { notesAuDessusDuBareme, baremeValide, deplacer } from '../../core/subjectEdit';
+import { planCopie } from '../../core/copieMatieres';
+import { modeDeClasse } from '../../core/modeEvaluation';
 
 // Barème par défaut selon le système de la classe (comme l'auto-config).
 // Le barème que la CLASSE déclare (`grade_max`) l'emporte sur la langue.
@@ -32,7 +34,9 @@ export default function ClassSubjectsEditor({
   const updateSubject = useSchoolStore((s) => s.updateSubject);
   const deleteSubject = useSchoolStore((s) => s.deleteSubject);
 
+  const classes = useSchoolStore((s) => s.classes);
   const [newName, setNewName] = useState('');
+  const [sourceId, setSourceId] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState(null);
 
@@ -106,6 +110,38 @@ export default function ClassSubjectsEditor({
   };
 
   const patch = (sub, data) => updateSubject(sub.id, data);
+
+  // ── COPIER LES MATIÈRES D'UNE AUTRE CLASSE ──────────────────────────────────
+  // Copie nom, coefficient, barème (jamais les notes ni l'enseignant) ; une matière déjà présente est sautée.
+  const autresClasses = useMemo(
+    () => (classes || []).filter((c) => c.id !== cls?.id && classSubjectsOf(subjects, c.id).length > 0),
+    [classes, subjects, cls?.id],
+  );
+  const handleCopie = async () => {
+    if (!sourceId || busy) return;
+    const { aCreer, sautees } = planCopie(classSubjectsOf(subjects, sourceId), rows);
+    if (!aCreer.length) {
+      toast.info(t('Rien à copier : toutes ces matières existent déjà dans cette classe.', 'Nothing to copy: all these subjects already exist in this class.'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const ids = {};
+      for (const m of aCreer) {                       // parents d'abord (planCopie les ordonne)
+        const rec = await addSubject({
+          class_id: cls.id, name: m.name, coef: m.coef, max: m.max, position: m.position,
+          calc_method: m.calc_method, formula: m.formula,
+          parent_id: m.parentCle ? ids[m.parentCle] : m.parentIdCible,
+          teacher_id: canManage ? null : teacherId,
+        });
+        ids[m.cle] = rec.id;
+      }
+      toast.success(t(
+        `${aCreer.length} matière(s) copiée(s)${sautees.length ? `, ${sautees.length} déjà présente(s)` : ''}.`,
+        `${aCreer.length} subject(s) copied${sautees.length ? `, ${sautees.length} already present` : ''}.`));
+      setSourceId('');
+    } finally { setBusy(false); }
+  };
 
   // Réordonner : seules les lignes dont la position change sont réécrites (au plus deux).
   const bouger = async (sub, delta) => {
@@ -269,6 +305,30 @@ export default function ClassSubjectsEditor({
               <button type="button" onClick={handleAdd} disabled={!newName.trim() || busy} className="btn-primary" style={{ width: 'auto', paddingInline: '1.25rem' }}>
                 {t('Ajouter', 'Add')}
               </button>
+            </div>
+          )}
+
+          {canManage && !isMaternelle && autresClasses.length > 0 && (
+            <div className="space-y-1">
+              <div className="flex gap-2">
+                <select value={sourceId} onChange={(e) => setSourceId(e.target.value)}
+                  className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                  <option value="">{t('Copier les matières de la classe…', 'Copy subjects from class…')}</option>
+                  {autresClasses.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name} ({classSubjectsOf(subjects, c.id).length})</option>
+                  ))}
+                </select>
+                <button type="button" onClick={handleCopie} disabled={!sourceId || busy}
+                  className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                  {t('Copier', 'Copy')}
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-400">
+                {t('Copie le nom, le coefficient et le barème. Ni les notes, ni les enseignants. Une matière déjà présente n’est jamais écrasée.',
+                   'Copies name, coefficient and scale. Not marks, not teachers. A subject already present is never overwritten.')}
+                {modeDeClasse(school, cls) !== 'matieres' && ' ' + t('Cette classe note par compétences : ces matières ne se saisissent qu’en mode « Par matières ».',
+                   'This class is graded by competencies: these subjects can only be entered in “By subject” mode.')}
+              </p>
             </div>
           )}
         </div>

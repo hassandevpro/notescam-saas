@@ -20,7 +20,7 @@ import { classIdentity } from '../lib/schoolIdentity';
 import { gradingOpts, geGradeMax } from '../lib/useCountry';
 // Le barème vient de la classe (`grade_max`), pas de sa langue — cf. D21. Le cas
 // ES passe par `geGradeMax`, exactement comme l'ancien branchement `isGE`.
-import { bulletinScale } from '../core/bulletinScale';
+import { bulletinScale, convertirEchelle } from '../core/bulletinScale';
 import SectionFilterSelect, { inSection } from '../components/SectionFilterSelect';
 import { resolveClassEngine, SECTIONS } from '../core/engineResolver';
 import { apcBulletinPeriods, apcPeriodLabel } from '../core/apcPeriods';
@@ -56,7 +56,7 @@ const PERIODS_GE = [
 function apprFor(row, sys, maxScale) {
   if (row.avg === null || row.avg === undefined) return null;
   if (row.cote) return { text: row.appreciation || row.cote, g: row.cote, col: null };
-  return sys === 'ES' ? esGrade(row.avg, maxScale) : sys === 'FR' ? frApp(row.avg) : enGrade(row.avg);
+  return sys === 'ES' ? esGrade(row.avg, maxScale) : sys === 'FR' ? frApp(row.avg) : enGrade(convertirEchelle(row.avg, maxScale, 100));
 }
 
 // ── Impression dans une nouvelle fenêtre (propre, sans sidebar) ───────────────

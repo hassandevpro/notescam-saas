@@ -71,7 +71,7 @@ export default function TeacherClasses({
     return { cls, studs, subs, sys, pass, max, latestSeq, stats, seqProgress, struggling };
   }), [classes, students, subjects, gradeMap, scoped, teacherId]);
 
-  const seqLabel = (sys, seq) => (sys === 'EN' ? `Term ${seq}` : t(`Séquence ${seq}`, `Sequence ${seq}`));
+  const seqLabel = (sys, seq) => (sys === 'EN' ? `Sequence ${seq}` : t(`Séquence ${seq}`, `Sequence ${seq}`));
 
   if (data.length === 0) {
     return (
@@ -119,7 +119,7 @@ export default function TeacherClasses({
               {stats && (
                 <div className="text-right shrink-0">
                   <p className="text-brand-200 text-xs mb-1">
-                    {sys === 'EN' ? `Term ${latestSeq}` : `${t('Séq', 'Seq')} ${latestSeq}`} — {t('Moy. classe', 'Class avg.')}
+                    {sys === 'EN' ? `Sequence ${latestSeq}` : `${t('Séq', 'Seq')} ${latestSeq}`} — {t('Moy. classe', 'Class avg.')}
                   </p>
                   <p className={`text-3xl font-bold ${stats.avg >= pass ? 'text-emerald-300' : 'text-red-300'}`}>
                     {stats.avg?.toFixed(2)}

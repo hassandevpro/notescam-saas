@@ -74,6 +74,20 @@ const students = [{ id: 'e1', name: 'Abena' }, { id: 'e2', name: 'Biya' }, { id:
   eq(rep.classStats.above, 1, '80/100 est au-dessus du seuil 50');
 }
 
+// Classe anglophone à barème /20 (FORM2) : la moyenne générale reste SUR 20 même si
+// l'appelant ne transmet pas le barème dans gOpts (le moteur anglophone calcule en /100
+// par défaut → « 87.5/20 » et plus personne sous le seuil).
+{
+  const rep = buildClassReport({
+    engine: 'classic', cls: { id: 'c20' }, students: [{ id: 'e1' }],
+    subjects: [{ id: 'm1', name: 'History', coef: 2, max: 20, class_id: 'c20' }],
+    period: { seqs: [1] }, gradeMap: { c20_e1_1: { m1: 14 } },
+    sys: 'EN', gOpts: {}, scaleMax: 20, passThreshold: 10,
+  });
+  eq(rep.rows[0].avg, 14, 'EN /20 : 14/20 reste 14 (et non 70)');
+  eq(rep.classStats.above, 1, 'EN /20 : 14/20 est au-dessus du seuil 10');
+}
+
 // ══ APC premier cycle (collège MINESEC) ═════════════════════════════════════
 {
   const cls = { id: 'c2', level: '6ème', name: '6e A' };

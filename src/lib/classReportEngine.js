@@ -176,7 +176,7 @@ function classicReport({ cls, students, subjects, period, gradeMap, sys, gOpts, 
       const v = subjectAvgForStudent(col.id, student.id, cls.id, period.seqs, gradeMap);
       if (v !== null) { scores[col.id] = v; scoreStrings[col.id] = String(v); }
     }
-    const avg = getAvg(scoreStrings, subjects, sys, gOpts);
+    const avg = getAvg(scoreStrings, subjects, sys, { ...gOpts, maxScale: scaleMax });
     avgById[student.id] = avg;
     return { student, scores, cotes: {}, avg, cote: null };
   });

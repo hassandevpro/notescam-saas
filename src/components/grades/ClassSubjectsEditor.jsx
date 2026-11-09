@@ -16,6 +16,7 @@ import { toast } from '../../store/toastStore';
 import { canManageClassSubjects, canEditSubjectRow, gradeEntryMode } from '../../lib/teacherScope';
 import { classSubjectsOf } from '../../core/subjectOrder';
 import { collectSubjectBundle } from '../../lib/studentBundle';
+import { notesAuDessusDuBareme, baremeValide, deplacer } from '../../core/subjectEdit';
 
 // Barème par défaut selon le système de la classe (comme l'auto-config).
 // Le barème que la CLASSE déclare (`grade_max`) l'emporte sur la langue.
@@ -106,6 +107,13 @@ export default function ClassSubjectsEditor({
 
   const patch = (sub, data) => updateSubject(sub.id, data);
 
+  // Réordonner : seules les lignes dont la position change sont réécrites (au plus deux).
+  const bouger = async (sub, delta) => {
+    setBusy(true);
+    try { for (const l of deplacer(rows, sub.id, delta)) await updateSubject(l.id, { position: l.position }); }
+    finally { setBusy(false); }
+  };
+
   const handleDelete = async (sub) => {
     setBusy(true);
     try { await deleteSubject(sub.id); setConfirmId(null); }
@@ -148,17 +156,18 @@ export default function ClassSubjectsEditor({
             </p>
           ) : (
             <div className="border border-gray-200 rounded-xl overflow-hidden">
-              <div className="grid grid-cols-[1fr_64px_64px_32px] gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+              <div className="grid grid-cols-[1fr_64px_64px_44px_32px] gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200 text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
                 <div>{t('Nom', 'Name')}</div>
                 <div className="text-center">Coef</div>
                 <div className="text-center">/ Max</div>
+                <div />
                 <div />
               </div>
               {rows.map((sub) => {
                 const editable = canEditSubjectRow({ role, school, cls, teacherId, subject: sub, isDelegate });
                 const prof = teachers.find((x) => x.id === sub.teacher_id);
                 return (
-                  <div key={sub.id} className={`grid grid-cols-[1fr_64px_64px_32px] gap-2 items-center px-3 py-2 border-b border-gray-50 last:border-0 ${editable ? '' : 'bg-gray-50/60'}`}>
+                  <div key={sub.id} className={`grid grid-cols-[1fr_64px_64px_44px_32px] gap-2 items-center px-3 py-2 border-b border-gray-50 last:border-0 ${editable ? '' : 'bg-gray-50/60'}`}>
                     <div className="min-w-0">
                       <input
                         type="text"
@@ -190,11 +199,27 @@ export default function ClassSubjectsEditor({
                       disabled={!editable || busy}
                       onBlur={(e) => {
                         const n = parseFloat(e.target.value);
-                        if (Number.isFinite(n) && n > 0 && n !== sub.max) patch(sub, { max: n });
-                        else e.target.value = sub.max ?? defaultMax(cls);
+                        if (baremeValide(n) && n !== sub.max) {
+                          // On ne transforme pas en silence un 35/40 en 35/20 : l'enseignant corrige d'abord.
+                          const haut = notesAuDessusDuBareme(gradeMap, cls.id, sub.id, n);
+                          if (haut.nombre > 0) {
+                            toast.error(t(
+                              `Barème refusé : ${haut.nombre} note(s) déjà saisie(s) dépassent /${n} (jusqu'à ${haut.plusHaute}). Corrigez-les d'abord.`,
+                              `Scale refused: ${haut.nombre} mark(s) already entered exceed /${n} (up to ${haut.plusHaute}). Correct them first.`));
+                            e.target.value = sub.max ?? defaultMax(cls);
+                          } else patch(sub, { max: n });
+                        } else e.target.value = sub.max ?? defaultMax(cls);
                       }}
                       className="w-full text-center rounded border border-gray-200 px-1 py-1 text-sm disabled:bg-transparent disabled:border-transparent disabled:text-gray-500"
                     />
+                    <div className="flex flex-col items-center leading-none">
+                      {canManage && (<>
+                        <button type="button" disabled={busy} title={t('Monter', 'Move up')}
+                          onClick={() => bouger(sub, -1)} className="text-gray-300 hover:text-gray-600 text-[10px]">▲</button>
+                        <button type="button" disabled={busy} title={t('Descendre', 'Move down')}
+                          onClick={() => bouger(sub, +1)} className="text-gray-300 hover:text-gray-600 text-[10px]">▼</button>
+                      </>)}
+                    </div>
                     <div className="text-center">
                       {canManage && (
                         confirmId === sub.id ? (

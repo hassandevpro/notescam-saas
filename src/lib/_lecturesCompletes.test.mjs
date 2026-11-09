@@ -72,6 +72,8 @@ const BORNEES = {
   signalements: 'les signalements ouverts d’une école',
   mat_domaines_masques: 'les domaines masqués, un par domaine et par classe',
   prim_competences_classe_masquees: 'les compétences masquées, une par classe',
+  prim_criteres_masques_classe: 'les critères masqués, un par critère, compétence et classe',
+  prim_criteres_masques_init: 'les classes dont le masque des critères est initialisé',
   prim_criteres_classe_masques: 'les critères masqués, un par critère et par classe',
   apc_matieres: 'les matières APC d’une école',
   referentiel_libelles: 'les libellés renommés par l’école',

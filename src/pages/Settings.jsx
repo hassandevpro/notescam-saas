@@ -483,7 +483,7 @@ export default function Settings() {
         ...('prim_moyenne_points' in school
           ? { prim_moyenne_points: school.prim_moyenne_points === true || school.prim_moyenne_points === 1 }
           : {}),
-        prim_bulletin_mode: ['carnet', 'carnet_epreuves'].includes(school.prim_bulletin_mode)
+        prim_bulletin_mode: ['carnet', 'carnet_epreuves', 'carnet_matieres'].includes(school.prim_bulletin_mode)
           ? school.prim_bulletin_mode : 'standard',
         // En-tête officiel bilingue (2 blocs pays) ou mono-langue. Défaut = bilingue
         // (comportement historique) pour les pays qui le proposent (Cameroun).
@@ -1184,7 +1184,7 @@ export default function Settings() {
             >
               {/* TROIS options désormais : sur deux colonnes, la troisième
                   s'imprimait seule sur une demi-largeur en bas de bloc. */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
                   { value: 'standard',
                     title: t('Standard', 'Standard', 'Estándar'),
@@ -1206,6 +1206,13 @@ export default function Settings() {
                     desc:  t('Le carnet détaillé, avec les colonnes « U.A. · Bar. · Note · Cote » : une ligne par épreuve passée, le total et la cote de chaque regroupement, le % de réussite et le total des tranches.',
                              'The detailed booklet with “L.U. · Scale · Mark · Grade” columns: one line per paper sat, each grouping’s total and grade, the success rate and the range total.',
                              'El cuadernillo detallado con las columnas «U.A. · Esc. · Nota · Calif.»: una línea por prueba.') },
+                  // Le bulletin CLASSIQUE : des matières, une note, un barème. Aucun code, aucune colonne « U.A. »,
+                  // aucun critère. Mêmes totaux, même moyenne, même pied que les autres modes.
+                  { value: 'carnet_matieres',
+                    title: t('Classique par matières', 'Classic, by subject', 'Clásico por asignaturas'),
+                    desc:  t('MATIÈRE · Barème · Note · Cote, sans code, sans colonne « U.A. » ni critères. Une simple liste de matières ; les groupes de matières sont une option à l’impression.',
+                             'SUBJECT · Out of · Mark · Grade, with no codes, no “L.U.” column and no criteria. A plain list of subjects; subject groups are a print option.',
+                             'ASIGNATURA · Escala · Nota · Calif., sin códigos ni columna «U.A.». Una lista simple de asignaturas.') },
                 ].map((opt) => {
                   const active = (form.prim_bulletin_mode || 'standard') === opt.value;
                   return (

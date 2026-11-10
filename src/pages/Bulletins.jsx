@@ -1733,7 +1733,7 @@ export default function Bulletins() {
   //   repartition — le tableau « Intervalle de moyenne / Nombre d'élèves » ;
   //   rang        — le rang de l'élève (s'ajoute au réglage d'école « masquer le rang », jamais l'inverse).
   const [primAffiche, setPrimAffiche] = useState(() => {
-    const defaut = { stats: true, repartition: true, rang: true };
+    const defaut = { stats: true, repartition: true, rang: true, groupes: false };
     try { return { ...defaut, ...JSON.parse(localStorage.getItem('nc_prim_affiche') || '{}') }; } catch { return defaut; }
   });
   const basculerAffiche = (cle) => setPrimAffiche((p) => {
@@ -2441,6 +2441,8 @@ export default function Bulletins() {
   const primMasquerRang = school?.prim_masquer_rang === true || school?.prim_masquer_rang === 1;
   // Disposition des LIGNES du carnet : voir `BulletinPrimCompact`.
   const primEpreuves = school?.prim_bulletin_mode === 'carnet_epreuves';
+  // Le bulletin CLASSIQUE par matières : MATIÈRE | Barème | Note | Cote, sans code ni « U.A. » ni « Écrit ».
+  const primMatieres = school?.prim_bulletin_mode === 'carnet_matieres';
 
   // Les QUATRE distinctions du carnet, telles que l'école les a saisies au
   // conseil de classe. Une seule lecture pour les DEUX dispositions du carnet
@@ -2675,7 +2677,7 @@ export default function Bulletins() {
   // se serait jamais imprimé. Un choix EXPLICITE de l'utilisateur reste
   // prioritaire : on ne lui retire pas la vue détaillée, on cesse seulement de
   // la lui imposer.
-  const primLayout = primEpreuves && primLayoutPref === 'auto'
+  const primLayout = (primEpreuves || primMatieres) && primLayoutPref === 'auto'
     ? 'compact'
     : primLayoutPref === 'auto'
       ? (primSingleUA ? 'compact' : 'detail')
@@ -3453,9 +3455,10 @@ export default function Bulletins() {
             repartition={primAffiche.repartition ? primRepartition : []}
             repartitionTotal={primAffiche.repartition ? primClassStats?.count : undefined}
             signatureParent={primCarnet}
-            groupes={primCarnet}
+            // En mode « classique par matières », les regroupements sont une OPTION (éteinte par défaut).
+            groupes={primMatieres ? !!primAffiche.groupes : primCarnet}
             programmes={programmes}
-            disposition={primEpreuves ? 'epreuves' : 'criteres'}
+            disposition={primMatieres ? 'matieres' : primEpreuves ? 'epreuves' : 'criteres'}
             pt={primOrientation === 'landscape' ? 9 : 8.5}
             paysage={primOrientation === 'landscape'}
           />
@@ -3665,6 +3668,7 @@ export default function Bulletins() {
               { key: 'stats',       label: t('Statistiques de la classe', 'Class statistics') },
               { key: 'repartition', label: t('Répartition par tranche', 'Distribution by band') },
               { key: 'rang',        label: t('Rang', 'Rank'), off: primMasquerRang },
+              ...(primMatieres ? [{ key: 'groupes', label: t('Groupes de matières', 'Subject groups') }] : []),
             ].map(({ key, label, off }) => (
               <label key={key} className={`inline-flex items-center gap-1.5 text-sm ${off ? 'text-gray-300' : 'text-gray-600'}`}
                 title={off ? t('Le rang est masqué par un réglage de l’école (Paramètres).', 'Rank is hidden by a school setting (Settings).') : undefined}>

@@ -135,6 +135,9 @@ export default function BulletinPrimCompact({
   // Le reste du document — en-tête, bandeau d'identité, regroupements, pied,
   // signatures — est le MÊME dans les deux cas : c'est bien une disposition, pas
   // un second bulletin.
+  //   'matieres' — le bulletin CLASSIQUE : MATIÈRE | Barème | Note | Cote. Aucun code, aucune colonne « U.A. »,
+  //                aucun critère : une matière est une ligne, sa note et son barème. Les regroupements ne
+  //                s'impriment que si `groupes` est vrai (et sans numéro).
   disposition = 'criteres',
   groupes: avecGroupes = false, // affiche les six regroupements officiels
   // ── LE CARNET D'UNE CLASSE BILINGUE ──────────────────────────────────────
@@ -158,6 +161,9 @@ export default function BulletinPrimCompact({
   // dans le moteur (`lignesParEpreuve`), qui ne fait que RELIRE `parCritere` —
   // aucun total n'est recalculé ici.
   const parEpreuve = disposition === 'epreuves';
+  const parMatiere = disposition === 'matieres';
+  // La colonne « Cote » n'existe que si l'école a une échelle de cotes ; sans elle, elle n'afficherait que des tirets.
+  const avecCote = !parMatiere || coteBareme.length > 0;
   const bilingue = programmes.length > 0;
   // EN BILINGUE, LES LIGNES SONT REGROUPÉES AVANT D'ÊTRE DESSINÉES. Les deux
   // programmes arrivent entrelacés dans l'ordre du référentiel (English,
@@ -170,13 +176,13 @@ export default function BulletinPrimCompact({
   // La COTE du groupe n'est demandée qu'en disposition par épreuve, parce que
   // c'est la seule que le carnet papier porte (« Grade: A » au bout du bandeau).
   const groupes = bilingue
-    ? programmes
+    ? (parMatiere && !avecGroupes ? [] : programmes)
     : (avecGroupes ? groupesDe(rows, sys, parEpreuve ? coteBareme : null) : []);
   // Les repères viennent du moteur : une famille dont les membres ne se suivent
   // pas — une compétence maison intercalée — n'imprime plus son total deux fois.
   // `lignes` dérive de `base` ligne à ligne (`map`), donc les index coïncident.
   const { fin: finsDeGroupe } = reperesDeGroupe(base, groupes);
-  const finDeGroupe = (i) => ((avecGroupes || bilingue) ? finsDeGroupe.get(i) || null : null);
+  const finDeGroupe = (i) => (((parMatiere ? avecGroupes : (avecGroupes || bilingue))) ? finsDeGroupe.get(i) || null : null);
 
   const classLabel = cls?.name || '';
   // LE TITRE DU CARNET PAPIER EST UNE PAIRE BILINGUE, et l'ordre des deux
@@ -268,7 +274,14 @@ export default function BulletinPrimCompact({
             Le reste va à l'intitulé de la compétence (colonne sans largeur) :
             c'est la seule qui porte du texte long, donc la seule qui doit
             absorber ce qui reste. */}
-        {parEpreuve ? (
+        {parMatiere ? (
+          <colgroup>
+            <col />
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '14%' }} />
+            {avecCote && <col style={{ width: '12%' }} />}
+          </colgroup>
+        ) : parEpreuve ? (
           /* SIX COLONNES, celles du carnet papier. « U.A. » reçoit 13 % : elle
              porte « Savoir-être », le plus long des quatre libellés d'épreuve.
              « Bar. » et « Note » sont des nombres courts ; « Cote » garde les
@@ -296,7 +309,16 @@ export default function BulletinPrimCompact({
           <col style={{ width: '9%' }} />
         </colgroup>
         )}
-        {parEpreuve ? (
+        {parMatiere ? (
+          <thead>
+            <tr>
+              <th style={thL}>{L(sys, 'MATIÈRE', 'SUBJECT', 'ASIGNATURA')}</th>
+              <th style={thL}>{L(sys, 'Barème', 'Out of', 'Escala')}</th>
+              <th style={thL}>{L(sys, 'Note', 'Mark', 'Nota')}</th>
+              {avecCote && <th style={thL}>{L(sys, 'Cote', 'Grade', 'Calif.')}</th>}
+            </tr>
+          </thead>
+        ) : parEpreuve ? (
           /* L'EN-TÊTE DU CARNET PAPIER, dans ses mots. « U.A. » (« L.U. » côté
              anglophone) y porte la NATURE de l'épreuve — « Écrite »,
              « Pratique » — et non un numéro d'unité d'apprentissage ; c'est le
@@ -331,6 +353,35 @@ export default function BulletinPrimCompact({
         </thead>
         )}
         <tbody>
+          {parMatiere && lignes.map((r, i) => (
+            <Fragment key={r.code}>
+              <tr style={{ breakInside: 'avoid' }}>
+                <td style={cellL}>{r.intitule}</td>
+                <td style={numL}>{r.possible == null ? <span style={{ color: '#9ca3af' }}>—</span> : fix2(r.possible)}</td>
+                <td style={{ ...numL, fontWeight: 'bold' }}>
+                  {r.nonEvaluee
+                    ? <span style={{ color: '#6b7280', letterSpacing: '0.1em' }}>{MARQUE_NON_EVALUEE}</span>
+                    : r.achieved == null ? <span style={{ color: '#9ca3af' }}>—</span> : fix2(r.achieved)}
+                </td>
+                {avecCote && (
+                  <td style={{ ...numL, fontWeight: 'bold', color: COTE_COLORS[r.cote] || '#111' }}>
+                    {r.cote || <span style={{ color: '#9ca3af' }}>—</span>}
+                  </td>
+                )}
+              </tr>
+              {finDeGroupe(i) && (
+                <tr style={{ background: '#f3f4f6', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                  <td style={{ ...cellL, fontStyle: 'italic', fontSize: 'max(7.5pt, 0.88em)' }}>{finDeGroupe(i).intitule}</td>
+                  <td style={{ ...numL, fontWeight: 'bold', whiteSpace: 'normal', fontSize: 'max(7.5pt, 0.88em)' }} colSpan={2}>
+                    {finDeGroupe(i).achieved == null ? '—'
+                      : `${L(sys, 'Total', 'Total', 'Total')}: ${fix2(finDeGroupe(i).achieved)}`}
+                    {finDeGroupe(i).moyenne == null ? '' : ` · ${L(sys, 'Moy', 'Avg', 'Prom')}: ${fix2(finDeGroupe(i).moyenne)}`}
+                  </td>
+                  {avecCote && <td style={cellL} />}
+                </tr>
+              )}
+            </Fragment>
+          ))}
           {parEpreuve && lignes.map((r, i) => {
             // Une compétence sans AUCUNE épreuve garde sa ligne : la règle du
             // responsable (« pas une seule matière cochée absente du bulletin »)
@@ -389,7 +440,7 @@ export default function BulletinPrimCompact({
               </Fragment>
             );
           })}
-          {!parEpreuve && lignes.map((r, i) => (
+          {!parEpreuve && !parMatiere && lignes.map((r, i) => (
             <Fragment key={r.code}>
             <tr style={{ breakInside: 'avoid' }}>
               <td style={{ ...numL, fontWeight: 'bold' }}>{r.code}</td>
@@ -438,6 +489,14 @@ export default function BulletinPrimCompact({
             )}
             </Fragment>
           ))}
+          {parMatiere ? (
+          <tr style={{ background: C.tintFort, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+            <td style={{ ...thL, textAlign: 'left' }}>{L(sys, 'TOTAL GÉNÉRAL', 'OVERALL TOTAL', 'TOTAL GENERAL')}</td>
+            <td style={thL}>{overall?.possible == null ? '—' : fix2(overall.possible)}</td>
+            <td style={thL}>{overall?.achieved == null ? '—' : fix2(overall.achieved)}</td>
+            {avecCote && <td style={{ ...thL, color: COTE_COLORS[coteGenerale] || TH_TXT }}>{coteGenerale || '—'}</td>}
+          </tr>
+          ) : (
           <tr style={{ background: C.tintFort, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
             {/* En disposition par épreuve, la valeur occupe les colonnes
                 « Bar. » et « Note » : c'est bien un rapport entre les deux
@@ -450,6 +509,7 @@ export default function BulletinPrimCompact({
             </td>
             <td style={{ ...thL, color: COTE_COLORS[coteGenerale] || TH_TXT }}>{coteGenerale || '—'}</td>
           </tr>
+          )}
         </tbody>
       </table>
 
@@ -459,7 +519,38 @@ export default function BulletinPrimCompact({
           évalue sans qu'elles correspondent à une compétence du référentiel
           national. Elles n'entrent PAS dans le total général — sinon le /240
           cesserait d'être comparable au barème du niveau. */}
-      {additionalSubjects.length > 0 && (
+      {additionalSubjects.length > 0 && parMatiere && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: gap, tableLayout: 'fixed' }}>
+          <colgroup>
+            <col />
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '14%' }} />
+            {avecCote && <col style={{ width: '12%' }} />}
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: 'left' }} colSpan={3 + (avecCote ? 1 : 0)}>
+                {L(sys, 'Matières complémentaires', 'Additional subjects', 'Asignaturas complementarias')}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {additionalSubjects.map((s) => (
+              <tr key={s.id || s.name} style={{ breakInside: 'avoid' }}>
+                <td style={cell}>{s.name}</td>
+                <td style={num}>{s.possible == null ? <span style={{ color: '#9ca3af' }}>—</span> : fix2(s.possible)}</td>
+                <td style={{ ...num, fontWeight: 'bold' }}>{s.achieved == null ? <span style={{ color: '#9ca3af' }}>—</span> : fix2(s.achieved)}</td>
+                {avecCote && (
+                  <td style={{ ...num, fontWeight: 'bold', color: COTE_COLORS[s.cote] || '#111' }}>
+                    {s.cote || <span style={{ color: '#9ca3af' }}>—</span>}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {additionalSubjects.length > 0 && !parMatiere && (
         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: gap, tableLayout: 'fixed' }}>
           <thead>
             <tr>

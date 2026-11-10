@@ -119,16 +119,15 @@ export function OfficialHeader({
   const yearLbl   = sys === 'EN' ? 'Academic year' : sys === 'ES' ? 'Año escolar' : 'Année scolaire';
   // Réglage de l'école « le logo contient déjà le nom » : le nom n'est plus écrit, le logo gagne de la place.
   const nomDansLogo = banner || school?.logo_contient_nom === true || school?.logo_contient_nom === 1;
-  const logoPx    = vars ? (grand ? `max(calc(var(--nc-logo) * 1.8), ${nomDansLogo ? 96 : 88}px)` : nomDansLogo ? 'calc(var(--nc-logo) * 1.8)' : 'calc(var(--nc-logo) * 1.6)') : dense ? (nomDansLogo ? 88 : 80) : 56;
+  // Colonne centrale EMPILÉE (logo / adresse / année), jamais côte à côte : le logo perd ≈ 10 % pour que la
+  // hauteur ajoutée ne pousse pas le bandeau de titre hors de la page A4.
+  const logoPx    = vars ? (grand ? `max(calc(var(--nc-logo) * 1.62), ${nomDansLogo ? 86 : 79}px)` : nomDansLogo ? 'calc(var(--nc-logo) * 1.62)' : 'calc(var(--nc-logo) * 1.44)') : dense ? (nomDansLogo ? 79 : 72) : 56;
   // Une BANNIÈRE (nom de l'école en deux langues, médaillon, année : ≈ 4 fois plus large que haute)
   // ne tient pas dans la case carrée : elle y devenait illisible. Dès que l'image se révèle large,
   // elle passe sur toute la largeur de l'en-tête, hauteur bornée. Un logo carré ne change pas.
   const bannerMax = vars ? 'calc(var(--nc-logo) * 1.9)' : dense ? 64 : 100;
   const ptPetit   = vars ? 'var(--nc-small)' : null;
   const gap       = vars ? 'var(--nc-gap)' : null;
-  // Bulletin sur une page : le logo se place À CÔTÉ du nom, pas au-dessus. Plus grand, il ne coûte
-  // aucune hauteur : la ligne vaut max(logo, texte) au lieu de logo + texte.
-  const sideBySide = (dense || vars) && !banner;
 
   const Block = ({ b }) => (
     <td style={{
@@ -151,14 +150,14 @@ export function OfficialHeader({
           <tr>
             {blocks[0] && <Block b={blocks[0]} />}
             <td style={{ width: centerW, textAlign: 'center', padding: dense ? 1 : 2, verticalAlign: 'top' }}>
-              <div style={sideBySide ? { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 } : undefined}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
               {school?.logo_url && (
                 <AssetImg src={school.logo_url} alt="" onLoad={onLogoLoad}
                   style={banner
                     ? { width: '100%', height: 'auto', maxHeight: bannerMax, objectFit: 'contain', display: 'block', margin: '0 auto 2px' }
-                    : { width: logoPx, height: logoPx, objectFit: 'contain', display: 'block', margin: sideBySide ? 0 : '0 auto 2px', flexShrink: 0 }} />
+                    : { width: logoPx, height: logoPx, objectFit: 'contain', display: 'block', margin: '0 auto 3px', flexShrink: 0 }} />
               )}
-              <div>
+              <div style={{ textAlign: 'center' }}>
               {/* Une bannière PORTE déjà le nom de l'école : le répéter en texte le doublait (et pouvait le
                   contredire). On garde l'adresse, le téléphone et l'année du système, qui restent justes. */}
               {!nomDansLogo && (

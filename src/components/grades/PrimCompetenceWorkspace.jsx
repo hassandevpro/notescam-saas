@@ -65,6 +65,8 @@ import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import FeuilleNotesButton from './FeuilleNotesButton';
 import usePvBuilder from '../documents/usePvBuilder';
 import ObservationGlobaleForm from './ObservationGlobaleForm';
+import PrimGrilleNoteUnique from './PrimGrilleNoteUnique';
+import { colonnesNoteUnique } from '../../core/grilleNoteUnique';
 import { suggererObservation, genreDe, indexerNotes, cotesDeLEleve } from '../../core/observationSuggestion';
 
 // ── Barème d'une colonne (une évaluation) ────────────────────────────────────
@@ -565,10 +567,51 @@ export default function PrimCompetenceWorkspace() {
     return out;
   }, [classStudents, referentiel, competenceId, ua, primNotes]);
 
+  // ── LA FEUILLE DE NOTES : les matières à NOTE UNIQUE côte à côte ──────────────────────────────────────
+  // Une compétence dont UN SEUL critère a un barème (> 0) est une simple colonne : on la saisit comme sur la
+  // feuille papier, sans rouvrir le menu à chaque matière. Les compétences à plusieurs critères gardent la
+  // saisie ci-dessous, telle quelle. '6a' (sport) reste hors de la feuille : son barème dépend de l'aptitude.
+  const criteresDe = useCallback((cid) => {
+    if (!niveauSlug || !referentiel) return [];
+    const base = criteresForCompetence(referentiel, niveauSlug, cid, 'apte', masquesCrit)
+      .map((cr) => ({ ...cr, nom: primCritereLabel(cr, sys) }));
+    const connus = new Set(base.map((c) => c.id));
+    const masques = masquesDe(masquesCrit, cid);
+    const manquants = (referentiel.criteres || [])
+      .filter((c) => !connus.has(c.id) && !masques.includes(c.id))
+      .map((c) => ({ id: c.id, nom: primCritereLabel(c, sys), points_max: 0, ordre: c.ordre ?? 99, aNoter: true }));
+    return [...base, ...manquants];
+  }, [referentiel, niveauSlug, masquesCrit, sys]);
+  const grille = useMemo(() => colonnesNoteUnique({
+    competences, criteresDe, notes: primNotes, eleveIds: classStudents.map((s) => s.id), ua, exclure: ['6a'],
+  }), [competences, criteresDe, primNotes, classStudents, ua]);
+  const [vuePref, setVuePref] = useState(() => { try { return localStorage.getItem('nc_prim_vue') || 'auto'; } catch { return 'auto'; } });
+  const choisirVue = (v) => { setVuePref(v); try { localStorage.setItem('nc_prim_vue', v); } catch { /* poste sans stockage */ } };
+  // « Auto » : la feuille s'ouvre d'elle-même quand TOUTES les matières de la classe sont à note unique (ou que
+  // l'école a choisi le bulletin « Classique par matières »). Une classe mixte garde la saisie actuelle, et
+  // propose la feuille d'un bouton.
+  const toutesUniques = grille.colonnes.length > 0 && grille.multiples.length === 0;
+  const vueGrille = grille.colonnes.length > 0 && (vuePref === 'grille'
+    || (vuePref === 'auto' && (toutesUniques || school?.prim_bulletin_mode === 'carnet_matieres')));
+  const nkeysGrille = useMemo(() => {
+    if (!vueGrille) return [];
+    const out = [];
+    for (const stu of classStudents) {
+      for (const c of grille.colonnes) {
+        const k = primNkey(stu.id, c.competenceId, c.critereId, ua);
+        if (primNotes[k]) out.push(k);
+      }
+    }
+    return out;
+  }, [vueGrille, classStudents, grille, ua, primNotes]);
+  const sauverCaseGrille = useCallback((a) => savePrimNote({ ...a, ua }), [savePrimNote, ua]);
+  const enAttenteSet = useMemo(() => new Set(primNotesEnAttente || []), [primNotesEnAttente]);
+  const voirTout = !isSubjectScopedForClass(role, school, selectedClass, teacherId);
+
   const soumettre = async () => {
     setEnvoi(true);
     setBilanEnvoi(null);
-    const r = await soumettrePrimNotes(nkeysDeLEcran);
+    const r = await soumettrePrimNotes(vueGrille ? nkeysGrille : nkeysDeLEcran);
     setEnvoi(false);
     if (r?.error === 'offline') {
       setBilanEnvoi({ ko: true, texte: t(
@@ -1269,6 +1312,7 @@ export default function PrimCompetenceWorkspace() {
             ))}
           </select>
         </label>
+        {!vueGrille && (
         <label className="text-sm min-w-0">
           <span className="block text-gray-500 mb-1">{t('Compétence', 'Competency')}</span>
           <select value={competenceId} onChange={(e) => setCompetenceId(e.target.value)}
@@ -1276,6 +1320,13 @@ export default function PrimCompetenceWorkspace() {
             {competences.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.intitule}</option>)}
           </select>
         </label>
+        )}
+        {grille.colonnes.length > 0 && !vueGrille && (
+          <button type="button" onClick={() => choisirVue('grille')}
+            className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 sm:self-end">
+            {t('Feuille de notes (toutes les matières)', 'Mark sheet (all subjects)')}
+          </button>
+        )}
         {/* La grille PAPIER de l'UA : toutes les compétences, vierge pour
             corriger au stylo ou avec les notes déjà saisies pour relire. Elle
             ne suit PAS la compétence sélectionnée — c'est toute l'UA. */}
@@ -1326,6 +1377,7 @@ export default function PrimCompetenceWorkspace() {
         </div>
       )}
 
+      {!vueGrille && (
       <div className="text-xs text-gray-500">
         {t('Barème officiel par critère (points) — variable selon la compétence · le total et la cote se calculent sur les critères déjà saisis.',
            'Official per-criterion scale (points) — varies by competency · total and grade are computed from criteria already entered.')}
@@ -1335,6 +1387,7 @@ export default function PrimCompetenceWorkspace() {
           'the scale is editable under the criterion name (Oral, Written…) and applies to this unit: the total follows · 0 closes the column (it no longer counts)',
         )}
       </div>
+      )}
 
       {/* Refus d'un changement de barème qui invaliderait des notes déjà saisies. */}
       {baremeMsg && (
@@ -1392,7 +1445,7 @@ export default function PrimCompetenceWorkspace() {
           affichée. */}
       <GradeBundleIO />
 
-      {niveauSlug && criteres.length > 0 && classStudents.length > 0 && (
+      {!vueGrille && niveauSlug && criteres.length > 0 && classStudents.length > 0 && (
         <CompetenceGradeIO
           filename={`notes_primaire_${selectedClass?.name || ''}_${(competences.find((c) => c.id === competenceId)?.code || 'competence')}_UA${ua}`}
           sheetName={`UA${ua}`}
@@ -1435,6 +1488,25 @@ export default function PrimCompetenceWorkspace() {
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
           {t('Aucun élève dans cette classe.', 'No student in this class.')}
         </div>
+      ) : vueGrille ? (
+        <PrimGrilleNoteUnique
+          classId={classId}
+          eleves={classStudents}
+          colonnes={grille.colonnes}
+          notes={primNotes}
+          enAttente={enAttenteSet}
+          ua={ua}
+          bareme={bareme}
+          voirTout={voirTout}
+          onSave={sauverCaseGrille}
+          onUneMatiere={() => choisirVue('matiere')}
+          onSoumettre={soumettre}
+          envoi={envoi}
+          bilan={bilanEnvoi}
+          nbASoumettre={nkeysGrille.length}
+          nbAutres={grille.multiples.length}
+          t={t}
+        />
       ) : criteres.length === 0 ? (
         <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-gray-500">
           {t('Barème non chargé pour cette compétence à ce niveau.', 'Scale not loaded for this competency at this level.')}

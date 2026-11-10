@@ -44,6 +44,7 @@ import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
 import { mkCell, mkTH, mkCellVar, mkTHVar, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
 import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
 import { classIdentity } from '../lib/schoolIdentity';
+import { moyennePointsActive, moyennePointsSur20 } from '../core/primMoyennePoints';
 import {
   competencesForNiveau, bulletinRows as primBulletinRows, generalAverage as primGeneralAverage,
   primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresForCompetence, criteresDeSecours, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
@@ -2253,6 +2254,8 @@ export default function Bulletins() {
   // compact n'a alors qu'une colonne de notes par critère, et le titre annonce
   // l'UA et non le trimestre.
   const primSingleUA = isPrim && primUAs.length === 1 ? primUAs[0] : null;
+  // Réglage d'école : moyenne du primaire en points (défaut = règle historique).
+  const moyennePoints = moyennePointsActive(school);
   const primBareme = primReferentiel?.bareme?.length ? primReferentiel.bareme : PRIM_COTE_DEFAULT;
 
   // Barème (critères + points_max) d'UNE compétence pour UN élève — l'aptitude
@@ -2293,6 +2296,23 @@ export default function Bulletins() {
     nonEvaluee: classId ? primNonEvaluees.includes(nonEvalKey(classId, compId, ua)) : false,
     zeroSiManquante: !!school?.notes_manquantes_zero,
   });
+
+  // Points bruts (obtenus / possibles) d'une compétence, UA par UA — la matière de la règle
+  // « moyenne en points » (réglage `prim_moyenne_points`). Même lecture des notes que
+  // `primCompAvg`, mais SANS passer par un pourcentage.
+  const primCompCells = (eleveId, compId, student) => {
+    const criteres = primCriteresFor(compId, student);
+    if (!criteres.length) return [];
+    return primUAs.flatMap((ua) => {
+      const notesByCritere = {};
+      for (const cr of criteres) {
+        const c = celluleDeNote(primNotes[primNkey(eleveId, compId, cr.id, ua)], cr.points_max);
+        if (c) notesByCritere[cr.id] = c;
+      }
+      const { achieved, possible } = competencePointsTotal(notesByCritere, criteres, primOptions(compId, ua));
+      return achieved != null && possible ? [{ achieved, possible }] : [];
+    });
+  };
 
   const primCompAvg = (eleveId, compId, student) => {
     const criteres = primCriteresFor(compId, student);
@@ -2382,7 +2402,11 @@ export default function Bulletins() {
           notesByCritere,
         };
       });
-      const moyenneGenerale = primGeneralAverage(rows.map((r) => ({ moyenne: r.moyenne, coef: r.coef })));
+      // Règle de l'école : par défaut moyenne des compétences pondérée par coefficient ; avec
+      // `prim_moyenne_points`, ΣT × 20 ÷ ΣS sur les points de toutes les compétences évaluées.
+      const moyenneGenerale = moyennePoints
+        ? moyennePointsSur20(comps.flatMap((c) => primCompCells(s.id, c.id, s))).moyenne
+        : primGeneralAverage(rows.map((r) => ({ moyenne: r.moyenne, coef: r.coef })));
       const cg = primCote(moyenneGenerale, PRIM_GRADE_MAX, primBareme);
       out[s.id] = {
         rows, moyenneGenerale, coteGenerale: cg ? cg.cote : null,
@@ -2390,7 +2414,7 @@ export default function Bulletins() {
       };
     }
     return out;
-  }, [isPrim, primReferentiel, primNiveauSlug, classStudents, primNotes, primUAs.join(','), sys]);
+  }, [isPrim, primReferentiel, primNiveauSlug, classStudents, primNotes, primUAs.join(','), sys, moyennePoints]);
 
   const primRanks = useMemo(() => {
     if (!isPrim) return {};

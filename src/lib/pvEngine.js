@@ -35,6 +35,7 @@ import {
 // Les intitulés du référentiel officiel sont stockés en français : sur une classe
 // du secteur anglophone, le PV les rend en anglais, comme le fait le bulletin.
 import { primCompetenceLabel } from '../core/referentielI18n.js';
+import { moyennePointsSur20 } from '../core/primMoyennePoints.js';
 
 // ── Périodes de délibération ─────────────────────────────────────────────────
 // Un conseil de classe délibère par TRIMESTRE (ou en fin d'année). Chaque moteur
@@ -307,7 +308,7 @@ function buildApcPv({ sys, students, units, referentiel, notes, classeSlug, annu
 // compétence sur une UA = pourcentage des points obtenus ramené à /10 — même
 // règle que le bulletin primaire officiel.
 function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bareme, competences, criteresMasques = [],
-  classId = null, nonEvaluees = [], zeroSiManquante = false }) {
+  classId = null, nonEvaluees = [], zeroSiManquante = false, moyennePoints = false }) {
   const GRADE_MAX = PRIM_GRADE_MAX;
   // `competences` est fourni par `buildClassPv` : masques de l'école + matières
   // réellement cochées pour la classe. Repli sur le niveau entier si l'appelant
@@ -324,6 +325,8 @@ function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bar
     criteresMasques,
   );
 
+  // Cellules (points obtenus / possibles) de l'élève en cours, pour la règle « en points ».
+  let cellulesPoints = [];
   const uaScore = (student, comp, ua) => {
     const criteres = criteresFor(comp.id, student);
     if (!criteres.length) return null;
@@ -339,6 +342,7 @@ function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bar
       nonEvaluee: classId ? nonEvaluees.includes(nonEvalKey(classId, comp.id, ua)) : false,
       zeroSiManquante,
     });
+    if (moyennePoints && achieved != null && possible) cellulesPoints.push({ achieved, possible });
     return achieved != null && possible ? r2((achieved / possible) * GRADE_MAX) : null;
   };
 
@@ -347,6 +351,7 @@ function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bar
   const rows = students.map((st) => {
     const cells = {};
     const forAvg = [];
+    cellulesPoints = [];
     for (const c of comps) {
       const byUnit = {};
       const all = [];
@@ -359,7 +364,7 @@ function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bar
       cells[c.id] = { byUnit, moy };
       forAvg.push({ moyenne: moy, coef: coefOf(c) });
     }
-    return { id: st.id, name: st.name, matricule: st.matricule || '', cells, avg: primGeneralAverage(forAvg) };
+    return { id: st.id, name: st.name, matricule: st.matricule || '', cells, avg: moyennePoints ? moyennePointsSur20(cellulesPoints).moyenne : primGeneralAverage(forAvg) };
   });
 
   return { cols, rows, maxScale: GRADE_MAX, pass: GRADE_MAX / 2, primScale: scale };
@@ -394,6 +399,7 @@ export function buildClassPv(ctx) {
     // Les deux etats declares par l ecole. Sans eux, le PV delibere sur d autres
     // moyennes que celles du bulletin remis aux parents.
     primNonEvaluees = [], zeroSiManquante = false,
+    moyennePoints = false,
   } = ctx;
 
   if (!pvApplicable(engine)) return null;
@@ -420,7 +426,7 @@ export function buildClassPv(ctx) {
   const base = engine === 'apc'
     ? buildApcPv({ sys, students, units, referentiel: apcRefEcole, notes: apcNotes, classeSlug: apcClasseSlug, annual, trimestreId: units[0]?.tid || `t${trim || 1}`, gradeScale })
     : engine === 'apc_primaire'
-      ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme, competences: primComps, criteresMasques: primCriteresMasques, classId: cls?.id || null, nonEvaluees: primNonEvaluees, zeroSiManquante })
+      ? buildPrimPv({ sys, students, units, referentiel: primReferentiel, notes: primNotes, niveauSlug: primNiveauSlug, bareme: primBareme, competences: primComps, criteresMasques: primCriteresMasques, classId: cls?.id || null, nonEvaluees: primNonEvaluees, zeroSiManquante, moyennePoints })
       : engine === 'bilingue'
         ? buildBilPv({ cls, students, subjects: enrichBilSubjects(subjects, bilReferentiel, cls), gradeMap, units, annual, maxScale: opts?.maxScale ?? 20, gradeScale })
         : buildNotesPv({ cls, sys, students, subjects, gradeMap, units, opts, gradeScale });

@@ -478,6 +478,11 @@ export default function Settings() {
         ...('prim_masquer_rang' in school
           ? { prim_masquer_rang: school.prim_masquer_rang === true || school.prim_masquer_rang === 1 }
           : {}),
+        // Moyenne du primaire en points : même garde que `prim_masquer_rang` — sans la colonne
+        // côté Cloud, envoyer la clé ferait rejeter TOUT l'enregistrement.
+        ...('prim_moyenne_points' in school
+          ? { prim_moyenne_points: school.prim_moyenne_points === true || school.prim_moyenne_points === 1 }
+          : {}),
         prim_bulletin_mode: ['carnet', 'carnet_epreuves'].includes(school.prim_bulletin_mode)
           ? school.prim_bulletin_mode : 'standard',
         // En-tête officiel bilingue (2 blocs pays) ou mono-langue. Défaut = bilingue
@@ -1032,6 +1037,46 @@ export default function Settings() {
                 </div>
               )}
             </Section>
+
+            {/* ── Moyenne du primaire : au prorata des points ────────────────── */}
+            {'prim_moyenne_points' in (school || {}) && (
+              <Section title={t('Moyenne du primaire', 'Primary average', 'Promedio de primaria')} className="mt-6">
+                <label className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${
+                  form.prim_moyenne_points ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white'
+                } ${isAdmin ? 'cursor-pointer hover:border-brand-300' : 'opacity-60 cursor-not-allowed'}`}>
+                  <input
+                    type="checkbox"
+                    disabled={!isAdmin}
+                    checked={!!form.prim_moyenne_points}
+                    onChange={(e) => setForm((f) => ({ ...f, prim_moyenne_points: e.target.checked }))}
+                    className="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-400"
+                  />
+                  <span>
+                    <span className="font-semibold text-gray-900 text-sm block">
+                      {t('Moyenne /20 = total des notes ÷ (total des barèmes ÷ 20)',
+                         'Average /20 = total marks ÷ (total scales ÷ 20)',
+                         'Promedio /20 = total de notas ÷ (total de baremos ÷ 20)')}
+                    </span>
+                    <span className="text-xs text-gray-500 mt-1.5 block">
+                      {t(
+                        "Pour les écoles dont les matières n'ont pas le même barème (40, 20, 30…) : chaque point compte autant. Exemple : barèmes 40 + 20 + 30 = 90, notes 30 + 14 + 22 = 66, moyenne 66 ÷ 4,5 = 14,67 / 20. Une matière non évaluée ou masquée n'entre dans aucune des deux sommes. Aucune note n'est modifiée ; il se défait d'un clic.",
+                        'For schools whose subjects have different scales (40, 20, 30…): every point counts the same. Example: scales 40 + 20 + 30 = 90, marks 30 + 14 + 22 = 66, average 66 ÷ 4.5 = 14.67 / 20. A subject not assessed or hidden enters neither total. No mark is changed; it is undone with one click.',
+                        'Cada punto cuenta igual. Ninguna nota se modifica.',
+                      )}
+                    </span>
+                  </span>
+                </label>
+                {form.prim_moyenne_points && !school?.prim_moyenne_points && (
+                  <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                    {t(
+                      'Ce réglage change la moyenne et le rang de tous les bulletins du primaire, y compris ceux déjà imprimés. Tirez un bulletin de contrôle avant de distribuer.',
+                      'This setting changes the average and rank of every primary report card, including those already printed. Print a test card before handing them out.',
+                      'Este ajuste cambia el promedio y el rango: verifique antes de distribuir.',
+                    )}
+                  </div>
+                )}
+              </Section>
+            )}
 
             {/* ── Moteur de bulletin (référentiels MINESEC) ────────────────── */}
             <Section title={t('Moteur de bulletin', 'Report card engine', 'Motor de boletín')} className="mt-6">

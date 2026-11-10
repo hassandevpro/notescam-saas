@@ -339,6 +339,10 @@ ensureColumn('prim_notes', 'statut', 'statut TEXT');
 // Éteint par défaut — l'allumer change la moyenne de tous les bulletins déjà
 // imprimés, ce qu'aucune école ne doit subir sans l'avoir demandé.
 ensureColumn('schools', 'notes_manquantes_zero', 'notes_manquantes_zero INTEGER NOT NULL DEFAULT 0');
+// Moyenne du primaire « en points » (ΣT×20÷ΣS), réglage d'école. Éteint par défaut = règle
+// historique. Miroir de `supabase_prim_moyenne_points.sql`, à exécuter au Cloud AVANT toute
+// distribution d'un paquet portant cette ligne (sinon `sync-push` rejette la ligne `schools`).
+ensureColumn('schools', 'prim_moyenne_points', 'prim_moyenne_points INTEGER NOT NULL DEFAULT 0');
 // Couleur d'accent des bulletins, choisie par l'école. Miroir de
 // `supabase_bulletin_accent.sql`, qui doit avoir tourné au Cloud AVANT qu'un
 // paquet portant cette ligne ne soit distribué : `schools` est synchronisée, et

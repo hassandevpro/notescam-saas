@@ -27,6 +27,7 @@ import { apcBulletinPeriods, apcPeriodLabel } from '../core/apcPeriods';
 import { buildClassReport, REPORT_KIND } from '../lib/classReportEngine';
 import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
 import { bySubjectOrder, classSubjectsOf } from '../core/subjectOrder';
+import { moyennePointsActive } from '../core/primMoyennePoints';
 
 // Anglophone : six séquences groupées en trois Terms, miroir de PERIODS_FR.
 const PERIODS_EN = [
@@ -436,9 +437,10 @@ function computeClassReport(cls, period, ctx) {
     primCriteresMasques: masquesCriteresPour(ctx.primCriteresMasques, ctx.critMasquesParClasse, cls?.id),
     primNonEvaluees: ctx.primNonEvaluees,
     zeroSiManquante: ctx.zeroSiManquante,
+    moyennePoints: ctx.moyennePoints,
     sys, gOpts,
     scaleMax:      bulletinScale(cls, sys, geGradeMax(school)).maxScale,
-    passThreshold: bulletinScale(cls, sys, geGradeMax(school)).maxScale / 2,
+    passThreshold: bulletinScale(cls, sys, geGradeMax(school)).passThreshold,
     gradeScale:    school?.grade_scale,
   });
   if (!report.ready || !report.columns.length) {
@@ -956,6 +958,8 @@ export default function Reports() {
     // il moyennerait sur des cellules que le bulletin compte zero, ou sur une
     // competence que la classe a declaree non evaluee.
     primNonEvaluees, zeroSiManquante: !!school?.notes_manquantes_zero,
+    // Règle de la moyenne du primaire choisie par l'école (défaut = historique).
+    moyennePoints: moyennePointsActive(school),
   }), [school, schoolUnits, students, subjects, gradeMap, apcNotes, apcReferentiel, primNotes, primReferentiel, matObservations,
       apcMasques, primMasques, primMasquesClasse, primCriteresMasques, critMasquesParClasse, primNonEvaluees]);
 

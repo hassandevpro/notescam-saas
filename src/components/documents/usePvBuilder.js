@@ -16,6 +16,7 @@ import { gradingOpts, primaryPeriodMode, geGradeMax } from '../../lib/useCountry
 import { bulletinScale } from '../../core/bulletinScale';
 import { resolveCountryCode } from '../../countries';
 import { headTeacherText } from '../../lib/headTeachers';
+import { moyennePointsActive } from '../../core/primMoyennePoints';
 
 // `classesToLoad` : les classes dont le calcul est attendu — seuls les référentiels
 // qu'elles utilisent sont chargés.
@@ -80,6 +81,7 @@ export default function usePvBuilder(classesToLoad) {
       apcMasques, primMasques, primMasquesClasse,
       primCriteresMasques: masquesCriteresPour(primCriteresMasquesEcole, critMasquesParClasse, cls.id),
       primNonEvaluees, zeroSiManquante: !!school?.notes_manquantes_zero,
+      moyennePoints: moyennePointsActive(school),
       teacherName: headTeacherText(cls, teachers),
     });
   }, [school, countryCode, schoolYear, students, subjects, gradeMap,

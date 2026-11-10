@@ -76,6 +76,7 @@ export const REPORT_KIND = { NUMERIC: 'numeric', ACQUISITION: 'acquisition' };
 // lignes, ce qui explique que le défaut ait survécu : il ne se déclenche que
 // sur une partie des classes.
 import { PRIM_GRADE_MAX } from '../core/primEngine.js';
+import { moyennePointsSur20 } from '../core/primMoyennePoints.js';
 export { PRIM_GRADE_MAX };
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -299,7 +300,7 @@ function apcReport({ cls, students, subjects, period, apcNotes, apcReferentiel: 
 // (points obtenus / points du barème officiel) de chaque UA notée. Même règle
 // que le bulletin primaire, pour que rapport et bulletin ne divergent jamais.
 function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas, primNotes, criteresMasques = [],
-  classId = null, nonEvaluees = [], zeroSiManquante = false }) {
+  classId = null, nonEvaluees = [], zeroSiManquante = false, cellulesOut = null }) {
   const aptitude = competenceId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte';
   const criteres = criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude, criteresMasques);
   if (!criteres.length) return null;
@@ -316,6 +317,8 @@ function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas
       nonEvaluee: classId ? nonEvaluees.includes(nonEvalKey(classId, competenceId, ua)) : false,
       zeroSiManquante,
     });
+    // Règle « en points » : on garde les points bruts de la cellule, pas son pourcentage.
+    if (cellulesOut && achieved != null && possible) cellulesOut.push({ achieved, possible });
     return achieved != null && possible ? (achieved / possible) * 100 : null;
   }).filter((v) => v != null);
   if (!pcts.length) return null;
@@ -323,7 +326,7 @@ function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas
 }
 
 function primReport({ cls, students, subjects, period, primNotes, primReferentiel, primMasques, primMasquesClasse = {}, primCriteresMasques = [],
-  primNonEvaluees = [], zeroSiManquante = false, sys }) {
+  primNonEvaluees = [], zeroSiManquante = false, moyennePoints = false, sys }) {
   const scaleMax = PRIM_GRADE_MAX;
   const passThreshold = PRIM_GRADE_MAX / 2;
   const niveauSlug = primaireNiveauSlug(cls?.level, cls?.name);
@@ -352,11 +355,13 @@ function primReport({ cls, students, subjects, period, primNotes, primReferentie
   const rows = students.map((student) => {
     const scores = {}, cotes = {};
     const compRows = [];
+    const cellulesPoints = [];
     for (const col of columns) {
       const moyenne = primCompetenceAvg({
         referentiel: primReferentiel, niveauSlug, student, competenceId: col.id, uas, primNotes,
         criteresMasques: primCriteresMasques,
         classId: cls?.id || null, nonEvaluees: primNonEvaluees, zeroSiManquante,
+        cellulesOut: moyennePoints ? cellulesPoints : null,
       });
       if (moyenne != null) {
         scores[col.id] = moyenne;
@@ -364,7 +369,7 @@ function primReport({ cls, students, subjects, period, primNotes, primReferentie
       }
       compRows.push({ moyenne, coef: col.coef });
     }
-    const avg = primGeneralAverage(compRows);
+    const avg = moyennePoints ? moyennePointsSur20(cellulesPoints).moyenne : primGeneralAverage(compRows);
     avgById[student.id] = avg;
     const cg = avg != null ? primCote(avg, scaleMax, bareme) : null;
     return { student, scores, cotes, avg, cote: cg?.cote ?? null, appreciation: cg?.libelle ?? '' };
@@ -491,11 +496,13 @@ export function buildClassReport({
   // bulletins qu'il est censé résumer — la divergence même que
   // `primCompetenceAvg` dit vouloir éviter depuis toujours.
   primNonEvaluees = [], zeroSiManquante = false,
+  // Réglage d'école `prim_moyenne_points` : moyenne du primaire en points (ΣT×20÷ΣS).
+  moyennePoints = false,
 }) {
   const ctx = { cls, students, subjects, period, sys, gOpts, scaleMax, passThreshold };
   switch (engine) {
     case 'maternelle':   return maternelleReport({ ...ctx, matObservations });
-    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees, zeroSiManquante });
+    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees, zeroSiManquante, moyennePoints });
     case 'apc':          return apcReport({ ...ctx, apcNotes, apcReferentiel, apcMasques, gradeScale });
     default:             return classicReport({ ...ctx, gradeMap });
   }

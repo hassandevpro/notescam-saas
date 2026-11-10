@@ -107,7 +107,10 @@ export default function BulletinPrimCompact({
   overall,                     // { achieved, possible, pct, evaluees, nonEvaluees }
   niveauTotal,                 // barème théorique du niveau (300) — pour la mention provisoire
   nonEvalueesCodes = [],       // ['1C','3B','4A']
-  moyenneGenerale, coteGenerale, appreciationGenerale,
+  moyenneGenerale, coteGenerale,
+  // L'APPRÉCIATION est AUTOMATIQUE (le libellé de la cote générale) : jamais saisie, jamais mêlée au texte de
+  // l'enseignant. L'OBSERVATION est le texte que l'enseignant(e) a écrit (ou la suggestion qu'il a validée).
+  appreciationGenerale, observations = '',
   rank, decision,
   // LE RANG NE S'IMPRIME PAS PARTOUT. Des écoles le jugent contraire à ce qu'elles
   // veulent dire à un parent : il classe l'enfant au lieu de décrire ce qu'il sait
@@ -655,7 +658,15 @@ export default function BulletinPrimCompact({
                 (« Visa du Parent / Tuteur »). Elle figurait aussi ici, dans la ligne des observations :
                 le même bulletin portait deux cases pour le même geste. `signatureParent` reste accepté
                 par compatibilité avec les appelants, mais n'ajoute plus de case. */}
-            <td style={{ ...cell, height: 'var(--nc-observ)', borderTop: B }} colSpan={7} />
+            <td
+              style={{
+                ...cell, height: 'var(--nc-observ)', borderTop: B, verticalAlign: 'top',
+                whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', textAlign: 'left',
+              }}
+              colSpan={7}
+            >
+              {observations}
+            </td>
           </tr>
         </tbody>
       </table>

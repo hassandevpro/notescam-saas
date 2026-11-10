@@ -86,6 +86,44 @@ export function observationTropLongue(texte, limite = LONGUEUR_CONSEILLEE) {
   return normaliserObservation(texte).length > limite;
 }
 
+// ── UNE OBSERVATION PAR UA (primaire) ────────────────────────────────────────────
+// Demandé le 2026-11-10 : « pour chaque UA, pas seulement le trimestre ». Aucune colonne neuve : le créneau
+// `sequence` de `student_absences` (UNIQUE(student_id, sequence)) est un entier libre. Les créneaux 1-6 sont
+// les séquences/trimestres ; les UA 1-8 se rangent à 10 + UA (11 à 18), HORS de toute période : aucune somme
+// d'absences, aucun relevé, aucun bulletin ne les lit par accident, puisque tous énumèrent leurs séquences
+// explicitement. Même clé spéciale (`__appreciation__`), même canal de synchronisation Cloud et LAN.
+export const DECALAGE_CRENEAU_UA = 10;
+const UAS = [1, 2, 3, 4, 5, 6, 7, 8];
+
+/** Créneau qui porte l'observation d'une UA, ou null si ce n'est pas une UA 1 à 8. */
+export function creneauObservationUA(ua) {
+  const n = Number(ua);
+  return UAS.includes(n) ? DECALAGE_CRENEAU_UA + n : null;
+}
+
+/** Texte saisi POUR CETTE UA, ou ''. Sert au formulaire de saisie. */
+export function lireObservationUA(gradeMap, classId, studentId, ua) {
+  const creneau = creneauObservationUA(ua);
+  if (!classId || !studentId || creneau === null) return '';
+  const val = (gradeMap || {})[gradeKey(classId, studentId, creneau)]?.[CLE_OBSERVATION];
+  return typeof val === 'string' ? val : '';
+}
+
+/**
+ * Ce que le BULLETIN imprime dans « Observations de l'enseignant(e) ».
+ * Bulletin d'une UA : l'observation de CETTE UA, sinon — pour ne pas vider les carnets déjà saisis par
+ * trimestre — celle du trimestre. Bulletin trimestriel ou annuel : celle du trimestre (créneau `trimestre`).
+ */
+export function observationPourBulletin(gradeMap, classId, studentId, { ua = null, creneau = null } = {}) {
+  if (ua != null) {
+    const propre = lireObservationUA(gradeMap, classId, studentId, ua);
+    if (propre.trim()) return propre;
+  }
+  if (creneau == null) return '';
+  const val = (gradeMap || {})[gradeKey(classId, studentId, creneau)]?.[CLE_OBSERVATION];
+  return typeof val === 'string' ? val : '';
+}
+
 // De quoi afficher « 7 / 35 renseignées » et retrouver les oubliés. L'ordre des
 // élèves donné est conservé dans `manquants` : c'est l'ordre de la liste de
 // classe, donc celui que l'enseignante a sous les yeux.

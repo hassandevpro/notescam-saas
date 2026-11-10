@@ -148,7 +148,9 @@ function CompetenceUATable({ sys, row }) {
 export default function BulletinPrimAnnualUA({
   paysage = false,
   school, sys = 'FR', title, student, classLabel, effectif, profPrincipal = '',
-  competenceRows = [], moyenneGenerale = null, coteGenerale = null, rang, classStats, appreciation = '',
+  competenceRows = [], moyenneGenerale = null, coteGenerale = null, rang, classStats, appreciation = '', observations = '',
+  // Ce que l'ÉCOLE choisit d'imprimer : le rang et le profil de la classe ne sont pas obligatoires.
+  masquerRang = false, masquerStats = false,
   // ── CE QUE LE CARNET DE L'ÉCOLE PORTE EN PLUS ────────────────────────────
   // Mêmes blocs que la disposition compacte, mêmes props, même défaut : une
   // école qui n'a pas coché « carnet » reçoit exactement le bulletin d'avant.
@@ -269,7 +271,7 @@ export default function BulletinPrimAnnualUA({
       <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'var(--nc-gap)' }}>
         <tbody>
           <tr>
-            <td style={{ width: '50%', verticalAlign: 'top', paddingRight: 4 }}>
+            <td style={{ width: masquerStats ? '100%' : '50%', verticalAlign: 'top', paddingRight: masquerStats ? 0 : 4 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <tbody>
                   <tr><td colSpan={2} style={th}>{L(sys, "Bilan de l'élève", "Student's summary", 'Balance del alumno')}</td></tr>
@@ -277,10 +279,13 @@ export default function BulletinPrimAnnualUA({
                   <tr><td style={cell}>{L(sys, 'Cote générale', 'General grade', 'Nota general')}</td><td style={{ ...cell, textAlign: 'center' }}>
                     <strong style={{ color: moyenneGenerale != null ? PRIM_COTE_COLORS[coteGenerale] : undefined }}>{moyenneGenerale != null ? coteGenerale : ''}</strong>
                   </td></tr>
-                  <tr><td style={cell}>{L(sys, 'Rang', 'Rank', 'Puesto')}</td><td style={{ ...cell, textAlign: 'center' }}><strong>{rang ? `${rang} / ${effectif ?? ''}` : ''}</strong></td></tr>
+                  {!masquerRang && (
+                    <tr><td style={cell}>{L(sys, 'Rang', 'Rank', 'Puesto')}</td><td style={{ ...cell, textAlign: 'center' }}><strong>{rang ? `${rang} / ${effectif ?? ''}` : ''}</strong></td></tr>
+                  )}
                 </tbody>
               </table>
             </td>
+            {!masquerStats && (
             <td style={{ width: '50%', verticalAlign: 'top' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <tbody>
@@ -294,6 +299,7 @@ export default function BulletinPrimAnnualUA({
                 </tbody>
               </table>
             </td>
+            )}
           </tr>
         </tbody>
       </table>
@@ -327,7 +333,10 @@ export default function BulletinPrimAnnualUA({
 
       <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'calc(var(--nc-gap) * 0.5)' }}>
         <tbody>
-          <tr><td style={{ ...cell, height: 'var(--nc-observ)' }}>{L(sys, 'Appréciation générale du Conseil des maîtres', "Teachers' council general remarks", 'Apreciación general del consejo de maestros')} : {appreciation}</td></tr>
+          {/* DEUX CASES, DEUX SOURCES. « Appréciation » = le libellé de la cote générale (automatique) ;
+              « Observations » = le texte de l'enseignant(e). Elles ne se mélangent jamais. */}
+          <tr><td style={cell}>{L(sys, 'Appréciation', 'Appreciation', 'Apreciación')} : <strong>{appreciation}</strong></td></tr>
+          <tr><td style={{ ...cell, height: 'var(--nc-observ)', verticalAlign: 'top', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{L(sys, 'Observations de l’enseignant(e)', "Class teacher's remarks", 'Observaciones del maestro/a')} : {observations}</td></tr>
         </tbody>
       </table>
 

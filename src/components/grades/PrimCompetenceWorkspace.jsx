@@ -65,6 +65,7 @@ import UnlinkedTeacherNotice from './UnlinkedTeacherNotice';
 import FeuilleNotesButton from './FeuilleNotesButton';
 import usePvBuilder from '../documents/usePvBuilder';
 import ObservationGlobaleForm from './ObservationGlobaleForm';
+import { suggererObservation, genreDe, indexerNotes, cotesDeLEleve } from '../../core/observationSuggestion';
 
 // ── Barème d'une colonne (une évaluation) ────────────────────────────────────
 // Le barème appartient à l'ÉVALUATION, pas au critère : l'Oral peut être noté /10
@@ -1055,6 +1056,15 @@ export default function PrimCompetenceWorkspace() {
   // même calcul (buildClassPv), donc jamais deux chiffres différents pour un même élève.
   const pvClasses = useMemo(() => (selectedClass ? [selectedClass] : []), [selectedClass]);
   const { pvForClass } = usePvBuilder(pvClasses);
+  // Suggestion d'observation : cotes de CHAQUE compétence de la classe pour l'UA affichée, lues dans les notes
+  // déjà saisies (index construit UNE fois pour toute la classe), puis phrases composées hors ligne.
+  const indexNotes = useMemo(() => indexerNotes(primNotes), [primNotes]);
+  const suggererPour = useCallback((stu) => suggererObservation({
+    rows: cotesDeLEleve(indexNotes, stu.id, ua, competences, (obtenu, possible) => primCote(obtenu, possible, bareme)),
+    sys: sys === 'EN' ? 'EN' : 'FR',
+    genre: genreDe(stu),
+  }), [indexNotes, ua, competences, bareme, sys]);
+
   const moyenneParEleve = useMemo(() => {
     if (!selectedClass) return {};
     let pv = null;
@@ -1371,6 +1381,8 @@ export default function PrimCompetenceWorkspace() {
         students={classStudents}
         trimestre={trimestreOfUA(ua)}
         ua={ua}
+        parUA
+        suggerer={suggererPour}
         lectureSeule={isSubjectTeacher && !isFundamentalTitulaire(selectedClass, teacherId)}
       />
 

@@ -74,6 +74,8 @@ import { withLibelles } from '../lib/referentielEcole';
 // Les intitulés du référentiel officiel sont stockés en français pour tout le
 // pays : sur une classe du secteur anglophone, on les rend en anglais.
 import { matDomaineLabel, primCompetenceLabel, primCritereLabel, primCoteLabel } from '../core/referentielI18n';
+import { observationPourBulletin, creneauObservationUA } from '../core/observationGlobale';
+import { suggererObservation, genreDe } from '../core/observationSuggestion';
 import { obsNkey } from '../lib/matService';
 import { primNkey } from '../lib/primService';
 import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
@@ -1564,14 +1566,30 @@ function AnnualDecisionPicker({ classId, studentId, lastSeq, current, countryCod
 // seulement pour les champs qui diffèrent de la saisie. Jamais d'écrasement
 // silencieux : sans ce clic, rien ne change, et le bulletin continue de
 // n'imprimer que ce que l'école a saisi.
-function AppreciationEditor({ classId, studentId, lastSeq, current, sys, proposition, scores }) {
+function AppreciationEditor({
+  classId, studentId, lastSeq, current, sys, proposition, scores,
+  // Primaire : `obsSlot` = créneau de l'UA (11-18) ; `suggestion` = texte proposé hors ligne ; `etiquette`
+  // = « Observations de l'enseignant(e) ». Sans eux, l'éditeur se comporte comme avant (APC).
+  obsSlot = null, suggestion = '', etiquette = null,
+}) {
   const saveGrade = useSchoolStore((s) => s.saveGrade);
+  const slot = obsSlot ?? lastSeq;
   const t = useT();
   const [val, setVal] = useState(current || '');
   useEffect(() => { setVal(current || ''); }, [current, studentId, lastSeq]);
   const commit = async () => {
     if ((current || '') === (val || '')) return;
-    await saveGrade(classId, studentId, lastSeq, { __appreciation__: val });
+    await saveGrade(classId, studentId, slot, { __appreciation__: val });
+  };
+
+  // « Suggérer une observation » : jamais d'écrasement silencieux d'un texte déjà saisi.
+  const suggerer = async () => {
+    if (!suggestion) return;
+    const deja = (val || '').trim();
+    if (deja && deja !== suggestion
+      && !window.confirm(t('Remplacer le texte saisi par la suggestion ?', 'Replace the text you entered with the suggestion?'))) return;
+    setVal(suggestion);
+    await saveGrade(classId, studentId, slot, { __appreciation__: suggestion });
   };
 
   const ecarts = proposition ? ecartsConseil(proposition, scores || {}) : [];
@@ -1579,7 +1597,10 @@ function AppreciationEditor({ classId, studentId, lastSeq, current, sys, proposi
     const lot = lotConseil(proposition, scores || {}, ecarts);
     if (!Object.keys(lot).length) return;
     if (lot.__appreciation__ != null) setVal(lot.__appreciation__);
-    await saveGrade(classId, studentId, lastSeq, lot);
+    // L'observation va dans le créneau de la période (UA), les distinctions du conseil restent sur le trimestre.
+    const { __appreciation__: obs, ...conseil } = lot;
+    if (obs != null) await saveGrade(classId, studentId, slot, { __appreciation__: obs });
+    if (Object.keys(conseil).length) await saveGrade(classId, studentId, lastSeq, conseil);
   };
   // Ce que la proposition dit, en clair. Un champ déjà conforme n'y figure pas :
   // la ligne ne montre que ce que le clic changerait.
@@ -1604,7 +1625,7 @@ function AppreciationEditor({ classId, studentId, lastSeq, current, sys, proposi
   return (
     <div className="mb-4 p-3 rounded-xl border border-sky-200 bg-sky-50 no-print">
       <label className="text-xs font-semibold text-sky-900 uppercase tracking-wider block mb-1.5">
-        {L(sys, "Appréciation du travail de l'élève", "Remarks on the student's work", 'Apreciación del trabajo del alumno')}
+        {etiquette || L(sys, "Appréciation du travail de l'élève", "Remarks on the student's work", 'Apreciación del trabajo del alumno')}
       </label>
       <textarea
         className="form-input bg-white"
@@ -1614,6 +1635,20 @@ function AppreciationEditor({ classId, studentId, lastSeq, current, sys, proposi
         onChange={(e) => setVal(e.target.value)}
         onBlur={commit}
       />
+      {suggestion && (
+        <div className="mt-2 flex items-start justify-between gap-3">
+          <p className="text-xs text-sky-800 min-w-0">
+            <span className="font-semibold">{t('Suggestion', 'Suggestion')} :</span> {suggestion}
+          </p>
+          <button
+            type="button"
+            onClick={suggerer}
+            className="shrink-0 text-xs font-semibold text-brand-600 hover:text-brand-700"
+          >
+            {t('Suggérer une observation', 'Suggest a remark')}
+          </button>
+        </div>
+      )}
       {resume.length > 0 && (
         <div className="mt-2 flex items-start justify-between gap-3">
           <p className="text-xs text-sky-800 min-w-0">
@@ -1691,6 +1726,20 @@ export default function Bulletins() {
   // d'orientation, et `setPrintProfile` remplace la règle @page précédente —
   // deux déclarations concurrentes se contrediraient.
   const primLayoutPref  = useUiStore((s) => s.primLayout);
+  // LES STATISTIQUES SE CHOISISSENT : ce que le bulletin du primaire imprime en plus des notes. Trois
+  // interrupteurs, mémorisés sur ce poste (aucun réglage d'école, donc aucune migration) :
+  //   stats       — profil de la classe : plus haute / plus faible moyenne, moyenne générale, réussis, échoués, taux ;
+  //   repartition — le tableau « Intervalle de moyenne / Nombre d'élèves » ;
+  //   rang        — le rang de l'élève (s'ajoute au réglage d'école « masquer le rang », jamais l'inverse).
+  const [primAffiche, setPrimAffiche] = useState(() => {
+    const defaut = { stats: true, repartition: true, rang: true };
+    try { return { ...defaut, ...JSON.parse(localStorage.getItem('nc_prim_affiche') || '{}') }; } catch { return defaut; }
+  });
+  const basculerAffiche = (cle) => setPrimAffiche((p) => {
+    const n = { ...p, [cle]: !p[cle] };
+    try { localStorage.setItem('nc_prim_affiche', JSON.stringify(n)); } catch { /* stockage indisponible : le choix vaut pour la session */ }
+    return n;
+  });
   const setPrimLayout   = useUiStore((s) => s.setPrimLayout);
   const primOrientation = useUiStore((s) => s.primOrientation);
   const setPrimOrientation = useUiStore((s) => s.setPrimOrientation);
@@ -2400,13 +2449,42 @@ export default function Bulletins() {
   // côtés et déjà éditée par `AppreciationEditor` pour les bulletins APC), et
   // on ne retombe sur le libellé de la cote que si l'école n'a rien écrit —
   // aucune régression pour les carnets déjà imprimés.
-  const primAppreciationSaisie = (sid) => {
-    const lastSeq = period?.seqs?.[period.seqs.length - 1];
-    if (!lastSeq) return '';
-    return (gradeMap?.[`${classId}_${sid}_${lastSeq}`] || {})['__appreciation__'] || '';
+  //
+  // DEUX CASES, DEUX SOURCES (corrigé le 2026-11-10). Le texte saisi par l'enseignant(e) s'imprimait dans la
+  // case « Appréciation » et la case « Observations » restait vide. Désormais :
+  //   • APPRÉCIATION  = le libellé de la cote GÉNÉRALE (A+ → « Très bien acquis », A → « Acquis »…), dérivé
+  //     du barème de l'école par `primCote` : jamais saisi, recalculé à chaque rendu, donc à jour dès que
+  //     les notes changent ;
+  //   • OBSERVATIONS  = le texte saisi (champ `__appreciation__` du créneau de l'UA, sinon du trimestre).
+  // Le NOM du champ stocké n'a pas changé : aucune donnée à migrer, seul le gabarit se trompait de case.
+  const primAppreciationFor = (student, d) => d?.appreciationGenerale || '';
+
+  // Le créneau qui porte l'observation de la PÉRIODE affichée : celui de l'UA pour un bulletin d'UA (créneaux
+  // 11 à 18, cf. core/observationGlobale), celui du trimestre sinon.
+  const primObsSlot = () => (period?.ua != null
+    ? creneauObservationUA(period.ua)
+    : (period?.seqs?.[period.seqs.length - 1] ?? null));
+  const primObservationSaisie = (sid) => {
+    const slot = primObsSlot();
+    if (slot == null) return '';
+    const v = gradeMap?.[`${classId}_${sid}_${slot}`]?.['__appreciation__'];
+    return typeof v === 'string' ? v : '';
   };
-  const primAppreciationFor = (student, d) =>
-    primAppreciationSaisie(student.id) || (d?.appreciationGenerale || '');
+  // Ce que le bulletin IMPRIME : l'observation de l'UA, sinon celle du trimestre (carnets déjà saisis).
+  const primObservationFor = (sid) => observationPourBulletin(gradeMap, classId, sid, {
+    ua: period?.ua ?? null,
+    creneau: period?.seqs?.[period.seqs.length - 1] ?? null,
+  });
+  // Suggestion déterministe, hors ligne, tirée des cotes de CET élève sur la période affichée.
+  const primSuggestionFor = (student) => {
+    const c = primCompactDataFor(student);
+    if (!c) return '';
+    return suggererObservation({
+      rows: c.rows.map(({ code, intitule, cote }) => ({ code, intitule, cote })),
+      sys: sys === 'EN' ? 'EN' : 'FR',
+      genre: genreDe(student),
+    });
+  };
 
   // La proposition tirée du TRAVAIL de l'élève — affichée à côté du champ de
   // saisie, jamais écrite d'office (cf. `core/conseilPropositions.js`).
@@ -3308,6 +3386,7 @@ export default function Bulletins() {
             // elle vient de `primDataById`, inchangée.
             moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
             appreciationGenerale={primAppreciationFor(student, d)}
+            observations={primObservationFor(student.id)}
             rank={primRanks[student.id]}
             coteBareme={primBareme}
             // ── LES CINQ BLOCS DU CARNET SONT UN CHOIX D'ÉCOLE ─────────────
@@ -3322,12 +3401,13 @@ export default function Bulletins() {
             // Ce qui est tiré du travail de l'élève, c'est la PROPOSITION
             // offerte à la saisie — jamais ce qui s'imprime ici.
             mentions={primMentionsFor(student)}
-            masquerRang={primMasquerRang}
+            masquerRang={primMasquerRang || !primAffiche.rang}
             // Les stats de la classe figurent sur TOUS les bulletins du primaire, et pas seulement
             // en mode « carnet » : la meilleure et la plus faible moyenne, la moyenne générale, et
             // COMBIEN d'élèves ont réussi ou échoué. Le % de réussite, lui, reste propre au modèle
             // papier. Rien n'est recalculé ici : tout vient de `primClassStats`.
-            statsClasse={primClassStats ? {
+            // L'école peut ne pas les imprimer (interrupteur « Statistiques » au-dessus du bulletin).
+            statsClasse={!primAffiche.stats ? null : primClassStats ? {
               premier: primClassStats.max, dernier: primClassStats.min, generale: primClassStats.avg,
               reussis: primClassStats.reussis, echoues: primClassStats.echoues,
               // LE TAUX DE RÉUSSITE N’EST PLUS RÉSERVÉ AU CARNET « épreuves ». Il répond
@@ -3346,8 +3426,8 @@ export default function Bulletins() {
             // elle aussi enfermée dans le mode « carnet ». C’est pourtant la seule chose
             // qui SITUE un enfant sans le CLASSER : un parent y lit combien d’élèves se
             // trouvent dans chaque intervalle, sans qu’aucun nom ni aucun rang paraisse.
-            repartition={primRepartition}
-            repartitionTotal={primClassStats?.count}
+            repartition={primAffiche.repartition ? primRepartition : []}
+            repartitionTotal={primAffiche.repartition ? primClassStats?.count : undefined}
             signatureParent={primCarnet}
             groupes={primCarnet}
             programmes={programmes}
@@ -3369,12 +3449,14 @@ export default function Bulletins() {
           competenceRows={primAnnualRowsFor(student)}
           moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
           rang={primRanks[student.id]} classStats={primClassStats}
+          masquerRang={primMasquerRang || !primAffiche.rang} masquerStats={!primAffiche.stats}
           appreciation={primAppreciationFor(student, d)}
+          observations={primObservationFor(student.id)}
           // Le carnet de l'école vaut aussi pour la disposition détaillée : sur
           // un trimestre (UA1-3), « Auto » choisit celle-ci, et le réglage ne
           // devait pas se taire pour autant. Mêmes props, même source.
           mentions={primMentionsFor(student)}
-          repartition={primCarnet ? primRepartition : []}
+          repartition={primCarnet && primAffiche.repartition ? primRepartition : []}
           groupes={primCarnet}
         />
       </WatermarkWrap>
@@ -3554,7 +3636,20 @@ export default function Bulletins() {
             la moyenne reste la meme dans les deux dispositions. */}
         {showPrimOfficial && primReady && (
           <div className="flex flex-wrap items-center gap-3 mb-4 no-print">
-            <span className="text-sm font-medium text-gray-500">{t('Disposition :', 'Layout:')}</span>
+            <span className="text-sm font-medium text-gray-500">{t('Afficher :', 'Show:')}</span>
+            {[
+              { key: 'stats',       label: t('Statistiques de la classe', 'Class statistics') },
+              { key: 'repartition', label: t('Répartition par tranche', 'Distribution by band') },
+              { key: 'rang',        label: t('Rang', 'Rank'), off: primMasquerRang },
+            ].map(({ key, label, off }) => (
+              <label key={key} className={`inline-flex items-center gap-1.5 text-sm ${off ? 'text-gray-300' : 'text-gray-600'}`}
+                title={off ? t('Le rang est masqué par un réglage de l’école (Paramètres).', 'Rank is hidden by a school setting (Settings).') : undefined}>
+                <input type="checkbox" disabled={off} checked={!off && !!primAffiche[key]} onChange={() => basculerAffiche(key)} />
+                {label}
+              </label>
+            ))}
+
+            <span className="text-sm font-medium text-gray-500 ml-2">{t('Disposition :', 'Layout:')}</span>
             <div className="flex rounded-lg border border-gray-200 overflow-hidden">
               {[
                 { key: 'auto',    label: t('Auto', 'Auto') },
@@ -4059,7 +4154,10 @@ export default function Bulletins() {
                   classId={classId}
                   studentId={selectedStudent.id}
                   lastSeq={period.seqs[period.seqs.length - 1]}
-                  current={apcAppreciationFor(selectedStudent.id)}
+                  current={isPrim ? primObservationSaisie(selectedStudent.id) : apcAppreciationFor(selectedStudent.id)}
+                  obsSlot={isPrim ? primObsSlot() : null}
+                  suggestion={isPrim ? primSuggestionFor(selectedStudent) : ''}
+                  etiquette={isPrim ? L(sys, 'Observations de l’enseignant(e)', "Class teacher's remarks", 'Observaciones del maestro/a') : null}
                   sys={sys}
                   proposition={isPrim ? primPropositionFor(selectedStudent.id) : null}
                   scores={gradeMap?.[`${classId}_${selectedStudent.id}_${period.seqs[period.seqs.length - 1]}`] || {}}

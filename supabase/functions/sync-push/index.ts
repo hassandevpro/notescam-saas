@@ -40,6 +40,9 @@ const ALLOWED = new Set([
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
   'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
+  // Notes par compétence du primaire. Absentes jusqu'ici : jetées en silence par le `continue` de la
+  // boucle ci-dessous. Voir pousserNotePrimaire et supabase_prim_notes_sync.sql.
+  'prim_notes',
 ]);
 
 async function schoolOfToken(token: string): Promise<string | null> {
@@ -50,6 +53,56 @@ async function schoolOfToken(token: string): Promise<string | null> {
 }
 const belongs = (table: string, row: any, schoolId: string) =>
   table === 'schools' ? row.id === schoolId : row.school_id === schoolId;
+
+// ── NOTES DU PRIMAIRE ──────────────────────────────────────────────────────────────
+// Le Cloud et l'école n'ont pas tout à fait la même ligne : le Cloud exige `trimestre_id` et
+// `date_saisie` (NOT NULL), que l'école ne porte pas (la UA suffit à dériver le trimestre).
+// L'identité d'une note est (élève, compétence, critère, UA) et NON son id : une même note
+// saisie des deux côtés a deux ids. On fusionne donc par cette clé naturelle, la version la
+// plus récente l'emporte (LWW), et quand c'est l'école qui gagne, la ligne du Cloud ADOPTE
+// l'id de l'école pour que les deux côtés la nomment pareil. Une compétence inconnue du
+// Cloud est REFUSÉE avec un motif lisible (et non perdue en silence) : la ligne reste à
+// l'école.
+const competenceConnue = new Map<string, boolean>();
+async function competenceExiste(id: string): Promise<boolean> {
+  if (competenceConnue.has(id)) return competenceConnue.get(id)!;
+  const { data } = await admin.from('prim_competences').select('id').eq('id', id).maybeSingle();
+  const ok = !!data;
+  competenceConnue.set(id, ok);
+  return ok;
+}
+const UUID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
+// Renvoie 'ok', 'depasse' (le Cloud est plus récent : ce n'est pas un refus) ou un motif de refus.
+async function pousserNotePrimaire(row: any, schoolId: string): Promise<string> {
+  const ua = Number(row.ua);
+  if (!Number.isInteger(ua) || ua < 1 || ua > 8) return 'ua_invalide';
+  if (!(await competenceExiste(String(row.competence_id)))) return 'competence_absente_du_cloud';
+  const rec: any = {
+    ...row,
+    ua,
+    trimestre_id: ua <= 3 ? 't1' : ua <= 6 ? 't2' : 't3',
+    date_saisie: row.date_saisie || row.updated_at || new Date().toISOString(),
+    enseignant_id: row.enseignant_id && UUID_RE.test(String(row.enseignant_id)) ? row.enseignant_id : null,
+    statut: row.statut === 'absent' ? 'absent' : null,
+  };
+  const { data: parCle } = await admin.from('prim_notes')
+    .select('id, school_id, updated_at, version, device_id')
+    .eq('eleve_id', rec.eleve_id).eq('competence_id', rec.competence_id)
+    .eq('critere_id', rec.critere_id).eq('ua', ua).maybeSingle();
+  if (parCle) {
+    if ((parCle as any).school_id !== schoolId) return 'id_appartient_a_une_autre_ecole';
+    if (!wins(rec, parCle)) return 'depasse';
+    if ((parCle as any).id !== rec.id) {
+      // Même note, deux ids : la ligne du Cloud prend l'id de l'école.
+      const { error } = await admin.from('prim_notes').update(rec).eq('id', (parCle as any).id);
+      return error ? error.message.slice(0, 200) : 'ok';
+    }
+  }
+  const { data: parId } = await admin.from('prim_notes').select('school_id').eq('id', rec.id).maybeSingle();
+  if (parId && (parId as any).school_id !== schoolId) return 'id_appartient_a_une_autre_ecole';
+  const { error } = await admin.from('prim_notes').upsert(rec, { onConflict: 'id' });
+  return error ? error.message.slice(0, 200) : 'ok';
+}
 
 // Comparateur LWW DÉTERMINISTE, identique au serveur LAN (server/cloudSync.js
 // remoteWins) : updated_at, puis version, puis device_id. Corrige la divergence
@@ -118,6 +171,11 @@ Deno.serve(async (req) => {
     // upsert : périmètre + LWW déterministe (le cloud ne cède que si le
     // changement local gagne selon (updated_at, version, device_id)).
     if (!belongs(ch.table, ch.row, schoolId)) { refuse(ch.table, id, 'hors_perimetre_ecole'); continue; }
+    if (ch.table === 'prim_notes') {
+      const r = await pousserNotePrimaire(ch.row, schoolId);
+      if (r === 'ok') applied++; else if (r === 'depasse') skipped++; else refuse(ch.table, id, r);
+      continue;
+    }
     const { data: existing } = await admin.from(ch.table)
       .select(`updated_at, version, device_id, ${scopeCol}`).eq('id', id).maybeSingle();
     // DÉFENSE EN PROFONDEUR (L1) : ne JAMAIS écraser une ligne qui appartient à une AUTRE

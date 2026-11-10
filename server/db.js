@@ -1786,6 +1786,27 @@ function reconcilierIdsParents() {
 }
 reconcilierIdsParents();
 
+// ── NOTES DU PRIMAIRE DÉJÀ SAISIES : LES ENFILER UNE FOIS ──────────────────────────────
+// `prim_notes` est synchronisée depuis la 0.3.39. Les notes saisies avant n'ont jamais été
+// capturées comme « à envoyer » (le Cloud jetait la table) : on les enfile une fois, hors écho,
+// avec la garde `app_settings.prim_notes_enfilees` pour ne pas recommencer à chaque démarrage.
+// L'envoi se fait ensuite par lots, comme toute la file.
+(() => {
+  try {
+    const deja = db.prepare("SELECT value FROM app_settings WHERE key = 'prim_notes_enfilees'").get();
+    if (deja) return;
+    const ids = db.prepare('SELECT id FROM prim_notes WHERE id IS NOT NULL').all().map((r) => r.id);
+    tx(() => {
+      for (const id of ids) enqueueOutbox('prim_notes', id, 'upsert');
+      db.prepare("INSERT INTO app_settings (key, value) VALUES ('prim_notes_enfilees', ?)").run(new Date().toISOString());
+    });
+    if (ids.length) console.log(`[db] prim_notes : ${ids.length} note(s) enfilée(s) pour le Cloud (une fois).`);
+  } catch (e) {
+    console.warn(`[db] prim_notes : mise en file impossible — ${e.message}`);
+  }
+})();
+
+
 const UPDATED_AT_SENTINELLE = '2000-01-01T00:00:00.000Z';
 function backfillUpdatedAt() {
   const touchees = [];

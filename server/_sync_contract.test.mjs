@@ -79,7 +79,6 @@ for (const [nom, set] of Object.entries(L)) {
 // références qui ne pointent nulle part. NE PAS les ajouter sans traiter les ids.
 const EXCLUSIONS = new Map([
   ['apc_notes',        'ids de référentiel divergents entre seed local et Cloud (db.js)'],
-  ['prim_notes',       'idem'],
   ['mat_observations', 'idem'],
   // « Compétence non évaluée » : même nature et MÊME écart que `prim_notes`,
   // dont elle ne se sépare pas. Elle porte un `competence_id`, donc exactement
@@ -117,6 +116,12 @@ const GAPS_CONNUS = new Map([
   ['hr_payroll|lan_VERIFY_TABLES',         'paie : ni auditée ni réparable côté LAN non plus — 18/10/2026'],
   ['hr_payroll_catalog|lan_VERIFY_TABLES', 'idem'],
   ['hr_payroll_items|lan_VERIFY_TABLES',   'idem'],
+  // Notes du primaire : montée et descente OK depuis la 0.3.39 (fusion par clé naturelle), mais ni
+  // auditées ni réparables pour l'instant. Décision DÉLIBÉRÉE : les inscrire à l'audit ferait
+  // réempiler la table entière à chaque contrôle (cf. la boucle de réparation observée à THE GENIUS).
+  ['prim_notes|verify_TABLES',         'notes primaire : synchronisées, pas encore auditées — 10/11/2026'],
+  ['prim_notes|repair_TABLES',         'idem'],
+  ['prim_notes|lan_VERIFY_TABLES',     'idem'],
   // `signalements|enfant_sans_parent` : écart RÉSOLU le 16/10/2026. La table est
   // désormais dans les cinq listes (+ supabase_sync_signalements.sql pour ses
   // déclencheurs Cloud). La dérogation est retirée VOLONTAIREMENT : tant qu'elle

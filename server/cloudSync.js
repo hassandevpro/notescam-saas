@@ -83,6 +83,8 @@ const PULL_ORDER = [
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
   'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
+  // Notes par compétence du primaire : APRÈS `students` (FK). Voir cedeLaPlaceALaNoteDuCloud.
+  'prim_notes',
 ];
 
 // Ordre d'application intra-`budgets` : un parent doit précéder ses enfants
@@ -114,6 +116,26 @@ export function remoteWins(local, remote) {
   return String(remote.device_id || '') > String(local.device_id || '');
 }
 
+// ── NOTES DU PRIMAIRE : UNE NOTE EST (ÉLÈVE, COMPÉTENCE, CRITÈRE, UA), PAS UN ID ───────
+// Une même note saisie à l'école et en ligne a deux ids, et UNIQUE(eleve_id, competence_id,
+// critere_id, ua) refuserait la seconde. Quand la version du Cloud gagne (LWW), la ligne locale
+// de même identité naturelle lui CÈDE la place : elle est retirée (hors écho, avec son entrée de
+// file, qui la renverrait sinon par-dessus). Si la version locale est plus récente, on renvoie
+// false : la ligne du Cloud n'est pas appliquée, et le prochain envoi lui fera adopter l'id local
+// (sync-push, pousserNotePrimaire). Renvoie true quand l'application peut continuer.
+function cedeLaPlaceALaNoteDuCloud(rec) {
+  const locale = db.prepare(
+    'SELECT * FROM prim_notes WHERE eleve_id = ? AND competence_id = ? AND critere_id = ? AND ua = ? AND id <> ?',
+  ).get(rec.eleve_id, rec.competence_id, rec.critere_id, rec.ua, rec.id);
+  if (!locale) return true;
+  if (!remoteWins(locale, rec)) return false;
+  const avant = isTracked('prim_notes') ? snapshotRows('prim_notes', [locale.id]) : null;
+  sansEcho(() => db.prepare('DELETE FROM prim_notes WHERE id = ?').run(locale.id));
+  db.prepare('DELETE FROM sync_outbox WHERE tablename = ? AND row_id = ?').run('prim_notes', String(locale.id));
+  if (avant) maintainMerkle('prim_notes', avant, snapshotRows('prim_notes', [locale.id]));
+  return true;
+}
+
 // Upsert direct (anti-écho : n'alimente PAS sync_outbox). Exporté pour l'auto-réparation
 // (server/syncRepair.js) : applique une ligne distante autoritaire + maintient le Merkle.
 // `quiet` : l'appelant prend en charge le message. Le pull met la ligne en file de
@@ -135,6 +157,11 @@ export function rawUpsert(table, row, { quiet = false } = {}) {
   const nowIso = new Date().toISOString();
   if (cols.has('created_at') && rec.created_at == null) rec.created_at = nowIso;
   if (cols.has('updated_at') && rec.updated_at == null) rec.updated_at = nowIso;
+  // Une note du Cloud dont l'identité naturelle existe déjà sous un autre id local.
+  if (table === 'prim_notes' && rec.eleve_id && rec.competence_id && rec.critere_id && rec.ua != null) {
+    // false = la version locale est plus récente : rien à appliquer, et rien à rejouer non plus.
+    if (!cedeLaPlaceALaNoteDuCloud(rec)) return true;
+  }
   const keys = Object.keys(rec);
   const ph = keys.map(() => '?').join(', ');
   const upd = keys.filter((c) => c !== 'id').map((c) => `"${c}" = excluded."${c}"`).join(', ');
@@ -724,12 +751,27 @@ export async function syncOnce({ edge = edgeFetch, dryRun = false } = {}) {
 //
 // Elle tourne désormais DANS TOUS LES CAS, échec de poussée compris. C'est
 // précisément quand la synchro va mal qu'on a besoin d'elle.
+// ── NE PAS RÉPARER PENDANT QUE LA FILE SE VIDE ───────────────────────────────────────────
+// Mesuré à THE GENIUS le 10/11/2026 : la file portait ≈ 4 300 lignes, la réparation automatique
+// repassait toutes les 5 minutes, jugeait 12 tables « divergentes » (elles ne l'étaient que parce
+// que l'envoi n'était pas fini) et réempilait chaque fois les tables ENTIÈRES. Un tour de vidage
+// (≈ 9 cycles de 500) durait presque autant que l'intervalle : la file ne se vidait jamais.
+// Tant qu'il reste plus d'un lot à envoyer, un écart avec le Cloud est NORMAL : on ne répare pas.
+// Dès que la file tient dans un lot, la réparation reprend son rôle (elle seule rattrape une
+// ligne perdue). La réparation MANUELLE (/api/sync/repair) n'est pas concernée.
+export function reparationDifferee(enAttente, lot = BATCH) {
+  return Number(enAttente) > lot;
+}
+
 async function verifierEtReparer() {
   try {
     const { verifyIntegrity } = await import('./syncVerify.js');
     let report = await verifyIntegrity({ promote: false });
     markVerification(report);
-    if (!report.ok) {
+    const enAttente = db.prepare('SELECT count(*) AS c FROM sync_outbox').get().c;
+    if (!report.ok && reparationDifferee(enAttente)) {
+      console.log(`[sync] réparation différée : ${enAttente} ligne(s) encore à envoyer (plus d'un lot).`);
+    } else if (!report.ok) {
       try {
         const { autoRepair } = await import('./syncRepair.js');
         const rep = await autoRepair();

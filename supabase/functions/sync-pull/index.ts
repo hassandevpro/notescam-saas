@@ -52,6 +52,8 @@ const TABLES = [
   'late_arrivals', 'disciplinary_incidents', 'disciplinary_actions',
   'student_warnings', 'student_detentions', 'parent_meetings', 'exit_permissions',
   'school_messages', 'teacher_notifications', 'sequence_dates', 'timetable_slots',
+  // Notes par compétence du primaire (voir sync-push / pousserNotePrimaire).
+  'prim_notes',
 ];
 // Toutes ces tables possèdent `id` (uuid) ET `updated_at` → keyset (updated_at, id) uniforme.
 const MAX_ROWS = 2000;   // borne dure de la réponse (payload maîtrisé)

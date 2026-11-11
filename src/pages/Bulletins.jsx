@@ -2485,6 +2485,22 @@ export default function Bulletins() {
   // Le NOM du champ stocké n'a pas changé : aucune donnée à migrer, seul le gabarit se trompait de case.
   const primAppreciationFor = (student, d) => d?.appreciationGenerale || '';
 
+  // DÉCISION DU CARNET PRIMAIRE — la case « Décision » restait vide tant que le
+  // conseil n'avait rien saisi (Bright Continent, 2026-11-11 : moyenne 13,2/20,
+  // cote ECA, décision vide). La décision SAISIE au conseil l'emporte ; à défaut
+  // elle suit la moyenne, au seuil de réussite du produit (barème / 2, le même
+  // que les statistiques de classe). Sans moyenne : vide, on ne devine pas.
+  // `apcDecisionLabel` est déclarée plus bas : appelée seulement au rendu.
+  const primDecisionFor = (student, d) => {
+    const saisie = apcDecisionLabel(student.id);
+    if (saisie) return saisie;
+    const m = d?.moyenneGenerale;
+    if (m == null) return '';
+    const reussi = m >= PRIM_GRADE_MAX / 2;
+    if (sys === 'EN') return reussi ? 'Passed' : 'Failed';
+    return reussi ? 'Admis(e)' : 'Ajourné(e)';
+  };
+
   // Le créneau qui porte l'observation de la PÉRIODE affichée : celui de l'UA pour un bulletin d'UA (créneaux
   // 11 à 18, cf. core/observationGlobale), celui du trimestre sinon.
   const primObsSlot = () => (period?.ua != null
@@ -3412,6 +3428,7 @@ export default function Bulletins() {
             // elle vient de `primDataById`, inchangée.
             moyenneGenerale={d.moyenneGenerale} coteGenerale={d.coteGenerale}
             appreciationGenerale={primAppreciationFor(student, d)}
+            decision={primDecisionFor(student, d)}
             observations={primObservationFor(student.id)}
             rank={primRanks[student.id]}
             coteBareme={primBareme}

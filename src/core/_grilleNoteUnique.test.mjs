@@ -110,3 +110,16 @@ test('une compétence exclue (6A, sport inapte) reste à la saisie actuelle', ()
   assert.ok(r.multiples.some((c) => c.id === 'cr'));
   assert.ok(!r.colonnes.some((c) => c.id === 'cr'));
 });
+
+// ── saisie rapide : administrateur + réglage d'école, lecture stricte ──
+import { saisieRapideAutorisee } from './grilleNoteUnique.js';
+test('saisie rapide : admin ET réglage allumé ; colonne absente, fausse ou enseignant = écran d’origine', () => {
+  assert.equal(saisieRapideAutorisee('admin', { saisie_rapide_admin: true }), true);
+  assert.equal(saisieRapideAutorisee('admin', { saisie_rapide_admin: 1 }), true);
+  assert.equal(saisieRapideAutorisee('admin', { saisie_rapide_admin: false }), false, 'école qui la refuse (Genius, Bright)');
+  assert.equal(saisieRapideAutorisee('admin', { saisie_rapide_admin: 0 }), false);
+  assert.equal(saisieRapideAutorisee('admin', {}), false, 'migration pas encore appliquée');
+  assert.equal(saisieRapideAutorisee('admin', null), false);
+  assert.equal(saisieRapideAutorisee('teacher', { saisie_rapide_admin: true }), false, 'les enseignants gardent leur écran');
+  assert.equal(saisieRapideAutorisee('censeur', { saisie_rapide_admin: true }), false);
+});

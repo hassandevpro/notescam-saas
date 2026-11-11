@@ -483,6 +483,10 @@ export default function Settings() {
         ...('prim_moyenne_points' in school
           ? { prim_moyenne_points: school.prim_moyenne_points === true || school.prim_moyenne_points === 1 }
           : {}),
+        // Saisie rapide administrateur : même garde — sans la colonne côté Cloud, envoyer la clé ferait rejeter l'enregistrement.
+        ...('saisie_rapide_admin' in school
+          ? { saisie_rapide_admin: school.saisie_rapide_admin === true || school.saisie_rapide_admin === 1 }
+          : {}),
         prim_bulletin_mode: ['carnet', 'carnet_epreuves', 'carnet_matieres'].includes(school.prim_bulletin_mode)
           ? school.prim_bulletin_mode : 'standard',
         // En-tête officiel bilingue (2 blocs pays) ou mono-langue. Défaut = bilingue
@@ -1075,6 +1079,37 @@ export default function Settings() {
                     )}
                   </div>
                 )}
+              </Section>
+            )}
+
+            {/* ── Saisie rapide administrateur (primaire) ─────────────────────── */}
+            {'saisie_rapide_admin' in (school || {}) && (
+              <Section title={t('Saisie rapide administrateur', 'Admin quick entry', 'Entrada rápida del administrador')} className="mt-6">
+                <label className={`flex items-start gap-3 rounded-xl border p-4 transition-colors ${
+                  form.saisie_rapide_admin ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-300' : 'border-gray-200 bg-white'
+                } ${isAdmin ? 'cursor-pointer hover:border-brand-300' : 'opacity-60 cursor-not-allowed'}`}>
+                  <input
+                    type="checkbox"
+                    disabled={!isAdmin}
+                    checked={form.saisie_rapide_admin === true || form.saisie_rapide_admin === 1}
+                    onChange={(e) => setForm((f) => ({ ...f, saisie_rapide_admin: e.target.checked }))}
+                    className="mt-0.5 rounded border-gray-300 text-brand-600 focus:ring-brand-400"
+                  />
+                  <span>
+                    <span className="font-semibold text-gray-900 text-sm block">
+                      {t('Grille « toutes les matières » pour l’administrateur',
+                         '“All subjects” grid for the administrator',
+                         'Cuadrícula de todas las asignaturas para el administrador')}
+                    </span>
+                    <span className="text-xs text-gray-500 mt-1.5 block">
+                      {t(
+                        'Sur la page de saisie du primaire, l’administrateur voit plusieurs matières côte à côte pour les classes dont les matières n’ont qu’une note. Les enseignants gardent leur écran habituel. Les notes sont les mêmes que dans la saisie par matière.',
+                        'On the primary entry page, the administrator sees several subjects side by side for classes whose subjects have a single mark. Teachers keep their usual screen. Marks are the same as in by-subject entry.',
+                        'El administrador ve varias asignaturas en paralelo. Los profesores no cambian.',
+                      )}
+                    </span>
+                  </span>
+                </label>
               </Section>
             )}
 

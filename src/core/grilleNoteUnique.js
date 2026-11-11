@@ -12,6 +12,15 @@ import { primCote, primNkey } from './primEngine.js';
 export const PRIM_NOTE_MAX = 20;
 
 /**
+ * LA SAISIE RAPIDE MULTI-MATIÈRES : administrateur ET réglage d'école explicitement allumé.
+ * Lecture STRICTE : colonne absente (migration pas encore appliquée), nulle ou fausse = écran d'origine.
+ * Aucun nom d'école n'apparaît ici : Genius et Bright Continent la perdent par leur réglage, rien d'autre.
+ */
+export function saisieRapideAutorisee(role, school) {
+  return role === 'admin' && (school?.saisie_rapide_admin === true || school?.saisie_rapide_admin === 1);
+}
+
+/**
  * Les barèmes déjà posés par la classe pour (compétence, critère), toutes UA confondues : { 'comp|crit': { ua: max } }.
  * Une seule passe sur les notes, quel que soit le nombre de colonnes.
  */

@@ -343,6 +343,10 @@ ensureColumn('schools', 'notes_manquantes_zero', 'notes_manquantes_zero INTEGER 
 // historique. Miroir de `supabase_prim_moyenne_points.sql`, à exécuter au Cloud AVANT toute
 // distribution d'un paquet portant cette ligne (sinon `sync-push` rejette la ligne `schools`).
 ensureColumn('schools', 'prim_moyenne_points', 'prim_moyenne_points INTEGER NOT NULL DEFAULT 0');
+// Saisie rapide multi-matières de l'administrateur (primaire). Éteinte par défaut EN LAN : une école qui n'a pas
+// encore reçu la valeur du Cloud garde l'écran d'origine. Miroir de `supabase_saisie_rapide_admin.sql`, à exécuter
+// au Cloud AVANT toute distribution d'un paquet portant cette ligne (sinon `sync-push` rejette la ligne `schools`).
+ensureColumn('schools', 'saisie_rapide_admin', 'saisie_rapide_admin INTEGER NOT NULL DEFAULT 0');
 // Couleur d'accent des bulletins, choisie par l'école. Miroir de
 // `supabase_bulletin_accent.sql`, qui doit avoir tourné au Cloud AVANT qu'un
 // paquet portant cette ligne ne soit distribué : `schools` est synchronisée, et

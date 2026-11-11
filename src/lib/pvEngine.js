@@ -323,7 +323,7 @@ function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bar
   const criteresFor = (compId, student) => criteresPourDocument(
     referentiel, niveauSlug, compId,
     compId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte',
-    criteresMasques, notes,
+    criteresMasques, notes, { eleveIds: students.map((s) => s.id), uas: units.flatMap((u) => u.seqs) },
   );
 
   // Cellules (points obtenus / possibles) de l'élève en cours, pour la règle « en points ».

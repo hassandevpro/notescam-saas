@@ -300,10 +300,10 @@ function apcReport({ cls, students, subjects, period, apcNotes, apcReferentiel: 
 // Moyenne /10 d'une compétence sur la période : moyenne des pourcentages
 // (points obtenus / points du barème officiel) de chaque UA notée. Même règle
 // que le bulletin primaire, pour que rapport et bulletin ne divergent jamais.
-function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas, primNotes, criteresMasques = [],
+function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas, primNotes, criteresMasques = [], eleveIds = null,
   classId = null, nonEvaluees = [], zeroSiManquante = false, cellulesOut = null }) {
   const aptitude = competenceId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte';
-  const criteres = criteresPourDocument(referentiel, niveauSlug, competenceId, aptitude, criteresMasques, primNotes);
+  const criteres = criteresPourDocument(referentiel, niveauSlug, competenceId, aptitude, criteresMasques, primNotes, { eleveIds, uas });
   if (!criteres.length) return null;
   const pcts = uas.map((ua) => {
     const notesByCritere = {};
@@ -362,7 +362,7 @@ function primReport({ cls, students, subjects, period, primNotes, primReferentie
     for (const col of columns) {
       const moyenne = primCompetenceAvg({
         referentiel: primReferentiel, niveauSlug, student, competenceId: col.id, uas, primNotes,
-        criteresMasques: primCriteresMasques,
+        criteresMasques: primCriteresMasques, eleveIds: students.map((s) => s.id),
         classId: cls?.id || null, nonEvaluees: primNonEvaluees, zeroSiManquante,
         cellulesOut: moyennePoints ? cellulesPoints : null,
       });

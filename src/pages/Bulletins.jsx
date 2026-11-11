@@ -47,7 +47,7 @@ import { classIdentity } from '../lib/schoolIdentity';
 import { moyennePointsActive, moyennePointsSur20 } from '../core/primMoyennePoints';
 import {
   competencesForNiveau, bulletinRows as primBulletinRows, generalAverage as primGeneralAverage,
-  primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresForCompetence, criteresDeSecours, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
+  primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresPourDocument, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
   primNoteScale, PRIM_GRADE_MAX, celluleDeNote,
   // Totaux en points : servent la ligne « Total obtenu » et la mention
   // « provisoire ». La MOYENNE generale reste generalAverage (primGeneralAverage).
@@ -2267,7 +2267,6 @@ export default function Bulletins() {
     // ceux que l'école n'évalue pas. Les colonnes du bulletin étant l'union des
     // critères rencontrés (`critereColumnsOf`), les masquer ICI suffit à les
     // faire disparaître des deux dispositions.
-    const officiels = criteresForCompetence(primReferentiel, primNiveauSlug, compId, aptitude, primCriteresMasques);
     // UNE COMPÉTENCE D'ÉCOLE N'A AUCUNE LIGNE DANS `prim_bareme_criteres` —
     // table nationale, sans `school_id`. Mesuré sur la base de production le
     // 2026-10-29 : 38 compétences d'école chez THE GENIUS, 0 barème. Sans ce
@@ -2275,11 +2274,9 @@ export default function Bulletins() {
     // saisie, mais pas une seule case où écrire une note : elle imprimait « — »
     // pour toujours. Le barème de secours est celui que l'école a posé sur la
     // MATIÈRE (`subjects.max`) — voir `criteresDeSecours`.
-    const liste = officiels.length
-      ? officiels
-      : criteresDeSecours(primReferentiel?.criteres, (crId) => classStudents.flatMap(
-        (stu) => primUAs.map((ua) => primNotes[primNkey(stu.id, compId, crId, ua)]),
-      ));
+    // MÊME fonction que le PV et le rapport (`criteresPourDocument`) : les trois documents ne peuvent plus diverger.
+    const liste = criteresPourDocument(primReferentiel, primNiveauSlug, compId, aptitude, primCriteresMasques, primNotes,
+      { eleveIds: classStudents.map((stu) => stu.id), uas: primUAs });
     return liste.map((cr) => ({ ...cr, nom: primCritereLabel(cr, sys) }));
   };
 

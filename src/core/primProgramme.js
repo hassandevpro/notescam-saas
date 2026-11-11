@@ -309,3 +309,17 @@ export function ordonnerParProgramme(rows, blocs) {
   return [...(rows || [])].sort((a, b) => (rang.get(a?.code) ?? blocs.length)
     - (rang.get(b?.code) ?? blocs.length));
 }
+
+// Classe BILINGUE du primaire : l'UNION des deux programmes, dans un ordre logique — le programme de la langue
+// de la classe d'abord, l'autre ensuite, puis ce qui n'appartient à aucun (Chinois…). Aucune compétence n'est
+// retirée ni dédoublonnée ici : on ne fait que ranger (tri stable). Classe monolingue : liste inchangée.
+export function ordonnerCompetencesBilingues(comps, cls, subjects) {
+  const liste = comps || [];
+  if (!liste.length) return liste;
+  const parCode = programmesParCode(subjects || [], liste, troncsDe(cls));
+  const presents = new Set(liste.map((c) => parCode.get(c.code)).filter(Boolean));
+  if (!(presents.has('FR') && presents.has('EN'))) return liste;
+  const ordre = String(cls?.system || 'FR').toUpperCase() === 'EN' ? ['EN', 'FR'] : ['FR', 'EN'];
+  const rang = (c) => { const i = ordre.indexOf(parCode.get(c.code)); return i < 0 ? ordre.length : i; };
+  return liste.map((c, i) => [c, i]).sort((a, b) => rang(a[0]) - rang(b[0]) || a[1] - b[1]).map(([c]) => c);
+}

@@ -28,6 +28,7 @@ import { buildClassReport, REPORT_KIND } from '../lib/classReportEngine';
 import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
 import { bySubjectOrder, classSubjectsOf } from '../core/subjectOrder';
 import { moyennePointsActive } from '../core/primMoyennePoints';
+import { themeOf, dispositionMatieres, abreger, legendeAbreviations } from '../lib/documentTheme';
 
 // Anglophone : six séquences groupées en trois Terms, miroir de PERIODS_FR.
 const PERIODS_EN = [
@@ -62,7 +63,7 @@ function apprFor(row, sys, maxScale) {
 
 // ── Impression dans une nouvelle fenêtre (propre, sans sidebar) ───────────────
 // cols : { matricule, appreciation, decision, subjectTable, distribution }
-function reportBodyHtml({ school, selectedClass, period, stats, studentResults, subjectStats,
+export function reportBodyHtml({ school, selectedClass, period, stats, studentResults, subjectStats,
                        classStudents, classSubjects = [], maxScale, passThreshold, sys, cols = {}, isGE = false }) {
   const {
     matricule     = true,
@@ -84,11 +85,18 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
   const thMatricule    = matricule    ? `<th style="width:90px">${Lp('Matricule', 'Matrícula')}</th>` : '';
   const thAppreciation = appreciation ? `<th style="width:80px">${Lp('Appréciation', 'Apreciación')}</th>` : '';
   const thDecision     = decision     ? `<th style="width:85px">${Lp('Décision', 'Decisión')}</th>` : '';
+  const layMat = dispositionMatieres(subjectScores ? classSubjects.length : 0);
   // Une colonne par matière — note de chaque élève, pas seulement sa moyenne
   // générale (façon PV/relevé de classe papier).
   const thSubjects = subjectScores
-    ? classSubjects.map((sub) => `<th style="width:32px;font-size:7px;line-height:1.2">${sub.name}<br/>/${sub.max}</th>`).join('')
+    ? classSubjects.map((sub) => (layMat.vertical
+      ? `<th class="vert"><div class="vtxt">${abreger(sub.name, school, 18)} /${sub.max}</div></th>`
+      : `<th style="width:32px;line-height:1.2;overflow-wrap:anywhere">${sub.name}<br/>/${sub.max}</th>`)).join('')
     : '';
+  const legendeMat = subjectScores && layMat.vertical
+    ? legendeAbreviations(classSubjects.map((x) => x.name), school, 18) : [];
+  const legendeHtml = legendeMat.length
+    ? `<div class="legende"><strong>${Lp('Légende', 'Leyenda')} :</strong> ${legendeMat.map((l) => `<span>${l.abrege} = ${l.complet}</span>`).join(' ')}</div>` : '';
 
   const rankRows = studentResults.map(({ student, avg, rank, appr, scores = {} }) => {
     const passed = avg !== null && avg >= passThreshold;
@@ -97,7 +105,7 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
     const tdAppreciation = appreciation ? `<td style="text-align:center;color:#374151">${sys === 'EN' ? (appr ? appr.g : '—') : (appr?.text || '—')}</td>` : '';
     const tdDecision     = decision     ? `<td style="text-align:center;font-weight:700;color:${passed ? '#059669' : '#dc2626'}">${passed ? Lp('Admis(e)', 'Aprobado') : Lp('Ajourné(e)', 'Suspenso')}</td>` : '';
     const tdSubjects     = subjectScores
-      ? classSubjects.map((sub) => `<td style="text-align:center;font-size:8.5px;color:#374151">${scores[sub.id] ?? '—'}</td>`).join('')
+      ? classSubjects.map((sub) => `<td style="text-align:center;color:#222">${scores[sub.id] ?? '—'}</td>`).join('')
       : '';
     return `<tr>
       <td style="text-align:center;font-weight:700">${rank?.rankD ? rank.rankN : '—'}</td>
@@ -187,6 +195,7 @@ function reportBodyHtml({ school, selectedClass, period, stats, studentResults, 
     </tr></thead>
     <tbody>${rankRows}</tbody>
   </table>
+  ${legendeHtml}
 
   ${subjectTable ? `
   <h3>${Lp('Résultats par matière', 'Resultados por asignatura')}</h3>
@@ -326,7 +335,8 @@ function acquisitionBodyHtml({ school, selectedClass, period, report, classStude
 
 // Enveloppe HTML commune (styles) : un ou plusieurs corps de rapport concaténés,
 // chaque classe sur sa propre page (`.page + .page` → saut de page).
-function reportDocShell({ isGE, title, bodies, landscape = false }) {
+export function reportDocShell({ isGE, title, bodies, landscape = false, school = null }) {
+  const T = themeOf(school);
   return `<!DOCTYPE html>
 <html lang="${isGE ? 'es' : 'fr'}">
 <head>
@@ -334,7 +344,7 @@ function reportDocShell({ isGE, title, bodies, landscape = false }) {
   <title>${title}</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:Arial,sans-serif;font-size:11px;color:#000;background:#fff}
+    body{font-family:Arial,sans-serif;font-size:11px;color:${T.text};background:#fff}
     .page{padding:8px}
     .page + .page{page-break-before:always}
     /* ── En-tête République (3 colonnes), façon bulletin APC ── */
@@ -346,24 +356,31 @@ function reportDocShell({ isGE, title, bodies, landscape = false }) {
     .rc-school{font-size:12px;font-weight:bold;display:block}
     .rc-meta{font-size:8.5px}
     /* ── Barre titre ── */
-    .title-bar{background:#1e3a5f;color:#fff;text-align:center;padding:5px 8px;font-weight:bold;font-size:12px;letter-spacing:.5px;margin-bottom:5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .title-bar{background:#fff;color:${T.accent};text-align:center;padding:5px 8px 6px;font-weight:bold;font-size:13px;letter-spacing:.5px;margin-bottom:10px;border-bottom:1px solid ${T.accent}}
     /* ── Ligne info ── */
     .doc-info{width:100%;border-collapse:collapse;margin-bottom:8px}
-    .doc-info td{border:1px solid #374151;padding:3px 6px;font-size:9.5px;background:#f8fafc;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .doc-info td{border:1px solid ${T.line};padding:3px 6px;font-size:9.5px;background:#fff}
     /* ── Stats ── */
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
-    .stat{border:1px solid #374151;padding:7px 6px;text-align:center}
+    .stat{border:1px solid ${T.line};padding:7px 6px;text-align:center}
     .stat-val{font-size:18px;font-weight:800}
-    .stat-lbl{font-size:9px;color:#374151;margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+    .stat-lbl{font-size:9px;color:${T.text};margin-top:2px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
     /* ── Sections + tableaux ── */
-    h3{font-size:10.5px;font-weight:bold;text-transform:uppercase;letter-spacing:.04em;background:#1e3a5f;color:#fff;padding:3px 8px;margin:10px 0 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    h3{font-size:10.5px;font-weight:bold;text-transform:uppercase;letter-spacing:.04em;background:${T.headerBg};color:${T.text};border:1px solid ${T.line};padding:3px 8px;margin:12px 0 0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px}
-    thead th{background:#1e3a5f;color:#fff;border:1px solid #374151;padding:4px 6px;text-align:center;font-size:9px;text-transform:uppercase;letter-spacing:.03em;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    tbody td{border:1px solid #374151;padding:3px 6px}
-    tbody tr:nth-child(even) td{background:#f4f6f9;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    thead{display:table-header-group}
+    tr{page-break-inside:avoid}
+    thead th{background:${T.headerBg};color:${T.text};border:1px solid ${T.line};padding:2.5mm 1.2mm;min-height:12mm;text-align:center;font-size:8pt;text-transform:uppercase;letter-spacing:.02em;vertical-align:middle;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    thead th.vert{height:34mm;padding:2mm .5mm;width:7mm}
+    .vtxt{writing-mode:vertical-rl;transform:rotate(180deg);margin:0 auto;max-height:32mm;overflow:hidden;text-align:left;line-height:1.15;text-transform:none}
+    tbody td{border:1px solid ${T.line};padding:1.6mm 1.2mm;color:${T.text}}
+    tbody td:nth-child(2){padding-left:3mm}
+    tbody tr:nth-child(even) td{background:${T.zebra};-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .legende{font-size:7.5pt;color:${T.text};margin:1mm 0 3mm;line-height:1.5}
+    .legende span{margin-right:3mm;white-space:nowrap}
     /* ── Pied signatures bordées ── */
     .foot{width:100%;border-collapse:collapse;margin-top:16px}
-    .foot td{border:1px solid #374151;width:33.33%;text-align:center;font-size:9px;font-weight:bold;height:62px;vertical-align:bottom;padding:4px 4px 6px}
+    .foot td{border:1px solid ${T.line};width:33.33%;text-align:center;font-size:9px;font-weight:bold;height:62px;vertical-align:bottom;padding:4px 4px 6px}
     .foot td.foot-head{vertical-align:top;padding-top:5px}
     .foot td.foot-head img{height:34px;display:block;margin:2px auto;object-fit:contain;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .notice{font-size:7.5px;color:#9ca3af;text-align:center;font-style:italic;margin-top:6px}
@@ -400,7 +417,7 @@ function printReport(args) {
   const landscape = args.kind === REPORT_KIND.ACQUISITION
     ? (args.classSubjects?.length || 0) > 6
     : args.cols?.subjectScores !== false && (args.classSubjects?.length || 0) > 6;
-  openPrintWindow(reportDocShell({ isGE: args.isGE, title, bodies: [bodyHtmlFor(args)], landscape }));
+  openPrintWindow(reportDocShell({ isGE: args.isGE, title, bodies: [bodyHtmlFor(args)], landscape, school: args.school }));
 }
 
 // Calcule le payload de rapport d'UNE classe pour une période, QUEL QUE SOIT son

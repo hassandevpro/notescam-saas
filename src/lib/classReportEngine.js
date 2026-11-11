@@ -30,7 +30,7 @@ import {
 } from '../core/apcEngine.js';
 import { apcSeqIdsForTrimestre, apcTrimestreOfSeqNum } from '../core/apcPeriods.js';
 import {
-  competencesForNiveau, criteresForCompetence, competencePointsTotal, celluleDeNote,
+  competencesForNiveau, criteresPourDocument, competencePointsTotal, celluleDeNote,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
   nonEvalKey,
 } from '../core/primEngine.js';
@@ -46,6 +46,7 @@ import { apcForClass, primForClass, masquesDeClasse, apcClasseMatieresEcole } fr
 import {
   matDomaineLabel, matAcquisLabel, primCompetenceLabel, apcMatiereLabel,
 } from '../core/referentielI18n.js';
+import { ordonnerCompetencesBilingues } from '../core/primProgramme.js';
 
 // Clés transactionnelles locales. Définitions canoniques : `apcService.noteNkey`,
 // `primService.primNkey`, `matService.obsNkey` — reprises ici parce que ces
@@ -302,7 +303,7 @@ function apcReport({ cls, students, subjects, period, apcNotes, apcReferentiel: 
 function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas, primNotes, criteresMasques = [],
   classId = null, nonEvaluees = [], zeroSiManquante = false, cellulesOut = null }) {
   const aptitude = competenceId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte';
-  const criteres = criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude, criteresMasques);
+  const criteres = criteresPourDocument(referentiel, niveauSlug, competenceId, aptitude, criteresMasques, primNotes);
   if (!criteres.length) return null;
   const pcts = uas.map((ua) => {
     const notesByCritere = {};
@@ -343,7 +344,9 @@ function primReport({ cls, students, subjects, period, primNotes, primReferentie
   // matières cochées. Le rapport listait tout le niveau, y compris ce que le
   // bulletin n'imprime pas — deux documents de la même classe ne concordaient
   // donc pas.
-  const comps = primForClass(primReferentiel, niveauSlug, subjects, masquesDeClasse(primMasques, primMasquesClasse, cls?.id)).competences;
+  const comps = ordonnerCompetencesBilingues(
+    primForClass(primReferentiel, niveauSlug, subjects, masquesDeClasse(primMasques, primMasquesClasse, cls?.id)).competences,
+    cls, subjects);
   const columns = comps.map((c) => ({
     id: c.id,
     name: c.code ? `${c.code} — ${primCompetenceLabel(c, sys)}` : primCompetenceLabel(c, sys),

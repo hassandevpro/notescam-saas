@@ -149,6 +149,42 @@ export function criteresDeSecours(criteres, notesDe) {
   return out.sort((a, b) => a.ordre - b.ordre);
 }
 
+// Index (compétence → critère → notes) d'un lot de notes, mémorisé par lot : un PV de 40 élèves × 20
+// compétences ne relit pas 3 000 notes à chaque cellule.
+const _indexNotes = new WeakMap();
+function notesParCompetence(primNotes) {
+  if (!primNotes || typeof primNotes !== 'object') return new Map();
+  let idx = _indexNotes.get(primNotes);
+  if (idx) return idx;
+  idx = new Map();
+  for (const r of Object.values(primNotes)) {
+    if (!r || r.competence_id == null || r.critere_id == null) continue;
+    let parCrit = idx.get(r.competence_id);
+    if (!parCrit) idx.set(r.competence_id, (parCrit = new Map()));
+    let l = parCrit.get(r.critere_id);
+    if (!l) parCrit.set(r.critere_id, (l = []));
+    l.push(r);
+  }
+  _indexNotes.set(primNotes, idx);
+  return idx;
+}
+
+/**
+ * LES CRITÈRES D'UNE COMPÉTENCE POUR UN DOCUMENT DE CLASSE (PV, rapport) — même règle que le bulletin :
+ * critères du barème NATIONAL s'il en existe, sinon (compétence créée par l'école : « Chinois »…) ceux que
+ * les notes saisies établissent (`criteresDeSecours`). Sans ce repli, une matière notée mais inconnue du
+ * barème national n'avait AUCUN critère : cellules vides et colonne absente du PV et du rapport.
+ */
+export function criteresPourDocument(referentiel, niveauSlug, competenceId, aptitude, masques, primNotes) {
+  const officiels = criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude, masques);
+  if (officiels.length) return officiels;
+  const parCrit = notesParCompetence(primNotes).get(competenceId);
+  if (!parCrit) return [];
+  const masque = new Set(masquesDe(masques, competenceId));
+  const candidats = (referentiel?.criteres || []).filter((c) => !masque.has(c.id));
+  return criteresDeSecours(candidats, (cid) => parCrit.get(cid) || []);
+}
+
 // Normalise une note de critère en { note, max }, ou null si NON ÉVALUÉE.
 // Accepte indifféremment :
 //   • une valeur brute      : 8, '8'          → sur le barème du référentiel ;

@@ -28,7 +28,7 @@ import { apcSeqNumsForTrimestre, apcSeqIdOfSeqNum } from '../core/apcPeriods.js'
 // source de vérité que les bulletins, pour que les deux documents concordent.
 import { apcForClass, primForClass, masquesDeClasse, apcClasseMatieresEcole } from '../core/refClassScope.js';
 import {
-  competencesForNiveau, criteresForCompetence, competencePointsTotal,
+  competencesForNiveau, criteresPourDocument, competencePointsTotal,
   generalAverage as primGeneralAverage, primCote, PRIM_COTE_DEFAULT, UA_PAR_TRIMESTRE,
   primNkey, celluleDeNote, nonEvalKey, PRIM_GRADE_MAX,
 } from '../core/primEngine.js';
@@ -36,6 +36,7 @@ import {
 // du secteur anglophone, le PV les rend en anglais, comme le fait le bulletin.
 import { primCompetenceLabel } from '../core/referentielI18n.js';
 import { moyennePointsSur20 } from '../core/primMoyennePoints.js';
+import { ordonnerCompetencesBilingues } from '../core/primProgramme.js';
 
 // ── Périodes de délibération ─────────────────────────────────────────────────
 // Un conseil de classe délibère par TRIMESTRE (ou en fin d'année). Chaque moteur
@@ -319,10 +320,10 @@ function buildPrimPv({ sys, students, units, referentiel, notes, niveauSlug, bar
 
   // Les critères masqués par l'école sortent aussi du PV : le conseil doit
   // délibérer sur ce que le bulletin imprime, pas sur des colonnes retirées.
-  const criteresFor = (compId, student) => criteresForCompetence(
+  const criteresFor = (compId, student) => criteresPourDocument(
     referentiel, niveauSlug, compId,
     compId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte',
-    criteresMasques,
+    criteresMasques, notes,
   );
 
   // Cellules (points obtenus / possibles) de l'élève en cours, pour la règle « en points ».
@@ -420,7 +421,9 @@ export function buildClassPv(ctx) {
         classeMatieres: apcClasseMatieresEcole(apcReferentiel, apcClasseSlug, subjects) }
     : apcReferentiel;
   const primComps = engine === 'apc_primaire'
-    ? primForClass(primReferentiel, primNiveauSlug, subjects, masquesDeClasse(primMasques, primMasquesClasse, cls?.id)).competences
+    ? ordonnerCompetencesBilingues(
+      primForClass(primReferentiel, primNiveauSlug, subjects, masquesDeClasse(primMasques, primMasquesClasse, cls?.id)).competences,
+      cls, subjects)
     : null;
 
   const base = engine === 'apc'

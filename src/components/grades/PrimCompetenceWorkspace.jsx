@@ -582,17 +582,37 @@ export default function PrimCompetenceWorkspace() {
       .map((c) => ({ id: c.id, nom: primCritereLabel(c, sys), points_max: 0, ordre: c.ordre ?? 99, aNoter: true }));
     return [...base, ...manquants];
   }, [referentiel, niveauSlug, masquesCrit, sys]);
+  // Les barèmes que l'école emploie déjà, par critère et par compétence : c'est ce dont une matière jamais ouverte
+  // à cette UA hérite (même règle que l'ouverture d'une colonne dans la saisie par matière).
+  const baremesEcoleIndex = useMemo(() => {
+    const miens = new Set(classStudents.map((s) => s.id));
+    const idx = {};
+    for (const r of Object.values(primNotes || {})) {
+      if (!r || !miens.has(r.eleve_id)) continue;
+      const m = Number(r.points_max);
+      if (Number.isFinite(m) && m > 0) (idx[r.critere_id] ||= []).push({ cid: r.competence_id, m });
+    }
+    return idx;
+  }, [primNotes, classStudents]);
+  const ouvertureDe = useCallback((cid, critereIds) => baremeOuverture({
+    critereIds,
+    officielPour: (id) => criteresDe(cid).find((c) => c.id === id)?.points_max,
+    baremesEcole: (id) => (baremesEcoleIndex[id] || []).filter((x) => x.cid !== cid).map((x) => x.m),
+    baremeCriteres: referentiel?.baremeCriteres,
+    niveauSlug,
+  }), [criteresDe, baremesEcoleIndex, referentiel, niveauSlug]);
   const grille = useMemo(() => colonnesNoteUnique({
-    competences, criteresDe, notes: primNotes, eleveIds: classStudents.map((s) => s.id), ua, exclure: ['6a'],
-  }), [competences, criteresDe, primNotes, classStudents, ua]);
+    competences, criteresDe, notes: primNotes, eleveIds: classStudents.map((s) => s.id), ua, ouvertureDe,
+  }), [competences, criteresDe, primNotes, classStudents, ua, ouvertureDe]);
   const [vuePref, setVuePref] = useState(() => { try { return localStorage.getItem('nc_prim_vue') || 'auto'; } catch { return 'auto'; } });
   const choisirVue = (v) => { setVuePref(v); try { localStorage.setItem('nc_prim_vue', v); } catch { /* poste sans stockage */ } };
   // « Auto » : la feuille s'ouvre d'elle-même quand TOUTES les matières de la classe sont à note unique (ou que
   // l'école a choisi le bulletin « Classique par matières »). Une classe mixte garde la saisie actuelle, et
   // propose la feuille d'un bouton.
-  const toutesUniques = grille.colonnes.length > 0 && grille.multiples.length === 0;
+  // « Auto » : dès que PLUSIEURS matières sont à note unique, la feuille s'ouvre — les autres matières (à critères)
+  // restent à « Afficher une seule matière ». Une classe à critères partout n'a aucune colonne : rien ne change.
   const vueGrille = grille.colonnes.length > 0 && (vuePref === 'grille'
-    || (vuePref === 'auto' && (toutesUniques || school?.prim_bulletin_mode === 'carnet_matieres')));
+    || (vuePref === 'auto' && (grille.colonnes.length >= 2 || school?.prim_bulletin_mode === 'carnet_matieres')));
   const nkeysGrille = useMemo(() => {
     if (!vueGrille) return [];
     const out = [];

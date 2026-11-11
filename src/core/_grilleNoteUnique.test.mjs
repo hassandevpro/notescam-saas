@@ -89,6 +89,22 @@ test('le barème de la Dictée se retrouve à l’UA suivante, sans nouvelle not
   assert.equal(baremeColonne({ notesColonne: [], officiel: 0, parUA: undefined, ua: 4 }), 0);
 });
 
+test('une matière jamais ouverte à cette UA hérite du barème d’ouverture : toutes les matières sont côte à côte', () => {
+  // 4A : aucun barème, aucune note, rien de national → l'ouverture propose Écrit /30
+  const r = colonnesNoteUnique({
+    competences: COMPETENCES, criteresDe: CRITERES, notes: {}, eleveIds: ['e1'], ua: 1,
+    ouvertureDe: (id) => (id === '4a' ? { ecrit: 30 } : id === 'dq' ? { ecrit: 40 } : {}),
+  });
+  const par = Object.fromEntries(r.colonnes.map((c) => [c.code, [c.bareme, c.parDefaut]]));
+  assert.deepEqual(par['4A'], [30, true]);
+  assert.deepEqual(par.DQ, [40, true]);
+  assert.deepEqual(par.CR, [20, false], 'un barème national reste prioritaire');
+  assert.ok(!par['1A'], 'deux critères actifs : saisie par matière');
+  // ouverture ambiguë (deux critères) ou vide : pas de colonne inventée
+  const r2 = colonnesNoteUnique({ competences: COMPETENCES, criteresDe: CRITERES, notes: {}, eleveIds: ['e1'], ua: 1, ouvertureDe: () => ({ ecrit: 20, oral: 10 }) });
+  assert.ok(!r2.colonnes.some((c) => c.code === '4A'));
+});
+
 test('une compétence exclue (6A, sport inapte) reste à la saisie actuelle', () => {
   const r = colonnesNoteUnique({ competences: COMPETENCES, criteresDe: CRITERES, notes: {}, eleveIds: ['e1'], ua: 1, exclure: ['cr'] });
   assert.ok(r.multiples.some((c) => c.id === 'cr'));

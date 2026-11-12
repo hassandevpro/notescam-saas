@@ -13,6 +13,7 @@
 
 import { sheetOpen, SHEET_CLOSE as SHEET_END, num } from './print';
 import { officialHeaderHtml, officialSignatureHtml } from './officialDocHeader';
+import { PAL_SEC } from '../core/bulletinAccent';
 import { assembleBilBulletin, assembleBilAnnual, bilProvisoireTexte } from '../core/bilEngine';
 
 export { assembleBilBulletin, assembleBilAnnual };
@@ -26,7 +27,6 @@ const L = (sys, fr, en) => (sys === 'EN' ? en : fr);
 
 const SHEET_OPEN = sheetOpen({ profile: 'bulletin', fontSize: 10 });
 const C = 'border:1px solid #374151;padding:2px 4px;font-size:9px;vertical-align:top';
-const ACCENT = '#1e3a5f';
 
 const TITLE = {
   t1: { fr: 'BULLETIN SCOLAIRE — PROGRAMME D\'ÉDUCATION BILINGUE SPÉCIAL — PREMIER TRIMESTRE',
@@ -53,7 +53,7 @@ function programmeBandHtml(data, sys, classLabel) {
     ? L(sys, 'Sous-système anglophone', 'English sub-system')
     : L(sys, 'Sous-système francophone', 'French sub-system');
   const prog = L(sys, 'Programme d\'Éducation Bilingue Spécial', 'Special Bilingual Education Programme');
-  return `<div style="border:1px solid ${ACCENT};border-left:4px solid ${ACCENT};padding:3px 8px;margin-bottom:5px;font-size:9px;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+  return `<div style="border:1px solid ${PAL_SEC().accent};border-left:4px solid ${PAL_SEC().accent};padding:3px 8px;margin-bottom:5px;font-size:9px;-webkit-print-color-adjust:exact;print-color-adjust:exact">
     <strong>${esc(prog)}</strong> · ${esc(sousSysteme)} · ${esc(classLabel || '')}
     <span style="float:right;color:#555">${esc(L(sys, 'Arrêté n°239-23/MINESEC du 14 juin 2023', 'Order No. 239-23/MINESEC of 14 June 2023'))}</span>
   </div>`;
@@ -94,7 +94,7 @@ function identityHtml(student, { classLabel, effectif, titulaire, sys }) {
   </table>`;
 }
 
-const TH = (txt, w) => `<th style="${C};background:#eef2f7;text-align:center;font-size:8.5px${w ? `;width:${w}` : ''}">${esc(txt)}</th>`;
+const TH = (txt, w) => `<th style="${C};background:${PAL_SEC().th};text-align:center;font-size:8.5px${w ? `;width:${w}` : ''}">${esc(txt)}</th>`;
 
 // ── Tableau TRIMESTRIEL ──────────────────────────────────────────────────────
 function termHeadHtml(sys, seqLabels) {
@@ -111,7 +111,7 @@ function termHeadHtml(sys, seqLabels) {
 
 function termDomainHtml(d, sys, nbSeq) {
   const span = 5 + nbSeq;
-  const head = `<tr><td colspan="${span + 1}" style="${C};background:#dde7f3;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(d.nom)}</td></tr>`;
+  const head = `<tr><td colspan="${span + 1}" style="${C};background:${PAL_SEC().groupe};font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(d.nom)}</td></tr>`;
   const body = d.rows.map((r) => {
     // Matière applicable mais non notée : dite explicitement, jamais notée 0.
     const nonEval = `<span style="color:#9a3412">${esc(L(sys, 'non évaluée', 'not assessed'))}</span>`;
@@ -125,7 +125,7 @@ function termDomainHtml(d, sys, nbSeq) {
       <td style="${C}">${esc(r.appreciation)}</td>
     </tr>`;
   }).join('');
-  const sub = `<tr style="background:#f4f7fb;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+  const sub = `<tr style="background:${PAL_SEC().sous};-webkit-print-color-adjust:exact;print-color-adjust:exact">
     <td style="${C};text-align:right;font-weight:bold">${esc(L(sys, 'Sous-total', 'Subtotal'))} — ${esc(d.nom)}</td>
     <td style="${C};text-align:center;font-weight:bold">${fix2(d.coefSum)}</td>
     <td colspan="${nbSeq}" style="${C}"></td>
@@ -146,7 +146,7 @@ function synthesisHtml(data, { sys, decision, discipline, observations } = {}) {
     <tbody><tr>
       <td style="width:38%;vertical-align:top;padding-right:4px">
         <table style="width:100%;border-collapse:collapse"><tbody>
-          <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(L(sys, 'Résultats', 'Results'))}</td></tr>
+          <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(L(sys, 'Résultats', 'Results'))}</td></tr>
           ${kv(L(sys, 'Total des points pondérés Σ(Moy×Coef)', 'Total weighted points Σ(Avg×Coef)'), fix2(data.totalPoints))}
           ${kv(L(sys, 'Total des coefficients retenus', 'Total coefficients counted'), fix2(data.totalCoef))}
           ${kv(L(sys, 'MOYENNE GÉNÉRALE', 'OVERALL AVERAGE'), `${fix2(data.moyenneGenerale)}${bareme}`, true)}
@@ -156,7 +156,7 @@ function synthesisHtml(data, { sys, decision, discipline, observations } = {}) {
       </td>
       <td style="width:30%;vertical-align:top;padding-right:4px">
         <table style="width:100%;border-collapse:collapse"><tbody>
-          <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(L(sys, 'Discipline et conduite', 'Discipline and conduct'))}</td></tr>
+          <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(L(sys, 'Discipline et conduite', 'Discipline and conduct'))}</td></tr>
           ${kv(L(sys, 'Abs. non justifiées (h)', 'Unjustified absences (h)'), d.absNJ ?? '')}
           ${kv(L(sys, 'Abs. justifiées (h)', 'Justified absences (h)'), d.absJ ?? '')}
           ${kv(L(sys, 'Conduite', 'Conduct'), esc(d.conduite || ''))}
@@ -165,7 +165,7 @@ function synthesisHtml(data, { sys, decision, discipline, observations } = {}) {
       </td>
       <td style="width:32%;vertical-align:top">
         <table style="width:100%;border-collapse:collapse"><tbody>
-          <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(L(sys, 'Profil de la classe', 'Class profile'))}</td></tr>
+          <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(L(sys, 'Profil de la classe', 'Class profile'))}</td></tr>
           ${kv(L(sys, 'Moyenne de la classe', 'Class average'), fix2(data.classStats?.avg))}
           ${kv(L(sys, '[Min – Max]', '[Min – Max]'), data.classStats ? `${fix2(data.classStats.min)} – ${fix2(data.classStats.max)}` : '')}
           ${kv(L(sys, 'Matières évaluées', 'Subjects assessed'), `${data.nbEvaluees} / ${data.nbApplicables}`)}
@@ -199,7 +199,7 @@ export function buildBilBulletinSheet(ctx) {
 
   const body = data.domaines.map((d) => termDomainHtml(d, sys, seqs.length)).join('');
   return SHEET_OPEN
-    + officialHeaderHtml(school, { sys, title })
+    + officialHeaderHtml(school, { sys, title, accent: PAL_SEC().accent })
     + programmeBandHtml(data, sys, classLabel)
     + identityHtml(student, { classLabel, effectif, titulaire, sys })
     + provisoireHtml(data, sys)
@@ -222,7 +222,7 @@ function annualHeadHtml(sys) {
 }
 
 function annualDomainHtml(d, sys) {
-  const head = `<tr><td colspan="8" style="${C};background:#dde7f3;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(d.nom)}</td></tr>`;
+  const head = `<tr><td colspan="8" style="${C};background:${PAL_SEC().groupe};font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(d.nom)}</td></tr>`;
   const body = d.rows.map((r) => `<tr>
     <td style="${C}"><strong>${esc(r.nom)}</strong></td>
     <td style="${C};text-align:center">${r.coef}</td>
@@ -231,7 +231,7 @@ function annualDomainHtml(d, sys) {
     <td style="${C};text-align:center">${r.evaluee ? fix2(r.ponderee) : '—'}</td>
     <td style="${C}">${esc(r.appreciation)}</td>
   </tr>`).join('');
-  const sub = `<tr style="background:#f4f7fb;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+  const sub = `<tr style="background:${PAL_SEC().sous};-webkit-print-color-adjust:exact;print-color-adjust:exact">
     <td style="${C};text-align:right;font-weight:bold">${esc(L(sys, 'Sous-total', 'Subtotal'))} — ${esc(d.nom)}</td>
     <td style="${C};text-align:center;font-weight:bold">${fix2(d.coefSum)}</td>
     <td colspan="3" style="${C}"></td>
@@ -251,7 +251,7 @@ export function buildBilAnnualSheet(ctx) {
   const moyRow = (i, label) => `<tr><td style="${C}">${esc(label)}</td><td style="${C};text-align:center">${fix2(data.moyennesTrimestres[i])}</td></tr>`;
   const recap = `
     <table style="width:38%;border-collapse:collapse;margin-top:6px"><tbody>
-      <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(L(sys, 'Moyennes trimestrielles', 'Term averages'))}</td></tr>
+      <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold;-webkit-print-color-adjust:exact;print-color-adjust:exact">${esc(L(sys, 'Moyennes trimestrielles', 'Term averages'))}</td></tr>
       ${moyRow(0, L(sys, 'Trimestre 1', 'Term 1'))}${moyRow(1, L(sys, 'Trimestre 2', 'Term 2'))}${moyRow(2, L(sys, 'Trimestre 3', 'Term 3'))}
     </tbody></table>`;
 
@@ -272,7 +272,7 @@ export function buildBilAnnualSheet(ctx) {
 
   const body = data.domaines.map((d) => annualDomainHtml(d, sys)).join('');
   return SHEET_OPEN
-    + officialHeaderHtml(school, { sys, title })
+    + officialHeaderHtml(school, { sys, title, accent: PAL_SEC().accent })
     + programmeBandHtml(data, sys, classLabel)
     + identityHtml(student, { classLabel, effectif, titulaire, sys })
     + provisoireHtml({ ...data, nbEvaluees, nbApplicables }, sys)

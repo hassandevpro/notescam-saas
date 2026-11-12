@@ -377,6 +377,9 @@ ensureColumn('schools', 'saisie_rapide_admin', 'saisie_rapide_admin INTEGER NOT 
 // Cloud fait rejeter la ligne ENTIÈRE, donc tous les réglages de l'école, pas
 // seulement la couleur. NULL = vert MINEDUB par défaut, aspect inchangé.
 ensureColumn('schools', 'bulletin_accent', 'bulletin_accent TEXT');
+// Couleur du bulletin SECONDAIRE : miroir de `supabase_bulletin_accent_secondaire.sql`, a appliquer au Cloud AVANT
+// toute distribution d'un paquet LAN portant cette ligne (meme regle que `bulletin_accent`).
+ensureColumn('schools', 'bulletin_accent_sec', 'bulletin_accent_sec TEXT');
 // Réglage « le logo contient déjà le nom » : miroir de `supabase_logo_contient_nom.sql`, à appliquer
 // au Cloud AVANT toute distribution d'un paquet LAN portant cette ligne (même règle que `bulletin_accent`).
 ensureColumn('schools', 'logo_contient_nom', 'logo_contient_nom INTEGER NOT NULL DEFAULT 0');

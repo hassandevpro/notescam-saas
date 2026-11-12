@@ -259,7 +259,7 @@ function signaturesHtml(school, sys, { basic, teacherName = '' }) {
 // ── Feuille complète (A4 paysage) ────────────────────────────────────────────
 // `pv` = sortie de buildClassPv ; `school` = identité (surchargée par l'unité).
 export function pvSheetHtml(pv, { school, basic = false }) {
-  T = themeOf(school);
+  T = themeOf(school, { secondaire: !basic });
   const sys = pv.sys || 'FR';
   const lay = dispositionMatieres(pv.cols.length);
   const noteCols = pv.cols.length * (pv.units.length + 1);
@@ -286,7 +286,7 @@ export function pvSheetHtml(pv, { school, basic = false }) {
 // classe (effectif, admis, taux, moyenne, meilleur/plus faible). Sert de page de
 // garde au PV de l'établissement.
 export function pvSchoolSummarySheetHtml(pvs, { school, sys = 'FR', periodLabel, schoolYear, basic = false }) {
-  T = themeOf(school);
+  T = themeOf(school, { secondaire: !basic });
   const cell = `border:1px solid ${T.line};padding:4px 6px;font-size:9px;text-align:center;color:${T.text};`;
   const head = `${cell};background:${T.headerBg};color:${T.text};font-weight:bold`;
 

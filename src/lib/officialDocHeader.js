@@ -10,6 +10,7 @@
 // transcriptDoc.js pour un rendu identique au bulletin.
 
 import { bulletinOfficials } from '../countries/index.js';
+import { texteSurAccent } from '../core/bulletinAccent.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -23,7 +24,7 @@ const L = (sys, fr, en, es) => (sys === 'EN' ? en : sys === 'ES' ? (es || fr) : 
 // une, sinon depuis la composition de l'école. Défaut `false` = comportement
 // d'avant le 23/09/2026, où tous ces documents portaient le MINESEC sans
 // condition, y compris pour une classe de maternelle.
-export function officialHeaderHtml(school, { sys = 'FR', title = '', subtitle = '', basic = false } = {}) {
+export function officialHeaderHtml(school, { sys = 'FR', title = '', subtitle = '', basic = false, accent = '#1e3a5f' } = {}) {
   // `sys` doit être TRANSMIS : c'est lui qui fait porter en tête le bloc pays de
   // la langue de la CLASSE (cf. countries/index.js). Sans lui, un bulletin de
   // Form 2 sortait avec « RÉPUBLIQUE DU CAMEROUN » à gauche, alors que l'aperçu
@@ -45,7 +46,7 @@ export function officialHeaderHtml(school, { sys = 'FR', title = '', subtitle = 
     </td>` : '';
 
   const titleBar = title ? `
-    <div style="background:#1e3a5f;color:#fff;text-align:center;padding:5px 8px;font-weight:bold;font-size:13px;letter-spacing:.5px;margin-bottom:6px;-webkit-print-color-adjust:exact;print-color-adjust:exact">
+    <div style="background:${accent};color:${texteSurAccent(accent)};text-align:center;padding:5px 8px;font-weight:bold;font-size:13px;letter-spacing:.5px;margin-bottom:6px;-webkit-print-color-adjust:exact;print-color-adjust:exact">
       ${esc(title)}${subtitle ? ` — ${esc(subtitle)}` : ''}
     </div>` : '';
 

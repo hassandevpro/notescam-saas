@@ -5,6 +5,7 @@ import { cacheUserContext, loadCachedContext, clearCachedContext } from '../lib/
 import { resolveCountryCode, defaultLangForCountry } from '../countries';
 import { touchLastLogin } from '../lib/userProfileService';
 import { identifyUser, resetAnalytics } from '../lib/analytics';
+import { definirAccentSecondaire } from '../core/bulletinAccent';
 
 // Extrait du state les champs qui composent le contexte utilisateur, pour
 // les remettre en cache (ex. après mise à jour de l'école hors-ligne).
@@ -338,3 +339,12 @@ supabase.auth.onAuthStateChange((event, session) => {
     useAuthStore.getState().setSession(session);
   }
 });
+
+// La palette du bulletin SECONDAIRE suit la fiche école : les modèles de document la lisent via PAL_SEC().
+// Abonné ICI (et pas dans chaque modèle) pour qu'un seul endroit décide quand elle change.
+useAuthStore.subscribe((s, prev) => {
+  if (!prev || s.school?.bulletin_accent_sec !== prev.school?.bulletin_accent_sec) {
+    definirAccentSecondaire(s.school?.bulletin_accent_sec);
+  }
+});
+definirAccentSecondaire(useAuthStore.getState().school?.bulletin_accent_sec);

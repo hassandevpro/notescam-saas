@@ -14,6 +14,7 @@
 import { sheetOpen, SHEET_CLOSE as SHEET_END, num } from './print';
 import { officialHeaderHtml, officialSignatureHtml } from './officialDocHeader';
 import { assembleScBulletin } from '../core/scEngine';
+import { PAL_SEC } from '../core/bulletinAccent';
 
 export { assembleScBulletin };
 
@@ -64,7 +65,7 @@ function identityHtml(student, { classLabel, serieLabel, effectif, profPrincipal
   </table>`;
 }
 
-const TH = (txt, w) => `<th style="${C};background:#eef2f7;text-align:center;font-size:8.5px${w ? `;width:${w}` : ''}">${txt}</th>`;
+const TH = (txt, w) => `<th style="${C};background:${PAL_SEC().th};text-align:center;font-size:8.5px${w ? `;width:${w}` : ''}">${txt}</th>`;
 
 function tableHeadHtml() {
   return `<tr>
@@ -74,7 +75,7 @@ function tableHeadHtml() {
 }
 
 function groupBlockHtml(g) {
-  const headRow = `<tr><td colspan="8" style="${C};background:#dde7f3;font-weight:bold">${esc(g.nom)}</td></tr>`;
+  const headRow = `<tr><td colspan="8" style="${C};background:${PAL_SEC().groupe};font-weight:bold">${esc(g.nom)}</td></tr>`;
   const body = g.rows.map((r) => `<tr>
     <td style="${C}"><strong>${esc(r.nom)}</strong><br/>${r.enseignant ? `<span style="color:#666">${esc(r.enseignant)}</span>` : ''}</td>
     <td style="${C};text-align:center">${r.coef}</td>
@@ -85,7 +86,7 @@ function groupBlockHtml(g) {
     <td style="${C};text-align:center">${r.minmax ? `${fix2(r.minmax.min)} – ${fix2(r.minmax.max)}` : ''}</td>
     <td style="${C}">${esc(r.appreciation)}</td>
   </tr>`).join('');
-  const sub = `<tr style="background:#f4f7fb">
+  const sub = `<tr style="background:${PAL_SEC().sous}">
     <td style="${C};text-align:right;font-weight:bold">Total ${esc(g.nom)}</td>
     <td style="${C};text-align:center;font-weight:bold">${fix2(g.coefSum)}</td>
     <td style="${C};text-align:center;font-weight:bold">${fix2(g.chargeSum)}</td>
@@ -105,7 +106,7 @@ function synthesisHtml(data, { decision, discipline } = {}) {
     <tbody><tr>
       <td style="width:34%;vertical-align:top;padding-right:4px">
         <table style="width:100%;border-collapse:collapse"><tbody>
-          <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">Travail de l'élève</td></tr>
+          <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold">Travail de l'élève</td></tr>
           ${kv('Total général (M×coef)', fix2(data.mxSum))}${kv('Total coefficients', fix2(data.coefSum))}
           ${kv('MOYENNE GÉNÉRALE', `<strong>${fix2(data.moyenneGenerale)}/20</strong>`)}
           ${kv('Rang', `<strong>${esc(data.generalRank || '')}</strong>`)}
@@ -114,14 +115,14 @@ function synthesisHtml(data, { decision, discipline } = {}) {
       </td>
       <td style="width:34%;vertical-align:top;padding-right:4px">
         <table style="width:100%;border-collapse:collapse"><tbody>
-          <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">Discipline et conduite</td></tr>
+          <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold">Discipline et conduite</td></tr>
           ${kv('Abs. non just. (h)', d.absNJ ?? '')}${kv('Abs. just. (h)', d.absJ ?? '')}
           ${kv('Conduite', esc(d.conduite || ''))}${kv('Exclusion (jours)', d.exclusions || '')}
         </tbody></table>
       </td>
       <td style="width:32%;vertical-align:top">
         <table style="width:100%;border-collapse:collapse"><tbody>
-          <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">Profil de la classe</td></tr>
+          <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold">Profil de la classe</td></tr>
           ${kv('Moyenne de la classe', fix2(data.classStats?.avg))}
           ${kv('[Min – Max]', data.classStats ? `${fix2(data.classStats.min)} – ${fix2(data.classStats.max)}` : '')}
           ${kv('Nombre de moyennes', data.classStats?.count ?? '')}
@@ -175,7 +176,7 @@ export function buildScBulletinSheet(ctx) {
 
   const groupsHtml = data.groups.map(groupBlockHtml).join('');
   return SHEET_OPEN
-    + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr })
+    + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr, accent: PAL_SEC().accent })
     + identityHtml(student, { classLabel, serieLabel, effectif, profPrincipal })
     + `<table style="width:100%;border-collapse:collapse"><thead>${tableHeadHtml()}</thead><tbody>${groupsHtml}</tbody></table>`
     + synthesisHtml(data, { decision, discipline })

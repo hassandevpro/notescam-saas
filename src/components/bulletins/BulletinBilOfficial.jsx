@@ -13,9 +13,9 @@ import {
   OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
 import { bilProvisoireTexte } from '../../core/bilEngine';
+import { PAL_SEC } from '../../core/bulletinAccent';
 
 const fix2 = (v) => (v == null ? '' : (Math.round(v * 100) / 100).toString());
-const ACCENT = '#1e3a5f';
 
 // Bandeau « quel programme, quel sous-système, quel texte officiel ».
 function ProgrammeBand({ data, sys, classLabel }) {
@@ -24,7 +24,7 @@ function ProgrammeBand({ data, sys, classLabel }) {
     : L(sys, 'Sous-système francophone', 'French sub-system');
   return (
     <div style={{
-      border: `1px solid ${ACCENT}`, borderLeft: `4px solid ${ACCENT}`,
+      border: `1px solid ${PAL_SEC().accent}`, borderLeft: `4px solid ${PAL_SEC().accent}`,
       padding: '3px 8px', marginBottom: 5, fontSize: '9px',
       display: 'flex', justifyContent: 'space-between', gap: 8,
     }}>
@@ -79,7 +79,7 @@ function DomainBlock({ d, sys, nbSeq }) {
   return (
     <tbody className="apc-mat">
       <tr>
-        <td colSpan={span} style={{ ...CELL, background: '#dde7f3', fontWeight: 'bold', ...tint }}>{d.nom}</td>
+        <td colSpan={span} style={{ ...CELL, background: PAL_SEC().groupe, fontWeight: 'bold', ...tint }}>{d.nom}</td>
       </tr>
       {d.rows.map((r) => (
         <tr key={r.id}>
@@ -110,7 +110,7 @@ function DomainBlock({ d, sys, nbSeq }) {
           <td style={CELL}>{r.appreciation}</td>
         </tr>
       ))}
-      <tr style={{ background: '#f4f7fb', ...tint }}>
+      <tr style={{ background: PAL_SEC().sous, ...tint }}>
         <td style={{ ...CELL, textAlign: 'right', fontWeight: 'bold' }}>
           {L(sys, 'Sous-total', 'Subtotal')} — {d.nom}
         </td>
@@ -140,7 +140,7 @@ function Synthesis({ data, sys, maxScale, decision, discipline }) {
     <td style={{ width, verticalAlign: 'top', paddingRight: 4 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <tbody>
-          <tr><td colSpan={2} style={{ ...CELL, background: '#eef2f7', textAlign: 'center', fontWeight: 'bold', ...tint }}>{title}</td></tr>
+          <tr><td colSpan={2} style={{ ...CELL, background: PAL_SEC().th, textAlign: 'center', fontWeight: 'bold', ...tint }}>{title}</td></tr>
           {children}
         </tbody>
       </table>
@@ -210,7 +210,7 @@ function AnnualDomain({ d, sys }) {
   const tint = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
   return (
     <tbody className="apc-mat">
-      <tr><td colSpan={8} style={{ ...CELL, background: '#dde7f3', fontWeight: 'bold', ...tint }}>{d.nom}</td></tr>
+      <tr><td colSpan={8} style={{ ...CELL, background: PAL_SEC().groupe, fontWeight: 'bold', ...tint }}>{d.nom}</td></tr>
       {d.rows.map((r) => (
         <tr key={r.id}>
           <td style={CELL}><strong>{r.nom}</strong></td>
@@ -230,7 +230,7 @@ function AnnualDomain({ d, sys }) {
           <td style={CELL}>{r.appreciation}</td>
         </tr>
       ))}
-      <tr style={{ background: '#f4f7fb', ...tint }}>
+      <tr style={{ background: PAL_SEC().sous, ...tint }}>
         <td style={{ ...CELL, textAlign: 'right', fontWeight: 'bold' }}>{L(sys, 'Sous-total', 'Subtotal')} — {d.nom}</td>
         <td style={{ ...CELL, textAlign: 'center', fontWeight: 'bold' }}>{fix2(d.coefSum)}</td>
         <td colSpan={3} style={CELL} />
@@ -276,7 +276,7 @@ export function BulletinBilAnnual({
       </table>
       <table style={{ width: '38%', borderCollapse: 'collapse', marginTop: 6 }}>
         <tbody>
-          <tr><td colSpan={2} style={{ ...CELL, background: '#eef2f7', textAlign: 'center', fontWeight: 'bold', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+          <tr><td colSpan={2} style={{ ...CELL, background: PAL_SEC().th, textAlign: 'center', fontWeight: 'bold', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
             {L(sys, 'Moyennes trimestrielles', 'Term averages')}
           </td></tr>
           {(data.moyennesTrimestres || []).map((m, i) => (

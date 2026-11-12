@@ -161,3 +161,90 @@ export const ACCENTS_SUGGERES = [
   { hex: '#92400e', fr: 'Brun', en: 'Brown', es: 'Marrón' },
   { hex: '#334155', fr: 'Ardoise', en: 'Slate', es: 'Pizarra' },
 ];
+
+// ════════════════════════════════════════════════════════════════════════════
+// COULEUR DU BULLETIN SECONDAIRE — un réglage PAR CYCLE
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Le primaire/maternelle lit `schools.bulletin_accent` (vert par défaut). Le
+// secondaire lit `schools.bulletin_accent_sec` (bleu par défaut). Même sélecteur,
+// même moteur de teintes, deux valeurs.
+//
+// ── LE DÉFAUT EST LE BLEU ACTUEL, À L'OCTET PRÈS ────────────────────────────
+// Les modèles du secondaire écrivaient leurs bleus en dur (#1e3a5f, #eef2f7,
+// #dde7f3, #f4f7fb). Ils ne sont PAS déductibles d'un seul accent par
+// `teintesBulletin` (le bleu #eef2f7 n'est pas 86 % de blanc sur #1e3a5f). Donc :
+//   · accent non choisi (ou choisi = le bleu d'origine) → ces quatre valeurs
+//     exactes : les PDF des écoles existantes ne changent pas d'un pixel ;
+//   · accent choisi → teintes déduites de l'accent, comme au primaire.
+// Les documents ne contiennent plus aucune couleur de cycle écrite en dur : ils
+// demandent leur palette à `paletteSecondaire()`.
+
+/** Le bleu d'origine du secondaire. */
+export const ACCENT_SECONDAIRE_DEFAUT = '#1e3a5f';
+
+/** Les quatre bleus historiques — rendus tels quels tant que l'école n'a rien choisi. */
+const PALETTE_SECONDAIRE_ORIGINE = Object.freeze({
+  personnalisee: false,
+  accent: '#1e3a5f',
+  surAccent: '#ffffff',
+  th: '#eef2f7',        // en-têtes de colonnes, lignes TOTAL, titres de blocs
+  groupe: '#dde7f3',    // ligne de groupe / domaine
+  sous: '#f4f7fb',      // sous-total
+  texte: '#1e3a5f',     // texte d'accent posé sur `th` (PV)
+  bordure: '#9ca3af',
+});
+
+/** L'accent secondaire CHOISI par l'école, ou null (= bleu d'origine). */
+export function accentSecondaireChoisi(valeur) {
+  const rgb = parseHex(valeur);
+  if (!rgb) return null;
+  const hex = toHex(rgb);
+  return hex === ACCENT_SECONDAIRE_DEFAUT ? null : hex;
+}
+
+/**
+ * La palette du secondaire.
+ * @param {string|null|undefined} valeur  `schools.bulletin_accent_sec`
+ */
+export function paletteSecondaire(valeur) {
+  const choisi = accentSecondaireChoisi(valeur);
+  if (!choisi) return PALETTE_SECONDAIRE_ORIGINE;
+  const t = teintesBulletin(choisi);
+  return Object.freeze({
+    personnalisee: true,
+    accent: t.accent,
+    surAccent: t.surAccent,
+    th: t.tint,
+    groupe: t.tintFort,
+    sous: toHex(versBlanc(parseHex(choisi), 0.92)),
+    texte: t.texte,
+    bordure: t.bordure,
+  });
+}
+
+/**
+ * La palette COURANTE du secondaire, tenue à jour par le store d'authentification
+ * à chaque changement de fiche école. Les modèles de document (React comme
+ * HTML imprimé) la lisent ici : un seul point d'entrée, aucun paramètre à
+ * propager dans quarante appels.
+ */
+let _courante = PALETTE_SECONDAIRE_ORIGINE;
+export function definirAccentSecondaire(valeur) { _courante = paletteSecondaire(valeur); }
+export const PAL_SEC = () => _courante;
+
+/** Couleur du texte posé SUR un accent, écrite comme les modèles l'écrivaient (`#fff`) : le rendu par défaut reste identique à l'octet. */
+export function texteSurAccent(accent) {
+  const c = teintesBulletin(accent).surAccent;
+  return c === '#ffffff' ? '#fff' : c;
+}
+
+/**
+ * Le texte blanc posé sur cet accent est-il lisible ? (avertissement du réglage)
+ * Les modèles basculent d'eux-mêmes en noir si besoin (`surAccent`), mais une
+ * couleur très claire donne une barre de titre noire sur pastel : on prévient.
+ */
+export function blancIllisibleSur(valeur) {
+  const rgb = parseHex(valeur);
+  return !!rgb && contraste(rgb, [255, 255, 255]) < 3;
+}

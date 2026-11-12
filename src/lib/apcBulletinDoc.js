@@ -15,6 +15,7 @@
 import { sheetOpen, SHEET_CLOSE as SHEET_END, num } from './print/index.js';
 import { officialHeaderHtml, officialSignatureHtml } from './officialDocHeader.js';
 import { noteNkey } from '../core/apcEngine.js';
+import { PAL_SEC } from '../core/bulletinAccent.js';
 import {
   competencesFor, sequencesOfTrimestre, matiereAverage, weightedMatiere,
   generalAverage, apcCoteFromScale, apcBulletinCols, coefFor, APC_COTE_CODES,
@@ -233,7 +234,7 @@ function identityHtml(student, { classLabel, sys, effectif, profPrincipal }) {
 // envoyé à l'impression, il ne reçoit pas la feuille de style de l'application.
 const CLAMP2 = 'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden';
 
-const TH = (txt, w) => `<th style="${C};background:#eef2f7;text-align:center;font-size:8.5px${w ? `;width:${w}` : ''}">${txt}</th>`;
+const TH = (txt, w) => `<th style="${C};background:${PAL_SEC().th};text-align:center;font-size:8.5px${w ? `;width:${w}` : ''}">${txt}</th>`;
 
 // Colonnes de fin optionnelles (COTE / [Min–Max] / Appréciation) selon les bascules
 // de l'établissement (school.apc_bulletin_cols). Ordre officiel préservé.
@@ -375,7 +376,7 @@ function footerBlocksHtml(data, { classStats, sys } = {}) {
         <td style="width:34%;vertical-align:top;padding-right:4px">
           <table style="width:100%;border-collapse:collapse">
             <tbody>
-              <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">${L(sys, 'Discipline', 'Discipline')}</td></tr>
+              <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold">${L(sys, 'Discipline', 'Discipline')}</td></tr>
               ${kv(L(sys, 'Abs. non just. (h)', 'Unjust. abs. (h)'), '')}${kv(L(sys, 'Abs. just. (h)', 'Just. abs. (h)'), '')}${kv(L(sys, 'Retards (nombre)', 'Late arrivals (number)'), '')}${kv(L(sys, 'Consignes (h)', 'Detentions (h)'), '')}
               ${kv(L(sys, 'Avertissement', 'Warning'), '')}${kv(L(sys, 'Blâme de conduite', 'Conduct reprimand'), '')}${kv(L(sys, 'Exclusions (jours)', 'Exclusions (days)'), '')}${kv(L(sys, 'Exclusion définitive', 'Permanent exclusion'), '')}
             </tbody>
@@ -384,7 +385,7 @@ function footerBlocksHtml(data, { classStats, sys } = {}) {
         <td style="width:34%;vertical-align:top;padding-right:4px">
           <table style="width:100%;border-collapse:collapse">
             <tbody>
-              <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">${L(sys, "Travail de l'élève", "Student's work")}</td></tr>
+              <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold">${L(sys, "Travail de l'élève", "Student's work")}</td></tr>
               ${kv(L(sys, 'Total général', 'Grand total'), fix2(data.mxSum))}${kv('Coef', fix2(data.coefSum))}
               ${kv(L(sys, 'MOYENNE TRIM', 'TERM AVERAGE'), `<strong>${fix2(data.moyenneGenerale)}</strong>`)}${kv(L(sys, 'Cote', 'Grade'), `<strong>${data.moyenneGenerale != null ? data.cote : ''}</strong>`)}
               ${APC_COTE_CODES.map((c) => kv(c, coteCounts[c])).join('')}
@@ -394,7 +395,7 @@ function footerBlocksHtml(data, { classStats, sys } = {}) {
         <td style="width:32%;vertical-align:top">
           <table style="width:100%;border-collapse:collapse">
             <tbody>
-              <tr><td colspan="2" style="${C};background:#eef2f7;text-align:center;font-weight:bold">${L(sys, 'Profil de la classe', 'Class profile')}</td></tr>
+              <tr><td colspan="2" style="${C};background:${PAL_SEC().th};text-align:center;font-weight:bold">${L(sys, 'Profil de la classe', 'Class profile')}</td></tr>
               ${kv(L(sys, 'Moyenne générale', 'General average'), fix2(classStats?.avg))}
               ${kv('[Min – Max]', classStats ? `${fix2(classStats.min)} – ${fix2(classStats.max)}` : '')}
               ${kv(L(sys, 'Nombre de moyennes', 'Number of averages'), classStats?.count ?? '')}
@@ -481,7 +482,7 @@ export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
   const header = (pageData, withFooter) => {
     const rows = pageData.map((m) => matiereRowsHtml(m, cols, sys)).join('');
     return SHEET_OPEN
-      + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr })
+      + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr, accent: PAL_SEC().accent })
       + identityHtml(student, { classLabel, sys, effectif, profPrincipal })
       + `<table style="width:100%;border-collapse:collapse;table-layout:fixed"><thead>${tableHeadHtml(cols, sys, uniforme)}</thead><tbody>${rows}${withFooter && !footerOwnPage ? totalRowHtml(data, cols, sys) : ''}</tbody></table>`
       + (withFooter && !footerOwnPage ? footerBlocksHtml(data, { classStats, sys }) : '')
@@ -492,7 +493,7 @@ export function buildTrimesterSheets(referentiel, apcNotes, ctx) {
   if (footerOwnPage) {
     sheets.push(
       SHEET_OPEN
-      + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr })
+      + officialHeaderHtml(school, { sys, title: sys === 'EN' ? title.en : title.fr, accent: PAL_SEC().accent })
       + `<table style="width:100%;border-collapse:collapse;table-layout:fixed"><thead>${tableHeadHtml(cols, sys, uniforme)}</thead><tbody>${totalRowHtml(data, cols, sys)}</tbody></table>`
       + footerBlocksHtml(data, { classStats, sys })
       + officialSignatureHtml(school, sys)

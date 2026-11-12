@@ -9,6 +9,8 @@
 // de la taille de police (jamais sous 7 pt), du texte vertical des en-têtes étroits et du découpage en bandes
 // de colonnes — pour que le titre d'une matière ne déborde JAMAIS de sa case.
 
+import { paletteSecondaire } from '../core/bulletinAccent.js';
+
 export const THEME_DEFAUT = Object.freeze({
   accent: '#1F2A44',    // titre du document uniquement
   headerBg: '#F2F2F2',  // fond d'en-tête de tableau
@@ -19,9 +21,14 @@ export const THEME_DEFAUT = Object.freeze({
 
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
-export function themeOf(school) {
+export function themeOf(school, { secondaire = false } = {}) {
   const perso = school?.document_theme;
   const out = { ...THEME_DEFAUT };
+  // Couleur du SECONDAIRE choisie par l'école : titre et fonds d'en-tête la suivent. Rien de choisi → thème sobre inchangé.
+  if (secondaire) {
+    const p = paletteSecondaire(school?.bulletin_accent_sec);
+    if (p.personnalisee) { out.accent = p.accent; out.headerBg = p.th; }
+  }
   if (perso && typeof perso === 'object') {
     for (const k of Object.keys(THEME_DEFAUT)) if (HEX.test(String(perso[k] || ''))) out[k] = String(perso[k]);
   }

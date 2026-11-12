@@ -28,7 +28,7 @@ import HybridModeCard from '../components/HybridModeCard';
 import PrepareHybridCard from '../components/PrepareHybridCard';
 import AcademicSetupWizard from '../components/setup/AcademicSetupWizard';
 import BackupPanel from '../components/settings/BackupPanel';
-import { teintesBulletin, ACCENT_DEFAUT, ACCENTS_SUGGERES } from '../core/bulletinAccent';
+import BulletinAccentPicker from '../components/settings/BulletinAccentPicker';
 
 // Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
 function buildGeScale(maxScale = 10) {
@@ -505,6 +505,7 @@ export default function Settings() {
         // colonne existe. Le réglage s'allume donc tout seul le jour de la
         // migration, et ne casse rien avant.
         ...('bulletin_accent' in school ? { bulletin_accent: school.bulletin_accent || null } : {}),
+        ...('bulletin_accent_sec' in school ? { bulletin_accent_sec: school.bulletin_accent_sec || null } : {}),
         ...('logo_contient_nom' in school ? { logo_contient_nom: school.logo_contient_nom === true || school.logo_contient_nom === 1 } : {}),
         censeur_name:     school.censeur_name     || '',
         surveillant_name: school.surveillant_name || '',
@@ -584,9 +585,9 @@ export default function Settings() {
     // La base n'accepte que NULL ou #rrggbb pour l'accent : une chaîne vide
     // (« vert officiel » / pas de couleur choisie) ferait rejeter TOUT
     // l'enregistrement par schools_bulletin_accent_hex.
-    const payload = 'bulletin_accent' in form
-      ? { ...form, bulletin_accent: form.bulletin_accent || null }
-      : form;
+    const payload = { ...form };
+    if ('bulletin_accent' in form) payload.bulletin_accent = form.bulletin_accent || null;
+    if ('bulletin_accent_sec' in form) payload.bulletin_accent_sec = form.bulletin_accent_sec || null;
     const result = await doUpdateSchool(payload);
     setSaving(false);
     if (result.error) {
@@ -1708,7 +1709,6 @@ export default function Settings() {
   function renderAppearance() {
     // Les teintes déduites de l'accent choisi, pour l'aperçu. Le même moteur
     // que le bulletin : ce que l'école voit ici est ce qui s'imprimera.
-    const apercuAccent = teintesBulletin(form?.bulletin_accent || ACCENT_DEFAUT);
     return (
       <div className="space-y-6">
         <form onSubmit={handleSave}>
@@ -1751,92 +1751,22 @@ export default function Settings() {
                 </span>
               </label>
             )}
-            {'bulletin_accent' in (school || {}) && (
-              <div className="mb-4">
-                <label className="form-label">
-                  {t('Couleur d’accent du bulletin', 'Report card accent colour', 'Color de acento del boletín')}
-                </label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="color"
-                    disabled={!isAdmin}
-                    value={form.bulletin_accent || ACCENT_DEFAUT}
-                    onChange={(e) => setForm((f) => ({ ...f, bulletin_accent: e.target.value }))}
-                    className="h-9 w-14 rounded border border-gray-300 bg-white p-1 disabled:opacity-60"
-                    aria-label={t('Choisir une couleur', 'Pick a colour', 'Elegir un color')}
-                  />
-                  {ACCENTS_SUGGERES.map((a) => (
-                    <button
-                      key={a.hex}
-                      type="button"
-                      disabled={!isAdmin}
-                      onClick={() => setForm((f) => ({ ...f, bulletin_accent: a.hex }))}
-                      title={t(a.fr, a.en, a.es)}
-                      aria-label={t(a.fr, a.en, a.es)}
-                      className={`h-7 w-7 rounded-full transition ${
-                        (form.bulletin_accent || ACCENT_DEFAUT).toLowerCase() === a.hex
-                          ? 'ring-2 ring-offset-1 ring-gray-900'
-                          : 'ring-1 ring-gray-300 hover:ring-gray-500'
-                      } ${isAdmin ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'}`}
-                      style={{ background: a.hex }}
-                    />
-                  ))}
-                  {(form.bulletin_accent || '') !== ''
-                    && (form.bulletin_accent || '').toLowerCase() !== ACCENT_DEFAUT && (
-                    <button
-                      type="button"
-                      disabled={!isAdmin}
-                      className="text-xs text-gray-500 underline hover:text-gray-800"
-                      onClick={() => setForm((f) => ({ ...f, bulletin_accent: '' }))}
-                    >
-                      {t('Revenir au vert officiel', 'Back to the official green', 'Volver al verde oficial')}
-                    </button>
-                  )}
-                </div>
-
-                {/* APERÇU. Une pastille de couleur ne dit pas ce que donnera le
-                    bulletin : ce sont les TEINTES DÉDUITES qu'il faut voir — le
-                    fond pâle des en-têtes et le texte assombri pour rester
-                    lisible dessus. L'école choisit sur ce qu'elle va imprimer,
-                    pas sur un carré de couleur. */}
-                <div className="mt-3 rounded-lg border border-gray-200 overflow-hidden" style={{ maxWidth: 380 }}>
-                  <div
-                    className="px-3 py-1.5 text-center text-sm font-bold"
-                    style={{ background: apercuAccent.accent, color: apercuAccent.surAccent }}
-                  >
-                    {t('BULLETIN DE NOTES', 'REPORT OF MARKS', 'BOLETÍN DE NOTAS')}
-                  </div>
-                  <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
-                    <tbody>
-                      <tr>
-                        <td
-                          className="px-2 py-1 font-bold"
-                          style={{ background: apercuAccent.tint, color: apercuAccent.texte, border: `1px solid ${apercuAccent.bordure}` }}
-                        >
-                          {t('Compétence évaluée', 'Competence assessed', 'Competencia evaluada')}
-                        </td>
-                        <td className="px-2 py-1 text-center" style={{ border: `1px solid ${apercuAccent.bordure}` }}>14 /20</td>
-                      </tr>
-                      <tr>
-                        <td
-                          className="px-2 py-1 font-bold"
-                          style={{ background: apercuAccent.tintFort, color: apercuAccent.texte, border: `1px solid ${apercuAccent.bordure}` }}
-                        >
-                          {t('TOTAL GÉNÉRAL', 'OVERALL TOTAL', 'TOTAL GENERAL')}
-                        </td>
-                        <td className="px-2 py-1 text-center font-bold" style={{ border: `1px solid ${apercuAccent.bordure}` }}>56 /80</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <p className="text-xs text-gray-400 mt-1">
-                  {t(
-                    "Bandeaux, en-têtes de colonnes et filets des bulletins. Les cotes gardent leurs couleurs (vert, orange, rouge) : un parent les lit comme un code, pas comme une charte. Le texte est assombri automatiquement pour rester lisible, quelle que soit la couleur choisie.",
-                    'Banners, column headers and rules on report cards. Grades keep their own colours (green, amber, red): a parent reads those as a code, not as branding. Text is darkened automatically so it stays legible whatever colour is picked.',
-                    'Bandas, encabezados y filetes de los boletines. Las notas conservan sus colores. El texto se oscurece automáticamente para seguir siendo legible.',
-                  )}
-                </p>
+            {/* ── COULEURS DU BULLETIN, PAR CYCLE ───────────────────────────
+                Même sélecteur deux fois : Primaire (et maternelle) puis Secondaire.
+                Chaque section n'apparaît que si la base connaît SA colonne : tant que
+                la migration Cloud correspondante n'est pas passée, le réglage reste
+                invisible plutôt que de faire échouer l'enregistrement. */}
+            {('bulletin_accent' in (school || {}) || 'bulletin_accent_sec' in (school || {})) && (
+              <div className="mb-2">
+                <p className="text-sm font-semibold text-gray-700 mb-2">{t('Affichage du bulletin', 'Report card display', 'Visualización del boletín')}</p>
+                {'bulletin_accent' in (school || {}) && (
+                  <BulletinAccentPicker cycle="primaire" valeur={form.bulletin_accent || ''} isAdmin={isAdmin} t={t}
+                    onChange={(v) => setForm((f) => ({ ...f, bulletin_accent: v }))} />
+                )}
+                {'bulletin_accent_sec' in (school || {}) && (
+                  <BulletinAccentPicker cycle="secondaire" valeur={form.bulletin_accent_sec || ''} isAdmin={isAdmin} t={t}
+                    onChange={(v) => setForm((f) => ({ ...f, bulletin_accent_sec: v }))} />
+                )}
               </div>
             )}
 

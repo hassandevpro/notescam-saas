@@ -98,6 +98,7 @@ import { bulletinFontFamily } from '../lib/schoolTheme';
 import { buildCardId, qrDataUrl } from '../lib/idCardService';
 import { headTeacherText, headTeacherNames, headTeacherLabel } from '../lib/headTeachers';
 import { isBasicClass } from '../lib/tutelle';
+import { PAL_SEC } from '../core/bulletinAccent';
 
 // QR de bulletin : même payload que la carte scolaire (buildCardId) → le même
 // scanner identifie l'élève. Placé discrètement (en-tête / pied selon le modèle).
@@ -755,8 +756,8 @@ export function BulletinAPC({ school, cls, student, subjects, subjectGrades, stu
   const cell = mkCellVar(1.12);
   const thS  = mkTHVar(1.12);
   const pcx  = { WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
-  const ghdr = { ...cell, background: '#dbe3ec', fontWeight: 'bold', textAlign: 'center', ...pcx };
-  const gtot = { ...cell, background: '#eef2f7', fontWeight: 'bold', ...pcx };
+  const ghdr = { ...cell, background: PAL_SEC().personnalisee ? PAL_SEC().groupe : '#dbe3ec', fontWeight: 'bold', textAlign: 'center', ...pcx };
+  const gtot = { ...cell, background: PAL_SEC().th, fontWeight: 'bold', ...pcx };
 
   // Titre, prof principal et synthèse « Travail » (total pondéré, coef cumulé).
   const title = `${isEnSys ? 'APC REPORT CARD' : 'BULLETIN APC'} – ${period.label.toUpperCase()}`;

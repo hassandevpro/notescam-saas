@@ -28,6 +28,7 @@ import { buildClassReport, REPORT_KIND } from '../lib/classReportEngine';
 import { fetchVieScolaireSnapshot } from '../lib/vieScolaireService';
 import { bySubjectOrder, classSubjectsOf } from '../core/subjectOrder';
 import { moyennePointsActive } from '../core/primMoyennePoints';
+import { isBasicClass } from '../lib/tutelle';
 import { themeOf, dispositionMatieres, abreger, legendeAbreviations } from '../lib/documentTheme';
 
 // Anglophone : six séquences groupées en trois Terms, miroir de PERIODS_FR.
@@ -335,8 +336,8 @@ function acquisitionBodyHtml({ school, selectedClass, period, report, classStude
 
 // Enveloppe HTML commune (styles) : un ou plusieurs corps de rapport concaténés,
 // chaque classe sur sa propre page (`.page + .page` → saut de page).
-export function reportDocShell({ isGE, title, bodies, landscape = false, school = null }) {
-  const T = themeOf(school);
+export function reportDocShell({ isGE, title, bodies, landscape = false, school = null, secondaire = false }) {
+  const T = themeOf(school, { secondaire });
   return `<!DOCTYPE html>
 <html lang="${isGE ? 'es' : 'fr'}">
 <head>
@@ -417,7 +418,7 @@ function printReport(args) {
   const landscape = args.kind === REPORT_KIND.ACQUISITION
     ? (args.classSubjects?.length || 0) > 6
     : args.cols?.subjectScores !== false && (args.classSubjects?.length || 0) > 6;
-  openPrintWindow(reportDocShell({ isGE: args.isGE, title, bodies: [bodyHtmlFor(args)], landscape, school: args.school }));
+  openPrintWindow(reportDocShell({ isGE: args.isGE, title, bodies: [bodyHtmlFor(args)], landscape, school: args.school, secondaire: !isBasicClass(args.selectedClass) }));
 }
 
 // Calcule le payload de rapport d'UNE classe pour une période, QUEL QUE SOIT son
@@ -502,7 +503,7 @@ function printReportsBatch({ title, classesToPrint, period, cols, ctx }) {
     .filter(Boolean);
   if (!bodies.length) return 0;
   const landscape = cols?.subjectScores !== false && maxSubjects > 6;
-  openPrintWindow(reportDocShell({ isGE, title, bodies, landscape }));
+  openPrintWindow(reportDocShell({ isGE, title, bodies, landscape, school: { bulletin_accent_sec: ctx.school?.bulletin_accent_sec }, secondaire: classesToPrint.every((c) => !isBasicClass(c)) }));
   return bodies.length;
 }
 
@@ -647,7 +648,7 @@ function disciplineReportBodyHtml({ school, selectedClass, period, isGE, rows, t
 function printDisciplineReport({ school, selectedClass, period, isGE, rows, totals, unclassifiedCount }) {
   const title = `${isGE ? 'Informe' : 'Rapport'} — ${selectedClass?.name || ''} — ${period?.label || ''}`;
   openPrintWindow(reportDocShell({
-    isGE, title,
+    isGE, title, school: { bulletin_accent_sec: school?.bulletin_accent_sec }, secondaire: !isBasicClass(selectedClass),
     bodies: [disciplineReportBodyHtml({ school, selectedClass, period, isGE, rows, totals, unclassifiedCount })],
   }));
 }
@@ -662,7 +663,7 @@ function printDisciplineBatch({ title, classesToPrint, period, vsData, students,
     })
     .filter(Boolean);
   if (!bodies.length) return 0;
-  openPrintWindow(reportDocShell({ isGE, title, bodies }));
+  openPrintWindow(reportDocShell({ isGE, title, bodies, school: { bulletin_accent_sec: school?.bulletin_accent_sec }, secondaire: classesToPrint.every((c) => !isBasicClass(c)) }));
   return bodies.length;
 }
 

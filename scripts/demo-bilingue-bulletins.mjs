@@ -26,7 +26,12 @@ const { buildBilBulletinSheet, buildBilAnnualSheet } = await import(`${SRC}lib/b
 const { buildPrintDocument } = await import(`${SRC}lib/print/printLayout.js`);
 
 const ref = JSON.parse(readFileSync(join(ROOT, 'examples/bilingue/referentiel-bilingue-special-premier-cycle.json'), 'utf8'));
-const OUT = join(ROOT, 'out', 'bulletins-bilingue');
+// NC_OUT : dossier de sortie (comparaison avant/après) · NC_SEC : couleur du secondaire à simuler (#rrggbb).
+const OUT = process.env.NC_OUT || join(ROOT, 'out', 'bulletins-bilingue');
+if (process.env.NC_SEC) {
+  const acc = await import(`${SRC}core/bulletinAccent.js`).catch(() => null);
+  acc?.definirAccentSecondaire?.(process.env.NC_SEC);
+}
 mkdirSync(OUT, { recursive: true });
 
 // ── Données FICTIVES ─────────────────────────────────────────────────────────

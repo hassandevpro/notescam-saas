@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS schools (
   logo_url           TEXT,
   stamp_url          TEXT,
   signature_url      TEXT,
+  bulletin_accent_sec TEXT,  -- couleur d'accent des bulletins du SECONDAIRE (#rrggbb) ; NULL = bleu d'origine
   bulletin_accent    TEXT,   -- couleur d'accent des bulletins (#rrggbb) ; NULL = vert MINEDUB
   logo_contient_nom  INTEGER NOT NULL DEFAULT 0,  -- 1 = le logo porte deja le nom : le bulletin ne l'ecrit plus
   plan               TEXT NOT NULL DEFAULT 'starter',

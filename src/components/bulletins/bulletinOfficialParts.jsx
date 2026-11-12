@@ -11,6 +11,7 @@ import { useLogoShape } from '../useLogoShape';
 import BulletinPhoto from './BulletinPhoto';
 import { bulletinOfficials } from '../../countries';
 import { bulletinFontFamily } from '../../lib/schoolTheme';
+import { PAL_SEC, texteSurAccent } from '../../core/bulletinAccent';
 
 export const B = '1px solid #374151';
 
@@ -36,8 +37,10 @@ export const genderLabel = (value, sys) => {
 
 // Fabriques de styles paramétrées par la taille de police (pt) — l'auto-fit APC
 // fait varier la densité du corps du tableau (10–11pt) en gardant la lisibilité.
+// Fond (et texte) des en-têtes de colonnes du SECONDAIRE : le bleu d'origine tant que l'école n'a rien choisi.
+const enteteSecondaire = () => { const p = PAL_SEC(); return p.personnalisee ? { background: p.th, color: p.texte } : { background: p.th }; };
 export const mkCell = (pt = 10, lineH = 1.18, padV = 1) => ({ border: B, padding: `${padV}px 3px`, fontSize: `${pt}pt`, lineHeight: lineH, verticalAlign: 'top' });
-export const mkTH   = (pt = 10, lineH = 1.18, padV = 1) => ({ ...mkCell(pt, lineH, padV), background: '#eef2f7', textAlign: 'center', fontWeight: 'bold' });
+export const mkTH   = (pt = 10, lineH = 1.18, padV = 1) => ({ ...mkCell(pt, lineH, padV), ...enteteSecondaire(), textAlign: 'center', fontWeight: 'bold' });
 
 // ── CONTRAT DE DENSITÉ (lib/print/fitDensity.js) ───────────────────────────
 // Quand un gabarit demande `vars`, ses tailles ne sont plus des nombres écrits
@@ -51,7 +54,7 @@ export const mkCellVar = (lineH = 1.18) => ({
   lineHeight: lineH, verticalAlign: 'top',
 });
 export const mkTHVar = (lineH = 1.18) => ({
-  ...mkCellVar(lineH), background: '#eef2f7', textAlign: 'center', fontWeight: 'bold',
+  ...mkCellVar(lineH), ...enteteSecondaire(), textAlign: 'center', fontWeight: 'bold',
 });
 
 // Constantes par défaut (10pt) — utilisées par le Second Cycle et l'identité.
@@ -98,7 +101,7 @@ export function OfficialWatermark({ src }) {
 // colorés empilés coûtaient 49 px pour deux lignes de texte ; un seul en coûte 29
 // et dit la même chose.
 export function OfficialHeader({
-  school, sys, title, subtitle, accent = '#1e3a5f', rounded = false, basic = false,
+  school, sys, title, subtitle, accent = PAL_SEC().accent, rounded = false, basic = false,
   dense = false, vars = false, grand = false,
 }) {
   const officials = bulletinOfficials(school, { basic, sys });
@@ -186,7 +189,7 @@ export function OfficialHeader({
       </table>
       {title && (
         <div className="apc-title-bar" style={{
-          background: accent, color: '#fff', textAlign: 'center',
+          background: accent, color: texteSurAccent(accent), textAlign: 'center',
           padding: vars ? 'calc(var(--nc-gap) * 0.7) 8px' : dense ? '2px 8px' : '4px 8px',
           fontWeight: 'bold',
           fontSize: vars ? 'calc(var(--nc-head) * 1.2)' : dense ? '11pt' : '13pt',
@@ -323,7 +326,7 @@ export function OfficialIdentity({ student, classLabel, serieLabel, effectif, pr
 // officiel porte la date et le lieu de naissance, le matricule et le tuteur, et
 // ce n'est pas négociable pour gagner des millimètres. Ce sont la photo, les
 // interlignes et les rembourrages qui cèdent.
-export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, ppLabel, sys, accent = '#1e3a5f', tint = '#eef2f7', dense = false, variant = 'bande', vars = false, grand = false }) {
+export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif, profPrincipal, ppLabel, sys, accent = PAL_SEC().accent, tint = PAL_SEC().th, dense = false, variant = 'bande', vars = false, grand = false }) {
   const redoublant = String(student?.statut || '').toLowerCase().includes('redoubl');
   const parents = [student?.nom_pere, student?.nom_mere, student?.tuteur].filter(Boolean).join(' · ');
   const phone = student?.parent_phone ? ` (${student.parent_phone})` : '';
@@ -397,7 +400,7 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
   return (
     <div style={{ marginBottom: dense ? 2 : 4 }}>
       {/* Bande colorée : photo + nom + classe */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: dense ? 7 : 10, background: accent, color: '#fff', borderRadius: '6px 6px 0 0', padding: dense ? '2px 8px' : '5px 10px', ...pcx }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: dense ? 7 : 10, background: accent, color: texteSurAccent(accent), borderRadius: '6px 6px 0 0', padding: dense ? '2px 8px' : '5px 10px', ...pcx }}>
         <div style={{ background: '#fff', borderRadius: 4, padding: dense ? 1 : 2, lineHeight: 0, flexShrink: 0 }}>
           <BulletinPhoto src={student?.photo_url} width={grand ? 74 : dense ? 34 : 58} height={grand ? 92 : dense ? 42 : 72} radius={2} />
         </div>

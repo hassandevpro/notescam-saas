@@ -17,6 +17,7 @@ import {
   OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet, ContinuationHeader,
 } from './bulletinOfficialParts';
 import { paginateScGroups } from '../../lib/scBulletinDoc';
+import { PAL_SEC } from '../../core/bulletinAccent';
 
 function TableHead({ sys, maxScale = 20 }) {
   return (
@@ -39,7 +40,7 @@ function TableHead({ sys, maxScale = 20 }) {
 function GroupBlock({ g, sys }) {
   return (
     <tbody className="apc-mat">
-      <tr><td colSpan={8} style={{ ...CELL, background: '#dde7f3', fontWeight: 'bold' }}>{g.nom}</td></tr>
+      <tr><td colSpan={8} style={{ ...CELL, background: PAL_SEC().groupe, fontWeight: 'bold' }}>{g.nom}</td></tr>
       {g.rows.map((r) => (
         <tr key={r.id}>
           <td style={CELL}>
@@ -56,7 +57,7 @@ function GroupBlock({ g, sys }) {
           <td style={CELL}>{r.appreciation}</td>
         </tr>
       ))}
-      <tr style={{ background: '#f4f7fb' }}>
+      <tr style={{ background: PAL_SEC().sous }}>
         <td style={{ ...CELL, textAlign: 'right', fontWeight: 'bold' }}>{L(sys, 'Total', 'Total', 'Total')} {g.nom}</td>
         <td style={{ ...CELL, textAlign: 'center', fontWeight: 'bold' }}>{fix2(g.coefSum)}</td>
         <td style={{ ...CELL, textAlign: 'center', fontWeight: 'bold' }}>{fix2(g.chargeSum)}</td>

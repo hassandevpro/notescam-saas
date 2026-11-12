@@ -4,8 +4,9 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { idCompteParent, idLienParentEleve } from './parentIds.js';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, copyFileSync, unlinkSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { extractArchiveSync } from './backupArchive.js';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
@@ -49,6 +50,28 @@ export function applyPendingRestore(dataDir = DATA_DIR, dbPath = DB_PATH) {
     mkdirSync(keepDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const safety = join(keepDir, `notescam-avant-restauration-${stamp}.db`);
+    if (/\.ncbak$/i.test(source)) {
+      // Archive COMPLÈTE (base + photos/logos/signatures). Tout est vérifié et extrait À CÔTÉ avant de toucher
+      // quoi que ce soit : une archive invalide ou une coupure pendant l'extraction laisse l'école intacte.
+      const staging = join(dataDir, `restore-staging-${Date.now()}`);
+      try {
+        const m = extractArchiveSync(source, staging);
+        result.manifest = { createdAt: m.createdAt, appVersion: m.appVersion || null, counts: m.counts || null, school: m.school || null };
+        if (existsSync(dbPath)) {
+          renameSync(dbPath, safety);
+          for (const ext of ['-wal', '-shm']) if (existsSync(dbPath + ext)) renameSync(dbPath + ext, safety + ext);
+        }
+        const filesDir = join(dataDir, 'files');
+        if (existsSync(filesDir)) renameSync(filesDir, join(keepDir, `files-avant-restauration-${stamp}`));
+        renameSync(join(staging, 'notescam.db'), dbPath);
+        if (existsSync(join(staging, 'files'))) renameSync(join(staging, 'files'), filesDir); else mkdirSync(filesDir, { recursive: true });
+        result.ok = true; result.previous = safety; result.withFiles = true;
+        console.warn(`[restore] archive complète restaurée depuis ${source} ; ancienne base conservée : ${safety}`);
+      } finally { try { rmSync(staging, { recursive: true, force: true }); } catch { /* best-effort */ } }
+      try { writeFileSync(join(dataDir, 'restore-last.json'), JSON.stringify(result, null, 2)); } catch { /* best-effort */ }
+      try { unlinkSync(marker); } catch { /* best-effort */ }
+      return result;
+    }
     if (existsSync(dbPath)) {
       renameSync(dbPath, safety);
       for (const ext of ['-wal', '-shm']) if (existsSync(dbPath + ext)) renameSync(dbPath + ext, safety + ext);

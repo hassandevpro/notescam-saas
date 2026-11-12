@@ -2,10 +2,12 @@
 // produit un fichier .db propre et défragmenté même pendant les écritures
 // (contrairement à un copier brut en mode WAL). Rotation pour borner le disque.
 
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { db, DATA_DIR } from './db.js';
 import { parityStatus } from './parityGate.js';
+import { createArchive, verifyArchiveSync, readManifest } from './backupArchive.js';
+import { appVersion } from './syncAudit.js';
 
 const BACKUP_DIR = process.env.NOTESCAM_BACKUP_DIR || join(DATA_DIR, 'backups');
 mkdirSync(BACKUP_DIR, { recursive: true });
@@ -37,13 +39,19 @@ export async function runBackup() {
 // Sauvegardes disponibles + drapeau d'urgence (pour prévenir avant restauration).
 export function listBackups() {
   return readdirSync(BACKUP_DIR)
-    .filter((f) => f.startsWith('notescam-') && f.endsWith('.db'))
+    .filter(estSauvegarde)
     .map((f) => {
       const full = join(BACKUP_DIR, f);
       let meta = null;
       try { if (existsSync(full + '.meta.json')) meta = JSON.parse(readFileSync(full + '.meta.json', 'utf8')); } catch { /* */ }
+      const complete = f.endsWith('.ncbak');
       const emergency = meta ? !!meta.emergency : /-URGENCE\.db$/.test(f);
-      return { file: f, at: statSync(full).mtime.toISOString(), emergency, label: meta?.label || (emergency ? EMERGENCY_LABEL : 'Sauvegarde normale'), mismatches: meta?.mismatches || [] };
+      const st = statSync(full);
+      return {
+        file: f, at: st.mtime.toISOString(), emergency, bytes: st.size, complete,
+        label: meta?.label || (complete ? 'Archive complète (base + photos)' : emergency ? EMERGENCY_LABEL : 'Sauvegarde normale'),
+        mismatches: meta?.mismatches || [],
+      };
     })
     .sort((a, b) => (a.at < b.at ? 1 : -1));
 }
@@ -65,11 +73,15 @@ export function selectToDelete(files, { keep = KEEP, keepDays = KEEP_DAYS, now =
   return sorted.filter((x) => !kept.has(x.f)).map((x) => x.f);
 }
 
+function estSauvegarde(f) { return f.startsWith('notescam-') && (f.endsWith('.db') || f.endsWith('.ncbak')); }
+const KEEP_ARCHIVES = Number(process.env.NOTESCAM_BACKUP_KEEP_ARCHIVES || 7); // archives complètes (lourdes) gardées
+
 function rotate() {
-  const files = readdirSync(BACKUP_DIR)
-    .filter((f) => f.startsWith('notescam-') && f.endsWith('.db'))
-    .map((f) => ({ f, t: statSync(join(BACKUP_DIR, f)).mtimeMs }));
-  for (const f of selectToDelete(files)) {
+  const tous = readdirSync(BACKUP_DIR).filter(estSauvegarde).map((f) => ({ f, t: statSync(join(BACKUP_DIR, f)).mtimeMs }));
+  const dbs = tous.filter((x) => x.f.endsWith('.db'));
+  const archives = tous.filter((x) => x.f.endsWith('.ncbak'));
+  const aSupprimer = [...selectToDelete(dbs), ...selectToDelete(archives, { keep: KEEP_ARCHIVES, keepDays: KEEP_ARCHIVES })];
+  for (const f of aSupprimer) {
     try { unlinkSync(join(BACKUP_DIR, f)); } catch { /* ignore */ }
     try { unlinkSync(join(BACKUP_DIR, f + '.meta.json')); } catch { /* ignore */ }
   }
@@ -77,10 +89,49 @@ function rotate() {
 
 // Planifie une sauvegarde toutes les `hours` heures + une au démarrage.
 export function scheduleBackups(hours = 2) {
-  runBackup().catch((e) => console.error('[backup] échec initial :', e.message));
-  setInterval(() => {
-    runBackup().catch((e) => console.error('[backup] échec :', e.message));
-  }, hours * 3600 * 1000).unref();
+  const tick = (initial) => runBackup()
+    .then(() => archiveDuJourSiAbsente())
+    .catch((e) => console.error(initial ? '[backup] échec initial :' : '[backup] échec :', e.message));
+  tick(true);
+  setInterval(() => tick(false), hours * 3600 * 1000).unref();
+}
+
+// Une archive COMPLÈTE (base + photos) par 24 h : c'est elle qui permet de tout reconstruire sur une autre machine.
+async function archiveDuJourSiAbsente() {
+  const recentes = readdirSync(BACKUP_DIR).filter((f) => f.endsWith('.ncbak'))
+    .some((f) => Date.now() - statSync(join(BACKUP_DIR, f)).mtimeMs < 20 * 3600 * 1000);
+  if (!recentes) await runArchiveBackup({ actor: 'automatique' });
+}
+
+export function journaliser(action, detail = {}) {
+  try { appendFileSync(join(DATA_DIR, 'backup-journal.log'), JSON.stringify({ at: new Date().toISOString(), action, ...detail }) + '\n'); } catch { /* best-effort */ }
+}
+
+// Archive complète : base + photos/logos/signatures/tampons, en UN fichier (.ncbak), avec résumé et empreintes.
+export async function runArchiveBackup({ actor = null } = {}) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const dest = join(BACKUP_DIR, `notescam-${stamp}.ncbak`);
+  const r = await createArchive({ db, dataDir: DATA_DIR, outPath: dest, tmpDir: join(BACKUP_DIR, `.tmp-${stamp}`), appVersion: appVersion(), actor });
+  rotate();
+  journaliser('export_archive', { by: actor, file: dest.split(/[\\/]/).pop(), bytes: r.bytes });
+  return { path: dest, file: dest.split(/[\\/]/).pop(), bytes: r.bytes, manifest: r.manifest, complete: true };
+}
+
+// Résumé affichable AVANT de restaurer : « 412 élèves, 18 classes, 25 340 notes — créé le … ».
+export function resumeArchive(path) {
+  const { manifest, archiveSize, truncated } = readManifest(path);
+  return {
+    createdAt: manifest.createdAt, appVersion: manifest.appVersion || null, school: manifest.school || null,
+    counts: manifest.counts || null, files: manifest.totals?.files ?? 0, bytes: archiveSize, truncated,
+  };
+}
+
+// 0.3.37 > 0.3.9 : comparaison numérique segment par segment (jamais lexicographique).
+export function versionPlusRecente(a, b) {
+  const seg = (v) => String(v || '0').split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  const A = seg(a), B = seg(b);
+  for (let i = 0; i < Math.max(A.length, B.length); i++) { if ((A[i] || 0) !== (B[i] || 0)) return (A[i] || 0) > (B[i] || 0); }
+  return false;
 }
 
 // Résout un nom de sauvegarde en chemin, UNIQUEMENT s'il s'agit d'une
@@ -88,7 +139,7 @@ export function scheduleBackups(hours = 2) {
 // fichier du disque (`../notescam.db`, chemin absolu…).
 export function backupPath(file) {
   if (typeof file !== 'string' || basename(file) !== file) return null;
-  if (!/^notescam-[\w.-]+\.db$/.test(file)) return null;
+  if (!/^notescam-[\w.-]+\.(db|ncbak)$/.test(file)) return null;
   const full = join(BACKUP_DIR, file);
   return existsSync(full) ? full : null;
 }
@@ -96,6 +147,17 @@ export function backupPath(file) {
 // Contrôle d'intégrité AVANT de programmer une restauration : on ne remplace
 // pas une base saine par un fichier corrompu.
 export async function verifyBackupFile(path) {
+  if (path.endsWith('.ncbak')) {
+    try {
+      const v = verifyArchiveSync(path);
+      const m = v.manifest;
+      if (!v.ok) return { ok: false, detail: 'archive altérée ou incomplète (' + v.problems.map((p) => p.kind).slice(0, 3).join(', ') + ')', school: null };
+      if (m.appVersion && versionPlusRecente(m.appVersion, appVersion())) {
+        return { ok: false, detail: `archive créée par NotesCam ${m.appVersion}, plus récent que cette installation (${appVersion()}). Mettez NotesCam à jour d'abord.`, school: m.school || null };
+      }
+      return { ok: true, detail: null, school: m.school || null };
+    } catch (e) { return { ok: false, detail: e.message, school: null }; }
+  }
   try {
     const { DatabaseSync } = await import('node:sqlite');
     const d = new DatabaseSync(path, { readOnly: true });

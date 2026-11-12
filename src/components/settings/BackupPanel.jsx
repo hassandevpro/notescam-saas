@@ -13,7 +13,7 @@ import { useT } from '../../lib/i18n';
 import { IS_LAN } from '../../lib/edition';
 import {
   exportSchool, downloadJson, readBundleFile, previewRestore, restoreBundle, validateBundle,
-  listAutoBackups, snapshotNow, loadCloudSnapshot, downloadServerBackup,
+  listAutoBackups, snapshotNow, loadCloudSnapshot, downloadServerBackup, uploadArchive,
   scheduleServerRestore, cancelServerRestore, serverRestoreStatus,
 } from '../../lib/backupService';
 
@@ -65,6 +65,18 @@ export default function BackupPanel() {
     try { await fn(); }
     catch (e) { setMsg({ tone: 'error', text: e.message }); }
     finally { setBusy(''); setProgress(null); }
+  };
+
+  const [archiveSummary, setArchiveSummary] = useState(null);
+  const onUploadArchive = (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setArchiveSummary(null);
+    run('upload', async () => {
+      const r = await uploadArchive(f, (pct) => setProgress({ pct }));
+      setArchiveSummary(r.summary);
+      await refresh();
+    });
   };
 
   const onSnapshot = () => run('snap', async () => {
@@ -182,6 +194,24 @@ export default function BackupPanel() {
         <button className="btn-primary" style={{ width: 'auto', paddingInline: '1.5rem' }} disabled={!!busy} onClick={onSnapshot}>
           {busy === 'snap' ? '…' : t('Sauvegarder maintenant', 'Back up now', 'Copiar ahora')}
         </button>
+        {IS_LAN && (
+          <div className="rounded-xl border border-slate-200 p-3 space-y-2">
+            <p className="text-sm text-slate-600">
+              {t('Venez-vous d’une autre machine ? Déposez ici l’archive « base + photos » (.ncbak) téléchargée sur l’ancien serveur. Elle est vérifiée avant d’être gardée ; vous voyez ensuite son contenu et vous choisissez de la restaurer. L’ancienne base est conservée.',
+                 'Coming from another machine? Drop the “database + photos” archive (.ncbak) here. It is verified before being kept.',
+                 '¿Viene de otra máquina? Suba aquí el archivo .ncbak.')}
+            </p>
+            <label className="btn-secondary inline-block cursor-pointer">
+              {busy === 'upload' ? `${t('Envoi', 'Uploading', 'Enviando')} ${progress?.pct ?? 0} %` : t('Choisir une archive (.ncbak)', 'Choose an archive (.ncbak)', 'Elegir archivo .ncbak')}
+              <input type="file" accept=".ncbak" className="hidden" disabled={!!busy} onChange={onUploadArchive} />
+            </label>
+            {archiveSummary && (
+              <p className="text-sm text-emerald-700">
+                {t('Archive acceptée', 'Archive accepted', 'Archivo aceptado')} : <b>{archiveSummary.school?.name || '—'}</b> — {archiveSummary.counts?.students ?? '?'} {t('élèves', 'students', 'alumnos')}, {archiveSummary.counts?.classes ?? '?'} {t('classes', 'classes', 'clases')}, {(archiveSummary.counts?.grades ?? 0) + (archiveSummary.counts?.primNotes ?? 0)} {t('notes', 'grades', 'notas')}, {archiveSummary.files} {t('fichiers', 'files', 'archivos')} — {t('créée le', 'created', 'creada')} {fmtDate(archiveSummary.createdAt)}. {t('Cliquez « Restaurer la base » sur la ligne correspondante ci-dessous.', 'Click “Restore database” on the matching line below.', 'Pulse “Restaurar base” en la línea correspondiente.')}
+              </p>
+            )}
+          </div>
+        )}
         {autoErr && (
           <p className="text-sm text-red-600">
             {t('Liste indisponible', 'List unavailable', 'Lista no disponible')} : {autoErr}
@@ -198,6 +228,7 @@ export default function BackupPanel() {
                 <span className="flex-1 min-w-[12rem]">
                   <b>{fmtDate(b.at)}</b>
                   <span className="text-slate-400"> · {b.kind === 'manual' ? t('manuelle', 'manual', 'manual') : b.kind === 'auto' ? t('automatique', 'automatic', 'automática') : (b.label || '')}</span>
+                  {b.complete && <span className="text-slate-400"> · {t('base + photos', 'database + photos', 'base + fotos')} · {fmtSize(b.bytes)}</span>}
                   {b.totalRows != null && <span className="text-slate-400"> · {b.totalRows} {t('lignes', 'rows', 'filas')} · {fmtSize(b.bytes)}</span>}
                   {b.emergency && <span className="ml-2 text-amber-700 font-semibold">⚠ {t('synchro incomplète', 'incomplete sync', 'sincronización incompleta')}</span>}
                 </span>

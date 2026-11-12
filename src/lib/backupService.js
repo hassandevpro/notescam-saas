@@ -61,7 +61,7 @@ async function lanFetch(path, { method = 'GET', body } = {}) {
 export async function listAutoBackups(schoolId) {
   if (IS_LAN) {
     const rows = await lanFetch('/api/backup/list');
-    return (rows || []).map((b) => ({ id: b.file, at: b.at, kind: 'server', label: b.label, emergency: b.emergency, mismatches: b.mismatches }));
+    return (rows || []).map((b) => ({ id: b.file, at: b.at, kind: 'server', label: b.label, emergency: b.emergency, mismatches: b.mismatches, bytes: b.bytes, complete: !!b.complete }));
   }
   const { data, error } = await supabase
     .from('school_backups')
@@ -73,7 +73,8 @@ export async function listAutoBackups(schoolId) {
 }
 
 export async function snapshotNow(schoolId) {
-  if (IS_LAN) return lanFetch('/api/backup', { method: 'POST', body: {} });
+  // LAN : archive COMPLÈTE (base + photos, logos, signatures) — c'est elle qui se restaure sur une autre machine.
+  if (IS_LAN) return lanFetch('/api/backup', { method: 'POST', body: { full: true } });
   const { data, error } = await supabase.rpc('backup_snapshot_now', { p_school: schoolId });
   if (error) throw new Error(error.message);
   return data;
@@ -92,6 +93,25 @@ export async function downloadServerBackup(file) {
   const res = await fetch(`/api/backup/file/${encodeURIComponent(file)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) throw new Error(`Téléchargement impossible (HTTP ${res.status})`);
   triggerDownload(await res.blob(), file);
+}
+
+// LAN : dépose une archive (.ncbak) sur le serveur, avec progression. Le serveur la VÉRIFIE avant de la garder.
+export function uploadArchive(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/backup/upload');
+    const token = lanToken();
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', 'application/x-ncbak');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onerror = () => reject(new Error('Envoi interrompu : vérifiez la connexion au serveur et recommencez.'));
+    xhr.onload = () => {
+      let json = null; try { json = JSON.parse(xhr.responseText); } catch { /* */ }
+      if (xhr.status >= 200 && xhr.status < 300 && json?.data) resolve(json.data);
+      else reject(new Error(json?.error?.message || `Dépôt refusé (HTTP ${xhr.status})`));
+    };
+    xhr.send(file);
+  });
 }
 
 export const scheduleServerRestore = (file) => lanFetch('/api/backup/restore', { method: 'POST', body: { file } });

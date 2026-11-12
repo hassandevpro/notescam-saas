@@ -45,8 +45,8 @@
 
 import { createHash } from 'node:crypto';
 import {
-  closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, openSync,
-  readSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync,
+  closeSync, createReadStream, createWriteStream, existsSync, mkdirSync, openSync, readdirSync,
+  readSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync,
 } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -76,7 +76,7 @@ export function isSafeEntryPath(p) {
  * @param {string}  [opts.tmpDir]     dossier de transit pour l'instantané
  * @returns {Promise<{path, manifest, bytes}>}
  */
-export async function createArchive({ db, dataDir, outPath, tmpDir }) {
+export async function createArchive({ db, dataDir, outPath, tmpDir, appVersion = null, actor = null }) {
   const filesDir = join(dataDir, 'files');
   const staging = tmpDir || join(dirname(outPath), `.ncbak-tmp-${Date.now()}`);
   mkdirSync(staging, { recursive: true });
@@ -107,9 +107,22 @@ export async function createArchive({ db, dataDir, outPath, tmpDir }) {
       ...files.map((f) => ({ kind: 'file', path: `${ASSET_BUCKET}/${f.path}`, size: f.size, sha256: f.sha256, mtime: f.mtime })),
     ];
     let offset = 0;
+    // Résumé lisible AVANT toute restauration (« 412 élèves, 18 classes, 25 340 notes — créé le… »).
+    const summary = { school: null, counts: {}, schemaTables: 0 };
+    try {
+      const { DatabaseSync } = await import('node:sqlite');
+      const snap = new DatabaseSync(snapshot, { readOnly: true });
+      const n = (t) => { try { return snap.prepare(`SELECT count(*) c FROM "${t}"`).get().c; } catch { return null; } };
+      summary.school = snap.prepare('SELECT id, name FROM schools LIMIT 1').get() || null;
+      if (summary.school) summary.school = { id: summary.school.id, name: summary.school.name };
+      summary.counts = { students: n('students'), classes: n('classes'), grades: n('grades'), primNotes: n('prim_notes'), teachers: n('teachers'), users: n('school_users') };
+      summary.schemaTables = snap.prepare("SELECT count(*) c FROM sqlite_master WHERE type='table'").get().c;
+      snap.close?.();
+    } catch { /* résumé indisponible : l'archive reste valide */ }
     const manifest = {
       format: 'ncbak', version: 1,
       createdAt: new Date().toISOString(),
+      appVersion, createdBy: actor, ...summary,
       bucket: ASSET_BUCKET,
       entries: entries.map((e) => { const withOffset = { ...e, offset }; offset += e.size; return withOffset; }),
       references,
@@ -128,7 +141,11 @@ export async function createArchive({ db, dataDir, outPath, tmpDir }) {
     await write(manifestBuf);
     for (const e of manifest.entries) {
       const src = e.kind === 'db' ? snapshot : join(filesDir, ...e.path.split('/'));
-      await pipeline(createReadStream(src), out, { end: false });
+      await new Promise((res, rej) => {
+        const rd = createReadStream(src);
+        rd.on('error', rej); rd.on('end', res);
+        rd.on('data', (chunk) => { if (!out.write(chunk)) { rd.pause(); out.once('drain', () => rd.resume()); } });
+      });
     }
     await new Promise((res, rej) => out.end((err) => (err ? rej(err) : res())));
 
@@ -144,7 +161,7 @@ export async function createArchive({ db, dataDir, outPath, tmpDir }) {
 // ── LECTURE DU MANIFESTE ────────────────────────────────────────────────────
 export function readManifest(archivePath) {
   const st = statSync(archivePath);
-  if (st.size < HEADER_LEN) throw new Error('Archive tronquée : en-tête incomplet.');
+  if (st.size < HEADER_LEN) throw new Error('Ce fichier n’est pas une archive NotesCam (trop court). Choisissez un fichier .ncbak exporté par NotesCam.');
   const fd = openSync(archivePath, 'r');
   try {
     const head = Buffer.alloc(HEADER_LEN);
@@ -157,7 +174,7 @@ export function readManifest(archivePath) {
     let manifest;
     try { manifest = JSON.parse(buf.toString('utf8')); } catch { throw new Error('Archive corrompue : manifeste non lisible en JSON.'); }
     if (manifest?.format !== 'ncbak') throw new Error('Format d’archive inconnu.');
-    if (manifest.version !== 1) throw new Error(`Version d’archive non gérée : ${manifest.version}`);
+    if (manifest.version !== 1) throw new Error(`Cette archive a été créée par une version plus récente de NotesCam (format ${manifest.version}). Mettez NotesCam à jour avant de la restaurer.`);
     const dataStart = HEADER_LEN + len;
     const expected = dataStart + (manifest.totals?.bytes ?? 0);
     return { manifest, dataStart, archiveSize: st.size, truncated: st.size < expected, expectedSize: expected };
@@ -165,7 +182,8 @@ export function readManifest(archivePath) {
 }
 
 // ── VÉRIFICATION (sans rien écrire) ─────────────────────────────────────────
-export async function verifyArchive(archivePath) {
+export async function verifyArchive(archivePath) { return verifyArchiveSync(archivePath); }
+export function verifyArchiveSync(archivePath) {
   const { manifest, dataStart, truncated, archiveSize, expectedSize } = readManifest(archivePath);
   const problems = [];
   if (truncated) problems.push({ kind: 'truncated', expectedSize, archiveSize });
@@ -204,6 +222,33 @@ export async function verifyArchive(archivePath) {
   return { ok: problems.length === 0, manifest, checked, problems };
 }
 
+// ── EXTRACTION SYNCHRONE (démarrage du serveur) ─────────────────────────────
+// Vérifie TOUT, extrait dans `stagingDir` (database → notescam.db, fichiers → files/…). Ne touche à rien d'autre.
+// Lève une erreur au premier problème : l'appelant n'a alors rien à défaire.
+export function extractArchiveSync(archivePath, stagingDir) {
+  const v = verifyArchiveSync(archivePath);
+  if (!v.ok) throw new Error(`archive invalide (${v.problems.map((p) => p.kind + (p.path ? ' ' + p.path : '')).slice(0, 3).join(', ')})`);
+  const { dataStart } = readManifest(archivePath);
+  const fd = openSync(archivePath, 'r');
+  try {
+    for (const e of v.manifest.entries) {
+      const dest = e.kind === 'db' ? join(stagingDir, 'notescam.db') : join(stagingDir, 'files', ...e.path.split('/'));
+      mkdirSync(dirname(dest), { recursive: true });
+      const out = openSync(dest, 'w');
+      try {
+        const buf = Buffer.alloc(Math.min(Math.max(e.size, 1), 1 << 20));
+        let done = 0;
+        while (done < e.size) {
+          const n = readSync(fd, buf, 0, Math.min(buf.length, e.size - done), dataStart + e.offset + done);
+          if (n <= 0) throw new Error(`lecture interrompue : ${e.path}`);
+          writeSync(out, buf, 0, n); done += n;
+        }
+      } finally { closeSync(out); }
+    }
+  } finally { closeSync(fd); }
+  return v.manifest;
+}
+
 // ── RESTAURATION ────────────────────────────────────────────────────────────
 /**
  * Restaure dans un répertoire CIBLE ISOLÉ et produit un rapport.
@@ -215,14 +260,24 @@ export async function verifyArchive(archivePath) {
  * @param {string} [opts.activeDataDir]      répertoire de production à protéger
  * @param {boolean}[opts.allowInPlace=false] autorise targetDir === activeDataDir
  */
-export async function restoreArchive({ archivePath, targetDir, activeDataDir, allowInPlace = false }) {
+export async function restoreArchive({ archivePath, targetDir, activeDataDir, allowInPlace = false, replaceExisting = false }) {
   const target = resolve(targetDir);
+  // CHOIX EXPLICITE : une cible qui contient déjà quelque chose n'est JAMAIS écrasée en silence.
+  if (existsSync(target) && !replaceExisting) {
+    const plein = (() => { try { return readdirSync(target).length > 0; } catch { return true; } })();
+    if (plein) {
+      const err = new Error('Restauration refusée : le dossier cible contient déjà des données. Choisissez « Restaurer (remplacer tout) » pour confirmer.');
+      err.code = 'TARGET_NOT_EMPTY';
+      throw err;
+    }
+  }
   if (activeDataDir && !allowInPlace && target === resolve(activeDataDir)) {
     throw new Error('Restauration refusée : la cible est le répertoire de données ACTIF. Restaurez dans un répertoire isolé, ou passez allowInPlace.');
   }
 
   const verification = await verifyArchive(archivePath);
-  const fatal = verification.problems.filter((p) => p.kind !== 'checksum_mismatch');
+  // Toute anomalie est fatale : une archive altérée ne remplace JAMAIS une cible, même en partie.
+  const fatal = verification.problems;
   if (fatal.length) {
     return {
       ok: false, restored: [], skipped: [], archivePath, targetDir: target,
@@ -234,6 +289,7 @@ export async function restoreArchive({ archivePath, targetDir, activeDataDir, al
   const staging = `${target}.restoring-${Date.now()}`;
   mkdirSync(staging, { recursive: true });
   const restored = [], mismatches = [];
+  let restoredPrevious = null;
   try {
     const { manifest, dataStart } = readManifest(archivePath);
     for (const e of manifest.entries) {
@@ -250,9 +306,12 @@ export async function restoreArchive({ archivePath, targetDir, activeDataDir, al
       restored.push(e.path);
     }
 
-    if (existsSync(target)) rmSync(target, { recursive: true, force: true });
+    // L'ancienne cible est mise de côté (pas supprimée) : si la promotion échoue, on la remet.
+    const ancien = existsSync(target) ? `${target}.avant-restauration-${Date.now()}` : null;
     mkdirSync(dirname(target), { recursive: true });
-    renameSync(staging, target);
+    if (ancien) renameSync(target, ancien);
+    try { renameSync(staging, target); } catch (e) { if (ancien) renameSync(ancien, target); throw e; }
+    if (ancien) restoredPrevious = ancien;
   } catch (err) {
     try { rmSync(staging, { recursive: true, force: true }); } catch { /* best-effort */ }
     throw err;
@@ -270,7 +329,7 @@ export async function restoreArchive({ archivePath, targetDir, activeDataDir, al
   return {
     ok: mismatches.length === 0,
     archivePath, targetDir: target,
-    restored, mismatches,
+    restored, mismatches, previous: restoredPrevious,
     report: report({ verification, restored, mismatches, unresolved, orphans, aborted: false }),
   };
 }

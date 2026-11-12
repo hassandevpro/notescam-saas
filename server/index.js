@@ -6,14 +6,14 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { dirname, join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, createReadStream, existsSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs';
+import { mkdirSync, createReadStream, existsSync, writeFileSync, unlinkSync, readFileSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 import { db, getSchool, DATA_DIR, FILES_DIR } from './db.js';
 import { hashPassword, verifyPassword, signToken, verifyToken, verifyLicenseKey, licensingEnabled, machineFingerprint, machineFingerprints } from './security.js';
 import { runQuery, runBatch } from './query.js';
 import { runRpc } from './rpc.js';
-import { scheduleBackups, runBackup } from './backup.js';
+import { scheduleBackups, runBackup, runArchiveBackup, resumeArchive, journaliser } from './backup.js';
 import { runMigration } from './migrate.js';
 import { mirrorToCloud, flushMirrorQueue, credentialPublicKey, publishCredentialKey, syncCloudCredentials } from './authBridge.js';
 import { signupCloud, verifyCloud, runCloudActivation, getActivation } from './activateCloud.js';
@@ -226,8 +226,48 @@ app.post('/api/backup', async (req, reply) => {
   const { userId } = authOf(req);
   const m = userId && db.prepare('SELECT role FROM school_users WHERE user_id = ? AND active = 1').get(userId);
   if (!m || m.role !== 'admin') return reply.code(403).send({ error: { message: 'Admin requis' } });
-  const res = await runBackup();
-  return { data: res, error: null };
+  // full:true = archive COMPLÈTE (base + photos/logos/signatures), restaurable sur une autre machine.
+  const res = req.body?.full ? await runArchiveBackup({ actor: userId }) : await runBackup();
+  if (!req.body?.full) journaliser('sauvegarde_db', { by: userId });
+  return { data: res.manifest ? { ...res, manifest: undefined, summary: { counts: res.manifest.counts, files: res.manifest.totals?.files } } : res, error: null };
+});
+
+// Dépôt d'une archive (.ncbak) venant d'une autre machine / d'une clé USB : flux brut, vérifié AVANT d'être gardé.
+app.addContentTypeParser('application/x-ncbak', (_req, payload, done) => done(null, payload)); // flux brut, jamais mis en mémoire
+app.post('/api/backup/upload', { bodyLimit: 8 * 1024 * 1024 * 1024 }, async (req, reply) => {
+  const userId = requireLocalAdmin(req, reply);
+  if (!userId) return;
+  const { BACKUP_DIR, verifyBackupFile } = await import('./backup.js');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const dest = join(BACKUP_DIR, `notescam-importe-${stamp}.ncbak`);
+  const partial = dest + '.partial';
+  try {
+    const { pipeline } = await import('node:stream/promises');
+    const { createWriteStream } = await import('node:fs');
+    await pipeline(req.body, createWriteStream(partial));
+  } catch (e) {
+    try { unlinkSync(partial); } catch { /* */ }
+    return reply.code(500).send({ error: { message: 'Envoi interrompu : ' + e.message } });
+  }
+  // vérification sur le fichier complet (renommé en .ncbak pour que le contrôle reconnaisse le format)
+  renameSync(partial, dest);
+  const verdict = await verifyBackupFile(dest);
+  if (!verdict.ok) {
+    try { unlinkSync(dest); } catch { /* */ }
+    journaliser('import_refuse', { by: userId, detail: verdict.detail });
+    return reply.code(422).send({ error: { message: 'Fichier refusé, rien n’a été modifié : ' + verdict.detail } });
+  }
+  journaliser('import_depose', { by: userId, file: dest.split(/[\\/]/).pop() });
+  return { data: { file: dest.split(/[\\/]/).pop(), summary: resumeArchive(dest) }, error: null };
+});
+
+// Aperçu d'une archive déjà sur le serveur : le contenu AVANT de décider de restaurer.
+app.get('/api/backup/preview/:file', async (req, reply) => {
+  if (!requireLocalAdmin(req, reply)) return;
+  const { backupPath } = await import('./backup.js');
+  const p = backupPath(req.params.file);
+  if (!p || !p.endsWith('.ncbak')) return reply.code(404).send({ error: { message: 'Archive introuvable' } });
+  try { return { data: resumeArchive(p), error: null }; } catch (e) { return reply.code(422).send({ error: { message: e.message } }); }
 });
 
 // Liste des sauvegardes + drapeau d'urgence (l'outil de restauration prévient si la
@@ -269,12 +309,16 @@ app.post('/api/backup/restore', async (req, reply) => {
   const check = await verifyBackupFile(p);
   if (!check.ok) return reply.code(422).send({ error: { message: `Sauvegarde corrompue, restauration refusée (${check.detail})` } });
   const current = getSchool();
-  if (current && check.school && check.school.id !== current.id) {
+  // Une installation NEUVE (aucun élève) a son propre établissement vide : on peut y restaurer l'école d'une autre machine.
+  // Une école qui porte déjà des élèves, elle, n'est jamais remplacée par celle d'un autre établissement.
+  const nbEleves = current ? (db.prepare('SELECT count(*) c FROM students WHERE school_id = ?').get(current.id)?.c || 0) : 0;
+  if (current && check.school && check.school.id !== current.id && nbEleves > 0) {
     return reply.code(422).send({ error: { message: 'Cette sauvegarde appartient à un autre établissement.' } });
   }
   const meta = listBackups().find((b) => b.file === file) || {};
   const { RESTORE_MARKER } = await import('./db.js');
   writeFileSync(RESTORE_MARKER, JSON.stringify({ source: p, label: meta.label || file, emergency: !!meta.emergency, requestedBy: userId, at: new Date().toISOString() }));
+  journaliser('restauration_programmee', { by: userId, file });
   return { data: { scheduled: true, file, emergency: !!meta.emergency, restartRequired: true }, error: null };
 });
 

@@ -349,13 +349,13 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
   // l'état civil, c'est la même information dans la hauteur de ces trois
   // lignes — et c'est la disposition du modèle de référence.
   if (variant === 'carnet') {
-    const photoH = grand ? 76 : dense ? 46 : 58;
+    const photoH = grand ? 96 : dense ? 46 : 80; // photo plus grande (demande 2026-11-12)
     const libelle = { fontWeight: 'bold' };
     return (
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: vars ? 'var(--nc-gap)' : dense ? 2 : 4, tableLayout: 'fixed' }}>
         <colgroup>
-          <col style={{ width: dense ? '8%' : '9%' }} />
-          <col style={{ width: dense ? '52%' : '51%' }} />
+          <col style={{ width: dense ? '8%' : '10%' }} />
+          <col style={{ width: dense ? '52%' : '50%' }} />
           <col />
         </colgroup>
         <tbody>
@@ -399,7 +399,7 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
       {/* Bande colorée : photo + nom + classe */}
       <div style={{ display: 'flex', alignItems: 'center', gap: dense ? 7 : 10, background: accent, color: '#fff', borderRadius: '6px 6px 0 0', padding: dense ? '2px 8px' : '5px 10px', ...pcx }}>
         <div style={{ background: '#fff', borderRadius: 4, padding: dense ? 1 : 2, lineHeight: 0, flexShrink: 0 }}>
-          <BulletinPhoto src={student?.photo_url} width={grand ? 60 : dense ? 34 : 46} height={grand ? 76 : dense ? 42 : 56} radius={2} />
+          <BulletinPhoto src={student?.photo_url} width={grand ? 74 : dense ? 34 : 58} height={grand ? 92 : dense ? 42 : 72} radius={2} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Ces deux tailles étaient les DERNIÈRES à rester figées sur une

@@ -1,0 +1,91 @@
+======================================================================
+NotesCam 0.3.41 — SERVEUR LINUX (THE GENIUS)
+LEGENDE DU PV DANS LA PAGE, RAPPORT EN SEQUENCES (PRIMAIRE APC),
+SAUVEGARDE COMPLETE .ncbak, SAISIE RAPIDE ADMINISTRATEUR, BULLETINS
+======================================================================
+
+PAQUET            notescam-linux-x64-0.3.41.tar.gz
+TAILLE            53 958 210 octets
+EMPREINTE SHA-256 c49180960d291b6cbaf88fd9709f7a875815d1c7661f908dae6142595d1babcd
+CONSTRUIT LE      2026-11-12 (edition "lan", Node v24.22.0), depuis le commit
+                  39cd42f de la branche main (arbre propre) ; seule difference :
+                  package.json passe de 0.3.40 a 0.3.41.
+SCRIPT            deploy-0.3.41.sh   (bash -n OK)
+
+Verifiez l'empreinte avant d'installer :
+
+    sha256sum notescam-linux-x64-0.3.41.tar.gz
+
+----------------------------------------------------------------------
+A FAIRE AU CLOUD *AVANT* DE DISTRIBUER (rien n'a ete applique par nous)
+----------------------------------------------------------------------
+
+La table `schools` est synchronisee : une colonne que le serveur de l'ecole
+possede et que le Cloud ne connait pas fait REJETER la ligne « ecole » EN
+ENTIER. Ce paquet cree la colonne `schools.saisie_rapide_admin` sur le serveur
+de l'ecole. Donc, dans cet ordre :
+
+  1. Executer  supabase_saisie_rapide_admin.sql  sur le Cloud.
+  2. Executer le SELECT de controle en fin de fichier : THE GENIUS et BRIGHT
+     CONTINENT doivent sortir a FALSE, toutes les autres ecoles a TRUE.
+  3. Seulement ensuite, distribuer ce paquet.
+
+Les prerequis des versions precedentes restent valables et NON VERIFIES ici
+(voir l'en-tete de deploy-0.3.41.sh) : logo_contient_nom, la synchronisation
+des notes du primaire (supabase_prim_notes_sync.sql + sync-push / sync-pull
+deployes), prim_moyenne_points, prim_bulletin_mode. Si l'un d'eux manque, la
+synchronisation rejette la ligne « ecole ».
+
+----------------------------------------------------------------------
+CE QU'IL FAUT AVOIR DANS LE MEME DOSSIER
+----------------------------------------------------------------------
+
+    notescam-linux-x64-0.3.41.tar.gz
+    deploy-0.3.41.sh
+
+----------------------------------------------------------------------
+LA COMMANDE
+----------------------------------------------------------------------
+
+    cd ~/Telechargements
+    sudo ./deploy-0.3.41.sh notescam-linux-x64-0.3.41.tar.gz
+
+Le script sauvegarde la base (copie verifiee), installe, redemarre, puis
+controle. Il s'arrete SANS rien installer si la sauvegarde ne se verifie pas.
+
+La 0.3.41 remplace la 0.3.40 : installez-la directement. Ne reinstallez jamais
+une version plus basse apres elle.
+
+----------------------------------------------------------------------
+CE QUI CHANGE POUR L'ECOLE
+----------------------------------------------------------------------
+
+1. PV ET RAPPORT DE RESULTATS. La legende des competences (« Communiquer en F.
+   = Communiquer en francais ... ») revient a la ligne dans la largeur de la
+   page ; elle ne sort plus a droite. Mesure sur le rendu reel : 8 entrees
+   depassaient avant, aucune apres (impression et ecran, laptop 1366 px).
+2. RAPPORT DE RESULTATS, PRIMAIRE APC. Si l'ecole est reglee en SEQUENCES
+   (Parametres, rythme du primaire), la page Rapports propose « Sequence 1 a 8 »
+   + « Annuel » et le titre indique « Sequence n » ; une sequence = une UA.
+   Une ecole en trimestres ne change pas.
+   >> POUR THE GENIUS : le reglage « rythme du primaire » doit valoir
+      « sequences ». S'il vaut « trimestres », rien ne change a l'ecran.
+3. SAUVEGARDE. Archive complete .ncbak (base + photos, logos, signatures) :
+   depot, apercu, restauration au demarrage. Une cible non vide ou une archive
+   alteree est refusee.
+4. SAISIE PRIMAIRE. Saisie rapide multi-matieres reservee a l'administrateur
+   (reglage d'ecole). THE GENIUS la garde ETEINTE (voir le SQL du Cloud).
+5. BULLETINS. Photo de l'eleve plus grande ; la maternelle utilise le gabarit
+   du primaire. Une page A4 conservee.
+
+----------------------------------------------------------------------
+CE QUI N'EST PAS FAIT / A SAVOIR
+----------------------------------------------------------------------
+
+- Le selecteur de periode du BULLETIN du primaire APC propose encore
+  « Trimestre 1 a 3 » apres les UA 1 a 8, meme pour une ecole en sequences.
+  Non modifie dans cette version.
+- A l'impression en lot, la periode choisie vaut pour toutes les classes : une
+  « Sequence 3 » est la UA 3 au primaire APC et la sequence 3 ailleurs.
+- Aucune mise a jour automatique : c'est l'administrateur de l'ecole qui
+  applique ce paquet, en root.

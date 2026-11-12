@@ -18,6 +18,7 @@ const SRC = new URL('../../', import.meta.url).href;
 const { default: Mat } = await import(`${SRC}components/bulletins/BulletinMatOfficial.jsx`);
 const { default: Prim } = await import(`${SRC}components/bulletins/BulletinPrimAnnualUA.jsx`);
 const theme = await import(`${SRC}components/bulletins/fondamentalTheme.js`);
+const { teintesDeLEcole } = await import(`${SRC}core/bulletinAccent.js`);
 
 const school = { id: 's', name: 'ÉCOLE TEST', country_code: 'cameroon', current_year: '2026-2027' };
 const student = { id: 'e', name: 'N’GUESSAN Ève-Marie', matricule: 'M-1' };
@@ -35,9 +36,11 @@ test('même feuille que le primaire : densité mesurée, donc une page', () => {
 
 test('la palette est celle du primaire, rien de propre à la maternelle', () => {
   const h = mat();
-  assert.ok(h.includes(theme.FOND_TH_BG) && h.includes(theme.FOND_ACCENT));
+  const C = teintesDeLEcole(school);
+  assert.ok(h.includes(C.tint) && h.includes(C.accent), 'teintes déduites de l’accent de l’école, comme le carnet primaire');
+  // Sobre : le vert plein n'est que sur la barre de titre — pas de bande d'identité pleine.
+  assert.ok((h.match(new RegExp('background:' + C.accent, 'g')) || []).length <= 2, 'pas d’aplat d’accent hors titre');
   for (const ancien of ['#7c3aed', '#f3e8ff', '#6d28d9']) assert.ok(!h.includes(ancien), `plus de ${ancien}`);
-  assert.doesNotMatch(h, /border-radius:6px[;"]/, 'plus de coins arrondis propres à la maternelle');
   assert.doesNotMatch(h, /[\u{1F300}-\u{1FAFF}☹☺]/u, 'plus d’émojis ni de pictogrammes de domaine');
 });
 

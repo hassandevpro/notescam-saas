@@ -25,7 +25,10 @@ import {
 } from './bulletinOfficialParts';
 import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
 import { matAcquisLabel, matAcquisCode } from '../../core/referentielI18n';
-import { FOND_ACCENT, FOND_TH_BG, FOND_TH_TXT, FOND_COTE_COLORS } from './fondamentalTheme';
+import { FOND_COTE_COLORS } from './fondamentalTheme';
+// Les teintes se déduisent de l'accent CHOISI PAR L'ÉCOLE, comme au carnet primaire : une école qui n'a rien
+// choisi obtient le vert par défaut, et celle qui a choisi une couleur la retrouve sur les deux bulletins.
+import { teintesDeLEcole } from '../../core/bulletinAccent';
 
 const MAT_LABELS = { A: 'Acquis', ECA: 'En cours d’acquisition', NA: 'Non acquis' };
 // Infobulle de la cote : les mêmes mots que la légende, dans le système de la classe.
@@ -37,8 +40,9 @@ export default function BulletinMatOfficial({
   school, sys = 'FR', title, student, classLabel, effectif, profPrincipal = '',
   uas = [], rows = [], appreciation = '', decision = '',
 }) {
+  const C = teintesDeLEcole(school);
   const cell = mkCellVar();
-  const th   = { ...mkTHVar(), background: FOND_TH_BG, color: FOND_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
+  const th   = { ...mkTHVar(), background: C.tint, color: C.texte, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 
   // Les colonnes d'UA ne s'affichent que si la période en fournit PLUSIEURS : la « synthèse » d'une unique unité EST
   // cette unité, les deux colonnes porteraient la même cote côte à côte.
@@ -63,8 +67,8 @@ export default function BulletinMatOfficial({
 
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys} vars>
-      <OfficialHeader school={school} sys={sys} title={title} accent={FOND_ACCENT} basic vars grand={paysage} />
-      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={FOND_ACCENT} tint={FOND_TH_BG} vars grand={paysage} />
+      <OfficialHeader school={school} sys={sys} title={title} accent={C.accent} rounded basic vars grand={paysage} />
+      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={C.accent} tint={C.tint} variant="carnet" vars grand={paysage} />
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>

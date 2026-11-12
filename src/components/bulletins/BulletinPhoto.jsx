@@ -26,3 +26,30 @@ export default function BulletinPhoto({ src, width = 56, height = 70, radius = 4
     </div>
   );
 }
+
+// PHOTO PLEIN CADRE (bulletins de maternelle) : un carré qui REMPLIT tout son cadre, recadré « cover » — sans
+// déformation, centré horizontalement, cadré un peu vers le haut pour garder la tête. Coins arrondis, bordure dans la
+// couleur de l'école. Photo absente : silhouette colorée, jamais de case vide.
+// `taille` : côté du carré (nombre px ou chaîne CSS) ; `position` : point de cadrage de l'image.
+export function BulletinPhotoPleine({ src, taille = 96, accent = '#047857', tint = '#d1fae5', rayon = 10, epaisseur = 3, position = '50% 22%' }) {
+  const resolved = useSignedUrl(src);
+  const cadre = {
+    width: taille, height: taille, flexShrink: 0, boxSizing: 'border-box', overflow: 'hidden',
+    border: `${epaisseur}px solid ${accent}`, borderRadius: rayon, lineHeight: 0, background: tint,
+    WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
+  };
+  if (resolved) {
+    return (
+      <div style={cadre} data-photo="pleine">
+        <img src={resolved} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: position, display: 'block' }} />
+      </div>
+    );
+  }
+  return (
+    <div style={{ ...cadre, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', color: accent }} data-photo="silhouette">
+      <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: '78%', height: '78%', opacity: 0.85 }}>
+        <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v3h20v-3c0-3.33-6.67-5-10-5z" />
+      </svg>
+    </div>
+  );
+}

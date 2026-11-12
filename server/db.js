@@ -381,6 +381,13 @@ ensureColumn('schools', 'bulletin_accent', 'bulletin_accent TEXT');
 // Couleur du bulletin SECONDAIRE : miroir de `supabase_bulletin_accent_secondaire.sql`, a appliquer au Cloud AVANT
 // toute distribution d'un paquet LAN portant cette ligne (meme regle que `bulletin_accent`).
 ensureColumn('schools', 'bulletin_accent_sec', 'bulletin_accent_sec TEXT');
+// Bulletin de MATERNELLE : format par defaut, emojis du format Classique, visage « non acquis » (NULL partout = l'ancien
+// bulletin, inchange) + format d'UNE classe. Miroir de `supabase_bulletin_maternelle.sql`, a appliquer au Cloud AVANT
+// toute distribution d'un paquet LAN portant ces lignes (sync-push rejette en entier une ligne a colonne inconnue).
+ensureColumn('schools', 'bulletin_mat_format', 'bulletin_mat_format TEXT');
+ensureColumn('schools', 'bulletin_mat_emojis', 'bulletin_mat_emojis INTEGER');
+ensureColumn('schools', 'bulletin_mat_visage_na', 'bulletin_mat_visage_na TEXT');
+ensureColumn('classes', 'bulletin_mat_format', 'bulletin_mat_format TEXT');
 // Réglage « le logo contient déjà le nom » : miroir de `supabase_logo_contient_nom.sql`, à appliquer
 // au Cloud AVANT toute distribution d'un paquet LAN portant cette ligne (même règle que `bulletin_accent`).
 ensureColumn('schools', 'logo_contient_nom', 'logo_contient_nom INTEGER NOT NULL DEFAULT 0');

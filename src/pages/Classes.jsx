@@ -796,6 +796,9 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
       bulletin_engine: moteurChoisi,
       // Vide = format habituel : NULL, jamais ''. Ajouté seulement si la base connaît la colonne.
       ...('bulletin_format' in form ? { bulletin_format: form.bulletin_format || null } : {}),
+      // Format du bulletin de MATERNELLE : vide = « utiliser le défaut de l'école » (NULL, jamais ''). Changer ce choix ne
+      // touche à aucune évaluation saisie.
+      ...('bulletin_mat_format' in form ? { bulletin_mat_format: form.bulletin_mat_format || null } : {}),
       max_students: form.max_students !== '' ? Number(form.max_students) : null,
     });
     setSaving(false);
@@ -1145,7 +1148,7 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                 coefficients. Réglage de LA CLASSE, pas de l'école : une même école peut avoir un CM2 à matières
                 notées et un CP par compétences. Vide = le bulletin habituel, rien ne change. N'apparaît que si la
                 base connaît la colonne (migration `supabase_classe_format_bulletin.sql`). */}
-            {'bulletin_format' in cls && isBasicClass(cls) && (
+            {'bulletin_format' in cls && isBasicClass(cls) && !isMaternelle && (
               <div className="col-span-2 md:col-span-1">
                 <label className="form-label">{t('Format du bulletin', 'Report card format')}</label>
                 <select className="form-input" value={form.bulletin_format || ''} onChange={set('bulletin_format')}>
@@ -1158,6 +1161,23 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                         'SUBJECT | Mark | Out of | N/20 | GRADE | Min–Max | Remark. The average is the total of marks scaled to 20 (never an average of averages). An APC competency shows as a subject: the sum of its criteria.')
                     : t('Choisissez « Matières à note unique » pour les classes dont chaque matière a une seule note et son barème (50, 20, 30, 40…).',
                         'Choose “Single-mark subjects” for classes where each subject has one mark and its own scale (50, 20, 30, 40…).')}
+                </p>
+              </div>
+            )}
+            {/* Bulletin de MATERNELLE de la classe : « Classique » (l'ancien) ou « Enfantin ». Vide = le défaut de l'école
+                (Paramètres → Affichage du bulletin). Invisible tant que la migration `supabase_bulletin_maternelle.sql` n'est
+                pas passée sur la base. */}
+            {'bulletin_mat_format' in cls && isMaternelle && (
+              <div className="col-span-2 md:col-span-1">
+                <label className="form-label">{t('Format du bulletin de maternelle', 'Nursery report card format')}</label>
+                <select className="form-input" value={form.bulletin_mat_format || ''} onChange={set('bulletin_mat_format')}>
+                  <option value="">{t('Utiliser le défaut de l’école', 'Use the school default')}</option>
+                  <option value="classique">{t('Classique', 'Classic')}</option>
+                  <option value="enfantin">{t('Enfantin (trois visages par domaine)', 'Playful (three faces per area)')}</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {t('Réglage de cette classe seulement : Nursery 1 peut être en Enfantin et Nursery 2 en Classique. Aucune évaluation n’est modifiée.',
+                    'This class only: Nursery 1 can be Playful and Nursery 2 Classic. No assessment is changed.')}
                 </p>
               </div>
             )}

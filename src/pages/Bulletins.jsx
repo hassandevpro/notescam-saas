@@ -43,6 +43,7 @@ import { buildCompactRows } from '../core/primCompactRows';
 // moteur ne décide rien : la saisie reste la seule source de ce qui s'imprime.
 import { propositionsConseil, lotConseil, ecartsConseil } from '../core/conseilPropositions';
 import BulletinMatOfficial from '../components/bulletins/BulletinMatOfficial';
+import { reglagesMaternelle, emojisAChoisir, MAT_FORMAT_ENFANTIN } from '../core/matBulletin';
 import { mkCell, mkTH, mkCellVar, mkTHVar, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
 import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
 import { classIdentity } from '../lib/schoolIdentity';
@@ -3549,6 +3550,10 @@ export default function Bulletins() {
   const renderMatBulletin = (student) => {
     const d = matDataById[student.id];
     if (!d) return null;
+    // Format, émojis et visage « non acquis » de CETTE classe (défaut de l'école, surcharge de classe). Sans réglage :
+    // l'ancien bulletin, lettres seules, à l'identique.
+    const mr = reglagesMaternelle(school, selectedClass);
+    const avecVisages = mr.format === MAT_FORMAT_ENFANTIN || mr.emojis;
     return (
       <WatermarkWrap key={student.id} active={f.watermark}>
         <BulletinMatOfficial
@@ -3556,6 +3561,8 @@ export default function Bulletins() {
           student={student} classLabel={selectedClass?.name || ''}
           effectif={classStudents.length} profPrincipal={apcProfPrincipal}
           uas={matUas} rows={d.rows}
+          format={mr.format} emojis={mr.emojis} visage={mr.visage}
+          paysage={avecVisages && matOrientation !== 'portrait'}
           // L'APPRÉCIATION GÉNÉRALE N'ÉTAIT JAMAIS PASSÉE. Le modèle imprime
           // depuis toujours « Appréciation générale de l'enseignant(e) : » et la
           // ligne sortait vide sur tous les bulletins de maternelle, parce que
@@ -3677,6 +3684,33 @@ export default function Bulletins() {
         {/* Sélecteur de format — masqué pour Guinea Ecuatorial (un seul format
             officiel). Pour les classes MINESEC, on AJOUTE l'option officielle
             (APC ou 2nd cycle) sans retirer Classique/Moderne/APC. */}
+
+        {/* ── MATERNELLE : information à la première ouverture ─────────────
+            Les bulletins de maternelle peuvent maintenant afficher des émojis. Une école EXISTANTE n'a jamais choisi : on le
+            lui dit une fois, et c'est SON choix qui s'applique — aucun bulletin imprimé ne change par surprise. */}
+        {showMatOfficial && matReady && emojisAChoisir(school) && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 no-print" role="status">
+            <p className="text-sm font-semibold text-amber-900">
+              {t('Les bulletins de maternelle peuvent maintenant afficher des émojis.', 'Nursery report cards can now show emojis.')}
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              {t('Tant que vous n’avez pas choisi, vos bulletins restent exactement comme avant (lettres seules). Le format « Enfantin » et le style du visage se règlent dans Paramètres → Affichage du bulletin.',
+                'Until you choose, your report cards stay exactly as before (letters only). The “Playful” format and the face style are set in Settings → Report card display.')}
+            </p>
+            {role === 'admin' && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => useAuthStore.getState().updateSchool({ bulletin_mat_emojis: true })}
+                  className="rounded-lg bg-brand-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-800">
+                  {t('Afficher les émojis', 'Show emojis')}
+                </button>
+                <button type="button" onClick={() => useAuthStore.getState().updateSchool({ bulletin_mat_emojis: false })}
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                  {t('Garder les lettres', 'Keep letters only')}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── MATERNELLE : orientation ───────────────────────────────────
             Le même réglage que le primaire, au défaut près (paysage). Il ne

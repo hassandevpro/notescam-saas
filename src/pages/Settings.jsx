@@ -28,6 +28,7 @@ import HybridModeCard from '../components/HybridModeCard';
 import PrepareHybridCard from '../components/PrepareHybridCard';
 import AcademicSetupWizard from '../components/setup/AcademicSetupWizard';
 import BackupPanel from '../components/settings/BackupPanel';
+import BulletinMaternellePicker from '../components/settings/BulletinMaternellePicker';
 import BulletinAccentPicker from '../components/settings/BulletinAccentPicker';
 
 // Barème par défaut Guinée Équatoriale (apreciaciones MEC), mis à l'échelle /10 ou /20.
@@ -506,6 +507,10 @@ export default function Settings() {
         // migration, et ne casse rien avant.
         ...('bulletin_accent' in school ? { bulletin_accent: school.bulletin_accent || null } : {}),
         ...('bulletin_accent_sec' in school ? { bulletin_accent_sec: school.bulletin_accent_sec || null } : {}),
+        // Bulletin de MATERNELLE : seulement si la base connaît la colonne (migration `supabase_bulletin_maternelle.sql`).
+        ...('bulletin_mat_format' in school ? { bulletin_mat_format: school.bulletin_mat_format || null } : {}),
+        ...('bulletin_mat_emojis' in school ? { bulletin_mat_emojis: school.bulletin_mat_emojis === null || school.bulletin_mat_emojis === undefined ? null : (school.bulletin_mat_emojis === true || school.bulletin_mat_emojis === 1) } : {}),
+        ...('bulletin_mat_visage_na' in school ? { bulletin_mat_visage_na: school.bulletin_mat_visage_na || null } : {}),
         ...('logo_contient_nom' in school ? { logo_contient_nom: school.logo_contient_nom === true || school.logo_contient_nom === 1 } : {}),
         censeur_name:     school.censeur_name     || '',
         surveillant_name: school.surveillant_name || '',
@@ -588,6 +593,8 @@ export default function Settings() {
     const payload = { ...form };
     if ('bulletin_accent' in form) payload.bulletin_accent = form.bulletin_accent || null;
     if ('bulletin_accent_sec' in form) payload.bulletin_accent_sec = form.bulletin_accent_sec || null;
+    if ('bulletin_mat_format' in form) payload.bulletin_mat_format = form.bulletin_mat_format || null;
+    if ('bulletin_mat_visage_na' in form) payload.bulletin_mat_visage_na = form.bulletin_mat_visage_na || null;
     const result = await doUpdateSchool(payload);
     setSaving(false);
     if (result.error) {
@@ -1768,6 +1775,12 @@ export default function Settings() {
                     onChange={(v) => setForm((f) => ({ ...f, bulletin_accent_sec: v }))} />
                 )}
               </div>
+            )}
+
+            {/* Bulletin de MATERNELLE : format par défaut, émojis, visage « non acquis ». Invisible tant que la migration
+                Cloud `supabase_bulletin_maternelle.sql` n'est pas passée (sinon l'enregistrement échouerait en entier). */}
+            {'bulletin_mat_format' in (school || {}) && (
+              <BulletinMaternellePicker form={form} setForm={setForm} isAdmin={isAdmin} t={t} />
             )}
 
             {/* En-tête officiel bilingue / mono-langue — visible seulement pour les

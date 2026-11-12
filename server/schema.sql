@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS schools (
   signature_url      TEXT,
   bulletin_accent_sec TEXT,  -- couleur d'accent des bulletins du SECONDAIRE (#rrggbb) ; NULL = bleu d'origine
   bulletin_accent    TEXT,   -- couleur d'accent des bulletins (#rrggbb) ; NULL = vert MINEDUB
+  bulletin_mat_format    TEXT,    -- bulletin de MATERNELLE par defaut : 'classique' | 'enfantin' ; NULL = classique
+  bulletin_mat_emojis    INTEGER, -- emojis du format Classique : 1 oui | 0 non | NULL = jamais choisi (lettres seules)
+  bulletin_mat_visage_na TEXT,    -- visage du niveau non acquis : 'encourageant' | 'triste' ; NULL = defaut du format
   logo_contient_nom  INTEGER NOT NULL DEFAULT 0,  -- 1 = le logo porte deja le nom : le bulletin ne l'ecrit plus
   plan               TEXT NOT NULL DEFAULT 'starter',
   price_per_student  REAL NOT NULL DEFAULT 0,
@@ -128,6 +131,8 @@ CREATE TABLE IF NOT EXISTS classes (
   bulletin_engine TEXT,
   -- Format du bulletin PAR CLASSE (primaire) : NULL = habituel | 'note_unique' = matieres a note unique.
   bulletin_format TEXT,
+  -- Format du bulletin de MATERNELLE de la classe : NULL = defaut de l'ecole | 'classique' | 'enfantin'.
+  bulletin_mat_format TEXT,
   -- Enseignant titulaire. Pas de FK dure : la sync hors-ligne peut envoyer la
   -- classe avant l'enseignant -> on garde l'id même si la ligne teacher n'est
   -- pas (encore) là, au lieu de rejeter tout l'upsert (FK ON globalement).

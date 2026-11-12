@@ -102,7 +102,7 @@ export function OfficialWatermark({ src }) {
 // et dit la même chose.
 export function OfficialHeader({
   school, sys, title, subtitle, accent = PAL_SEC().accent, rounded = false, basic = false,
-  dense = false, vars = false, grand = false,
+  dense = false, vars = false, grand = false, etoiles = false,
 }) {
   const officials = bulletinOfficials(school, { basic, sys });
   const blocks    = officials?.blocks ?? [];
@@ -194,9 +194,11 @@ export function OfficialHeader({
           fontWeight: 'bold',
           fontSize: vars ? 'calc(var(--nc-head) * 1.2)' : dense ? '11pt' : '13pt',
           letterSpacing: '.4px',
-          marginBottom: gap || (dense ? 3 : 5), borderRadius: rounded ? 6 : 0,
+          marginBottom: gap || (dense ? 3 : 5), borderRadius: etoiles ? 10 : rounded ? 6 : 0,
+          position: etoiles ? 'relative' : undefined,
           WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact',
         }}>
+          {etoiles && <EtoilesBandeau />}
           {title}
           {subtitle && (
             <span style={{ fontWeight: 'normal', fontSize: vars ? 'var(--nc-body)' : dense ? '9pt' : '10pt', opacity: 0.95 }}>
@@ -205,6 +207,21 @@ export function OfficialHeader({
           )}
         </div>
       )}
+    </>
+  );
+}
+
+// Petites étoiles décoratives de part et d'autre du titre (bulletin de maternelle « Enfantin »).
+function EtoilesBandeau() {
+  const e = (left, right, taille, col) => (
+    <svg viewBox="0 0 24 24" width={taille} height={taille} aria-hidden style={{ position: 'absolute', top: '50%', marginTop: -taille / 2, left, right }}>
+      <polygon points="12,2 14.9,8.6 22,9.3 16.6,14 18.2,21 12,17.3 5.8,21 7.4,14 2,9.3 9.1,8.6" fill={col} />
+    </svg>
+  );
+  return (
+    <>
+      {e(18, undefined, 13, '#fbbf24')}{e(40, undefined, 13, '#fff')}
+      {e(undefined, 18, 13, '#fbbf24')}{e(undefined, 40, 13, '#fff')}
     </>
   );
 }

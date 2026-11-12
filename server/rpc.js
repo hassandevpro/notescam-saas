@@ -149,8 +149,8 @@ const handlers = {
         const id = randomUUID();
         db.prepare(`INSERT INTO schools
           (id, name, type, region, director, email, current_year, language,
-           license_status, license_expires_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+           license_status, license_expires_at, bulletin_mat_emojis)
+          VALUES (?,?,?,?,?,?,?,?,?,?,1)`).run(
           id, p.p_school_name, p.p_school_type, p.p_region, p.p_director,
           p.p_email, p.p_academic_year, p.p_language || 'fr',
           'trial', addDaysISO(30));

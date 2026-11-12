@@ -15,6 +15,14 @@
 // cote DOMINANTE des UA cotées (core/matEngine · syntheseTrimestre), jamais une moyenne : A/ECA/NA ne s'additionnent
 // pas. Une seule UA : aucune colonne d'UA, le titre dit laquelle.
 //
+// ── DEUX FORMATS, UN SEUL MOTEUR (2026-11-12) ────────────────────────────────
+//   format 'classique' (défaut, l'ancien bulletin) : tableau N° / Domaine / Niveau / Observations. Avec `emojis`, la
+//     colonne Niveau porte UN visage suivi de la lettre, la légende montre les trois visages et la photo est plein cadre.
+//     SANS `emojis` : l'ancien bulletin, à l'identique (lettres seules).
+//   format 'enfantin' : cartes arrondies, trois visages par domaine (celui de l'enfant en couleur), observation
+//     automatique selon le niveau, remarques sur fond jaune pâle. Toujours avec visages.
+// Les deux lisent les MÊMES lignes (`rows`) : passer de l'un à l'autre ne perd aucune évaluation.
+//
 // Rendu piloté par PROPS :
 //   uas  = [1, 2, 3] — les UA de la période (vide ⇒ une seule colonne « Niveau »)
 //   rows = [{ code, intitule, parUa: { 1: 'A', … }, niveau (synthèse), observation }]
@@ -29,6 +37,9 @@ import { FOND_COTE_COLORS } from './fondamentalTheme';
 // Les teintes se déduisent de l'accent CHOISI PAR L'ÉCOLE, comme au carnet primaire : une école qui n'a rien
 // choisi obtient le vert par défaut, et celle qui a choisi une couleur la retrouve sur les deux bulletins.
 import { teintesDeLEcole } from '../../core/bulletinAccent';
+import MatVisage from './MatEmojis';
+import { MatIdentite, MatDomainesEnfantin, MatRemarques } from './BulletinMatEnfantin';
+import { MAT_NIVEAU_TEXTE, MAT_FORMAT_ENFANTIN } from '../../core/matBulletin';
 
 const MAT_LABELS = { A: 'Acquis', ECA: 'En cours d’acquisition', NA: 'Non acquis' };
 // Infobulle de la cote : les mêmes mots que la légende, dans le système de la classe.
@@ -39,9 +50,14 @@ export default function BulletinMatOfficial({
   paysage = false,
   school, sys = 'FR', title, student, classLabel, effectif, profPrincipal = '',
   uas = [], rows = [], appreciation = '', decision = '',
+  format = 'classique', emojis = false, visage = 'triste',
 }) {
+  const enfantin = format === MAT_FORMAT_ENFANTIN;
+  const avecVisages = enfantin || emojis === true;
   const C = teintesDeLEcole(school);
   const cell = mkCellVar();
+  // Avec les visages, les lignes sont plus hautes et leur contenu se centre ; sans eux, la cellule d'origine, inchangée.
+  const cellL = avecVisages ? { ...cell, verticalAlign: 'middle' } : cell;
   const th   = { ...mkTHVar(), background: C.tint, color: C.texte, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 
   // Les colonnes d'UA ne s'affichent que si la période en fournit PLUSIEURS : la « synthèse » d'une unique unité EST
@@ -55,20 +71,42 @@ export default function BulletinMatOfficial({
   const wObs     = parUA ? '30%' : '40%';
   const nbCols   = 4 + colUas.length;
 
-  // Cote : sigle du système de la classe, dans la couleur de la cote (comme les cotes du primaire).
-  const coteCell = (code) => (code
-    ? <strong style={{ color: FOND_COTE_COLORS[code] }} title={matLevelLabel(code, sys)}>{matAcquisCode(code, sys)}</strong>
-    : '');
+  // Cote : sigle du système de la classe, dans la couleur de la cote (comme les cotes du primaire). Avec les visages :
+  // UN visage (celui du niveau) puis la lettre, dans la couleur du niveau (A vert, IP orange, NA bleu).
+  const coteCell = (code) => {
+    if (!code) return '';
+    if (!avecVisages) return <strong style={{ color: FOND_COTE_COLORS[code] }} title={matLevelLabel(code, sys)}>{matAcquisCode(code, sys)}</strong>;
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <MatVisage niveau={code} actif visage={visage} taille="calc(var(--nc-body) * 2.9)" title={matLevelLabel(code, sys)} />
+        <strong style={{ color: MAT_NIVEAU_TEXTE[code], fontSize: 'calc(var(--nc-body) * 1.1)' }}>{matAcquisCode(code, sys)}</strong>
+      </span>
+    );
+  };
 
   // Fondamental MINEDUB : enseignant(e) titulaire + directeur/directrice (jamais professeur principal / proviseur).
   const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
   const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
   const ppLabel      = headTeacherLabel(headTeacherCount(profPrincipal), sys, { basic: true });
 
+  if (enfantin) {
+    return (
+      <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys} vars>
+        <OfficialHeader school={school} sys={sys} title={title} accent={C.accent} rounded basic vars grand={paysage} etoiles />
+        <MatIdentite student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={C.accent} tint={C.tint} arrondi grand={paysage} />
+        <MatDomainesEnfantin rows={rows} sys={sys} accent={C.accent} tint={C.tint} visage={visage} colUas={colUas} />
+        <MatRemarques texte={appreciation} decision={decision} sys={sys} />
+        <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} vars />
+      </OfficialSheet>
+    );
+  }
+
   return (
     <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys} vars>
       <OfficialHeader school={school} sys={sys} title={title} accent={C.accent} rounded basic vars grand={paysage} />
-      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={C.accent} tint={C.tint} variant="carnet" vars grand={paysage} />
+      {avecVisages
+        ? <MatIdentite student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={C.accent} tint={C.tint} grand={paysage} />
+        : <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={C.accent} tint={C.tint} variant="carnet" vars grand={paysage} />}
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
@@ -92,13 +130,13 @@ export default function BulletinMatOfficial({
           )}
           {rows.map((r) => (
             <tr key={r.code}>
-              <td style={{ ...cell, textAlign: 'center' }}>{r.code}</td>
-              <td style={cell}>{r.intitule}</td>
+              <td style={{ ...cellL, textAlign: 'center' }}>{r.code}</td>
+              <td style={cellL}>{r.intitule}</td>
               {colUas.map((n) => (
-                <td key={n} style={{ ...cell, textAlign: 'center' }}>{coteCell(r.parUa?.[n] || '')}</td>
+                <td key={n} style={{ ...cellL, textAlign: 'center' }}>{coteCell(r.parUa?.[n] || '')}</td>
               ))}
-              <td style={{ ...cell, textAlign: 'center' }}>{coteCell(r.niveau || '')}</td>
-              <td style={cell}>{r.observation || ''}</td>
+              <td style={{ ...cellL, textAlign: 'center' }}>{coteCell(r.niveau || '')}</td>
+              <td style={cellL}>{r.observation || ''}</td>
             </tr>
           ))}
         </tbody>
@@ -111,9 +149,10 @@ export default function BulletinMatOfficial({
             <td style={{ ...cell, fontSize: 'var(--nc-small)' }}>
               <strong>{L(sys, 'Légende', 'Key', 'Leyenda')} :</strong>{' '}
               {CODES.map((c, i) => (
-                <span key={c}>
-                  {i > 0 ? ' · ' : ''}
-                  <strong style={{ color: FOND_COTE_COLORS[c] }}>{matAcquisCode(c, sys)}</strong> = {matLevelLabel(c, sys)}
+                <span key={c} style={avecVisages ? { display: 'inline-flex', alignItems: 'center', gap: 4, marginRight: 14 } : undefined}>
+                  {!avecVisages && i > 0 ? ' · ' : ''}
+                  {avecVisages && <MatVisage niveau={c} actif visage={visage} taille="calc(var(--nc-body) * 1.9)" pastille={false} decor={false} />}
+                  <strong style={{ color: avecVisages ? MAT_NIVEAU_TEXTE[c] : FOND_COTE_COLORS[c] }}>{matAcquisCode(c, sys)}</strong> = {matLevelLabel(c, sys)}
                 </span>
               ))}
             </td>

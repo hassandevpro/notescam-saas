@@ -175,14 +175,19 @@ function notesParCompetence(primNotes) {
  * les notes saisies établissent (`criteresDeSecours`). Sans ce repli, une matière notée mais inconnue du
  * barème national n'avait AUCUN critère : cellules vides et colonne absente du PV et du rapport.
  */
-export function criteresPourDocument(referentiel, niveauSlug, competenceId, aptitude, masques, primNotes) {
+export function criteresPourDocument(referentiel, niveauSlug, competenceId, aptitude, masques, primNotes, portee = {}) {
   const officiels = criteresForCompetence(referentiel, niveauSlug, competenceId, aptitude, masques);
   if (officiels.length) return officiels;
   const parCrit = notesParCompetence(primNotes).get(competenceId);
   if (!parCrit) return [];
+  // PORTÉE : comme le bulletin, le barème de secours se lit sur les notes des élèves de LA classe et des UA
+  // de LA période — pas sur celles d'une autre classe du même niveau, qui peut avoir posé un autre barème.
+  const eleves = portee.eleveIds ? new Set(portee.eleveIds) : null;
+  const uas = portee.uas ? new Set(portee.uas) : null;
   const masque = new Set(masquesDe(masques, competenceId));
   const candidats = (referentiel?.criteres || []).filter((c) => !masque.has(c.id));
-  return criteresDeSecours(candidats, (cid) => parCrit.get(cid) || []);
+  return criteresDeSecours(candidats, (cid) => (parCrit.get(cid) || [])
+    .filter((r) => (!eleves || eleves.has(r.eleve_id)) && (!uas || uas.has(r.ua))));
 }
 
 // Normalise une note de critère en { note, max }, ou null si NON ÉVALUÉE.

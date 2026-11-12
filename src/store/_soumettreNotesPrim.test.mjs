@@ -52,7 +52,7 @@ test('l’écran ne soumet QUE les notes qu’il affiche', () => {
   // Renvoyer les 2 000 notes de l'école pour un geste que l'enseignante croit local
   // ferait attendre une minute, et elle recliquerait.
   assert.match(ecran, /const nkeysDeLEcran = useMemo\(\(\) => \{/);
-  assert.ok(ecran.includes('const r = await soumettrePrimNotes(nkeysDeLEcran);'));
+  assert.ok(ecran.includes('const r = await soumettrePrimNotes(vueGrille ? nkeysGrille : nkeysDeLEcran);'));
   assert.match(ecran, /\}, \[classStudents, referentiel, competenceId, ua, primNotes\]\);/);
 });
 
@@ -70,7 +70,7 @@ test('le bouton existe, se désactive, et dit combien il va soumettre', () => {
   assert.match(ecran, /disabled=\{envoi \|\| !nkeysDeLEcran\.length\}/);
   assert.ok(ecran.includes('`Soumettre les notes (${nkeysDeLEcran.length})`'));
   // Et il ne ment pas sur ce qu'il fait : la note est déjà gardée avant le clic.
-  assert.ok(ecran.includes('Les notes sont déjà gardées à la frappe.'));
+  assert.ok(ecran.includes('Les notes sont gardées à la frappe'));
 });
 
 test('l’ORDRE des déclarations : le bloc de soumission suit `classStudents`', () => {

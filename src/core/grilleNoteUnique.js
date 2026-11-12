@@ -12,6 +12,15 @@ import { primCote, primNkey } from './primEngine.js';
 export const PRIM_NOTE_MAX = 20;
 
 /**
+ * LA SAISIE RAPIDE MULTI-MATIÈRES : administrateur ET réglage d'école explicitement allumé.
+ * Lecture STRICTE : colonne absente (migration pas encore appliquée), nulle ou fausse = écran d'origine.
+ * Aucun nom d'école n'apparaît ici : Genius et Bright Continent la perdent par leur réglage, rien d'autre.
+ */
+export function saisieRapideAutorisee(role, school) {
+  return role === 'admin' && (school?.saisie_rapide_admin === true || school?.saisie_rapide_admin === 1);
+}
+
+/**
  * Les barèmes déjà posés par la classe pour (compétence, critère), toutes UA confondues : { 'comp|crit': { ua: max } }.
  * Une seule passe sur les notes, quel que soit le nombre de colonnes.
  */
@@ -49,22 +58,34 @@ export function baremeColonne({ notesColonne, officiel, parUA, ua }) {
  *   notes       : primNotes ({ nkey: ligne })
  *   eleveIds    : élèves de la classe
  */
-export function colonnesNoteUnique({ competences, criteresDe, notes, eleveIds, ua, exclure = [] }) {
+export function colonnesNoteUnique({ competences, criteresDe, notes, eleveIds, ua, exclure = [], ouvertureDe }) {
   const parUA = baremesParUA(notes, eleveIds);
   const colonnes = [];
   const multiples = [];
   for (const c of competences || []) {
     if (exclure.includes(c.id)) { multiples.push(c); continue; }
     const actifs = [];
-    for (const cr of criteresDe(c.id) || []) {
+    const tous = criteresDe(c.id) || [];
+    for (const cr of tous) {
       const notesColonne = (eleveIds || []).map((id) => notes?.[primNkey(id, c.id, cr.id, ua)]);
       const max = baremeColonne({ notesColonne, officiel: cr.points_max, parUA: parUA[`${c.id}|${cr.id}`], ua });
       if (max > 0) actifs.push({ cr, max });
     }
+    // Une matière JAMAIS OUVERTE à cette UA (aucune note, aucun barème posé, rien de national) n'a pas de barème :
+    // on lui applique celui que le classeur ouvre d'ordinaire — Écrit, au barème que l'école emploie déjà — sans
+    // rien écrire tant qu'aucune note n'est tapée. Sans cela, seule la matière déjà ouverte apparaissait.
+    if (!actifs.length && typeof ouvertureDe === 'function') {
+      const ouverts = Object.entries(ouvertureDe(c.id, tous.map((x) => x.id)) || {}).filter(([, v]) => Number(v) > 0);
+      if (ouverts.length === 1) {
+        const [critereId, max] = ouverts[0];
+        const cr = tous.find((x) => x.id === critereId);
+        if (cr) actifs.push({ cr, max: Number(max), parDefaut: true });
+      }
+    }
     if (actifs.length === 1) {
       colonnes.push({
         competenceId: c.id, code: c.code, intitule: c.intitule,
-        critereId: actifs[0].cr.id, critereNom: actifs[0].cr.nom, bareme: actifs[0].max,
+        critereId: actifs[0].cr.id, critereNom: actifs[0].cr.nom, bareme: actifs[0].max, parDefaut: !!actifs[0].parDefaut,
       });
     } else if (actifs.length > 1) multiples.push(c);
     // 0 critère actif : la compétence n'est pas évaluée dans cette classe, elle n'a aucune colonne.

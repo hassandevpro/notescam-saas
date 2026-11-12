@@ -121,3 +121,39 @@ test('P3 — le PV n’imprime plus ni aplat marine ni dégradé ; 18 matières 
   assert.ok(html.includes('data-part="legende"') && html.includes('Éduc. Citoy. = Éducation à la citoyenneté'));
   for (const d of defs) assert.ok(html.includes(d.c.intitule) || html.includes(abreger(d.c.intitule, null, 18)), d.c.intitule);
 });
+
+// ── Parité bulletin / PV : MÊME fonction de critères, même portée (classe + UA de la période) ──
+const { criteresPourDocument } = await import('../core/primEngine.js');
+
+test('Chinois : valeur du PV = moyenne du bulletin élève par élève ; 0 s’affiche 0, l’absence « — »', () => {
+  const defs = [nat('k1', '1A', 'Lire', 20), maison('zh', 'ZH', 'Chinois')];
+  const cls = { id: 'c1', level: 'CM1', name: 'CM1 A', system: 'FR' };
+  const trois = [{ id: 'e1', name: 'A' }, { id: 'e2', name: 'B' }, { id: 'e3', name: 'C' }];
+  const primNotes = { ...note('e1', 'zh', 1, 14, 20), ...note('e2', 'zh', 1, 0, 20), ...note('e1', 'k1', 1, 10, 20) };
+  const primReferentiel = monter(defs);
+  const pv = buildClassPv({ cls, engine: 'apc_primaire', sys: 'FR', cycle: 'primaire', countryCode: 'cameroon', schoolYear: '2026-2027',
+    period: 'seq1', students: trois, subjects: [sub('Lire', 1), sub('Chinois', 2)], gradeMap: {}, opts: {}, primReferentiel, primNotes, primNiveauSlug: 'cm1', primBareme: [] });
+  const zh = pv.cols.find((c) => /Chinois/.test(c.name)).key;
+  const v = (id) => pv.rows.find((r) => r.id === id).cells[zh].moy;
+  assert.equal(v('e1'), 14);
+  assert.equal(v('e2'), 0, 'un zéro est une note');
+  assert.equal(v('e3'), null, 'aucune note : « — »');
+  // même critères que le bulletin (fonction partagée, portée = élèves de la classe + UA de la période)
+  const crit = criteresPourDocument(primReferentiel, 'cm1', 'zh', 'apte', [], primNotes, { eleveIds: ['e1', 'e2', 'e3'], uas: [1] });
+  assert.deepEqual(crit.map((c) => [c.id, c.points_max]), [['ecrit', 20]]);
+});
+
+test('le barème de secours ne se lit pas sur les notes d’une AUTRE classe ni d’une autre UA', () => {
+  const defs = [maison('zh', 'ZH', 'Chinois')];
+  const primReferentiel = monter(defs);
+  const primNotes = { ...note('autre', 'zh', 1, 30, 50), ...note('e1', 'zh', 2, 10, 20) };
+  assert.deepEqual(criteresPourDocument(primReferentiel, 'cm1', 'zh', 'apte', [], primNotes, { eleveIds: ['e1'], uas: [1] }), []);
+  assert.equal(criteresPourDocument(primReferentiel, 'cm1', 'zh', 'apte', [], primNotes, { eleveIds: ['e1'], uas: [2] })[0].points_max, 20);
+});
+
+test('une classe sans Chinois n’affiche pas de colonne Chinois', () => {
+  const defs = [nat('k1', '1A', 'Lire', 20), maison('zh', 'ZH', 'Chinois')];
+  const cls = { id: 'c1', level: 'CM1', name: 'CM1 A', system: 'FR' };
+  const { pv } = documents({ defs, subjects: [sub('Lire', 1)], cls });
+  assert.ok(!pv.cols.some((c) => /Chinois/.test(c.name)));
+});

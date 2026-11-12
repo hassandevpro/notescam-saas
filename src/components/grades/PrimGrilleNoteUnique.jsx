@@ -24,7 +24,7 @@ const lireLocal = (cle, defaut) => { try { return localStorage.getItem(cle) ?? d
 const ecrireLocal = (cle, v) => { try { localStorage.setItem(cle, v); } catch { /* stockage indisponible */ } };
 
 const Cellule = memo(function Cellule({
-  row, col, valeur, statut, max, erreur, nonEnreg, poser, onValider, onTouche, onColler, titre,
+  row, col, valeur, statut, max, erreur, nonEnreg, poser, onValider, onTouche, onColler, titre, ferme = false,
 }) {
   // `local` = ce qui est en cours de frappe ; null = la case montre la valeur enregistrée.
   const [local, setLocal] = useState(null);
@@ -49,7 +49,8 @@ const Cellule = memo(function Cellule({
     e.preventDefault();
     onColler(m, row, col);
   };
-  const couleur = erreur ? 'border-2 border-red-500 bg-red-50 text-red-700'
+  const couleur = ferme ? 'border border-gray-200 bg-gray-100 text-gray-400'
+    : erreur ? 'border-2 border-red-500 bg-red-50 text-red-700'
     : nonEnreg ? 'border-2 border-red-400 bg-red-50'
     : statut === 'absent' ? 'border border-amber-200 bg-amber-50 text-amber-700 italic'
     : vide ? 'border border-amber-200 bg-amber-50/60'
@@ -61,6 +62,8 @@ const Cellule = memo(function Cellule({
         type="text"
         inputMode="decimal"
         value={affiche}
+        readOnly={ferme}
+        tabIndex={ferme ? -1 : 0}
         onChange={(e) => setLocal(e.target.value)}
         onFocus={(e) => e.target.select()}
         onBlur={valider}
@@ -81,9 +84,37 @@ const Cellule = memo(function Cellule({
   );
 });
 
+// Barème d'une colonne, modifiable à l'endroit où l'on saisit. Valide à la sortie de la case ; vide ou identique : rien.
+function BaremeSaisie({ valeur, onValider, desactive }) {
+  const [local, setLocal] = useState(null);
+  const sortir = () => {
+    if (local === null) return;
+    const n = Number(String(local).replace(',', '.'));
+    setLocal(null);
+    if (Number.isFinite(n) && n !== valeur) onValider(n);
+  };
+  return (
+    <span className="inline-flex items-center justify-center gap-0.5 text-[11px] font-normal text-gray-500">
+      /
+      <input
+        type="text" inputMode="decimal" maxLength={4}
+        value={local ?? String(valeur)}
+        disabled={desactive}
+        onChange={(e) => setLocal(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        onBlur={sortir}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { setLocal(null); e.currentTarget.blur(); } }}
+        aria-label="Barème"
+        className="w-9 rounded border border-transparent bg-transparent px-0.5 py-0 text-center text-[11px] tabular-nums text-gray-600 hover:border-gray-200 focus:border-gray-300 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-300 disabled:opacity-50"
+      />
+    </span>
+  );
+}
+
 export default function PrimGrilleNoteUnique({
   classId, eleves, colonnes, notes, enAttente, ua, bareme, voirTout = true,
   onSave, onUneMatiere, onSoumettre, envoi = false, bilan = null, nbASoumettre = 0, nbAutres = 0, t,
+  nonEvalueeDe = () => false, onNonEvaluee = null, onBareme = null,
 }) {
   // ── réglages de l'écran, mémorisés sur le poste ──
   const cleMasque = `nc_grille_masquees_${classId}`;
@@ -101,6 +132,12 @@ export default function PrimGrilleNoteUnique({
   const [entree, setEntree] = useState(() => (lireLocal('nc_grille_entree', 'bas') === 'droite' ? 'droite' : 'bas'));
   const changerEntree = (v) => { setEntree(v); ecrireLocal('nc_grille_entree', v); };
 
+  const toutAfficher = (oui) => {
+    const n = oui ? new Set() : new Set(colonnes.map((c) => c.competenceId));
+    ecrireLocal(cleMasque, JSON.stringify([...n]));
+    setMasquees(n);
+  };
+
   const affichees = useMemo(() => colonnes.filter((c) => !masquees.has(c.competenceId)), [colonnes, masquees]);
 
   // ── lecture des notes ──
@@ -111,7 +148,7 @@ export default function PrimGrilleNoteUnique({
     const out = {};
     const moyennes = {};
     for (const e of eleves) {
-      const r = calculerLigne(colonnes.map((c) => {
+      const r = calculerLigne(colonnes.filter((c) => !nonEvalueeDe(c.competenceId)).map((c) => {
         const n = notes[primNkey(e.id, c.competenceId, c.critereId, ua)];
         return { bareme: c.bareme, note: n?.note, statut: n?.statut };
       }), bareme);
@@ -121,7 +158,7 @@ export default function PrimGrilleNoteUnique({
     const rangs = rangsDesMoyennes(moyennes);
     for (const e of eleves) out[e.id].rang = rangs[e.id] ?? null;
     return out;
-  }, [eleves, colonnes, notes, ua, bareme]);
+  }, [eleves, colonnes, notes, ua, bareme, nonEvalueeDe]);
 
   const compteurs = useMemo(() => colonnes.map((c) => compteurColonne(
     eleves.map((e) => { const n = notes[primNkey(e.id, c.competenceId, c.critereId, ua)]; return { note: n?.note, statut: n?.statut }; }),
@@ -248,13 +285,17 @@ export default function PrimGrilleNoteUnique({
     <div className="space-y-2">
       {/* ── barre d'outils ── */}
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span role="status" className={`font-medium ${etat.ton}`}>{etat.texte}</span>
+        <span role="status" className={`text-xs font-medium ${etat.ton}`}>{etat.texte}</span>
         {nbErreurs > 0 && <span className="text-xs font-medium text-red-600">{t(`${nbErreurs} case(s) refusée(s)`, `${nbErreurs} cell(s) refused`)}</span>}
         <details className="relative">
-          <summary className="cursor-pointer rounded-lg border border-gray-200 px-3 py-1.5 text-gray-600 hover:bg-gray-50">
-            {t('Masquer des matières', 'Hide subjects')}{masquees.size ? ` (${masquees.size})` : ''}
+          <summary className="cursor-pointer list-none rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-gray-700 hover:bg-gray-50">
+            {t('Matières affichées', 'Subjects shown')} ({affichees.length}/{colonnes.length})
           </summary>
-          <div className="absolute z-40 mt-1 max-h-72 w-64 overflow-auto rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+          <div className="absolute z-40 mt-1 max-h-80 w-72 overflow-auto rounded-lg border border-gray-200 bg-white p-2 shadow-md">
+            <div className="mb-1 flex gap-3 border-b border-gray-100 px-1 pb-2 text-xs">
+              <button type="button" className="text-brand-700 hover:underline" onClick={() => toutAfficher(true)}>{t('Tout sélectionner', 'Select all')}</button>
+              <button type="button" className="text-brand-700 hover:underline" onClick={() => toutAfficher(false)}>{t('Tout effacer', 'Clear all')}</button>
+            </div>
             {colonnes.map((c) => (
               <label key={c.competenceId} className="flex items-center gap-2 px-1 py-1 text-xs text-gray-700">
                 <input type="checkbox" checked={!masquees.has(c.competenceId)} onChange={() => basculerMatiere(c.competenceId)} />
@@ -265,22 +306,18 @@ export default function PrimGrilleNoteUnique({
         </details>
         <label className="inline-flex items-center gap-1.5 text-xs text-gray-500">
           {t('Entrée :', 'Enter:')}
-          <select value={entree} onChange={(e) => changerEntree(e.target.value)} className="rounded border border-gray-200 px-1.5 py-1 text-xs">
+          <select value={entree} onChange={(e) => changerEntree(e.target.value)} className="rounded border border-gray-200 bg-white px-1.5 py-1 text-xs">
             <option value="bas">{t('descendre ↓', 'move down ↓')}</option>
             <option value="droite">{t('aller à droite →', 'move right →')}</option>
           </select>
         </label>
-        <button type="button" onClick={onUneMatiere}
-          className="rounded-lg border border-gray-200 px-3 py-1.5 text-gray-600 hover:bg-gray-50">
-          {t('Afficher une seule matière', 'Show one subject')}
-        </button>
       </div>
 
       {nbAutres > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-          {t(`${nbAutres} matière(s) ont plusieurs critères (Oral, Écrit…) : elles se saisissent avec « Afficher une seule matière ».`,
-            `${nbAutres} subject(s) use several criteria (Oral, Written…): enter them with “Show one subject”.`)}
-        </div>
+        <p className="text-xs text-gray-500">
+          {t(`${nbAutres} matière(s) à plusieurs critères : à saisir en mode « Par matière ».`,
+            `${nbAutres} subject(s) with several criteria: enter them in “By subject” mode.`)}
+        </p>
       )}
 
       {/* ── la feuille ── */}
@@ -288,25 +325,32 @@ export default function PrimGrilleNoteUnique({
         <table className="min-w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr>
-              <th className="sticky left-0 top-0 z-30 w-10 border-b border-gray-200 bg-gray-50 px-2 py-2 text-center font-medium text-gray-400">{t('N°', 'No.')}</th>
-              <th className="sticky left-10 top-0 z-30 min-w-[11rem] border-b border-r border-gray-200 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
+              <th className="sticky left-0 top-0 z-30 w-10 border-b border-gray-200 bg-white px-2 py-3 text-center font-medium text-gray-400">{t('N°', 'No.')}</th>
+              <th className="sticky left-10 top-0 z-30 min-w-[11rem] border-b border-r border-gray-200 bg-white px-3 py-3 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
               {affichees.map((c) => {
                 const k = compteurDe(c.competenceId);
                 return (
-                  <th key={c.competenceId} className="sticky top-0 z-20 border-b border-gray-200 bg-gray-50 px-2 py-2 text-center align-bottom font-medium text-gray-600" style={{ minWidth: '5rem' }}>
-                    <span className="block text-[10px] font-semibold text-gray-400">{c.code}</span>
-                    <span className="block max-w-[8rem] text-xs leading-tight" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={c.intitule}>{c.intitule}</span>
-                    <span className="block text-[11px] font-normal text-gray-500">/{c.bareme}</span>
-                    {k && <span className={`block text-[10px] font-normal ${k.faites === k.total ? 'text-emerald-600' : 'text-amber-600'}`}>{k.faites}/{k.total}</span>}
+                  <th key={c.competenceId} className="sticky top-0 z-20 border-b border-gray-200 bg-white px-2 py-3 text-center align-bottom font-medium text-gray-600" style={{ minWidth: '5rem' }}>
+                    <span className="block max-w-[8rem] text-xs font-semibold leading-tight text-gray-700" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={c.intitule}>{c.intitule}</span>
+                    {onBareme
+                      ? <BaremeSaisie valeur={c.bareme} desactive={nonEvalueeDe(c.competenceId)} onValider={(n) => onBareme(c, n)} />
+                      : <span className="block text-[11px] font-normal text-gray-500">/{c.bareme}</span>}
+                    {onNonEvaluee && (
+                      <label className="mt-0.5 flex cursor-pointer items-center justify-center gap-1 text-[10px] font-normal text-gray-400" title={t('Non évaluée pour cette classe à cette UA : les élèves n’ont pas zéro', 'Not assessed for this class at this LU: pupils do not get zero')}>
+                        <input type="checkbox" className="h-3 w-3 rounded border-gray-300" checked={nonEvalueeDe(c.competenceId)} onChange={(e) => onNonEvaluee(e.target.checked, c.competenceId)} />
+                        {t('non évaluée', 'not assessed')}
+                      </label>
+                    )}
+                                        {k && <span className={`block text-[10px] font-normal ${k.faites === k.total ? 'text-emerald-600' : 'text-amber-600'}`}>{k.faites}/{k.total}</span>}
                   </th>
                 );
               })}
               {voirTout && (
                 <>
-                  <th className="sticky top-0 z-20 border-b border-l border-gray-200 bg-gray-100 px-2 py-2 text-center font-medium text-gray-600">{t('Total', 'Total')}</th>
-                  <th className="sticky top-0 z-20 border-b border-gray-200 bg-gray-100 px-2 py-2 text-center font-medium text-gray-600">{t('Moy. /20', 'Avg /20')}</th>
-                  <th className="sticky top-0 z-20 border-b border-gray-200 bg-gray-100 px-2 py-2 text-center font-medium text-gray-600">{t('Rang', 'Rank')}</th>
-                  <th className="sticky top-0 z-20 border-b border-gray-200 bg-gray-100 px-2 py-2 text-center font-medium text-gray-600">{t('Cote', 'Grade')}</th>
+                  <th className="sticky top-0 z-20 border-b border-l border-gray-200 bg-white px-2 py-3 text-right font-medium text-gray-600">{t('Total', 'Total')}</th>
+                  <th className="sticky top-0 z-20 border-b border-gray-200 bg-white px-2 py-3 text-right font-medium text-gray-600">{t('Moy. /20', 'Avg /20')}</th>
+                  <th className="sticky top-0 z-20 border-b border-gray-200 bg-white px-2 py-3 text-right font-medium text-gray-600">{t('Rang', 'Rank')}</th>
+                  <th className="sticky top-0 z-20 border-b border-gray-200 bg-white px-2 py-3 text-right font-medium text-gray-600">{t('Cote', 'Grade')}</th>
                 </>
               )}
             </tr>
@@ -334,20 +378,21 @@ export default function PrimGrilleNoteUnique({
                           onTouche={surTouche}
                           onColler={coller}
                           titre={`${e.name} — ${c.intitule} /${c.bareme}`}
+                          ferme={nonEvalueeDe(c.competenceId)}
                         />
                       </td>
                     );
                   })}
                   {voirTout && (
                     <>
-                      <td className="border-b border-l border-gray-100 bg-gray-50 px-2 py-1 text-center text-xs tabular-nums text-gray-600">
+                      <td className="border-b border-l border-gray-100 bg-white px-2 py-1 text-right text-xs tabular-nums text-gray-600">
                         {calc.total == null ? '—' : `${displayGrade(calc.total)} /${calc.possible}`}
                       </td>
-                      <td className="border-b border-gray-100 bg-gray-50 px-2 py-1 text-center text-sm font-semibold tabular-nums text-gray-800">
+                      <td className="border-b border-gray-100 bg-white px-2 py-1 text-right text-sm font-semibold tabular-nums text-gray-800">
                         {calc.moyenne == null ? '—' : displayGrade(calc.moyenne.toFixed(2))}
                       </td>
-                      <td className="border-b border-gray-100 bg-gray-50 px-2 py-1 text-center text-xs tabular-nums text-gray-600">{calc.rang ?? '—'}</td>
-                      <td className="border-b border-gray-100 bg-gray-50 px-2 py-1 text-center text-xs font-semibold text-gray-700">{calc.cote || '—'}</td>
+                      <td className="border-b border-gray-100 bg-white px-2 py-1 text-right text-xs tabular-nums text-gray-600">{calc.rang ?? '—'}</td>
+                      <td className="border-b border-gray-100 bg-white px-2 py-1 text-right text-xs font-semibold text-gray-700">{calc.cote || '—'}</td>
                     </>
                   )}
                 </tr>
@@ -369,16 +414,16 @@ export default function PrimGrilleNoteUnique({
       )}
 
       {/* ── Enregistrer / soumettre : même geste que la saisie par matière ── */}
-      <div className="sticky bottom-0 z-20 -mx-1 flex flex-wrap items-center gap-3 border-t border-gray-200 bg-white/95 px-1 py-3 backdrop-blur">
-        <button type="button" onClick={onSoumettre} disabled={envoi || !nbASoumettre}
-          className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-gray-300">
-          {envoi ? t('Envoi en cours…', 'Sending…') : t(`Enregistrer (${nbASoumettre})`, `Save (${nbASoumettre})`)}
-        </button>
-        {bilan ? (
-          <span role="status" className={`rounded-lg border px-3 py-2 text-xs ${bilan.ko ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-300 bg-emerald-50 text-emerald-800'}`}>{bilan.texte}</span>
-        ) : (
-          <span className="text-xs text-gray-500">{t('Chaque case s’enregistre à la sortie. Ce bouton confirme que tout est arrivé sur le serveur.', 'Each cell saves when you leave it. This button confirms everything reached the server.')}</span>
-        )}
+      <div className="sticky bottom-0 z-20 -mx-1 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 bg-white/95 px-1 py-3 backdrop-blur">
+        <span role="status" className={`text-xs ${etat.ton}`}>{enCours > 0 || enAttenteIci > 0 ? etat.texte : t('Enregistré automatiquement ✓', 'Saved automatically ✓')}</span>
+        <div className="flex items-center gap-3">
+          {bilan && <span role="status" className={`text-xs ${bilan.ko ? 'text-red-700' : 'text-emerald-700'}`}>{bilan.texte}</span>}
+          <button type="button" onClick={onSoumettre} disabled={envoi || !nbASoumettre}
+            title={t('Chaque case s’enregistre à la sortie. Ce bouton confirme que tout est arrivé sur le serveur.', 'Each cell saves when you leave it. This button confirms everything reached the server.')}
+            className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-gray-300">
+            {envoi ? t('Envoi en cours…', 'Sending…') : t(`Soumettre les notes (${nbASoumettre})`, `Submit marks (${nbASoumettre})`)}
+          </button>
+        </div>
       </div>
     </div>
   );

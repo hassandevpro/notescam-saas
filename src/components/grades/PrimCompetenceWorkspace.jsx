@@ -66,7 +66,9 @@ import FeuilleNotesButton from './FeuilleNotesButton';
 import usePvBuilder from '../documents/usePvBuilder';
 import ObservationGlobaleForm from './ObservationGlobaleForm';
 import PrimGrilleNoteUnique from './PrimGrilleNoteUnique';
-import { colonnesNoteUnique } from '../../core/grilleNoteUnique';
+import { Info, MenuPlus, Segmente, Avertissements } from './PrimChrome';
+import { logAction } from '../../lib/historyService';
+import { colonnesNoteUnique, saisieRapideAutorisee } from '../../core/grilleNoteUnique';
 import { suggererObservation, genreDe, indexerNotes, cotesDeLEleve } from '../../core/observationSuggestion';
 
 // ── Barème d'une colonne (une évaluation) ────────────────────────────────────
@@ -538,6 +540,8 @@ export default function PrimCompetenceWorkspace() {
   useEffect(() => { loadRefMasques('prim'); loadRefMasques('prim_crit'); }, [loadRefMasques]);
   const [refOpen, setRefOpen] = useState(false);
   const [critOpen, setCritOpen] = useState(false);
+  const [ioOuvert, setIoOuvert] = useState(false);
+  const [obsOuverte, setObsOuverte] = useState(false);
   // CE QUE LE BOUTON « SOUMETTRE » A RÉPONDU. Demandé par l'école le 2026-11-05 :
   // « mets un bouton soumettre après avoir saisi les notes ». Il ne remplace pas la
   // sauvegarde au fil de la frappe — il RÉPOND. Un clic doit donner soit un nombre,
@@ -582,17 +586,41 @@ export default function PrimCompetenceWorkspace() {
       .map((c) => ({ id: c.id, nom: primCritereLabel(c, sys), points_max: 0, ordre: c.ordre ?? 99, aNoter: true }));
     return [...base, ...manquants];
   }, [referentiel, niveauSlug, masquesCrit, sys]);
+  // Les barèmes que l'école emploie déjà, par critère et par compétence : c'est ce dont une matière jamais ouverte
+  // à cette UA hérite (même règle que l'ouverture d'une colonne dans la saisie par matière).
+  const baremesEcoleIndex = useMemo(() => {
+    const miens = new Set(classStudents.map((s) => s.id));
+    const idx = {};
+    for (const r of Object.values(primNotes || {})) {
+      if (!r || !miens.has(r.eleve_id)) continue;
+      const m = Number(r.points_max);
+      if (Number.isFinite(m) && m > 0) (idx[r.critere_id] ||= []).push({ cid: r.competence_id, m });
+    }
+    return idx;
+  }, [primNotes, classStudents]);
+  const ouvertureDe = useCallback((cid, critereIds) => baremeOuverture({
+    critereIds,
+    officielPour: (id) => criteresDe(cid).find((c) => c.id === id)?.points_max,
+    baremesEcole: (id) => (baremesEcoleIndex[id] || []).filter((x) => x.cid !== cid).map((x) => x.m),
+    baremeCriteres: referentiel?.baremeCriteres,
+    niveauSlug,
+  }), [criteresDe, baremesEcoleIndex, referentiel, niveauSlug]);
   const grille = useMemo(() => colonnesNoteUnique({
-    competences, criteresDe, notes: primNotes, eleveIds: classStudents.map((s) => s.id), ua, exclure: ['6a'],
-  }), [competences, criteresDe, primNotes, classStudents, ua]);
+    competences, criteresDe, notes: primNotes, eleveIds: classStudents.map((s) => s.id), ua, ouvertureDe,
+  }), [competences, criteresDe, primNotes, classStudents, ua, ouvertureDe]);
   const [vuePref, setVuePref] = useState(() => { try { return localStorage.getItem('nc_prim_vue') || 'auto'; } catch { return 'auto'; } });
   const choisirVue = (v) => { setVuePref(v); try { localStorage.setItem('nc_prim_vue', v); } catch { /* poste sans stockage */ } };
   // « Auto » : la feuille s'ouvre d'elle-même quand TOUTES les matières de la classe sont à note unique (ou que
   // l'école a choisi le bulletin « Classique par matières »). Une classe mixte garde la saisie actuelle, et
   // propose la feuille d'un bouton.
-  const toutesUniques = grille.colonnes.length > 0 && grille.multiples.length === 0;
-  const vueGrille = grille.colonnes.length > 0 && (vuePref === 'grille'
-    || (vuePref === 'auto' && (toutesUniques || school?.prim_bulletin_mode === 'carnet_matieres')));
+  // « Auto » : dès que PLUSIEURS matières sont à note unique, la feuille s'ouvre — les autres matières (à critères)
+  // restent à « Afficher une seule matière ». Une classe à critères partout n'a aucune colonne : rien ne change.
+  // SAISIE RAPIDE : réservée à l'administrateur, et seulement si l'école l'a (réglage « Saisie rapide administrateur »).
+  // Lecture STRICTE : colonne absente (migration non appliquée) ou fausse = écran d'origine (Genius, Bright Continent),
+  // sans qu'aucun nom d'école soit écrit ici.
+  const saisieRapide = saisieRapideAutorisee(role, school);
+  const vueGrille = saisieRapide && grille.colonnes.length > 0 && (vuePref === 'grille'
+    || (vuePref === 'auto' && (grille.colonnes.length >= 2 || school?.prim_bulletin_mode === 'carnet_matieres')));
   const nkeysGrille = useMemo(() => {
     if (!vueGrille) return [];
     const out = [];
@@ -604,7 +632,15 @@ export default function PrimCompetenceWorkspace() {
     }
     return out;
   }, [vueGrille, classStudents, grille, ua, primNotes]);
-  const sauverCaseGrille = useCallback((a) => savePrimNote({ ...a, ua }), [savePrimNote, ua]);
+  // Chaque case enregistrée par la saisie rapide est journalisée (qui, quoi, quand) — journal local, hors ligne compris.
+  const sauverCaseGrille = useCallback((a) => {
+    logAction({
+      action: 'update', table: 'prim_notes', target_id: primNkey(a.eleveId, a.competenceId, a.critereId, ua),
+      details: { source: 'saisie_rapide_admin', classe: classId, ua, competence: a.competenceId, critere: a.critereId,
+        note: a.statut === 'absent' ? 'ABS' : a.note, bareme: a.pointsMax },
+    });
+    return savePrimNote({ ...a, ua });
+  }, [savePrimNote, ua, classId]);
   const enAttenteSet = useMemo(() => new Set(primNotesEnAttente || []), [primNotesEnAttente]);
   const voirTout = !isSubjectScopedForClass(role, school, selectedClass, teacherId);
 
@@ -771,8 +807,9 @@ export default function PrimCompetenceWorkspace() {
   const nonEvaluee = classId
     ? primNonEvaluees.includes(nonEvalKey(classId, competenceId, ua))
     : false;
-  const basculerNonEvaluee = async (declaree) => {
-    const r = await setPrimNonEvalueeAction({ classId, competenceId, ua, declaree });
+  const nonEvalueeDe = (compId) => (classId ? primNonEvaluees.includes(nonEvalKey(classId, compId, ua)) : false);
+  const basculerNonEvaluee = async (declaree, compId = competenceId) => {
+    const r = await setPrimNonEvalueeAction({ classId, competenceId: compId, ua, declaree });
     if (r?.error) {
       toast.error(r.error === 'offline'
         ? t('Hors ligne : la déclaration n’a pas été enregistrée.',
@@ -825,6 +862,8 @@ export default function PrimCompetenceWorkspace() {
     ));
   };
 
+  useEffect(() => { if (baremeMsg?.text) toast.error(baremeMsg.text); }, [baremeMsg]);
+
   const baremeFor = (critereId) => baremeEnVigueur(
     classStudents.map((stu) => primNotes[primNkey(stu.id, competenceId, critereId, ua)]),
     criteres.find((c) => c.id === critereId)?.points_max,
@@ -835,11 +874,11 @@ export default function PrimCompetenceWorkspace() {
   // cette compétence et cette UA. REFUSÉ si une note déjà saisie le dépasse : on ne
   // transforme pas en silence un 18/20 en 18/10. L'enseignant corrige d'abord les
   // notes concernées — même règle que l'écran du premier cycle.
-  const setBareme = (critereId, nouveau) => {
+  const setBareme = (critereId, nouveau, compId = competenceId) => {
     const porteurs = classStudents.map((stu) => ({
       id: stu.id,
       name: stu.name,
-      note: primNotes[primNkey(stu.id, competenceId, critereId, ua)]?.note,
+      note: primNotes[primNkey(stu.id, compId, critereId, ua)]?.note,
     }));
 
     // ── REMISE À ZÉRO : REFERMER UNE COLONNE QU'ON AVAIT OUVERTE ─────────────
@@ -865,15 +904,15 @@ export default function PrimCompetenceWorkspace() {
         return;
       }
       setBaremeMsg(null);
-      setPendingBareme((p) => ({ ...p, [`${competenceId}_${critereId}`]: 0 }));
+      setPendingBareme((p) => ({ ...p, [`${compId}_${critereId}`]: 0 }));
       // On n'efface que ce qui a été écrit. Une ligne n'existe ici que parce
       // qu'un barème y a été posé — la colonne est vide, on vient de le vérifier :
       // lui remettre `points_max` à NULL la rend muette, et un élève jamais touché
       // n'a pas besoin d'une ligne pour ne rien dire.
       for (const stu of classStudents) {
-        if (!primNotes[primNkey(stu.id, competenceId, critereId, ua)]) continue;
+        if (!primNotes[primNkey(stu.id, compId, critereId, ua)]) continue;
         savePrimNote({
-          eleveId: stu.id, competenceId, critereId, ua,
+          eleveId: stu.id, competenceId: compId, critereId, ua,
           note: null, pointsMax: null,
         });
       }
@@ -908,7 +947,7 @@ export default function PrimCompetenceWorkspace() {
     setBaremeMsg(null);
     // `pendingBareme` ne sert plus qu'à l'affichage IMMÉDIAT, le temps que les
     // écritures ci-dessous arrivent. Ce n'est plus le seul domicile du barème.
-    setPendingBareme((p) => ({ ...p, [`${competenceId}_${critereId}`]: nouveau }));
+    setPendingBareme((p) => ({ ...p, [`${compId}_${critereId}`]: nouveau }));
 
     // ── LE BARÈME EST ÉCRIT POUR TOUTE LA COLONNE, PAS SEULEMENT POUR LES
     //    ÉLÈVES DÉJÀ NOTÉS ───────────────────────────────────────────────────
@@ -943,7 +982,7 @@ export default function PrimCompetenceWorkspace() {
     // `note` n'est plus transmis : `savePrimNote` lit `undefined` comme « je ne parle
     // pas de la note » et conserve celle de la ligne, en base comme en cache.
     for (const stu of classStudents) {
-      savePrimNote({ eleveId: stu.id, competenceId, critereId, ua, pointsMax: nouveau });
+      savePrimNote({ eleveId: stu.id, competenceId: compId, critereId, ua, pointsMax: nouveau });
     }
   };
 
@@ -1205,25 +1244,14 @@ export default function PrimCompetenceWorkspace() {
     <div className="p-4 md:p-6 space-y-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6">
       <div>
         {BackBtn}
-        <h1 className="text-xl font-bold text-gray-800">{t('Saisie primaire APC (par compétences)', 'Primary APC entry (by competencies)')}</h1>
-        <p className="text-sm text-gray-500">
-          {t('Compétences nationales MINEDUB — chargées automatiquement. Votre école peut les adapter. Saisie par Unité d’Apprentissage (UA) ; barème et cote calculés.',
-             'National MINEDUB competencies — loaded automatically. Your school can adapt them. Entry per Learning Unit (UA); scale and grade computed.')}
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <button type="button" onClick={() => setRefOpen(true)}
-            className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-            {t('Modifier les compétences', 'Edit competencies')}
-          </button>
-          {/* Une école qui n'évalue qu'à l'écrit retire ici Oral, Pratique et
-              Savoir-être, une fois pour toutes. Sans ce bouton, les quatre
-              colonnes du référentiel national s'imposaient à toutes les écoles :
-              trois vides sur chaque bulletin, et aucun moyen de les enlever. */}
-          <button type="button" onClick={() => setCritOpen(true)}
-            className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-            {t('Critères évalués', 'Assessed criteria')}
-          </button>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-gray-900">{t('Saisie des notes', 'Mark entry')}</h1>
+          <Info texte={t('Compétences nationales MINEDUB — chargées automatiquement. Votre école peut les adapter. Saisie par Unité d’Apprentissage (UA) ; barème et cote calculés.',
+            'National MINEDUB competencies — loaded automatically. Your school can adapt them. Entry per Learning Unit (UA); scale and grade computed.')} />
         </div>
+        <p className="mt-0.5 text-sm text-gray-500">
+          {t('Primaire', 'Primary')}{selectedClass?.name ? ` · ${selectedClass.name}` : ''} · UA{ua} ({t('Trim.', 'Term')} {trimestreOfUA(ua)})
+        </p>
       </div>
 
       {refOpen && (
@@ -1297,40 +1325,126 @@ export default function PrimCompetenceWorkspace() {
         />
       )}
 
-      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
-        <SectionSelect classes={classes} classId={classId} setClassId={setClassId} />
-        <label className="text-sm min-w-0">
-          <span className="block text-gray-500 mb-1">{t('Classe', 'Class')}</span>
-          {renderClassPicker()}
-        </label>
-        <label className="text-sm min-w-0">
-          <span className="block text-gray-500 mb-1">{t('Unité d’apprentissage', 'Learning unit')}</span>
-          <select value={ua} onChange={(e) => setUa(Number(e.target.value))}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-              <option key={n} value={n}>UA{n} ({t('Trim.', 'Term')} {trimestreOfUA(n)})</option>
-            ))}
-          </select>
-        </label>
-        {!vueGrille && (
-        <label className="text-sm min-w-0">
-          <span className="block text-gray-500 mb-1">{t('Compétence', 'Competency')}</span>
-          <select value={competenceId} onChange={(e) => setCompetenceId(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm min-w-[16rem]">
-            {competences.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.intitule}</option>)}
-          </select>
-        </label>
-        )}
-        {grille.colonnes.length > 0 && !vueGrille && (
-          <button type="button" onClick={() => choisirVue('grille')}
-            className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 sm:self-end">
-            {t('Feuille de notes (toutes les matières)', 'Mark sheet (all subjects)')}
-          </button>
-        )}
-        {/* La grille PAPIER de l'UA : toutes les compétences, vierge pour
-            corriger au stylo ou avec les notes déjà saisies pour relire. Elle
-            ne suit PAS la compétence sélectionnée — c'est toute l'UA. */}
-        <div className="col-span-2 sm:col-span-1 sm:self-end sm:pb-1">
+      {/* UNE ligne : filtres à gauche, outils à droite. Rien de long n'est affiché par défaut. */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
+          <SectionSelect classes={classes} classId={classId} setClassId={setClassId} />
+          <label className="min-w-0 text-sm">
+            <span className="mb-1 block text-[11px] text-gray-500">{t('Classe', 'Class')}</span>
+            {renderClassPicker()}
+          </label>
+          <label className="min-w-0 text-sm">
+            <span className="mb-1 block text-[11px] text-gray-500">{t('Unité d’apprentissage', 'Learning unit')}</span>
+            <select value={ua} onChange={(e) => setUa(Number(e.target.value))}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                <option key={n} value={n}>UA{n} ({t('Trim.', 'Term')} {trimestreOfUA(n)})</option>
+              ))}
+            </select>
+          </label>
+          {!vueGrille && (
+            <label className="min-w-0 text-sm">
+              <span className="mb-1 block text-[11px] text-gray-500">{t('Compétence / matière', 'Competency / subject')}</span>
+              <select value={competenceId} onChange={(e) => setCompetenceId(e.target.value)}
+                className="w-full truncate rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm sm:w-56">
+                {competences.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.intitule}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {saisieRapide && grille.colonnes.length > 0 && (
+            <Segmente
+              label={t('Mode de saisie', 'Entry mode')}
+              valeur={vueGrille ? 'grille' : 'matiere'}
+              onChange={choisirVue}
+              options={[
+                { valeur: 'matiere', libelle: t('Par matière', 'By subject') },
+                { valeur: 'grille', libelle: t('Toutes les matières', 'All subjects') },
+              ]}
+            />
+          )}
+          <Avertissements t={t} avertissements={[
+            ...(competencesEcartees > 0 ? [{
+              id: 'ecartees',
+              titre: t(`${competencesEcartees} compétence(s) non couvertes`, `${competencesEcartees} competency/ies not covered`),
+              detail: t(
+                'Des compétences du niveau ne sont couvertes par aucune matière cochée pour cette classe : elles ne se saisissent pas ici et ne s’impriment pas sur le bulletin.',
+                'Some competencies for this level are not covered by any subject ticked for this class: they cannot be entered here and do not print on the report card.'),
+              actions: [{ libelle: t('Modifier les matières de la classe', 'Edit the class subjects'), onClick: () => navigate('/app/classes') }],
+            }] : []),
+            ...(matieresHorsReferentiel.length > 0 ? [{
+              id: 'horsref',
+              titre: t(`${matieresHorsReferentiel.length} matière(s) sans compétence correspondante`, `${matieresHorsReferentiel.length} subject(s) with no matching competency`),
+              detail: t(
+                `${matieresHorsReferentiel.join(', ')}. Elles ne se saisissent pas ici et ne figurent pas sur le bulletin officiel. Corrigez le nom dans Classes → Modifier la classe → Matières.`,
+                `${matieresHorsReferentiel.join(', ')}. They cannot be entered here and do not appear on the official report card. Fix the name in Classes → Edit class → Subjects.`),
+              actions: [{ libelle: t('Modifier les matières de la classe', 'Edit the class subjects'), onClick: () => navigate('/app/classes') }],
+            }] : []),
+            ...(masqueesCouvertes.length > 0 ? [{
+              id: 'masquees',
+              titre: t(`${masqueesCouvertes.length} compétence(s) masquée(s) par l’école`, `${masqueesCouvertes.length} competency/ies hidden by the school`),
+              detail: t(
+                `${masqueesCouvertes.join(' · ')}. Une matière de cette classe les couvre pourtant : elles ne se saisissent pas ici et ne s’impriment pas sur le bulletin. Les notes déjà saisies sont conservées.`,
+                `${masqueesCouvertes.join(' · ')}. A subject of this class covers them: they cannot be entered here and do not print on the report card. Marks already entered are kept.`),
+              actions: [{ libelle: t('Réafficher les compétences', 'Show competencies again'), onClick: () => setRefOpen(true) }],
+            }] : []),
+          ]} />
+          <MenuPlus
+            libelle={t('Plus', 'More')}
+            items={[
+              { id: 'comp', libelle: t('Modifier les compétences', 'Edit competencies'), onClick: () => setRefOpen(true) },
+              { id: 'crit', libelle: t('Critères évalués', 'Assessed criteria'), onClick: () => setCritOpen(true) },
+              { id: 'io', libelle: t('Importer / Exporter', 'Import / Export'), onClick: () => setIoOuvert((o) => !o) },
+              { id: 'obs', libelle: t('Observation de l’enseignant(e)', 'Teacher’s observation'), onClick: () => setObsOuverte((o) => !o) },
+            ]}
+          />
+        </div>
+      </div>
+
+      {/* DES NOTES QUE LE SERVEUR N'A PAS ACCEPTÉES.
+          « J'ajoute les notes ici, ça ne persiste pas » (2026-11-05). Elles étaient
+          bien écrites en local, le serveur les refusait, et rien ne le disait : le
+          rafraîchissement suivant les faisait disparaître de l'écran. Elles sont
+          CONSERVÉES et ANNONCÉES — avec le nom des élèves concernés. Ce message-là
+          reste visible : c'est une perte possible, pas un avertissement de réglage. */}
+      {attenteIci.length > 0 && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-white px-3 py-2 text-xs text-red-800">
+          <span className="font-semibold">
+            {t(`${attenteIci.length} note(s) pas encore enregistrée(s) sur le serveur`,
+               `${attenteIci.length} mark(s) not saved to the server yet`)}
+          </span>
+          {' — '}
+          {attenteIci.slice(0, 4).map(({ stu, critere }) => `${stu.name} (${primCritereLabel(critere, sys)})`).join(', ')}
+          {attenteIci.length > 4 ? '…' : ''}
+          {'. '}
+          {t('Elles sont gardées sur cet appareil et renvoyées automatiquement : ne les ressaisissez pas.',
+             'They are kept on this device and resent automatically: do not re-enter them.')}
+          {primNotesRefus && (
+            <div className="mt-1 font-mono text-[11px] text-red-900 break-words">
+              {t('Motif du serveur : ', 'Server reason: ')}{primNotesRefus}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Observation de l'enseignant(e) : à la demande, depuis « ⋯ Plus ». */}
+      {obsOuverte && (
+        <ObservationGlobaleForm
+          classId={classId}
+          students={classStudents}
+          trimestre={trimestreOfUA(ua)}
+          ua={ua}
+          parUA
+          suggerer={suggererPour}
+          lectureSeule={isSubjectTeacher && !isFundamentalTitulaire(selectedClass, teacherId)}
+        />
+      )}
+
+      {/* Importer / Exporter : échange de notes entre postes + grille papier de l'UA. */}
+      {ioOuvert && (
+        <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-3">
+          <GradeBundleIO />
           <FeuilleNotesButton
             school={school}
             sys={sys}
@@ -1341,124 +1455,22 @@ export default function PrimCompetenceWorkspace() {
             eleves={feuilleEleves}
             valeur={feuilleValeur}
           />
-        </div>
-      </div>
-
-      {/* Le sélecteur ci-dessus liste les compétences de LA CLASSE, pas tout le
-          niveau : sans cette ligne, le filtre serait invisible et l'enseignante
-          chercherait une compétence absente sans pouvoir deviner pourquoi. */}
-      {competencesEcartees > 0 && (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-          {t(
-            `${competencesEcartees} compétence(s) du niveau ne sont pas couvertes par les matières cochées pour cette classe : elles ne se saisissent pas ici et ne s'impriment pas sur le bulletin. Pour les ajouter, passez par Classes → Modifier la classe → Matières.`,
-            `${competencesEcartees} competency/ies for this level are not covered by the subjects ticked for this class: they cannot be entered here and do not print on the report card. To add them, go to Classes → Edit class → Subjects.`,
+          {!vueGrille && niveauSlug && criteres.length > 0 && classStudents.length > 0 && (
+            <CompetenceGradeIO
+              filename={`notes_primaire_${selectedClass?.name || ''}_${(competences.find((c) => c.id === competenceId)?.code || 'competence')}_UA${ua}`}
+              sheetName={`UA${ua}`}
+              students={classStudents}
+              columns={criteresActifs.map((c) => ({ id: c.id, label: `${c.nom} /${baremeFor(c.id)}` }))}
+              getCell={(sid, cid) => noteFor(sid, cid)}
+              normalize={(raw, cid) => validateGrade(raw, baremeFor(cid))}
+              onImport={(sid, cid, v) => savePrimNote({
+                eleveId: sid, competenceId, critereId: cid, ua,
+                note: v, pointsMax: baremeFor(cid),   // même raison qu'à la saisie directe
+              })}
+              valueHint={t('barème variable par critère (voir en-tête)', 'scale varies by criterion (see header)')}
+            />
           )}
         </div>
-      )}
-
-      {matieresHorsReferentiel.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          {t(
-            `Matière(s) de cette classe sans compétence correspondante au référentiel : ${matieresHorsReferentiel.join(', ')}. Elles ne se saisissent pas ici et ne figurent pas sur le bulletin officiel. Corrigez le nom dans Classes → Modifier la classe → Matières.`,
-            `Subject(s) of this class with no matching framework competency: ${matieresHorsReferentiel.join(', ')}. They cannot be entered here and do not appear on the official report card. Fix the name in Classes → Edit class → Subjects.`,
-          )}
-        </div>
-      )}
-
-      {/* Un masque posé sur une compétence que la classe enseigne pourtant : on
-          le NOMME. Invisible, il fait disparaître la saisie ET la colonne du
-          bulletin sans que personne puisse relier la cause à l'effet. */}
-      {masqueesCouvertes.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          {t(
-            `Masquée(s) par l'école alors qu'une matière de cette classe les couvre : ${masqueesCouvertes.join(' · ')}. Elles ne se saisissent pas ici et ne s'impriment pas sur le bulletin — les notes déjà saisies, elles, sont conservées. Pour les réafficher : bouton « Modifier les compétences » ci-dessus.`,
-            `Hidden by the school although a subject of this class covers them: ${masqueesCouvertes.join(' · ')}. They cannot be entered here and do not print on the report card — marks already entered are kept. To show them again: “Edit competencies” button above.`,
-          )}
-        </div>
-      )}
-
-      {!vueGrille && (
-      <div className="text-xs text-gray-500">
-        {t('Barème officiel par critère (points) — variable selon la compétence · le total et la cote se calculent sur les critères déjà saisis.',
-           'Official per-criterion scale (points) — varies by competency · total and grade are computed from criteria already entered.')}
-        {' · '}
-        {t(
-          'le barème se change sous le nom du critère (Oral, Écrit…) et vaut pour cette UA : le total suit · 0 referme la colonne (elle ne compte plus)',
-          'the scale is editable under the criterion name (Oral, Written…) and applies to this unit: the total follows · 0 closes the column (it no longer counts)',
-        )}
-      </div>
-      )}
-
-      {/* Refus d'un changement de barème qui invaliderait des notes déjà saisies. */}
-      {baremeMsg && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          {baremeMsg.text}
-        </div>
-      )}
-
-      {/* DES NOTES QUE LE SERVEUR N'A PAS ACCEPTÉES.
-          « J'ajoute les notes ici, ça ne persiste pas » (2026-11-05). Elles étaient
-          bien écrites en local, le serveur les refusait, et rien ne le disait : le
-          rafraîchissement suivant les faisait disparaître de l'écran. Elles sont
-          maintenant CONSERVÉES et ANNONCÉES — avec le nom des élèves concernés,
-          parce qu'« une note n'est pas enregistrée » sans dire laquelle ne permet
-          rien de plus que de tout ressaisir. */}
-      {attenteIci.length > 0 && (
-        <div role="alert" className="rounded-lg border-2 border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
-          <span className="font-semibold">
-            {t(`${attenteIci.length} note(s) pas encore enregistrée(s) sur le serveur`,
-               `${attenteIci.length} mark(s) not saved to the server yet`)}
-          </span>
-          {' — '}
-          {attenteIci.slice(0, 4).map(({ stu, critere }) => `${stu.name} (${primCritereLabel(critere, sys)})`).join(', ')}
-          {attenteIci.length > 4 ? '…' : ''}
-          {'. '}
-          {t('Elles sont gardées sur cet appareil et renvoyées automatiquement : ne les ressaisissez pas. Si le message dure, le serveur les refuse — prévenez le support avec cette phrase.',
-             'They are kept on this device and resent automatically: do not re-enter them. If this message persists, the server is rejecting them — tell support, quoting this message.')}
-          {primNotesRefus && (
-            <div className="mt-1 font-mono text-[11px] text-red-900 break-words">
-              {t('Motif du serveur : ', 'Server reason: ')}{primNotesRefus}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* L'APPRÉCIATION D'ENSEMBLE du carnet. Le carnet la LISAIT déjà
-          (`primAppreciationSaisie`), mais il fallait ouvrir l'écran des bulletins
-          et dérouler élève par élève pour l'écrire ; sans saisie, il retombait
-          sur le libellé de la cote, donc le même texte pour deux élèves de même
-          cote. Ici, toute la classe est à l'écran. Replié par défaut.
-          Un enseignant de matière non titulaire ne la porte pas. */}
-      <ObservationGlobaleForm
-        classId={classId}
-        students={classStudents}
-        trimestre={trimestreOfUA(ua)}
-        ua={ua}
-        parUA
-        suggerer={suggererPour}
-        lectureSeule={isSubjectTeacher && !isFundamentalTitulaire(selectedClass, teacherId)}
-      />
-
-      {/* Échange de notes entre postes : export global de TOUTES ses notes
-          (toutes classes, tous moteurs) et, pour un admin, import du fichier
-          d'un enseignant. La barre ci-dessous, elle, ne porte que la grille
-          affichée. */}
-      <GradeBundleIO />
-
-      {!vueGrille && niveauSlug && criteres.length > 0 && classStudents.length > 0 && (
-        <CompetenceGradeIO
-          filename={`notes_primaire_${selectedClass?.name || ''}_${(competences.find((c) => c.id === competenceId)?.code || 'competence')}_UA${ua}`}
-          sheetName={`UA${ua}`}
-          students={classStudents}
-          columns={criteresActifs.map((c) => ({ id: c.id, label: `${c.nom} /${baremeFor(c.id)}` }))}
-          getCell={(sid, cid) => noteFor(sid, cid)}
-          normalize={(raw, cid) => validateGrade(raw, baremeFor(cid))}
-          onImport={(sid, cid, v) => savePrimNote({
-            eleveId: sid, competenceId, critereId: cid, ua,
-            note: v, pointsMax: baremeFor(cid),   // même raison qu'à la saisie directe
-          })}
-          valueHint={t('barème variable par critère (voir en-tête)', 'scale varies by criterion (see header)')}
-        />
       )}
 
       {!niveauSlug ? (
@@ -1500,6 +1512,9 @@ export default function PrimCompetenceWorkspace() {
           voirTout={voirTout}
           onSave={sauverCaseGrille}
           onUneMatiere={() => choisirVue('matiere')}
+          nonEvalueeDe={nonEvalueeDe}
+          onNonEvaluee={basculerNonEvaluee}
+          onBareme={(col, n) => setBareme(col.critereId, n, col.competenceId)}
           onSoumettre={soumettre}
           envoi={envoi}
           bilan={bilanEnvoi}
@@ -1518,26 +1533,22 @@ export default function PrimCompetenceWorkspace() {
             classe n'a pas travaillée mettrait tous ses élèves à zéro. Elle vaut
             pour CETTE classe à CETTE UA : la CM1 peut n'avoir pas évalué les TIC
             à l'UA 2 et les évaluer à l'UA 3, sans que la CM2 soit concernée. */}
-        <label className={`mb-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer
-          ${nonEvaluee ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'}`}>
-          <input
-            type="checkbox"
-            checked={nonEvaluee}
-            onChange={(e) => basculerNonEvaluee(e.target.checked)}
-            className="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-400"
-          />
-          <span className={nonEvaluee ? 'text-amber-800' : 'text-gray-600'}>
-            {t('Compétence non évaluée pour cette classe à cette UA',
-               'Competency not assessed for this class at this LU')}
-            <span className="block text-xs opacity-80">
-              {nonEvaluee
-                ? t('Elle s’imprime « - - - - » sur le bulletin et ne compte dans aucun total. Les notes déjà saisies restent en base.',
-                    'It prints “- - - -” on the report card and counts in no total. Marks already entered stay in the database.')
-                : t('À cocher si la classe n’a pas travaillé cette compétence : ses élèves n’auront pas zéro.',
-                    'Tick if the class has not covered this competency: its pupils will not get zero.')}
-            </span>
-          </span>
-        </label>
+        <div className="mb-2 flex items-center gap-1.5 text-sm text-gray-600">
+          <label className="inline-flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={nonEvaluee}
+              onChange={(e) => basculerNonEvaluee(e.target.checked)}
+              className="rounded border-gray-300 text-brand-600 focus:ring-brand-300"
+            />
+            {t('Non évaluée cette UA', 'Not assessed this LU')}
+          </label>
+          <Info texte={nonEvaluee
+            ? t('Elle s’imprime « - - - - » sur le bulletin et ne compte dans aucun total. Les notes déjà saisies restent en base.',
+              'It prints “- - - -” on the report card and counts in no total. Marks already entered stay in the database.')
+            : t('À cocher si la classe n’a pas travaillé cette compétence : ses élèves n’auront pas zéro.',
+              'Tick if the class has not covered this competency: its pupils will not get zero.')} />
+        </div>
 
         {/* TÉLÉPHONE — une carte par élève. Le barème reste en tête de carte :
             il appartient à l'évaluation, pas à l'élève, donc on ne le répète pas
@@ -1582,19 +1593,22 @@ export default function PrimCompetenceWorkspace() {
         />
 
         {/* ORDINATEUR */}
-        <div className="hidden md:block overflow-auto rounded-lg border border-gray-200">
+        <div className="hidden md:block overflow-auto rounded-lg border border-gray-200 bg-white">
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
+            <thead className="bg-white">
               <tr>
                 {/* N° DE LA LISTE DE CLASSE — figé avec le nom, parce qu'il est appelé
                     à l'oral et reporté à la main sur les documents. Il vient de
                     `core/ordreClasse`, le même ordre que la liste imprimée. */}
-                <th className="sticky left-0 z-10 bg-gray-50 px-2 py-2 w-10 text-center font-medium text-gray-400">{t('N°', 'No.')}</th>
-                <th className="sticky left-10 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
-                {criteresActifs.map((c) => (
-                  <th key={c.id} className="px-3 py-2 text-left font-medium text-gray-600">
+                <th className="sticky left-0 z-10 border-b border-gray-200 bg-white px-2 py-3 w-10 text-center font-medium text-gray-400">{t('N°', 'No.')}</th>
+                <th className="sticky left-10 z-10 border-b border-gray-200 bg-white px-3 py-3 text-left font-medium text-gray-600">{t('Élève', 'Student')}</th>
+                {criteresActifs.map((c, ci0) => (
+                  <th key={c.id} className="border-b border-gray-200 px-3 py-3 text-left font-medium text-gray-600">
                     <span className="block truncate">
-                      {c.nom}
+                      {c.nom}{ci0 === 0 && (
+                        <Info className="ml-1.5 align-middle" texte={t('Barème officiel par critère (points), variable selon la compétence. Il se change sous le nom du critère et vaut pour cette UA : le total suit. 0 referme la colonne (elle ne compte plus).',
+                          'Official per-criterion scale (points), varies by competency. Edit it under the criterion name; it applies to this unit and the total follows. 0 closes the column (it no longer counts).')} />
+                      )}
                     </span>
                     {/* Barème de CETTE évaluation : celui du référentiel par
                         défaut, modifiable là où l'on saisit. */}
@@ -1602,7 +1616,7 @@ export default function PrimCompetenceWorkspace() {
                       onCommit={(n) => setBareme(c.id, n)} />
                   </th>
                 ))}
-                <th className="px-3 py-2 text-left font-medium text-gray-600">{t('Total · Cote', 'Total · Grade')}</th>
+                <th className="border-b border-gray-200 px-3 py-3 text-right font-medium text-gray-600">{t('Total · Cote', 'Total · Grade')}</th>
               </tr>
             </thead>
             <tbody>
@@ -1612,9 +1626,9 @@ export default function PrimCompetenceWorkspace() {
                 const { achieved, possible } = competenceTotal(stu);
                 const cote = achieved != null ? primCote(achieved, possible, bareme) : null;
                 return (
-                  <tr key={stu.id} className="border-t border-gray-100">
-                    <td className="sticky left-0 z-10 bg-white px-2 py-1.5 w-10 text-center text-xs text-gray-400 tabular-nums">{ri + 1}</td>
-                    <td className="sticky left-10 z-10 bg-white px-3 py-1.5 font-medium text-gray-700 whitespace-nowrap">
+                  <tr key={stu.id} className="border-t border-gray-100 bg-white even:bg-gray-50/50">
+                    <td className="sticky left-0 z-10 bg-inherit px-2 py-2 w-10 text-center text-xs text-gray-400 tabular-nums">{ri + 1}</td>
+                    <td className="sticky left-10 z-10 bg-inherit px-3 py-2 font-medium text-gray-700 whitespace-nowrap">
                       {stu.name}
                       {competenceId === '6a' && stu.sport_aptitude === 'inapte' && (
                         <span className="ml-1.5 text-[10px] text-amber-600 font-normal">({t('inapte', 'unfit')})</span>
@@ -1644,7 +1658,7 @@ export default function PrimCompetenceWorkspace() {
                         />
                       </td>
                     ))}
-                    <td className="px-3 py-1.5 text-[11px] text-gray-500 whitespace-nowrap">
+                    <td className="px-3 py-2 text-right text-xs tabular-nums text-gray-600 whitespace-nowrap">
                       {achieved != null ? `${achieved}/${possible} · ` : '—'}{cote ? cote.cote : ''}
                     </td>
                   </tr>
@@ -1661,20 +1675,12 @@ export default function PrimCompetenceWorkspace() {
             « supprimer ». Le barème proposé est celui que l'école emploie déjà
             sur ce critère, et il se corrige dans l'en-tête comme les autres. */}
         {criteresFermes.length > 0 && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-            <span>{t('Épreuve non utilisée ici :', 'Not assessed here:')}</span>
-            {criteresFermes.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => ouvrirColonne(c.id)}
-                className="rounded-full border border-dashed border-gray-300 px-2 py-0.5 text-gray-600 hover:border-gray-400 hover:bg-gray-50"
-                title={t(`Ajouter la colonne « ${c.nom} » à cette compétence`,
-                  `Add the “${c.nom}” column to this competency`)}
-              >
-                + {c.nom}
-              </button>
-            ))}
+          <div className="mt-2 flex justify-end">
+            <MenuPlus
+              icone="+"
+              libelle={t('Épreuve', 'Assessment')}
+              items={criteresFermes.map((c) => ({ id: c.id, libelle: c.nom, onClick: () => ouvrirColonne(c.id) }))}
+            />
           </div>
         )}
 
@@ -1690,33 +1696,30 @@ export default function PrimCompetenceWorkspace() {
             changé » à sa livraison — elle ne l'avait tout simplement jamais vu. Un geste
             qu'il faut chercher n'existe pas. Collé en bas, il reste sous les yeux pendant
             toute la saisie, et le bilan s'affiche au même endroit que le clic. */}
-        <div className="sticky bottom-0 z-20 -mx-1 mt-3 flex flex-wrap items-center gap-3
-          border-t border-gray-200 bg-white/95 px-1 py-3 backdrop-blur
-          supports-[backdrop-filter]:bg-white/80">
-          <button
-            type="button"
-            onClick={soumettre}
-            disabled={envoi || !nkeysDeLEcran.length}
-            className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm
-              hover:bg-brand-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            {envoi
-              ? t('Envoi en cours…', 'Sending…')
-              : t(`Soumettre les notes (${nkeysDeLEcran.length})`, `Submit marks (${nkeysDeLEcran.length})`)}
-          </button>
-          {bilanEnvoi ? (
-            <span role="status"
-              className={`rounded-lg border px-3 py-2 text-xs ${bilanEnvoi.ko
-                ? 'border-red-300 bg-red-50 text-red-800'
-                : 'border-emerald-300 bg-emerald-50 text-emerald-800'}`}>
-              {bilanEnvoi.texte}
-            </span>
-          ) : (
-            <span className="text-xs text-gray-500">
-              {t('Les notes sont déjà gardées à la frappe. Ce bouton confirme qu’elles sont bien arrivées sur le serveur.',
-                 'Marks are already kept as you type. This button confirms they reached the server.')}
-            </span>
-          )}
+        <div className="sticky bottom-0 z-20 -mx-1 mt-3 flex flex-wrap items-center justify-between gap-3
+          border-t border-gray-200 bg-white/95 px-1 py-3 backdrop-blur">
+          <span role="status" className={`flex items-center gap-1.5 text-xs ${attenteIci.length ? 'text-amber-700' : 'text-gray-500'}`}>
+            {attenteIci.length
+              ? t(`${attenteIci.length} note(s) en attente d’envoi`, `${attenteIci.length} mark(s) waiting to be sent`)
+              : t('Enregistré automatiquement ✓', 'Saved automatically ✓')}
+            <Info texte={t('Les notes sont gardées à la frappe, même hors connexion. Le bouton confirme qu’elles sont bien arrivées sur le serveur.',
+              'Marks are kept as you type, even offline. The button confirms they reached the server.')} />
+          </span>
+          <div className="flex items-center gap-3">
+            {bilanEnvoi && (
+              <span role="status" className={`text-xs ${bilanEnvoi.ko ? 'text-red-700' : 'text-emerald-700'}`}>{bilanEnvoi.texte}</span>
+            )}
+            <button
+              type="button"
+              onClick={soumettre}
+              disabled={envoi || !nkeysDeLEcran.length}
+              className="rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+            >
+              {envoi
+                ? t('Envoi en cours…', 'Sending…')
+                : t(`Soumettre les notes (${nkeysDeLEcran.length})`, `Submit marks (${nkeysDeLEcran.length})`)}
+            </button>
+          </div>
         </div>
         </>
       )}

@@ -25,11 +25,13 @@ import { groupesDe, reperesDeGroupe } from '../../core/primCompactRows';
 // L'échelle vient du moteur : un « /10 » écrit en dur dans le libellé se serait
 // mis à mentir dès que l'échelle change.
 import { PRIM_GRADE_MAX } from '../../core/primEngine';
+import { FOND_ACCENT, FOND_TH_BG, FOND_TH_TXT, FOND_COTE_COLORS } from './fondamentalTheme';
 
-const PRIM_COTE_COLORS = { 'A+': '#059669', A: '#10b981', ECA: '#f59e0b', NA: '#ef4444' };
-const PRIM_ACCENT = '#047857';
-const PRIM_TH_BG  = '#d1fae5';
-const PRIM_TH_TXT = '#065f46';
+// Palette commune au primaire ET à la maternelle (cf. fondamentalTheme.js) : mêmes valeurs qu'avant.
+const PRIM_COTE_COLORS = FOND_COTE_COLORS;
+const PRIM_ACCENT = FOND_ACCENT;
+const PRIM_TH_BG  = FOND_TH_BG;
+const PRIM_TH_TXT = FOND_TH_TXT;
 const TRIM_LABELS = { fr: ['Premier', 'Deuxième', 'Troisième'], en: ['First', 'Second', 'Third'], es: ['Primer', 'Segundo', 'Tercer'] };
 
 // Barème à ANNONCER pour une ligne de critère : celui que l'enseignant a

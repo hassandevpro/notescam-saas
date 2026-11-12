@@ -1,105 +1,70 @@
 // Bulletin MATERNELLE officiel (MINEDUB) — aperçu écran imprimable.
 //
-// Tableau des 8 domaines pédagogiques : niveau d'acquisition (A / ECA / NA) +
-// observation pédagogique. Aucune note, aucune moyenne, aucun rang.
-// En-tête / identité / signatures mutualisés (layout APC standard).
+// Tableau des domaines pédagogiques : niveau d'acquisition (A / ECA / NA) + observation pédagogique.
+// Aucune note, aucune moyenne, aucun rang : ces cases n'existent pas en maternelle, donc elles ne s'impriment pas.
 //
-// ── LES UA DU TRIMESTRE, PUIS LA SYNTHÈSE (2026-11-01) ───────────────────────
-// La maternelle cote désormais par unité d'apprentissage, comme le primaire : un
-// trimestre en compte trois (deux pour le troisième). Le bulletin trimestriel
-// montre donc UNE COLONNE PAR UA du trimestre, puis la synthèse de la période —
-// « présenter les UA et la synthèse par trimestre », demande du responsable.
+// ── MÊME GABARIT QUE LE PRIMAIRE (2026-11-12) ────────────────────────────────
+// En-tête officiel, bande d'identité, signatures et feuille sont ceux du primaire (bulletinOfficialParts), AVEC le
+// mode « densité » (`vars`) : le bulletin tient sur UNE page A4 par le même ajustement mesuré que le carnet primaire
+// (lib/print/fitDensity.js), au lieu de tailles écrites en dur. Palette, bordures et cellules viennent de
+// `fondamentalTheme` et de `mkCellVar/mkTHVar` : une correction de style faite pour le primaire vaut pour la
+// maternelle. Ce qui reste propre à la maternelle : les domaines, les cotes A / ECA / NA et leur légende.
 //
-// La synthèse est la cote DOMINANTE des UA cotées (core/matEngine ·
-// syntheseTrimestre), jamais une moyenne : A/ECA/NA ne s'additionnent pas.
+// ── LES UA DU TRIMESTRE, PUIS LA SYNTHÈSE ────────────────────────────────────
+// Le bulletin trimestriel montre UNE COLONNE PAR UA du trimestre, puis la synthèse de la période. La synthèse est la
+// cote DOMINANTE des UA cotées (core/matEngine · syntheseTrimestre), jamais une moyenne : A/ECA/NA ne s'additionnent
+// pas. Une seule UA : aucune colonne d'UA, le titre dit laquelle.
 //
 // Rendu piloté par PROPS :
-//   uas  = [1, 2, 3] — les UA de la période (vide ⇒ ancienne mise en page)
+//   uas  = [1, 2, 3] — les UA de la période (vide ⇒ une seule colonne « Niveau »)
 //   rows = [{ code, intitule, parUa: { 1: 'A', … }, niveau (synthèse), observation }]
 
 import {
-  mkCell, mkTH, L,
+  mkCellVar, mkTHVar, L,
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
 } from './bulletinOfficialParts';
 import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
 import { matAcquisLabel, matAcquisCode } from '../../core/referentielI18n';
+import { FOND_ACCENT, FOND_TH_BG, FOND_TH_TXT, FOND_COTE_COLORS } from './fondamentalTheme';
 
-const MAT_COLORS = { A: '#059669', ECA: '#f59e0b', NA: '#ef4444' };
 const MAT_LABELS = { A: 'Acquis', ECA: 'En cours d’acquisition', NA: 'Non acquis' };
-// Infobulle de la cote : les mêmes mots que la légende du bas de page, dans le
-// système de la classe (un bulletin anglophone ne doit pas dire « Acquis »).
+// Infobulle de la cote : les mêmes mots que la légende, dans le système de la classe.
 const matLevelLabel = (code, sys) => matAcquisLabel(code, MAT_LABELS[code], sys);
-// Cote illustrée pour un bulletin de tout-petits : smiley + lettre (reste officiel).
-const MAT_EMOJI  = { A: '😀', ECA: '😐', NA: '☹️' };
-
-// Icône par domaine — résolue par MOTS-CLÉS de l'intitulé (robuste : indépendante
-// des codes D1…D8, qui peuvent varier). Repli 🌟 si aucun mot-clé ne correspond.
-const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-// Les mots-clés couvrent les DEUX rédactions du référentiel (française en base,
-// anglaise sur un bulletin du secteur anglophone) : sinon un bulletin anglophone
-// perdait toutes ses icônes au profit du repli 🌟.
-const DOMAINE_ICONS = [
-  [/langage|communicat|parole|oral|language/,          '💬'],
-  [/lecture|ecrit|graph|trace|read|writ/,              '✏️'],
-  [/numer|logi|math|calcul|nombre/,                    '🔢'],
-  [/psychomot|motric|corps|physique|sport/,            '🤸'],
-  [/monde|scien|nature|environ|decouverte|world|discover/, '🌍'],
-  [/social|affect|vivre|emotion|citoyen/,              '❤️'],
-  [/art|music|dessin|creativ|chant|danse/,             '🎨'],
-  [/autonom|hygien|proprete|personnel|personal/,       '🧩'],
-];
-const domaineIcon = (intitule) => {
-  const s = norm(intitule);
-  for (const [re, ic] of DOMAINE_ICONS) if (re.test(s)) return ic;
-  return '🌟';
-};
-
-// Identité visuelle MATERNELLE (MINEDUB) : violet, coins arrondis. Distincte du
-// bleu marine MINESEC (collège/lycée) et du vert primaire APC.
-const MAT_ACCENT = '#7c3aed';
-const MAT_TH_BG  = '#f3e8ff';
-const MAT_TH_TXT = '#6d28d9';
+const CODES = ['A', 'ECA', 'NA'];
 
 export default function BulletinMatOfficial({
+  paysage = false,
   school, sys = 'FR', title, student, classLabel, effectif, profPrincipal = '',
   uas = [], rows = [], appreciation = '', decision = '',
 }) {
-  const cell = mkCell(10);
-  // Les colonnes d'UA ne s'affichent que si la période en fournit. Sans elles,
-  // la mise en page reste EXACTEMENT celle d'avant (un bulletin déjà imprimé
-  // garde son aspect) : c'est le même gabarit, pas un second.
+  const cell = mkCellVar();
+  const th   = { ...mkTHVar(), background: FOND_TH_BG, color: FOND_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
+
+  // Les colonnes d'UA ne s'affichent que si la période en fournit PLUSIEURS : la « synthèse » d'une unique unité EST
+  // cette unité, les deux colonnes porteraient la même cote côte à côte.
   const uasRecues = Array.isArray(uas) ? uas.filter((n) => Number.isFinite(Number(n))) : [];
-  // UNE SEULE UA : AUCUNE colonne d'UA. La « synthèse » d'une unique unité EST
-  // cette unité — les deux colonnes auraient porté la même cote côte à côte, et
-  // le bulletin d'une UA aurait eu l'air d'un bulletin de trimestre à moitié
-  // vide. On retombe alors sur la mise en page classique (« Niveau »), celle
-  // d'avant les UA, et c'est le TITRE qui dit laquelle (« BULLETIN DE L'UA1 »).
   const colUas = uasRecues.length > 1 ? uasRecues : [];
   const parUA = colUas.length > 0;
-  // Largeurs : les UA prennent la place rendue par la colonne « Niveau » et par
-  // le libellé du domaine, l'observation reste large (c'est elle qu'on lit).
   const wDomaine = parUA ? `${38 - colUas.length * 3}%` : '38%';
   const wUa      = `${Math.max(7, Math.round(21 / Math.max(1, colUas.length)))}%`;
   const wNiveau  = parUA ? '11%' : '16%';
   const wObs     = parUA ? '30%' : '40%';
   const nbCols   = 4 + colUas.length;
-  // Cote rendue : smiley + sigle du système de la classe, comme la légende.
-  const coteCell = (code) => (code
-    ? <strong style={{ color: MAT_COLORS[code] }} title={matLevelLabel(code, sys)}>{MAT_EMOJI[code]} {matAcquisCode(code, sys)}</strong>
-    : '');
-  const th   = { ...mkTH(11), background: MAT_TH_BG, color: MAT_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 
-  // Fondamental MINEDUB : enseignant(e) titulaire + directeur/directrice (jamais
-  // professeur principal / proviseur, propres au secondaire).
+  // Cote : sigle du système de la classe, dans la couleur de la cote (comme les cotes du primaire).
+  const coteCell = (code) => (code
+    ? <strong style={{ color: FOND_COTE_COLORS[code] }} title={matLevelLabel(code, sys)}>{matAcquisCode(code, sys)}</strong>
+    : '');
+
+  // Fondamental MINEDUB : enseignant(e) titulaire + directeur/directrice (jamais professeur principal / proviseur).
   const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
   const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
-  // Accord au nombre : deux enseignants principaux -> « Enseignant(e)s ».
   const ppLabel      = headTeacherLabel(headTeacherCount(profPrincipal), sys, { basic: true });
 
   return (
-    <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys}>
-      <OfficialHeader school={school} sys={sys} title={title} accent={MAT_ACCENT} rounded basic />
-      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={MAT_ACCENT} tint={MAT_TH_BG} />
+    <OfficialSheet school={school} pt={10} pageNo={1} total={1} sys={sys} vars>
+      <OfficialHeader school={school} sys={sys} title={title} accent={FOND_ACCENT} basic vars grand={paysage} />
+      <OfficialIdentityBand student={student} classLabel={classLabel} effectif={effectif} profPrincipal={profPrincipal} ppLabel={ppLabel} sys={sys} accent={FOND_ACCENT} tint={FOND_TH_BG} vars grand={paysage} />
 
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
@@ -110,23 +75,21 @@ export default function BulletinMatOfficial({
               <th key={n} style={{ ...th, width: wUa }}>{L(sys, `UA${n}`, `LU${n}`, `UA${n}`)}</th>
             ))}
             <th style={{ ...th, width: wNiveau }}>
-              {parUA
-                ? L(sys, 'Synthèse', 'Summary', 'Síntesis')
-                : L(sys, 'Niveau', 'Level', 'Nivel')}
+              {parUA ? L(sys, 'Synthèse', 'Summary', 'Síntesis') : L(sys, 'Niveau', 'Level', 'Nivel')}
             </th>
             <th style={{ ...th, width: wObs, textAlign: 'left' }}>{L(sys, 'Observations', 'Observations', 'Observaciones')}</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 && (
-            <tr><td colSpan={nbCols} style={{ ...cell, textAlign: 'center', color: '#9ca3af', padding: '10px' }}>
+            <tr><td colSpan={nbCols} style={{ ...cell, textAlign: 'center', color: '#9ca3af' }}>
               {L(sys, 'Aucun domaine évalué pour cette période.', 'No learning area assessed for this period.', 'Ningún ámbito evaluado en este periodo.')}
             </td></tr>
           )}
           {rows.map((r) => (
             <tr key={r.code}>
               <td style={{ ...cell, textAlign: 'center' }}>{r.code}</td>
-              <td style={cell}><span style={{ marginRight: 5 }} aria-hidden>{domaineIcon(r.intitule)}</span>{r.intitule}</td>
+              <td style={cell}>{r.intitule}</td>
               {colUas.map((n) => (
                 <td key={n} style={{ ...cell, textAlign: 'center' }}>{coteCell(r.parUa?.[n] || '')}</td>
               ))}
@@ -137,22 +100,31 @@ export default function BulletinMatOfficial({
         </tbody>
       </table>
 
-      {/* Légende — bandeau violet doux (identité maternelle) */}
-      <div style={{ fontSize: '8.5pt', color: MAT_TH_TXT, background: MAT_TH_BG, border: `1px solid ${MAT_ACCENT}22`, borderRadius: 6, padding: '3px 8px', marginTop: 4, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-        {L(sys,
-          "😀 A = Acquis · 😐 ECA = En cours d'acquisition · ☹️ NA = Non acquis",
-          '😀 A = Achieved · 😐 IP = In progress · ☹️ NA = Not achieved',
-          '😀 A = Logrado · 😐 ECA = En proceso · ☹️ NA = No logrado')}
-      </div>
-
-      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
+      {/* Légende des cotes — même style de cellule que le reste du bulletin, sans bandeau coloré à part. */}
+      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'calc(var(--nc-gap) * 0.5)' }}>
         <tbody>
-          <tr><td style={{ ...cell, height: 34 }}>{L(sys, "Appréciation générale de l'enseignant(e)", "Class teacher's general remarks", 'Apreciación general del maestro/a')} : {appreciation}</td></tr>
+          <tr>
+            <td style={{ ...cell, fontSize: 'var(--nc-small)' }}>
+              <strong>{L(sys, 'Légende', 'Key', 'Leyenda')} :</strong>{' '}
+              {CODES.map((c, i) => (
+                <span key={c}>
+                  {i > 0 ? ' · ' : ''}
+                  <strong style={{ color: FOND_COTE_COLORS[c] }}>{matAcquisCode(c, sys)}</strong> = {matLevelLabel(c, sys)}
+                </span>
+              ))}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <table className="apc-keep" style={{ width: '100%', borderCollapse: 'collapse', marginTop: 'calc(var(--nc-gap) * 0.5)' }}>
+        <tbody>
+          <tr><td style={{ ...cell, height: 'var(--nc-observ)' }}>{L(sys, "Appréciation générale de l'enseignant(e)", "Class teacher's general remarks", 'Apreciación general del maestro/a')} : {appreciation}</td></tr>
           {decision ? <tr><td style={cell}>{L(sys, 'Décision', 'Decision', 'Decisión')} : <strong>{decision}</strong></td></tr> : null}
         </tbody>
       </table>
 
-      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} />
+      <OfficialSignatures school={school} sys={sys} profPrincipal={profPrincipal} headLabel={headLabel} teacherLabel={teacherLabel} vars />
     </OfficialSheet>
   );
 }

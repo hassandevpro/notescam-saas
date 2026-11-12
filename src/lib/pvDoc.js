@@ -192,9 +192,12 @@ function tableHtml(pv, sys, { detailed, lay, school }) {
   const tables = bandes.map((b, i) => bande(b, i === bandes.length - 1)).join('');
   const legende = lay.vertical ? legendeAbreviations(pv.cols.map((c) => c.name), school, 18) : [];
   const legendHtml = legende.length ? `
-    <div class="${CLASS.keep}" data-part="legende" style="font-size:${petit}pt;color:${T.text};margin:1mm 0 3mm;line-height:1.5">
+    <div class="${CLASS.keep}" data-part="legende" style="font-size:${petit}pt;color:${T.text};margin:1mm 0 3mm;line-height:1.5;max-width:100%;overflow-wrap:anywhere">
       <strong>${L(sys, 'Légende', 'Key', 'Leyenda')} :</strong>
-      ${legende.map((l) => `<span style="margin-right:3mm;white-space:nowrap">${esc(l.abrege)} = ${esc(l.complet)}</span>`).join('')}
+      ${/* UNE entrée peut être aussi longue qu'un intitulé de compétence (Genius, CE1 : « Utiliser les concepts… »).
+           Avec `white-space:nowrap` elle sortait de la page à droite. Elle reste d'un bloc quand elle tient
+           (inline-block), et se replie DANS la largeur quand elle ne tient pas (max-width:100%). */''}
+      ${legende.map((l) => `<span style="display:inline-block;max-width:100%;margin-right:3mm;white-space:normal;overflow-wrap:anywhere;vertical-align:top">${esc(l.abrege)} = ${esc(l.complet)}</span>`).join(' ')}
     </div>` : '';
   return tables + legendHtml;
 }

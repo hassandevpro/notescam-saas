@@ -376,8 +376,8 @@ export function reportDocShell({ isGE, title, bodies, landscape = false, school 
     tbody td{border:1px solid ${T.line};padding:1.6mm 1.2mm;color:${T.text}}
     tbody td:nth-child(2){padding-left:3mm}
     tbody tr:nth-child(even) td{background:${T.zebra};-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    .legende{font-size:7.5pt;color:${T.text};margin:1mm 0 3mm;line-height:1.5}
-    .legende span{margin-right:3mm;white-space:nowrap}
+    .legende{font-size:7.5pt;color:${T.text};margin:1mm 0 3mm;line-height:1.5;max-width:100%;overflow-wrap:anywhere}
+    .legende span{display:inline-block;max-width:100%;margin-right:3mm;white-space:normal;overflow-wrap:anywhere;vertical-align:top}
     /* ── Pied signatures bordées ── */
     .foot{width:100%;border-collapse:collapse;margin-top:16px}
     .foot td{border:1px solid ${T.line};width:33.33%;text-align:center;font-size:9px;font-weight:bold;height:62px;vertical-align:bottom;padding:4px 4px 6px}

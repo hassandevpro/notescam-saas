@@ -63,20 +63,26 @@ const belongs = (table: string, row: any, schoolId: string) =>
 // l'id de l'école pour que les deux côtés la nomment pareil. Une compétence inconnue du
 // Cloud est REFUSÉE avec un motif lisible (et non perdue en silence) : la ligne reste à
 // l'école.
-const competenceConnue = new Map<string, boolean>();
-async function competenceExiste(id: string): Promise<boolean> {
-  if (competenceConnue.has(id)) return competenceConnue.get(id)!;
-  const { data } = await admin.from('prim_competences').select('id').eq('id', id).maybeSingle();
-  const ok = !!data;
-  competenceConnue.set(id, ok);
-  return ok;
+// On ne mémorise QUE les réponses positives : l'instance de la fonction vit longtemps, et un
+// « absente » mémorisé (ou une erreur réseau prise pour une absence) refuserait les notes de cette
+// compétence jusqu'au recyclage de l'instance, même une fois la compétence créée au Cloud.
+const competenceConnue = new Set<string>();
+async function competenceExiste(id: string): Promise<boolean | 'erreur'> {
+  if (competenceConnue.has(id)) return true;
+  const { data, error } = await admin.from('prim_competences').select('id').eq('id', id).maybeSingle();
+  if (error) return 'erreur';
+  if (!data) return false;
+  competenceConnue.add(id);
+  return true;
 }
 const UUID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
 // Renvoie 'ok', 'depasse' (le Cloud est plus récent : ce n'est pas un refus) ou un motif de refus.
 async function pousserNotePrimaire(row: any, schoolId: string): Promise<string> {
   const ua = Number(row.ua);
   if (!Number.isInteger(ua) || ua < 1 || ua > 8) return 'ua_invalide';
-  if (!(await competenceExiste(String(row.competence_id)))) return 'competence_absente_du_cloud';
+  const connue = await competenceExiste(String(row.competence_id));
+  if (connue === 'erreur') return 'lecture_competence_impossible';
+  if (!connue) return 'competence_absente_du_cloud';
   const rec: any = {
     ...row,
     ua,

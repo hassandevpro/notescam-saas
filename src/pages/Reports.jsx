@@ -17,7 +17,7 @@ import { resolveCountryCode, bulletinOfficials } from '../countries';
 // rapports de classe étaient les seuls documents à imprimer le logo du complexe
 // quelle que soit la classe.
 import { classIdentity } from '../lib/schoolIdentity';
-import { gradingOpts, geGradeMax } from '../lib/useCountry';
+import { gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
 // Le barème vient de la classe (`grade_max`), pas de sa langue — cf. D21. Le cas
 // ES passe par `geGradeMax`, exactement comme l'ancien branchement `isGE`.
 import { bulletinScale, convertirEchelle } from '../core/bulletinScale';
@@ -854,6 +854,14 @@ export default function Reports() {
     { value: 'annual', label: t('Annuel',      'Annual'), seqs: [1, 2, 3], group: 'annual' },
   ];
 
+  // PRIMAIRE APC D'UNE ÉCOLE EN SÉQUENCES : une séquence = une UA (le PV fait déjà « Séquence n = UA n »).
+  // Le mot vient du RÉGLAGE de l'école (`primary_period_mode`), jamais du nom de l'école : une école en
+  // trimestres (défaut) garde exactement ses trois boutons « Trimestre ». `uas` dit au moteur quelles UA lire.
+  const PERIODS_FUND_SEQ = [
+    ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ value: `s${n}`, label: t(`Séquence ${n}`, `Sequence ${n}`), seqs: [n], uas: [n], group: 'terms' })),
+    { value: 'annual', label: t('Annuel', 'Annual'), seqs: [1, 2, 3, 4, 5, 6, 7, 8], uas: [1, 2, 3, 4, 5, 6, 7, 8], group: 'annual' },
+  ];
+
   const [classId,     setClassId]     = useState('');
   const [sectionF,    setSectionF]    = useState('');
   const [periodKey,   setPeriodKey]   = useState('seq_1');
@@ -927,14 +935,16 @@ export default function Reports() {
     })),
     [apcReferentiel, sys],
   );
+  const primSeq         = classEngine === 'apc_primaire' && primaryPeriodMode(school) === 'sequences';
   const periodsForClass = isApcClass ? PERIODS_APC
-    : isFund ? PERIODS_FUND : isGE ? PERIODS_GE : isEN ? PERIODS_EN : PERIODS_FR;
+    : primSeq ? PERIODS_FUND_SEQ : isFund ? PERIODS_FUND : isGE ? PERIODS_GE : isEN ? PERIODS_EN : PERIODS_FR;
   const period          = periodsForClass.find((p) => p.value === periodKey) || periodsForClass[0];
 
   useEffect(() => {
     const cls = classes.find((c) => c.id === classId);
     const eng = cls ? resolveClassEngine(school, cls) : 'classic';
-    if (eng === 'maternelle' || eng === 'apc_primaire') setPeriodKey('t1');
+    if (eng === 'apc_primaire' && primaryPeriodMode(school) === 'sequences') setPeriodKey('s1');
+    else if (eng === 'maternelle' || eng === 'apc_primaire') setPeriodKey('t1');
     // Secondaire APC : on ouvre sur le premier TRIMESTRE — « seq_1 » n'existe
     // plus comme période de restitution pour ce moteur.
     else if (eng === 'apc') setPeriodKey('term_1');

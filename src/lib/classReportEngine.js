@@ -336,8 +336,11 @@ function primReport({ cls, students, subjects, period, primNotes, primReferentie
 
   // La période du rapport est trimestrielle (PERIODS_FUND) ; la saisie, elle, se
   // fait par unité d'apprentissage → on couvre les UA du trimestre.
+  // École en SÉQUENCES : la période porte directement ses UA (`period.uas`, « Séquence n = UA n »).
+  // Sans elle (école en trimestres), le trimestre se déplie en ses UA, comme avant.
   const annual = (period.seqs || []).length > 1;
-  const uas = annual ? [1, 2, 3, 4, 5, 6, 7, 8] : (UA_PAR_TRIMESTRE[period.seqs?.[0] || 1] || [1, 2, 3]);
+  const uas = period.uas?.length ? period.uas
+    : annual ? [1, 2, 3, 4, 5, 6, 7, 8] : (UA_PAR_TRIMESTRE[period.seqs?.[0] || 1] || [1, 2, 3]);
   const bareme = primReferentiel?.bareme?.length ? primReferentiel.bareme : PRIM_COTE_DEFAULT;
 
   // Colonnes = compétences que la classe TRAITE : masques de l'école, puis

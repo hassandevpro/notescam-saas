@@ -126,6 +126,8 @@ CREATE TABLE IF NOT EXISTS classes (
   current_year TEXT,
   -- Surcharge de moteur PAR CLASSE (null = hérite de schools.bulletin_engine).
   bulletin_engine TEXT,
+  -- Format du bulletin PAR CLASSE (primaire) : NULL = habituel | 'note_unique' = matieres a note unique.
+  bulletin_format TEXT,
   -- Enseignant titulaire. Pas de FK dure : la sync hors-ligne peut envoyer la
   -- classe avant l'enseignant -> on garde l'id même si la ligne teacher n'est
   -- pas (encore) là, au lieu de rejeter tout l'upsert (FK ON globalement).

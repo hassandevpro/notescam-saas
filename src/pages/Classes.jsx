@@ -30,6 +30,7 @@ import ChoixClassement from '../components/classes/ChoixClassement';
 import { parseClassName } from '../core/classNameParser';
 import { headTeacherText } from '../lib/headTeachers';
 import { classSubjectsOf } from '../core/subjectOrder';
+import { isBasicClass } from '../lib/tutelle';
 // CLASSE BILINGUE — une classe qui suit LES DEUX programmes. Demande de THE
 // GENIUS (2026-10-19) : ses quatre classes « … BIL » ne portaient que les
 // matières francophones, donc les unités d'apprentissage des matières
@@ -793,6 +794,8 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
       // `resolveClassEngine`, et une chaîne vide y passerait pour une surcharge
       // posée alors qu'elle n'en est pas une.
       bulletin_engine: moteurChoisi,
+      // Vide = format habituel : NULL, jamais ''. Ajouté seulement si la base connaît la colonne.
+      ...('bulletin_format' in form ? { bulletin_format: form.bulletin_format || null } : {}),
       max_students: form.max_students !== '' ? Number(form.max_students) : null,
     });
     setSaving(false);
@@ -1136,6 +1139,28 @@ function ClassDetailView({ cls, teachers, onSave, onCancel, onDelete, schoolLang
                       'The official programme grades COMPETENCIES: the subjects checked below then only select competencies and do not appear one by one. Choose “By subject” to enter and print them as they are.')}
               </p>
             </div>
+
+            {/* ── FORMAT DU BULLETIN, PAR CLASSE (primaire) ─────────────────────
+                « Matières à note unique » : une ligne par matière (note, barème, N/20, cote), sans compétences ni
+                coefficients. Réglage de LA CLASSE, pas de l'école : une même école peut avoir un CM2 à matières
+                notées et un CP par compétences. Vide = le bulletin habituel, rien ne change. N'apparaît que si la
+                base connaît la colonne (migration `supabase_classe_format_bulletin.sql`). */}
+            {'bulletin_format' in cls && isBasicClass(cls) && (
+              <div className="col-span-2 md:col-span-1">
+                <label className="form-label">{t('Format du bulletin', 'Report card format')}</label>
+                <select className="form-input" value={form.bulletin_format || ''} onChange={set('bulletin_format')}>
+                  <option value="">{t('Format habituel de l’école', 'School’s usual format')}</option>
+                  <option value="note_unique">{t('Matières à note unique (nouveau)', 'Single-mark subjects (new)')}</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {form.bulletin_format === 'note_unique'
+                    ? t('MATIÈRE | Note | Barème | N/20 | COTE | Min–Max | Appréciation. La moyenne est le total des notes ramené sur 20 (jamais une moyenne de moyennes). Une compétence APC s’affiche comme une matière : somme de ses critères.',
+                        'SUBJECT | Mark | Out of | N/20 | GRADE | Min–Max | Remark. The average is the total of marks scaled to 20 (never an average of averages). An APC competency shows as a subject: the sum of its criteria.')
+                    : t('Choisissez « Matières à note unique » pour les classes dont chaque matière a une seule note et son barème (50, 20, 30, 40…).',
+                        'Choose “Single-mark subjects” for classes where each subject has one mark and its own scale (50, 20, 30, 40…).')}
+                </p>
+              </div>
+            )}
           </div>
 
 

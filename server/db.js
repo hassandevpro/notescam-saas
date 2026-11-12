@@ -156,6 +156,7 @@ ensureColumn('classes',  'teacher_id',   'teacher_id TEXT');
 // Second enseignant principal — MENTION, pas un droit (cf. src/lib/headTeachers.js).
 ensureColumn('classes',  'teacher2_id',  'teacher2_id TEXT');
 ensureColumn('classes',  'max_students', 'max_students INTEGER');
+ensureColumn('classes',  'bulletin_format', 'bulletin_format TEXT'); // format du bulletin primaire (miroir de supabase_classe_format_bulletin.sql : Cloud AVANT tout paquet LAN)
 ensureColumn('classes',  'grade_max',    'grade_max INTEGER'); // barème de classe (/10, /20, /30…)
 ensureColumn('classes',  'unit_id',      'unit_id TEXT');       // rattachement à une unité pédagogique (complexe scolaire)
 // Moteur « officiel » (MINEDUB + MINESEC). Sans ces colonnes, la bascule du moteur

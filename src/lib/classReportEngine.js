@@ -508,7 +508,7 @@ export function buildClassReport({
   const ctx = { cls, students, subjects, period, sys, gOpts, scaleMax, passThreshold };
   switch (engine) {
     case 'maternelle':   return maternelleReport({ ...ctx, matObservations });
-    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees, zeroSiManquante, moyennePoints });
+    case 'apc_primaire': return primReport({ ...ctx, primNotes, primReferentiel, primMasques, primMasquesClasse, primCriteresMasques, primNonEvaluees, zeroSiManquante, moyennePoints: moyennePoints || cls?.bulletin_format === 'note_unique' });
     case 'apc':          return apcReport({ ...ctx, apcNotes, apcReferentiel, apcMasques, gradeScale });
     default:             return classicReport({ ...ctx, gradeMap });
   }

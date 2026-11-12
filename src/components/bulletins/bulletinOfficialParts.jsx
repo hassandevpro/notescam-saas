@@ -340,6 +340,47 @@ export function OfficialIdentityBand({ student, classLabel, serieLabel, effectif
   // c'est la ligne la plus répétée du bandeau, donc celle qui rend le plus.
   const idCell = vars ? mkCellVar(1.15) : dense ? mkCell(8.5, 1.1, 0) : CELL;
 
+  // ── VARIANTE « NOTE UNIQUE » (modèle du bulletin à matières à note unique) ───────────────────────────────
+  // Photo à gauche sur deux lignes, puis TROIS colonnes : Nom · Classe/Effectif · Genre/Redoublant, puis
+  // Né(e) le · Identifiant/Enseignant(e) · Parents/Tuteurs. Cellules d'étiquettes teintées (accent du cycle).
+  if (variant === 'noteUnique') {
+    const photoH = grand ? 96 : 80;
+    const lib = { fontWeight: 'bold' };
+    const teinte = { background: tint, ...pcx };
+    return (
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: vars ? 'var(--nc-gap)' : 4, tableLayout: 'fixed' }}>
+        <colgroup><col style={{ width: '11%' }} /><col style={{ width: '31%' }} /><col style={{ width: '29%' }} /><col /></colgroup>
+        <tbody>
+          <tr>
+            <td rowSpan={2} style={{ ...idCell, textAlign: 'center', verticalAlign: 'middle', padding: 2 }}>
+              <BulletinPhoto src={student?.photo_url} width={photoH * 0.8} height={photoH} radius={2} />
+            </td>
+            <td style={{ ...idCell, verticalAlign: 'middle' }}><span style={lib}>{L(sys, 'Nom et Prénoms', 'Name', 'Nombre y apellidos')}</span> : <strong>{student?.name || ''}</strong></td>
+            <td style={{ ...idCell, verticalAlign: 'middle' }}>
+              <span style={lib}>{L(sys, 'Classe', 'Class', 'Clase')}</span> : <strong>{classTxt}</strong>
+              {effectif != null ? <> · <span style={lib}>{L(sys, 'Effectif', 'Class size', 'Total')}</span> : {effectif}</> : null}
+            </td>
+            <td style={{ ...idCell, verticalAlign: 'middle' }}>
+              <span style={lib}>{L(sys, 'Genre', 'Gender', 'Género')}</span> : {genderLabel(student?.gender, sys)} · <span style={lib}>{L(sys, 'Redoublant', 'Repeater', 'Repetidor')}</span> : {redoublant ? L(sys, 'Oui', 'Yes', 'Sí') : L(sys, 'Non', 'No', 'No')}
+            </td>
+          </tr>
+          <tr>
+            <td style={{ ...idCell, verticalAlign: 'middle' }}>
+              <span style={lib}>{L(sys, 'Né(e) le', 'Born on', 'Nacido/a el')}</span> : {student?.date_naissance || '—'}
+              {student?.lieu_naissance ? ` ${L(sys, 'à', 'in', 'en')} ${student.lieu_naissance}` : ''}
+            </td>
+            <td style={{ ...idCell, verticalAlign: 'middle' }}>
+              <span style={lib}>{L(sys, 'Identifiant', 'ID', 'Identificador')}</span> : {student?.matricule || ''} · <span style={lib}>{ppLbl}</span> : {profPrincipal || '—'}
+            </td>
+            <td style={{ ...idCell, verticalAlign: 'middle' }}>
+              <span style={lib}>{L(sys, 'Parents / Tuteurs', 'Parents / Guardians', 'Padres / Tutores')}</span> : {parents || '—'}{phone}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    );
+  }
+
   // ── VARIANTE « CARNET » ───────────────────────────────────────────────────
   //
   // Le carnet primaire MINEDUB encadre l'état civil : photo fusionnée sur les

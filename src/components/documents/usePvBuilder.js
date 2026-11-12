@@ -81,7 +81,7 @@ export default function usePvBuilder(classesToLoad) {
       apcMasques, primMasques, primMasquesClasse,
       primCriteresMasques: masquesCriteresPour(primCriteresMasquesEcole, critMasquesParClasse, cls.id),
       primNonEvaluees, zeroSiManquante: !!school?.notes_manquantes_zero,
-      moyennePoints: moyennePointsActive(school),
+      moyennePoints: moyennePointsActive(school, cls),
       teacherName: headTeacherText(cls, teachers),
     });
   }, [school, countryCode, schoolYear, students, subjects, gradeMap,

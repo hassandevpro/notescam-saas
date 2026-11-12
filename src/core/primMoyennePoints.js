@@ -27,6 +27,9 @@ const GRADE_MAX_DEFAUT = 20;
 // Un nombre de points (≤ 2 décimales) → centièmes entiers. `toFixed` + `Number` plutôt que
 // `x * 100` : 1.005 * 100 vaut 100.49999999999999, alors que '1.005' en texte est exact.
 function enCentiemes(x) {
+  // Number(null) vaut 0 : sans cette garde, une cellule SANS note (achieved null) comptait comme un ZÉRO au lieu
+  // d'être exclue — contrairement à ce que documente `moyennePointsSur20`.
+  if (x === null || x === undefined || x === '') return null;
   const n = Number(x);
   if (!Number.isFinite(n)) return null;
   // « 1.005000e2 » est lu comme 100.5 EXACTEMENT, alors que 1.005 * 100 donne 100.4999…
@@ -74,7 +77,10 @@ export function cellulesDeMatiere(uas, totalDe) {
 
 // Le réglage d'école, lu de la même façon partout : booléen tantôt 1/0 (SQLite, édition LAN),
 // tantôt true/false (Postgres). Absent ou nul = règle par défaut.
-export function moyennePointsActive(school) {
+export function moyennePointsActive(school, cls = null) {
+  // Une classe au format « matières à note unique » a SA règle : total des notes ÷ (total des barèmes ÷ 20), quel que
+  // soit le réglage de l'école. Bulletin, PV et rapports passent par ici, donc donnent les mêmes chiffres.
+  if (cls?.bulletin_format === 'note_unique') return true;
   const v = school?.prim_moyenne_points;
   return v === true || v === 1 || v === '1';
 }

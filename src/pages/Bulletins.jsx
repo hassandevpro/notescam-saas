@@ -32,6 +32,8 @@ import ScBulletinExcelIO from '../components/bulletins/ScBulletinExcelIO';
 import BulletinBilOfficial, { BulletinBilAnnual } from '../components/bulletins/BulletinBilOfficial';
 import BulletinPrimAnnualUA from '../components/bulletins/BulletinPrimAnnualUA';
 import BulletinPrimCompact from '../components/bulletins/BulletinPrimCompact';
+import BulletinPrimNoteUnique from '../components/bulletins/BulletinPrimNoteUnique';
+import { classeNoteUnique, lignesNoteUnique, totauxNoteUnique, titreNoteUnique } from '../core/primNoteUnique';
 // La variante BILINGUE du carnet : deux blocs de programme au lieu des six
 // familles. Le moteur rend [] pour une classe monolingue — c'est lui, et non
 // un réglage d'école, qui décide, en lisant les lignes du bulletin.
@@ -2256,7 +2258,9 @@ export default function Bulletins() {
   // l'UA et non le trimestre.
   const primSingleUA = isPrim && primUAs.length === 1 ? primUAs[0] : null;
   // Réglage d'école : moyenne du primaire en points (défaut = règle historique).
-  const moyennePoints = moyennePointsActive(school);
+  // Format de la classe : « matières à note unique » → moyenne par points imposée à CETTE classe (comme au PV).
+  const noteUnique = classeNoteUnique(selectedClass);
+  const moyennePoints = moyennePointsActive(school, selectedClass);
   const primBareme = primReferentiel?.bareme?.length ? primReferentiel.bareme : PRIM_COTE_DEFAULT;
 
   // Barème (critères + points_max) d'UNE compétence pour UN élève — l'aptitude
@@ -3393,6 +3397,42 @@ export default function Bulletins() {
     // Le défaut suit la période : une seule UA → compacte. L'utilisateur peut
     // forcer l'autre, parce qu'une école peut préférer la vue compacte même en
     // trimestriel (moins de papier).
+    // ── FORMAT « MATIÈRES À NOTE UNIQUE » (réglage de LA CLASSE) ──────────────────────────────────
+    // Une ligne par matière : une compétence APC y devient une matière (somme de ses critères, barème total) et
+    // AUCUNE ligne ne disparaît. Les lignes, totaux, cotes et la plage Min–Max viennent de core/primNoteUnique ;
+    // la moyenne, le rang, les statistiques et la répartition de la classe viennent des MÊMES `primDataById`,
+    // `primRanks`, `primClassStats` et `primRepartition` que les autres bulletins du primaire — calculés par points
+    // pour cette classe (`moyennePoints`), donc identiques à ceux du PV et des rapports.
+    if (noteUnique) {
+      const lignes = lignesNoteUnique(primCompetencesEcole.map((c, i) => ({
+        intitule: d.rows[i]?.intitule || c.intitule,
+        cells: primCompCells(student.id, c.id, student),
+        bareme: primCriteresFor(c.id, student).reduce((s, cr) => s + (Number(cr.points_max) || 0), 0),
+      })), primBareme);
+      const totaux = totauxNoteUnique(lignes);
+      return (
+        <WatermarkWrap key={student.id} active={f.watermark}>
+          <BulletinPrimNoteUnique
+            school={school} sys={sys} cls={selectedClass} student={student}
+            effectif={classStudents.length} titulaire={apcProfPrincipal}
+            title={titreNoteUnique(period, sys, !!bulletinOfficials(school, { basic: true, sys })?.bilingual)}
+            lignes={lignes} totaux={totaux} coteBareme={primBareme}
+            coteGenerale={d.coteGenerale} appreciationGenerale={primAppreciationFor(student, d)}
+            decision={primDecisionFor(student, d)} observations={primObservationFor(student.id)}
+            rank={primRanks[student.id]} masquerRang={primMasquerRang || !primAffiche.rang}
+            mentions={primMentionsFor(student)}
+            statsClasse={!primAffiche.stats ? null : primClassStats ? {
+              premier: primClassStats.max, dernier: primClassStats.min, generale: primClassStats.avg,
+              reussis: primClassStats.reussis, echoues: primClassStats.echoues, reussite: primClassStats.rate,
+            } : { premier: null, dernier: null, generale: null, reussis: null, echoues: null, reussite: null, vide: true }}
+            repartition={primAffiche.repartition ? primRepartition : []}
+            repartitionTotal={primAffiche.repartition ? primClassStats?.count : undefined}
+            paysage={primOrientation === 'landscape'}
+          />
+        </WatermarkWrap>
+      );
+    }
+
     if (primLayout === 'compact') {
       const c = primCompactDataFor(student);
       if (!c) return null;

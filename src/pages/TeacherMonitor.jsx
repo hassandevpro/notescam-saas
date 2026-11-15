@@ -6,7 +6,8 @@ import { useNotificationsStore } from '../store/notificationsStore';
 import { useMessagesStore } from '../store/messagesStore';
 import { buildWhatsAppUrl } from '../lib/messagesService';
 import { fetchSequenceDates, indexSequenceDates } from '../lib/sequenceDatesService';
-import { TRACKS, tracksInUse, trackKeyForClass, currentPeriodOfTrack, periodAt, effectiveDeadline } from '../lib/calendarTracks';
+import { TRACKS, tracksInUse, trackKeyForClass, periodAt } from '../lib/calendarTracks';
+import { periodeCourante, echeanceDePeriode } from '../lib/periodService';
 import { classEntryProgress, subjectEntryRate, indexPrimNotes } from '../lib/gradeEntryProgress';
 import { resolveClassEngine } from '../core/engineResolver';
 import Layout from '../components/Layout';
@@ -240,7 +241,7 @@ export default function TeacherMonitor() {
 
   // ── Période suivie : le calendrier d'abord, le clic de l'utilisateur ensuite ─
   const calendarPeriod = useMemo(
-    () => currentPeriodOfTrack(activeTrack, seqDatesMap, new Date()),
+    () => periodeCourante(activeTrack, seqDatesMap, new Date()),
     [activeTrack, seqDatesMap],
   );
   const selectedSeq = pickedSeq ?? calendarPeriod?.order ?? 1;
@@ -310,13 +311,10 @@ export default function TeacherMonitor() {
 
   // Échéance de la période AFFICHÉE (pas seulement de celle qu'ouvre le
   // calendrier : l'utilisateur peut inspecter une période antérieure).
-  const deadline = useMemo(() => {
-    const dl = effectiveDeadline(currentSeqConfig);
-    if (!dl) return { date: null, daysLeft: null, overdue: false, atRisk: false };
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const daysLeft = Math.round((Date.parse(`${dl}T00:00:00`) - today.getTime()) / 86400000);
-    return { date: dl, daysLeft, overdue: daysLeft < 0, atRisk: daysLeft >= 0 && daysLeft <= 3 };
-  }, [currentSeqConfig]);
+  const deadline = useMemo(
+    () => echeanceDePeriode(activeTrack, seqDatesMap, selectedSeq, new Date()),
+    [activeTrack, seqDatesMap, selectedSeq],
+  );
 
   // ── Lignes enseignant + SCORE DE RISQUE ───────────────────────────────────
   // Score (0 sain → 100 critique) :

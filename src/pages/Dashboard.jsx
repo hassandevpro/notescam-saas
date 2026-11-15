@@ -26,7 +26,7 @@ import Layout from '../components/Layout';
 import { SchoolBadge, LicenseBadge, SetupChecklist } from '../components/dashboard/shared';
 import TeacherClasses from '../components/dashboard/TeacherDashboard';
 import {
-  useAcademicStats, AcademicsStats, FeesBlock, GradesTodo, ClassTable,
+  useAcademicStats, AcademicsStats, FeesBlock, GradesTodo, ClassTable, KpiBlock, AlertesBlock,
 } from '../components/dashboard/AcademicBlocks';
 import DisciplineBlock from '../components/dashboard/DisciplineBlock';
 import {
@@ -35,6 +35,10 @@ import {
 import QuickAccess from '../components/dashboard/QuickAccess';
 import { useDisciplineSnapshot, useFinanceSnapshot } from '../components/dashboard/useDashboardData';
 import { isSubjectScoped } from '../lib/teacherScope';
+import CalendarConfirmBanner from '../components/dashboard/CalendarConfirmBanner';
+import { calendrierConfirme } from '../lib/calendarConfirm';
+import { classesDuFiltre } from '../lib/dashboardAlertes';
+import { printDirectionReport } from '../lib/directionReportDoc';
 
 export default function Dashboard() {
   const t = useT();
@@ -58,6 +62,8 @@ export default function Dashboard() {
   // Unités du complexe scolaire : c'est souvent là que vit le logo de l'école.
   const schoolUnits = useSchoolStore((s) => s.schoolUnits);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
+  const primNonEvaluees = useSchoolStore((s) => s.primNonEvaluees);
+  const teachers = useSchoolStore((s) => s.teachers);
   const fees     = useSchoolStore((s) => s.fees);
   const getClassFeeGrid = useSchoolStore((s) => s.getClassFeeGrid);
   const loading  = useSchoolStore((s) => s.loading);
@@ -116,10 +122,16 @@ export default function Dashboard() {
   useEffect(() => { if (engines.mat)  loadMat(); },  [engines.mat, loadMat]);
   useEffect(() => { if (engines.prim) loadPrim(); }, [engines.prim, loadPrim]);
 
+  // Filtre des indicateurs : toute l'école, un cycle ou une classe.
+  const [filtre, setFiltre] = useState('all');
+  const classesFiltre = useMemo(() => classesDuFiltre(filtre, classes), [filtre, classes]);
+  const cycles = useMemo(() => [...new Set(classes.map((c) => c.cycle).filter(Boolean))], [classes]);
+
   const academics = useAcademicStats({
     school, countryCode: country.code, classes, subjects, students,
     gradeMap, apcNotes, primNotes, matObservations, apcReferentiel,
-    seqDates, fees, getClassFeeGrid,
+    seqDates, fees, getClassFeeGrid, primNonEvaluees, teachers, role, teacherId,
+    classesFiltre, calendrierOk: calendrierConfirme(school) || !['admin', 'censeur'].includes(role),
   });
 
   const needsDiscipline = show(BLOCK.DISCIPLINE);
@@ -182,10 +194,39 @@ export default function Dashboard() {
       />
     ),
     [BLOCK.ACADEMICS]: () => (
-      <AcademicsStats loading={loading} classes={classes} students={students} globalPassRate={academics.globalPassRate} />
+      <div className="space-y-4">
+        <AcademicsStats loading={loading} classes={classes} students={students} globalPassRate={academics.globalPassRate} />
+        {!loading && classes.length > 1 && (
+          <label className="flex items-center gap-2 text-xs font-semibold text-gray-700">
+            {t('Afficher', 'Show')}
+            <select value={filtre} onChange={(e) => setFiltre(e.target.value)}
+              className="min-h-[40px] rounded-lg border border-gray-300 bg-white px-2 text-sm font-normal">
+              <option value="all">{t('Toute l’école', 'Whole school')}</option>
+              {cycles.length > 1 && cycles.map((c) => <option key={c} value={`cycle:${c}`}>{t('Cycle', 'Cycle')} : {c}</option>)}
+              {classes.map((c) => <option key={c.id} value={`class:${c.id}`}>{c.name}</option>)}
+            </select>
+          </label>
+        )}
+        {!loading && <KpiBlock kpis={academics.kpis} barres={academics.barres} />}
+        {!loading && <AlertesBlock suivre={academics.alertesSuivre} faire={academics.alertesFaire} />}
+        {!loading && ['admin', 'censeur'].includes(role) && (
+          <button type="button"
+            onClick={() => printDirectionReport({
+              school, kpis: academics.kpis, barres: academics.barres, suivre: academics.alertesSuivre, faire: academics.alertesFaire,
+              lang: school?.language,
+              filtreLabel: filtre === 'all' ? '' : (filtre.startsWith('class:') ? (classes.find((c) => c.id === filtre.slice(6))?.name || '') : filtre.slice(6)),
+            })}
+            className="min-h-[44px] px-4 rounded-lg border border-gray-300 bg-white text-sm font-semibold text-gray-800 hover:bg-gray-50">
+            {t('Rapport de direction (PDF)', 'Management report (PDF)')}
+          </button>
+        )}
+      </div>
     ),
     [BLOCK.GRADES_TODO]: () => (!loading
-      ? <GradesTodo items={academics.missingGrades} calendarSet={academics.calendarSet} />
+      ? <><CalendarConfirmBanner school={school} role={role} hasDates={academics.calendarSet} />
+        <GradesTodo suivi={academics.suivi} calendarSet={academics.calendarSet}
+          direction={role === 'admin' || role === 'censeur'} schoolId={school?.id}
+          senderName={fullName || ''} senderRole={role} /></>
       : null),
     [BLOCK.CLASS_TABLE]: () => (!loading ? <ClassTable classStats={academics.classStats} /> : null),
     [BLOCK.FEES]: () => <FeesBlock loading={loading} feesStats={academics.feesStats} />,

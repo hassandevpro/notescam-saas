@@ -144,10 +144,14 @@ for (const paysage of [false, true]) {
   const lot = Array.from({ length: 30 }, (_, i) => bul({ ...CAS.b_ua123(), student: { ...eleveBase, id: `e${i}`, name: `ELEVE NUMERO ${i + 1}` }, competenceRows: lignes({ uasRemplies: [1, 2, 3], graine: i }) }, paysage));
   await pdf(`f_lot30_${o}`, lot, paysage, 30);
 }
-// ANNUEL : paysage uniquement
-for (const [k, fn] of Object.entries(CAS_ANNUEL)) await pdf(k + '_paysage', [bul(fn(), true)], true, 1);
-const lotAnn = Array.from({ length: 30 }, (_, i) => bul({ ...CAS_ANNUEL.annuel_b_8ua_decimales(), student: { ...eleveBase, id: 'a' + i, name: 'ELEVE NUMERO ' + (i + 1) }, competenceRows: lignes({ nUA: 8, uasRemplies: [1, 2, 3, 4, 5, 6, 7, 8], decimales: true, graine: i }) }, true));
-await pdf('annuel_f_lot30_paysage', lotAnn, true, 30);
+// ANNUEL : DEUX gabarits, portrait (defaut, tableau transpose) et paysage.
+CAS_ANNUEL.annuel_c2_12comp = () => ANN({ competenceRows: lignes({ nUA: 8, n: 12, uasRemplies: [1, 2, 3, 4, 5, 6, 7, 8], decimales: true }) });
+for (const paysage of [false, true]) {
+  const o = paysage ? 'paysage' : 'portrait';
+  for (const [k, fn] of Object.entries(CAS_ANNUEL)) await pdf(k + '_' + o, [bul(fn(), paysage)], paysage, 1);
+  const lotAnn = Array.from({ length: 30 }, (_, i) => bul({ ...CAS_ANNUEL.annuel_b_8ua_decimales(), student: { ...eleveBase, id: 'a' + i, name: 'ELEVE NUMERO ' + (i + 1) }, competenceRows: lignes({ nUA: 8, uasRemplies: [1, 2, 3, 4, 5, 6, 7, 8], decimales: true, graine: i }) }, paysage));
+  await pdf('annuel_f_lot30_' + o, lotAnn, paysage, 30);
+}
 await browser.close();
 console.log(`Gabarit ${PRIM1P_GABARIT}\n` + lignesRapport.join('\n'));
 if (echecs.length) { console.log('\nECHECS :\n' + echecs.join('\n')); process.exit(1); }

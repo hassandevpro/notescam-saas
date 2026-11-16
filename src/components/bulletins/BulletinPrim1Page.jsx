@@ -172,9 +172,123 @@ export function ajusterTitre(texte, largeurPt, { max = 7, min = 5.6, hauteur = 2
   return { fs: min, lignes: Math.max(1, Math.min(3, Math.floor(dispo / (min * 1.18)))) };
 }
 
+// ── ANNUEL PORTRAIT : tableau TRANSPOSE ─────────────────────────────────────
+// Compétences en COLONNES ; lignes = UA × [Oral, Written, Pract., Attit., Total] ; libellés de
+// trimestre verticaux à gauche ; ligne ANNUAL en bas ; maximums sous chaque titre de compétence.
+// Un titre n'est JAMAIS coupé : retour à la ligne par mots (jusqu'à 6 lignes), police réduite de
+// 6,6 à 4,2 pt. Si même 4,2 pt ne suffit pas (trop de colonnes), on le SIGNALE en console plutôt
+// que de déborder sur une 2e page ; le mot trop long est alors rompu pour rester dans sa colonne.
+export function ajusterTitrePortrait(texte, largeurPt, { max = 6.6, min = 4.2, lignesMax = 6 } = {}) {
+  const mots = String(texte || '').split(/\s+/).filter(Boolean);
+  const plusLong = mots.reduce((a, m) => Math.max(a, m.length), 0);
+  const simuler = (fs) => {
+    const cap = Math.max(1, Math.floor(largeurPt / (0.54 * fs)));
+    let lignes = 1; let cur = 0;
+    for (const m of mots) {
+      const l = m.length;
+      if (cur === 0) cur = l; else if (cur + 1 + l <= cap) cur += 1 + l; else { lignes += 1; cur = l; }
+      while (cur > cap) { lignes += 1; cur -= cap; }
+    }
+    return lignes;
+  };
+  for (let fs = max; fs >= min - 1e-9; fs -= 0.2) {
+    const f1 = Math.round(fs * 10) / 10;
+    if (plusLong * 0.54 * f1 <= largeurPt) {
+      const lignes = simuler(f1);
+      if (lignes <= lignesMax) return { fs: f1, lignes, ok: true };
+    }
+  }
+  return { fs: min, lignes: Math.min(lignesMax, simuler(min)), ok: false };
+}
+
+function TableauAnnuelPortrait({ rows, sys, uaCols, trimDe, trimLabel, evalLbl, cMin, k }) {
+  const N = Math.max(1, rows.length);
+  const M = uaCols.length;
+  const largeurCol = (548 - 66) / N;
+  const entetes = rows.map((row) => {
+    const titre = `${row.intitule}${row.totalPossible ? ` (${fix2(row.totalPossible)})` : ''}`;
+    const fit = ajusterTitrePortrait(titre, largeurCol - 4);
+    if (!fit.ok && typeof console !== 'undefined') {
+      console.warn(`[bulletin annuel portrait] titre de ${row.code} illisible sous 4,2 pt (${N} compétences) : mot rompu`);
+    }
+    return { titre, fit };
+  });
+  const hautEntete = Math.max(34, ...entetes.map((e) => 11 + e.fit.lignes * e.fit.fs * 1.14 + 8));
+  const colonnes = `13pt 19pt 33pt repeat(${N}, minmax(0, 1fr))`;
+  const noteFs = `${Math.max(5, Math.round(7.2 * k * 10) / 10)}pt`;
+  const coteFs = `${Math.max(4.2, Math.round(5.6 * k * 10) / 10)}pt`;
+  const trims = [];
+  uaCols.forEach((ua, i) => { const t = trimDe(ua); const d = trims[trims.length - 1]; if (d && d.t === t) d.n += 1; else trims.push({ t, n: 1, debut: i }); });
+  const finDeTrimestre = new Set(trims.map((t) => t.debut + t.n - 1));
+  const cellule = { display: 'flex', alignItems: 'center', justifyContent: 'space-around', minWidth: 0, overflow: 'hidden', lineHeight: 1.05, borderLeft: FILET };
+
+  const items = [];
+  // En-tête
+  items.push(<div key="h-lab" style={{ gridRow: 1, gridColumn: '1 / span 3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: VERT, fontSize: '7pt' }}>{L(sys, 'COMPÉTENCE', 'COMPETENCY', 'COMPETENCIA')}</div>);
+  rows.forEach((row, c) => {
+    const slots = assignerColonnes(row.criteres);
+    const maxLigne = slots.map((cr, i) => (cr ? `${evalLbl(i).charAt(0)}${baremeAffiche(row, cr)}` : null)).filter(Boolean).join(' ');
+    items.push(
+      <div key={`h-${c}`} style={{ gridRow: 1, gridColumn: 4 + c, borderLeft: FILET, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1pt 1pt 1pt', minWidth: 0, overflow: 'hidden', textAlign: 'center' }}>
+        <span style={{ color: VERT, fontWeight: 'bold', fontSize: '8.5pt', lineHeight: 1.1 }}>{row.code}</span>
+        <span style={{ fontWeight: 'bold', fontSize: `${entetes[c].fit.fs}pt`, lineHeight: 1.14, overflowWrap: 'anywhere', hyphens: 'none' }}>{entetes[c].titre}</span>
+        <span style={{ marginTop: 'auto', color: '#6b7280', fontSize: '4.8pt', whiteSpace: 'nowrap' }}>{maxLigne}</span>
+      </div>,
+    );
+  });
+  // Libellés de trimestre (verticaux), UA, évaluations
+  trims.forEach((t, i) => items.push(
+    <div key={`t-${i}`} style={{ gridRow: `${2 + t.debut * 5} / span ${t.n * 5}`, gridColumn: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderTop: t.debut > 0 ? `1.2pt solid ${VERT}` : undefined, color: VERT, fontWeight: 'bold', fontSize: '6.5pt', letterSpacing: '.3px', writingMode: 'vertical-rl', transform: 'rotate(180deg)', whiteSpace: 'nowrap', overflow: 'hidden' }}>{trimLabel(t.t)}</div>,
+  ));
+  uaCols.forEach((ua, u) => {
+    items.push(<div key={`u-${u}`} style={{ gridRow: `${2 + u * 5} / span 5`, gridColumn: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', color: VERT, fontWeight: 'bold', fontSize: '8pt', borderTop: u === 0 ? undefined : trims.some((t) => t.debut === u) ? `1.2pt solid ${VERT}` : FILET }}>UA{ua}</div>);
+    [0, 1, 2, 3, 4].forEach((e) => {
+      const total = e === 4;
+      const r = 2 + u * 5 + e;
+      const bord = total ? (finDeTrimestre.has(u) ? `1.2pt solid ${VERT}` : FILET) : undefined;
+      items.push(<div key={`e-${u}-${e}`} style={{ gridRow: r, gridColumn: 3, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 3, color: total ? '#111' : '#6b7280', fontWeight: total ? 'bold' : 'normal', fontSize: '5.8pt', borderBottom: bord, borderTop: e === 0 && !trims.some((t) => t.debut === u) ? FILET : undefined }}>{total ? 'Total' : evalLbl(e)}</div>);
+      rows.forEach((row, c) => {
+        const slots = assignerColonnes(row.criteres);
+        const ligneUA = row.uas.find((x) => x.ua === ua);
+        let note = null; let cote = null;
+        if (ligneUA) {
+          if (total) { note = ligneUA.achieved != null ? fix2(ligneUA.achieved) : null; cote = ligneUA.achieved != null ? ligneUA.cote : null; }
+          else {
+            const cr = slots[e];
+            const v = cr ? ligneUA.notesByCritere?.[cr.id] : null;
+            note = v != null ? valeur(v) : null;
+            cote = v != null && cr ? coteDeCritere(v, ligneUA.baremes?.[cr.id] ?? cr.points_max) : null;
+          }
+        }
+        items.push(
+          <div key={`c-${u}-${e}-${c}`} style={{ ...cellule, gridRow: r, gridColumn: 4 + c, borderBottom: bord, borderTop: e === 0 && !trims.some((t) => t.debut === u) ? FILET : undefined }}>
+            <span style={{ fontSize: noteFs, fontWeight: total ? 'bold' : 'normal' }}>{note ?? ''}</span>
+            <span style={{ fontSize: coteFs, color: cote ? COTE_COULEUR[cote] : undefined, fontWeight: cote === 'NA' || cote === 'A+' || total ? 'bold' : 'normal' }}>{cote || ''}</span>
+          </div>,
+        );
+      });
+    });
+  });
+  // Ligne ANNUAL
+  const ra = 2 + M * 5;
+  items.push(<div key="a-lab" style={{ gridRow: ra, gridColumn: '1 / span 3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: VERT, fontSize: '7.5pt', borderTop: `1.2pt solid ${VERT}`, borderBottom: `1.2pt solid ${VERT}` }}>{L(sys, 'ANNUEL', 'ANNUAL', 'ANUAL')}</div>);
+  rows.forEach((row, c) => items.push(
+    <div key={`a-${c}`} style={{ gridRow: ra, gridColumn: 4 + c, borderLeft: FILET, borderTop: `1.2pt solid ${VERT}`, borderBottom: `1.2pt solid ${VERT}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1.1, padding: '1.5pt 0', minWidth: 0, overflow: 'hidden' }}>
+      <span style={{ fontSize: `${Math.max(5, Math.round(7.4 * k * 10) / 10)}pt`, fontWeight: 'bold', color: row.totalCote ? COTE_COULEUR[row.totalCote] : undefined, whiteSpace: 'nowrap' }}>{row.totalAchieved != null ? `${fix2(row.totalAchieved)}/${fix2(row.totalPossible)}` : ''}</span>
+      <span style={{ fontSize: coteFs, fontWeight: 'bold', color: row.totalCote ? COTE_COULEUR[row.totalCote] : undefined }}>{row.totalAchieved != null ? (row.totalCote || '') : ''}</span>
+    </div>,
+  ));
+
+  return (
+    <div style={{ marginTop: 4, flex: '0 1 auto', minHeight: 0, display: 'grid', gridTemplateColumns: colonnes, gridTemplateRows: `${hautEntete}pt repeat(${M * 5}, minmax(0, 11.5pt)) auto`, overflow: 'hidden', borderTop: `1.2pt solid ${VERT}` }}>
+      {items}
+    </div>
+  );
+}
+
 export default function BulletinPrim1Page({
   paysage: paysageProp = false,
-  annuel = false,
+  annuel: annuelProp = false,
   school, sys = 'FR', title, student, classLabel, effectif, profPrincipal = '',
   competenceRows = [], moyenneGenerale = null, coteGenerale = null, rang, classStats, appreciation = '',
   // Texte du cadre « remarques de l'enseignant(e) » : l'observation saisie quand elle est fournie
@@ -185,7 +299,11 @@ export default function BulletinPrim1Page({
   bareme = [],
   mentions, repartition = [], groupes: avecGroupes = false,
 }) {
-  const paysage = annuel || paysageProp;   // l'annuel n'existe qu'en paysage
+  // L'ANNUEL SUIT L'ORIENTATION CHOISIE : portrait (défaut) = tableau transposé, paysage = tableau à
+  // compétences en lignes. `annuel` ci-dessous désigne l'annuel PAYSAGE ; `annuelPortrait` l'autre.
+  const paysage = paysageProp;
+  const annuelPortrait = annuelProp && !paysage;
+  const annuel = annuelProp && paysage;
   const n = Math.max(1, competenceRows.length);
   const g = annuel ? { ...GEO.annuel, compW: n > 11 ? '24%' : GEO.annuel.compW } : paysage ? GEO.paysage : GEO.portrait;
   const cMin = g.coteMin ?? 6.5;
@@ -211,7 +329,7 @@ export default function BulletinPrim1Page({
   // Les trois colonnes d'UA : celles de la période (UA1-3, UA4-6, UA7-8). Une UA
   // sans note reste une colonne VIDE, comme au modèle.
   const uaNums = (competenceRows[0]?.uas || []).map((u) => u.ua);
-  const uaCols = uaNums.length ? uaNums : (annuel ? [1, 2, 3, 4, 5, 6, 7, 8] : [1, 2, 3]);
+  const uaCols = uaNums.length ? uaNums : (annuelProp ? [1, 2, 3, 4, 5, 6, 7, 8] : [1, 2, 3]);
   const nUA = uaCols.length;
   // Groupes de trimestre (annuel) : UA1-3, UA4-6, UA7-8 d'apres le `trimestre` porte par chaque UA.
   const trimDe = (ua) => (competenceRows[0]?.uas || []).find((u) => u.ua === ua)?.trimestre ?? (ua <= 3 ? 1 : ua <= 6 ? 2 : 3);
@@ -244,7 +362,7 @@ export default function BulletinPrim1Page({
       className="bulletin-paper prim1p"
       data-gabarit={PRIM1P_GABARIT}
       data-orientation={paysage ? 'paysage' : 'portrait'}
-      data-periode={annuel ? 'annuel' : 'trimestre'}
+      data-periode={annuelProp ? 'annuel' : 'trimestre'}
       style={{
         boxSizing: 'border-box', height: `${g.H}pt`, width: '100%', maxWidth: paysage ? '800pt' : '560pt', margin: '0 auto', overflow: 'hidden', boxShadow: 'none', borderRadius: 0,
         display: 'flex', flexDirection: 'column', background: '#fff', color: '#111',
@@ -294,6 +412,9 @@ export default function BulletinPrim1Page({
         )}
       </div>
 
+      {annuelPortrait ? (
+        <TableauAnnuelPortrait rows={competenceRows} sys={sys} uaCols={uaCols} trimDe={trimDe} trimLabel={trimLabel} evalLbl={evalLbl} cMin={cMin} k={k} />
+      ) : (<>
       {/* TABLEAU : en-têtes à deux niveaux (trimestriel) ou trois niveaux (annuel) */}
       <div style={{ marginTop: 4, flexShrink: 0, borderTop: `1.2pt solid ${VERT}`, fontSize: '7pt' }}>
         {annuel && (
@@ -389,6 +510,8 @@ export default function BulletinPrim1Page({
         })}
       </div>
 
+      </>)}
+
       {/* Bas de page : synthèse | remarques | signatures */}
       {(() => {
         const cadre = { border: FILET, padding: '3pt 5pt', minWidth: 0, overflow: 'hidden', boxSizing: 'border-box' };
@@ -456,8 +579,8 @@ export default function BulletinPrim1Page({
         <span style={coupe(1)}>
           {L(sys, 'Cotes', 'Grades', 'Notas')} : {(bareme.length ? bareme : PRIM_COTE_DEFAULT).map((b) => `${b.cote} ${primCoteLabel(b.cote, b.libelle || '', sys)}`.trim()).join(' · ')}
         </span>
-        <span style={{ whiteSpace: 'nowrap' }}>{annuel
-          ? L(sys, 'UA : Unité d’apprentissage · O Oral · É Écrit · P Pratique · A Savoir-être · T Total', 'UA : Learning unit · O Oral · W Written · P Practical · A Attitude · T Total', 'UA : Unidad de aprendizaje · O Oral · E Escrito · P Práctico · A Actitud · T Total')
+        <span style={{ whiteSpace: 'nowrap' }}>{annuelProp
+          ? L(sys, `UA : Unité d’apprentissage · O Oral · É Écrit · P Pratique · A Savoir-être${annuelPortrait ? ' (points max.)' : ' · T Total'}`, `UA : Learning unit · O Oral · W Written · P Practical · A Attitude${annuelPortrait ? ' (max. points)' : ' · T Total'}`, `UA : Unidad de aprendizaje · O Oral · E Escrito · P Práctico · A Actitud${annuelPortrait ? ' (puntos máx.)' : ' · T Total'}`)
           : L(sys, 'UA : Unité d’apprentissage', 'UA : Learning unit', 'UA : Unidad de aprendizaje')}</span>
       </div>
       <div style={{ textAlign: 'center', fontSize: '6.5pt', color: '#777', marginTop: 2, flexShrink: 0 }}>

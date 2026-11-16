@@ -61,7 +61,7 @@ test('zéro compétence ou textes longs : aucune exception', () => {
 });
 
 // ── ANNUEL (8 UA, paysage uniquement) ──────────────────────────────────────
-const { ajusterTitre } = await import(`${SRC}components/bulletins/BulletinPrim1Page.jsx`);
+const { ajusterTitre, ajusterTitrePortrait } = await import(`${SRC}components/bulletins/BulletinPrim1Page.jsx`);
 const rowAnn = (code, remplies = [1, 2]) => ({
   code, intitule: `Compétence ${code}`, criteres: CR,
   uas: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => (remplies.includes(n)
@@ -71,12 +71,20 @@ const rowAnn = (code, remplies = [1, 2]) => ({
 });
 const rendreAnn = (extra = {}) => rendre({ annuel: true, competenceRows: [rowAnn('1A'), rowAnn('1B', [])], appreciation: '', ...extra });
 
-test('annuel : en-têtes trimestre / UA / O W P A T, colonne ANNUAL, paysage forcé', () => {
-  const h = rendreAnn({ paysage: false });
-  const t = texte(h);
-  for (const s of ['FIRST TERM', 'SECOND TERM', 'THIRD TERM', 'UA1', 'UA8', 'ANNUAL']) assert.ok(t.includes(s), s);
-  assert.match(h, /data-periode="annuel"/);
-  assert.match(h, /data-orientation="paysage"/, 'l’annuel est toujours en paysage');
+test('annuel : deux dispositions selon l’orientation (portrait par défaut)', () => {
+  const portrait = rendreAnn({ paysage: false });
+  const paysage = rendreAnn({ paysage: true });
+  for (const h of [portrait, paysage]) {
+    const t = texte(h);
+    for (const s of ['FIRST TERM', 'SECOND TERM', 'THIRD TERM', 'UA1', 'UA8']) assert.ok(t.includes(s), s);
+    assert.match(h, /data-periode="annuel"/);
+  }
+  assert.match(portrait, /data-orientation="portrait"/, 'portrait par défaut');
+  assert.match(paysage, /data-orientation="paysage"/);
+  assert.ok(texte(portrait).includes('ANNUAL'), 'ligne ANNUAL (portrait)');
+  assert.ok(texte(paysage).includes('ANNUAL'), 'colonne ANNUAL (paysage)');
+  assert.ok(portrait.includes('writing-mode:vertical-rl'), 'libellés de trimestre verticaux (portrait)');
+  assert.ok(!paysage.includes('writing-mode:vertical-rl'));
 });
 
 test('annuel : décimales affichées telles quelles, UA vides sans erreur, remarques vides = cadre vide', () => {
@@ -92,4 +100,21 @@ test('annuel : un titre n’est jamais réduit sous 5,6 pt ni coupé en silence'
   assert.ok(long.fs >= 5.6 && long.lignes <= 3);
   const tresLong = ajusterTitre('x'.repeat(400), 146, { hauteur: 27.5 });
   assert.equal(tresLong.fs, 5.6);
+});
+
+test('annuel portrait : titres par mots, 4,2 à 6,6 pt, 6 lignes au plus, jamais de mot coupé tant que ça tient', () => {
+  const court = ajusterTitrePortrait('Practise social values (20)', 40);
+  assert.ok(court.ok && court.fs <= 6.6 && court.fs >= 4.2 && court.lignes <= 6);
+  const long = ajusterTitrePortrait('Demonstrate autonomy, initiative, creativity and entrepreneurship (20)', 43);
+  assert.ok(long.ok && long.lignes <= 6 && long.fs >= 4.2, JSON.stringify(long));
+  const impossible = ajusterTitrePortrait('Entrepreneurship', 10);   // colonne trop étroite : signalé, pas d’exception
+  assert.equal(impossible.ok, false); assert.equal(impossible.fs, 4.2);
+});
+
+test('annuel portrait : 8 UA × 5 lignes, décimales, 12 compétences, texte long : aucune exception', () => {
+  const rows = Array.from({ length: 12 }, (_, i) => rowAnn('C' + i, [1, 2, 3, 4, 5, 6, 7, 8]));
+  const h = rendreAnn({ paysage: false, competenceRows: rows });
+  for (const s of ['26.5', 'C0', 'C11', 'UA8']) assert.ok(texte(h).includes(s), s);
+  assert.doesNotThrow(() => rendreAnn({ paysage: false, competenceRows: [{ ...rowAnn('X'), intitule: 'x'.repeat(300) }], appreciation: 'y'.repeat(4000) }));
+  assert.doesNotThrow(() => rendreAnn({ paysage: false, competenceRows: [] }));
 });

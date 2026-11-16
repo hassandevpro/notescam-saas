@@ -2015,7 +2015,7 @@ export default function Bulletins() {
   const profilPage = isMat
     ? (matOrientation === 'portrait' ? 'bulletin' : 'large')
     : isPrim
-      ? ((primOrientation === 'landscape' || periodKey === 'annuel') ? 'large' : 'bulletin')
+      ? (primOrientation === 'landscape' ? 'large' : 'bulletin')
       : (secOrientation === 'landscape' ? 'large' : 'bulletin');
   useEffect(() => { setPrintProfile(profilPage); }, [profilPage]);
   // Les bulletins officiels MINESEC sont des FORMATS de plus (à côté de Classique/
@@ -3523,8 +3523,8 @@ export default function Bulletins() {
     }
 
     // TRIMESTRE (3 UA au plus) : gabarit UNE PAGE sobre, portrait ou paysage.
-    // ANNUEL (8 UA) : même gabarit, en PAYSAGE uniquement (`annuel`), trois niveaux
-    // d'en-tête (trimestre / UA / O W P A T). Mêmes données, mêmes calculs ; les réglages
+    // ANNUEL (8 UA) : même gabarit, DEUX dispositions selon l'orientation (`paysage`) : portrait (défaut)
+    // = tableau transposé (compétences en colonnes), paysage = compétences en lignes. Mêmes données, mêmes calculs ; les réglages
     // du carnet (rang, statistiques, répartition masqués) valent toujours.
     return (
       <WatermarkWrap key={student.id} active={f.watermark}>
@@ -3797,10 +3797,8 @@ export default function Bulletins() {
                 <button
                   key={key}
                   onClick={() => setPrimOrientation(key)}
-                  disabled={primAnnual}
-                  title={primAnnual ? t('Le bulletin annuel est toujours en paysage', 'The annual report card is always landscape') : undefined}
-                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${primAnnual ? 'opacity-50 cursor-not-allowed ' : ''}${
-                    (primAnnual ? key === 'landscape' : primOrientation === key) ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    primOrientation === key ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
                   }`}
                 >
                   {label}

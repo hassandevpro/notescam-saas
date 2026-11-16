@@ -30,7 +30,7 @@ import BulletinApcAnnual from '../components/bulletins/BulletinApcAnnual';
 import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
 import ScBulletinExcelIO from '../components/bulletins/ScBulletinExcelIO';
 import BulletinBilOfficial, { BulletinBilAnnual } from '../components/bulletins/BulletinBilOfficial';
-import BulletinPrimAnnualUA from '../components/bulletins/BulletinPrimAnnualUA';
+import BulletinPrim1Page from '../components/bulletins/BulletinPrim1Page';
 import BulletinPrimCompact from '../components/bulletins/BulletinPrimCompact';
 import BulletinPrimNoteUnique from '../components/bulletins/BulletinPrimNoteUnique';
 import { classeNoteUnique, lignesNoteUnique, totauxNoteUnique, titreNoteUnique } from '../core/primNoteUnique';
@@ -2015,7 +2015,7 @@ export default function Bulletins() {
   const profilPage = isMat
     ? (matOrientation === 'portrait' ? 'bulletin' : 'large')
     : isPrim
-      ? (primOrientation === 'landscape' ? 'large' : 'bulletin')
+      ? ((primOrientation === 'landscape' || periodKey === 'annuel') ? 'large' : 'bulletin')
       : (secOrientation === 'landscape' ? 'large' : 'bulletin');
   useEffect(() => { setPrintProfile(profilPage); }, [profilPage]);
   // Les bulletins officiels MINESEC sont des FORMATS de plus (à côté de Classique/
@@ -3522,9 +3522,14 @@ export default function Bulletins() {
       );
     }
 
+    // TRIMESTRE (3 UA au plus) : gabarit UNE PAGE sobre, portrait ou paysage.
+    // ANNUEL (8 UA) : même gabarit, en PAYSAGE uniquement (`annuel`), trois niveaux
+    // d'en-tête (trimestre / UA / O W P A T). Mêmes données, mêmes calculs ; les réglages
+    // du carnet (rang, statistiques, répartition masqués) valent toujours.
     return (
       <WatermarkWrap key={student.id} active={f.watermark}>
-        <BulletinPrimAnnualUA
+        <BulletinPrim1Page
+          annuel={(primUAs?.length || 0) > 3}
           paysage={primOrientation === 'landscape'}
           school={school} sys={sys} title={primTitle}
           student={student} classLabel={selectedClass?.name || ''}
@@ -3535,9 +3540,7 @@ export default function Bulletins() {
           masquerRang={primMasquerRang || !primAffiche.rang} masquerStats={!primAffiche.stats}
           appreciation={primAppreciationFor(student, d)}
           observations={primObservationFor(student.id)}
-          // Le carnet de l'école vaut aussi pour la disposition détaillée : sur
-          // un trimestre (UA1-3), « Auto » choisit celle-ci, et le réglage ne
-          // devait pas se taire pour autant. Mêmes props, même source.
+          bareme={primBareme}
           mentions={primMentionsFor(student)}
           repartition={primCarnet && primAffiche.repartition ? primRepartition : []}
           groupes={primCarnet}
@@ -3794,8 +3797,10 @@ export default function Bulletins() {
                 <button
                   key={key}
                   onClick={() => setPrimOrientation(key)}
-                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                    primOrientation === key ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                  disabled={primAnnual}
+                  title={primAnnual ? t('Le bulletin annuel est toujours en paysage', 'The annual report card is always landscape') : undefined}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${primAnnual ? 'opacity-50 cursor-not-allowed ' : ''}${
+                    (primAnnual ? key === 'landscape' : primOrientation === key) ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
                   }`}
                 >
                   {label}

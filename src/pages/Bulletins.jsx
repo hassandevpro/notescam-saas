@@ -25,9 +25,9 @@ import BulletinPhoto from '../components/bulletins/BulletinPhoto';
 import BoletinGE from '../components/bulletins/BoletinGE';
 import BoletinGEDetalle from '../components/bulletins/BoletinGEDetalle';
 import BulletinTheme from '../components/bulletins/BulletinTheme';
-import BulletinApcOfficial from '../components/bulletins/BulletinApcOfficial';
 import BulletinApcAnnual from '../components/bulletins/BulletinApcAnnual';
 import BulletinScOfficial from '../components/bulletins/BulletinScOfficial';
+import BulletinSecUnePage from '../components/bulletins/BulletinSecUnePage';
 import ScBulletinExcelIO from '../components/bulletins/ScBulletinExcelIO';
 import BulletinBilOfficial, { BulletinBilAnnual } from '../components/bulletins/BulletinBilOfficial';
 import BulletinPrim1Page from '../components/bulletins/BulletinPrim1Page';
@@ -85,7 +85,7 @@ import { primNkey } from '../lib/primService';
 import { assemblePeriod, assembleApcAnnual } from '../lib/apcBulletinDoc';
 import { useLogoShape } from '../components/useLogoShape';
 import { computePrimClassStats } from '../core/primClassStats';
-import { buildApcRanks, SEQ_TO_TRIM, profilClasse } from '../core/apcEngine';
+import { buildApcRanks, SEQ_TO_TRIM, profilClasse, apcBulletinCols } from '../core/apcEngine';
 import {
   apcBulletinPeriods, apcPeriodLabel, resolveApcPeriod,
   isApcAnnualPeriod, isApcSequencePeriod, apcSeqIdsForTrimestre,
@@ -3377,7 +3377,7 @@ export default function Bulletins() {
       <WatermarkWrap key={student.id} active={f.watermark}>
         {apcAnnual
           ? <BulletinApcAnnual {...common} decision={apcDecisionLabel(student.id)} />
-          : <BulletinApcOfficial {...common} />}
+          : <BulletinSecUnePage cycle={1} paysage={secOrientation === 'landscape'} cols={apcBulletinCols(school)} {...common} />}
       </WatermarkWrap>
     );
   };
@@ -4287,7 +4287,7 @@ export default function Bulletins() {
               {/* Second Cycle officiel (lycée) — aperçu écran, imprimable nativement. */}
               {showScOfficial && !printAll && selectedStudent && scDataById[selectedStudent.id] && (
                 <WatermarkWrap active={f.watermark}>
-                  <BulletinScOfficial
+                  <BulletinSecUnePage cycle={2} paysage={secOrientation === 'landscape'}
                     school={school} sys={sys} title={scTitle}
                     student={selectedStudent} classLabel={selectedClass?.name || ''}
                     serieLabel={scSerieLabel} effectif={classStudents.length} profPrincipal={scProfPrincipal}
@@ -4349,7 +4349,7 @@ export default function Bulletins() {
               {showScOfficial && printAll && classStudents.map((student) => (
                 scDataById[student.id] ? (
                   <WatermarkWrap key={student.id} active={f.watermark}>
-                    <BulletinScOfficial
+                    <BulletinSecUnePage cycle={2} paysage={secOrientation === 'landscape'}
                       school={school} sys={sys} title={scTitle}
                       student={student} classLabel={selectedClass?.name || ''}
                       serieLabel={scSerieLabel} effectif={classStudents.length} profPrincipal={scProfPrincipal}

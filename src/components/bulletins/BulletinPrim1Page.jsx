@@ -106,7 +106,7 @@ const baremeAffiche = (row, cr) => {
 
 const valeur = (n) => (n == null || n === '' ? '' : (typeof n === 'number' || /^-?\d+([.,]\d+)?$/.test(String(n)) ? fix2(Number(String(n).replace(',', '.'))) : String(n)));
 
-function Photo({ src, w, h }) {
+export function Photo({ src, w, h }) {
   const url = useSignedUrl(src);
   const cadre = { width: w, height: h, border: FILET, flexShrink: 0, boxSizing: 'border-box' };
   return url ? <img src={url} alt="" style={{ ...cadre, objectFit: 'cover' }} /> : <div style={cadre} />;
@@ -114,7 +114,7 @@ function Photo({ src, w, h }) {
 
 const coupe = (n) => ({ display: '-webkit-box', WebkitLineClamp: n, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' });
 
-function Entete({ school, sys, g, paysage }) {
+export function Entete({ school, sys, g, paysage }) {
   const officials = bulletinOfficials(school, { basic: true, sys });
   const blocs = officials?.blocks ?? [];
   const bilingue = officials?.bilingual && blocs.length > 1;

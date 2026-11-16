@@ -77,7 +77,8 @@ function lignes({ n = 11, uasRemplies = [2], long = false, graine = 1, nUA = 3, 
   });
 }
 
-const school = { id: 's', name: 'BRIGHT CONTINENT BILINGUAL SCHOOL', country_code: 'cameroon', current_year: '2026-2027', phone: '+237 678341213', director: 'Eyong Sergine' };
+const LOGO = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="14" fill="#0B5D45"/><circle cx="50" cy="42" r="22" fill="#f5c518"/><rect x="18" y="72" width="64" height="12" fill="#fff"/></svg>');
+const school = { id: 's', logo_url: LOGO, name: 'BRIGHT CONTINENT BILINGUAL SCHOOL', country_code: 'cameroon', current_year: '2026-2027', phone: '+237 678341213', director: 'Eyong Sergine' };
 const eleveBase = { id: 'e', name: 'MOUHAMAN NABIL', gender: 'Masculin', matricule: 'P260002', date_naissance: '2020-04-15', lieu_naissance: 'Yaoundé', nom_pere: 'ABDOULAYE HAYATOU', nom_mere: 'HAWA IBRAHIM', parent_phone: '699453972', statut: '' };
 
 const bul = (extra, paysage) => createElement(Bulletin, {

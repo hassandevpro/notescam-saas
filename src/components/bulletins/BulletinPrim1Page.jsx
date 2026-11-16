@@ -49,15 +49,15 @@ const FILET = `0.5pt solid ${GRIS_FILET}`;
 const GEO = {
   // ANNUEL : 8 UA, paysage uniquement. Cotes a 5,8 pt (plancher 5,5), titres jusqu'a 5,6 pt.
   annuel: {
-    H: 544, rowMax: 27.5, avail: 290, compW: '21%', perW: '8.5%', logo: 38,
+    H: 544, rowMax: 27.5, avail: 270, compW: '21%', perW: '8.5%', logo: 58,
     titreFs: 7, noteFs: 7, coteFs: 5.8, maxFs: 5.6, ligneTitre: 2, coteMin: 5.5, noteMin: 6.5,
   },
   portrait: {
-    H: 790, rowMax: 37, avail: 399, compW: '27.6%', perW: '9.2%', logo: 46,
+    H: 790, rowMax: 37, avail: 380, compW: '27.6%', perW: '9.2%', logo: 68,
     titreFs: 7.6, noteFs: 9, coteFs: 6.5, maxFs: 6.5, ligneTitre: 2,
   },
   paysage: {
-    H: 544, rowMax: 27, avail: 258, compW: '31.6%', perW: '10.2%', logo: 38,
+    H: 544, rowMax: 27, avail: 238, compW: '31.6%', perW: '10.2%', logo: 58,
     titreFs: 7.6, noteFs: 8.5, coteFs: 6.5, maxFs: 6.5, ligneTitre: 1,
   },
 };

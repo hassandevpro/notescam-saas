@@ -63,6 +63,9 @@ ok(tutelleBasic({ cls: SECONDAIRE[0], classes: FONDAMENTAL }) === false,
 ok(tutelleBasic({ classes: FONDAMENTAL }) === true, '14. sans classe, la composition décide');
 ok(tutelleBasic({ cls: SECONDAIRE[0], basic: true }) === true, '15. surcharge explicite respectée');
 ok(tutelleBasic({}) === false, '16. rien de fourni → MINESEC, comme avant ce chantier');
+ok(isBasicClass({ name: '3e', level: '3e', cycle: 'college' }) === false, '17. une 3e au cycle « college » reste au MINESEC (tableau d’honneur 2026-11-18)');
+ok(isBasicClass({ name: 'Tle C', level: 'Tle', cycle: 'lycee' }) === false, '18. une terminale au cycle « lycee » reste au MINESEC');
+ok(isBasicClass({ name: 'CM2', level: 'CM2', cycle: 'primaire' }) === true, '19. le primaire reste au MINEDUB');
 
 console.log(`\n=== ${fail === 0 ? 'OK' : 'ÉCHEC'} : ${pass} ok, ${fail} ko ===`);
 process.exitCode = fail === 0 ? 0 : 1;

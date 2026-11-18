@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { guardBudgetExpense, guardBudgetStructure, guardBudgetLine, guardBudgetAllocations } from './budgetGuard.js';
 import { emitApprovalRequestForOp } from './governanceApply.js';
 import { isTracked, snapshotRows, maintainMerkle } from './syncMerkle.js';
+import { auditHonneurAvant, auditHonneurApres } from './honorAudit.js';
 import { SCOPED_TABLES, loadScope, isGlobal, rowAllowed, guardScopeWrite, guardSchoolIsolation, guardSchoolWrite, guardClassLimit, isParentAccount } from './scopeGuard.js';
 
 // --- Suivi des changements pour la sync continue (Phase 2) ------------
@@ -347,6 +348,7 @@ export function runQuery(op, ctx = null) {
     guardScopeWrite(op, ctx);      // cloisonnement secteur : écriture hors périmètre refusée
     guardSchoolWrite(op, ctx);     // nom + paramètres de l'établissement : admin uniquement
     guardClassLimit(op);           // édition restreinte : plafond de classes (build utilisateur)
+    const auditTH = auditHonneurAvant(op, ctx);   // seuil du tableau d'honneur : qui, quand, de quoi à quoi
     let result;
     switch (op.action) {
       case 'select': result = doSelect(op, ctx); break;
@@ -362,6 +364,7 @@ export function runQuery(op, ctx = null) {
     if (!result?.error && op.table === 'budget_expenses' && ['insert', 'upsert', 'update'].includes(op.action)) {
       try { emitApprovalRequestForOp(op); } catch (e) { console.warn('[gov] demande d’approbation non émise:', e.message); }
     }
+    if (!result?.error && auditTH) { try { auditHonneurApres(auditTH); } catch (e) { console.warn('[audit] tableau d’honneur :', e.message); } }
     return result;
   } catch (e) {
     return { error: { message: e.message }, data: null };
@@ -574,6 +577,7 @@ export function runOpsGuarded(ops = [], ctx = null) {
     guardSchoolIsolation(op, ctx); // étanchéité inter-établissements
     guardScopeWrite(op, ctx);      // cloisonnement sectoriel
     guardReferentielNational(op, ctx); // référentiel : le national ne s'écrit pas
+    const auditTH = auditHonneurAvant(op, ctx);
     let res;
     switch (op.action) {
       case 'insert': insertOrUpsertCore(op, false); break;
@@ -583,6 +587,7 @@ export function runOpsGuarded(ops = [], ctx = null) {
       default: throw new Error(`Action inconnue : ${op.action}`);
     }
     if (res?.error) throw new Error(res.error.message); // → rollback du lot
+    auditHonneurApres(auditTH);                          // même transaction que l'écriture
   }
 }
 

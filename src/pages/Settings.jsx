@@ -28,6 +28,7 @@ import HybridModeCard from '../components/HybridModeCard';
 import PrepareHybridCard from '../components/PrepareHybridCard';
 import AcademicSetupWizard from '../components/setup/AcademicSetupWizard';
 import BackupPanel from '../components/settings/BackupPanel';
+import HonorSettingsPanel from '../components/settings/HonorSettingsPanel';
 import BulletinMaternellePicker from '../components/settings/BulletinMaternellePicker';
 import BulletinAccentPicker from '../components/settings/BulletinAccentPicker';
 
@@ -302,6 +303,15 @@ export default function Settings() {
   const freeAdmin      = !['cameroon_fr', 'cameroon_en', 'guinea_eq'].includes(country.code);
 
   const isAdmin = role === 'admin';
+  // Lien direct vers un onglet (« ?tab=honneur » depuis la page Tableaux d'honneur) :
+  // il prime sur l'onglet mémorisé.
+  const ongletDemande = (() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('tab');
+      if (v) localStorage.setItem('nc_settings_tab', v);
+      return v || undefined;
+    } catch { return undefined; }
+  })();
 
   const [form,           setForm]           = useState(null);
   const [showSetup,      setShowSetup]      = useState(false);
@@ -591,6 +601,10 @@ export default function Settings() {
     // (« vert officiel » / pas de couleur choisie) ferait rejeter TOUT
     // l'enregistrement par schools_bulletin_accent_hex.
     const payload = { ...form };
+    // Les réglages et modèles de TABLEAU D'HONNEUR ont leur propre enregistrement
+    // (HonorSettingsPanel, page Tableaux d'honneur). Les renvoyer ici, depuis une copie
+    // prise à l'ouverture de la page, écraserait un changement fait entre-temps.
+    delete payload.honor_min_avg; delete payload.honor_options; delete payload.honor_roll_templates;
     if ('bulletin_accent' in form) payload.bulletin_accent = form.bulletin_accent || null;
     if ('bulletin_accent_sec' in form) payload.bulletin_accent_sec = form.bulletin_accent_sec || null;
     if ('bulletin_mat_format' in form) payload.bulletin_mat_format = form.bulletin_mat_format || null;
@@ -639,6 +653,7 @@ export default function Settings() {
     { id: 'units',         label: t('Complexe scolaire', 'School complex', 'Complejo'),              render: renderUnits,       hidden: !isAdmin },
     { id: 'users',         label: t('Utilisateurs', 'Users', 'Usuarios'),                           render: renderUsers,       hidden: !isAdmin },
     { id: 'calendar',      label: t('Calendrier scolaire', 'School calendar', 'Calendario'),        render: renderCalendar,    hidden: !isAdmin },
+    { id: 'honneur',       label: t("Tableaux d'honneur", 'Honour rolls', 'Cuadros de honor'),     render: () => <HonorSettingsPanel />, hidden: !isAdmin },
     { id: 'sms',           label: t('SMS', 'SMS', 'SMS'),                                           render: renderSms,        hidden: !isAdmin },
     { id: 'backup',        label: t('Sauvegarde & restauration', 'Backup & restore', 'Copias y restauración'), render: () => <BackupPanel />, hidden: !isAdmin },
     { id: 'advanced',      label: t('Paramètres avancés', 'Advanced settings', 'Avanzado'),         render: renderAdvanced,    hidden: !isAdmin },
@@ -651,6 +666,7 @@ export default function Settings() {
         subtitle={t("Configuration de l'établissement, bulletins et calendrier.", 'School configuration, report cards and calendar.', 'Configuración del centro, boletines y calendario.')}
         tabs={tabs}
         storageKey="nc_settings_tab"
+        defaultTab={ongletDemande}
       />
     </Layout>
   );

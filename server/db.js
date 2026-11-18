@@ -391,6 +391,16 @@ ensureColumn('classes', 'bulletin_mat_format', 'bulletin_mat_format TEXT');
 // Réglage « le logo contient déjà le nom » : miroir de `supabase_logo_contient_nom.sql`, à appliquer
 // au Cloud AVANT toute distribution d'un paquet LAN portant cette ligne (même règle que `bulletin_accent`).
 ensureColumn('schools', 'logo_contient_nom', 'logo_contient_nom INTEGER NOT NULL DEFAULT 0');
+// TABLEAUX D'HONNEUR (2026-11-18). `honor_min_avg` : moyenne minimale SUR 20 qui fait entrer
+// un élève au tableau d'honneur (NULL = 12, défaut). `honor_options` : JSON des autres réglages
+// (niveaux Encouragements/Félicitations, exclusion des sanctionnés, langue, modèle visuel,
+// couleurs). `honor_roll_templates` : les modèles de l'école (JSON), jusqu'ici dans le
+// localStorage d'UN navigateur. Écriture réservée à l'admin (guardSchoolWrite) et journalisée
+// (server/honorAudit.js). ⛔ supabase_tableaux_honneur.sql AU CLOUD AVANT le paquet : `schools`
+// est poussée colonne par colonne, une colonne inconnue fait rejeter la ligne (PGRST204).
+ensureColumn('schools', 'honor_min_avg', 'honor_min_avg REAL');
+ensureColumn('schools', 'honor_options', 'honor_options TEXT');
+ensureColumn('schools', 'honor_roll_templates', 'honor_roll_templates TEXT');
 
 // ── LA CLÉ D'UNICITÉ DE prim_notes A CHANGÉ, ET LES BASES INSTALLÉES NON ─────
 //

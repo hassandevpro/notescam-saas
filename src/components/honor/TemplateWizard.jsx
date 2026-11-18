@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useT } from '../../lib/i18n';
 import { applyTemplate } from '../../lib/honorRollEngine';
+import { normaliserModele, lireReglagesHonneur, validerSeuil, SEUILS_PROPOSES } from '../../core/honorSettings';
 import { buildHonorRollSheets } from '../../lib/honorRollDoc';
 import { isBasicSchool } from '../../lib/tutelle';
 import { buildPrintDocument } from '../../lib/transcriptDoc';
@@ -37,7 +38,11 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
   const t = useT();
   const [step, setStep] = useState(0);
   const [advanced, setAdvanced] = useState(false);
-  const [w, setW] = useState(() => JSON.parse(JSON.stringify(tpl)));
+  // Ouvert NORMALISÉ : un ancien seuil en % s'affiche et s'enregistre sur 20 (80 % → 16).
+  const [w, setW] = useState(() => normaliserModele(JSON.parse(JSON.stringify(tpl))));
+  const reglages = data.reglages || lireReglagesHonneur(data.school);
+  const [seuilSaisi, setSeuilSaisi] = useState(() => (w.filters?.minAvg20 != null ? String(w.filters.minAvg20).replace('.', ',') : ''));
+  const seuilValide = seuilSaisi === '' ? { ok: true } : validerSeuil(seuilSaisi);
 
   const set  = (k, v) => setW((s) => ({ ...s, [k]: v }));
   const setF = (k, v) => setW((s) => ({ ...s, filters: { ...s.filters, [k]: v === '' || v == null ? undefined : v } }));
@@ -49,11 +54,11 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
     { icon: '🏆', fr: "Tableau d'honneur général", en: 'General honour roll', es: 'Cuadro general', d: ["Top 10 de l'établissement", 'Top 10 of the school', 'Top 10 del centro'],
       apply: { scope: 'school', limit: 10, layout: 'table', sort: 'score', filters: {}, personalization: { ...p, title: "Tableau d'honneur" } } },
     { icon: '🌟', fr: "Tableau d'excellence", en: 'Excellence board', es: 'Cuadro de excelencia', d: ['Moyenne ≥ 16/20', 'Average ≥ 16/20', 'Media ≥ 16/20'],
-      apply: { scope: 'school', limit: 15, layout: 'poster', sort: 'score', filters: { minAvgPct: 80 }, personalization: { ...p, title: "Tableau d'excellence", primaryColor: '#1e3a8a' } } },
+      apply: { scope: 'school', limit: 15, layout: 'poster', sort: 'score', filters: { minAvg20: 16 }, personalization: { ...p, title: "Tableau d'excellence", primaryColor: '#1e3a8a' } } },
     { icon: '👑', fr: 'Major de classe', en: 'Class top student', es: 'Mejor de la clase', d: ['Premier de chaque classe', 'First of each class', 'Primero de cada clase'],
       apply: { scope: 'class', limit: 1, layout: 'diploma', sort: 'score', filters: { maxRank: 1 }, personalization: { ...p, title: "TABLEAU D'HONNEUR" } } },
     { icon: '🎖️', fr: 'Élèves méritants', en: 'Deserving students', es: 'Alumnos meritorios', d: ['Moyenne ≥ 14/20', 'Average ≥ 14/20', 'Media ≥ 14/20'],
-      apply: { scope: 'school', limit: 20, layout: 'table', sort: 'score', filters: { minAvgPct: 70 }, personalization: { ...p, title: 'Élèves méritants', primaryColor: '#15803d' } } },
+      apply: { scope: 'school', limit: 20, layout: 'table', sort: 'score', filters: { minAvg20: 14 }, personalization: { ...p, title: 'Élèves méritants', primaryColor: '#15803d' } } },
     { icon: '👦', fr: 'Meilleurs garçons', en: 'Top boys', es: 'Mejores chicos', d: ['Top 10 garçons', 'Top 10 boys', 'Top 10 chicos'],
       apply: { scope: 'school', limit: 10, layout: 'table', sort: 'score', filters: { gender: 'M' }, personalization: { ...p, title: 'Meilleurs garçons', primaryColor: '#0369a1' } } },
     { icon: '👧', fr: 'Meilleures filles', en: 'Top girls', es: 'Mejores chicas', d: ['Top 10 filles', 'Top 10 girls', 'Top 10 chicas'],
@@ -81,12 +86,12 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
     if (step < 3) return null;
     try {
       const groups = applyTemplate(w, data, { t });
-      const sheets = buildHonorRollSheets(w, groups, data.school, { year: data.school?.current_year, basic: isBasicSchool(data.classes) });
+      const sheets = buildHonorRollSheets(w, groups, data.school, { year: data.school?.current_year, basic: isBasicSchool(data.classes), classes: data.classes });
       if (!sheets.length) return '__EMPTY__';
       return buildPrintDocument(sheets.slice(0, 2), w.name);
     } catch { return '__EMPTY__'; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, JSON.stringify(w), data.classes, data.students, data.subjects, data.gradeMap]);
+  }, [step, JSON.stringify(w), data.lignes, data.classes]);
 
   const topOptions = [3, 5, 10, 20];
   const isCustomTop = w.limit != null && !topOptions.includes(w.limit);
@@ -155,6 +160,33 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
           {/* ÉTAPE 3 — règles */}
           {step === 2 && (
             <div className="space-y-5">
+              {/* SEUIL — toujours sur 20, en évidence (plus dans les critères avancés). */}
+              <div className="rounded-xl border-2 border-indigo-100 bg-indigo-50/40 p-4">
+                <p className="text-sm font-semibold text-slate-700">{t('Moyenne minimale', 'Minimum average', 'Media mínima')}</p>
+                <p className="text-xs text-slate-500 mb-2">
+                  {t(`Vide = seuil de l'établissement (${String(reglages.minAvg).replace('.', ',')}/20). Une classe notée sur 100 est comparée au même seuil ramené à son barème.`,
+                     `Empty = school threshold (${reglages.minAvg}/20). A class graded out of 100 is compared with the same threshold on its own scale.`)}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {SEUILS_PROPOSES.map((n) => (
+                    <button key={n} onClick={() => { setSeuilSaisi(String(n)); setF('minAvg20', n); }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold border-2 ${f.minAvg20 === n ? 'border-indigo-500 bg-white text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300'}`}>
+                      {n}/20
+                    </button>
+                  ))}
+                  <input inputMode="decimal" placeholder={String(reglages.minAvg)} value={seuilSaisi}
+                    onChange={(e) => { const v = e.target.value; setSeuilSaisi(v); const r = validerSeuil(v); setF('minAvg20', v === '' ? '' : r.ok ? r.valeur : f.minAvg20); }}
+                    className={`w-24 px-3 py-1.5 rounded-lg border-2 text-sm ${seuilValide.ok ? 'border-slate-200' : 'border-red-400'}`} />
+                  <span className="text-sm text-slate-500">/20</span>
+                  {seuilSaisi !== '' && (
+                    <button onClick={() => { setSeuilSaisi(''); setF('minAvg20', ''); }} className="text-xs text-slate-500 hover:text-slate-800 underline">
+                      {t("Utiliser celui de l'établissement", 'Use the school threshold')}
+                    </button>
+                  )}
+                </div>
+                {!seuilValide.ok && <p className="text-xs text-red-600 mt-1">{t('Une valeur de 0 à 20 est attendue (deux décimales au plus).', 'A value from 0 to 20 is expected (two decimals at most).')}</p>}
+              </div>
+
               <div>
                 <p className="text-sm font-semibold text-slate-700 mb-2">{t('Combien d\'élèves ?', 'How many students?', '¿Cuántos?')}</p>
                 <div className="flex flex-wrap gap-2">
@@ -206,7 +238,6 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
               </button>
               {advanced && (
                 <div className="grid sm:grid-cols-3 gap-3 rounded-xl bg-slate-50 border border-slate-100 p-4">
-                  <div><label className="form-label">{t('Moyenne min (%)', 'Min avg (%)', 'Media mín %')}</label><input type="number" className="form-input" value={f.minAvgPct ?? ''} onChange={(e) => setF('minAvgPct', e.target.value ? Number(e.target.value) : '')} /></div>
                   <div><label className="form-label">{t('Conduite min /20', 'Min conduct', 'Conducta mín')}</label><input type="number" className="form-input" value={f.conduiteMin ?? ''} onChange={(e) => setF('conduiteMin', e.target.value ? Number(e.target.value) : '')} /></div>
                   <div><label className="form-label">{t('Abs. injust. max', 'Max abs.', 'Faltas máx')}</label><input type="number" className="form-input" value={f.maxAbsNJ ?? ''} onChange={(e) => setF('maxAbsNJ', e.target.value !== '' ? Number(e.target.value) : '')} /></div>
                   <div><label className="form-label">{t('Rang max', 'Max rank', 'Puesto máx')}</label><input type="number" className="form-input" value={f.maxRank ?? ''} onChange={(e) => setF('maxRank', e.target.value ? Number(e.target.value) : '')} /></div>
@@ -295,7 +326,7 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
             {step === 0 ? t('Annuler', 'Cancel', 'Cancelar') : t('← Retour', '← Back', '← Atrás')}
           </button>
           {step < 4 ? (
-            <button onClick={() => setStep((s) => Math.min(4, s + 1))}
+            <button onClick={() => setStep((s) => Math.min(4, s + 1))} disabled={step === 2 && !seuilValide.ok}
               className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors">
               {t('Suivant →', 'Next →', 'Siguiente →')}
             </button>

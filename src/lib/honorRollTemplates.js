@@ -12,7 +12,9 @@
 //     sort:   'score' | 'conduite' | 'absNJ',
 //     limit:  number | null,
 //     subjectName?: string,            // scope=subject (vide = toutes matières)
-//     filters: { minAvgPct?, maxRank?, gender?, classIds?, levels?, conduiteMin?, maxAbsNJ?, mentionIn? },
+//     filters: { minAvg20?, maxRank?, gender?, classIds?, levels?, conduiteMin?, maxAbsNJ?, mentionIn? },
+//       minAvg20 : seuil SUR 20 propre au modèle (vide = seuil de l'établissement). Les anciens
+//       modèles portent `minAvgPct` (%) : convertis à la lecture (core/honorSettings).
 //     personalization: { title, primaryColor, introText, congratsText, specialMention, columns[], orientation } }
 
 import { uuid } from './uuid';
@@ -37,8 +39,8 @@ export function presetTemplates() {
     mk({ name: "Tableau d'honneur par niveau", scope: 'level', limit: 10,
          personalization: p({ title: "Tableau d'honneur" }) }),
     mk({ name: "Tableau d'excellence", scope: 'school', limit: 15, layout: 'poster',
-         filters: { minAvgPct: 80 },
-         personalization: p({ title: "Tableau d'excellence", primaryColor: '#1d4ed8', introText: 'Moyenne ≥ 80 % du barème.' }) }),
+         filters: { minAvg20: 16 },
+         personalization: p({ title: "Tableau d'excellence", primaryColor: '#1d4ed8', introText: 'Moyenne ≥ 16/20.' }) }),
     mk({ name: 'Tableau des majors', scope: 'class', limit: 1, layout: 'certificate',
          filters: { maxRank: 1 },
          personalization: p({ title: 'Major de la classe', primaryColor: '#b45309' }) }),
@@ -46,7 +48,7 @@ export function presetTemplates() {
          personalization: p({ title: 'Meilleurs garçons', primaryColor: '#0369a1' }) }),
     mk({ name: 'Meilleures filles', scope: 'school', limit: 10, filters: { gender: 'F' },
          personalization: p({ title: 'Meilleures filles', primaryColor: '#be185d' }) }),
-    mk({ name: 'Élèves méritants', scope: 'school', limit: 20, filters: { minAvgPct: 70 },
+    mk({ name: 'Élèves méritants', scope: 'school', limit: 20, filters: { minAvg20: 14 },
          personalization: p({ title: 'Élèves méritants', primaryColor: '#15803d' }) }),
     mk({ name: 'Élèves disciplinés', scope: 'school', limit: 20, sort: 'conduite',
          filters: { conduiteMin: 16, maxAbsNJ: 0 },
@@ -141,3 +143,31 @@ export const SCOPES = [
   { value: 'subject', fr: 'Par matière', en: 'By subject', es: 'Por asignatura' },
 ];
 export const ALL_COLUMNS = ['rank', 'photo', 'name', 'class', 'avg', 'mention', 'conduite', 'gender'];
+
+// ── MODÈLES EN BASE (schools.honor_roll_templates) ────────────────────────────
+// Jusqu'au 2026-11-18, les modèles vivaient dans le localStorage d'UN navigateur :
+// invisibles depuis un autre poste, perdus avec le cache. Ils sont désormais
+// enregistrés sur l'établissement (synchronisé Cloud ↔ serveur d'école). Le
+// localStorage reste un CACHE de lecture, et la source de la reprise : au premier
+// passage d'un administrateur, les modèles de son navigateur sont recopiés en base.
+
+/** Modèles enregistrés sur l'établissement, ou null s'il n'y en a pas encore. */
+export function modelesDeLEcole(school) {
+  const v = school?.honor_roll_templates;
+  if (!v) return null;
+  try {
+    const list = typeof v === 'string' ? JSON.parse(v) : v;
+    return Array.isArray(list) && list.length ? list : null;
+  } catch { return null; }
+}
+
+/** Modèles à afficher : ceux de l'école s'il y en a (copiés dans le cache), sinon ceux du navigateur. */
+export function chargerModeles(school) {
+  const enBase = modelesDeLEcole(school);
+  if (enBase) { saveAll(school?.id, enBase); return listTemplates(school?.id); }
+  return listTemplates(school?.id);
+}
+
+export function serialiserModeles(list) {
+  return JSON.stringify(list || []);
+}

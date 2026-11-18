@@ -35,8 +35,15 @@ export function isBasicClass(cls) {
   if (!cls) return false;
   const sec = classSectionKey(cls);
   return sec === 'maternelle' || sec === 'primaire'
-    || (!!cls.cycle && cls.cycle !== 'secondaire');
+    || CYCLES_FONDAMENTAL.has(cls.cycle);
 }
+
+// Cycles du FONDAMENTAL. Avant 2026-11-18 le test était « tout cycle autre que
+// 'secondaire' » : une classe de 3e au cycle 'college' (ou 'lycee') sortait alors
+// sous MINEDUB — constaté sur le tableau d'honneur et le diplôme de la base de
+// démonstration. On ne retient plus que les cycles qui désignent vraiment le
+// fondamental ; la règle « 6eme au cycle primaire → MINEDUB » ci-dessus est gardée.
+const CYCLES_FONDAMENTAL = new Set(['maternelle', 'primaire']);
 
 // Documents qui ne visent AUCUNE classe en particulier (liste du personnel,
 // liste des souscripteurs d'un frais, tableau d'honneur de tout l'établissement).

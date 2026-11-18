@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useT } from '../lib/i18n';
 import { useAuthStore } from '../store/authStore';
@@ -6,8 +7,14 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useUiStore } from '../store/uiStore';
 import {
   listTemplates, upsertTemplate, duplicateTemplate, toggleTemplate, deleteTemplate, blankTemplate,
+  chargerModeles, modelesDeLEcole, serialiserModeles,
 } from '../lib/honorRollTemplates';
-import { applyTemplate, distinctLevels, distinctSubjectNames } from '../lib/honorRollEngine';
+import { applyTemplate, computeStudentRows, distinctLevels, distinctSubjectNames } from '../lib/honorRollEngine';
+import { lireReglagesHonneur, seuilDuModele, normaliserModele } from '../core/honorSettings';
+import { HONOR_PERIODS, libellePeriode } from '../core/honorPeriod';
+import { agregerVieScolaire } from '../core/vieScolaireBulletin';
+import { vieScolaire } from '../lib/vieScolaireService';
+import { useReportCtx } from '../lib/useReportCtx';
 import { buildHonorRollSheets } from '../lib/honorRollDoc';
 import { isBasicSchool } from '../lib/tutelle';
 import { printSheets, buildPrintDocument, PRINT_RESULT } from '../lib/transcriptDoc';
@@ -40,8 +47,33 @@ export default function HonorRoll() {
   const students = useSchoolStore((s) => s.students);
   const gradeMap = useSchoolStore((s) => s.gradeMap);
   const year     = school?.current_year || '';
+  const role     = useAuthStore((s) => s.role);
+  const isAdmin  = role === 'admin';
+  const updateSchool = useAuthStore((s) => s.updateSchool);
+  const academicPeriods = useSchoolStore((s) => s.academicPeriods);
+  const reportCtx = useReportCtx(school);
+  const reglages = useMemo(() => lireReglagesHonneur(school), [school]);
 
-  const [templates, setTemplates] = useState(() => listTemplates(schoolId));
+  // PÉRIODE du palmarès (séquence, trimestre, année) — mémorisée par poste.
+  const PK_KEY = `nc_honor_period_${schoolId || 'default'}`;
+  const [periodKey, setPeriodKeyRaw] = useState(() => { try { return localStorage.getItem(PK_KEY) || 'annual'; } catch { return 'annual'; } });
+  const setPeriodKey = (k) => { setPeriodKeyRaw(k); try { localStorage.setItem(PK_KEY, k); } catch { /* */ } };
+
+  // Sanctions de l'année (option « exclure les élèves sanctionnés »), rangées par date.
+  const [vsActions, setVsActions] = useState([]);
+  useEffect(() => {
+    if (!schoolId || !reglages.excludeSanctioned) { setVsActions([]); return undefined; }
+    let alive = true;
+    vieScolaire.actions.fetch(schoolId, { yearLabel: year }).then((rows) => { if (alive) setVsActions(rows || []); });
+    return () => { alive = false; };
+  }, [schoolId, year, reglages.excludeSanctioned]);
+  const vsAgg = useMemo(
+    () => (vsActions.length ? agregerVieScolaire({ actions: vsActions }, { periods: academicPeriods, year }) : null),
+    [vsActions, academicPeriods, year],
+  );
+
+  const [templates, setTemplates] = useState(() => chargerModeles(school));
+  const [persistErr, setPersistErr] = useState(null);
   const [editing,   setEditing]   = useState(null);
   const [preview,   setPreview]   = useState(null);
   const [pdfProg,   setPdfProg]   = useState(null);
@@ -62,9 +94,30 @@ export default function HonorRoll() {
 
   const levels    = useMemo(() => distinctLevels(classes), [classes]);
   const subjNames = useMemo(() => distinctSubjectNames(subjects), [subjects]);
-  const data = { school, classes, subjects, students, gradeMap };
+  // Lignes élèves de la période : calculées UNE fois (moyennes des rapports de classe) pour
+  // tous les modèles de la page. `indisponibles` : classes où la période n'existe pas.
+  const { lignes, indisponibles } = useMemo(() => {
+    const ind = [];
+    const l = computeStudentRows({ school, classes, subjects, students, gradeMap, reportCtx, periodKey, reglages, vsAgg, indisponibles: ind });
+    return { lignes: l, indisponibles: ind };
+  }, [school, classes, subjects, students, gradeMap, reportCtx, periodKey, reglages, vsAgg]);
+  const data = { school, classes, subjects, students, gradeMap, periodKey, reglages, lignes };
 
-  const refresh = () => setTemplates(listTemplates(schoolId));
+  // Les modèles sont enregistrés SUR L'ÉTABLISSEMENT (seul l'administrateur peut l'écrire ;
+  // le serveur le vérifie). Un autre rôle garde ses changements sur ce poste.
+  const persister = async (list) => {
+    if (!isAdmin || !updateSchool) return;
+    const res = await updateSchool({ honor_roll_templates: serialiserModeles(list) });
+    setPersistErr(res?.error ? String(res.error) : null);
+  };
+  const refresh = () => { const list = listTemplates(schoolId); setTemplates(list); persister(list); };
+
+  // REPRISE : l'école n'a encore aucun modèle en base → ceux de ce navigateur y sont recopiés
+  // (une fois, par un administrateur). Rien n'est effacé du navigateur.
+  useEffect(() => {
+    if (isAdmin && school && !modelesDeLEcole(school) && templates.length) persister(templates);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, schoolId]);
 
   // Stats par modèle (élèves concernés) + agrégats KPI (modèles actifs).
   const { perTpl, kpi } = useMemo(() => {
@@ -85,9 +138,9 @@ export default function HonorRoll() {
     });
     return { perTpl: map, kpi: { activeModels, students: activeStudents.size, classes: activeClasses.size } };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templates, classes, subjects, students, gradeMap]);
+  }, [templates, lignes]);
 
-  const sheetsFor = (tpl) => buildHonorRollSheets(tpl, applyTemplate(tpl, data, { t }), school, { year, basic: isBasicSchool(classes) });
+  const sheetsFor = (tpl) => buildHonorRollSheets(tpl, applyTemplate(tpl, data, { t }), school, { year, basic: isBasicSchool(classes), classes });
   const noData = (tpl) => { const s = sheetsFor(tpl); if (!s.length) { alert(t('Aucune donnée pour ce modèle.', 'No data for this template.', 'Sin datos.')); return null; } return s; };
 
   // Les documents individuels à encadrer (certificat / diplôme) passent par le
@@ -123,8 +176,9 @@ export default function HonorRoll() {
       bumpPdf(); markGen(tpl.id);
     } finally { setPdfProg(null); }
   };
-  const handleSave = (m) => { upsertTemplate(schoolId, m); setEditing(null); refresh(); };
-  const handleSaveAndPdf = (m) => { upsertTemplate(schoolId, m); setEditing(null); refresh(); handlePdf(m); };
+  // À l'enregistrement, un ancien seuil en % est réécrit sur 20 (normaliserModele).
+  const handleSave = (m) => { upsertTemplate(schoolId, normaliserModele(m)); setEditing(null); refresh(); };
+  const handleSaveAndPdf = (m) => { upsertTemplate(schoolId, normaliserModele(m)); setEditing(null); refresh(); handlePdf(m); };
 
   // ── Helpers d'affichage ────────────────────────────────────────────────────
   const iconOf = (tpl) => {
@@ -149,7 +203,9 @@ export default function HonorRoll() {
     else if (tpl.scope === 'subject') base = n ? `Top ${n} ${t('par matière', 'per subject', 'por asignatura')}` : t('Par matière', 'By subject', 'Por asignatura');
     else base = n ? `Top ${n} ${t("de l'établissement", 'of the school', 'del centro')}` : t("Classement de l'établissement", 'School ranking', 'Del centro');
     const extra = [];
-    if (f.minAvgPct) extra.push(`${t('Moy.', 'Avg', 'Media')} ≥ ${f.minAvgPct}%`);
+    // Toujours sur 20 : un ancien modèle en % est converti à la lecture (80 % → 16/20).
+    const seuilTpl = seuilDuModele(tpl, reglages);
+    extra.push(`${t('Moy.', 'Avg', 'Media')} ≥ ${String(seuilTpl).replace('.', ',')}/20${normaliserModele(tpl).filters.minAvg20 == null ? ` (${t('établissement', 'school', 'centro')})` : ''}`);
     if (f.conduiteMin) extra.push(`${t('Conduite', 'Conduct', 'Conducta')} ≥ ${f.conduiteMin}`);
     if (f.maxAbsNJ === 0) extra.push(t('0 absence injust.', '0 unexcused abs.', '0 faltas'));
     return base + (extra.length ? ' · ' + extra.join(' · ') : '');
@@ -259,6 +315,37 @@ export default function HonorRoll() {
         </div>
 
         {/* DASHBOARD */}
+        {/* PÉRIODE + SEUIL : tout ce que la page affiche et génère porte sur cette période. */}
+        <div className="bg-white rounded-2xl border border-slate-200/70 p-4 shadow-sm mb-6 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-slate-700 mr-1">{t('Période', 'Period', 'Periodo')} :</span>
+            {HONOR_PERIODS.map((p) => (
+              <button key={p.key} onClick={() => setPeriodKey(p.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${periodKey === p.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                {libellePeriode(p.key, lang === 'en' ? 'en' : 'fr')}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500">
+            {t("Seuil de l'établissement", 'School threshold', 'Umbral del centro')} : <strong className="text-slate-800">{String(reglages.minAvg).replace('.', ',')}/20</strong>
+            {reglages.levels.enc.on && <> · {t('Encouragements', 'Encouragements')} ≥ {String(reglages.levels.enc.min).replace('.', ',')}/20</>}
+            {reglages.levels.fel.on && <> · {t('Félicitations', 'Congratulations')} ≥ {String(reglages.levels.fel.min).replace('.', ',')}/20</>}
+            {reglages.excludeSanctioned && <> · {t('élèves sanctionnés exclus', 'sanctioned students excluded')}</>}
+            {isAdmin && <> · <Link to="/app/settings?tab=honneur" className="text-indigo-600 hover:underline">{t('Modifier', 'Change')}</Link></>}
+          </p>
+          {indisponibles.length > 0 && (
+            <p className="text-xs text-amber-700">
+              {t(`Pas de moyenne pour cette période dans ${indisponibles.length} classe(s) : `, `No average for this period in ${indisponibles.length} class(es): `)}
+              {[...new Set(indisponibles.map((x) => x.className))].slice(0, 8).join(', ')}
+              {indisponibles.some((x) => x.raison === 'apc_sequence' || x.raison === 'primaire_trimestres')
+                ? t(' — ces classes notent par trimestre : choisissez un trimestre ou l’année.', ' — these classes are graded by term: choose a term or the year.') : ''}
+            </p>
+          )}
+          {persistErr && (
+            <p className="text-xs text-red-600">{t('Modèles gardés sur ce poste : enregistrement sur l’établissement impossible', 'Templates kept on this device: could not save them to the school')} ({persistErr}).</p>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <KpiCard emoji="🏆" tone="bg-indigo-50" value={kpi.activeModels} label={t('Modèles actifs', 'Active templates', 'Plantillas activas')} />
           <KpiCard emoji="👨‍🎓" tone="bg-emerald-50" value={kpi.students} label={t('Élèves récompensés', 'Students rewarded', 'Alumnos premiados')} />

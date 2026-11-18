@@ -10,97 +10,106 @@
 // (`score = moyenne / barème`) pour classer équitablement FR(/20), EN(/100),
 // ES(/10|/20) dans un même tableau « établissement ».
 
-import { multiAvg, buildRanks, getAppreciation } from '../core/bulletinEngine';
-import { transcriptColumns } from './transcriptEngine';
 import { resolveCountryCode } from '../countries';
-import { gradingOpts, geGradeMax, classScale } from './useCountry';
+import { primaryPeriodMode } from './useCountry';
+import { resolveClassEngine } from '../core/engineResolver';
+import { computeClassReport } from './classReportRun';
+import { periodePourClasse } from '../core/honorPeriod';
+import { lireReglagesHonneur, normaliserModele, seuilDuModele, seuilAuBareme, versSur20, niveauAtteint } from '../core/honorSettings';
+import { surcoucheVieScolaire, cumulVieScolaire } from '../core/vieScolaireBulletin';
 
 // Conduite (lettres) → score /20 pour les seuils de filtrage.
 export const CONDUITE_SCORE = { TB: 20, B: 16, AB: 12, P: 8, M: 4 };
 
-// Séquences/évaluations d'une classe selon son système & le pays.
-function seqsFor(cls, cc) {
-  const sys = cls.system || 'FR';
-  const cycle = cls.cycle || 'secondaire';
-  return transcriptColumns(sys, cycle, cc).seqs;
-}
 
-// ── 1) Lignes élèves enrichies (moyenne annuelle, rang, mention, conduite…) ───
-// Renvoie une ligne par élève (hors maternelle), avec tout le nécessaire au
-// filtrage/tri, quel que soit le type de tableau.
-export function computeStudentRows({ school, classes, subjects, students, gradeMap }) {
+// ── 1) Lignes élèves enrichies (moyenne DE LA PÉRIODE, rang, niveau, conduite…) ──
+// Moyennes et rangs : ceux des RAPPORTS DE CLASSE (lib/classReportRun), donc du bulletin,
+// pour tout moteur — classique, collège APC, primaire MINEDUB. Avant (2026-11-18), seul le
+// moteur classique était lu, et toujours sur l'année entière.
+//
+// data : { school, classes, subjects, students, gradeMap,
+//          reportCtx,                // contexte des rapports (notes APC, primaire, masques…)
+//          periodKey,                // clé d'HONOR_PERIODS (défaut 'annual')
+//          reglages,                 // lireReglagesHonneur(school)
+//          vsAgg }                   // agregerVieScolaire(...) de l'école (facultatif)
+// Renvoie les lignes ; `data.indisponibles` (si fourni, tableau) reçoit les classes sautées.
+export function computeStudentRows(data) {
+  const { school, classes, students, gradeMap = {}, reportCtx, periodKey = 'annual', vsAgg = null } = data;
+  const reglages = data.reglages || lireReglagesHonneur(school);
   const cc = resolveCountryCode(school);
+  const isGE = cc === 'guinea_eq';
+  const primSeqMode = primaryPeriodMode(school) === 'sequences';
   const rows = [];
   classes.forEach((cls) => {
     if (cls.cycle === 'maternelle') return;
+    const engine = resolveClassEngine(school, cls);
+    const { period, raison } = periodePourClasse(periodKey, { engine, isGE, primSeqMode, apcReferentiel: reportCtx?.apcReferentiel });
+    if (!period) { data.indisponibles?.push({ classId: cls.id, className: cls.name, raison }); return; }
+    const rep = reportCtx ? computeClassReport(cls, period, reportCtx) : null;
+    if (!rep || rep.notReady) { if (rep?.notReady) data.indisponibles?.push({ classId: cls.id, className: cls.name, raison: 'donnees' }); return; }
     const sys = cls.system || 'FR';
-    const cycle = cls.cycle || 'secondaire';
-    const opts = gradingOpts(school, cycle);
-    const seqs = seqsFor(cls, cc);
-    const subs = subjects.filter((s) => s.class_id === cls.id);
+    const scaleMax = rep.maxScale || 20;
     const studs = students.filter((s) => s.class_id === cls.id);
-    if (!studs.length || !subs.length) return;
-
-    const ranked = buildRanks(studs, gradeMap, cls.id, seqs, subs, sys, {}, opts);
-    const scaleMax = classScale(cls, school);
+    // Vie scolaire de la période : registre (par date) + saisie du conseil (prioritaire).
+    const gm = vsAgg ? surcoucheVieScolaire(gradeMap, cls.id, vsDeClasse(vsAgg, studs)) : gradeMap;
+    const seqs = period.seqs || [];
     const lastSeq = seqs[seqs.length - 1];
 
-    ranked.forEach((s) => {
-      const avg = s.av;
-      const appr = avg != null ? getAppreciation(avg, school?.grade_scale, sys, geGradeMax(school)) : null;
-      const slot = gradeMap[`${cls.id}_${s.id}_${lastSeq}`] || {};
+    rep.studentResults.forEach((r) => {
+      const s = r.student;
+      const avg = r.avg == null ? null : Math.round(r.avg * 100) / 100;
+      const slot = gm[`${cls.id}_${s.id}_${lastSeq}`] || {};
       let absNJ = 0;
-      seqs.forEach((q) => {
-        const e = gradeMap[`${cls.id}_${s.id}_${q}`] || {};
-        const n = parseFloat(e.__abs_nj__);
-        if (!isNaN(n)) absNJ += n;
-      });
-      // Détail par matière (moyenne annuelle) — pour les modèles « diplôme ».
-      const breakdown = subs.map((subj) => {
-        const vals = seqs.map((q) => {
-          const v = (gradeMap[`${cls.id}_${s.id}_${q}`] || {})[subj.id];
-          const n = parseFloat(v);
-          return (v === 'ABS' || v == null || v === '' || isNaN(n)) ? null : n;
-        }).filter((x) => x !== null);
-        return { name: subj.name, max: subj.max, avg: vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100 : null };
-      });
+      seqs.forEach((q) => { const n = parseFloat((gm[`${cls.id}_${s.id}_${q}`] || {}).__abs_nj__); if (!isNaN(n)) absNJ += n; });
+      const vs = cumulVieScolaire(gm, cls.id, s.id, seqs);
       rows.push({
-        subjects: breakdown,
+        subjects: [],
         id: s.id, name: s.name, matricule: s.matricule || '', gender: s.gender || '',
         photo_url: s.photo_url || '',
-        classId: cls.id, className: cls.name, level: cls.level || '',
+        classId: cls.id, className: cls.name, level: cls.level || '', cycle: cls.cycle || '',
         filiere: cls.filiere || cls.serie || cls.stream || '',
         classSize: studs.length,
-        sys, scaleMax,
-        avg: avg == null ? null : Math.round(avg * 100) / 100,
+        sys, scaleMax, engine,
+        avg, avg20: versSur20(avg, scaleMax),
         score: avg == null ? -1 : avg / scaleMax,
-        rankInClass: avg == null ? null : parseInt(String(s.rankD), 10),
-        rankLabel: s.rankD,
-        mention: appr ? (appr.text || appr.txt || appr.g || '') : '',
-        mentionCol: appr?.col || '',
+        rankInClass: r.rank?.rankN ?? null,
+        rankLabel: r.rank?.rankD ?? '',
+        mention: r.appr ? (r.appr.text || r.appr.txt || r.appr.g || '') : '',
+        mentionCol: r.appr?.col || '',
         conduite: slot.__conduite__ || '',
         absNJ,
+        sanctionne: (vs.blameTravail + vs.blameConduite + vs.exclusions + vs.exclDef) > 0,
       });
     });
   });
   return rows;
 }
 
+// Ne garde du registre de vie scolaire que les élèves d'une classe.
+function vsDeClasse(vsAgg, studs) {
+  const ids = new Set(studs.map((s) => s.id));
+  return { byStudent: Object.fromEntries(Object.entries(vsAgg.byStudent || {}).filter(([id]) => ids.has(id))) };
+}
+
 // ── 2) Classement par matière (meilleurs résultats par matière) ───────────────
 // Regroupe par NOM de matière (fusionne les classes de même intitulé) ; chaque
 // élève est noté sur la moyenne annuelle de cette matière.
-export function computeSubjectRows({ school, classes, subjects, students, gradeMap }, subjectFilterName) {
+export function computeSubjectRows({ school, classes, subjects, students, gradeMap, periodKey = 'annual', indisponibles }, subjectFilterName) {
   const cc = resolveCountryCode(school);
+  const isGE = cc === 'guinea_eq';
   const bySubject = {}; // name → rows[]
   classes.forEach((cls) => {
     if (cls.cycle === 'maternelle') return;
     const sys = cls.system || 'FR';
-    const cycle = cls.cycle || 'secondaire';
-    const opts = gradingOpts(school, cycle);
-    const seqs = seqsFor(cls, cc);
+    // Moyenne PAR MATIÈRE : lue dans les notes de séquence, ce qui n'a de sens que pour
+    // le moteur classique. Les classes APC / primaire sont signalées, pas inventées.
+    const engine = resolveClassEngine(school, cls);
+    if (engine !== 'classic') { indisponibles?.push({ classId: cls.id, className: cls.name, raison: 'matiere_' + engine }); return; }
+    const { period } = periodePourClasse(periodKey, { engine, isGE });
+    if (!period) return;
+    const seqs = period.seqs;
     const subs = subjects.filter((s) => s.class_id === cls.id);
     const studs = students.filter((s) => s.class_id === cls.id);
-    const scaleMax = classScale(cls, school);
     subs.forEach((subj) => {
       if (subjectFilterName && subj.name.toLowerCase() !== subjectFilterName.toLowerCase()) return;
       const key = subj.name;
@@ -117,7 +126,8 @@ export function computeSubjectRows({ school, classes, subjects, students, gradeM
         bySubject[key].push({
           id: s.id, name: s.name, matricule: s.matricule || '', gender: s.gender || '',
           photo_url: s.photo_url || '', classId: cls.id, className: cls.name, level: cls.level || '',
-          sys, scaleMax, avg, score: avg / scaleMax, subjectMax: subj.max, subjectName: subj.name,
+          sys, scaleMax: Number(subj.max) || 20, avg, avg20: versSur20(avg, Number(subj.max) || 20),
+          score: avg / (Number(subj.max) || 20), subjectMax: subj.max, subjectName: subj.name,
         });
       });
     });
@@ -126,17 +136,26 @@ export function computeSubjectRows({ school, classes, subjects, students, gradeM
 }
 
 // ── 3) Filtres de sélection ───────────────────────────────────────────────────
-function passFilters(r, f = {}) {
+// Le SEUIL (sur 20) est ramené au barème de la classe de chaque élève. `ctx` :
+// { seuil, reglages } calculés une fois par modèle.
+function passFilters(r, f = {}, ctx = {}) {
   if (r.avg == null) return false;
-  if (f.minAvgPct != null && r.score * 100 < f.minAvgPct) return false;
-  if (f.maxRank != null && (r.rankInClass == null || r.rankInClass > f.maxRank)) return false;
+  if (ctx.seuil != null && r.avg < seuilAuBareme(ctx.seuil, r.scaleMax)) return false;
+  if (ctx.reglages?.excludeSanctioned && r.sanctionne) return false;
+  if (f.maxRank != null && f.maxRank !== '' && (r.rankInClass == null || r.rankInClass > f.maxRank)) return false;
   if (f.gender && r.gender !== f.gender) return false;
   if (f.classIds?.length && !f.classIds.includes(r.classId)) return false;
   if (f.levels?.length && !f.levels.includes(r.level)) return false;
-  if (f.conduiteMin != null && (CONDUITE_SCORE[r.conduite] || 0) < f.conduiteMin) return false;
-  if (f.maxAbsNJ != null && (r.absNJ || 0) > f.maxAbsNJ) return false;
+  if (f.conduiteMin != null && f.conduiteMin !== '' && (CONDUITE_SCORE[r.conduite] || 0) < f.conduiteMin) return false;
+  if (f.maxAbsNJ != null && f.maxAbsNJ !== '' && (r.absNJ || 0) > f.maxAbsNJ) return false;
   if (f.mentionIn?.length && !f.mentionIn.includes(r.mention)) return false;
   return true;
+}
+
+// Niveau de distinction (Tableau d'honneur / Encouragements / Félicitations) d'une ligne.
+function poserNiveau(r, ctx) {
+  r.honorLevel = niveauAtteint(r.avg20, ctx.seuil, ctx.reglages);
+  return r;
 }
 
 function groupKey(r, scope) {
@@ -158,15 +177,18 @@ function groupTitle(scope, key, t) {
 // ── 4) Application d'un modèle → groupes classés prêts à imprimer ──────────────
 // template : { scope, filters, sort, limit, subjectName? }
 // ctx      : { t } pour les titres traduits
-export function applyTemplate(template, data, ctx = {}) {
+export function applyTemplate(templateBrut, data, ctx = {}) {
   const t = ctx.t || ((fr) => fr);
+  const template = normaliserModele(templateBrut);       // ancien « % » → sur 20, en mémoire
   const { scope = 'school', filters = {}, limit = null, sort = 'score', subjectName } = template;
+  const reglages = data.reglages || lireReglagesHonneur(data.school);
+  const fctx = { reglages, seuil: seuilDuModele(template, reglages) };
 
   // Mode matière : un groupe par matière.
   if (scope === 'subject') {
     const bySubject = computeSubjectRows(data, subjectName);
     return Object.entries(bySubject).map(([name, rows]) => {
-      let rs = rows.filter((r) => passFilters(r, filters));
+      let rs = rows.filter((r) => passFilters(r, filters, { ...fctx, reglages: { ...reglages, excludeSanctioned: false } })).map((r) => poserNiveau(r, fctx));
       rs.sort((a, b) => b.score - a.score);
       rs = limit ? rs.slice(0, limit) : rs;
       rs.forEach((r, i) => { r.rank = i + 1; });
@@ -174,7 +196,10 @@ export function applyTemplate(template, data, ctx = {}) {
     }).filter((g) => g.rows.length);
   }
 
-  const all = computeStudentRows(data).filter((r) => passFilters(r, filters));
+  // `data.lignes` : lignes déjà calculées pour la période (une fois pour TOUS les modèles de
+  // la page) — copiées, car rang et niveau sont posés par modèle.
+  const base = data.lignes || computeStudentRows({ ...data, reglages });
+  const all = base.filter((r) => passFilters(r, filters, fctx)).map((r) => poserNiveau({ ...r }, fctx));
 
   // Regroupement.
   const groups = {};

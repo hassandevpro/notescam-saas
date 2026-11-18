@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from './Modal';
 import HonorAward, { awardSize, awardStyleFromTemplate } from './HonorAward';
 import { isBasicClass } from '../lib/tutelle';
+import { libelleNiveau } from '../core/honorSettings';
 import { imageToDataUrl } from '../lib/idCardService';
 import { exportIdCardsPdf } from '../lib/idCardPdf';
 import { getSchoolTheme } from '../lib/schoolTheme';
@@ -88,7 +89,10 @@ export default function HonorAwardModal({ open, onClose, rows = [], school, unit
   };
 
   const awardProps = (r) => ({
-    award: { ...r, photo_url: photoMap[r.id] ?? null },
+    // Mention = NIVEAU de distinction (Tableau d'honneur / Encouragements / Félicitations),
+    // jamais l'appréciation APC du bulletin (« En cours d'acquisition » sur un major).
+    award: { ...r, photo_url: photoMap[r.id] ?? null,
+      mention: r.honorLevel ? libelleNiveau(r.honorLevel, r.sys === 'EN' ? 'en' : 'fr') : r.mention },
     school: resolvedSchoolFor(r),
     style,
     countryCode,

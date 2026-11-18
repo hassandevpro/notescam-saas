@@ -8,6 +8,8 @@
 import { bulletinOfficials, resolveCountryCode } from '../countries';
 import { createDocumentScale, pageDimsPx } from './documentScale';
 import { sheetOpen, SHEET_CLOSE, esc, CLASS } from './print';
+import { isBasicClass } from './tutelle';
+import { libelleNiveau } from '../core/honorSettings';
 
 // Dimensionnement « standard » (listes A4 : table collective / affiche). Les
 // documents individuels (certificat / diplôme) passent par <HonorAward/> (prestige).
@@ -83,16 +85,24 @@ const COLS = {
   mention: { w: '20%', th: (sys) => L(sys, 'Mention', 'Remark', 'Apreciación'), align: 'center' },
   conduite:{ w: '12%', th: (sys) => L(sys, 'Conduite', 'Conduct', 'Conducta'), align: 'center' },
   gender:  { w: '10%', th: (sys) => L(sys, 'Sexe', 'Gender', 'Sexo'),     align: 'center' },
+  // Le modèle « Élèves disciplinés » demandait cette colonne, absente ici : le PDF
+  // plantait (« reading 'w' ») et rien ne sortait, sans message (audit 2026-11-18).
+  absNJ:   { w: '12%', th: (sys) => L(sys, 'Abs. injust.', 'Unjust. abs.', 'Faltas injust.'), align: 'center' },
 };
 
-function cellValue(col, r) {
+function cellValue(col, r, sys = "FR") {
   switch (col) {
     case 'rank':    return `${r.rank || r.rankLabel || ''}${r.rank === 1 ? ' 🏆' : ''}`;
     case 'photo':   return r.photo_url ? `<img src="${esc(r.photo_url)}" style="width:34px;height:34px;border-radius:50%;object-fit:cover" alt=""/>` : '';
     case 'name':    return esc(r.name);
     case 'class':   return esc(r.className);
     case 'avg':     return r.avg == null ? '—' : `${esc(r.avg)}/${esc(r.scaleMax)}`;
-    case 'mention': return `<span style="color:${esc(r.mentionCol || '#374151')};font-weight:600">${esc(r.mention || '—')}</span>`;
+    // La « mention » d'un tableau d'honneur est son NIVEAU de distinction, pas l'appréciation
+    // du bulletin (« Non acquis » s'imprimait sur un tableau d'honneur).
+    case 'mention': return r.honorLevel
+      ? `<span style="font-weight:600">${esc(libelleNiveau(r.honorLevel, sys === 'EN' ? 'en' : 'fr'))}</span>`
+      : `<span style="color:${esc(r.mentionCol || '#374151')};font-weight:600">${esc(r.mention || '—')}</span>`;
+    case 'absNJ':   return esc(r.absNJ ?? 0);
     case 'conduite':return esc(r.conduite || '—');
     case 'gender':  return esc(r.gender || '—');
     default:        return '';
@@ -109,7 +119,7 @@ export function tableSheet(school, year, p, group, sys) {
   const head = cols.map((c) => `<th style="${TH}${COLS[c].w ? `;width:${COLS[c].w}` : ''};text-align:${COLS[c].align}">${COLS[c].th(sys)}</th>`).join('');
   const body = group.rows.map((r) => `
     <tr style="${r.rank === 1 ? 'background:#fffbeb' : ''}">
-      ${cols.map((c) => `<td style="${CELL};text-align:${COLS[c].align};font-weight:${r.rank === 1 ? 'bold' : '500'}">${cellValue(c, r)}</td>`).join('')}
+      ${cols.map((c) => `<td style="${CELL};text-align:${COLS[c].align};font-weight:${r.rank === 1 ? 'bold' : '500'}">${cellValue(c, r, sys)}</td>`).join('')}
     </tr>`).join('');
 
   return `
@@ -326,7 +336,11 @@ export function diplomaSheet(school, year, p, row, sys) {
 // template.personalization = { title, primaryColor, introText, congratsText,
 //   specialMention, columns, orientation }
 // template.layout = 'table' | 'certificate' | 'poster'
-export function buildHonorRollSheets(template, groups, school, { year, basic = false } = {}) {
+export function buildHonorRollSheets(template, groups, school, { year, basic = false, classes = null } = {}) {
+  // Tutelle PAR GROUPE : MINEDUB seulement si toutes ses classes sont du fondamental. Une
+  // école mixte ne met plus MINEDUB sur le palmarès de sa 3e (audit 2026-11-18).
+  const byId = classes ? Object.fromEntries(classes.map((c) => [c.id, c])) : null;
+  const basicDe = (g) => (byId ? g.rows.length > 0 && g.rows.every((r) => isBasicClass(byId[r.classId])) : basic);
   const p = {
     basic,
     title: '', primaryColor: '#7c2d12', introText: '', congratsText: '', specialMention: '',
@@ -337,14 +351,15 @@ export function buildHonorRollSheets(template, groups, school, { year, basic = f
   const sheets = [];
   groups.forEach((g) => {
     const sys = g.rows[0]?.sys || 'FR';
+    const pg = { ...p, basic: basicDe(g) };
     if (layout === 'diploma') {
-      g.rows.forEach((r) => sheets.push(diplomaSheet(school, year, p, r, sys)));
+      g.rows.forEach((r) => sheets.push(diplomaSheet(school, year, pg, r, sys)));
     } else if (layout === 'certificate') {
-      g.rows.forEach((r) => sheets.push(certificateSheet(school, year, p, r, sys)));
+      g.rows.forEach((r) => sheets.push(certificateSheet(school, year, pg, r, sys)));
     } else if (layout === 'poster') {
-      sheets.push(posterSheet(school, year, p, g, sys));
+      sheets.push(posterSheet(school, year, pg, g, sys));
     } else {
-      sheets.push(tableSheet(school, year, p, g, sys));
+      sheets.push(tableSheet(school, year, pg, g, sys));
     }
   });
   return sheets;

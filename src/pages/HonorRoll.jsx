@@ -15,6 +15,9 @@ import { HONOR_PERIODS, libellePeriode } from '../core/honorPeriod';
 import { agregerVieScolaire } from '../core/vieScolaireBulletin';
 import { vieScolaire } from '../lib/vieScolaireService';
 import { useReportCtx } from '../lib/useReportCtx';
+import { pagesHonneur, preparerIdentites, visuelDuModele } from '../lib/honneur/rendu';
+import { exporterHonneurPdf } from '../lib/honneur/exportPdf';
+import HonneurApercu from '../components/honor/HonneurApercu';
 import { buildHonorRollSheets } from '../lib/honorRollDoc';
 import { isBasicSchool } from '../lib/tutelle';
 import { printSheets, buildPrintDocument, PRINT_RESULT } from '../lib/transcriptDoc';
@@ -72,6 +75,21 @@ export default function HonorRoll() {
     [vsActions, academicPeriods, year],
   );
 
+  // Identités (logo en data-URL + couleurs du logo), préparées une fois par logo distinct.
+  const teachers = useSchoolStore((s) => s.teachers);
+  const [identites, setIdentites] = useState(() => new Map());
+  useEffect(() => {
+    let vivant = true;
+    preparerIdentites(school, classes, schoolUnits).then((m) => { if (vivant) setIdentites(m); }).catch(() => {});
+    return () => { vivant = false; };
+  }, [school?.id, school?.logo_url, classes, schoolUnits]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Génération : toute l'école (défaut), une classe, ou un seul élève ; langue forcée facultative.
+  const [genClasse, setGenClasse] = useState('');
+  const [genEleve, setGenEleve] = useState('');
+  const [genLangue, setGenLangue] = useState('');
+  const [apercuNeuf, setApercuNeuf] = useState(null);   // { name, pages }
+
   const [templates, setTemplates] = useState(() => chargerModeles(school));
   const [persistErr, setPersistErr] = useState(null);
   const [editing,   setEditing]   = useState(null);
@@ -101,7 +119,22 @@ export default function HonorRoll() {
     const l = computeStudentRows({ school, classes, subjects, students, gradeMap, reportCtx, periodKey, reglages, vsAgg, indisponibles: ind });
     return { lignes: l, indisponibles: ind };
   }, [school, classes, subjects, students, gradeMap, reportCtx, periodKey, reglages, vsAgg]);
-  const data = { school, classes, subjects, students, gradeMap, periodKey, reglages, lignes };
+  const data = { school, classes, subjects, students, gradeMap, periodKey, reglages, lignes, schoolUnits, teachers, identites };
+  const pagesDe = (tpl) => pagesHonneur(tpl, applyTemplate(tpl, data, { t }), {
+    school, classes, schoolUnits, teachers, reglages, periodKey, identites,
+    classId: genClasse, studentId: genEleve, langForcee: genLangue,
+  });
+  const estNeuf = (tpl) => visuelDuModele(tpl, reglages, classes) !== 'ancien';
+  const nomFichier = (tpl) => `${tpl.name.toLowerCase().replace(/[^\p{L}\d]+/gu, '-')}-${periodKey}-${year}.pdf`;
+  const genererNeuf = async (tpl, mode = 'save') => {
+    const pages = pagesDe(tpl);
+    if (!pages.length) { alert(t('Aucun élève pour ce modèle sur cette période.', 'No student for this template in this period.', 'Sin datos.')); return; }
+    setPdfProg({ id: tpl.id, done: 0, total: pages.length });
+    try {
+      await exporterHonneurPdf(pages, { fileName: nomFichier(tpl), mode, onProgress: (done, total) => setPdfProg({ id: tpl.id, done, total }) });
+      bumpPdf(); markGen(tpl.id);
+    } finally { setPdfProg(null); }
+  };
 
   // Les modèles sont enregistrés SUR L'ÉTABLISSEMENT (seul l'administrateur peut l'écrire ;
   // le serveur le vérifie). Un autre rôle garde ses changements sur ce poste.
@@ -154,10 +187,16 @@ export default function HonorRoll() {
   };
 
   const handlePreview = (tpl) => {
+    if (estNeuf(tpl)) {
+      const pages = pagesDe(tpl);
+      if (!pages.length) { alert(t('Aucun élève pour ce modèle sur cette période.', 'No student for this template in this period.', 'Sin datos.')); return; }
+      setApercuNeuf({ tpl, pages }); return;
+    }
     if (isAwardLayout(tpl)) return openAward(tpl);
     const s = noData(tpl); if (s) setPreview({ name: tpl.name, html: buildPrintDocument(s.slice(0, 4), tpl.name), sheets: s });
   };
   const handlePrint = (tpl) => {
+    if (estNeuf(tpl)) return genererNeuf(tpl, 'open');
     if (isAwardLayout(tpl)) return openAward(tpl);
     const s = noData(tpl);
     if (!s) return;
@@ -168,6 +207,7 @@ export default function HonorRoll() {
     markGen(tpl.id);
   };
   const handlePdf = async (tpl) => {
+    if (estNeuf(tpl)) return genererNeuf(tpl, 'save');
     if (isAwardLayout(tpl)) return openAward(tpl);
     const s = noData(tpl); if (!s) return;
     setPdfProg({ id: tpl.id, done: 0, total: s.length });
@@ -341,6 +381,26 @@ export default function HonorRoll() {
                 ? t(' — ces classes notent par trimestre : choisissez un trimestre ou l’année.', ' — these classes are graded by term: choose a term or the year.') : ''}
             </p>
           )}
+          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+            <span className="text-sm font-semibold text-slate-700 mr-1">{t('Générer pour', 'Generate for', 'Generar para')} :</span>
+            <select className="form-input !w-auto text-sm" value={genClasse} onChange={(e) => { setGenClasse(e.target.value); setGenEleve(''); }}>
+              <option value="">{t("Tout l'établissement", 'Whole school', 'Todo el centro')}</option>
+              {classes.filter((c) => c.cycle !== 'maternelle').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {genClasse && (
+              <select className="form-input !w-auto text-sm" value={genEleve} onChange={(e) => setGenEleve(e.target.value)}>
+                <option value="">{t('Toute la classe', 'Whole class', 'Toda la clase')}</option>
+                {students.filter((s) => s.class_id === genClasse).sort((a, b) => a.name.localeCompare(b.name)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+            <select className="form-input !w-auto text-sm" value={genLangue} onChange={(e) => setGenLangue(e.target.value)}>
+              <option value="">{t('Langue : réglage', 'Language: setting', 'Idioma')}</option>
+              <option value="auto">{t('Langue de la classe', 'Class language')}</option>
+              <option value="bilingue">{t('Bilingue', 'Bilingual')}</option>
+              <option value="fr">Français</option>
+              <option value="en">English</option>
+            </select>
+          </div>
           {persistErr && (
             <p className="text-xs text-red-600">{t('Modèles gardés sur ce poste : enregistrement sur l’établissement impossible', 'Templates kept on this device: could not save them to the school')} ({persistErr}).</p>
           )}
@@ -436,6 +496,21 @@ export default function HonorRoll() {
               </div>
             </div>
             <iframe title="preview" srcDoc={preview.html} className="flex-1 w-full bg-slate-100" />
+          </div>
+        </div>
+      )}
+      {apercuNeuf && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setApercuNeuf(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+              <h3 className="font-bold text-slate-900">{apercuNeuf.tpl.name} — {apercuNeuf.pages.length} page(s)</h3>
+              <button onClick={() => setApercuNeuf(null)} className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+            </div>
+            <div className="overflow-auto p-5 bg-slate-100 flex-1"><HonneurApercu pages={apercuNeuf.pages} largeur={820} max={4} /></div>
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-100">
+              <button onClick={() => { const tpl = apercuNeuf.tpl; setApercuNeuf(null); genererNeuf(tpl, 'open'); }} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold">🖨 {t('Imprimer', 'Print', 'Imprimir')}</button>
+              <button onClick={() => { const tpl = apercuNeuf.tpl; setApercuNeuf(null); genererNeuf(tpl, 'save'); }} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold">{t('Télécharger le PDF', 'Download PDF', 'Descargar PDF')}</button>
+            </div>
           </div>
         </div>
       )}

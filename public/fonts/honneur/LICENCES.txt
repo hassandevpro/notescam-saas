@@ -1,0 +1,11 @@
+Polices des tableaux d'honneur NotesCam — téléchargées le 2026-11-19 depuis Google Fonts
+(jeux latin et latin-ext), embarquées pour fonctionner hors ligne.
+
+  Cinzel, Cinzel Decorative   © The Cinzel Project Authors (Natanael Gama)
+  Great Vibes                 © TypeSETit (Robert Leuschke)
+  Lora                        © The Lora Project Authors (Cyreal)
+  Poppins                     © Indian Type Foundry
+
+Toutes sous SIL Open Font License 1.1 : https://openfontlicense.org
+Usage, redistribution et intégration dans un logiciel autorisés ; vente seule des polices
+interdite ; les noms réservés ne s'appliquent qu'à des versions modifiées.

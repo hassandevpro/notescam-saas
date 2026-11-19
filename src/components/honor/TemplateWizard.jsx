@@ -2,6 +2,9 @@ import { useState, useMemo } from 'react';
 import { useT } from '../../lib/i18n';
 import { applyTemplate } from '../../lib/honorRollEngine';
 import { normaliserModele, lireReglagesHonneur, validerSeuil, SEUILS_PROPOSES } from '../../core/honorSettings';
+import { MODELES } from '../../lib/honneur/modeles';
+import { pagesHonneur, visuelDuModele, formatDuModele } from '../../lib/honneur/rendu';
+import HonneurApercu from './HonneurApercu';
 import { buildHonorRollSheets } from '../../lib/honorRollDoc';
 import { isBasicSchool } from '../../lib/tutelle';
 import { buildPrintDocument } from '../../lib/transcriptDoc';
@@ -92,6 +95,43 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
     } catch { return '__EMPTY__'; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, JSON.stringify(w), data.lignes, data.classes]);
+
+  // ── Rendu visuel (modèles 1 à 4) : mêmes pages que le PDF ──────────────────
+  const visuel = visuelDuModele(w, reglages, data.classes || []);
+  const format = formatDuModele(w);
+  const groupesApercu = useMemo(() => {
+    if (step < 3) return [];
+    try { return applyTemplate(w, data, { t }); } catch { return []; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, JSON.stringify({ s: w.scope, f: w.filters, l: w.limit, so: w.sort, n: w.subjectName }), data.lignes]);
+  const optsRendu = {
+    school: data.school, classes: data.classes || [], schoolUnits: data.schoolUnits || [], teachers: data.teachers || [],
+    reglages, periodKey: data.periodKey || 'annual', identites: data.identites || new Map(),
+  };
+  // Un élève d'exemple quand la période n'a encore aucun lauréat : l'aperçu ne reste pas vide.
+  const groupesOuExemple = useMemo(() => {
+    if (groupesApercu.some((g) => g.rows.length)) return groupesApercu;
+    const c = (data.classes || []).find((x) => x.cycle !== 'maternelle');
+    return c ? [{ title: c.name, rows: [{ id: '_ex', name: 'Ngono Prisca Larissa', className: c.name, classId: c.id, avg20: 14.25, avg: 14.25, rankInClass: 3, rank: 1, classSize: 41, honorLevel: 'th', sys: c.system }] }] : [];
+  }, [groupesApercu, data.classes]);
+  const miniatures = useMemo(() => {
+    if (step !== 3) return {};
+    const premier = groupesOuExemple.flatMap((g) => g.rows)[0];
+    const out = {};
+    for (const m of MODELES) {
+      try {
+        out[m.id] = pagesHonneur({ ...w, personalization: { ...w.personalization, visuel: m.id, format: 'certificat' } },
+          groupesOuExemple, { ...optsRendu, studentId: premier?.id || '' })[0] || null;
+      } catch { out[m.id] = null; }
+    }
+    return out;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, groupesOuExemple, JSON.stringify(w.personalization), data.identites]);
+  const pagesApercu = useMemo(() => {
+    if (step < 3 || visuel === 'ancien') return [];
+    try { return pagesHonneur(w, groupesOuExemple, optsRendu); } catch { return []; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, groupesOuExemple, JSON.stringify(w), data.identites, visuel]);
 
   const topOptions = [3, 5, 10, 20];
   const isCustomTop = w.limit != null && !topOptions.includes(w.limit);
@@ -256,10 +296,56 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
           {step === 3 && (
             <div className="space-y-4">
               <div>
+                <p className="form-label">{t('Modèle visuel', 'Visual design', 'Diseño')}</p>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  {MODELES.map((m) => (
+                    <button key={m.id} onClick={() => setP('visuel', m.id)}
+                      className={'rounded-xl border-2 p-2 text-left transition-colors ' + (visuel === m.id ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300')}>
+                      {miniatures[m.id] ? <HonneurApercu pages={[miniatures[m.id]]} largeur={180} max={1} /> : <div className="h-24 bg-slate-100 rounded" />}
+                      <div className="text-sm font-semibold text-slate-800 mt-1.5">{m.id}. {t(m.fr, m.en)}</div>
+                    </button>
+                  ))}
+                </div>
+                <label className="mt-2 inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+                  <input type="checkbox" checked={visuel === 'ancien'} onChange={(e) => setP('visuel', e.target.checked ? 'ancien' : null)} />
+                  {t('Ancien rendu (tableau simple, sans modèle visuel)', 'Former layout (plain table, no visual design)')}
+                </label>
+              </div>
+              {visuel !== 'ancien' && (
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="form-label">{t('Format', 'Format')}</label>
+                    <select className="form-input" value={format} onChange={(e) => setP('format', e.target.value)}>
+                      <option value="certificat">{t('Certificat individuel (A4 paysage)', 'Individual certificate (A4 landscape)')}</option>
+                      <option value="palmares">{t('Palmarès collectif (A4 portrait)', 'Honour list (A4 portrait)')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">{t('Langue', 'Language')}</label>
+                    <select className="form-input" value={p.lang || ''} onChange={(e) => setP('lang', e.target.value || undefined)}>
+                      <option value="">{t("Réglage de l'établissement", 'School setting')}</option>
+                      <option value="auto">{t('Automatique (langue de la classe)', 'Automatic (class language)')}</option>
+                      <option value="bilingue">{t('Bilingue FR + EN', 'Bilingual FR + EN')}</option>
+                      <option value="fr">{t('Français uniquement', 'French only')}</option>
+                      <option value="en">{t('Anglais uniquement', 'English only')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="form-label">{t('Couleurs', 'Colours')}</label>
+                    <div className="flex items-center gap-2">
+                      <input type="color" title={t('Couleur principale', 'Main colour')} className="w-9 h-9 rounded cursor-pointer" value={p.colors?.primaire || '#16306b'} onChange={(e) => setP('colors', { ...(p.colors || {}), primaire: e.target.value })} />
+                      <input type="color" title={t('Or / accent', 'Gold / accent')} className="w-9 h-9 rounded cursor-pointer" value={p.colors?.accent || '#c9a227'} onChange={(e) => setP('colors', { ...(p.colors || {}), accent: e.target.value })} />
+                      {p.colors && <button onClick={() => setP('colors', undefined)} className="text-xs text-slate-500 underline">{t('Couleurs du logo', 'Logo colours')}</button>}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div>
                 <label className="form-label">{t('Titre imprimé', 'Printed title', 'Título')}</label>
                 <input className="form-input max-w-md" value={p.title || ''} onChange={(e) => setP('title', e.target.value)} />
               </div>
-              <div>
+              {/* Couleur de l'ANCIEN rendu seulement ; les modèles visuels ont leurs « Couleurs » ci-dessus. */}
+              <div style={visuel === 'ancien' ? undefined : { display: 'none' }}>
                 <p className="form-label">{t('Couleur', 'Color', 'Color')}</p>
                 <div className="flex flex-wrap items-center gap-2">
                   {PALETTES.map((pal) => (
@@ -275,9 +361,12 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
                 </div>
               </div>
               <div className="grid sm:grid-cols-2 gap-3">
-                <div><label className="form-label">{t("Texte d'introduction", 'Intro text', 'Introducción')}</label><input className="form-input" value={p.introText || ''} onChange={(e) => setP('introText', e.target.value)} /></div>
-                <div><label className="form-label">{t('Texte de félicitations', 'Congrats text', 'Felicitación')}</label><input className="form-input" value={p.congratsText || ''} onChange={(e) => setP('congratsText', e.target.value)} /></div>
-                <div className="sm:col-span-2"><label className="form-label">{t('Mention spéciale', 'Special mention', 'Mención')}</label><input className="form-input" value={p.specialMention || ''} onChange={(e) => setP('specialMention', e.target.value)} /></div>
+                <div><label className="form-label">{t("Texte d'introduction (FR)", 'Intro text (FR)', 'Introducción')}</label><input className="form-input" placeholder="Décerné à" value={p.introText || ''} onChange={(e) => setP('introText', e.target.value)} /></div>
+                <div><label className="form-label">{t("Texte d'introduction (EN)", 'Intro text (EN)')}</label><input className="form-input" placeholder="Awarded to" value={p.introTextEn || ''} onChange={(e) => setP('introTextEn', e.target.value)} /></div>
+                <div><label className="form-label">{t('Texte de félicitations (FR)', 'Congrats text (FR)', 'Felicitación')}</label><input className="form-input" placeholder={t('vide = texte par défaut', 'empty = default text')} value={p.congratsText || ''} onChange={(e) => setP('congratsText', e.target.value)} /></div>
+                <div><label className="form-label">{t('Texte de félicitations (EN)', 'Congrats text (EN)')}</label><input className="form-input" placeholder={t('vide = texte par défaut', 'empty = default text')} value={p.congratsTextEn || ''} onChange={(e) => setP('congratsTextEn', e.target.value)} /></div>
+                <div><label className="form-label">{t('Mention spéciale (FR)', 'Special mention (FR)', 'Mención')}</label><input className="form-input" value={p.specialMention || ''} onChange={(e) => setP('specialMention', e.target.value)} /></div>
+                <div><label className="form-label">{t('Mention spéciale (EN)', 'Special mention (EN)')}</label><input className="form-input" value={p.specialMentionEn || ''} onChange={(e) => setP('specialMentionEn', e.target.value)} /></div>
               </div>
               <p className="text-xs text-slate-400">{t('Le logo, les signatures et le tampon de l\'établissement (Paramètres) sont ajoutés automatiquement.', 'School logo, signatures and stamp (Settings) are added automatically.', 'El logo y sellos del centro se añaden automáticamente.')}</p>
             </div>
@@ -309,7 +398,9 @@ export default function TemplateWizard({ tpl, data, levels = [], subjectNames = 
               </div>
               <div className="rounded-xl border border-slate-200 overflow-hidden bg-slate-100 min-h-[300px] flex flex-col">
                 <div className="px-3 py-1.5 text-xs font-semibold text-slate-500 bg-white border-b border-slate-100">{t('Aperçu en temps réel', 'Live preview', 'Vista en vivo')}</div>
-                {previewHtml === '__EMPTY__' || !previewHtml ? (
+                {visuel !== 'ancien' ? (
+                  <div className="p-3 overflow-auto max-h-[60vh]"><HonneurApercu pages={pagesApercu} largeur={420} max={2} /></div>
+                ) : previewHtml === '__EMPTY__' || !previewHtml ? (
                   <div className="flex-1 flex items-center justify-center text-sm text-slate-400 p-6 text-center">{t('Aucune donnée à afficher (notes manquantes ou critères trop stricts).', 'No data to show (missing grades or strict criteria).', 'Sin datos.')}</div>
                 ) : (
                   <iframe title="live" srcDoc={previewHtml} className="flex-1 w-full bg-white" />

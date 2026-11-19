@@ -11,6 +11,7 @@ import { useAuthStore } from '../../store/authStore';
 import {
   lireReglagesHonneur, serialiserOptions, validerSeuil, SEUILS_PROPOSES, SEUIL_DEFAUT,
 } from '../../core/honorSettings';
+import { MODELES } from '../../lib/honneur/modeles';
 
 const virgule = (n) => String(n).replace('.', ',');
 
@@ -27,6 +28,8 @@ export default function HonorSettingsPanel() {
   const [fel, setFel] = useState({ on: init.levels.fel.on, min: virgule(init.levels.fel.min) });
   const [excl, setExcl] = useState(init.excludeSanctioned);
   const [langue, setLangue] = useState(init.lang);
+  const [design, setDesign] = useState(init.design || '');
+  const [couleurs, setCouleurs] = useState(init.colors || null);
   const [etat, setEtat] = useState(null);   // { ok } | { erreur }
 
   const vSeuil = validerSeuil(seuil);
@@ -46,6 +49,8 @@ export default function HonorSettingsPanel() {
       levels: { enc: { on: enc.on, min: vEnc.ok && enc.on ? vEnc.valeur : init.levels.enc.min },
                 fel: { on: fel.on, min: vFel.ok && fel.on ? vFel.valeur : init.levels.fel.min } },
       excludeSanctioned: excl, lang: langue,
+      design: design ? Number(design) : null,
+      colors: couleurs && (couleurs.primaire || couleurs.accent) ? couleurs : null,
     });
     const res = await updateSchool({ honor_min_avg: vSeuil.valeur, honor_options: options });
     if (res?.error) {
@@ -114,6 +119,24 @@ export default function HonorSettingsPanel() {
           <option value="fr">{t('Français uniquement', 'French only')}</option>
           <option value="en">{t('Anglais uniquement', 'English only')}</option>
         </select>
+      </section>
+
+      <section className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+        <h3 className="font-semibold text-slate-900">{t('Modèle visuel et couleurs', 'Visual design and colours')}</h3>
+        <div className="flex flex-wrap items-center gap-3">
+          <select className="form-input max-w-xs" value={design} disabled={!isAdmin} onChange={(e) => setDesign(e.target.value)}>
+            <option value="">{t('Automatique — 4 au primaire, 1 au secondaire', 'Automatic — 4 for primary, 1 for secondary')}</option>
+            {MODELES.map((m) => <option key={m.id} value={m.id}>{m.id}. {t(m.fr, m.en)}</option>)}
+          </select>
+        </div>
+        <p className="text-sm text-slate-500">{t("Sans couleur réglée, les couleurs sont extraites du logo. Un logo noir et blanc donne un rendu terne : choisissez alors vos couleurs ici.", 'Without set colours, they are taken from the logo. A black-and-white logo looks dull: choose your colours here.')}</p>
+        <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
+          <label className="flex items-center gap-2">{t('Principale', 'Main')}
+            <input type="color" disabled={!isAdmin} className="w-9 h-9 rounded cursor-pointer" value={couleurs?.primaire || '#16306b'} onChange={(e) => setCouleurs({ ...(couleurs || {}), primaire: e.target.value })} /></label>
+          <label className="flex items-center gap-2">{t('Or / accent', 'Gold / accent')}
+            <input type="color" disabled={!isAdmin} className="w-9 h-9 rounded cursor-pointer" value={couleurs?.accent || '#c9a227'} onChange={(e) => setCouleurs({ ...(couleurs || {}), accent: e.target.value })} /></label>
+          {couleurs && isAdmin && <button onClick={() => setCouleurs(null)} className="text-xs text-slate-500 underline">{t('Revenir aux couleurs du logo', 'Back to logo colours')}</button>}
+        </div>
       </section>
 
       {isAdmin ? (

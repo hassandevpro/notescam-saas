@@ -149,3 +149,25 @@ test('trimestre : un seul élève noté — accord singulier, aucune division pa
   const t = texte(rendre({ sys: 'FR', classStats: { min: 17.78, max: 17.78, avg: 17.78, count: 1, reussis: 1, echoues: 0, rate: 100 }, repartition: [] }));
   assert.ok(t.includes('1 élève noté') && !t.includes('1 élèves'));
 });
+
+// ── SIGNATURE DU BAS : « Chef d'établissement » sauf école à directeur par section ──
+const signe = (sch, sys) => texte(rendre({ school: { ...school, director: 'Mme ETOA Chantal', ...sch }, sys })).replace(/&#x27;/g, "'");
+
+test('signature : école globale FR → « Le Chef d’établissement », le nom reste dessous', () => {
+  const t = signe({ bulletin_bilingual: 0 }, 'FR');
+  assert.match(t, /Le Chef d'établissement/); assert.doesNotMatch(t, /Directeur/);
+  assert.match(t, /Mme ETOA Chantal/);
+});
+
+test('signature : école globale EN → Head of School ; bilingue → libellé FR / EN', () => {
+  assert.match(signe({ bulletin_bilingual: 0 }, 'EN'), /Head of School/);
+  const bil = signe({ bulletin_bilingual: 1 }, 'FR');
+  assert.match(bil, /Chef d'établissement \/ Head of School/);
+});
+
+test('signature : directeur par section (Genius) → inchangé, avec le nom de la section', () => {
+  const t = signe({ director_per_section: 1, director: 'M. NJOYA Blaise' }, 'FR');
+  assert.match(t, /Le Directeur \/ La Directrice/); assert.doesNotMatch(t, /Chef d'établissement/);
+  assert.match(t, /M\. NJOYA Blaise/);
+  assert.match(signe({ director_per_section: true }, 'EN'), /The Head Teacher/);
+});

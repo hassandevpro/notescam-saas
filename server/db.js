@@ -1088,6 +1088,7 @@ ensureColumn('budget_chapters', 'level', 'level TEXT'); // hiérarchie budget : 
 // minesec/minedub/apc… rétro-compatibles). Absente du schéma LAN d'origine → le
 // choix « Officiel Cameroun » n'était jamais persisté (avalé par pickColumns).
 ensureColumn('schools',  'bulletin_engine', "bulletin_engine TEXT NOT NULL DEFAULT 'classic'");
+ensureColumn('schools',  'director_per_section', 'director_per_section INTEGER NOT NULL DEFAULT 0'); // signature du bulletin : 1 = directeur par section, 0 = chef d'établissement
 ensureColumn('schools',  'apc_bulletin_cols', 'apc_bulletin_cols TEXT'); // colonnes du bulletin APC premier cycle (JSON)
 // Nombre d'évaluations par matière au premier cycle (JSON : { "<classe>|<matière>": 3 }).
 // Liste d'EXCEPTIONS : vide par défaut, le nombre étant déduit du nombre de

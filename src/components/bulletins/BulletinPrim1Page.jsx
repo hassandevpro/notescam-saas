@@ -33,6 +33,7 @@ import { L, fix2, genderLabel } from './bulletinOfficialParts';
 import { headTeacherLabel, headTeacherCount } from '../../lib/headTeachers';
 import { groupesDe, reperesDeGroupe } from '../../core/primCompactRows';
 import { PRIM_GRADE_MAX, PRIM_COTE_DEFAULT } from '../../core/primEngine';
+import { titreSignatureDirection } from '../../lib/signatureTitle';
 import { primCoteLabel } from '../../core/referentielI18n';
 
 // Marqueur de version du gabarit : posé dans le DOM (data-gabarit), dans le pied
@@ -320,7 +321,8 @@ export default function BulletinPrim1Page({
   const tel = student?.parent_phone ? ` (${student.parent_phone})` : '';
   const ppLbl = headTeacherLabel(headTeacherCount(profPrincipal), sys, { basic: true });
   const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
-  const headLabel = sys === 'EN' ? 'The Head Teacher' : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
+  // « Chef d'établissement » (bilingue si l'en-tête l'est), sauf école à directeur par section : voir lib/signatureTitle.js
+  const headLabel = titreSignatureDirection(school, sys, { bilingue: !!bulletinOfficials(school, { basic: true, sys })?.bilingual });
   const lbl = (b) => <span style={{ color: '#555' }}>{b}</span>;
 
   const coteLib = bareme.find((b) => b.cote === coteGenerale);

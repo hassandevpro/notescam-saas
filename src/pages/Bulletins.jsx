@@ -97,6 +97,7 @@ import { bilRefKeyForClass, enrichBilSubjects } from '../lib/bilAutoConfig';
 import { perSubjectRanksAndStats, classProfile } from '../lib/scBulletinPdf';
 import { teacherByMatiere as teacherByMatiereMap, teacherIndexById } from '../lib/teacherNames';
 import { resolveCountryCode, bulletinOfficials } from '../countries';
+import { titreSignatureDirection } from '../lib/signatureTitle';
 import { gradingOpts, geGradeMax, primaryPeriodMode } from '../lib/useCountry';
 import { bulletinFontFamily } from '../lib/schoolTheme';
 import { buildCardId, qrDataUrl } from '../lib/idCardService';
@@ -480,7 +481,7 @@ function BulletinClassic({
   };
 
   const teacherLabel = basic ? (sys === 'EN' ? 'The Class Teacher' : "L'Enseignant(e)") : undefined;
-  const headLabel    = basic ? (sys === 'EN' ? 'The Head Teacher'  : 'Le Directeur / La Directrice') : undefined;
+  const headLabel    = basic ? titreSignatureDirection(school, sys, { bilingue: !!bulletinOfficials(school, { basic: true, sys })?.bilingual }) : undefined;
   // Libellé ACCORDÉ au nombre : « P. principaux » dès qu'ils sont deux. Sans
   // cela, le bulletin porterait « P. principal : MBARGA Paul · NGONO Marie ».
   const ppCount      = headTeacherNames(cls, teachers).length;

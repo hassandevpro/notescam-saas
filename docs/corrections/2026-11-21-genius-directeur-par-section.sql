@@ -1,0 +1,17 @@
+-- THE GENIUS : GARDER « DIRECTEUR / DIRECTRICE » SOUS LA SIGNATURE DU BULLETIN
+--
+-- Depuis la 0.3.48, les écoles signent « Chef d'établissement » par défaut. The Genius a un directeur
+-- PAR SECTION (maternelle, primaire, secondaire) et garde son titre : drapeau explicite
+-- `schools.director_per_section` (défaut 0). Responsable : « oui Genius pour le drapeau » (2026-11-21).
+--
+-- NE PAS EXÉCUTER avant la livraison de la version qui porte la colonne (le serveur LAN la crée au
+-- démarrage ; sur Cloud : migration 20260807090000). Sans ce script, Genius signerait « Chef
+-- d'établissement » dès l'installation.
+--
+-- LAN (Linux, base de Genius)  : sqlite3 notescam.db < ce_fichier.sql   (après un premier démarrage)
+-- Cloud                        : après la migration, l'exécuter dans l'éditeur SQL.
+-- Retour arrière               : UPDATE schools SET director_per_section = 0 WHERE name LIKE '%GENIUS%';
+-- Vérification (lecture seule) : SELECT id, name, director_per_section FROM schools;
+-- LAN (SQLite) :
+UPDATE schools SET director_per_section = 1 WHERE upper(name) LIKE '%GENIUS%';
+-- Cloud (Postgres, colonne booléenne) : même requête avec  = true  au lieu de  = 1.

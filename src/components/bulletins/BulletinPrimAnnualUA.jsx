@@ -14,6 +14,8 @@
 //     uas      = [{ ua, trimestre, notesByCritere, achieved, possible, cote }]  (sous-ensemble borné à la période)
 
 import { Fragment } from 'react';
+import { bulletinOfficials } from '../../countries';
+import { titreSignatureDirection } from '../../lib/signatureTitle';
 import {
   mkCellVar, mkTHVar, fix2, L,
   OfficialHeader, OfficialIdentityBand, OfficialSignatures, OfficialSheet,
@@ -180,7 +182,7 @@ export default function BulletinPrimAnnualUA({
   const th   = { ...mkTHVar(), background: PRIM_TH_BG, color: PRIM_TH_TXT, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' };
 
   const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
-  const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
+  const headLabel    = titreSignatureDirection(school, sys, { bilingue: !!bulletinOfficials(school, { basic: true, sys })?.bilingual });
   // Accord au nombre : deux enseignants principaux -> « Enseignant(e)s ».
   const ppLabel      = headTeacherLabel(headTeacherCount(profPrincipal), sys, { basic: true });
 

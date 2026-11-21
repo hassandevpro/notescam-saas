@@ -38,6 +38,8 @@ import { FOND_COTE_COLORS } from './fondamentalTheme';
 // choisi obtient le vert par défaut, et celle qui a choisi une couleur la retrouve sur les deux bulletins.
 import { teintesDeLEcole } from '../../core/bulletinAccent';
 import MatVisage from './MatEmojis';
+import { bulletinOfficials } from '../../countries';
+import { titreSignatureDirection } from '../../lib/signatureTitle';
 import { MatIdentite, MatDomainesEnfantin, MatRemarques } from './BulletinMatEnfantin';
 import { MAT_NIVEAU_TEXTE, MAT_FORMAT_ENFANTIN } from '../../core/matBulletin';
 
@@ -86,7 +88,7 @@ export default function BulletinMatOfficial({
 
   // Fondamental MINEDUB : enseignant(e) titulaire + directeur/directrice (jamais professeur principal / proviseur).
   const teacherLabel = sys === 'EN' ? 'The Class Teacher' : sys === 'ES' ? 'El Maestro / La Maestra' : "L'Enseignant(e)";
-  const headLabel    = sys === 'EN' ? 'The Head Teacher'  : sys === 'ES' ? 'El Director / La Directora' : 'Le Directeur / La Directrice';
+  const headLabel    = titreSignatureDirection(school, sys, { bilingue: !!bulletinOfficials(school, { basic: true, sys })?.bilingual });
   const ppLabel      = headTeacherLabel(headTeacherCount(profPrincipal), sys, { basic: true });
 
   if (enfantin) {

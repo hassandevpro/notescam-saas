@@ -88,5 +88,38 @@ ok(noms(applyTemplate(tpl, data('term_1', { vsAgg: sanc }))).includes('BELLO'), 
 ok(!noms(applyTemplate(tpl, data('term_1', { vsAgg: sanc, school: { ...school, honor_options: '{"excludeSanctioned":true}' } }))).includes('BELLO'),
   'option activée : élève blâmé écarté');
 
+console.log('Égalités et classe vide');
+{
+  const cls = [{ id: 'k1', name: '3e A', level: '3e', cycle: 'college', system: 'FR' },
+    { id: 'k2', name: 'Form 3', level: 'Form 3', cycle: 'college', system: 'EN' },
+    { id: 'k3', name: '3e B', level: '3e', cycle: 'college', system: 'FR' }];          // classe VIDE
+  const subs = [{ id: 'n1', class_id: 'k1', name: 'Maths', coef: 1, max: 20 }, { id: 'n2', class_id: 'k2', name: 'Maths', coef: 1, max: 100 },
+    { id: 'n3', class_id: 'k3', name: 'Maths', coef: 1, max: 20 }];
+  const studs = [{ id: 'p', class_id: 'k1', name: 'PAUL' }, { id: 'q', class_id: 'k1', name: 'QUENTIN' },
+    { id: 'r', class_id: 'k1', name: 'ROSE' }, { id: 's', class_id: 'k1', name: 'SALIF' }, { id: 'u', class_id: 'k2', name: 'UMAR' }];
+  const gm = { k1_p_1: { n1: '16' }, k1_q_1: { n1: '14.5' }, k1_r_1: { n1: '14.5' }, k1_s_1: { n1: '13' }, k2_u_1: { n2: '72.5' } };
+  const d = { school, classes: cls, subjects: subs, students: studs, gradeMap: gm,
+    reportCtx: { school, schoolUnits: [], students: studs, subjects: subs, gradeMap: gm }, periodKey: 'seq_1' };
+  const rangs = (gs) => gs.flatMap((g) => g.rows.map((r) => `${r.name}:${r.rank}`)).join(',');
+
+  const parClasse = applyTemplate({ scope: 'class', sort: 'score', limit: null, filters: {} }, d);
+  const a3 = parClasse.find((g) => g.rows.some((r) => r.name === 'PAUL'));
+  ok(rangs([a3]) === 'PAUL:1,QUENTIN:2,ROSE:2,SALIF:4', 'ex-aequo : 1, 2, 2, 4 (et non 1, 2, 3, 4)', rangs([a3]));
+  ok(a3.rows.every((r) => r.rank === r.rankInClass), 'le palmarès et le certificat (rang du bulletin) disent le même rang',
+    a3.rows.map((r) => [r.name, r.rank, r.rankInClass]));
+
+  const top2 = applyTemplate({ scope: 'class', sort: 'score', limit: 2, filters: {} }, d).find((g) => g.rows.some((r) => r.name === 'PAUL'));
+  ok(rangs([top2]) === 'PAUL:1,QUENTIN:2,ROSE:2', '« les 2 premiers » garde l’ex-aequo du 2e', rangs([top2]));
+
+  const ecole = applyTemplate({ scope: 'school', sort: 'score', limit: null, filters: {} }, d);
+  const er = Object.fromEntries(ecole.flatMap((g) => g.rows).map((r) => [r.name, r.rank]));
+  ok(er.QUENTIN === er.UMAR && er.ROSE === er.UMAR, '14,5/20 et 72,5/100 : même rang dans l’établissement', er);
+
+  ok(!parClasse.some((g) => /3e B/.test(g.title)), 'classe vide : aucun groupe, aucun plantage', parClasse.map((g) => g.title));
+  let vide = null;
+  try { vide = applyTemplate({ scope: 'school', sort: 'score', limit: null, filters: {} }, { ...d, students: [], reportCtx: { ...d.reportCtx, students: [] } }); } catch (e) { vide = e; }
+  ok(Array.isArray(vide) && vide.length === 0, 'école sans élève : liste vide, pas d’erreur', String(vide));
+}
+
 if (fails) { console.error(`\n${fails} échec(s)`); process.exit(1); }
 console.log('\nOK');

@@ -7,7 +7,7 @@ import { useSchoolStore } from '../store/schoolStore';
 import { useUiStore } from '../store/uiStore';
 import {
   listTemplates, upsertTemplate, duplicateTemplate, toggleTemplate, deleteTemplate, blankTemplate,
-  chargerModeles, modelesDeLEcole, serialiserModeles,
+  chargerModeles, modelesDeLEcole, serialiserModeles, orphelinsLocaux, marquerVerse,
 } from '../lib/honorRollTemplates';
 import { applyTemplate, computeStudentRows, distinctLevels, distinctSubjectNames } from '../lib/honorRollEngine';
 import { lireReglagesHonneur, seuilDuModele, normaliserModele } from '../core/honorSettings';
@@ -139,16 +139,27 @@ export default function HonorRoll() {
   // Les modèles sont enregistrés SUR L'ÉTABLISSEMENT (seul l'administrateur peut l'écrire ;
   // le serveur le vérifie). Un autre rôle garde ses changements sur ce poste.
   const persister = async (list) => {
-    if (!isAdmin || !updateSchool) return;
+    if (!isAdmin || !updateSchool) return false;
     const res = await updateSchool({ honor_roll_templates: serialiserModeles(list) });
     setPersistErr(res?.error ? String(res.error) : null);
+    return !res?.error;
   };
   const refresh = () => { const list = listTemplates(schoolId); setTemplates(list); persister(list); };
 
-  // REPRISE : l'école n'a encore aucun modèle en base → ceux de ce navigateur y sont recopiés
-  // (une fois, par un administrateur). Rien n'est effacé du navigateur.
+  // REPRISE : l'école n'a encore aucun modèle → ceux de ce navigateur y sont recopiés ; elle
+  // en a déjà → les modèles PERSONNALISÉS de ce navigateur qu'elle n'a pas y sont AJOUTÉS
+  // (avant le 2026-11-21, ils étaient écrasés en silence par la liste de l'école). Une fois
+  // versés, l'école fait foi sur ce poste. Un autre rôle garde les siens sur ce poste.
   useEffect(() => {
-    if (isAdmin && school && !modelesDeLEcole(school) && templates.length) persister(templates);
+    if (!school) return;
+    const sansBase = !modelesDeLEcole(school);
+    const orphelins = orphelinsLocaux(school);
+    if (orphelins.length) setTemplates(chargerModeles(school));
+    if (!isAdmin) return;
+    if (sansBase || orphelins.length) {
+      const list = sansBase ? templates : chargerModeles(school);
+      persister(list).then((ok) => { if (ok) marquerVerse(schoolId); });
+    } else marquerVerse(schoolId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, schoolId]);
 

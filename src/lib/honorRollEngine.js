@@ -152,6 +152,27 @@ function passFilters(r, f = {}, ctx = {}) {
   return true;
 }
 
+// Meilleur score d'abord ; deux scores qui ne diffèrent que par l'arrondi flottant
+// (14,5/20 et 72,5/100) sont ÉGAUX.
+const parScore = (a, b) => (Math.abs(b.score - a.score) < 1e-9 ? 0 : b.score - a.score);
+
+// Trie, puis numérote AVEC EX-AEQUO : deux élèves à égalité ont le même rang, le suivant
+// prend le rang de sa position (1, 1, 3). La limite (« les 10 premiers ») garde aussi les
+// ex-aequo du dernier retenu : on n'écarte pas un élève à égalité avec un élève imprimé.
+// Avant (2026-11-21), le palmarès numérotait 1, 2, 3 dans l'ordre du tri, et contredisait
+// le certificat, qui imprime le rang du bulletin.
+export function classerExAequo(rows, cmp, limit = null) {
+  const tries = [...rows].sort(cmp);
+  let fin = tries.length;
+  if (limit && limit < tries.length) {
+    fin = limit;
+    while (fin < tries.length && cmp(tries[fin - 1], tries[fin]) === 0) fin++;
+  }
+  const gardes = tries.slice(0, fin);
+  gardes.forEach((r, i) => { r.rank = (i > 0 && cmp(gardes[i - 1], r) === 0) ? gardes[i - 1].rank : i + 1; });
+  return gardes;
+}
+
 // Niveau de distinction (Tableau d'honneur / Encouragements / Félicitations) d'une ligne.
 function poserNiveau(r, ctx) {
   r.honorLevel = niveauAtteint(r.avg20, ctx.seuil, ctx.reglages);
@@ -189,9 +210,7 @@ export function applyTemplate(templateBrut, data, ctx = {}) {
     const bySubject = computeSubjectRows(data, subjectName);
     return Object.entries(bySubject).map(([name, rows]) => {
       let rs = rows.filter((r) => passFilters(r, filters, { ...fctx, reglages: { ...reglages, excludeSanctioned: false } })).map((r) => poserNiveau(r, fctx));
-      rs.sort((a, b) => b.score - a.score);
-      rs = limit ? rs.slice(0, limit) : rs;
-      rs.forEach((r, i) => { r.rank = i + 1; });
+      rs = classerExAequo(rs, parScore, limit);
       return { title: name, scope, rows: rs };
     }).filter((g) => g.rows.length);
   }
@@ -206,14 +225,12 @@ export function applyTemplate(templateBrut, data, ctx = {}) {
   all.forEach((r) => { (groups[groupKey(r, scope)] ||= []).push(r); });
 
   return Object.entries(groups).map(([key, rows]) => {
-    rows.sort((a, b) => {
-      if (sort === 'conduite') return (CONDUITE_SCORE[b.conduite] || 0) - (CONDUITE_SCORE[a.conduite] || 0);
-      if (sort === 'absNJ')    return (a.absNJ || 0) - (b.absNJ || 0) || b.score - a.score;
-      return b.score - a.score;
-    });
-    const limited = limit ? rows.slice(0, limit) : rows;
-    limited.forEach((r, i) => { r.rank = i + 1; });
-    return { title: groupTitle(scope, key, t), scope, rows: limited };
+    const cmp = sort === 'conduite'
+      ? (a, b) => (CONDUITE_SCORE[b.conduite] || 0) - (CONDUITE_SCORE[a.conduite] || 0)
+      : sort === 'absNJ'
+        ? (a, b) => (a.absNJ || 0) - (b.absNJ || 0) || parScore(a, b)
+        : parScore;
+    return { title: groupTitle(scope, key, t), scope, rows: classerExAequo(rows, cmp, limit) };
   }).filter((g) => g.rows.length)
     .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
 }

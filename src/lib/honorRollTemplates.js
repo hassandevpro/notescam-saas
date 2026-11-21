@@ -161,10 +161,36 @@ export function modelesDeLEcole(school) {
   } catch { return null; }
 }
 
-/** Modèles à afficher : ceux de l'école s'il y en a (copiés dans le cache), sinon ceux du navigateur. */
+// Drapeau « ce navigateur a déjà versé ses modèles à l'école » : avant lui, les modèles
+// personnalisés du navigateur sont AJOUTÉS à ceux de l'école ; après, l'école fait foi
+// (un modèle supprimé depuis un autre poste ne revient pas).
+const VERSE_KEY = (schoolId) => `nc_honor_templates_verses_${schoolId || 'default'}`;
+function dejaVerse(schoolId) { try { return localStorage.getItem(VERSE_KEY(schoolId)) === '1'; } catch { return false; } }
+export function marquerVerse(schoolId) { try { localStorage.setItem(VERSE_KEY(schoolId), '1'); } catch { /* */ } }
+
+function modelesDuNavigateur(schoolId) {
+  try { const raw = localStorage.getItem(KEY(schoolId)); const l = raw ? JSON.parse(raw) : null; return Array.isArray(l) ? l : []; } catch { return []; }
+}
+
+/**
+ * Modèles PERSONNALISÉS de ce navigateur (créés ou modifiés : builtin false) absents de
+ * l'école, tant que ce navigateur ne les a pas versés. Les modèles natifs non retouchés
+ * n'en font pas partie : chaque navigateur les a, sous des identifiants différents.
+ */
+export function orphelinsLocaux(school) {
+  const enBase = modelesDeLEcole(school);
+  if (!enBase || dejaVerse(school?.id)) return [];
+  const ids = new Set(enBase.map((x) => x.id));
+  return modelesDuNavigateur(school?.id).filter((x) => x && !x.builtin && !ids.has(x.id));
+}
+
+/**
+ * Modèles à afficher : ceux de l'école s'il y en a, PLUS les modèles personnalisés de ce
+ * navigateur qu'elle n'a pas encore (jamais écrasés en silence) ; sinon ceux du navigateur.
+ */
 export function chargerModeles(school) {
   const enBase = modelesDeLEcole(school);
-  if (enBase) { saveAll(school?.id, enBase); return listTemplates(school?.id); }
+  if (enBase) { saveAll(school?.id, [...enBase, ...orphelinsLocaux(school)]); return listTemplates(school?.id); }
   return listTemplates(school?.id);
 }
 

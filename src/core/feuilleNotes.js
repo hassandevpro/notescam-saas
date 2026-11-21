@@ -186,3 +186,33 @@ export function totalBareme(groupe) {
   }
   return somme;
 }
+
+// ── Choix des éléments d'une feuille VIERGE (compétences, matières, domaines) ──
+//
+// Certaines écoles n'évaluent pas tout. CE QUI SE COCHE : si la feuille a PLUSIEURS groupes de données
+// (primaire : une compétence chacun), on coche les groupes ; sinon (secondaire : les matières ; maternelle :
+// les domaines), on coche les COLONNES du groupe unique. Les colonnes calculées (Total, Moy., Rang) ne se
+// cochent pas : elles restent tant qu'il reste un élément.
+const donnees = (g) => (g?.colonnes || []).filter((c) => !c.calculee);
+
+export function elementsChoisissables(groupes) {
+  const gd = (groupes || []).filter((g) => donnees(g).length);
+  const parGroupe = gd.length > 1;
+  const elements = parGroupe
+    ? gd.map((g) => ({ id: g.id, label: g.label }))
+    : (gd[0] ? donnees(gd[0]).map((c) => ({ id: c.id, label: c.label })) : []);
+  return { parGroupe, elements };
+}
+
+/** `exclus` : Set d'identifiants décochés. Sans exclusion, renvoie `groupes` TEL QUEL (feuille inchangée).
+ *  Tout décoché → [] : rien à imprimer (jamais une feuille réduite à ses colonnes calculées). */
+export function filtrerGroupes(groupes, exclus) {
+  if (!exclus || !exclus.size) return groupes;
+  const { parGroupe } = elementsChoisissables(groupes);
+  const filtres = (groupes || []).map((g) => {
+    if (!donnees(g).length) return g;                                   // groupe calculé (synthèse)
+    if (parGroupe) return exclus.has(g.id) ? null : g;
+    return { ...g, colonnes: g.colonnes.filter((c) => c.calculee || !exclus.has(c.id)) };
+  }).filter(Boolean);
+  return filtres.some((g) => donnees(g).length) ? filtres : [];
+}

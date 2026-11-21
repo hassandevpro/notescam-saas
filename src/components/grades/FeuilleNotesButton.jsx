@@ -20,7 +20,7 @@ import { useT } from '../../lib/i18n';
 import { toast } from '../../store/toastStore';
 import { printSheets, PRINT_RESULT } from '../../lib/print';
 import { feuilleNotesSheets, DENSITES, DENSITE_DEFAUT } from '../../lib/feuilleNotesDoc';
-import { construireFeuille } from '../../core/feuilleNotes';
+import { construireFeuille, elementsChoisissables, filtrerGroupes } from '../../core/feuilleNotes';
 
 export default function FeuilleNotesButton({
   school,                 // établissement (en-tête de la feuille)
@@ -42,10 +42,45 @@ export default function FeuilleNotesButton({
   // et la place qu'il faut pour écrire « 13,5 » à la main. Par défaut, la place.
   const [densite, setDensite] = useState(DENSITE_DEFAUT);
 
-  const nbColonnes = useMemo(
+  // CHOIX DES COMPÉTENCES (ou matières, domaines) d'une feuille VIERGE. Certaines écoles n'évaluent pas tout :
+  // elles décochent ce qui ne sert pas. On mémorise sur CE poste, par classe et par type de feuille, les
+  // éléments DÉCOCHÉS (et non les cochés) : une compétence ajoutée plus tard est donc cochée d'office.
+  // Aucun réglage d'école, aucune migration ; sans stockage (navigation privée), le choix vaut pour la session.
+  const cleStock = `nc_feuille_exclus:${school?.id || ''}:${classe || ''}:${portee?.libelle || ''}`;
+  const lireExclus = () => {
+    try { const v = JSON.parse(localStorage.getItem(cleStock) || '[]'); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); }
+  };
+  const [exclus, setExclus] = useState(lireExclus);
+  const [cleLue, setCleLue] = useState(cleStock);
+  if (cleLue !== cleStock) { setCleLue(cleStock); setExclus(lireExclus()); }   // autre classe : son propre choix
+  const changerExclus = (n) => {
+    setExclus(n);
+    try { localStorage.setItem(cleStock, JSON.stringify([...n])); } catch { /* session seulement */ }
+  };
+  const basculer = (id) => { const n = new Set(exclus); if (n.has(id)) n.delete(id); else n.add(id); changerExclus(n); };
+  const toutCocher = () => changerExclus(new Set());
+  const toutDecocher = () => changerExclus(new Set(elements.map((e) => e.id)));
+
+  const nbColonnesTotal = useMemo(
     () => groupes.reduce((n, g) => n + (g.colonnes?.length || 0), 0),
     [groupes],
   );
+  // CE QUI SE COCHE (groupes en primaire, colonnes en secondaire / maternelle) : voir core/feuilleNotes.js.
+  const { elements } = useMemo(() => elementsChoisissables(groupes), [groupes]);
+  // Le choix ne vaut que pour la feuille VIERGE : une feuille avec notes imprime TOUT ce qui est saisi.
+  const groupesImpr = useMemo(() => (vierge ? filtrerGroupes(groupes, exclus) : groupes), [groupes, exclus, vierge]);
+  const nbColonnes = useMemo(
+    () => groupesImpr.reduce((n, g) => n + (g.colonnes?.length || 0), 0),
+    [groupesImpr],
+  );
+  const peutImprimer = nbColonnes > 0;
+  // Le compteur de l'en-tête (« Compétences : 12 ») suit le choix ; sans exclusion il reste EXACTEMENT celui de l'appelant.
+  const porteeImpr = useMemo(() => {
+    const retires = vierge ? elements.filter((e) => exclus.has(e.id)).length : 0;
+    if (!portee || !retires) return portee;
+    // Vrai nombre d'éléments imprimés (l'appelant compte parfois aussi le groupe « Synthèse » : 11 compétences → 12).
+    return { ...portee, valeur: String(elements.length - retires) };
+  }, [portee, elements, exclus, vierge]);
 
   // Compte de pages annoncé AVANT d'imprimer, pour CHAQUE densité : c'est le
   // seul chiffre qui rend le choix lisible (« 8 pages » contre « 6 »). Le même
@@ -56,22 +91,22 @@ export default function FeuilleNotesButton({
     const out = {};
     for (const [cle, d] of Object.entries(DENSITES)) {
       out[cle] = construireFeuille({
-        groupes, eleves, vierge: true, lignesVides: vides,
+        groupes: groupesImpr, eleves, vierge: true, lignesVides: vides,
         maxColonnes: d.colonnes, maxLignes: d.lignes,
       }).pages.length;
     }
     return out;
-  }, [groupes, eleves, vides, nbColonnes]);
+  }, [groupesImpr, eleves, vides, nbColonnes]);
   const nbPages = pagesPour[densite] ?? 0;
 
   // Rien à imprimer : pas de bouton. Une grille sans colonne est une page
   // blanche, et un bouton qui produit une page blanche se lit comme une panne.
-  if (!nbColonnes) return null;
+  if (!nbColonnesTotal) return null;
 
   const imprimer = () => {
     const { sheets, profile } = feuilleNotesSheets({
-      school, sys, classe, periode, portee, enseignant,
-      groupes, eleves, valeur, vierge, lignesVides: vides, densite,
+      school, sys, classe, periode, portee: porteeImpr, enseignant,
+      groupes: groupesImpr, eleves, valeur, vierge, lignesVides: vides, densite,
     });
     const titre = `${t('Feuille de notes', 'Mark sheet')} — ${classe || ''} — ${periode || ''}`;
     const r = printSheets(sheets, titre, { profile });
@@ -139,6 +174,35 @@ export default function FeuilleNotesButton({
               />
             </div>
 
+            {vierge && elements.length > 1 && (
+              <div data-testid="choix-groupes">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="form-label">{portee?.libelle || t('Éléments', 'Items')} {t('à imprimer', 'to print')} ({elements.filter((e) => !exclus.has(e.id)).length}/{elements.length})</span>
+                  <span className="flex gap-3 text-xs">
+                    <button type="button" className="text-brand-700 underline" onClick={toutCocher}>{t('Tout cocher', 'Select all')}</button>
+                    <button type="button" className="text-brand-700 underline" onClick={toutDecocher}>{t('Tout décocher', 'Clear all')}</button>
+                  </span>
+                </div>
+                <div className="max-h-44 overflow-auto border border-gray-200 rounded-lg px-3 py-2 grid sm:grid-cols-2 gap-x-4 gap-y-1">
+                  {elements.map((e) => (
+                    <label key={e.id} className="flex items-start gap-2 text-sm text-gray-700">
+                      <input type="checkbox" className="mt-1" checked={!exclus.has(e.id)} onChange={() => basculer(e.id)} />
+                      <span>{e.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {!peutImprimer && (
+                  <p className="text-xs text-red-600 mt-1" role="alert" data-testid="aucun-groupe">
+                    {t('Cochez au moins un élément pour imprimer la feuille.', 'Tick at least one item to print the sheet.')}
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  {t('Ce choix est mémorisé pour cette classe sur ce poste. Une feuille avec notes imprime toujours tout ce qui est saisi.',
+                     'This choice is remembered for this class on this computer. A sheet with marks always prints everything entered.')}
+                </p>
+              </div>
+            )}
+
             <div>
               <span className="form-label">{t('Taille des cases', 'Cell size')}</span>
               <div className="grid grid-cols-2 gap-2">
@@ -188,7 +252,7 @@ export default function FeuilleNotesButton({
             </div>
 
             <div className="flex gap-3 pt-1">
-              <button type="button" onClick={imprimer} className="btn-primary"
+              <button type="button" onClick={imprimer} className="btn-primary" disabled={!peutImprimer}
                 style={{ width: 'auto', paddingInline: '1.5rem' }}>
                 🖨 {t('Imprimer', 'Print')}
               </button>

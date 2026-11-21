@@ -2,7 +2,7 @@
 // `node src/core/_feuilleNotes.test.mjs`
 
 import {
-  construireFeuille, paginerGroupes, paginerEleves, totalBareme,
+  construireFeuille, paginerGroupes, paginerEleves, totalBareme, elementsChoisissables, filtrerGroupes,
   COLONNES_PAR_PAGE, LIGNES_PAR_PAGE,
 } from './feuilleNotes.js';
 
@@ -130,6 +130,41 @@ const eleves = (n) => Array.from({ length: n }, (_, i) => ({ id: `e${i + 1}`, nu
   ok(COLONNES_PAR_PAGE > 0 && LIGNES_PAR_PAGE > 0, 'les capacités par défaut sont positives');
   const f = construireFeuille({ groupes: [G('a', 2)], eleves: eleves(2), maxLignes: 0 });
   ok(f.pages.length === 1, 'une capacité absurde retombe sur le défaut au lieu de boucler');
+}
+
+// ── CHOIX DES ÉLÉMENTS D'UNE FEUILLE VIERGE (compétences, matières, domaines) ──
+{
+  const comp = (id) => ({ id, label: `${id} — Compétence`, colonnes: [{ id: `${id}|o`, label: 'Oral', bareme: 10 }, { id: `${id}|e`, label: 'Écrit', bareme: 10 }] });
+  const treize = Array.from({ length: 13 }, (_, i) => comp(`C${i + 1}`));
+  const synthese = { id: 'synthese', label: 'Synthèse', colonnes: [{ id: '__moy', label: 'Moy.', calculee: true }, { id: '__rang', label: 'Rang', calculee: true }] };
+  const groupes = [...treize, synthese];
+  const lesEleves = Array.from({ length: 19 }, (_, i) => ({ id: `e${i}`, numero: i + 1, nom: `E${i}` }));
+
+  const ch = elementsChoisissables(groupes);
+  ok(ch.parGroupe === true && ch.elements.length === 13, 'choix primaire : 13 compétences à cocher, la synthèse n est pas une compétence');
+  const cinq = filtrerGroupes(groupes, new Set(treize.slice(5).map((g) => g.id)));
+  ok(cinq.map((g) => g.id).join() === 'C1,C2,C3,C4,C5,synthese', '5 compétences sur 13 cochées : 5 restent, la synthèse aussi');
+  const pagesTout = construireFeuille({ groupes, eleves: lesEleves, vierge: true, maxColonnes: 14, maxLignes: 30 }).pages;
+  const pagesCinq = construireFeuille({ groupes: cinq, eleves: lesEleves, vierge: true, maxColonnes: 14, maxLignes: 30 }).pages;
+  ok(pagesCinq.length < pagesTout.length, `moins de colonnes → moins de pages (${pagesTout.length} → ${pagesCinq.length})`);
+  ok(pagesCinq.every((pg) => pg.colonnes.length > 0), 'aucune page vide');
+  ok(pagesCinq.every((pg, i) => pg.no === i + 1 && pg.total === pagesCinq.length), 'les pages se suivent : 1/n … n/n');
+  ok(filtrerGroupes(groupes, new Set()) === groupes && filtrerGroupes(groupes, null) === groupes, 'sans exclusion : la feuille est EXACTEMENT celle d avant (même objet)');
+  ok(filtrerGroupes(groupes, new Set(treize.map((g) => g.id))).length === 0, 'tout décoché : rien à imprimer (pas une feuille réduite à la synthèse)');
+  ok(filtrerGroupes(treize, new Set(['disparu'])).length === 13, 'un identifiant exclu devenu inconnu est sans effet');
+
+  const matieres = { id: 'matieres', label: 'Séquence 1', colonnes: ['Maths', 'Français', 'Histoire', 'SVT'].map((n) => ({ id: n, label: n, bareme: 20 })) };
+  const syn = { id: 'synthese', label: 'Synthèse', colonnes: [{ id: '__total', label: 'Total', calculee: true }, { id: '__moy', label: 'Moy.', calculee: true }] };
+  const sec = elementsChoisissables([matieres, syn]);
+  ok(sec.parGroupe === false && sec.elements.map((e) => e.id).join() === 'Maths,Français,Histoire,SVT', 'secondaire : on coche les MATIÈRES, pas les groupes');
+  const r = filtrerGroupes([matieres, syn], new Set(['Histoire', 'SVT']));
+  ok(r[0].colonnes.map((c) => c.id).join() === 'Maths,Français' && r[1] === syn, 'secondaire : 2 matières retirées, Total/Moy. conservés');
+  ok(filtrerGroupes([matieres, syn], new Set(sec.elements.map((e) => e.id))).length === 0, 'secondaire : toutes les matières décochées : rien à imprimer');
+
+  const dom = { id: 'matieres', label: 'UA1 — cotes A / ECA / NA', colonnes: ['Langage', 'Maths', 'Éveil'].map((n) => ({ id: n, label: n })) };
+  ok(elementsChoisissables([dom]).elements.length === 3, 'maternelle : 3 domaines à cocher');
+  ok(filtrerGroupes([dom], new Set(['Éveil']))[0].colonnes.map((c) => c.id).join() === 'Langage,Maths', 'maternelle : un domaine retiré');
+  ok(filtrerGroupes([dom], new Set(['Langage', 'Maths', 'Éveil'])).length === 0, 'maternelle : tous décochés : rien à imprimer');
 }
 
 console.log(failed ? '\n❌ ÉCHECS' : '\n✅ Tous les tests passent');

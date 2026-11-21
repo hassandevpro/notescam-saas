@@ -47,7 +47,8 @@ import { reglagesMaternelle, emojisAChoisir, MAT_FORMAT_ENFANTIN } from '../core
 import { mkCell, mkTH, mkCellVar, mkTHVar, OfficialHeader, OfficialIdentity, OfficialSignatures, OfficialSheet } from '../components/bulletins/bulletinOfficialParts';
 import { resolveClassEngine, firstCycleClasseSlug, secondCycleClasseSlug, primaireNiveauSlug, maternelleNiveauSlug, SECTIONS, classSectionKey } from '../core/engineResolver';
 import { classIdentity } from '../lib/schoolIdentity';
-import { moyennePointsActive, moyennePointsSur20 } from '../core/primMoyennePoints';
+import { moyennePointsActive } from '../core/primMoyennePoints';
+import { moyenneCompetencePrim, moyenneGeneralePrim } from '../core/primMoyenneEleve';
 import {
   competencesForNiveau, bulletinRows as primBulletinRows, generalAverage as primGeneralAverage,
   primCote, buildPrimRanks, PRIM_COTE_DEFAULT, criteresPourDocument, competencePointsTotal, UA_PAR_TRIMESTRE, trimestreOfUA,
@@ -2303,36 +2304,22 @@ export default function Bulletins() {
   // Points bruts (obtenus / possibles) d'une compétence, UA par UA — la matière de la règle
   // « moyenne en points » (réglage `prim_moyenne_points`). Même lecture des notes que
   // `primCompAvg`, mais SANS passer par un pourcentage.
+  // SOURCE UNIQUE : core/primMoyenneEleve (la même que les rapports de classe et l'export des notes).
   const primCompCells = (eleveId, compId, student) => {
-    const criteres = primCriteresFor(compId, student);
-    if (!criteres.length) return [];
-    return primUAs.flatMap((ua) => {
-      const notesByCritere = {};
-      for (const cr of criteres) {
-        const c = celluleDeNote(primNotes[primNkey(eleveId, compId, cr.id, ua)], cr.points_max);
-        if (c) notesByCritere[cr.id] = c;
-      }
-      const { achieved, possible } = competencePointsTotal(notesByCritere, criteres, primOptions(compId, ua));
-      return achieved != null && possible ? [{ achieved, possible }] : [];
+    const cellules = [];
+    moyenneCompetencePrim({
+      criteres: primCriteresFor(compId, student), uas: primUAs, cellulesOut: cellules,
+      noteDe: (critId, ua) => primNotes[primNkey(eleveId, compId, critId, ua)],
+      nonEvaluee: (ua) => primOptions(compId, ua).nonEvaluee, zeroSiManquante: !!school?.notes_manquantes_zero,
     });
+    return cellules;
   };
 
-  const primCompAvg = (eleveId, compId, student) => {
-    const criteres = primCriteresFor(compId, student);
-    if (!criteres.length) return null;
-    const pcts = primUAs.map((ua) => {
-      const notesByCritere = {};
-      for (const cr of criteres) {
-        const c = celluleDeNote(primNotes[primNkey(eleveId, compId, cr.id, ua)], cr.points_max);
-        if (c) notesByCritere[cr.id] = c;
-      }
-      const { achieved, possible } = competencePointsTotal(notesByCritere, criteres, primOptions(compId, ua));
-      return achieved != null && possible ? (achieved / possible) * 100 : null;
-    }).filter((v) => v != null);
-    if (!pcts.length) return null;
-    const avgPct = pcts.reduce((a, b) => a + b, 0) / pcts.length;
-    return Math.round((avgPct / 100 * PRIM_GRADE_MAX) * 100) / 100;
-  };
+  const primCompAvg = (eleveId, compId, student) => moyenneCompetencePrim({
+    criteres: primCriteresFor(compId, student), uas: primUAs,
+    noteDe: (critId, ua) => primNotes[primNkey(eleveId, compId, critId, ua)],
+    nonEvaluee: (ua) => primOptions(compId, ua).nonEvaluee, zeroSiManquante: !!school?.notes_manquantes_zero,
+  });
 
   // Détail par critère sur la période, RAMENÉ au barème officiel de ce critère —
   // pour l'affichage détaillé du bulletin trimestriel.
@@ -2407,9 +2394,10 @@ export default function Bulletins() {
       });
       // Règle de l'école : par défaut moyenne des compétences pondérée par coefficient ; avec
       // `prim_moyenne_points`, ΣT × 20 ÷ ΣS sur les points de toutes les compétences évaluées.
-      const moyenneGenerale = moyennePoints
-        ? moyennePointsSur20(comps.flatMap((c) => primCompCells(s.id, c.id, s))).moyenne
-        : primGeneralAverage(rows.map((r) => ({ moyenne: r.moyenne, coef: r.coef })));
+      const moyenneGenerale = moyenneGeneralePrim({
+        lignes: rows, moyennePoints,
+        cellules: moyennePoints ? comps.flatMap((c) => primCompCells(s.id, c.id, s)) : [],
+      });
       const cg = primCote(moyenneGenerale, PRIM_GRADE_MAX, primBareme);
       out[s.id] = {
         rows, moyenneGenerale, coteGenerale: cg ? cg.cote : null,

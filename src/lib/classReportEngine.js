@@ -78,6 +78,7 @@ export const REPORT_KIND = { NUMERIC: 'numeric', ACQUISITION: 'acquisition' };
 // sur une partie des classes.
 import { PRIM_GRADE_MAX } from '../core/primEngine.js';
 import { moyennePointsSur20 } from '../core/primMoyennePoints.js';
+import { moyenneCompetencePrim, moyenneGeneralePrim } from '../core/primMoyenneEleve.js';
 export { PRIM_GRADE_MAX };
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -305,25 +306,11 @@ function primCompetenceAvg({ referentiel, niveauSlug, student, competenceId, uas
   const aptitude = competenceId === '6a' && student?.sport_aptitude === 'inapte' ? 'inapte' : 'apte';
   const criteres = criteresPourDocument(referentiel, niveauSlug, competenceId, aptitude, criteresMasques, primNotes, { eleveIds, uas });
   if (!criteres.length) return null;
-  const pcts = uas.map((ua) => {
-    const notesByCritere = {};
-    for (const cr of criteres) {
-      // `celluleDeNote` et non `if (r?.note != null)` : une cellule déclarée
-      // ABSENTE porte une note nulle, et le test naïf la jetait — elle
-      // redevenait alors un zéro dès que l'école compte les manquantes.
-      const c = celluleDeNote(primNotes?.[primKey(student.id, competenceId, cr.id, ua)], cr.points_max);
-      if (c) notesByCritere[cr.id] = c;
-    }
-    const { achieved, possible } = competencePointsTotal(notesByCritere, criteres, {
-      nonEvaluee: classId ? nonEvaluees.includes(nonEvalKey(classId, competenceId, ua)) : false,
-      zeroSiManquante,
-    });
-    // Règle « en points » : on garde les points bruts de la cellule, pas son pourcentage.
-    if (cellulesOut && achieved != null && possible) cellulesOut.push({ achieved, possible });
-    return achieved != null && possible ? (achieved / possible) * 100 : null;
-  }).filter((v) => v != null);
-  if (!pcts.length) return null;
-  return round2((pcts.reduce((a, b) => a + b, 0) / pcts.length) / 100 * PRIM_GRADE_MAX);
+  return moyenneCompetencePrim({
+    criteres, uas, zeroSiManquante, cellulesOut,
+    noteDe: (critId, ua) => primNotes?.[primKey(student.id, competenceId, critId, ua)],
+    nonEvaluee: (ua) => (classId ? nonEvaluees.includes(nonEvalKey(classId, competenceId, ua)) : false),
+  });
 }
 
 function primReport({ cls, students, subjects, period, primNotes, primReferentiel, primMasques, primMasquesClasse = {}, primCriteresMasques = [],
@@ -375,7 +362,7 @@ function primReport({ cls, students, subjects, period, primNotes, primReferentie
       }
       compRows.push({ moyenne, coef: col.coef });
     }
-    const avg = moyennePoints ? moyennePointsSur20(cellulesPoints).moyenne : primGeneralAverage(compRows);
+    const avg = moyenneGeneralePrim({ lignes: compRows, cellules: cellulesPoints, moyennePoints });
     avgById[student.id] = avg;
     const cg = avg != null ? primCote(avg, scaleMax, bareme) : null;
     return { student, scores, cotes, avg, cote: cg?.cote ?? null, appreciation: cg?.libelle ?? '' };

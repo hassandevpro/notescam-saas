@@ -214,8 +214,13 @@ process.exitCode = fail ? 1 : 0;
   const cre = readFileSync('src/lib/classReportEngine.js', 'utf8');
   ok(/primNonEvaluees = \[\], zeroSiManquante = false/.test(cre),
     'classReportEngine : buildClassReport accepte les deux');
-  ok(cre.includes('celluleDeNote('), 'classReportEngine : ne jette plus les cellules absentes');
-  ok(/nonEvaluee: classId \? nonEvaluees\.includes/.test(cre),
+  // Le calcul est désormais UNE fonction (core/primMoyenneEleve), partagée avec le bulletin :
+  // classReportEngine lui délègue, et c'est elle qui lit les cellules absentes.
+  const moy = readFileSync('src/core/primMoyenneEleve.js', 'utf8');
+  ok(moy.includes('celluleDeNote('), 'primMoyenneEleve : ne jette plus les cellules absentes');
+  ok(cre.includes('moyenneCompetencePrim(') && cre.includes('moyenneGeneralePrim('),
+    'classReportEngine : délègue au calcul commun');
+  ok(/nonEvaluee: \(ua\) => \(classId \? nonEvaluees\.includes/.test(cre),
     'classReportEngine : les passe au total');
 
   const pv = readFileSync('src/lib/pvEngine.js', 'utf8');

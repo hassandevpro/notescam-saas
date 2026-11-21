@@ -512,20 +512,46 @@ export default function BulletinPrim1Page({
 
       </>)}
 
+      {/* STATISTIQUES DE LA CLASSE — mêmes données que le bulletin par UA (primClassStats, primRepartition : une
+          moyenne par élève, sur la période). Un élève sans note n'y compte pas ; une classe sans note n'imprime rien. */}
+      {(() => {
+        const st = classStats && !masquerStats ? classStats : null;
+        if (!st && !repartition.length) return null;
+        const ligne = { fontSize: '7pt', lineHeight: 1.3, color: '#222', ...coupe(1) };
+        return (
+          <div data-bloc="stats-classe" style={{ border: FILET, padding: '2pt 5pt', marginTop: 4, flexShrink: 0, minWidth: 0 }}>
+            {st && (
+              <div style={ligne}>
+                <strong style={{ color: VERT }}>{L(sys, 'STATISTIQUES DE LA CLASSE', 'CLASS STATISTICS', 'ESTADÍSTICAS DE LA CLASE')}</strong>
+                {st.count != null ? ` (${st.count} ${st.count > 1 ? L(sys, 'élèves notés', 'students graded', 'alumnos evaluados') : L(sys, 'élève noté', 'student graded', 'alumno evaluado')})` : ''}
+                {' · '}{L(sys, 'Moyenne générale', 'General average', 'Promedio general')} <strong>{fix2(st.avg)}</strong>
+                {' · '}{L(sys, 'Plus forte', 'Highest', 'Más alta')} {fix2(st.max)}
+                {' · '}{L(sys, 'Plus faible', 'Lowest', 'Más baja')} {fix2(st.min)}
+                {st.reussis != null ? ` · ${L(sys, 'Réussis', 'Passed', 'Aprobados')} ${st.reussis} · ${L(sys, 'Échoués', 'Failed', 'Reprobados')} ${st.echoues}` : ''}
+                {st.rate != null ? ` · ${st.rate} %` : ''}
+              </div>
+            )}
+            {repartition.length > 0 && (
+              <div style={ligne}>
+                <strong>{L(sys, 'Répartition par tranche', 'Distribution by band', 'Distribución por tramo')}</strong> : {repartition.map((r) => `${r.label} ${r.n}`).join(' · ')}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Bas de page : synthèse | remarques | signatures */}
       {(() => {
         const cadre = { border: FILET, padding: '3pt 5pt', minWidth: 0, overflow: 'hidden', boxSizing: 'border-box' };
         const titreSection = { color: VERT, fontWeight: 'bold', fontSize: '7.5pt', borderBottom: `0.5pt solid ${VERT}`, paddingBottom: 1, marginBottom: 2 };
         const ligne = { display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: '8pt', lineHeight: 1.35 };
         const extra = [
-          classStats && !masquerStats ? `${L(sys, 'Classe', 'Class', 'Clase')} : ${fix2(classStats.avg)} · ↑${fix2(classStats.max)} · ↓${fix2(classStats.min)}${classStats.rate != null ? ` · ${classStats.rate}%` : ''}` : null,
           mentions ? [
             mentions.avertissement && `${L(sys, 'Avert.', 'Warning', 'Adv.')} ${mentions.avertissement}`,
             mentions.tableauHonneur && `${L(sys, 'T. d’honneur', 'Honour roll', 'C. honor')} ${mentions.tableauHonneur}`,
             mentions.encouragement && `${L(sys, 'Encour.', 'Commend.', 'Estím.')} ${mentions.encouragement}`,
             mentions.felicitation && `${L(sys, 'Félic.', 'Congrats', 'Felic.')} ${mentions.felicitation}`,
           ].filter(Boolean).join(' · ') : null,
-          repartition.length ? repartition.map((r) => `${r.label}: ${r.n}`).join(' · ') : null,
         ].filter(Boolean);
         const synthese = (
           <div style={{ ...cadre, flex: paysage ? '0 0 26%' : '1 1 0' }}>

@@ -3530,7 +3530,7 @@ export default function Bulletins() {
           observations={primObservationFor(student.id)}
           bareme={primBareme}
           mentions={primMentionsFor(student)}
-          repartition={primCarnet && primAffiche.repartition ? primRepartition : []}
+          repartition={primAffiche.repartition ? primRepartition : []}
           groupes={primCarnet}
         />
       </WatermarkWrap>

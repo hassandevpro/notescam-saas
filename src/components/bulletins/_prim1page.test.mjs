@@ -118,3 +118,34 @@ test('annuel portrait : 8 UA × 5 lignes, décimales, 12 compétences, texte lon
   assert.doesNotThrow(() => rendreAnn({ paysage: false, competenceRows: [{ ...rowAnn('X'), intitule: 'x'.repeat(300) }], appreciation: 'y'.repeat(4000) }));
   assert.doesNotThrow(() => rendreAnn({ paysage: false, competenceRows: [] }));
 });
+
+// ── STATISTIQUES DE LA CLASSE sur le bulletin du trimestre (mêmes données que le bulletin par UA) ──
+const STATS = { min: 6.5, max: 17.78, avg: 12.14, count: 18, reussis: 11, echoues: 7, rate: 61 };
+const REPART = [{ label: '[0-3.99]', n: 0 }, { label: '[10-11.99]', n: 4 }, { label: '[16-17.99]', n: 1 }];
+
+test('trimestre : bandeau de statistiques (moyenne générale, plus forte/faible, réussis/échoués) + répartition', () => {
+  const t = texte(rendre({ sys: 'FR', classStats: STATS, repartition: REPART }));
+  for (const s of ['STATISTIQUES DE LA CLASSE', '18 élèves notés', 'Moyenne générale 12.14', 'Plus forte 17.78', 'Plus faible 6.5', 'Réussis 11', 'Échoués 7', 'Répartition par tranche', '[10-11.99] 4']) assert.ok(t.includes(s), s);
+  const en = texte(rendre({ sys: 'EN', classStats: STATS, repartition: REPART }));
+  for (const s of ['CLASS STATISTICS', 'General average 12.14', 'Highest 17.78', 'Lowest 6.5', 'Passed 11', 'Failed 7', 'Distribution by band']) assert.ok(en.includes(s), s);
+});
+
+test('trimestre : la case « Statistiques » éteinte retire les chiffres, la case « Répartition » est indépendante', () => {
+  const sansStats = texte(rendre({ sys: 'FR', classStats: STATS, masquerStats: true, repartition: REPART }));
+  assert.ok(!sansStats.includes('STATISTIQUES DE LA CLASSE') && !sansStats.includes('Réussis'));
+  assert.ok(sansStats.includes('Répartition par tranche'));
+  const sansRep = texte(rendre({ sys: 'FR', classStats: STATS, repartition: [] }));
+  assert.ok(sansRep.includes('STATISTIQUES DE LA CLASSE') && !sansRep.includes('Répartition par tranche'));
+});
+
+test('trimestre : classe SANS aucune note — pas d’erreur, pas de bandeau, aucun 0 ni NaN inventé', () => {
+  let h;
+  assert.doesNotThrow(() => { h = rendre({ sys: 'FR', classStats: null, repartition: [] }); });
+  const t = texte(h);
+  assert.ok(!t.includes('STATISTIQUES DE LA CLASSE') && !t.includes('NaN') && !t.includes('Infinity'));
+});
+
+test('trimestre : un seul élève noté — accord singulier, aucune division par zéro', () => {
+  const t = texte(rendre({ sys: 'FR', classStats: { min: 17.78, max: 17.78, avg: 17.78, count: 1, reussis: 1, echoues: 0, rate: 100 }, repartition: [] }));
+  assert.ok(t.includes('1 élève noté') && !t.includes('1 élèves'));
+});

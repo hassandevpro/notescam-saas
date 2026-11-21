@@ -87,7 +87,10 @@ test('Bulletins.jsx : trois interrupteurs, mémorisés localement, branchés sur
   assert.ok(bulletins.includes('masquerRang={primMasquerRang || !primAffiche.rang}'));
   assert.ok(bulletins.includes('masquerStats={!primAffiche.stats}'));
   assert.ok(bulletins.includes('repartition={primAffiche.repartition ? primRepartition : []}'));
-  assert.ok(bulletins.includes('primCarnet && primAffiche.repartition ? primRepartition : []'));
+  // Gabarit du TRIMESTRE : la répartition ne dépend plus du mode « carnet », seule la case la pilote ;
+  // elle ne doit donc plus apparaître derrière `primCarnet &&`.
+  assert.ok(bulletins.split('repartition={primAffiche.repartition ? primRepartition : []}').length - 1 >= 2);
+  assert.ok(!bulletins.includes('primCarnet && primAffiche.repartition ? primRepartition : []'));
   // Le réglage d'ÉCOLE « masquer le rang » l'emporte toujours : un interrupteur ne peut pas le rallumer.
   assert.ok(bulletins.includes('disabled={off} checked={!off && !!primAffiche[key]}'));
 });
